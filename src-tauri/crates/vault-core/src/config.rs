@@ -174,4 +174,30 @@ mod tests {
         assert_eq!(loaded.selected_profile_ids, vec!["chrome:Default".to_string()]);
         assert!(matches!(loaded.archive_mode, ArchiveMode::Encrypted));
     }
+
+    #[test]
+    fn load_config_returns_defaults_when_missing_and_errors_on_invalid_json() {
+        let dir = tempdir().expect("tempdir");
+        let paths = ProjectPaths {
+            app_root: dir.path().to_path_buf(),
+            config_path: dir.path().join("config.json"),
+            archive_database_path: dir.path().join("archive/history-vault.sqlite"),
+            audit_repo_path: dir.path().join("audit"),
+            manifests_dir: dir.path().join("audit/manifests"),
+            exports_dir: dir.path().join("exports"),
+            raw_snapshots_dir: dir.path().join("raw-snapshots"),
+            staging_dir: dir.path().join("staging"),
+            quarantine_dir: dir.path().join("quarantine"),
+            schedule_dir: dir.path().join("schedule"),
+            stronghold_path: dir.path().join("vault.hold"),
+            stronghold_salt_path: dir.path().join("stronghold-salt.txt"),
+        };
+
+        let default_config = load_config(&paths).expect("missing config should default");
+        assert!(!default_config.initialized);
+
+        fs::write(&paths.config_path, "{not-json").expect("write invalid config");
+        let error = load_config(&paths).expect_err("invalid config should fail");
+        assert!(error.to_string().contains("parsing config json"));
+    }
 }

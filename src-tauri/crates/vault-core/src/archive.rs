@@ -1,4 +1,5 @@
 use crate::{
+    ai::ensure_ai_schema,
     chrome::{ProfileSnapshot, discover_profiles, stage_profile_snapshot},
     config::{ProjectPaths, ensure_paths, save_config},
     git_audit,
@@ -657,6 +658,7 @@ pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_raw_row_versions_import_batch_id ON raw_row_versions(import_batch_id)",
         [],
     )?;
+    ensure_ai_schema(connection)?;
     Ok(())
 }
 
@@ -1707,8 +1709,9 @@ fn html_escape(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::{
+        chrome::FileFingerprint,
         config::{ensure_paths, save_config},
-        models::{AppConfig, ArchiveMode},
+        models::{AppConfig, ArchiveMode, BrowserProfile},
         utils::iso_to_chrome_time_micros,
     };
     use std::path::PathBuf;
@@ -1989,5 +1992,77 @@ mod tests {
         );
         assert!(render_text_export(&results).contains("Item <One>"));
         assert_eq!(html_escape("<>&\""), "&lt;&gt;&amp;&quot;");
+    }
+
+    #[test]
+    fn watermark_checkpoint_and_snapshot_helpers_cover_edge_cases() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let archive = Connection::open_in_memory().expect("memory db");
+        create_schema(&archive).expect("schema");
+
+        let missing = load_watermark(&archive, "chrome:Default").expect("load missing watermark");
+        assert_eq!(missing.last_visit_id, 0);
+
+        let watermark = Watermark {
+            last_visit_id: 7,
+            last_url_last_visit_time: 11,
+            last_download_id: 13,
+            last_favicon_last_updated: 17,
+            last_checkpoint_at: Some("2026-04-01T00:00:00+00:00".to_string()),
+            last_schema_hash: Some("schema-1".to_string()),
+            updated_at: "2026-04-01T00:00:00+00:00".to_string(),
+        };
+        save_watermark(&archive, "chrome:Default", &watermark).expect("save watermark");
+        let loaded = load_watermark(&archive, "chrome:Default").expect("load watermark");
+        assert_eq!(loaded.last_visit_id, 7);
+        assert!(!should_checkpoint(&loaded, "schema-1", 365));
+        assert!(should_checkpoint(&loaded, "schema-2", 365));
+        assert!(should_checkpoint(
+            &Watermark { last_checkpoint_at: Some("invalid".to_string()), ..Watermark::default() },
+            "schema-1",
+            1
+        ));
+
+        let snapshot_dir = dir.path().join("snapshot-source");
+        fs::create_dir_all(&snapshot_dir).expect("create snapshot dir");
+        let history_path = snapshot_dir.join("History");
+        let favicons_path = snapshot_dir.join("Favicons");
+        fs::write(&history_path, b"history").expect("write history");
+        fs::write(&favicons_path, b"favicons").expect("write favicons");
+        let temp_dir = tempdir().expect("snapshot tempdir");
+        let snapshot = ProfileSnapshot {
+            profile: BrowserProfile {
+                profile_id: "chrome:Default".to_string(),
+                profile_name: "Default".to_string(),
+                browser_family: "chromium".to_string(),
+                browser_name: "Google Chrome".to_string(),
+                user_name: None,
+                profile_path: snapshot_dir.display().to_string(),
+                history_path: Some(history_path.display().to_string()),
+                favicons_path: Some(favicons_path.display().to_string()),
+                history_exists: true,
+                browser_version: Some("146.0.0.0".to_string()),
+                history_file_name: "History".to_string(),
+            },
+            history_path: history_path.clone(),
+            favicons_path: Some(favicons_path.clone()),
+            source_hashes: vec![FileFingerprint {
+                path: history_path.display().to_string(),
+                sha256: "hash".to_string(),
+            }],
+            temp_dir,
+        };
+        checkpoint_snapshot(&paths, &snapshot).expect("checkpoint snapshot");
+        let checkpoint_root = paths.raw_snapshots_dir.join("chrome:Default");
+        let mut checkpoint_entries = fs::read_dir(&checkpoint_root)
+            .expect("checkpoint dir")
+            .map(|entry| entry.expect("dir entry").path())
+            .collect::<Vec<_>>();
+        checkpoint_entries.sort();
+        let latest = checkpoint_entries.last().expect("checkpoint entry");
+        assert!(latest.join("History").exists());
+        assert!(latest.join("Favicons").exists());
     }
 }

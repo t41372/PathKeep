@@ -689,6 +689,35 @@ mod tests {
     }
 
     #[test]
+    fn firefox_profile_name_parser_handles_relative_and_absolute_paths() {
+        let dir = tempdir().expect("tempdir");
+        let profiles_root = dir.path().join("Profiles");
+        fs::create_dir_all(&profiles_root).expect("create profiles root");
+        fs::write(
+            dir.path().join("profiles.ini"),
+            "[Profile0]\nName=Personal\nPath=abcd.default-release\n\n[Profile1]\nName=Absolute\nPath=/tmp/absolute.profile\n",
+        )
+        .expect("write profiles.ini");
+
+        let names = parse_firefox_profile_names(&profiles_root);
+        assert_eq!(names.get("abcd.default-release"), Some(&"Personal".to_string()));
+        assert_eq!(names.get("absolute.profile"), Some(&"Absolute".to_string()));
+    }
+
+    #[test]
+    fn discover_safari_profile_returns_none_when_history_is_missing() {
+        let dir = tempdir().expect("tempdir");
+        unsafe {
+            std::env::set_var(SAFARI_ROOT_OVERRIDE_ENV, dir.path());
+        }
+        let profile = discover_safari_profile().expect("discover safari");
+        unsafe {
+            std::env::remove_var(SAFARI_ROOT_OVERRIDE_ENV);
+        }
+        assert!(profile.is_none());
+    }
+
+    #[test]
     fn stage_profile_snapshot_copies_database_and_sidecars() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
@@ -759,5 +788,27 @@ mod tests {
         assert_eq!(profiles[0].browser_name, "Opera");
         assert!(profiles[0].history_exists);
         assert_eq!(profiles[0].browser_version.as_deref(), Some("118.0"));
+    }
+
+    #[test]
+    fn fallback_chromium_profiles_collects_directory_profiles_with_favicons() {
+        let dir = tempdir().expect("tempdir");
+        let profile_dir = dir.path().join("Profile 1");
+        fs::create_dir_all(&profile_dir).expect("create profile dir");
+        fs::write(profile_dir.join("History"), b"history").expect("write history");
+        fs::write(profile_dir.join("Favicons"), b"favicons").expect("write favicons");
+
+        let definition = CHROMIUM_BROWSERS
+            .iter()
+            .copied()
+            .find(|definition| definition.key == "chrome")
+            .expect("chrome definition");
+        let profiles =
+            fallback_chromium_profiles(definition, dir.path(), Some("146.0")).expect("profiles");
+
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].profile_id, "chrome:Profile 1");
+        assert!(profiles[0].favicons_path.is_some());
+        assert_eq!(profiles[0].browser_version.as_deref(), Some("146.0"));
     }
 }

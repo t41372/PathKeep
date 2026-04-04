@@ -16,6 +16,8 @@ use tempfile::tempdir;
 use walkdir::WalkDir;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+const TEST_CURL_BIN_ENV: &str = "BHB_TEST_CURL_BIN";
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BundleManifest {
@@ -94,7 +96,7 @@ pub fn run_remote_backup(
     let object_key = remote_object_key(config, &bundle_path);
     let upload_url = upload_url(config, &object_key)?;
 
-    let output = Command::new("curl")
+    let output = Command::new(curl_binary())
         .arg("--fail")
         .arg("--silent")
         .arg("--show-error")
@@ -352,4 +354,244 @@ fn inject_bucket(endpoint: &str, bucket: &str) -> Result<String> {
 
 fn shell_escape(value: String) -> String {
     value.replace('\'', "'\"'\"'")
+}
+
+fn curl_binary() -> String {
+    std::env::var(TEST_CURL_BIN_ENV).unwrap_or_else(|_| "curl".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        archive::ensure_archive_initialized,
+        models::{AiSettings, RemoteBackupConfig},
+    };
+    use std::{
+        os::unix::fs::PermissionsExt,
+        sync::{Mutex, OnceLock},
+    };
+
+    fn remote_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn sample_paths(root: &Path) -> ProjectPaths {
+        ProjectPaths {
+            app_root: root.to_path_buf(),
+            config_path: root.join("config.json"),
+            archive_database_path: root.join("archive/history-vault.sqlite"),
+            audit_repo_path: root.join("audit"),
+            manifests_dir: root.join("audit/manifests"),
+            exports_dir: root.join("exports"),
+            raw_snapshots_dir: root.join("raw-snapshots"),
+            staging_dir: root.join("staging"),
+            quarantine_dir: root.join("quarantine"),
+            schedule_dir: root.join("schedule"),
+            stronghold_path: root.join("vault.hold"),
+            stronghold_salt_path: root.join("stronghold-salt.txt"),
+        }
+    }
+
+    fn sample_config() -> AppConfig {
+        AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            remote_backup: RemoteBackupConfig {
+                enabled: true,
+                bucket: "example-bucket".to_string(),
+                region: "us-east-1".to_string(),
+                endpoint: None,
+                prefix: "browser-history-backup".to_string(),
+                path_style: true,
+                upload_after_backup: false,
+                credentials_saved: false,
+                last_uploaded_at: None,
+                last_uploaded_object_key: None,
+                last_error: None,
+            },
+            ai: AiSettings::default(),
+            ..AppConfig::default()
+        }
+    }
+
+    fn initialize_plaintext_archive(paths: &ProjectPaths, config: &AppConfig) {
+        ensure_archive_initialized(paths, config, None).expect("initialize archive");
+        save_config(paths, config).expect("save config");
+    }
+
+    fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
+        let script_path = bin_dir.join("curl");
+        fs::create_dir_all(bin_dir).expect("create fake curl dir");
+        fs::write(&script_path, body).expect("write fake curl");
+        let mut permissions = fs::metadata(&script_path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).expect("chmod");
+        script_path
+    }
+
+    #[test]
+    fn preview_remote_backup_includes_expected_warning_paths() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let mut config = sample_config();
+        config.remote_backup.endpoint = Some("s3.example.test".to_string());
+        let preview = preview_remote_backup(&paths, &config).expect("preview");
+        assert!(preview.bundle_path.contains("remote-backups"));
+        assert!(preview.preview_command.contains("--aws-sigv4"));
+        assert_eq!(preview.manual_steps.len(), 3);
+        assert_eq!(preview.warnings.len(), 3);
+    }
+
+    #[test]
+    fn upload_url_supports_aws_and_custom_endpoint_layouts() {
+        let mut config = sample_config();
+        let aws_path = upload_url(&config, "browser-history-backup/archive.zip").expect("aws");
+        assert_eq!(
+            aws_path,
+            "https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/archive.zip"
+        );
+
+        config.remote_backup.path_style = false;
+        let aws_hosted =
+            upload_url(&config, "browser-history-backup/archive.zip").expect("aws hosted");
+        assert_eq!(
+            aws_hosted,
+            "https://example-bucket.s3.us-east-1.amazonaws.com/browser-history-backup/archive.zip"
+        );
+
+        config.remote_backup.endpoint = Some("storage.example.test/root/".to_string());
+        config.remote_backup.path_style = true;
+        let custom_path =
+            upload_url(&config, "browser-history-backup/archive.zip").expect("custom path");
+        assert_eq!(
+            custom_path,
+            "https://storage.example.test/root/example-bucket/browser-history-backup/archive.zip"
+        );
+
+        config.remote_backup.path_style = false;
+        let custom_hosted =
+            upload_url(&config, "browser-history-backup/archive.zip").expect("custom hosted");
+        assert_eq!(
+            custom_hosted,
+            "https://example-bucket.storage.example.test/root/browser-history-backup/archive.zip"
+        );
+    }
+
+    #[test]
+    fn bundle_build_writes_archive_config_and_manifest_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+        fs::create_dir_all(&paths.manifests_dir).expect("manifests dir");
+        fs::write(paths.manifests_dir.join("run-1.json"), "{}").expect("write manifest");
+
+        let bundle_path =
+            build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+        assert!(bundle_path.exists());
+        let file = File::open(&bundle_path).expect("open bundle");
+        let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+        assert!(archive.by_name("archive/history-vault.sqlite").is_ok());
+        assert!(archive.by_name("config/config.json").is_ok());
+        assert!(archive.by_name("audit/manifests/run-1.json").is_ok());
+        assert!(archive.by_name("metadata/bundle-manifest.json").is_ok());
+    }
+
+    #[test]
+    fn run_remote_backup_uses_curl_and_updates_saved_config() {
+        let _guard = remote_test_lock().lock().expect("remote test lock");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let mut config = sample_config();
+        config.remote_backup.credentials_saved = true;
+        initialize_plaintext_archive(&paths, &config);
+        let bin_dir = dir.path().join("fake-bin");
+        let log_path = dir.path().join("curl.log");
+        let curl_path = install_fake_curl(
+            &bin_dir,
+            &format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n", log_path.display()),
+        );
+        unsafe {
+            std::env::set_var(TEST_CURL_BIN_ENV, &curl_path);
+        }
+
+        let result = run_remote_backup(
+            &paths,
+            &config,
+            None,
+            &S3CredentialInput {
+                access_key_id: "abc".to_string(),
+                secret_access_key: "def".to_string(),
+            },
+        )
+        .expect("remote backup");
+
+        unsafe {
+            std::env::remove_var(TEST_CURL_BIN_ENV);
+        }
+
+        assert!(result.uploaded);
+        assert!(fs::read_to_string(&log_path).expect("read curl log").contains("--aws-sigv4"));
+        let saved = crate::config::load_config(&paths).expect("load config");
+        assert!(saved.remote_backup.last_uploaded_at.is_some());
+        assert_eq!(saved.remote_backup.last_uploaded_object_key, Some(result.object_key.clone()));
+        assert_eq!(saved.remote_backup.last_error, None);
+    }
+
+    #[test]
+    fn remote_backup_failure_persists_last_error() {
+        let _guard = remote_test_lock().lock().expect("remote test lock");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+        let bin_dir = dir.path().join("fake-bin");
+        let curl_path =
+            install_fake_curl(&bin_dir, "#!/bin/sh\necho 'upload failed' >&2\nexit 23\n");
+        unsafe {
+            std::env::set_var(TEST_CURL_BIN_ENV, &curl_path);
+        }
+
+        let result = run_remote_backup(
+            &paths,
+            &config,
+            None,
+            &S3CredentialInput {
+                access_key_id: "abc".to_string(),
+                secret_access_key: "def".to_string(),
+            },
+        )
+        .expect("remote backup failure");
+
+        unsafe {
+            std::env::remove_var(TEST_CURL_BIN_ENV);
+        }
+
+        assert!(!result.uploaded);
+        assert!(result.message.contains("upload failed"));
+        let saved = crate::config::load_config(&paths).expect("load config");
+        assert_eq!(saved.remote_backup.last_error, Some("upload failed".to_string()));
+    }
+
+    #[test]
+    fn endpoint_and_shell_helpers_stay_stable() {
+        assert_eq!(normalize_endpoint("example.test/path/"), "https://example.test/path");
+        assert_eq!(
+            inject_bucket("https://storage.example.test", "bucket").expect("inject bucket"),
+            "https://bucket.storage.example.test"
+        );
+        assert!(inject_bucket("ftp://bad.example", "bucket").is_err());
+        assert_eq!(shell_escape("a'b".to_string()), "a'\"'\"'b");
+        assert!(
+            preview_command(
+                &sample_config(),
+                Path::new("/tmp/archive.zip"),
+                "https://example.test/upload"
+            )
+            .contains("archive.zip")
+        );
+        assert!(validate_remote_backup_config(&AppConfig::default()).is_err());
+    }
 }

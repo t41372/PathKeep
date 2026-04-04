@@ -22,6 +22,18 @@ The app keeps raw provenance, normalized query data, audit manifests, and schedu
 - Optional S3-compatible remote backup bundles.
 - UI internationalization for English, 简体中文, and 繁體中文.
 
+## Browser Support
+
+The current desktop support matrix includes:
+
+- Chromium family:
+  Google Chrome, Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, and Opera GX
+- Firefox family:
+  Firefox, LibreWolf, Floorp, and Waterfox
+- Safari on macOS
+
+Detection coverage was reviewed against [1History](https://github.com/localfirstapp/1History) and [browserexport](https://github.com/purarue/browserexport). See [docs/reference-review.md](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/docs/reference-review.md) for the comparison notes and remaining gaps.
+
 ## Architecture
 
 - `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src`
