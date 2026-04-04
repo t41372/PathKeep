@@ -1,5 +1,9 @@
 use anyhow::Result;
-use std::sync::Mutex;
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Mutex,
+};
 #[cfg(not(test))]
 use tauri::State;
 #[cfg(not(test))]
@@ -9,6 +13,8 @@ use vault_core::{
     ExportRequest, HistoryQuery, S3CredentialInput, SchedulePlan, TakeoutRequest,
 };
 use vault_worker::{self, RekeyRequest};
+
+const PRODUCT_DISPLAY_NAME: &str = "Browser History Backup";
 
 #[derive(Default)]
 struct SessionState {
@@ -50,6 +56,7 @@ fn run_app() -> Result<()> {
         })
         .manage(SessionState::default())
         .invoke_handler(tauri::generate_handler![
+            app_build_info,
             app_snapshot,
             save_config,
             initialize_archive,
@@ -80,7 +87,8 @@ fn run_app() -> Result<()> {
             search_ai_history,
             ask_ai_assistant,
             preview_ai_integrations,
-            reset_local_secret_vault
+            reset_local_secret_vault,
+            open_path_in_file_manager
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -98,6 +106,66 @@ fn update_session_key(state: &SessionState, database_key: Option<String>) -> Res
 
 fn session_key(state: &SessionState) -> Option<String> {
     state.get_key()
+}
+
+fn app_build_info_impl() -> vault_core::AppBuildInfo {
+    vault_core::AppBuildInfo {
+        product_name: PRODUCT_DISPLAY_NAME.to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        git_commit_short: option_env!("BHB_GIT_COMMIT_SHORT").unwrap_or("unknown").to_string(),
+        git_commit_full: option_env!("BHB_GIT_COMMIT_FULL").unwrap_or("unknown").to_string(),
+        git_dirty: option_env!("BHB_GIT_DIRTY").unwrap_or("false") == "true",
+    }
+}
+
+fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String> {
+    let candidate = PathBuf::from(path);
+    let target = if candidate.is_absolute() {
+        candidate
+    } else {
+        std::env::current_dir().map_err(|error| error.to_string())?.join(candidate)
+    };
+
+    if target.is_dir() {
+        return Ok(target);
+    }
+    if target.is_file() {
+        return target
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| format!("Unable to open a parent directory for {}", target.display()));
+    }
+
+    Err(format!("Path does not exist: {}", target.display()))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(target_os = "macos")]
+fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
+    ("open", vec![target.display().to_string()])
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(target_os = "windows")]
+fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
+    ("explorer", vec![target.display().to_string()])
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
+    ("xdg-open", vec![target.display().to_string()])
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn open_path_in_file_manager_impl(path: String) -> Result<String, String> {
+    let target = resolve_file_manager_target(&path)?;
+    let (program, arguments) = file_manager_command(&target);
+    Command::new(program)
+        .args(arguments)
+        .spawn()
+        .map_err(|error| format!("Failed to open {}: {error}", target.display()))?;
+    Ok(target.display().to_string())
 }
 
 fn app_snapshot_impl(
@@ -290,6 +358,12 @@ fn preview_ai_integrations_impl() -> Result<vault_core::AiIntegrationPreview, St
 
 fn reset_local_secret_vault_impl() -> Result<(), String> {
     vault_worker::reset_local_secret_vault().map_err(|error| error.to_string())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn app_build_info() -> vault_core::AppBuildInfo {
+    app_build_info_impl()
 }
 
 #[cfg(not(test))]
@@ -524,6 +598,12 @@ fn preview_ai_integrations() -> Result<vault_core::AiIntegrationPreview, String>
 #[tauri::command]
 fn reset_local_secret_vault() -> Result<(), String> {
     reset_local_secret_vault_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn open_path_in_file_manager(path: String) -> Result<String, String> {
+    open_path_in_file_manager_impl(path)
 }
 
 #[cfg(test)]
@@ -893,5 +973,40 @@ mod tests {
         assert_eq!(session_key(&session), Some("abc".to_string()));
         clear_session_database_key_impl(&session).expect("clear key");
         assert_eq!(session_key(&session), None);
+    }
+
+    #[test]
+    fn build_info_exposes_version_and_git_metadata() {
+        let info = app_build_info_impl();
+        assert_eq!(info.product_name, PRODUCT_DISPLAY_NAME);
+        assert!(!info.version.is_empty());
+        assert!(!info.git_commit_short.is_empty());
+        assert!(!info.git_commit_full.is_empty());
+    }
+
+    #[test]
+    fn resolve_file_manager_target_prefers_directory_and_parent_folder() {
+        let dir = tempdir().expect("tempdir");
+        let nested_dir = dir.path().join("nested");
+        fs::create_dir_all(&nested_dir).expect("create nested dir");
+        let file_path = nested_dir.join("archive.sqlite");
+        fs::write(&file_path, "sqlite").expect("write file");
+
+        assert_eq!(
+            resolve_file_manager_target(&nested_dir.display().to_string()).expect("resolve dir"),
+            nested_dir
+        );
+        assert_eq!(
+            resolve_file_manager_target(&file_path.display().to_string())
+                .expect("resolve file parent"),
+            nested_dir
+        );
+    }
+
+    #[test]
+    fn resolve_file_manager_target_rejects_missing_paths() {
+        let error = resolve_file_manager_target("/tmp/browser-history-backup-does-not-exist")
+            .expect_err("missing path should fail");
+        assert!(error.contains("Path does not exist"));
     }
 }

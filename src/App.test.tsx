@@ -9,6 +9,7 @@ const { autostartMocks, mockBackend } = vi.hoisted(() => ({
     isEnabled: vi.fn().mockResolvedValue(false),
   },
   mockBackend: {
+    getAppBuildInfo: vi.fn(),
     getAppSnapshot: vi.fn(),
     saveConfig: vi.fn(),
     initializeArchive: vi.fn(),
@@ -40,6 +41,7 @@ const { autostartMocks, mockBackend } = vi.hoisted(() => ({
     askAiAssistant: vi.fn(),
     previewAiIntegrations: vi.fn(),
     resetLocalSecretVault: vi.fn(),
+    openPathInFileManager: vi.fn(),
   },
 }))
 
@@ -189,6 +191,14 @@ const revertedBatchDetail = {
   },
 }
 
+const buildInfo = {
+  productName: 'Browser History Backup',
+  version: '0.1.0',
+  gitCommitShort: 'abc12345',
+  gitCommitFull: 'abc12345def67890',
+  gitDirty: false,
+}
+
 describe('App integration', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'confirm', {
@@ -197,6 +207,7 @@ describe('App integration', () => {
     })
 
     mockBackend.getAppSnapshot.mockReset()
+    mockBackend.getAppBuildInfo.mockResolvedValue(buildInfo)
     mockBackend.getAppSnapshot
       .mockResolvedValueOnce(baseSnapshot)
       .mockResolvedValueOnce({
@@ -228,6 +239,9 @@ describe('App integration', () => {
       generatedAt: '2026-04-03T12:10:00.000Z',
       checks: [],
     })
+    mockBackend.openPathInFileManager.mockResolvedValue(
+      baseSnapshot.directories.appRoot,
+    )
   })
 
   test('loads import batches and lets the user revert a dirty import batch', async () => {
@@ -253,6 +267,33 @@ describe('App integration', () => {
     )
     await screen.findByText(
       'The selected import batch was reverted. Live history rows were removed, and the raw audit trail was preserved.',
+    )
+  })
+
+  test('shows build metadata and opens the app data root from settings', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('History explorer')
+    await screen.findByText('Version 0.1.0')
+    await screen.findByText('Commit abc12345')
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    await screen.findByText('Data and build info')
+
+    expect(
+      screen.getByDisplayValue('/tmp/browser-history-backup'),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: /open app data root/i }),
+    )
+
+    await waitFor(() =>
+      expect(mockBackend.openPathInFileManager).toHaveBeenCalledWith(
+        '/tmp/browser-history-backup',
+      ),
     )
   })
 })

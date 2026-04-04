@@ -101,6 +101,14 @@
   gap: 0.45rem;
 }
 
+.buildStamp,
+.pathActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
 .topBarBrand h1,
 .pageIntro h2,
 .surfaceTitle h3 {
@@ -128,6 +136,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.buildStamp {
+  gap: 0.75rem;
+}
+
+.buildStampItem {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .statusChip,
@@ -301,7 +318,8 @@
 .splitBody,
 .infoGrid,
 .batchMetaGrid,
-.selectionSummaryBar {
+.selectionSummaryBar,
+.pathList {
   display: grid;
   gap: 0.85rem;
 }
@@ -335,6 +353,10 @@
 
 .selectionSummaryBar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pathList {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .fieldBlock {
@@ -395,6 +417,7 @@
 .toggleRow,
 .profileRow,
 .recordRow,
+.pathRow,
 .surfaceInset,
 .artifactCard,
 .checkRow,
@@ -412,6 +435,16 @@
   gap: 1rem;
   align-items: center;
   padding: 0.8rem 0.9rem;
+}
+
+.pathRow {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
+}
+
+.pathActions {
+  justify-content: flex-end;
 }
 
 .toggleRow input {

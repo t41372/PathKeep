@@ -86,6 +86,14 @@ export interface AppDirectories {
   strongholdSaltPath: string
 }
 
+export interface AppBuildInfo {
+  productName: string
+  version: string
+  gitCommitShort: string
+  gitCommitFull: string
+  gitDirty: boolean
+}
+
 export interface ArchiveStatus {
   initialized: boolean
   encrypted: boolean

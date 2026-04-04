@@ -8,6 +8,7 @@ import type {
   AiProviderSecretInput,
   AiSearchRequest,
   AiSearchResponse,
+  AppBuildInfo,
   AppConfig,
   AppSnapshot,
   ApplyResult,
@@ -29,6 +30,14 @@ import type {
 } from './types'
 
 // Stryker disable all: browser-preview fixtures are static reference data, not behavior.
+const mockBuildInfo: AppBuildInfo = {
+  productName: 'Browser History Backup',
+  version: '0.1.0',
+  gitCommitShort: 'preview',
+  gitCommitFull: 'preview-build',
+  gitDirty: true,
+}
+
 const mockSnapshot: AppSnapshot = {
   directories: {
     appRoot: '~/Library/Application Support/Browser History Backup',
@@ -164,6 +173,8 @@ async function call<T>(
   }
 
   switch (command) {
+    case 'app_build_info':
+      return mockBuildInfo as T
     case 'app_snapshot':
     case 'save_config':
     case 'initialize_archive':
@@ -173,6 +184,12 @@ async function call<T>(
     case 'clear_session_database_key':
     case 'reset_local_secret_vault':
       return undefined as T
+    case 'open_path_in_file_manager':
+      return (
+        typeof args?.path === 'string'
+          ? args.path
+          : mockSnapshot.directories.appRoot
+      ) as T
     case 'run_backup_now':
       return {
         dueSkipped: false,
@@ -364,6 +381,7 @@ export const backendTestHarness = {
 }
 
 export const backend = {
+  getAppBuildInfo: () => call<AppBuildInfo>('app_build_info'),
   getAppSnapshot: () => call<AppSnapshot>('app_snapshot'),
   saveConfig: (config: AppConfig) =>
     call<AppSnapshot>('save_config', { config }),
@@ -417,4 +435,6 @@ export const backend = {
   previewAiIntegrations: () =>
     call<AiIntegrationPreview>('preview_ai_integrations'),
   resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),
+  openPathInFileManager: (path: string) =>
+    call<string>('open_path_in_file_manager', { path }),
 }

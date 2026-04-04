@@ -4,7 +4,7 @@ export type ResolvedLanguage = 'en' | 'zh-CN' | 'zh-TW'
 
 // Stryker disable all: translation tables are static content; mutation focus should stay on the i18n logic below.
 const english = {
-  productName: 'browser history backup',
+  productName: 'Browser History Backup',
   localOnly: 'Local only',
   encrypted: 'Encrypted',
   plaintext: 'Plaintext',
@@ -260,6 +260,24 @@ const english = {
   settingsTitle: 'Settings and key management',
   settingsDescription:
     'Control language, encryption, key handling, remote backup, and app behavior in one place.',
+  dataSection: 'Data and build info',
+  dataDescription:
+    'See where the app stores local data, open those folders, and confirm the exact build you are running.',
+  dataDirectoryHint:
+    'Everything the app manages lives under the app data root. Open it directly if you want to inspect, back up, or audit the files yourself.',
+  buildInfoTitle: 'Running build',
+  appVersion: 'App version',
+  gitCommit: 'Git commit',
+  buildState: 'Working tree',
+  workingTreeClean: 'Clean',
+  workingTreeDirty: 'Dirty',
+  versionValue: 'Version {value}',
+  commitValue: 'Commit {value}',
+  openAction: 'Open',
+  copyAction: 'Copy',
+  openPathLabel: 'Open {label}',
+  copyPathLabel: 'Copy {label}',
+  openedDirectoryNotice: 'Opened {path} in the system file manager.',
   languageSection: 'Language',
   languageDescription:
     'The app follows the system language by default. You can override it at any time.',
@@ -400,7 +418,7 @@ type TranslationDictionary = Record<TranslationKey, string>
 const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
   en: english,
   'zh-CN': {
-    productName: 'browser history backup',
+    productName: 'Browser History Backup',
     localOnly: '仅本地',
     encrypted: '已加密',
     plaintext: '明文',
@@ -622,6 +640,24 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     settingsTitle: '设置与密钥管理',
     settingsDescription:
       '在同一处管理语言、加密、密钥处理、远程备份和应用行为。',
+    dataSection: '数据与构建信息',
+    dataDescription:
+      '查看应用数据存放位置、直接打开这些目录，并确认当前正在运行的版本。',
+    dataDirectoryHint:
+      '应用管理的所有数据都位于应用数据根目录下。如果你想自己检查、备份或审计这些文件，可以直接打开该目录。',
+    buildInfoTitle: '当前构建',
+    appVersion: '应用版本',
+    gitCommit: 'Git 提交',
+    buildState: '工作树状态',
+    workingTreeClean: '干净',
+    workingTreeDirty: '有未提交修改',
+    versionValue: '版本 {value}',
+    commitValue: '提交 {value}',
+    openAction: '打开',
+    copyAction: '复制',
+    openPathLabel: '打开{label}',
+    copyPathLabel: '复制{label}',
+    openedDirectoryNotice: '已在系统文件管理器中打开 {path}。',
     languageSection: '语言',
     languageDescription: '默认跟随系统语言，也可以随时手动覆盖。',
     interfaceLanguage: '界面语言',
@@ -748,7 +784,7 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     no: '否',
   },
   'zh-TW': {
-    productName: 'browser history backup',
+    productName: 'Browser History Backup',
     localOnly: '僅本地',
     encrypted: '已加密',
     plaintext: '明文',
@@ -971,6 +1007,24 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     settingsTitle: '設定與金鑰管理',
     settingsDescription:
       '在同一處管理語言、加密、金鑰處理、遠端備份與應用行為。',
+    dataSection: '資料與建置資訊',
+    dataDescription:
+      '查看應用資料存放位置、直接打開這些目錄，並確認目前正在執行的版本。',
+    dataDirectoryHint:
+      '應用管理的所有資料都位於應用資料根目錄下。如果你想自己檢查、備份或審計這些檔案，可以直接打開該目錄。',
+    buildInfoTitle: '目前建置',
+    appVersion: '應用版本',
+    gitCommit: 'Git 提交',
+    buildState: '工作樹狀態',
+    workingTreeClean: '乾淨',
+    workingTreeDirty: '有未提交修改',
+    versionValue: '版本 {value}',
+    commitValue: '提交 {value}',
+    openAction: '打開',
+    copyAction: '複製',
+    openPathLabel: '打開{label}',
+    copyPathLabel: '複製{label}',
+    openedDirectoryNotice: '已在系統檔案管理器中打開 {path}。',
     languageSection: '語言',
     languageDescription: '預設跟隨系統語言，也可以隨時手動覆蓋。',
     interfaceLanguage: '介面語言',

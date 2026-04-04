@@ -76,6 +76,10 @@ describe('backend facade', () => {
     await expect(backend.getAppSnapshot()).resolves.toMatchObject({
       config: expect.objectContaining({ archiveMode: 'Encrypted' }),
     })
+    await expect(backend.getAppBuildInfo()).resolves.toMatchObject({
+      productName: 'Browser History Backup',
+      gitCommitShort: 'preview',
+    })
     await expect(backend.saveConfig(config)).resolves.toMatchObject({
       config: expect.objectContaining({ archiveMode: 'Encrypted' }),
     })
@@ -166,6 +170,9 @@ describe('backend facade', () => {
       storedSecret: false,
     })
     await expect(backend.resetLocalSecretVault()).resolves.toBeUndefined()
+    await expect(
+      backend.openPathInFileManager('/tmp/browser-history-backup'),
+    ).resolves.toBe('/tmp/browser-history-backup')
   })
 
   test('delegates to Tauri invoke when running inside the desktop shell', async () => {

@@ -210,6 +210,16 @@ pub struct AppDirectories {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct AppBuildInfo {
+    pub product_name: String,
+    pub version: String,
+    pub git_commit_short: String,
+    pub git_commit_full: String,
+    pub git_dirty: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ArchiveStatus {
     pub initialized: bool,
     pub encrypted: bool,

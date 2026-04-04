@@ -27,6 +27,7 @@ import type {
   AiProviderPurpose,
   AiRequestFormat,
   AiSearchResponse,
+  AppBuildInfo,
   ApplyResult,
   AppConfig,
   AppSnapshot,
@@ -82,6 +83,7 @@ function formatDuration(durationMs: number | null | undefined) {
 }
 
 function App() {
+  const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [draftConfig, setDraftConfig] = useState<AppConfig | null>(null)
   const [history, setHistory] = useState<HistoryQueryResponse | null>(null)
@@ -153,7 +155,11 @@ function App() {
 
   useEffect(() => {
     void (async () => {
-      const next = await backend.getAppSnapshot()
+      const [next, nextBuildInfo] = await Promise.all([
+        backend.getAppSnapshot(),
+        backend.getAppBuildInfo(),
+      ])
+      setBuildInfo(nextBuildInfo)
       const language = resolveLanguage(next.config.preferredLanguage)
       const translate = createTranslator(language)
 
@@ -468,6 +474,17 @@ function App() {
   async function copyText(value: string) {
     await navigator.clipboard.writeText(value)
     setLocalizedNotice(t('copiedNotice'))
+  }
+
+  async function handleOpenPath(path: string | null | undefined) {
+    if (!path) {
+      return
+    }
+
+    await runTask(t('openAction'), async () => {
+      const openedPath = await backend.openPathInFileManager(path)
+      setLocalizedNotice(t('openedDirectoryNotice', { path: openedPath }))
+    })
   }
 
   async function syncAppAutostart(nextConfig: AppConfig) {
@@ -1074,6 +1091,12 @@ function App() {
         snapshot.archiveStatus.unlocked ? t('unlocked') : t('locked'),
         t('profilesDetected', { count: snapshot.browserProfiles.length }),
         t('dueEveryHours', { hours: draftConfig?.dueAfterHours ?? 72 }),
+      ]
+    : []
+  const buildStampItems = buildInfo
+    ? [
+        t('versionValue', { value: buildInfo.version }),
+        t('commitValue', { value: buildInfo.gitCommitShort }),
       ]
     : []
   const importSummary = currentImportSummary()
@@ -2973,6 +2996,141 @@ function App() {
         </Surface>
 
         <Surface
+          eyebrow={t('dataSection')}
+          title={t('dataDescription')}
+          icon="folder_open"
+        >
+          <p className="surfaceMeta">{t('dataDirectoryHint')}</p>
+          <div className="pathList">
+            <PathRow
+              actions={
+                <>
+                  <button
+                    aria-label={t('openPathLabel', {
+                      label: t('storagePath'),
+                    })}
+                    className="secondaryButton"
+                    type="button"
+                    onClick={() =>
+                      void handleOpenPath(snapshot?.directories.appRoot)
+                    }
+                  >
+                    {t('openAction')}
+                  </button>
+                  <button
+                    aria-label={t('copyPathLabel', {
+                      label: t('storagePath'),
+                    })}
+                    className="ghostButton"
+                    type="button"
+                    onClick={() =>
+                      void copyText(snapshot?.directories.appRoot ?? '')
+                    }
+                  >
+                    {t('copyAction')}
+                  </button>
+                </>
+              }
+              label={t('storagePath')}
+              value={snapshot?.directories.appRoot ?? t('notAvailable')}
+            />
+            <PathRow
+              actions={
+                <>
+                  <button
+                    aria-label={t('openPathLabel', {
+                      label: t('archiveDatabase'),
+                    })}
+                    className="secondaryButton"
+                    type="button"
+                    onClick={() =>
+                      void handleOpenPath(
+                        snapshot?.directories.archiveDatabasePath,
+                      )
+                    }
+                  >
+                    {t('openAction')}
+                  </button>
+                  <button
+                    aria-label={t('copyPathLabel', {
+                      label: t('archiveDatabase'),
+                    })}
+                    className="ghostButton"
+                    type="button"
+                    onClick={() =>
+                      void copyText(
+                        snapshot?.directories.archiveDatabasePath ?? '',
+                      )
+                    }
+                  >
+                    {t('copyAction')}
+                  </button>
+                </>
+              }
+              label={t('archiveDatabase')}
+              value={
+                snapshot?.directories.archiveDatabasePath ?? t('notAvailable')
+              }
+            />
+            <PathRow
+              actions={
+                <>
+                  <button
+                    aria-label={t('openPathLabel', {
+                      label: t('auditRepository'),
+                    })}
+                    className="secondaryButton"
+                    type="button"
+                    onClick={() =>
+                      void handleOpenPath(snapshot?.directories.auditRepoPath)
+                    }
+                  >
+                    {t('openAction')}
+                  </button>
+                  <button
+                    aria-label={t('copyPathLabel', {
+                      label: t('auditRepository'),
+                    })}
+                    className="ghostButton"
+                    type="button"
+                    onClick={() =>
+                      void copyText(snapshot?.directories.auditRepoPath ?? '')
+                    }
+                  >
+                    {t('copyAction')}
+                  </button>
+                </>
+              }
+              label={t('auditRepository')}
+              value={snapshot?.directories.auditRepoPath ?? t('notAvailable')}
+            />
+          </div>
+          <div className="subsection">
+            <h3>{t('buildInfoTitle')}</h3>
+            <div className="infoGrid">
+              <InfoStat
+                label={t('appVersion')}
+                value={buildInfo?.version ?? t('notAvailable')}
+              />
+              <InfoStat
+                label={t('gitCommit')}
+                value={buildInfo?.gitCommitShort ?? t('notAvailable')}
+              />
+              <InfoStat
+                label={t('buildState')}
+                value={
+                  buildInfo
+                    ? buildInfo.gitDirty
+                      ? t('workingTreeDirty')
+                      : t('workingTreeClean')
+                    : t('notAvailable')
+                }
+              />
+            </div>
+          </div>
+        </Surface>
+
+        <Surface
           eyebrow={t('securitySection')}
           title={t('securityDescription')}
           icon="security"
@@ -3370,6 +3528,18 @@ function App() {
                 </span>
               ))}
             </div>
+            {buildStampItems.length ? (
+              <div className="buildStamp">
+                {buildStampItems.map((item) => (
+                  <span className="buildStampItem" key={item}>
+                    {item}
+                  </span>
+                ))}
+                {buildInfo?.gitDirty ? (
+                  <StatusTag tone="danger">{t('workingTreeDirty')}</StatusTag>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="topBarActions">
             <button
@@ -3479,6 +3649,28 @@ function DataRow({ label, value }: { label: string; value: ReactNode }) {
     <div className="dataRow">
       <dt>{label}</dt>
       <dd>{value}</dd>
+    </div>
+  )
+}
+
+function PathRow({
+  label,
+  value,
+  actions,
+}: {
+  label: string
+  value: string
+  actions?: ReactNode
+}) {
+  return (
+    <div className="pathRow">
+      <FieldBlock
+        label={label}
+        control={
+          <input readOnly aria-label={label} type="text" value={value} />
+        }
+      />
+      {actions ? <div className="pathActions">{actions}</div> : null}
     </div>
   )
 }
