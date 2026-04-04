@@ -1,167 +1,251 @@
+[![CI](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/ci.yml/badge.svg)](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/ci.yml)
+[![Release](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/release.yml/badge.svg)](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/release.yml)
+[![Mutation](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/mutation.yml/badge.svg)](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/mutation.yml)
+[![Latest release](https://img.shields.io/github/v/release/t41372/BrowserHistoryBackup?display_name=tag)](https://github.com/t41372/BrowserHistoryBackup/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-1f6feb.svg)](./LICENSE)
-![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-f74c00.svg)
-![React 19](https://img.shields.io/badge/frontend-React%2019%20%2B%20TypeScript-0ea5e9.svg)
-![CI Configured](https://img.shields.io/badge/ci-GitHub%20Actions-2088ff.svg)
-![Quality Gates](https://img.shields.io/badge/tests-unit%20%2B%20integration%20%2B%20e2e-16a34a.svg)
 
 # Browser History Backup
 
-Browser History Backup is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri, Rust, Bun, React, and Vite, and is designed around one core idea: every meaningful operation should remain inspectable.
+Browser History Backup is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, Bun, React, and Vite, and is designed around one rule: every meaningful system action should stay inspectable.
 
-The app keeps raw provenance, normalized query data, audit manifests, and scheduler artifacts separate so the user can inspect what happened, preview system changes, and revert dirty imports without losing the audit trail.
+The app keeps raw provenance, normalized query data, audit manifests, scheduler artifacts, import batches, and export outputs separate so the user can preview what is about to happen, inspect what already happened, and roll back dirty imports without erasing the audit trail.
 
-## Current Scope
+## Current Status
 
-- Desktop app shell with Tauri 2 and a React audit-first UI.
-- Rust workspace split into `vault-core`, `vault-worker`, and `vault-platform`.
-- Incremental browser history backups with staged snapshotting.
-- Local archive database with plaintext or encrypted modes.
-- Native scheduler preview and apply flows.
-- Google Takeout dry-run, import preview, batch-level revert, and audit retention.
-- HTML, Markdown, text, and JSONL exports.
-- Optional S3-compatible remote backup bundles.
-- UI internationalization for English, 简体中文, and 繁體中文.
+- The desktop app, worker mode, and local-first archive pipeline are implemented.
+- Browser discovery, incremental backup, Takeout import, export, S3 backup, and optional AI analysis all exist in the codebase today.
+- The GitHub release pipeline now builds platform installers for macOS, Windows, and Linux and publishes them as GitHub release assets.
+- The project is still in active development. Some areas are intentionally honest about their current state:
+  - Scheduler `Apply` is implemented on macOS. Windows and Linux currently ship `Preview` and `Manual` flows only.
+  - Installer signing and notarization are supported by the release workflow only if the relevant GitHub secrets are configured.
+  - Rust workspace coverage is not yet at the originally requested 100%; the latest `cargo llvm-cov` run reports 82.68% line coverage.
 
-## Browser Support
+## Feature Inventory
 
-The current desktop support matrix includes:
+### Archive and Provenance
 
-- Chromium family:
-  Google Chrome, Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, and Opera GX
-- Firefox family:
-  Firefox, LibreWolf, Floorp, and Waterfox
-- Safari on macOS
+- Incremental history backup using staged copies of browser history databases instead of live reads.
+- Raw row retention plus normalized archive tables for visits, URLs, downloads, search terms, and favicons.
+- Append-only backup manifests with chained hashes.
+- Local git-backed audit artifacts for manifests, imports, scheduler changes, and related reports.
+- Plaintext and encrypted archive modes.
+- Session unlock flow plus system keyring support for unattended operations.
 
-Detection coverage was reviewed against [1History](https://github.com/localfirstapp/1History) and [browserexport](https://github.com/purarue/browserexport). See [docs/reference-review.md](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/docs/reference-review.md) for the comparison notes and remaining gaps.
+### Browser and OS Support
+
+- Chromium-family support:
+  Google Chrome, Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, and Opera GX.
+- Firefox-family support:
+  Firefox, LibreWolf, Floorp, and Waterfox.
+- Safari support on macOS.
+- Scheduler preview artifacts for macOS `launchd`, Windows Task Scheduler XML, and Linux `systemd --user`.
+- Platform keyring adapters for macOS, Windows, Linux, and a file-backed test keyring.
+
+### Import and Export
+
+- Google Takeout dry-run inspection before import.
+- Recognized-file reporting, quarantine reporting, preview rows, duplicate counting, and notes.
+- Batch-level import review and revert controls.
+- Structured exports to HTML, Markdown, plain text, and JSONL.
+- S3-compatible remote backup bundle preview and upload.
+
+### Desktop UX
+
+- Tauri desktop shell with React audit-first UI.
+- English, Simplified Chinese, and Traditional Chinese UI with system-language detection and user override.
+- Setup flow for source selection, archive creation, scheduler preview, and review.
+- Settings UI for language, security, key management, remote backup, AI provider configuration, app build metadata, and local data paths.
+- In-app display of the running app version and short git commit SHA.
+- Buttons in the UI to open the app data root, archive database location, and audit repository in the system file manager.
+
+### Optional AI and Integration Features
+
+- Optional LLM and embedding provider configuration, disabled by default.
+- Multiple providers per request format, each with configurable base URL, models, and keyring-backed API key storage.
+- Semantic indexing, semantic search, and grounded assistant Q&A using `rig-core`.
+- MCP server preview artifacts and worker-mode MCP server support.
+- Skill integration preview artifacts.
 
 ## Architecture
 
-- `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src`
-  React + TypeScript desktop UI, integration tests, and browser-preview mocks.
-- `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri`
+- [`src`](./src)
+  React + TypeScript desktop UI, browser-preview mocks, and frontend tests.
+- [`src-tauri`](./src-tauri)
   Tauri shell plus the Rust workspace.
-- `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core`
-  Archive schema, migrations, staged browser database copies, exports, Takeout ingestion, audit manifests, and health checks.
-- `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-worker`
-  Shared orchestration layer used by the GUI, worker mode, and tests.
-- `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-platform`
+- [`src-tauri/crates/vault-core`](./src-tauri/crates/vault-core)
+  Archive schema, migrations, browser snapshotting, exports, Takeout ingestion, AI indexing, audit manifests, and health checks.
+- [`src-tauri/crates/vault-worker`](./src-tauri/crates/vault-worker)
+  Shared orchestration used by the GUI, worker CLI, MCP server entrypoint, and tests.
+- [`src-tauri/crates/vault-platform`](./src-tauri/crates/vault-platform)
   Scheduler artifact generation plus platform keyring integration.
+- [`docs/reference-review.md`](./docs/reference-review.md)
+  Notes from comparing support coverage against `1History` and `browserexport`.
 
-## Security Model
-
-- The archive can run in `Encrypted` or `Plaintext` mode.
-- Encrypted mode is designed around a user-managed master password and local secret storage.
-- If the user forgets the archive password and has no other valid unlock path, the encrypted archive should be treated as unrecoverable.
-- Audit manifests live in a local git repository, but the archive database and raw snapshots do not.
-- Remote backups package the archive plus audit material and upload to S3-compatible storage with credentials kept in the native keyring.
-
-## Quality Gates
-
-The repo is wired for layered checks instead of a single happy-path build:
-
-- JavaScript/TypeScript
-  - Prettier formatting
-  - ESLint with type-aware rules
-  - `tsc -b` type checking
-  - Vitest unit tests with 100% coverage gates on core frontend logic modules under `src/lib`
-  - React integration tests
-  - Playwright browser e2e smoke coverage
-  - Stryker mutation testing
-- Rust
-  - `cargo fmt --check`
-  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-  - `cargo test --workspace --all-targets`
-  - `cargo llvm-cov`
-  - `cargo mutants`
-  - `cargo audit`
-  - `cargo deny`
-
-## Quick Start
+## Build and Run From Source
 
 ### Prerequisites
 
 - Bun
-- Rust stable toolchain with `clippy`, `rustfmt`, and `llvm-tools-preview`
-- Tauri system prerequisites for your platform
+- Rust 1.94.1 with `clippy`, `rustfmt`, and `llvm-tools-preview`
 - Git
+- Platform prerequisites for Tauri 2:
+  [Tauri distribute docs](https://v2.tauri.app/distribute/)
 
-### Install
+For Linux development on Debian or Ubuntu, the current repo and CI use:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  pkg-config \
+  libglib2.0-dev \
+  libgtk-3-dev \
+  libwebkit2gtk-4.1-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  patchelf \
+  rpm
+```
+
+### Install Dependencies
 
 ```bash
 bun install
 ```
 
-### Local Development
+### Run the Web Preview Shell
+
+This is useful for quick frontend iteration with mock data.
+
+```bash
+bun run dev
+```
+
+### Run the Full Desktop App From Source
 
 ```bash
 bun run desktop:dev
 ```
 
-### Core Checks
+### Run Checks
 
 ```bash
 bun run check
 ```
 
-### Full Verification
+### Run the Full Verification Sweep
 
 ```bash
 bun run verify
 ```
 
-### Coverage
+### Build the Desktop App Locally
+
+Debug desktop binary:
 
 ```bash
-bun run coverage
+bun run desktop:build:debug
 ```
 
-### Mutation Testing
+Release bundle for the current host OS:
 
 ```bash
-bun run mutation:js
-bun run mutation:rust
+bun run desktop:build
 ```
 
-## Pre-commit with prek
+Important local output locations:
 
-This repo uses a standard `.pre-commit-config.yaml`, but the intended runner is [`prek`](https://prek.j178.dev/), the Rust implementation of the pre-commit workflow.
+- Debug desktop binary:
+  `src-tauri/target/debug/browser-history-backup-desktop`
+- Release bundle directory:
+  `src-tauri/target/release/bundle/`
+
+The exact installer files depend on the host OS:
+
+- macOS:
+  `.app` and `.dmg`
+- Windows:
+  installer assets such as `.msi` and/or NSIS `.exe`
+- Linux:
+  `.AppImage`, `.deb`, and `.rpm` when the required packaging tools are present
+
+## Quality Gates
+
+### JavaScript and TypeScript
+
+- Prettier formatting
+- ESLint
+- `tsc -b`
+- Vitest unit tests
+- React integration tests
+- Playwright e2e smoke coverage
+- Stryker mutation testing
+
+### Rust
+
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `cargo test --workspace --all-targets`
+- `cargo llvm-cov`
+- `cargo mutants`
+- `cargo audit`
+- `cargo deny`
+
+## GitHub Actions and Release Pipeline
+
+The repository currently ships three GitHub Actions workflows:
+
+- [`ci.yml`](./.github/workflows/ci.yml)
+  Frontend checks, Playwright smoke coverage, Rust formatting/lint/test gates, Rust supply-chain checks (`cargo audit` and `cargo deny`), coverage artifact generation, and a macOS debug desktop build.
+- [`mutation.yml`](./.github/workflows/mutation.yml)
+  Manual or scheduled JavaScript and Rust mutation-test sweeps.
+- [`release.yml`](./.github/workflows/release.yml)
+  Cross-platform desktop release workflow.
+
+### Release Workflow Behavior
+
+- Trigger automatically by pushing a tag like `v0.1.0`.
+- Or run manually from the GitHub Actions UI with the `Release` workflow.
+- Manual runs resolve the release tag from the current app version in `package.json` and `src-tauri/Cargo.toml`, so bump the version first if you intend to publish a new release instead of updating an existing one.
+- The workflow builds:
+  - macOS Apple Silicon bundles
+  - macOS Intel bundles
+  - Windows bundles
+  - Linux bundles
+- Release assets are uploaded directly to the GitHub Release using the official Tauri action.
+- After all matrix builds finish, the workflow downloads the release assets again, generates `SHA256SUMS.txt`, and uploads that checksum manifest back to the same release.
+
+If you want signed or notarized installers, configure the signing secrets referenced in [`release.yml`](./.github/workflows/release.yml). Without those secrets, the workflow still builds unsigned installers.
+
+## Security Model
+
+- The archive can run in `Encrypted` or `Plaintext` mode.
+- Encrypted mode is built around a user-managed master password and local secret storage.
+- If the user forgets the archive password and has no other valid unlock path, the encrypted archive should be treated as unrecoverable.
+- Archive contents and raw snapshots do not live inside the local audit git repository.
+- Remote backups package the archive plus audit material and upload to S3-compatible storage using credentials stored in the native keyring.
+
+## Development Notes
+
+- The repo uses [`prek`](https://prek.j178.dev/) with `.pre-commit-config.yaml`.
+- Install hooks with:
 
 ```bash
 cargo install prek --locked
 prek install
 prek install --hook-type pre-push
-prek run --all-files
 ```
 
-## GitHub Actions
-
-The repo includes:
-
-- `ci.yml`
-  lint, typecheck, unit/integration tests, e2e smoke, Rust checks, coverage artifact generation, and a debug desktop build
-- `mutation.yml`
-  JS and Rust mutation workflows intended for manual runs or scheduled quality sweeps
-
-If you add a GitHub remote later, you can replace the static CI badge with the live Actions badge URL for your repository.
-
-## Project Commands
+- Run all configured hooks locally with:
 
 ```bash
-bun run format
-bun run format:check
-bun run lint
-bun run typecheck
-bun run test:unit
-bun run test:e2e
-bun run check:js
-bun run check:rust
-bun run desktop:build:debug
+prek run --all-files
+prek run --hook-stage pre-push --all-files
 ```
 
 ## Contributing
 
-See [CONTRIBUTING.md](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/CONTRIBUTING.md) for branch, testing, commit, and review expectations.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, release workflow usage, quality gates, and contribution expectations.
 
 ## License
 
-Browser History Backup is licensed under the [GNU General Public License v3.0](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/LICENSE).
+Browser History Backup is licensed under the [GNU General Public License v3.0](./LICENSE).
