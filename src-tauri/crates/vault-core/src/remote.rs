@@ -152,7 +152,7 @@ fn validate_remote_backup_config(config: &AppConfig) -> Result<()> {
 fn planned_bundle_path(paths: &ProjectPaths, created_at: &str) -> PathBuf {
     let remote_dir = paths.exports_dir.join("remote-backups");
     let timestamp = created_at.replace(':', "-");
-    remote_dir.join(format!("chrome-history-backup-{timestamp}.zip"))
+    remote_dir.join(format!("browser-history-backup-{timestamp}.zip"))
 }
 
 fn build_bundle(

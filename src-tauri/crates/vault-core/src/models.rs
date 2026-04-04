@@ -44,7 +44,7 @@ impl Default for RemoteBackupConfig {
             bucket: String::new(),
             region: "us-east-1".to_string(),
             endpoint: None,
-            prefix: "chrome-history-backup".to_string(),
+            prefix: "browser-history-backup".to_string(),
             path_style: true,
             upload_after_backup: false,
             credentials_saved: false,
@@ -130,15 +130,18 @@ pub struct KeyringStatusReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChromeProfile {
+pub struct BrowserProfile {
     pub profile_id: String,
     pub profile_name: String,
+    pub browser_family: String,
+    pub browser_name: String,
     pub user_name: Option<String>,
     pub profile_path: String,
     pub history_path: Option<String>,
     pub favicons_path: Option<String>,
     pub history_exists: bool,
-    pub chrome_version: Option<String>,
+    pub browser_version: Option<String>,
+    pub history_file_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -187,7 +190,8 @@ pub struct AppSnapshot {
     pub config: AppConfig,
     pub archive_status: ArchiveStatus,
     pub keyring_status: KeyringStatusReport,
-    pub chrome_profiles: Vec<ChromeProfile>,
+    #[serde(alias = "chromeProfiles")]
+    pub browser_profiles: Vec<BrowserProfile>,
     pub recent_runs: Vec<BackupRunOverview>,
     pub recent_import_batches: Vec<ImportBatchOverview>,
 }

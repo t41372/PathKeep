@@ -15,7 +15,7 @@ pub fn ensure_repo(repo_path: &Path) -> Result<()> {
     if !readme_path.exists() {
         fs::write(
             &readme_path,
-            "# Chrome History Backup Audit Repo\n\nThis repository stores manifests, scheduler artifacts, and health reports.\n",
+            "# Browser History Backup Audit Repo\n\nThis repository stores manifests, scheduler artifacts, and health reports.\n",
         )
         .with_context(|| format!("writing {}", readme_path.display()))?;
     }
@@ -27,7 +27,7 @@ pub fn ensure_repo(repo_path: &Path) -> Result<()> {
     }
 
     if run_git(repo_path, ["config", "--get", "user.name"]).is_err() {
-        run_git(repo_path, ["config", "user.name", "Chrome History Backup"])?;
+        run_git(repo_path, ["config", "user.name", "Browser History Backup"])?;
     }
     if run_git(repo_path, ["config", "--get", "user.email"]).is_err() {
         run_git(repo_path, ["config", "user.email", "vault@localhost"])?;

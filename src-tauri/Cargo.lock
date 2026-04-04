@@ -569,6 +569,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser-history-backup-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-stronghold",
+ "vault-core",
+ "vault-platform",
+ "vault-worker",
+]
+
+[[package]]
 name = "built"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -777,22 +793,6 @@ dependencies = [
  "cipher",
  "poly1305",
  "zeroize",
-]
-
-[[package]]
-name = "chrome-history-vault-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-stronghold",
- "vault-core",
- "vault-platform",
- "vault-worker",
 ]
 
 [[package]]

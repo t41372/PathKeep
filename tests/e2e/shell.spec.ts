@@ -4,7 +4,7 @@ test('loads the setup workspace in browser preview mode', async ({ page }) => {
   await page.goto('/')
 
   await expect(
-    page.getByRole('heading', { name: 'chrome history backup' }),
+    page.getByRole('heading', { name: 'browser history backup' }),
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup' })).toBeVisible()
   await expect(

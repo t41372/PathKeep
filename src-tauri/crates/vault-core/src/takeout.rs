@@ -1,5 +1,5 @@
 use crate::{
-    archive::{create_schema, open_archive_connection},
+    archive::{create_schema, open_archive_connection, visit_event_fingerprint},
     config::{ProjectPaths, ensure_paths},
     git_audit,
     models::{
@@ -139,10 +139,7 @@ pub fn import_takeout(
     }
 
     let source = Path::new(&request.source_path);
-    let synthetic_profile = format!(
-        "takeout::{}",
-        source.file_stem().and_then(|name| name.to_str()).unwrap_or("archive")
-    );
+    let synthetic_profile = "takeout::browser-history".to_string();
 
     let mut archive = open_archive_connection(paths, config, key)?;
     create_schema(&archive)?;
@@ -338,8 +335,8 @@ fn import_supported_payload(
     for record in records {
         let inserted = archive.execute(
             "INSERT OR IGNORE INTO visit_events
-             (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, payload_hash, recorded_at, import_batch_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10)",
+             (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at, import_batch_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
             params![
                 profile_id,
                 record.source_visit_id,
@@ -348,6 +345,14 @@ fn import_supported_payload(
                 record.title,
                 record.visit_time,
                 record.source_path,
+                visit_event_fingerprint(
+                    "takeout",
+                    &record.url,
+                    record.visit_time,
+                    record.title.as_deref(),
+                    None,
+                    Some("takeout"),
+                ),
                 record.payload_hash,
                 now_rfc3339(),
                 batch_id
@@ -470,7 +475,7 @@ fn upsert_takeout_profile(
            updated_at = excluded.updated_at",
         params![
             profile_id,
-            format!("Takeout import {}", source.display()),
+            "Imported browser history".to_string(),
             source.display().to_string(),
             now_rfc3339()
         ],
@@ -847,20 +852,23 @@ mod tests {
         }
     }
 
-    fn write_takeout_fixture(dir: &Path) -> PathBuf {
-        let source_dir = dir.join("takeout-source");
+    fn write_takeout_fixture_with_name(dir: &Path, name: &str, lines: &[&str]) -> PathBuf {
+        let source_dir = dir.join(name);
         fs::create_dir_all(&source_dir).expect("create takeout source dir");
         let source = source_dir.join("takeout.jsonl");
-        fs::write(
-            &source,
-            [
+        fs::write(&source, lines.join("\n")).expect("write takeout fixture");
+        source_dir
+    }
+
+    fn write_takeout_fixture(dir: &Path) -> PathBuf {
+        write_takeout_fixture_with_name(
+            dir,
+            "takeout-source",
+            &[
                 r#"{"url":"https://example.com/one","title":"One","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
                 r#"{"url":"https://example.com/two","title":"Two","visitedAt":"2026-04-01T11:00:00+00:00"}"#,
-            ]
-            .join("\n"),
+            ],
         )
-        .expect("write takeout fixture");
-        source_dir
     }
 
     #[test]
@@ -910,6 +918,56 @@ mod tests {
         assert_eq!(reverted.batch.status, "reverted");
         assert_eq!(reverted.batch.visible_items, 0);
         assert!(reverted.notes.iter().any(|note| note.contains("Removed 2 live history rows")));
+    }
+
+    #[test]
+    fn import_takeout_deduplicates_matching_history_from_different_files() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = initialized_plaintext_config();
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        let source_a = write_takeout_fixture_with_name(
+            dir.path(),
+            "takeout-a",
+            &[
+                r#"{"url":"https://example.com/one","title":"One","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+            ],
+        );
+        let source_b = write_takeout_fixture_with_name(
+            dir.path(),
+            "takeout-b",
+            &[
+                r#"{"url":"https://example.com/one","title":"One","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+            ],
+        );
+
+        let first = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source_a.display().to_string(), dry_run: false },
+        )
+        .expect("first import");
+        let second = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source_b.display().to_string(), dry_run: false },
+        )
+        .expect("second import");
+
+        assert_eq!(first.imported_items, 1);
+        assert_eq!(first.duplicate_items, 0);
+        assert_eq!(second.imported_items, 0);
+        assert_eq!(second.duplicate_items, 1);
+
+        let history = crate::archive::list_history(&paths, &config, None, Default::default())
+            .expect("history");
+        assert_eq!(history.total, 1);
     }
 
     #[test]

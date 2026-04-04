@@ -20,10 +20,12 @@ import {
   storeDatabaseKeyStronghold,
 } from './lib/stronghold'
 import type {
+  ApplyResult,
   AppConfig,
   AppSnapshot,
   ArchiveMode,
   BackupReport,
+  BrowserProfile,
   ExportFormat,
   HealthReport,
   HistoryQueryResponse,
@@ -71,6 +73,8 @@ function App() {
   const [draftConfig, setDraftConfig] = useState<AppConfig | null>(null)
   const [history, setHistory] = useState<HistoryQueryResponse | null>(null)
   const [schedulePlan, setSchedulePlan] = useState<SchedulePlan | null>(null)
+  const [scheduleApplyResult, setScheduleApplyResult] =
+    useState<ApplyResult | null>(null)
   const [doctorReport, setDoctorReport] = useState<HealthReport | null>(null)
   const [takeoutInspection, setTakeoutInspection] =
     useState<TakeoutInspection | null>(null)
@@ -107,6 +111,9 @@ function App() {
   const [takeoutPath, setTakeoutPath] = useState('')
   const [s3AccessKeyId, setS3AccessKeyId] = useState('')
   const [s3SecretAccessKey, setS3SecretAccessKey] = useState('')
+  const [workflowChecks, setWorkflowChecks] = useState<Record<string, boolean>>(
+    {},
+  )
   const deferredSearch = useDeferredValue(historySearchInput)
 
   const resolvedLanguage = resolveLanguage(
@@ -551,6 +558,7 @@ function App() {
     await runTask(t('previewSchedule'), async () => {
       const plan = await backend.previewSchedule(schedulePlatform)
       setSchedulePlan(plan)
+      setScheduleApplyResult(null)
       setLocalizedNotice(t('schedulePreviewReady'))
     })
   }
@@ -563,8 +571,9 @@ function App() {
 
     await runTask(t('applyPreview'), async () => {
       const result = await backend.applySchedule(schedulePlan)
-      setLocalizedNotice(result.message)
+      setScheduleApplyResult(result)
       await reloadSnapshot()
+      setLocalizedNotice(result.message)
     })
   }
 
@@ -728,7 +737,7 @@ function App() {
       return
     }
 
-    const allIds = snapshot.chromeProfiles
+    const allIds = snapshot.browserProfiles
       .filter((profile) => profile.historyExists)
       .map((profile) => profile.profileId)
     const selectedIds =
@@ -752,6 +761,59 @@ function App() {
     return (
       draftConfig.selectedProfileIds.length === 0 ||
       draftConfig.selectedProfileIds.includes(profileId)
+    )
+  }
+
+  function toggleWorkflowCheck(id: string) {
+    setWorkflowChecks((current) => ({
+      ...current,
+      [id]: !current[id],
+    }))
+  }
+
+  function workflowChecked(id: string) {
+    return Boolean(workflowChecks[id])
+  }
+
+  function browserGlyph(profile: BrowserProfile) {
+    switch (profile.browserFamily) {
+      case 'firefox':
+        return 'local_fire_department'
+      case 'safari':
+        return 'travel_explore'
+      default:
+        return 'language'
+    }
+  }
+
+  function selectedProfileCount() {
+    if (!snapshot) {
+      return 0
+    }
+    return snapshot.browserProfiles.filter(
+      (profile) =>
+        profile.historyExists && isProfileSelected(profile.profileId),
+    ).length
+  }
+
+  function selectedProfilePaths() {
+    return (
+      snapshot?.browserProfiles
+        .filter((profile) => isProfileSelected(profile.profileId))
+        .map((profile) => profile.historyPath ?? profile.profilePath) ?? []
+    )
+  }
+
+  function selectedProfileCommands() {
+    const stagingDir = snapshot?.directories.stagingDir ?? '/tmp'
+    return (
+      snapshot?.browserProfiles
+        .filter((profile) => isProfileSelected(profile.profileId))
+        .slice(0, 3)
+        .map((profile) => {
+          const source = profile.historyPath ?? profile.profilePath
+          return `cp '${source}' '${stagingDir}/${profile.profileId.replaceAll(':', '-')}-${profile.historyFileName}'`
+        }) ?? []
     )
   }
 
@@ -798,13 +860,243 @@ function App() {
         t('localOnly'),
         snapshot.archiveStatus.encrypted ? t('encrypted') : t('plaintext'),
         snapshot.archiveStatus.unlocked ? t('unlocked') : t('locked'),
-        t('profilesDetected', { count: snapshot.chromeProfiles.length }),
+        t('profilesDetected', { count: snapshot.browserProfiles.length }),
         t('dueEveryHours', { hours: draftConfig?.dueAfterHours ?? 72 }),
       ]
     : []
   const importSummary = currentImportSummary()
 
   const activeMeta = viewMeta[activeView]
+  const selectedProfilesTotal = selectedProfileCount()
+  const sourceFilePreview = selectedProfilePaths()
+  const sourceManualCommands = selectedProfileCommands()
+  const schedulePreviewReady = schedulePlan != null
+  const scheduleVerified =
+    Boolean(scheduleApplyResult?.applied) || workflowChecked('schedule-verify')
+  const scheduleWorkflowSteps: WorkflowStep[] = [
+    {
+      id: 'schedule-preview',
+      title: t('reviewPlan'),
+      status: schedulePreviewReady ? 'complete' : 'pending',
+      summary: schedulePlan
+        ? schedulePlan.label
+        : t('generateSchedulePreviewFirst'),
+      reason: t('scheduleDescription'),
+      files:
+        schedulePlan?.generatedFiles.map(
+          (file) => file.absolutePath ?? file.relativePath,
+        ) ?? [],
+      commands:
+        schedulePlan?.applyCommands.map((command) => command.join(' ')) ?? [],
+      actions: (
+        <button
+          className="secondaryButton"
+          type="button"
+          onClick={handlePreviewSchedule}
+        >
+          {t('previewSchedule')}
+        </button>
+      ),
+    },
+    {
+      id: 'schedule-manual',
+      title: t('manualPathTitle'),
+      status: workflowChecked('schedule-manual') ? 'complete' : 'pending',
+      summary: t('manualPathSummary'),
+      reason: t('manualPathReason'),
+      checklist: schedulePlan?.manualSteps ?? [],
+      commands:
+        schedulePlan?.generatedFiles.map(
+          (file) => `cat <<'EOF' > ${file.relativePath}\n${file.contents}\nEOF`,
+        ) ?? [],
+      actions: (
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={() => toggleWorkflowCheck('schedule-manual')}
+        >
+          {workflowChecked('schedule-manual')
+            ? t('stepCompleted')
+            : t('markStepComplete')}
+        </button>
+      ),
+    },
+    {
+      id: 'schedule-apply',
+      title: t('applyChanges'),
+      status: scheduleApplyResult?.applied ? 'complete' : 'pending',
+      summary: scheduleApplyResult?.message ?? t('applyChangesSummary'),
+      reason: t('applyChangesReason'),
+      files: scheduleApplyResult?.files ?? [],
+      actions: (
+        <button
+          className="primaryButton"
+          type="button"
+          disabled={!schedulePlan}
+          onClick={handleApplySchedule}
+        >
+          {t('applyPreview')}
+        </button>
+      ),
+    },
+    {
+      id: 'schedule-verify',
+      title: t('verifyOutcome'),
+      status: scheduleVerified ? 'complete' : 'pending',
+      summary: scheduleApplyResult?.auditPath ?? t('verifyOutcomeSummary'),
+      reason: t('verifyOutcomeReason'),
+      checklist:
+        schedulePlan?.rollbackCommands.map((command) => command.join(' ')) ??
+        [],
+      actions: (
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={() => toggleWorkflowCheck('schedule-verify')}
+        >
+          {workflowChecked('schedule-verify')
+            ? t('stepCompleted')
+            : t('markStepComplete')}
+        </button>
+      ),
+    },
+    {
+      id: 'schedule-finish',
+      title: t('finishStep'),
+      status: workflowChecked('schedule-finish') ? 'complete' : 'pending',
+      summary:
+        scheduleApplyResult?.auditPath ??
+        schedulePlan?.generatedFiles[0]?.absolutePath ??
+        t('finishSummary'),
+      reason: t('finishReason'),
+      files: scheduleApplyResult?.files ?? [],
+      actions: (
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={() => toggleWorkflowCheck('schedule-finish')}
+        >
+          {workflowChecked('schedule-finish')
+            ? t('stepCompleted')
+            : t('markStepComplete')}
+        </button>
+      ),
+    },
+  ]
+  const importManualCommands = takeoutPath
+    ? takeoutPath.endsWith('.zip')
+      ? [`unzip -l '${takeoutPath}' | head -n 60`]
+      : [`find '${takeoutPath}' -maxdepth 4 -type f | sort | head -n 80`]
+    : []
+  const importPreviewReady = takeoutInspection != null
+  const importApplied = Boolean(takeoutInspection?.importBatch)
+  const importVerified =
+    importBatchDetail != null || workflowChecked('import-verify')
+  const importWorkflowSteps: WorkflowStep[] = [
+    {
+      id: 'import-preview',
+      title: t('reviewPlan'),
+      status: importPreviewReady ? 'complete' : 'pending',
+      summary: takeoutInspection
+        ? t('previewBatchReady')
+        : t('noTakeoutInspection'),
+      reason: t('previewBeforeImport'),
+      files: takeoutInspection?.recognizedFiles.map((file) => file.path) ?? [],
+      actions: (
+        <button
+          className="secondaryButton"
+          type="button"
+          onClick={() => handleTakeout(true)}
+        >
+          {t('dryRun')}
+        </button>
+      ),
+    },
+    {
+      id: 'import-inspect',
+      title: t('sourcePreview'),
+      status: importPreviewReady ? 'complete' : 'pending',
+      summary: takeoutInspection
+        ? `${takeoutInspection.recognizedFiles.length} ${t('recognizedFiles')}`
+        : t('noTakeoutInspection'),
+      reason: t('previewBeforeImport'),
+      files: [
+        ...(takeoutInspection?.recognizedFiles.map((file) => file.path) ?? []),
+        ...(takeoutInspection?.quarantinedFiles.map((file) => file.path) ?? []),
+      ],
+    },
+    {
+      id: 'import-manual',
+      title: t('manualPathTitle'),
+      status: workflowChecked('import-manual') ? 'complete' : 'pending',
+      summary: t('manualImportSummary'),
+      reason: t('manualImportReason'),
+      commands: importManualCommands,
+      checklist: [
+        t('manualLocateStep'),
+        t('manualInspectStep'),
+        t('manualContinueStep'),
+      ],
+      actions: (
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={() => toggleWorkflowCheck('import-manual')}
+        >
+          {workflowChecked('import-manual')
+            ? t('stepCompleted')
+            : t('markStepComplete')}
+        </button>
+      ),
+    },
+    {
+      id: 'import-apply',
+      title: t('applyChanges'),
+      status: importApplied ? 'complete' : 'pending',
+      summary: takeoutInspection?.importBatch
+        ? t('takeoutImportNotice', { count: takeoutInspection.importedItems })
+        : t('applyChangesSummary'),
+      reason: t('applyImportReason'),
+      actions: (
+        <button
+          className="primaryButton"
+          type="button"
+          onClick={() => handleTakeout(false)}
+        >
+          {t('importSupported')}
+        </button>
+      ),
+    },
+    {
+      id: 'import-verify',
+      title: t('finishStep'),
+      status: workflowChecked('import-finish') ? 'complete' : 'pending',
+      summary:
+        importBatchDetail?.batch.auditPath ??
+        takeoutInspection?.importBatch?.auditPath ??
+        t('finishSummary'),
+      reason: importVerified ? t('finishReason') : t('verifyImportReason'),
+      files: [
+        ...(importBatchDetail?.recognizedFiles.map((file) => file.path) ?? []),
+        ...(importBatchDetail?.quarantinedFiles.map((file) => file.path) ?? []),
+      ],
+      actions: (
+        <button
+          className="ghostButton"
+          type="button"
+          onClick={() =>
+            toggleWorkflowCheck(
+              importVerified ? 'import-finish' : 'import-verify',
+            )
+          }
+        >
+          {workflowChecked(importVerified ? 'import-finish' : 'import-verify')
+            ? t('stepCompleted')
+            : t('markStepComplete')}
+        </button>
+      ),
+    },
+  ]
 
   let mainContent: ReactNode
   let inspectorContent: ReactNode
@@ -817,16 +1109,42 @@ function App() {
           title={t('sourcesDescription')}
           icon="account_tree"
         >
+          <div className="selectionSummaryBar">
+            <InfoStat
+              label={t('profilesDetected', {
+                count: snapshot?.browserProfiles.length ?? 0,
+              })}
+              value={String(snapshot?.browserProfiles.length ?? 0)}
+            />
+            <InfoStat
+              label={t('selectedProfilesSummary')}
+              value={String(selectedProfilesTotal)}
+            />
+          </div>
           <div className="profileList">
-            {snapshot?.chromeProfiles.map((profile) => (
-              <button
+            {snapshot?.browserProfiles.map((profile) => (
+              <label
                 key={profile.profileId}
-                className={`profileRow ${isProfileSelected(profile.profileId) ? 'selected' : ''}`}
-                type="button"
-                onClick={() => toggleProfile(profile.profileId)}
+                className={`profileRow ${isProfileSelected(profile.profileId) ? 'selected' : ''} ${!profile.historyExists ? 'disabled' : ''}`}
               >
+                <input
+                  checked={isProfileSelected(profile.profileId)}
+                  className="profileCheckbox"
+                  disabled={!profile.historyExists}
+                  type="checkbox"
+                  onChange={() => toggleProfile(profile.profileId)}
+                />
+                <span className="profileCheckboxVisual" aria-hidden="true">
+                  <Glyph filled icon="check" />
+                </span>
+                <span className="profileBrowserMark" aria-hidden="true">
+                  <Glyph icon={browserGlyph(profile)} />
+                </span>
                 <div className="profileIdentity">
-                  <span className="profileName">{profile.profileName}</span>
+                  <div className="profileNameStack">
+                    <span className="profileName">{profile.profileName}</span>
+                    <span className="browserPill">{profile.browserName}</span>
+                  </div>
                   <span className="profileId">{profile.profileId}</span>
                 </div>
                 <div className="profileMeta">
@@ -837,10 +1155,13 @@ function App() {
                       : t('historyMissing')}
                   </span>
                   <span>
-                    {profile.chromeVersion ?? t('unknownChromeVersion')}
+                    {profile.browserVersion ?? t('unknownBrowserVersion')}
                   </span>
                 </div>
-              </button>
+                <p className="profilePathText">
+                  {profile.historyPath ?? profile.profilePath}
+                </p>
+              </label>
             ))}
           </div>
         </Surface>
@@ -995,39 +1316,22 @@ function App() {
           </div>
 
           {schedulePlan ? (
-            <div className="splitBody">
-              <div className="surfaceInset">
-                <h3>{t('manualSteps')}</h3>
-                <ol className="stepList">
-                  {schedulePlan.manualSteps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-              </div>
-              <div className="surfaceInset">
-                <h3>{t('generatedFiles')}</h3>
-                <div className="generatedList">
-                  {schedulePlan.generatedFiles.map((file) => (
-                    <article className="codeArtifact" key={file.relativePath}>
-                      <div className="artifactHeader">
-                        <div>
-                          <strong>{file.relativePath}</strong>
-                          <p>{file.purpose}</p>
-                        </div>
-                        <button
-                          className="ghostButton"
-                          type="button"
-                          onClick={() => void copyText(file.contents)}
-                        >
-                          {t('previewCommand')}
-                        </button>
-                      </div>
-                      <pre>{file.contents}</pre>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <OperationWorkflow
+              actionLabel={t('automaticPath')}
+              labels={{
+                why: t('whyThisStepMatters'),
+                files: t('dataFilesRead'),
+                commands: t('previewCommand'),
+                checklist: t('manualSteps'),
+                copy: t('previewCommand'),
+                current: t('currentStep'),
+                complete: t('stepCompleted'),
+                pending: t('pending'),
+              }}
+              language={resolvedLanguage}
+              onCopy={copyText}
+              steps={scheduleWorkflowSteps}
+            />
           ) : (
             <EmptyState>{t('noSchedulePreview')}</EmptyState>
           )}
@@ -1042,6 +1346,48 @@ function App() {
           title={t('reviewDescription')}
           icon="warning"
         >
+          <div className="subsection">
+            <h3>{t('whyThisStepMatters')}</h3>
+            <p>{t('profileSelectionReason')}</p>
+          </div>
+          <div className="subsection">
+            <h3>{t('dataFilesRead')}</h3>
+            <div className="artifactList">
+              {sourceFilePreview.length ? (
+                sourceFilePreview.map((path) => (
+                  <article className="artifactCard compactCard" key={path}>
+                    <strong>{path}</strong>
+                  </article>
+                ))
+              ) : (
+                <EmptyState>{t('noFilesSelectedYet')}</EmptyState>
+              )}
+            </div>
+          </div>
+          <div className="subsection">
+            <h3>{t('manualAlternative')}</h3>
+            <div className="generatedList">
+              {sourceManualCommands.length ? (
+                sourceManualCommands.map((command) => (
+                  <article className="codeArtifact" key={command}>
+                    <div className="artifactHeader">
+                      <strong>{t('previewCommand')}</strong>
+                      <button
+                        className="ghostButton"
+                        type="button"
+                        onClick={() => void copyText(command)}
+                      >
+                        {t('previewCommand')}
+                      </button>
+                    </div>
+                    <pre>{command}</pre>
+                  </article>
+                ))
+              ) : (
+                <EmptyState>{t('noFilesSelectedYet')}</EmptyState>
+              )}
+            </div>
+          </div>
           <dl className="dataList">
             <DataRow
               label={t('storagePath')}
@@ -1125,7 +1471,7 @@ function App() {
                   onChange={(event) => setHistoryProfile(event.target.value)}
                 >
                   <option value="">{t('allProfiles')}</option>
-                  {snapshot?.chromeProfiles.map((profile) => (
+                  {snapshot?.browserProfiles.map((profile) => (
                     <option key={profile.profileId} value={profile.profileId}>
                       {profile.profileName}
                     </option>
@@ -1503,6 +1849,29 @@ function App() {
               />
             </div>
           ) : null}
+        </Surface>
+
+        <Surface
+          eyebrow={t('workflowGuide')}
+          title={t('importWorkflowTitle')}
+          icon="route"
+        >
+          <OperationWorkflow
+            actionLabel={t('automaticPath')}
+            labels={{
+              why: t('whyThisStepMatters'),
+              files: t('dataFilesRead'),
+              commands: t('previewCommand'),
+              checklist: t('manualSteps'),
+              copy: t('previewCommand'),
+              current: t('currentStep'),
+              complete: t('stepCompleted'),
+              pending: t('pending'),
+            }}
+            language={resolvedLanguage}
+            onCopy={copyText}
+            steps={importWorkflowSteps}
+          />
         </Surface>
 
         {takeoutInspection ? (
@@ -2379,6 +2748,147 @@ function InfoStat({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
+type WorkflowStep = {
+  id: string
+  title: string
+  status: 'pending' | 'complete'
+  summary: string
+  reason: string
+  files?: string[]
+  commands?: string[]
+  checklist?: string[]
+  actions?: ReactNode
+}
+
+function OperationWorkflow({
+  actionLabel,
+  labels,
+  language,
+  onCopy,
+  steps,
+}: {
+  actionLabel: string
+  labels: {
+    why: string
+    files: string
+    commands: string
+    checklist: string
+    copy: string
+    current: string
+    complete: string
+    pending: string
+  }
+  language: ResolvedLanguage
+  onCopy: (value: string) => Promise<void>
+  steps: WorkflowStep[]
+}) {
+  const currentIndex = steps.findIndex((step) => step.status !== 'complete')
+
+  return (
+    <ol className="workflowList" aria-label={actionLabel}>
+      {steps.map((step, index) => {
+        const displayStatus =
+          step.status === 'complete'
+            ? 'complete'
+            : currentIndex === index
+              ? 'current'
+              : 'pending'
+
+        return (
+          <li className={`workflowStep ${displayStatus}`} key={step.id}>
+            <div className="workflowMarker">
+              <span>{index + 1}</span>
+            </div>
+            <div className="workflowCard">
+              <div className="workflowHeader">
+                <div>
+                  <p className="sectionEyebrow">
+                    {displayStatus === 'complete'
+                      ? labels.complete
+                      : displayStatus === 'current'
+                        ? labels.current
+                        : labels.pending}
+                  </p>
+                  <h3>{step.title}</h3>
+                </div>
+                <StatusTag
+                  tone={
+                    displayStatus === 'complete'
+                      ? 'success'
+                      : displayStatus === 'current'
+                        ? 'info'
+                        : 'neutral'
+                  }
+                >
+                  {displayStatus === 'complete'
+                    ? labels.complete
+                    : displayStatus === 'current'
+                      ? labels.current
+                      : labels.pending}
+                </StatusTag>
+              </div>
+              <p className="workflowSummary">{step.summary}</p>
+              <div className="workflowSection">
+                <strong>{labels.why}</strong>
+                <p>{step.reason}</p>
+              </div>
+              {step.files?.length ? (
+                <div className="workflowSection">
+                  <strong>{labels.files}</strong>
+                  <div className="artifactList">
+                    {step.files.map((file) => (
+                      <article className="artifactCard compactCard" key={file}>
+                        <strong>{file}</strong>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {step.commands?.length ? (
+                <div className="workflowSection">
+                  <strong>{labels.commands}</strong>
+                  <div className="generatedList">
+                    {step.commands.map((command) => (
+                      <article className="codeArtifact" key={command}>
+                        <div className="artifactHeader">
+                          <strong>
+                            {formatDateTime(new Date().toISOString(), language)}
+                          </strong>
+                          <button
+                            className="ghostButton"
+                            type="button"
+                            onClick={() => void onCopy(command)}
+                          >
+                            {labels.copy}
+                          </button>
+                        </div>
+                        <pre>{command}</pre>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {step.checklist?.length ? (
+                <div className="workflowSection">
+                  <strong>{labels.checklist}</strong>
+                  <ol className="stepList">
+                    {step.checklist.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+              {step.actions ? (
+                <div className="workflowActions">{step.actions}</div>
+              ) : null}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 function PreviewEntryList({
   entries,
   language,
@@ -2414,7 +2924,7 @@ function StatusTag({
   tone,
   children,
 }: {
-  tone: 'info' | 'success' | 'danger'
+  tone: 'info' | 'success' | 'danger' | 'neutral'
   children: ReactNode
 }) {
   return <span className={`statusTag ${tone}`}>{children}</span>

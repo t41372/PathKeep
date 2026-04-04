@@ -31,7 +31,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let paths = project_paths()?;
     let mut config = load_config(&paths)?;
     hydrate_derived_config_state(&mut config);
-    let chrome_profiles = vault_core::discover_profiles()?;
+    let browser_profiles = vault_core::discover_profiles()?;
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
     let recent_import_batches =
@@ -55,7 +55,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         config,
         archive_status,
         keyring_status: keyring_status(),
-        chrome_profiles,
+        browser_profiles,
         recent_runs,
         recent_import_batches,
     })
@@ -304,7 +304,7 @@ mod tests {
             git_enabled: false,
             due_after_hours: 72,
             checkpoint_days: 1,
-            selected_profile_ids: vec!["Default".to_string()],
+            selected_profile_ids: vec!["chrome:Default".to_string()],
             ..AppConfig::default()
         }
     }
@@ -412,8 +412,8 @@ mod tests {
         let config = initialized_config();
         let snapshot = initialize_archive_database(&config, None).expect("initialize archive");
         assert!(snapshot.archive_status.initialized);
-        assert_eq!(snapshot.chrome_profiles.len(), 1);
-        assert_eq!(snapshot.chrome_profiles[0].profile_id, "Default");
+        assert_eq!(snapshot.browser_profiles.len(), 1);
+        assert_eq!(snapshot.browser_profiles[0].profile_id, "chrome:Default");
 
         let backup_json = run_worker_cli(&["backup".to_string()]).expect("backup json");
         let backup: vault_core::BackupReport =

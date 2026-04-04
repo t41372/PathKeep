@@ -17,6 +17,7 @@ src-tauri/target
 test-results
 var
 *.local
+reference
 
 # Editor directories and files
 .vscode/*

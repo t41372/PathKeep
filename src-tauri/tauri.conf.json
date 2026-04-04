@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Chrome History Backup",
+  "productName": "Browser History Backup",
   "version": "0.1.0",
-  "identifier": "dev.codex.chrome-history-vault",
+  "identifier": "dev.codex.browser-history-backup",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "chrome history backup",
+        "title": "browser history backup",
         "width": 1480,
         "height": 960,
         "minWidth": 1080,

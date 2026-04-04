@@ -4,7 +4,7 @@ export type ResolvedLanguage = 'en' | 'zh-CN' | 'zh-TW'
 
 // Stryker disable all: translation tables are static content; mutation focus should stay on the i18n logic below.
 const english = {
-  productName: 'chrome history backup',
+  productName: 'browser history backup',
   localOnly: 'Local only',
   encrypted: 'Encrypted',
   plaintext: 'Plaintext',
@@ -62,7 +62,7 @@ const english = {
     'Work through the source, storage, schedule, and review steps. Every system action still exposes Preview, Manual, and Apply paths.',
   sourcesStep: '1. Sources',
   sourcesDescription:
-    'Choose which Chrome profiles should be included in backups.',
+    'Choose which browser profiles should be included in backups.',
   archiveStep: '2. Archive',
   archiveDescription:
     'Set retention cadence and archive behavior before you initialize or save changes.',
@@ -103,7 +103,55 @@ const english = {
   historyDetected: 'History database detected',
   historyMissing: 'History database not found',
   noSignedInUser: 'No signed-in user metadata',
-  unknownChromeVersion: 'Unknown Chrome version',
+  unknownBrowserVersion: 'Version unavailable',
+  selectedProfilesSummary: 'Selected profiles',
+  workflowGuide: 'Workflow guide',
+  importWorkflowTitle: 'Review every import step before it changes the archive',
+  reviewPlan: 'Review plan',
+  manualPathTitle: 'Manual path',
+  manualPathSummary:
+    'Use the same workflow yourself. Every command is visible and copyable.',
+  manualPathReason:
+    'Manual mode lets you inspect each action before the app performs it automatically.',
+  applyChanges: 'Apply changes',
+  applyChangesSummary:
+    'Run the prepared operation from the app when you are satisfied.',
+  applyChangesReason:
+    'Automatic mode still follows the same plan. It just executes the reviewed steps for you.',
+  verifyOutcome: 'Verify outcome',
+  verifyOutcomeSummary:
+    'Confirm the result, inspect the audit output, and keep the rollback path nearby.',
+  verifyOutcomeReason:
+    'Verification reduces surprise and makes it obvious whether the system changed what you expected.',
+  finishStep: 'Finish',
+  finishSummary:
+    'Close the workflow only after the audit path, rollback instructions, and visible results all look right.',
+  finishReason:
+    'A short finish checkpoint makes later audits and dirty-import recovery much easier.',
+  automaticPath: 'Why this step matters',
+  currentStep: 'Current',
+  markStepComplete: 'Mark complete',
+  stepCompleted: 'Completed',
+  manualImportSummary:
+    'You can inspect the Takeout archive yourself before any rows are imported.',
+  manualImportReason:
+    'Manual inspection helps you verify privacy impact, recognized files, and archive scope.',
+  manualLocateStep: 'Locate the Takeout archive or extracted folder.',
+  manualInspectStep:
+    'Inspect the files and compare them against the recognized list.',
+  manualContinueStep:
+    'Return here and continue only when the preview looks correct.',
+  applyImportReason:
+    'Import only the recognized history records. Unsupported files stay quarantined and reviewable.',
+  verifyImportReason:
+    'After import, inspect the batch, preview rows, duplicates, and rollback controls.',
+  whyThisStepMatters: 'Why this step matters',
+  profileSelectionReason:
+    'The app reads local browser history databases, stages a safe copy, and then ingests from that copy so your live browser data is never modified.',
+  dataFilesRead: 'Data files we read',
+  noFilesSelectedYet:
+    'Select at least one browser profile to see the paths and manual commands.',
+  manualAlternative: 'Manual alternative',
   explorerTitle: 'History explorer',
   explorerDescription:
     'Search the long-term archive, narrow by domain or profile, and export the current view when needed.',
@@ -272,7 +320,7 @@ type TranslationDictionary = Record<TranslationKey, string>
 const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
   en: english,
   'zh-CN': {
-    productName: 'chrome history backup',
+    productName: 'browser history backup',
     localOnly: '仅本地',
     encrypted: '已加密',
     plaintext: '明文',
@@ -317,7 +365,7 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     setupDescription:
       '依次完成来源、存储、定时和复核步骤。每个系统动作都保留 Preview、Manual 和 Apply 路径。',
     sourcesStep: '1. 来源',
-    sourcesDescription: '选择哪些 Chrome 配置文件应包含在备份中。',
+    sourcesDescription: '选择哪些浏览器配置文件应包含在备份中。',
     archiveStep: '2. 归档',
     archiveDescription: '在初始化或保存前，设置保留节奏与归档行为。',
     scheduleStep: '3. 原生定时任务',
@@ -353,7 +401,45 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     historyDetected: '已检测到历史数据库',
     historyMissing: '未找到历史数据库',
     noSignedInUser: '没有登录用户元数据',
-    unknownChromeVersion: 'Chrome 版本未知',
+    unknownBrowserVersion: '版本不可用',
+    selectedProfilesSummary: '已选配置文件',
+    workflowGuide: '流程指引',
+    importWorkflowTitle: '在变更归档前逐步检查每个导入步骤',
+    reviewPlan: '审查计划',
+    manualPathTitle: '手动路径',
+    manualPathSummary: '你可以自己完成同样的流程。每条命令都能看到并复制。',
+    manualPathReason: '手动模式让你在应用自动执行前先检查每一步。',
+    applyChanges: '应用变更',
+    applyChangesSummary: '当你确认无误后，再由应用执行已准备好的操作。',
+    applyChangesReason:
+      '自动模式仍然遵循同一份计划，只是把已审查的步骤替你执行。',
+    verifyOutcome: '验证结果',
+    verifyOutcomeSummary: '确认结果、检查审计输出，并把回滚路径放在手边。',
+    verifyOutcomeReason:
+      '验证步骤可以减少意外，并清楚说明系统是否按预期发生了变化。',
+    finishStep: '完成',
+    finishSummary:
+      '只有在审计路径、回滚说明和可见结果都正确时，才结束这个流程。',
+    finishReason: '最后的收尾检查能让后续审计与脏数据回滚更容易。',
+    automaticPath: '为什么需要这一步',
+    currentStep: '当前',
+    markStepComplete: '标记为已完成',
+    stepCompleted: '已完成',
+    manualImportSummary: '在导入任何记录前，你可以先自己检查 Takeout 档案。',
+    manualImportReason: '手动检查有助于确认隐私影响、已识别文件和归档范围。',
+    manualLocateStep: '定位 Takeout 压缩包或解压后的文件夹。',
+    manualInspectStep: '检查文件内容，并与已识别列表逐项对照。',
+    manualContinueStep: '只有在预览看起来正确后，再回来继续下一步。',
+    applyImportReason:
+      '只导入已识别的历史记录，未支持的文件会保持隔离并可继续检查。',
+    verifyImportReason: '导入后检查批次、预览行、重复项以及回滚控制。',
+    whyThisStepMatters: '为什么需要这一步',
+    profileSelectionReason:
+      '应用只会读取本地浏览器历史数据库，先生成安全的暂存副本，再从副本导入，因此不会修改正在使用的浏览器数据。',
+    dataFilesRead: '将读取的数据文件',
+    noFilesSelectedYet:
+      '请至少选择一个浏览器配置文件，才能查看路径和手动命令。',
+    manualAlternative: '手动替代方案',
     explorerTitle: '历史记录浏览器',
     explorerDescription:
       '搜索长期归档，按域名或配置文件筛选，并在需要时导出当前视图。',
@@ -506,7 +592,7 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     no: '否',
   },
   'zh-TW': {
-    productName: 'chrome history backup',
+    productName: 'browser history backup',
     localOnly: '僅本地',
     encrypted: '已加密',
     plaintext: '明文',
@@ -553,7 +639,7 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     setupDescription:
       '依序完成來源、儲存、排程與複核步驟。每個系統動作都保留 Preview、Manual 和 Apply 路徑。',
     sourcesStep: '1. 來源',
-    sourcesDescription: '選擇哪些 Chrome 設定檔要納入備份。',
+    sourcesDescription: '選擇哪些瀏覽器設定檔要納入備份。',
     archiveStep: '2. 封存',
     archiveDescription: '在初始化或儲存前，設定保留節奏與封存行為。',
     scheduleStep: '3. 原生排程',
@@ -589,7 +675,44 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     historyDetected: '已檢測到歷史資料庫',
     historyMissing: '未找到歷史資料庫',
     noSignedInUser: '沒有登入使用者中繼資料',
-    unknownChromeVersion: 'Chrome 版本未知',
+    unknownBrowserVersion: '版本不可用',
+    selectedProfilesSummary: '已選設定檔',
+    workflowGuide: '流程指引',
+    importWorkflowTitle: '在變更封存前逐步檢查每個匯入步驟',
+    reviewPlan: '審查計畫',
+    manualPathTitle: '手動路徑',
+    manualPathSummary: '你可以自己完成同樣的流程。每條命令都能看到並複製。',
+    manualPathReason: '手動模式讓你在應用自動執行前先檢查每一步。',
+    applyChanges: '套用變更',
+    applyChangesSummary: '當你確認無誤後，再由應用執行已準備好的操作。',
+    applyChangesReason:
+      '自動模式仍然遵循同一份計畫，只是把已審查的步驟替你執行。',
+    verifyOutcome: '驗證結果',
+    verifyOutcomeSummary: '確認結果、檢查審計輸出，並把回滾路徑放在手邊。',
+    verifyOutcomeReason:
+      '驗證步驟可以減少意外，並清楚說明系統是否按預期發生了變化。',
+    finishStep: '完成',
+    finishSummary:
+      '只有在審計路徑、回滾說明與可見結果都正確時，才結束這個流程。',
+    finishReason: '最後的收尾檢查能讓後續審計與髒資料回滾更容易。',
+    automaticPath: '為什麼需要這一步',
+    currentStep: '目前',
+    markStepComplete: '標記為已完成',
+    stepCompleted: '已完成',
+    manualImportSummary: '在匯入任何記錄前，你可以先自己檢查 Takeout 封存。',
+    manualImportReason: '手動檢查有助於確認隱私影響、已識別檔案和封存範圍。',
+    manualLocateStep: '定位 Takeout 壓縮檔或解壓後的資料夾。',
+    manualInspectStep: '檢查檔案內容，並與已識別清單逐項對照。',
+    manualContinueStep: '只有在預覽看起來正確後，再回來繼續下一步。',
+    applyImportReason:
+      '只匯入已識別的歷史記錄，未支援的檔案會保持隔離並可繼續檢查。',
+    verifyImportReason: '匯入後檢查批次、預覽列、重複項以及回滾控制。',
+    whyThisStepMatters: '為什麼需要這一步',
+    profileSelectionReason:
+      '應用只會讀取本地瀏覽器歷史資料庫，先生成安全的暫存副本，再從副本匯入，因此不會修改正在使用的瀏覽器資料。',
+    dataFilesRead: '將讀取的資料檔案',
+    noFilesSelectedYet: '請至少選擇一個瀏覽器設定檔，才能查看路徑與手動命令。',
+    manualAlternative: '手動替代方案',
     explorerTitle: '歷史紀錄瀏覽器',
     explorerDescription:
       '搜尋長期封存，按網域或設定檔篩選，並在需要時匯出目前視圖。',

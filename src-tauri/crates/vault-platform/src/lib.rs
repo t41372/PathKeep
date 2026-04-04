@@ -15,10 +15,12 @@ use vault_core::{
     models::{ApplyResult, GeneratedFile, KeyringStatusReport, S3CredentialInput, SchedulePlan},
 };
 
-const KEYRING_SERVICE: &str = "dev.codex.chrome-history-backup";
+const KEYRING_SERVICE: &str = "dev.codex.browser-history-backup";
+const LEGACY_KEYRING_SERVICES: [&str; 1] = ["dev.codex.chrome-history-backup"];
 const KEYRING_DATABASE_USER: &str = "database-key";
 const KEYRING_S3_USER: &str = "remote-s3";
-const MACOS_LABEL: &str = "dev.codex.chrome-history-backup.backup";
+const MACOS_LABEL: &str = "dev.codex.browser-history-backup.backup";
+const LEGACY_MACOS_LABEL: &str = "dev.codex.chrome-history-backup.backup";
 const TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +38,14 @@ pub fn current_platform_name() -> String {
     } else {
         "linux".to_string()
     }
+}
+
+fn keyring_entry(user: &str) -> Result<Entry> {
+    Ok(Entry::new(KEYRING_SERVICE, user)?)
+}
+
+fn legacy_keyring_entries(user: &str) -> Vec<Entry> {
+    LEGACY_KEYRING_SERVICES.iter().filter_map(|service| Entry::new(service, user).ok()).collect()
 }
 
 pub fn preview_schedule(
@@ -98,6 +108,9 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
     let plist_path =
         written_files.first().context("missing plist file for macOS schedule apply")?.clone();
 
+    let _ = Command::new("launchctl")
+        .args(["bootout", &format!("gui/{uid}"), LEGACY_MACOS_LABEL])
+        .status();
     let _ =
         Command::new("launchctl").args(["bootout", &format!("gui/{uid}"), MACOS_LABEL]).status();
     let bootstrap = Command::new("launchctl")
@@ -156,7 +169,7 @@ pub fn keyring_status() -> KeyringStatusReport {
 
     let available = use_native_store(cfg!(target_os = "linux")).is_ok();
     let stored_secret = if available {
-        match Entry::new(KEYRING_SERVICE, KEYRING_DATABASE_USER) {
+        match keyring_entry(KEYRING_DATABASE_USER) {
             Ok(entry) => entry.get_password().is_ok(),
             Err(_) => false,
         }
@@ -182,10 +195,17 @@ pub fn keyring_get_database_key() -> Result<Option<String>> {
     }
 
     use_native_store(cfg!(target_os = "linux")).ok();
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_DATABASE_USER)?;
+    let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
-        Err(_) => Ok(None),
+        Err(_) => {
+            for legacy_entry in legacy_keyring_entries(KEYRING_DATABASE_USER) {
+                if let Ok(value) = legacy_entry.get_password() {
+                    return Ok(Some(value));
+                }
+            }
+            Ok(None)
+        }
     }
 }
 
@@ -195,7 +215,7 @@ pub fn keyring_set_database_key(key: &str) -> Result<()> {
     }
 
     use_native_store(cfg!(target_os = "linux")).context("initializing keyring backend")?;
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_DATABASE_USER)?;
+    let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     entry.set_password(key)?;
     Ok(())
 }
@@ -206,8 +226,11 @@ pub fn keyring_clear_database_key() -> Result<()> {
     }
 
     use_native_store(cfg!(target_os = "linux")).ok();
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_DATABASE_USER)?;
+    let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     let _ = entry.delete_credential();
+    for legacy_entry in legacy_keyring_entries(KEYRING_DATABASE_USER) {
+        let _ = legacy_entry.delete_credential();
+    }
     Ok(())
 }
 
@@ -219,12 +242,22 @@ pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
     }
 
     use_native_store(cfg!(target_os = "linux")).ok();
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_S3_USER)?;
+    let entry = keyring_entry(KEYRING_S3_USER)?;
     match entry.get_password() {
         Ok(value) => {
             Ok(Some(serde_json::from_str(&value).context("parsing stored S3 credentials")?))
         }
-        Err(_) => Ok(None),
+        Err(_) => {
+            for legacy_entry in legacy_keyring_entries(KEYRING_S3_USER) {
+                if let Ok(value) = legacy_entry.get_password() {
+                    return Ok(Some(
+                        serde_json::from_str(&value)
+                            .context("parsing stored legacy S3 credentials")?,
+                    ));
+                }
+            }
+            Ok(None)
+        }
     }
 }
 
@@ -234,7 +267,7 @@ pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()>
     }
 
     use_native_store(cfg!(target_os = "linux")).context("initializing keyring backend")?;
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_S3_USER)?;
+    let entry = keyring_entry(KEYRING_S3_USER)?;
     entry.set_password(&serde_json::to_string(credentials)?)?;
     Ok(())
 }
@@ -245,8 +278,11 @@ pub fn keyring_clear_s3_credentials() -> Result<()> {
     }
 
     use_native_store(cfg!(target_os = "linux")).ok();
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_S3_USER)?;
+    let entry = keyring_entry(KEYRING_S3_USER)?;
     let _ = entry.delete_credential();
+    for legacy_entry in legacy_keyring_entries(KEYRING_S3_USER) {
+        let _ = legacy_entry.delete_credential();
+    }
     Ok(())
 }
 
@@ -298,13 +334,21 @@ fn macos_schedule_plan(
         }],
         manual_steps: vec![
             format!("Save the plist to ~/Library/LaunchAgents/{MACOS_LABEL}.plist."),
-            "Run `launchctl bootout gui/$(id -u) dev.codex.chrome-history-backup.backup` to unload an older copy.".to_string(),
+            format!(
+                "Run `launchctl bootout gui/$(id -u) {}` to unload an older Chrome History Backup schedule if one still exists.",
+                LEGACY_MACOS_LABEL
+            ),
             format!(
                 "Run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{MACOS_LABEL}.plist` to load the new schedule."
             ),
         ],
         apply_commands: vec![
-            vec!["launchctl".to_string(), "bootout".to_string(), "gui/$(id -u)".to_string(), MACOS_LABEL.to_string()],
+            vec![
+                "launchctl".to_string(),
+                "bootout".to_string(),
+                "gui/$(id -u)".to_string(),
+                MACOS_LABEL.to_string(),
+            ],
             vec![
                 "launchctl".to_string(),
                 "bootstrap".to_string(),
@@ -368,21 +412,21 @@ fn windows_schedule_plan(
         label: MACOS_LABEL.to_string(),
         executable_path: executable_path.display().to_string(),
         generated_files: vec![GeneratedFile {
-            relative_path: "windows/chrome-history-backup-task.xml".to_string(),
+                relative_path: "windows/browser-history-backup-task.xml".to_string(),
             absolute_path: None,
             purpose: "Import into Task Scheduler or register with schtasks.exe".to_string(),
             contents: xml,
         }],
         manual_steps: vec![
             "Save the XML file and import it in Task Scheduler.".to_string(),
-            "Alternatively run `schtasks /Create /TN ChromeHistoryBackup /XML chrome-history-backup-task.xml`.".to_string(),
+            "Alternatively run `schtasks /Create /TN BrowserHistoryBackup /XML browser-history-backup-task.xml`.".to_string(),
         ],
         apply_commands: Vec::new(),
         rollback_commands: vec![vec![
             "schtasks".to_string(),
             "/Delete".to_string(),
             "/TN".to_string(),
-            "ChromeHistoryBackup".to_string(),
+            "BrowserHistoryBackup".to_string(),
             "/F".to_string(),
         ]],
         apply_supported: false,
@@ -395,12 +439,12 @@ fn linux_schedule_plan(
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
     let service = format!(
-        "[Unit]\nDescription=Chrome History Backup backup worker\n\n[Service]\nType=oneshot\nExecStart={} {}\n",
+        "[Unit]\nDescription=Browser History Backup backup worker\n\n[Service]\nType=oneshot\nExecStart={} {}\n",
         executable_path.display(),
         worker_args[1..].join(" ")
     );
     let timer = format!(
-        "[Unit]\nDescription=Chrome History Backup periodic backup\n\n[Timer]\nOnBootSec=2m\nOnUnitActiveSec={}h\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
+        "[Unit]\nDescription=Browser History Backup periodic backup\n\n[Timer]\nOnBootSec=2m\nOnUnitActiveSec={}h\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
         params.check_interval_hours
     );
     Ok(SchedulePlan {
@@ -409,13 +453,13 @@ fn linux_schedule_plan(
         executable_path: executable_path.display().to_string(),
         generated_files: vec![
             GeneratedFile {
-                relative_path: "systemd/chrome-history-backup.service".to_string(),
+                relative_path: "systemd/browser-history-backup.service".to_string(),
                 absolute_path: None,
                 purpose: "User service entry for the worker mode".to_string(),
                 contents: service,
             },
             GeneratedFile {
-                relative_path: "systemd/chrome-history-backup.timer".to_string(),
+                relative_path: "systemd/browser-history-backup.timer".to_string(),
                 absolute_path: None,
                 purpose: format!(
                     "Persistent user timer that wakes every {} hours.",
@@ -427,7 +471,7 @@ fn linux_schedule_plan(
         manual_steps: vec![
             "Copy the files to ~/.config/systemd/user/.".to_string(),
             "Run `systemctl --user daemon-reload`.".to_string(),
-            "Run `systemctl --user enable --now chrome-history-backup.timer`.".to_string(),
+            "Run `systemctl --user enable --now browser-history-backup.timer`.".to_string(),
         ],
         apply_commands: Vec::new(),
         rollback_commands: vec![vec![
@@ -435,7 +479,7 @@ fn linux_schedule_plan(
             "--user".to_string(),
             "disable".to_string(),
             "--now".to_string(),
-            "chrome-history-backup.timer".to_string(),
+            "browser-history-backup.timer".to_string(),
         ]],
         apply_supported: false,
     })

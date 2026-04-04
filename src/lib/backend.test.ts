@@ -21,7 +21,7 @@ const config: AppConfig = {
   scheduleCheckIntervalHours: 6,
   checkpointDays: 90,
   captureFavicons: true,
-  selectedProfileIds: ['Default'],
+  selectedProfileIds: ['chrome:Default'],
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
@@ -30,7 +30,7 @@ const config: AppConfig = {
     bucket: '',
     region: 'us-east-1',
     endpoint: null,
-    prefix: 'chrome-history-backup',
+    prefix: 'browser-history-backup',
     pathStyle: true,
     uploadAfterBackup: false,
     credentialsSaved: false,
@@ -42,8 +42,8 @@ const config: AppConfig = {
 
 const schedulePlan: SchedulePlan = {
   platform: 'macos',
-  label: 'dev.example.chrome-history-backup.backup',
-  executablePath: '/Applications/Chrome History Backup.app',
+  label: 'dev.example.browser-history-backup.backup',
+  executablePath: '/Applications/Browser History Backup.app',
   generatedFiles: [],
   manualSteps: [],
   applyCommands: [],
@@ -93,7 +93,7 @@ describe('backend facade', () => {
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
     ).resolves.toMatchObject({ format: 'jsonl' })
     await expect(backend.previewRemoteBackup()).resolves.toMatchObject({
-      bundlePath: expect.stringContaining('chrome-history-backup-remote.zip'),
+      bundlePath: expect.stringContaining('browser-history-backup-remote.zip'),
     })
     await expect(backend.runRemoteBackup()).resolves.toMatchObject({
       uploaded: false,

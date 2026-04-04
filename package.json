@@ -1,5 +1,5 @@
 {
-  "name": "chrome-history-backup",
+  "name": "browser-history-backup",
   "private": true,
   "version": "0.1.0",
   "type": "module",

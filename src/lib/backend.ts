@@ -23,25 +23,26 @@ import type {
 // Stryker disable all: browser-preview fixtures are static reference data, not behavior.
 const mockSnapshot: AppSnapshot = {
   directories: {
-    appRoot: '~/Library/Application Support/Chrome History Backup',
+    appRoot: '~/Library/Application Support/Browser History Backup',
     configPath:
-      '~/Library/Application Support/Chrome History Backup/config.json',
+      '~/Library/Application Support/Browser History Backup/config.json',
     archiveDatabasePath:
-      '~/Library/Application Support/Chrome History Backup/archive/history-vault.sqlite',
-    auditRepoPath: '~/Library/Application Support/Chrome History Backup/audit',
+      '~/Library/Application Support/Browser History Backup/archive/history-vault.sqlite',
+    auditRepoPath: '~/Library/Application Support/Browser History Backup/audit',
     manifestsDir:
-      '~/Library/Application Support/Chrome History Backup/audit/manifests',
-    exportsDir: '~/Library/Application Support/Chrome History Backup/exports',
+      '~/Library/Application Support/Browser History Backup/audit/manifests',
+    exportsDir: '~/Library/Application Support/Browser History Backup/exports',
     rawSnapshotsDir:
-      '~/Library/Application Support/Chrome History Backup/raw-snapshots',
-    stagingDir: '~/Library/Application Support/Chrome History Backup/staging',
+      '~/Library/Application Support/Browser History Backup/raw-snapshots',
+    stagingDir: '~/Library/Application Support/Browser History Backup/staging',
     quarantineDir:
-      '~/Library/Application Support/Chrome History Backup/quarantine',
-    scheduleDir: '~/Library/Application Support/Chrome History Backup/schedule',
+      '~/Library/Application Support/Browser History Backup/quarantine',
+    scheduleDir:
+      '~/Library/Application Support/Browser History Backup/schedule',
     strongholdPath:
-      '~/Library/Application Support/Chrome History Backup/vault.hold',
+      '~/Library/Application Support/Browser History Backup/vault.hold',
     strongholdSaltPath:
-      '~/Library/Application Support/Chrome History Backup/stronghold-salt.txt',
+      '~/Library/Application Support/Browser History Backup/stronghold-salt.txt',
   },
   config: {
     initialized: false,
@@ -60,7 +61,7 @@ const mockSnapshot: AppSnapshot = {
       bucket: '',
       region: 'us-east-1',
       endpoint: null,
-      prefix: 'chrome-history-backup',
+      prefix: 'browser-history-backup',
       pathStyle: true,
       uploadAfterBackup: false,
       credentialsSaved: false,
@@ -74,14 +75,14 @@ const mockSnapshot: AppSnapshot = {
     encrypted: true,
     unlocked: false,
     databasePath:
-      '~/Library/Application Support/Chrome History Backup/archive/history-vault.sqlite',
+      '~/Library/Application Support/Browser History Backup/archive/history-vault.sqlite',
   },
   keyringStatus: {
     available: true,
     backend: 'Mock keyring',
     storedSecret: false,
   },
-  chromeProfiles: [],
+  browserProfiles: [],
   recentRuns: [],
   recentImportBatches: [],
 }
@@ -91,9 +92,9 @@ const mockHistory: HistoryQueryResponse = {
   items: [
     {
       id: 1,
-      profileId: 'Default',
+      profileId: 'chrome:Default',
       url: 'https://developer.chrome.com/docs/devtools/storage/sqlite',
-      title: 'SQLite inspection in Chrome DevTools',
+      title: 'SQLite inspection in browser developer tools',
       domain: 'developer.chrome.com',
       visitedAt: new Date().toISOString(),
       visitTime: Date.now(),
@@ -104,7 +105,7 @@ const mockHistory: HistoryQueryResponse = {
     },
     {
       id: 2,
-      profileId: 'Default',
+      profileId: 'chrome:Default',
       url: 'https://chromium.googlesource.com/chromium/src/+/main/components/history/core/browser/history_database.cc',
       title: 'Chromium history schema',
       domain: 'chromium.googlesource.com',
@@ -169,7 +170,7 @@ async function call<T>(
           id: 1,
           sourceKind: 'takeout',
           sourcePath: '/tmp/takeout.zip',
-          profileId: 'takeout::takeout',
+          profileId: 'takeout::browser-history',
           createdAt: new Date().toISOString(),
           importedAt: new Date().toISOString(),
           revertedAt:
@@ -192,8 +193,8 @@ async function call<T>(
     case 'preview_schedule':
       return {
         platform: 'macos',
-        label: 'dev.codex.chrome-history-backup.backup',
-        executablePath: '/Applications/Chrome History Backup.app',
+        label: 'dev.codex.browser-history-backup.backup',
+        executablePath: '/Applications/Browser History Backup.app',
         generatedFiles: [],
         manualSteps: ['Tauri is not available in browser preview mode.'],
         applyCommands: [],
@@ -207,22 +208,22 @@ async function call<T>(
       } as T
     case 'preview_remote_backup':
       return {
-        bundlePath: '/tmp/chrome-history-backup-remote.zip',
-        objectKey: 'chrome-history-backup/chrome-history-backup-remote.zip',
+        bundlePath: '/tmp/browser-history-backup-remote.zip',
+        objectKey: 'browser-history-backup/browser-history-backup-remote.zip',
         uploadUrl:
-          'https://s3.us-east-1.amazonaws.com/example-bucket/chrome-history-backup/chrome-history-backup-remote.zip',
+          'https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/browser-history-backup-remote.zip',
         previewCommand:
-          'curl --fail --show-error --aws-sigv4 "aws:amz:us-east-1:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T \'/tmp/chrome-history-backup-remote.zip\' \'https://s3.us-east-1.amazonaws.com/example-bucket/chrome-history-backup/chrome-history-backup-remote.zip\'',
+          'curl --fail --show-error --aws-sigv4 "aws:amz:us-east-1:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T \'/tmp/browser-history-backup-remote.zip\' \'https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/browser-history-backup-remote.zip\'',
         manualSteps: ['Browser preview mode cannot generate the real bundle.'],
         warnings: [],
       } as T
     case 'run_remote_backup':
       return {
         uploaded: false,
-        bundlePath: '/tmp/chrome-history-backup-remote.zip',
-        objectKey: 'chrome-history-backup/chrome-history-backup-remote.zip',
+        bundlePath: '/tmp/browser-history-backup-remote.zip',
+        objectKey: 'browser-history-backup/browser-history-backup-remote.zip',
         uploadUrl:
-          'https://s3.us-east-1.amazonaws.com/example-bucket/chrome-history-backup/chrome-history-backup-remote.zip',
+          'https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/browser-history-backup-remote.zip',
         message: 'Remote backup upload is only available in the desktop app.',
       } as T
     case 'keyring_status':

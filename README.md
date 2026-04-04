@@ -4,9 +4,9 @@
 ![CI Configured](https://img.shields.io/badge/ci-GitHub%20Actions-2088ff.svg)
 ![Quality Gates](https://img.shields.io/badge/tests-unit%20%2B%20integration%20%2B%20e2e-16a34a.svg)
 
-# Chrome History Backup
+# Browser History Backup
 
-Chrome History Backup is a local-first desktop app for long-term, auditable Chrome history archiving. It is built with Tauri, Rust, Bun, React, and Vite, and is designed around one core idea: every meaningful operation should remain inspectable.
+Browser History Backup is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri, Rust, Bun, React, and Vite, and is designed around one core idea: every meaningful operation should remain inspectable.
 
 The app keeps raw provenance, normalized query data, audit manifests, and scheduler artifacts separate so the user can inspect what happened, preview system changes, and revert dirty imports without losing the audit trail.
 
@@ -14,7 +14,7 @@ The app keeps raw provenance, normalized query data, audit manifests, and schedu
 
 - Desktop app shell with Tauri 2 and a React audit-first UI.
 - Rust workspace split into `vault-core`, `vault-worker`, and `vault-platform`.
-- Incremental Chrome history backups with staged snapshotting.
+- Incremental browser history backups with staged snapshotting.
 - Local archive database with plaintext or encrypted modes.
 - Native scheduler preview and apply flows.
 - Google Takeout dry-run, import preview, batch-level revert, and audit retention.
@@ -29,7 +29,7 @@ The app keeps raw provenance, normalized query data, audit manifests, and schedu
 - `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri`
   Tauri shell plus the Rust workspace.
 - `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core`
-  Archive schema, migrations, staged Chrome copies, exports, Takeout ingestion, audit manifests, and health checks.
+  Archive schema, migrations, staged browser database copies, exports, Takeout ingestion, audit manifests, and health checks.
 - `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-worker`
   Shared orchestration layer used by the GUI, worker mode, and tests.
 - `/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-platform`
@@ -152,4 +152,4 @@ See [CONTRIBUTING.md](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_back
 
 ## License
 
-Chrome History Backup is licensed under the [GNU General Public License v3.0](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/LICENSE).
+Browser History Backup is licensed under the [GNU General Public License v3.0](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/LICENSE).

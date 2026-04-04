@@ -61,15 +61,18 @@ export interface KeyringStatusReport {
   message?: string | null
 }
 
-export interface ChromeProfile {
+export interface BrowserProfile {
   profileId: string
   profileName: string
+  browserFamily: string
+  browserName: string
   userName?: string | null
   profilePath: string
   historyPath?: string | null
   faviconsPath?: string | null
   historyExists: boolean
-  chromeVersion?: string | null
+  browserVersion?: string | null
+  historyFileName: string
 }
 
 export interface BackupRunOverview {
@@ -110,7 +113,7 @@ export interface AppSnapshot {
   config: AppConfig
   archiveStatus: ArchiveStatus
   keyringStatus: KeyringStatusReport
-  chromeProfiles: ChromeProfile[]
+  browserProfiles: BrowserProfile[]
   recentRuns: BackupRunOverview[]
   recentImportBatches: ImportBatchOverview[]
 }

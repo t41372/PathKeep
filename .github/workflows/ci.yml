@@ -36,6 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.94.1
           components: clippy,rustfmt,llvm-tools-preview
       - name: Rust checks
         run: |
@@ -54,6 +55,7 @@ jobs:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.94.1
           components: llvm-tools-preview
       - uses: taiki-e/install-action@v2
         with:
@@ -76,6 +78,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
       - uses: actions/setup-node@v4
         with:
           node-version: 22

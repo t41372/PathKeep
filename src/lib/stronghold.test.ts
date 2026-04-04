@@ -57,7 +57,7 @@ describe('stronghold helpers', () => {
     await expect(
       readDatabaseKeyStronghold('pw', '/tmp/vault.hold'),
     ).resolves.toBe('tauri-key')
-    expect(loadClient).toHaveBeenCalledWith('chrome-history-backup')
+    expect(loadClient).toHaveBeenCalledWith('browser-history-backup')
     expect(insert).toHaveBeenCalledOnce()
     expect(save).toHaveBeenCalledOnce()
     expect(unload).toHaveBeenCalledTimes(2)
@@ -83,6 +83,6 @@ describe('stronghold helpers', () => {
     await expect(
       readDatabaseKeyStronghold('pw', '/tmp/vault.hold'),
     ).resolves.toBeNull()
-    expect(createClient).toHaveBeenCalledWith('chrome-history-backup')
+    expect(createClient).toHaveBeenCalledWith('browser-history-backup')
   })
 })

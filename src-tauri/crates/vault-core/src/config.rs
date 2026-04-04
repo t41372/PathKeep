@@ -4,8 +4,8 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
-const CURRENT_APP_NAME: &str = "Chrome History Backup";
-const LEGACY_APP_NAME: &str = "Chrome History Vault";
+const CURRENT_APP_NAME: &str = "Browser History Backup";
+const LEGACY_APP_NAMES: [&str; 2] = ["Chrome History Backup", "Chrome History Vault"];
 const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,16 +55,23 @@ fn project_root() -> Result<PathBuf> {
         return Ok(root);
     }
 
-    if let Some(legacy_dirs) = ProjectDirs::from("dev", "Codex", LEGACY_APP_NAME) {
-        let legacy_root = legacy_dirs.data_local_dir().to_path_buf();
-        if legacy_root.exists() {
-            if let Some(parent) = root.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("creating {}", parent.display()))?;
+    for legacy_name in LEGACY_APP_NAMES {
+        if let Some(legacy_dirs) = ProjectDirs::from("dev", "Codex", legacy_name) {
+            let legacy_root = legacy_dirs.data_local_dir().to_path_buf();
+            if legacy_root.exists() {
+                if let Some(parent) = root.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("creating {}", parent.display()))?;
+                }
+                fs::rename(&legacy_root, &root).with_context(|| {
+                    format!(
+                        "migrating app data from {} to {}",
+                        legacy_root.display(),
+                        root.display()
+                    )
+                })?;
+                break;
             }
-            fs::rename(&legacy_root, &root).with_context(|| {
-                format!("migrating app data from {} to {}", legacy_root.display(), root.display())
-            })?;
         }
     }
 
@@ -157,14 +164,14 @@ mod tests {
         let config = AppConfig {
             initialized: true,
             archive_mode: ArchiveMode::Encrypted,
-            selected_profile_ids: vec!["Default".to_string()],
+            selected_profile_ids: vec!["chrome:Default".to_string()],
             ..AppConfig::default()
         };
         save_config(&paths, &config).expect("save config");
 
         let loaded = load_config(&paths).expect("load config");
         assert!(loaded.initialized);
-        assert_eq!(loaded.selected_profile_ids, vec!["Default".to_string()]);
+        assert_eq!(loaded.selected_profile_ids, vec!["chrome:Default".to_string()]);
         assert!(matches!(loaded.archive_mode, ArchiveMode::Encrypted));
     }
 }

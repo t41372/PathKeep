@@ -50,7 +50,11 @@ pub fn chrome_time_to_rfc3339(value: i64) -> String {
 pub fn iso_to_chrome_time_micros(value: &str) -> Option<i64> {
     let parsed = DateTime::parse_from_rfc3339(value).ok()?;
     let micros = parsed.timestamp_micros();
-    Some(micros + CHROME_UNIX_EPOCH_OFFSET_MICROS)
+    Some(unix_micros_to_chrome_time(micros))
+}
+
+pub fn unix_micros_to_chrome_time(value: i64) -> i64 {
+    value.saturating_add(CHROME_UNIX_EPOCH_OFFSET_MICROS)
 }
 
 pub fn url_domain(url: &str) -> String {
@@ -111,8 +115,8 @@ mod tests {
     #[test]
     fn sha_helpers_are_stable() {
         assert_eq!(
-            sha256_hex(b"chrome-history-backup"),
-            "7d34cfcd838b3f669f3ebce6fb08c4c5515de0851ea13f32a9ff1830459018c0"
+            sha256_hex(b"browser-history-backup"),
+            "d827d2ac464bf9d1b99a9d0c7adfcdea9f209afc4b25d39e3d3420b175635615"
         );
 
         let dir = tempdir().expect("tempdir");

@@ -7,7 +7,10 @@ use crate::{
         BackupRunOverview, ExportFormat, ExportRequest, ExportResult, HealthCheck, HealthReport,
         HistoryEntry, HistoryQuery, HistoryQueryResponse,
     },
-    utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, sqlite_row_to_json, url_domain},
+    utils::{
+        chrome_time_to_rfc3339, now_rfc3339, sha256_hex, sqlite_row_to_json,
+        unix_micros_to_chrome_time, url_domain,
+    },
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -398,7 +401,7 @@ pub fn rekey_archive(
 
 pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Result<HealthReport> {
     ensure_paths(paths)?;
-    let chrome_root = crate::chrome::chrome_user_data_dir().ok();
+    let discovered_profiles = discover_profiles().unwrap_or_default();
     let mut checks = Vec::new();
     checks.push(HealthCheck {
         name: "Config".to_string(),
@@ -406,11 +409,16 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
         detail: paths.config_path.display().to_string(),
     });
     checks.push(HealthCheck {
-        name: "Chrome User Data".to_string(),
-        ok: chrome_root.as_ref().is_some_and(|path| path.exists()),
-        detail: chrome_root
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "Chrome user data path unavailable".to_string()),
+        name: "Browser sources".to_string(),
+        ok: !discovered_profiles.is_empty(),
+        detail: if discovered_profiles.is_empty() {
+            "No supported browser profiles were detected in the known source locations.".to_string()
+        } else {
+            format!(
+                "{} supported browser profiles detected across local data roots.",
+                discovered_profiles.len()
+            )
+        },
     });
     checks.push(HealthCheck {
         name: "Archive DB".to_string(),
@@ -575,6 +583,7 @@ pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
           visited_link_id INTEGER,
           external_referrer_url TEXT,
           app_id TEXT,
+          event_fingerprint TEXT,
           payload_hash TEXT NOT NULL,
           recorded_at TEXT NOT NULL,
           UNIQUE(profile_id, source_visit_id)
@@ -632,9 +641,16 @@ pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
         );",
     )?;
     ensure_column(connection, "visit_events", "import_batch_id", "INTEGER")?;
+    ensure_column(connection, "visit_events", "event_fingerprint", "TEXT")?;
     ensure_column(connection, "raw_row_versions", "import_batch_id", "INTEGER")?;
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_visit_events_import_batch_id ON visit_events(import_batch_id)",
+        [],
+    )?;
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_visit_events_profile_event_fingerprint
+         ON visit_events(profile_id, event_fingerprint)
+         WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''",
         [],
     )?;
     connection.execute(
@@ -706,12 +722,14 @@ fn process_profile_snapshot(
     let schema_json = collect_schema_json(&history)?;
     let schema_string = serde_json::to_string(&schema_json)?;
     let schema_hash = sha256_hex(schema_string.as_bytes());
+    let source_kind = source_kind_for_profile(&snapshot.profile);
     archive.execute(
         "INSERT OR IGNORE INTO source_schemas (schema_hash, source_kind, chrome_version, payload_json, seen_at)
-         VALUES (?1, 'chrome-history', ?2, ?3, ?4)",
+         VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             schema_hash,
-            snapshot.profile.chrome_version,
+            source_kind,
+            snapshot.profile.browser_version,
             schema_string,
             now_rfc3339()
         ],
@@ -730,7 +748,7 @@ fn process_profile_snapshot(
             snapshot.profile.profile_name,
             snapshot.profile.user_name,
             snapshot.profile.profile_path,
-            snapshot.profile.chrome_version,
+            snapshot.profile.browser_version,
             now_rfc3339()
         ],
     )?;
@@ -741,47 +759,92 @@ fn process_profile_snapshot(
         ..BackupProfileSummary::default()
     };
 
-    let max_url_last_visit_time = ingest_urls(
-        archive,
-        run_id,
-        &snapshot.profile.profile_id,
-        &history,
-        &schema_hash,
-        &mut summary,
-        watermark.last_url_last_visit_time,
-    )?;
-    let max_visit_id = ingest_visits(
-        archive,
-        run_id,
-        &snapshot.profile.profile_id,
-        &history,
-        &schema_hash,
-        &mut summary,
-        watermark.last_visit_id,
-    )?;
-    let max_download_id = ingest_downloads(
-        archive,
-        run_id,
-        &snapshot.profile.profile_id,
-        &history,
-        &schema_hash,
-        &mut summary,
-        watermark.last_download_id,
-    )?;
-    ingest_search_terms(archive, &snapshot.profile.profile_id, &history, max_url_last_visit_time)?;
+    let (max_url_last_visit_time, max_visit_id, max_download_id, max_favicon_last_updated) =
+        match snapshot.profile.browser_family.as_str() {
+            "firefox" => {
+                let max_visit_id = ingest_firefox_history(
+                    archive,
+                    run_id,
+                    &snapshot.profile.profile_id,
+                    &history,
+                    &schema_hash,
+                    &mut summary,
+                    watermark.last_visit_id,
+                )?;
+                (
+                    watermark.last_url_last_visit_time,
+                    max_visit_id,
+                    watermark.last_download_id,
+                    watermark.last_favicon_last_updated,
+                )
+            }
+            "safari" => {
+                let max_visit_id = ingest_safari_history(
+                    archive,
+                    run_id,
+                    &snapshot.profile.profile_id,
+                    &history,
+                    &schema_hash,
+                    &mut summary,
+                    watermark.last_visit_id,
+                )?;
+                (
+                    watermark.last_url_last_visit_time,
+                    max_visit_id,
+                    watermark.last_download_id,
+                    watermark.last_favicon_last_updated,
+                )
+            }
+            _ => {
+                let max_url_last_visit_time = ingest_urls(
+                    archive,
+                    run_id,
+                    &snapshot.profile.profile_id,
+                    &history,
+                    &schema_hash,
+                    &mut summary,
+                    watermark.last_url_last_visit_time,
+                )?;
+                let max_visit_id = ingest_visits(
+                    archive,
+                    run_id,
+                    &snapshot.profile.profile_id,
+                    &history,
+                    &schema_hash,
+                    &mut summary,
+                    watermark.last_visit_id,
+                )?;
+                let max_download_id = ingest_downloads(
+                    archive,
+                    run_id,
+                    &snapshot.profile.profile_id,
+                    &history,
+                    &schema_hash,
+                    &mut summary,
+                    watermark.last_download_id,
+                )?;
+                ingest_search_terms(
+                    archive,
+                    &snapshot.profile.profile_id,
+                    &history,
+                    max_url_last_visit_time,
+                )?;
 
-    let mut max_favicon_last_updated = watermark.last_favicon_last_updated;
-    if config.capture_favicons {
-        if let Some(favicons_path) = &snapshot.favicons_path {
-            let favicons = open_readonly_source(favicons_path)?;
-            max_favicon_last_updated = ingest_favicons(
-                archive,
-                &snapshot.profile.profile_id,
-                &favicons,
-                watermark.last_favicon_last_updated,
-            )?;
-        }
-    }
+                let mut max_favicon_last_updated = watermark.last_favicon_last_updated;
+                if config.capture_favicons {
+                    if let Some(favicons_path) = &snapshot.favicons_path {
+                        let favicons = open_readonly_source(favicons_path)?;
+                        max_favicon_last_updated = ingest_favicons(
+                            archive,
+                            &snapshot.profile.profile_id,
+                            &favicons,
+                            watermark.last_favicon_last_updated,
+                        )?;
+                    }
+                }
+                (max_url_last_visit_time, max_visit_id, max_download_id, max_favicon_last_updated)
+            }
+        };
 
     let checkpoint_due = should_checkpoint(&watermark, &schema_hash, config.checkpoint_days);
     if checkpoint_due {
@@ -816,6 +879,34 @@ fn collect_schema_json(connection: &Connection) -> Result<serde_json::Value> {
         }))
     })?;
     Ok(serde_json::Value::Array(rows.collect::<rusqlite::Result<Vec<_>>>()?))
+}
+
+fn source_kind_for_profile(profile: &crate::models::BrowserProfile) -> &'static str {
+    match profile.browser_family.as_str() {
+        "firefox" => "firefox-history",
+        "safari" => "safari-history",
+        _ => "chromium-history",
+    }
+}
+
+pub(crate) fn visit_event_fingerprint(
+    source_kind: &str,
+    url: &str,
+    visit_time: i64,
+    title: Option<&str>,
+    transition: Option<i64>,
+    app_id: Option<&str>,
+) -> String {
+    let payload = json!({
+        "sourceKind": source_kind,
+        "url": url,
+        "visitTime": visit_time,
+        "title": title.unwrap_or_default(),
+        "transition": transition,
+        "appId": app_id.unwrap_or_default(),
+    });
+    let payload = serde_json::to_string(&payload).unwrap_or_default();
+    sha256_hex(payload.as_bytes())
 }
 
 fn ingest_urls(
@@ -875,12 +966,13 @@ fn ingest_urls(
             RawRowInsert {
                 run_id,
                 profile_id,
-                source_kind: "chrome-history",
+                source_kind: "chromium-history",
                 table_name: "urls",
                 source_pk: &source_url_id.to_string(),
                 payload_hash: &payload_hash,
                 payload_json: &payload_string,
                 schema_hash,
+                chrome_version: None,
             },
         )? as usize;
         max_last_visit_time = max_last_visit_time.max(last_visit_time);
@@ -944,11 +1036,19 @@ fn ingest_visits(
         ) = row?;
         let payload_string = serde_json::to_string(&payload)?;
         let payload_hash = sha256_hex(payload_string.as_bytes());
+        let event_fingerprint = visit_event_fingerprint(
+            "chromium-history",
+            &url,
+            visit_time,
+            title.as_deref(),
+            transition,
+            app_id.as_deref(),
+        );
         let inserted = archive.execute(
             "INSERT OR IGNORE INTO visit_events
              (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition,
-              visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 profile_id,
                 source_visit_id,
@@ -963,6 +1063,7 @@ fn ingest_visits(
                 visited_link_id,
                 external_referrer_url,
                 app_id,
+                event_fingerprint,
                 payload_hash,
                 now_rfc3339()
             ],
@@ -973,12 +1074,288 @@ fn ingest_visits(
             RawRowInsert {
                 run_id,
                 profile_id,
-                source_kind: "chrome-history",
+                source_kind: "chromium-history",
                 table_name: "visits",
                 source_pk: &source_visit_id.to_string(),
                 payload_hash: &payload_hash,
                 payload_json: &payload_string,
                 schema_hash,
+                chrome_version: None,
+            },
+        )? as usize;
+        max_visit_id = max_visit_id.max(source_visit_id);
+    }
+
+    Ok(max_visit_id)
+}
+
+fn ingest_firefox_history(
+    archive: &Connection,
+    run_id: i64,
+    profile_id: &str,
+    source: &Connection,
+    schema_hash: &str,
+    summary: &mut BackupProfileSummary,
+    watermark: i64,
+) -> Result<i64> {
+    let mut max_visit_id = watermark;
+    let mut statement = source.prepare(
+        "SELECT
+            h.id,
+            p.id,
+            p.url,
+            p.title,
+            p.visit_count,
+            IFNULL(p.hidden, 0),
+            h.from_visit,
+            h.visit_type,
+            h.visit_date
+         FROM moz_historyvisits h
+         JOIN moz_places p ON h.place_id = p.id
+         WHERE h.id > ?1
+         ORDER BY h.id ASC",
+    )?;
+    let rows = statement.query_map([watermark], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<i64>>(4)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, Option<i64>>(6)?,
+            row.get::<_, Option<i64>>(7)?,
+            row.get::<_, i64>(8)?,
+            sqlite_row_to_json(row)?,
+        ))
+    })?;
+
+    for row in rows {
+        let (
+            source_visit_id,
+            source_url_id,
+            url,
+            title,
+            visit_count,
+            hidden,
+            from_visit,
+            transition,
+            raw_visit_date,
+            payload,
+        ) = row?;
+        let visit_date_unix_micros = if raw_visit_date > 300_000_000 * 1_000_000 {
+            raw_visit_date
+        } else {
+            raw_visit_date.saturating_mul(1_000)
+        };
+        let visit_time = unix_micros_to_chrome_time(visit_date_unix_micros);
+        let url_payload = json!({
+            "id": source_url_id,
+            "url": url,
+            "title": title,
+            "visitCount": visit_count,
+            "hidden": hidden,
+            "lastVisitTime": visit_time,
+        });
+        let url_payload_string = serde_json::to_string(&url_payload)?;
+        let url_payload_hash = sha256_hex(url_payload_string.as_bytes());
+        let inserted_url = archive.execute(
+            "INSERT OR IGNORE INTO url_versions
+             (profile_id, source_url_id, url, title, visit_count, typed_count, last_visit_time, hidden, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9)",
+            params![
+                profile_id,
+                source_url_id,
+                url,
+                title,
+                visit_count,
+                visit_time,
+                hidden,
+                url_payload_hash,
+                now_rfc3339()
+            ],
+        )?;
+        summary.new_urls += inserted_url as usize;
+        summary.raw_rows += insert_raw_row(
+            archive,
+            RawRowInsert {
+                run_id,
+                profile_id,
+                source_kind: "firefox-history",
+                table_name: "moz_places",
+                source_pk: &source_url_id.to_string(),
+                payload_hash: &url_payload_hash,
+                payload_json: &url_payload_string,
+                schema_hash,
+                chrome_version: None,
+            },
+        )? as usize;
+
+        let payload_string = serde_json::to_string(&payload)?;
+        let payload_hash = sha256_hex(payload_string.as_bytes());
+        let event_fingerprint = visit_event_fingerprint(
+            "firefox-history",
+            &url,
+            visit_time,
+            title.as_deref(),
+            transition,
+            None,
+        );
+        let inserted_visit = archive.execute(
+            "INSERT OR IGNORE INTO visit_events
+             (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition,
+              visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 0, NULL, NULL, 'firefox', ?9, ?10, ?11)",
+            params![
+                profile_id,
+                source_visit_id,
+                source_url_id,
+                url,
+                title,
+                visit_time,
+                from_visit,
+                transition,
+                event_fingerprint,
+                payload_hash,
+                now_rfc3339()
+            ],
+        )?;
+        summary.new_visits += inserted_visit as usize;
+        summary.raw_rows += insert_raw_row(
+            archive,
+            RawRowInsert {
+                run_id,
+                profile_id,
+                source_kind: "firefox-history",
+                table_name: "moz_historyvisits",
+                source_pk: &source_visit_id.to_string(),
+                payload_hash: &payload_hash,
+                payload_json: &payload_string,
+                schema_hash,
+                chrome_version: None,
+            },
+        )? as usize;
+        max_visit_id = max_visit_id.max(source_visit_id);
+    }
+
+    Ok(max_visit_id)
+}
+
+fn ingest_safari_history(
+    archive: &Connection,
+    run_id: i64,
+    profile_id: &str,
+    source: &Connection,
+    schema_hash: &str,
+    summary: &mut BackupProfileSummary,
+    watermark: i64,
+) -> Result<i64> {
+    let mut max_visit_id = watermark;
+    let mut statement = source.prepare(
+        "SELECT
+            hv.id,
+            hi.id,
+            hi.url,
+            hv.title,
+            hv.visit_time
+         FROM history_visits hv
+         JOIN history_items hi ON hi.id = hv.history_item
+         WHERE hv.id > ?1
+         ORDER BY hv.id ASC",
+    )?;
+    let rows = statement.query_map([watermark], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, f64>(4)?,
+            sqlite_row_to_json(row)?,
+        ))
+    })?;
+
+    for row in rows {
+        let (source_visit_id, source_url_id, url, title, safari_visit_time, payload) = row?;
+        let unix_micros = ((safari_visit_time + 978_307_200.0) * 1_000_000.0) as i64;
+        let visit_time = unix_micros_to_chrome_time(unix_micros);
+        let url_payload = json!({
+            "id": source_url_id,
+            "url": url,
+            "title": title,
+            "lastVisitTime": visit_time,
+        });
+        let url_payload_string = serde_json::to_string(&url_payload)?;
+        let url_payload_hash = sha256_hex(url_payload_string.as_bytes());
+        let inserted_url = archive.execute(
+            "INSERT OR IGNORE INTO url_versions
+             (profile_id, source_url_id, url, title, visit_count, typed_count, last_visit_time, hidden, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, 0, ?6, ?7)",
+            params![
+                profile_id,
+                source_url_id,
+                url,
+                title,
+                visit_time,
+                url_payload_hash,
+                now_rfc3339()
+            ],
+        )?;
+        summary.new_urls += inserted_url as usize;
+        summary.raw_rows += insert_raw_row(
+            archive,
+            RawRowInsert {
+                run_id,
+                profile_id,
+                source_kind: "safari-history",
+                table_name: "history_items",
+                source_pk: &source_url_id.to_string(),
+                payload_hash: &url_payload_hash,
+                payload_json: &url_payload_string,
+                schema_hash,
+                chrome_version: None,
+            },
+        )? as usize;
+
+        let payload_string = serde_json::to_string(&payload)?;
+        let payload_hash = sha256_hex(payload_string.as_bytes());
+        let event_fingerprint = visit_event_fingerprint(
+            "safari-history",
+            &url,
+            visit_time,
+            title.as_deref(),
+            None,
+            None,
+        );
+        let inserted_visit = archive.execute(
+            "INSERT OR IGNORE INTO visit_events
+             (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition,
+              visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, 0, NULL, NULL, 'safari', ?7, ?8, ?9)",
+            params![
+                profile_id,
+                source_visit_id,
+                source_url_id,
+                url,
+                title,
+                visit_time,
+                event_fingerprint,
+                payload_hash,
+                now_rfc3339()
+            ],
+        )?;
+        summary.new_visits += inserted_visit as usize;
+        summary.raw_rows += insert_raw_row(
+            archive,
+            RawRowInsert {
+                run_id,
+                profile_id,
+                source_kind: "safari-history",
+                table_name: "history_visits",
+                source_pk: &source_visit_id.to_string(),
+                payload_hash: &payload_hash,
+                payload_json: &payload_string,
+                schema_hash,
+                chrome_version: None,
             },
         )? as usize;
         max_visit_id = max_visit_id.max(source_visit_id);
@@ -1061,12 +1438,13 @@ fn ingest_downloads(
             RawRowInsert {
                 run_id,
                 profile_id,
-                source_kind: "chrome-history",
+                source_kind: "chromium-history",
                 table_name: "downloads",
                 source_pk: &source_download_id.to_string(),
                 payload_hash: &payload_hash,
                 payload_json: &payload_string,
                 schema_hash,
+                chrome_version: None,
             },
         )? as usize;
         max_download_id = max_download_id.max(source_download_id);
@@ -1171,8 +1549,8 @@ fn ingest_favicons(
 fn insert_raw_row(archive: &Connection, row: RawRowInsert<'_>) -> Result<usize> {
     Ok(archive.execute(
         "INSERT OR IGNORE INTO raw_row_versions
-         (run_id, profile_id, source_kind, table_name, source_pk, payload_hash, payload_json, schema_hash, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         (run_id, profile_id, source_kind, table_name, source_pk, payload_hash, payload_json, schema_hash, chrome_version, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             row.run_id,
             row.profile_id,
@@ -1182,6 +1560,7 @@ fn insert_raw_row(archive: &Connection, row: RawRowInsert<'_>) -> Result<usize> 
             row.payload_hash,
             row.payload_json,
             row.schema_hash,
+            row.chrome_version,
             now_rfc3339()
         ],
     )?)
@@ -1196,6 +1575,7 @@ struct RawRowInsert<'a> {
     payload_hash: &'a str,
     payload_json: &'a str,
     schema_hash: &'a str,
+    chrome_version: Option<&'a str>,
 }
 
 fn load_watermark(archive: &Connection, profile_id: &str) -> Result<Watermark> {
@@ -1289,12 +1669,12 @@ fn render_html_export(results: &HistoryQueryResponse) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Chrome History Backup Export</title><style>body{{font-family:ui-sans-serif,system-ui;padding:32px;background:#f4efe6;color:#1e1b16}}ol{{display:grid;gap:16px}}li{{padding:16px;border-top:1px solid rgba(30,27,22,.15)}}a{{color:#0a6c74;text-decoration:none}}p{{margin:6px 0 0;color:#5d5548}}</style></head><body><h1>Chrome History Backup Export</h1><ol>{rows}</ol></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Browser History Backup Export</title><style>body{{font-family:ui-sans-serif,system-ui;padding:32px;background:#f4efe6;color:#1e1b16}}ol{{display:grid;gap:16px}}li{{padding:16px;border-top:1px solid rgba(30,27,22,.15)}}a{{color:#0a6c74;text-decoration:none}}p{{margin:6px 0 0;color:#5d5548}}</style></head><body><h1>Browser History Backup Export</h1><ol>{rows}</ol></body></html>"
     )
 }
 
 fn render_markdown_export(results: &HistoryQueryResponse) -> String {
-    let mut output = String::from("# Chrome History Backup Export\n\n");
+    let mut output = String::from("# Browser History Backup Export\n\n");
     for item in &results.items {
         output.push_str(&format!(
             "- {} [{}]({})\n",
@@ -1521,7 +1901,7 @@ mod tests {
             HistoryQuery {
                 q: Some("Title".to_string()),
                 domain: Some("example.com".to_string()),
-                profile_id: Some("Default".to_string()),
+                profile_id: Some("chrome:Default".to_string()),
                 limit: Some(10),
             },
         )
@@ -1541,7 +1921,7 @@ mod tests {
         .expect("export html");
         let html = fs::read_to_string(&html_export.path).expect("read html export");
         assert!(html.contains("&lt;item&gt;"));
-        assert!(html.contains("Chrome History Backup Export"));
+        assert!(html.contains("Browser History Backup Export"));
 
         let due_report = run_backup(&paths, &config, None, true).expect("due backup");
         assert!(due_report.due_skipped);
@@ -1591,7 +1971,7 @@ mod tests {
             total: 1,
             items: vec![HistoryEntry {
                 id: 1,
-                profile_id: "Default".to_string(),
+                profile_id: "chrome:Default".to_string(),
                 url: "https://example.com/?q=1&v=<x>".to_string(),
                 title: Some("Item <One>".to_string()),
                 domain: "example.com".to_string(),
