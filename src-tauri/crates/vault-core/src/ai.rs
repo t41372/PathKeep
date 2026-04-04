@@ -960,15 +960,25 @@ mod tests {
         models::{AiSettings, ArchiveMode},
     };
     use rusqlite::params;
-    use std::fs;
+    use std::{
+        fs,
+        sync::atomic::{AtomicU64, Ordering},
+    };
     use tokio::runtime::Runtime;
 
     fn test_paths() -> ProjectPaths {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("browser-history-backup-ai-test-{unique}"));
+        let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "browser-history-backup-ai-test-{}-{}-{}",
+            std::process::id(),
+            unique,
+            sequence
+        ));
         fs::create_dir_all(&root).expect("create temp root");
         ProjectPaths {
             app_root: root.clone(),
