@@ -1,0 +1,58 @@
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: prettier-check
+        name: prettier check
+        entry: bun run format:check
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: eslint
+        name: eslint
+        entry: bun run lint
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: typescript
+        name: typescript typecheck
+        entry: bun run typecheck
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: rustfmt
+        name: rustfmt
+        entry: bun run fmt:rust
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: clippy
+        name: clippy
+        entry: bun run lint:rust
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: rust-tests
+        name: rust tests
+        entry: bun run test:rust
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: js-tests
+        name: js tests
+        entry: bun run test:unit
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
