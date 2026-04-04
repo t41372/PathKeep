@@ -49,15 +49,35 @@ jobs:
         with:
           toolchain: 1.94.1
           components: clippy,rustfmt,llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
       - name: Rust checks
         run: |
           cargo fmt --all --check
           cargo clippy --workspace --all-targets --all-features -- -D warnings
           cargo test --workspace --all-targets
 
+  rust-security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - name: Supply chain checks
+        run: |
+          cargo audit
+          cargo deny check
+
   coverage:
     runs-on: ubuntu-latest
-    needs: [frontend, rust]
+    needs: [frontend, rust, rust-security]
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux desktop dependencies
@@ -79,6 +99,7 @@ jobs:
         with:
           toolchain: 1.94.1
           components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
@@ -102,6 +123,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
