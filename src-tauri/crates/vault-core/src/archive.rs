@@ -189,16 +189,40 @@ pub fn run_backup(
     let mut source_hashes = BTreeMap::<String, BTreeMap<String, String>>::new();
     let warnings = Vec::new();
 
-    for profile in &selected_profiles {
-        let snapshot = stage_profile_snapshot(paths, profile)?;
-        let profile_summary = process_profile_snapshot(&archive, run_id, paths, config, &snapshot)
-            .with_context(|| format!("processing profile {}", profile.profile_id))?;
-        let mut hashes = BTreeMap::new();
-        for fingerprint in &snapshot.source_hashes {
-            hashes.insert(fingerprint.path.clone(), fingerprint.sha256.clone());
+    let backup_result: Result<()> = (|| {
+        for profile in &selected_profiles {
+            let snapshot = stage_profile_snapshot(paths, profile)?;
+            let profile_summary =
+                process_profile_snapshot(&archive, run_id, paths, config, &snapshot)
+                    .with_context(|| format!("processing profile {}", profile.profile_id))?;
+            let mut hashes = BTreeMap::new();
+            for fingerprint in &snapshot.source_hashes {
+                hashes.insert(fingerprint.path.clone(), fingerprint.sha256.clone());
+            }
+            source_hashes.insert(profile.profile_id.clone(), hashes);
+            profile_summaries.push(profile_summary);
         }
-        source_hashes.insert(profile.profile_id.clone(), hashes);
-        profile_summaries.push(profile_summary);
+        Ok(())
+    })();
+
+    if let Err(error) = backup_result {
+        let finished_at = now_rfc3339();
+        let summary_json = serde_json::to_string(&json!({
+            "profilesProcessed": profile_summaries.len(),
+            "newVisits": profile_summaries.iter().map(|item| item.new_visits).sum::<usize>(),
+            "newUrls": profile_summaries.iter().map(|item| item.new_urls).sum::<usize>(),
+            "newDownloads": profile_summaries.iter().map(|item| item.new_downloads).sum::<usize>(),
+            "error": format!("{error:#}"),
+        }))?;
+        archive
+            .execute(
+                "UPDATE backup_runs
+                 SET finished_at = ?1, status = 'failed', summary_json = ?2
+                 WHERE id = ?3",
+                params![finished_at, summary_json, run_id],
+            )
+            .with_context(|| format!("recording failed backup run {run_id}"))?;
+        return Err(error);
     }
 
     let finished_at = now_rfc3339();
@@ -1715,10 +1739,16 @@ mod tests {
         utils::iso_to_chrome_time_micros,
     };
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
     const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
     const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn sample_paths(root: &Path) -> ProjectPaths {
         ProjectPaths {
@@ -1876,8 +1906,24 @@ mod tests {
         chrome_root
     }
 
+    fn broken_chrome_user_data_fixture(root: &Path) -> PathBuf {
+        let chrome_root = root.join("chrome-user-data-broken");
+        let profile_dir = chrome_root.join("Default");
+        fs::create_dir_all(&profile_dir).expect("create broken profile dir");
+        fs::write(profile_dir.join("History"), b"not-a-sqlite-database")
+            .expect("write broken history");
+        fs::write(chrome_root.join("Last Version"), "135.0.0.0").expect("write version");
+        fs::write(
+            chrome_root.join("Local State"),
+            r#"{"profile":{"info_cache":{"Default":{"name":"Broken","user_name":"tester@example.com"}}}}"#,
+        )
+        .expect("write local state");
+        chrome_root
+    }
+
     #[test]
     fn backup_history_export_and_rekey_work_end_to_end() {
+        let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
         ensure_paths(&paths).expect("ensure paths");
@@ -1952,6 +1998,47 @@ mod tests {
         )
         .expect("decrypt");
         assert!(plaintext_status.unlocked);
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn failed_backup_marks_run_as_failed() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let chrome_root = broken_chrome_user_data_fixture(dir.path());
+        let config = initialized_config(ArchiveMode::Plaintext);
+        save_config(&paths, &config).expect("save config");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        }
+
+        let error = run_backup(&paths, &config, None, false).expect_err("run backup should fail");
+        assert!(
+            error.to_string().contains("processing profile")
+                || error.to_string().contains("not a database")
+        );
+
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        let (status, finished_at, summary_json): (String, Option<String>, String) = archive
+            .query_row(
+                "SELECT status, finished_at, summary_json FROM backup_runs ORDER BY id DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load backup run");
+        assert_eq!(status, "failed");
+        assert!(finished_at.is_some());
+        assert!(
+            summary_json.contains("processing profile") || summary_json.contains("not a database")
+        );
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

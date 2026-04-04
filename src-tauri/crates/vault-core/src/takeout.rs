@@ -42,6 +42,19 @@ struct ParsedTakeoutRecord {
 struct ImportStats {
     imported_items: usize,
     duplicate_items: usize,
+    skipped_items: usize,
+}
+
+#[derive(Debug, Default)]
+struct CollectedPayload {
+    records: Vec<ParsedTakeoutRecord>,
+    skipped_missing_visit_time: usize,
+}
+
+enum ParseRecordOutcome {
+    Parsed(ParsedTakeoutRecord),
+    Ignore,
+    MissingVisitTime,
 }
 
 #[derive(Debug, Clone)]
@@ -93,11 +106,21 @@ pub fn inspect_takeout(
         };
 
         match collect_records_from_payload(&file.path, &kind, &bytes) {
-            Ok(records) => {
-                report.records = records.len();
-                report.status = "previewed".to_string();
-                inspection.candidate_items += records.len();
-                for record in records {
+            Ok(payload) => {
+                report.records = payload.records.len();
+                report.status = if payload.skipped_missing_visit_time > 0 {
+                    "previewed-with-skips".to_string()
+                } else {
+                    "previewed".to_string()
+                };
+                inspection.candidate_items += payload.records.len();
+                if payload.skipped_missing_visit_time > 0 {
+                    inspection.notes.push(format!(
+                        "Skipped {} records from {} because they were missing a visit timestamp.",
+                        payload.skipped_missing_visit_time, file.path
+                    ));
+                }
+                for record in payload.records {
                     if inspection.preview_entries.len() < PREVIEW_LIMIT {
                         inspection.preview_entries.push(preview_entry(&record, "candidate"));
                     }
@@ -171,6 +194,13 @@ pub fn import_takeout(
         )?;
         stats.imported_items += file_stats.imported_items;
         stats.duplicate_items += file_stats.duplicate_items;
+        stats.skipped_items += file_stats.skipped_items;
+        if file_stats.skipped_items > 0 {
+            inspection.notes.push(format!(
+                "Skipped {} records from {} because they were missing a visit timestamp.",
+                file_stats.skipped_items, file.path
+            ));
+        }
     }
 
     inspection.imported_items = stats.imported_items;
@@ -329,10 +359,24 @@ fn import_supported_payload(
     kind: &str,
     bytes: &[u8],
 ) -> Result<ImportStats> {
-    let records = collect_records_from_payload(source_path, kind, bytes)?;
-    let mut stats = ImportStats::default();
+    let payload = collect_records_from_payload(source_path, kind, bytes)?;
+    let mut stats =
+        ImportStats { skipped_items: payload.skipped_missing_visit_time, ..ImportStats::default() };
 
-    for record in records {
+    for record in payload.records {
+        archive.execute(
+            "INSERT OR IGNORE INTO raw_row_versions
+             (run_id, profile_id, source_kind, table_name, source_pk, payload_hash, payload_json, schema_hash, chrome_version, recorded_at, import_batch_id)
+             VALUES (0, ?1, 'takeout', 'records', ?2, ?3, ?4, 'takeout', 'takeout', ?5, ?6)",
+            params![
+                profile_id,
+                record.source_visit_id.to_string(),
+                record.payload_hash,
+                record.payload_json,
+                now_rfc3339(),
+                batch_id
+            ],
+        )?;
         let inserted = archive.execute(
             "INSERT OR IGNORE INTO visit_events
              (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at, import_batch_id)
@@ -360,19 +404,6 @@ fn import_supported_payload(
         )?;
 
         if inserted > 0 {
-            archive.execute(
-                "INSERT OR IGNORE INTO raw_row_versions
-                 (run_id, profile_id, source_kind, table_name, source_pk, payload_hash, payload_json, schema_hash, chrome_version, recorded_at, import_batch_id)
-                 VALUES (0, ?1, 'takeout', 'records', ?2, ?3, ?4, 'takeout', 'takeout', ?5, ?6)",
-                params![
-                    profile_id,
-                    record.source_visit_id.to_string(),
-                    record.payload_hash,
-                    record.payload_json,
-                    now_rfc3339(),
-                    batch_id
-                ],
-            )?;
             stats.imported_items += 1;
         } else {
             stats.duplicate_items += 1;
@@ -654,8 +685,12 @@ fn preview_entry_from_payload(
     payload_json: &str,
 ) -> Result<TakeoutPreviewEntry> {
     let record: Value = serde_json::from_str(payload_json)?;
-    let parsed = parse_record(source_path, 0, &record)?
-        .context("payload did not include a usable history record")?;
+    let parsed = match parse_record(source_path, 0, &record)? {
+        ParseRecordOutcome::Parsed(parsed) => parsed,
+        ParseRecordOutcome::Ignore | ParseRecordOutcome::MissingVisitTime => {
+            anyhow::bail!("payload did not include a usable history record")
+        }
+    };
     Ok(preview_entry(&parsed, "imported"))
 }
 
@@ -674,10 +709,10 @@ fn collect_records_from_payload(
     source_path: &str,
     kind: &str,
     bytes: &[u8],
-) -> Result<Vec<ParsedTakeoutRecord>> {
+) -> Result<CollectedPayload> {
     if kind == "jsonl" {
         let reader = BufReader::new(bytes);
-        let mut records = Vec::new();
+        let mut payload = CollectedPayload::default();
         for (index, line) in reader.lines().enumerate() {
             let line = line?;
             if line.trim().is_empty() {
@@ -685,11 +720,13 @@ fn collect_records_from_payload(
             }
             let record: Value = serde_json::from_str(&line)
                 .with_context(|| format!("parsing {source_path} line {}", index + 1))?;
-            if let Some(parsed) = parse_record(source_path, index as i64, &record)? {
-                records.push(parsed);
+            match parse_record(source_path, index as i64, &record)? {
+                ParseRecordOutcome::Parsed(parsed) => payload.records.push(parsed),
+                ParseRecordOutcome::Ignore => {}
+                ParseRecordOutcome::MissingVisitTime => payload.skipped_missing_visit_time += 1,
             }
         }
-        return Ok(records);
+        return Ok(payload);
     }
 
     let value: Value = serde_json::from_slice(bytes)?;
@@ -701,20 +738,18 @@ fn collect_records_from_payload(
         Vec::new()
     };
 
-    let mut parsed_records = Vec::new();
+    let mut payload = CollectedPayload::default();
     for (index, record) in records {
-        if let Some(parsed) = parse_record(source_path, index as i64, record)? {
-            parsed_records.push(parsed);
+        match parse_record(source_path, index as i64, record)? {
+            ParseRecordOutcome::Parsed(parsed) => payload.records.push(parsed),
+            ParseRecordOutcome::Ignore => {}
+            ParseRecordOutcome::MissingVisitTime => payload.skipped_missing_visit_time += 1,
         }
     }
-    Ok(parsed_records)
+    Ok(payload)
 }
 
-fn parse_record(
-    source_path: &str,
-    ordinal: i64,
-    record: &Value,
-) -> Result<Option<ParsedTakeoutRecord>> {
+fn parse_record(source_path: &str, ordinal: i64, record: &Value) -> Result<ParseRecordOutcome> {
     let url = record
         .get("url")
         .or_else(|| record.get("titleUrl"))
@@ -722,7 +757,7 @@ fn parse_record(
         .unwrap_or_default()
         .to_string();
     if url.is_empty() {
-        return Ok(None);
+        return Ok(ParseRecordOutcome::Ignore);
     }
 
     let title = record
@@ -730,14 +765,16 @@ fn parse_record(
         .or_else(|| record.get("pageTitle"))
         .and_then(Value::as_str)
         .map(ToString::to_string);
-    let visit_time = record
+    let Some(visit_time) = record
         .get("visitTime")
         .and_then(Value::as_i64)
         .or_else(|| record.get("timeUsec").and_then(Value::as_i64))
         .or_else(|| {
             record.get("visitedAt").and_then(Value::as_str).and_then(iso_to_chrome_time_micros)
         })
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_micros() + 11_644_473_600_000_000);
+    else {
+        return Ok(ParseRecordOutcome::MissingVisitTime);
+    };
 
     let payload_json = serde_json::to_string(record)?;
     let payload_hash = sha256_hex(payload_json.as_bytes());
@@ -747,7 +784,7 @@ fn parse_record(
         .fold(0_i64, |acc, byte| acc.wrapping_mul(31).wrapping_add(byte as i64)))
     .abs();
 
-    Ok(Some(ParsedTakeoutRecord {
+    Ok(ParseRecordOutcome::Parsed(ParsedTakeoutRecord {
         source_path: source_path.to_string(),
         url,
         title,
@@ -968,6 +1005,55 @@ mod tests {
         let history = crate::archive::list_history(&paths, &config, None, Default::default())
             .expect("history");
         assert_eq!(history.total, 1);
+
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        let raw_rows: i64 = archive
+            .query_row("SELECT COUNT(*) FROM raw_row_versions", [], |row| row.get(0))
+            .expect("raw row count");
+        assert_eq!(raw_rows, 2);
+    }
+
+    #[test]
+    fn takeout_records_without_timestamps_are_skipped_with_a_note() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = initialized_plaintext_config();
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        let source = write_takeout_fixture_with_name(
+            dir.path(),
+            "takeout-missing-time",
+            &[
+                r#"{"url":"https://example.com/valid","title":"Valid","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+                r#"{"url":"https://example.com/missing","title":"Missing"}"#,
+            ],
+        );
+
+        let dry_run = inspect_takeout(
+            &paths,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+        )
+        .expect("inspect takeout");
+        assert_eq!(dry_run.candidate_items, 1);
+        assert!(dry_run.notes.iter().any(|note| note.contains("missing a visit timestamp")));
+
+        let imported = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect("import takeout");
+        assert_eq!(imported.imported_items, 1);
+        assert_eq!(imported.duplicate_items, 0);
+        assert!(imported.notes.iter().any(|note| note.contains("missing a visit timestamp")));
+
+        let history = crate::archive::list_history(&paths, &config, None, Default::default())
+            .expect("history");
+        assert_eq!(history.total, 1);
     }
 
     #[test]
@@ -986,7 +1072,7 @@ mod tests {
             br#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
         )
         .expect("collect");
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].title.as_deref(), Some("Example"));
+        assert_eq!(records.records.len(), 1);
+        assert_eq!(records.records[0].title.as_deref(), Some("Example"));
     }
 }

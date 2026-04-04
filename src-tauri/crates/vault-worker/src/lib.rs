@@ -617,6 +617,14 @@ impl BrowserHistoryMcpServer {
 impl ServerHandler for BrowserHistoryMcpServer {}
 
 fn run_mcp_stdio_server() -> Result<()> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    if !config.ai.enabled || !config.ai.mcp_enabled {
+        anyhow::bail!(
+            "Enable AI and the MCP server in Settings before starting the MCP server worker."
+        );
+    }
+
     let database_key = read_database_key_from_keyring()?;
     tokio_runtime()?.block_on(async move {
         let service =
@@ -858,6 +866,33 @@ mod tests {
     fn worker_cli_rejects_unknown_commands() {
         let error = run_worker_cli(&["wat".to_string()]).expect_err("unknown command should fail");
         assert!(error.to_string().contains("unknown worker command"));
+    }
+
+    #[test]
+    fn worker_cli_rejects_mcp_server_until_explicitly_enabled() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let config = initialized_config();
+        initialize_archive_database(&config, None).expect("initialize archive");
+
+        let error =
+            run_worker_cli(&["mcp-server".to_string()]).expect_err("mcp server should be gated");
+        assert!(error.to_string().contains("Enable AI and the MCP server"));
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
     }
 
     #[test]
