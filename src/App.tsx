@@ -20,6 +20,13 @@ import {
   storeDatabaseKeyStronghold,
 } from './lib/stronghold'
 import type {
+  AiAssistantResponse,
+  AiIndexReport,
+  AiIntegrationPreview,
+  AiProviderConfig,
+  AiProviderPurpose,
+  AiRequestFormat,
+  AiSearchResponse,
   ApplyResult,
   AppConfig,
   AppSnapshot,
@@ -36,7 +43,13 @@ import type {
   TakeoutInspection,
 } from './lib/types'
 
-type ViewId = 'setup' | 'explorer' | 'backups' | 'import' | 'settings'
+type ViewId =
+  | 'setup'
+  | 'explorer'
+  | 'analysis'
+  | 'backups'
+  | 'import'
+  | 'settings'
 
 type PlatformId = 'macos' | 'windows' | 'linux'
 
@@ -85,6 +98,14 @@ function App() {
     useState<ImportBatchDetail | null>(null)
   const [remotePreview, setRemotePreview] =
     useState<RemoteBackupPreview | null>(null)
+  const [aiIntegrationPreview, setAiIntegrationPreview] =
+    useState<AiIntegrationPreview | null>(null)
+  const [aiIndexReport, setAiIndexReport] = useState<AiIndexReport | null>(null)
+  const [aiSearchResult, setAiSearchResult] = useState<AiSearchResponse | null>(
+    null,
+  )
+  const [aiAssistantResult, setAiAssistantResult] =
+    useState<AiAssistantResponse | null>(null)
   const [lastBackupReport, setLastBackupReport] = useState<BackupReport | null>(
     null,
   )
@@ -111,6 +132,13 @@ function App() {
   const [takeoutPath, setTakeoutPath] = useState('')
   const [s3AccessKeyId, setS3AccessKeyId] = useState('')
   const [s3SecretAccessKey, setS3SecretAccessKey] = useState('')
+  const [providerSecrets, setProviderSecrets] = useState<
+    Record<string, string>
+  >({})
+  const [aiSearchInput, setAiSearchInput] = useState('')
+  const [aiSearchDomain, setAiSearchDomain] = useState('')
+  const [aiSearchProfile, setAiSearchProfile] = useState('')
+  const [aiQuestionInput, setAiQuestionInput] = useState('')
   const [workflowChecks, setWorkflowChecks] = useState<Record<string, boolean>>(
     {},
   )
@@ -254,6 +282,8 @@ function App() {
     ) ??
     snapshot?.recentImportBatches[0] ??
     null
+  const llmProviders = draftConfig?.ai.llmProviders ?? []
+  const embeddingProviders = draftConfig?.ai.embeddingProviders ?? []
 
   const viewMeta: Record<
     ViewId,
@@ -274,6 +304,12 @@ function App() {
       label: t('explorerNav'),
       description: t('explorerDescription'),
       icon: 'search',
+      disabled: !initialized,
+    },
+    analysis: {
+      label: t('analysisNav'),
+      description: t('analysisDescription'),
+      icon: 'neurology',
       disabled: !initialized,
     },
     backups: {
@@ -337,6 +373,96 @@ function App() {
           }
         : current,
     )
+  }
+
+  function updateAiSettings(patch: Partial<AppConfig['ai']>) {
+    setDraftConfig((current) =>
+      current
+        ? {
+            ...current,
+            ai: {
+              ...current.ai,
+              ...patch,
+            },
+          }
+        : current,
+    )
+  }
+
+  function updateAiProviderCollection(
+    purpose: AiProviderPurpose,
+    updater: (providers: AiProviderConfig[]) => AiProviderConfig[],
+  ) {
+    setDraftConfig((current) => {
+      if (!current) {
+        return current
+      }
+      const key =
+        purpose === 'llm'
+          ? ('llmProviders' as const)
+          : ('embeddingProviders' as const)
+      return {
+        ...current,
+        ai: {
+          ...current.ai,
+          [key]: updater(current.ai[key]),
+        },
+      }
+    })
+  }
+
+  function addAiProvider(purpose: AiProviderPurpose) {
+    const id = `${purpose}-${crypto.randomUUID().slice(0, 8)}`
+    updateAiProviderCollection(purpose, (providers) => [
+      ...providers,
+      {
+        id,
+        name: purpose === 'llm' ? 'New LLM provider' : 'New embedding provider',
+        purpose,
+        requestFormat: 'openai',
+        enabled: false,
+        baseUrl: null,
+        apiKeySaved: false,
+        defaultModel: '',
+        modelCatalog: [],
+        temperature: purpose === 'llm' ? 0.2 : null,
+        maxTokens: purpose === 'llm' ? 1200 : null,
+        dimensions: purpose === 'embedding' ? 1536 : null,
+        notes: null,
+      },
+    ])
+  }
+
+  function updateAiProvider(
+    purpose: AiProviderPurpose,
+    providerId: string,
+    patch: Partial<AiProviderConfig>,
+  ) {
+    updateAiProviderCollection(purpose, (providers) =>
+      providers.map((provider) =>
+        provider.id === providerId ? { ...provider, ...patch } : provider,
+      ),
+    )
+  }
+
+  function removeAiProvider(purpose: AiProviderPurpose, providerId: string) {
+    updateAiProviderCollection(purpose, (providers) =>
+      providers.filter((provider) => provider.id !== providerId),
+    )
+    if (purpose === 'llm' && draftConfig?.ai.llmProviderId === providerId) {
+      updateAiSettings({ llmProviderId: null })
+    }
+    if (
+      purpose === 'embedding' &&
+      draftConfig?.ai.embeddingProviderId === providerId
+    ) {
+      updateAiSettings({ embeddingProviderId: null })
+    }
+    setProviderSecrets((current) => {
+      const next = { ...current }
+      delete next[providerId]
+      return next
+    })
   }
 
   async function copyText(value: string) {
@@ -729,6 +855,92 @@ function App() {
       const result = await backend.runRemoteBackup()
       await reloadSnapshot()
       setLocalizedNotice(result.message)
+    })
+  }
+
+  async function handleStoreProviderSecret(providerId: string) {
+    const apiKey = providerSecrets[providerId]?.trim()
+    if (!apiKey) {
+      setError(t('enterProviderApiKey'))
+      return
+    }
+
+    await runTask(t('saveProviderKey'), async () => {
+      const nextSnapshot = await backend.storeAiProviderApiKey({
+        providerId,
+        apiKey,
+      })
+      setSnapshot(nextSnapshot)
+      setDraftConfig(nextSnapshot.config)
+      setProviderSecrets((current) => ({ ...current, [providerId]: '' }))
+      setLocalizedNotice(t('providerKeyStored'))
+    })
+  }
+
+  async function handleClearProviderSecret(providerId: string) {
+    await runTask(t('clearProviderKey'), async () => {
+      const nextSnapshot = await backend.clearAiProviderApiKey(providerId)
+      setSnapshot(nextSnapshot)
+      setDraftConfig(nextSnapshot.config)
+      setLocalizedNotice(t('providerKeyCleared'))
+    })
+  }
+
+  async function handleBuildAiIndex(fullRebuild: boolean) {
+    await runTask(t('buildAiIndex'), async () => {
+      const report = await backend.buildAiIndex({
+        providerId: draftConfig?.ai.embeddingProviderId ?? null,
+        fullRebuild,
+        limit: null,
+      })
+      setAiIndexReport(report)
+      await reloadSnapshot()
+      setLocalizedNotice(
+        t('aiIndexReadyNotice', {
+          count: report.indexedItems + report.updatedItems,
+        }),
+      )
+    })
+  }
+
+  async function handleRunAiSearch() {
+    if (!aiSearchInput.trim()) {
+      setError(t('enterAiSearchQuery'))
+      return
+    }
+
+    await runTask(t('runSemanticSearch'), async () => {
+      const response = await backend.searchAiHistory({
+        query: aiSearchInput,
+        domain: aiSearchDomain || null,
+        profileId: aiSearchProfile || null,
+        limit: 12,
+      })
+      setAiSearchResult(response)
+    })
+  }
+
+  async function handleAskAiAssistant() {
+    if (!aiQuestionInput.trim()) {
+      setError(t('enterAiQuestion'))
+      return
+    }
+
+    await runTask(t('askAssistant'), async () => {
+      const response = await backend.askAiAssistant({
+        question: aiQuestionInput,
+        domain: aiSearchDomain || null,
+        profileId: aiSearchProfile || null,
+      })
+      setAiAssistantResult(response)
+    })
+  }
+
+  async function handlePreviewAiIntegrations() {
+    await runTask(t('previewIntegrations'), async () => {
+      const preview = await backend.previewAiIntegrations()
+      setAiIntegrationPreview(preview)
+      setLocalizedNotice(t('integrationPreviewReady'))
     })
   }
 
@@ -1604,6 +1816,542 @@ function App() {
           <EmptyState>{t('unlockToSearch')}</EmptyState>
         )}
       </Surface>
+    )
+  } else if (activeView === 'analysis') {
+    mainContent = (
+      <>
+        <Surface
+          eyebrow={t('analysisSection')}
+          title={t('analysisDescription')}
+          icon="neurology"
+          actions={
+            <button
+              className="primaryButton"
+              type="button"
+              onClick={handleSaveSettings}
+            >
+              {t('saveAiSettings')}
+            </button>
+          }
+        >
+          <div className="toggleList">
+            <ToggleRow
+              checked={draftConfig?.ai.enabled ?? false}
+              label={t('enableAiAnalysis')}
+              onChange={(checked) => updateAiSettings({ enabled: checked })}
+            />
+            <ToggleRow
+              checked={draftConfig?.ai.assistantEnabled ?? false}
+              label={t('enableAssistant')}
+              onChange={(checked) =>
+                updateAiSettings({ assistantEnabled: checked })
+              }
+            />
+            <ToggleRow
+              checked={draftConfig?.ai.semanticIndexEnabled ?? false}
+              label={t('enableSemanticIndex')}
+              onChange={(checked) =>
+                updateAiSettings({ semanticIndexEnabled: checked })
+              }
+            />
+            <ToggleRow
+              checked={draftConfig?.ai.autoIndexAfterBackup ?? false}
+              label={t('autoIndexAfterBackupLabel')}
+              onChange={(checked) =>
+                updateAiSettings({ autoIndexAfterBackup: checked })
+              }
+            />
+            <ToggleRow
+              checked={draftConfig?.ai.mcpEnabled ?? false}
+              label={t('enableMcp')}
+              onChange={(checked) => updateAiSettings({ mcpEnabled: checked })}
+            />
+            <ToggleRow
+              checked={draftConfig?.ai.skillEnabled ?? false}
+              label={t('enableSkill')}
+              onChange={(checked) =>
+                updateAiSettings({ skillEnabled: checked })
+              }
+            />
+          </div>
+
+          <div className="fieldGrid two">
+            <FieldBlock
+              label={t('llmProviderLabel')}
+              control={
+                <select
+                  value={draftConfig?.ai.llmProviderId ?? ''}
+                  onChange={(event) =>
+                    updateAiSettings({
+                      llmProviderId: event.target.value || null,
+                    })
+                  }
+                >
+                  <option value="">{t('selectProvider')}</option>
+                  {llmProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name || provider.id}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+            <FieldBlock
+              label={t('embeddingProviderLabel')}
+              control={
+                <select
+                  value={draftConfig?.ai.embeddingProviderId ?? ''}
+                  onChange={(event) =>
+                    updateAiSettings({
+                      embeddingProviderId: event.target.value || null,
+                    })
+                  }
+                >
+                  <option value="">{t('selectProvider')}</option>
+                  {embeddingProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name || provider.id}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+            <FieldBlock
+              label={t('retrievalTopK')}
+              control={
+                <input
+                  min={1}
+                  max={25}
+                  step={1}
+                  type="number"
+                  value={draftConfig?.ai.retrievalTopK ?? 8}
+                  onChange={(event) =>
+                    updateAiSettings({
+                      retrievalTopK: Number(event.target.value),
+                    })
+                  }
+                />
+              }
+            />
+            <FieldBlock
+              label={t('analysisProfileFilter')}
+              control={
+                <select
+                  value={aiSearchProfile}
+                  onChange={(event) => setAiSearchProfile(event.target.value)}
+                >
+                  <option value="">{t('allProfiles')}</option>
+                  {snapshot?.browserProfiles.map((profile) => (
+                    <option key={profile.profileId} value={profile.profileId}>
+                      {profile.profileName}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          </div>
+
+          <FieldBlock
+            label={t('assistantSystemPrompt')}
+            control={
+              <textarea
+                className="multilineInput"
+                rows={5}
+                value={draftConfig?.ai.assistantSystemPrompt ?? ''}
+                onChange={(event) =>
+                  updateAiSettings({
+                    assistantSystemPrompt: event.target.value,
+                  })
+                }
+              />
+            }
+          />
+        </Surface>
+
+        <Surface
+          eyebrow={t('providerLibrary')}
+          title={t('providerLibraryDescription')}
+          icon="model_training"
+        >
+          <div className="providerColumns">
+            <AiProviderEditorList
+              addLabel={t('addLlmProvider')}
+              apiKeys={providerSecrets}
+              providers={llmProviders}
+              purpose="llm"
+              title={t('llmProvidersTitle')}
+              translations={{
+                providerName: t('providerName'),
+                providerId: t('providerId'),
+                requestFormat: t('requestFormat'),
+                baseUrl: t('baseUrl'),
+                defaultModel: t('defaultModel'),
+                modelCatalog: t('modelCatalog'),
+                modelCatalogHint: t('modelCatalogHint'),
+                enabled: t('providerEnabled'),
+                temperature: t('temperature'),
+                maxTokens: t('maxTokens'),
+                dimensions: t('dimensions'),
+                notes: t('notes'),
+                apiKey: t('apiKey'),
+                keyStored: t('providerKeyStoredState'),
+                saveKey: t('saveProviderKey'),
+                clearKey: t('clearProviderKey'),
+                remove: t('removeProvider'),
+              }}
+              onAdd={() => addAiProvider('llm')}
+              onApiKeyChange={(providerId, value) =>
+                setProviderSecrets((current) => ({
+                  ...current,
+                  [providerId]: value,
+                }))
+              }
+              onClearKey={(providerId) =>
+                void handleClearProviderSecret(providerId)
+              }
+              onRemove={(providerId) => removeAiProvider('llm', providerId)}
+              onSaveKey={(providerId) =>
+                void handleStoreProviderSecret(providerId)
+              }
+              onSelect={(providerId) =>
+                updateAiSettings({ llmProviderId: providerId })
+              }
+              onUpdate={(providerId, patch) =>
+                updateAiProvider('llm', providerId, patch)
+              }
+              selectedProviderId={draftConfig?.ai.llmProviderId ?? null}
+            />
+            <AiProviderEditorList
+              addLabel={t('addEmbeddingProvider')}
+              apiKeys={providerSecrets}
+              providers={embeddingProviders}
+              purpose="embedding"
+              title={t('embeddingProvidersTitle')}
+              translations={{
+                providerName: t('providerName'),
+                providerId: t('providerId'),
+                requestFormat: t('requestFormat'),
+                baseUrl: t('baseUrl'),
+                defaultModel: t('defaultModel'),
+                modelCatalog: t('modelCatalog'),
+                modelCatalogHint: t('modelCatalogHint'),
+                enabled: t('providerEnabled'),
+                temperature: t('temperature'),
+                maxTokens: t('maxTokens'),
+                dimensions: t('dimensions'),
+                notes: t('notes'),
+                apiKey: t('apiKey'),
+                keyStored: t('providerKeyStoredState'),
+                saveKey: t('saveProviderKey'),
+                clearKey: t('clearProviderKey'),
+                remove: t('removeProvider'),
+              }}
+              onAdd={() => addAiProvider('embedding')}
+              onApiKeyChange={(providerId, value) =>
+                setProviderSecrets((current) => ({
+                  ...current,
+                  [providerId]: value,
+                }))
+              }
+              onClearKey={(providerId) =>
+                void handleClearProviderSecret(providerId)
+              }
+              onRemove={(providerId) =>
+                removeAiProvider('embedding', providerId)
+              }
+              onSaveKey={(providerId) =>
+                void handleStoreProviderSecret(providerId)
+              }
+              onSelect={(providerId) =>
+                updateAiSettings({ embeddingProviderId: providerId })
+              }
+              onUpdate={(providerId, patch) =>
+                updateAiProvider('embedding', providerId, patch)
+              }
+              selectedProviderId={draftConfig?.ai.embeddingProviderId ?? null}
+            />
+          </div>
+        </Surface>
+
+        <Surface
+          eyebrow={t('analysisWorkbench')}
+          title={t('analysisWorkbenchDescription')}
+          icon="manage_search"
+          actions={
+            <>
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => void handleBuildAiIndex(false)}
+              >
+                {t('buildAiIndex')}
+              </button>
+              <button
+                className="ghostButton"
+                type="button"
+                onClick={() => void handleBuildAiIndex(true)}
+              >
+                {t('rebuildAiIndex')}
+              </button>
+              <button
+                className="ghostButton"
+                type="button"
+                onClick={handlePreviewAiIntegrations}
+              >
+                {t('previewIntegrations')}
+              </button>
+            </>
+          }
+        >
+          <div className="infoGrid four">
+            <InfoStat
+              label={t('aiReady')}
+              value={snapshot?.aiStatus.ready ? t('yes') : t('no')}
+            />
+            <InfoStat
+              label={t('indexedItems')}
+              value={String(snapshot?.aiStatus.indexedItems ?? 0)}
+            />
+            <InfoStat
+              label={t('selectedLlm')}
+              value={draftConfig?.ai.llmProviderId ?? t('notAvailable')}
+            />
+            <InfoStat
+              label={t('selectedEmbedding')}
+              value={draftConfig?.ai.embeddingProviderId ?? t('notAvailable')}
+            />
+          </div>
+
+          <div className="queryBar">
+            <FieldBlock
+              label={t('semanticSearchLabel')}
+              control={
+                <input
+                  placeholder={t('semanticSearchPlaceholder')}
+                  value={aiSearchInput}
+                  onChange={(event) => setAiSearchInput(event.target.value)}
+                />
+              }
+            />
+            <FieldBlock
+              label={t('domainLabel')}
+              control={
+                <input
+                  placeholder={t('domainPlaceholder')}
+                  value={aiSearchDomain}
+                  onChange={(event) => setAiSearchDomain(event.target.value)}
+                />
+              }
+            />
+            <FieldBlock
+              label={t('profileLabel')}
+              control={
+                <select
+                  value={aiSearchProfile}
+                  onChange={(event) => setAiSearchProfile(event.target.value)}
+                >
+                  <option value="">{t('allProfiles')}</option>
+                  {snapshot?.browserProfiles.map((profile) => (
+                    <option key={profile.profileId} value={profile.profileId}>
+                      {profile.profileName}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          </div>
+
+          <div className="toolbarActions">
+            <button
+              className="secondaryButton"
+              type="button"
+              onClick={handleRunAiSearch}
+            >
+              {t('runSemanticSearch')}
+            </button>
+          </div>
+
+          <FieldBlock
+            label={t('assistantQuestion')}
+            control={
+              <textarea
+                className="multilineInput"
+                placeholder={t('assistantQuestionPlaceholder')}
+                rows={4}
+                value={aiQuestionInput}
+                onChange={(event) => setAiQuestionInput(event.target.value)}
+              />
+            }
+          />
+
+          <div className="toolbarActions">
+            <button
+              className="primaryButton"
+              type="button"
+              onClick={handleAskAiAssistant}
+            >
+              {t('askAssistant')}
+            </button>
+          </div>
+        </Surface>
+
+        <Surface eyebrow={t('semanticResults')} title="" icon="search">
+          {aiSearchResult?.items.length ? (
+            <div className="recordList">
+              {aiSearchResult.items.map((item) => (
+                <article className="recordRow selected" key={item.historyId}>
+                  <div className="recordMeta">
+                    <span>
+                      {formatDateTime(item.visitedAt, resolvedLanguage)}
+                    </span>
+                    <span>{item.profileId}</span>
+                    <span>{item.matchReason}</span>
+                  </div>
+                  <strong>{item.title || item.url}</strong>
+                  <p>{item.url}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState>{t('noSemanticResults')}</EmptyState>
+          )}
+          {aiSearchResult?.notes.length ? (
+            <ul className="plainList">
+              {aiSearchResult.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+        </Surface>
+      </>
+    )
+
+    inspectorContent = (
+      <>
+        <Surface eyebrow={t('assistantSection')} title="" icon="smart_toy">
+          {aiAssistantResult ? (
+            <>
+              <div className="subsection">
+                <h3>{t('assistantAnswer')}</h3>
+                <p>{aiAssistantResult.answer}</p>
+              </div>
+              {aiAssistantResult.citations.length ? (
+                <div className="subsection">
+                  <h3>{t('assistantCitations')}</h3>
+                  <div className="artifactList">
+                    {aiAssistantResult.citations.map((citation) => (
+                      <article
+                        className="artifactCard compactCard"
+                        key={`${citation.historyId}:${citation.url}`}
+                      >
+                        <strong>{citation.title || citation.url}</strong>
+                        <p>{citation.url}</p>
+                        <small>
+                          {citation.profileId} ·{' '}
+                          {formatDateTime(citation.visitedAt, resolvedLanguage)}
+                        </small>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {aiAssistantResult.notes.length ? (
+                <ul className="plainList">
+                  {aiAssistantResult.notes.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <EmptyState>{t('assistantEmptyState')}</EmptyState>
+          )}
+        </Surface>
+
+        <Surface
+          eyebrow={t('manualPathTitle')}
+          title={t('integrationStepsTitle')}
+          icon="route"
+        >
+          <dl className="dataList">
+            <DataRow
+              label={t('lastIndexedAt')}
+              value={
+                formatDateTime(
+                  snapshot?.aiStatus.lastIndexedAt ?? null,
+                  resolvedLanguage,
+                ) ?? t('notAvailable')
+              }
+            />
+            <DataRow
+              label={t('lastIndexReport')}
+              value={
+                aiIndexReport
+                  ? `${aiIndexReport.indexedItems + aiIndexReport.updatedItems}`
+                  : t('notAvailable')
+              }
+            />
+            <DataRow
+              label={t('warningLabel')}
+              value={snapshot?.aiStatus.warning ?? t('notAvailable')}
+            />
+          </dl>
+          {aiIntegrationPreview ? (
+            <>
+              <div className="codeArtifact compact">
+                <div className="artifactHeader">
+                  <strong>{t('mcpCommand')}</strong>
+                  <button
+                    className="ghostButton"
+                    type="button"
+                    onClick={() =>
+                      void copyText(aiIntegrationPreview.mcpCommand)
+                    }
+                  >
+                    {t('previewCommand')}
+                  </button>
+                </div>
+                <pre>{aiIntegrationPreview.mcpCommand}</pre>
+              </div>
+              {aiIntegrationPreview.generatedFiles.length ? (
+                <div className="generatedList">
+                  {aiIntegrationPreview.generatedFiles.map((file) => (
+                    <article className="codeArtifact" key={file.relativePath}>
+                      <div className="artifactHeader">
+                        <strong>{file.relativePath}</strong>
+                        <button
+                          className="ghostButton"
+                          type="button"
+                          onClick={() => void copyText(file.contents)}
+                        >
+                          {t('previewCommand')}
+                        </button>
+                      </div>
+                      <pre>{file.contents}</pre>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {aiIntegrationPreview.manualSteps.length ? (
+                <ol className="stepList">
+                  {aiIntegrationPreview.manualSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+              ) : null}
+              {aiIntegrationPreview.warnings.length ? (
+                <ul className="plainList">
+                  {aiIntegrationPreview.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <EmptyState>{t('integrationPreviewEmpty')}</EmptyState>
+          )}
+        </Surface>
+      </>
     )
   } else if (activeView === 'backups') {
     mainContent = (
@@ -2886,6 +3634,304 @@ function OperationWorkflow({
         )
       })}
     </ol>
+  )
+}
+
+const aiRequestFormats: AiRequestFormat[] = [
+  'openai',
+  'anthropic',
+  'google',
+  'ollama',
+  'lm-studio',
+]
+
+function AiProviderEditorList({
+  addLabel,
+  apiKeys,
+  onAdd,
+  onApiKeyChange,
+  onClearKey,
+  onRemove,
+  onSaveKey,
+  onSelect,
+  onUpdate,
+  providers,
+  purpose,
+  selectedProviderId,
+  title,
+  translations,
+}: {
+  addLabel: string
+  apiKeys: Record<string, string>
+  onAdd: () => void
+  onApiKeyChange: (providerId: string, value: string) => void
+  onClearKey: (providerId: string) => void
+  onRemove: (providerId: string) => void
+  onSaveKey: (providerId: string) => void
+  onSelect: (providerId: string) => void
+  onUpdate: (providerId: string, patch: Partial<AiProviderConfig>) => void
+  providers: AiProviderConfig[]
+  purpose: AiProviderPurpose
+  selectedProviderId: string | null
+  title: string
+  translations: {
+    providerName: string
+    providerId: string
+    requestFormat: string
+    baseUrl: string
+    defaultModel: string
+    modelCatalog: string
+    modelCatalogHint: string
+    enabled: string
+    temperature: string
+    maxTokens: string
+    dimensions: string
+    notes: string
+    apiKey: string
+    keyStored: string
+    saveKey: string
+    clearKey: string
+    remove: string
+  }
+}) {
+  return (
+    <div className="surfaceInset providerPanel">
+      <div className="toolbarLine">
+        <h3>{title}</h3>
+        <button className="secondaryButton" type="button" onClick={onAdd}>
+          {addLabel}
+        </button>
+      </div>
+      {providers.length ? (
+        <div className="providerList">
+          {providers.map((provider) => (
+            <article
+              className={`providerCard ${selectedProviderId === provider.id ? 'selected' : ''}`}
+              key={provider.id}
+            >
+              <div className="providerHeader">
+                <label className="providerSelect">
+                  <input
+                    checked={selectedProviderId === provider.id}
+                    name={`${purpose}-provider`}
+                    type="radio"
+                    onChange={() => onSelect(provider.id)}
+                  />
+                  <strong>{provider.name || provider.id}</strong>
+                </label>
+                <button
+                  className="ghostButton"
+                  type="button"
+                  onClick={() => onRemove(provider.id)}
+                >
+                  {translations.remove}
+                </button>
+              </div>
+
+              <div className="fieldGrid two">
+                <FieldBlock
+                  label={translations.providerName}
+                  control={
+                    <input
+                      value={provider.name}
+                      onChange={(event) =>
+                        onUpdate(provider.id, { name: event.target.value })
+                      }
+                    />
+                  }
+                />
+                <FieldBlock
+                  label={translations.providerId}
+                  control={
+                    <div className="readOnlyField providerMono">
+                      {provider.id}
+                    </div>
+                  }
+                />
+                <FieldBlock
+                  label={translations.requestFormat}
+                  control={
+                    <select
+                      value={provider.requestFormat}
+                      onChange={(event) =>
+                        onUpdate(provider.id, {
+                          requestFormat: event.target.value as AiRequestFormat,
+                        })
+                      }
+                    >
+                      {aiRequestFormats.map((format) => (
+                        <option key={format} value={format}>
+                          {format}
+                        </option>
+                      ))}
+                    </select>
+                  }
+                />
+                <FieldBlock
+                  label={translations.baseUrl}
+                  control={
+                    <input
+                      placeholder="https://api.example.com/v1"
+                      value={provider.baseUrl ?? ''}
+                      onChange={(event) =>
+                        onUpdate(provider.id, {
+                          baseUrl: event.target.value || null,
+                        })
+                      }
+                    />
+                  }
+                />
+                <FieldBlock
+                  label={translations.defaultModel}
+                  control={
+                    <input
+                      value={provider.defaultModel}
+                      onChange={(event) =>
+                        onUpdate(provider.id, {
+                          defaultModel: event.target.value,
+                        })
+                      }
+                    />
+                  }
+                />
+                <FieldBlock
+                  label={translations.modelCatalog}
+                  control={
+                    <input
+                      placeholder={translations.modelCatalogHint}
+                      value={provider.modelCatalog.join(', ')}
+                      onChange={(event) =>
+                        onUpdate(provider.id, {
+                          modelCatalog: event.target.value
+                            .split(',')
+                            .map((value) => value.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                    />
+                  }
+                />
+                {purpose === 'llm' ? (
+                  <>
+                    <FieldBlock
+                      label={translations.temperature}
+                      control={
+                        <input
+                          max={2}
+                          min={0}
+                          step={0.1}
+                          type="number"
+                          value={provider.temperature ?? 0}
+                          onChange={(event) =>
+                            onUpdate(provider.id, {
+                              temperature: Number(event.target.value),
+                            })
+                          }
+                        />
+                      }
+                    />
+                    <FieldBlock
+                      label={translations.maxTokens}
+                      control={
+                        <input
+                          min={1}
+                          step={1}
+                          type="number"
+                          value={provider.maxTokens ?? 1200}
+                          onChange={(event) =>
+                            onUpdate(provider.id, {
+                              maxTokens: Number(event.target.value),
+                            })
+                          }
+                        />
+                      }
+                    />
+                  </>
+                ) : (
+                  <FieldBlock
+                    label={translations.dimensions}
+                    control={
+                      <input
+                        min={1}
+                        step={1}
+                        type="number"
+                        value={provider.dimensions ?? 1536}
+                        onChange={(event) =>
+                          onUpdate(provider.id, {
+                            dimensions: Number(event.target.value),
+                          })
+                        }
+                      />
+                    }
+                  />
+                )}
+              </div>
+
+              <FieldBlock
+                label={translations.notes}
+                control={
+                  <textarea
+                    className="multilineInput"
+                    rows={3}
+                    value={provider.notes ?? ''}
+                    onChange={(event) =>
+                      onUpdate(provider.id, {
+                        notes: event.target.value || null,
+                      })
+                    }
+                  />
+                }
+              />
+
+              <div className="toggleList compactToggleList">
+                <ToggleRow
+                  checked={provider.enabled}
+                  label={translations.enabled}
+                  onChange={(checked) =>
+                    onUpdate(provider.id, { enabled: checked })
+                  }
+                />
+              </div>
+
+              <div className="providerSecretRow">
+                <FieldBlock
+                  label={`${translations.apiKey} · ${translations.keyStored}: ${provider.apiKeySaved ? 'yes' : 'no'}`}
+                  control={
+                    <input
+                      autoComplete="off"
+                      placeholder="sk-..."
+                      type="password"
+                      value={apiKeys[provider.id] ?? ''}
+                      onChange={(event) =>
+                        onApiKeyChange(provider.id, event.target.value)
+                      }
+                    />
+                  }
+                />
+                <div className="toolbarActions">
+                  <button
+                    className="secondaryButton"
+                    type="button"
+                    onClick={() => onSaveKey(provider.id)}
+                  >
+                    {translations.saveKey}
+                  </button>
+                  <button
+                    className="ghostButton"
+                    type="button"
+                    onClick={() => onClearKey(provider.id)}
+                  >
+                    {translations.clearKey}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState>{title}</EmptyState>
+      )}
+    </div>
   )
 }
 

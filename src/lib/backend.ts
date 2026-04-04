@@ -1,5 +1,13 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import type {
+  AiAssistantRequest,
+  AiAssistantResponse,
+  AiIndexReport,
+  AiIndexRequest,
+  AiIntegrationPreview,
+  AiProviderSecretInput,
+  AiSearchRequest,
+  AiSearchResponse,
   AppConfig,
   AppSnapshot,
   ApplyResult,
@@ -69,6 +77,21 @@ const mockSnapshot: AppSnapshot = {
       lastUploadedObjectKey: null,
       lastError: null,
     },
+    ai: {
+      enabled: false,
+      assistantEnabled: false,
+      semanticIndexEnabled: false,
+      mcpEnabled: false,
+      skillEnabled: false,
+      autoIndexAfterBackup: false,
+      llmProviderId: null,
+      embeddingProviderId: null,
+      retrievalTopK: 8,
+      assistantSystemPrompt:
+        'You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on.',
+      llmProviders: [],
+      embeddingProviders: [],
+    },
   },
   archiveStatus: {
     initialized: false,
@@ -81,6 +104,18 @@ const mockSnapshot: AppSnapshot = {
     available: true,
     backend: 'Mock keyring',
     storedSecret: false,
+  },
+  aiStatus: {
+    enabled: false,
+    assistantEnabled: false,
+    mcpEnabled: false,
+    skillEnabled: false,
+    ready: false,
+    indexedItems: 0,
+    lastIndexedAt: null,
+    llmProviderId: null,
+    embeddingProviderId: null,
+    warning: null,
   },
   browserProfiles: [],
   recentRuns: [],
@@ -239,6 +274,73 @@ async function call<T>(
         backend: 'Mock keyring',
         storedSecret: command === 'keyring_store_database_key',
       } as T
+    case 'store_ai_provider_api_key':
+    case 'clear_ai_provider_api_key':
+      return structuredClone(mockSnapshot) as T
+    case 'build_ai_index':
+      return {
+        providerId: 'mock-embedding',
+        model: 'text-embedding-3-large',
+        indexedItems: 2,
+        updatedItems: 0,
+        skippedItems: 0,
+        removedItems: 0,
+        lastIndexedAt: new Date().toISOString(),
+        notes: ['Browser preview mode uses a static AI index fixture.'],
+      } as T
+    case 'search_ai_history':
+      return {
+        total: mockHistory.items.length,
+        providerId: 'lexical-fallback',
+        model: 'none',
+        items: mockHistory.items.map((item, index) => ({
+          historyId: item.id,
+          profileId: item.profileId,
+          url: item.url,
+          title: item.title,
+          domain: item.domain,
+          visitedAt: item.visitedAt,
+          score: 0.8 - index * 0.1,
+          matchReason: 'Browser preview lexical fixture',
+        })),
+        notes: ['Semantic retrieval is unavailable in browser preview mode.'],
+      } as T
+    case 'ask_ai_assistant':
+      return {
+        answer:
+          'Browser preview mode can show the assistant layout, but real LLM answers only run in the desktop app.',
+        providerId: 'preview-llm',
+        embeddingProviderId: 'lexical-fallback',
+        citations: mockHistory.items.map((item) => ({
+          historyId: item.id,
+          profileId: item.profileId,
+          url: item.url,
+          title: item.title,
+          visitedAt: item.visitedAt,
+          score: 0.8,
+        })),
+        notes: ['Open the desktop build to run real agentic history analysis.'],
+      } as T
+    case 'preview_ai_integrations':
+      return {
+        mcpCommand:
+          '/Applications/Browser History Backup.app --worker mcp-server',
+        manualSteps: [
+          'Enable MCP or Skill integration in Settings first.',
+          'Store the database key in the native keyring if the archive is encrypted.',
+          'Copy the generated MCP JSON into your MCP client configuration.',
+        ],
+        generatedFiles: [
+          {
+            relativePath: 'integrations/browser-history-backup-mcp.json',
+            absolutePath:
+              '~/Library/Application Support/Browser History Backup/integrations/browser-history-backup-mcp.json',
+            purpose: 'Browser History Backup MCP client snippet',
+            contents: '{\n  "mcpServers": {}\n}',
+          },
+        ],
+        warnings: [],
+      } as T
     case 'export_history':
       return {
         format: 'jsonl',
@@ -302,5 +404,17 @@ export const backend = {
   storeS3Credentials: (credentials: S3CredentialInput) =>
     call<void>('store_s3_credentials', { credentials }),
   clearS3Credentials: () => call<void>('clear_s3_credentials'),
+  storeAiProviderApiKey: (input: AiProviderSecretInput) =>
+    call<AppSnapshot>('store_ai_provider_api_key', { input }),
+  clearAiProviderApiKey: (providerId: string) =>
+    call<AppSnapshot>('clear_ai_provider_api_key', { providerId }),
+  buildAiIndex: (request: AiIndexRequest) =>
+    call<AiIndexReport>('build_ai_index', { request }),
+  searchAiHistory: (request: AiSearchRequest) =>
+    call<AiSearchResponse>('search_ai_history', { request }),
+  askAiAssistant: (request: AiAssistantRequest) =>
+    call<AiAssistantResponse>('ask_ai_assistant', { request }),
+  previewAiIntegrations: () =>
+    call<AiIntegrationPreview>('preview_ai_integrations'),
   resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),
 }

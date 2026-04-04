@@ -44,6 +44,10 @@ fn keyring_entry(user: &str) -> Result<Entry> {
     Ok(Entry::new(KEYRING_SERVICE, user)?)
 }
 
+fn provider_keyring_user(provider_id: &str) -> String {
+    format!("ai-provider::{provider_id}")
+}
+
 fn legacy_keyring_entries(user: &str) -> Vec<Entry> {
     LEGACY_KEYRING_SERVICES.iter().filter_map(|service| Entry::new(service, user).ok()).collect()
 }
@@ -290,6 +294,48 @@ pub fn s3_credentials_saved() -> bool {
     keyring_get_s3_credentials().ok().flatten().is_some()
 }
 
+pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>> {
+    let user = provider_keyring_user(provider_id);
+    if let Some(path) = test_keyring_dir() {
+        return test_keyring_get(&path, &user);
+    }
+
+    use_native_store(cfg!(target_os = "linux")).ok();
+    let entry = keyring_entry(&user)?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(_) => Ok(None),
+    }
+}
+
+pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<()> {
+    let user = provider_keyring_user(provider_id);
+    if let Some(path) = test_keyring_dir() {
+        return test_keyring_set(&path, &user, api_key);
+    }
+
+    use_native_store(cfg!(target_os = "linux")).context("initializing keyring backend")?;
+    let entry = keyring_entry(&user)?;
+    entry.set_password(api_key)?;
+    Ok(())
+}
+
+pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
+    let user = provider_keyring_user(provider_id);
+    if let Some(path) = test_keyring_dir() {
+        return test_keyring_clear(&path, &user);
+    }
+
+    use_native_store(cfg!(target_os = "linux")).ok();
+    let entry = keyring_entry(&user)?;
+    let _ = entry.delete_credential();
+    Ok(())
+}
+
+pub fn provider_api_key_saved(provider_id: &str) -> bool {
+    keyring_get_provider_api_key(provider_id).ok().flatten().is_some()
+}
+
 fn macos_schedule_plan(
     executable_path: &Path,
     worker_args: &[String],
@@ -335,7 +381,7 @@ fn macos_schedule_plan(
         manual_steps: vec![
             format!("Save the plist to ~/Library/LaunchAgents/{MACOS_LABEL}.plist."),
             format!(
-                "Run `launchctl bootout gui/$(id -u) {}` to unload an older Chrome History Backup schedule if one still exists.",
+                "Run `launchctl bootout gui/$(id -u) {}` to unload an older Browser History Backup or Chrome History Backup schedule if one still exists.",
                 LEGACY_MACOS_LABEL
             ),
             format!(
@@ -524,7 +570,13 @@ fn test_keyring_clear(root: &Path, user: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn sample_paths(root: &Path) -> ProjectPaths {
         ProjectPaths {
@@ -562,6 +614,22 @@ mod tests {
         assert!(!mac.generated_files.is_empty());
         assert!(!windows.generated_files.is_empty());
         assert!(!linux.generated_files.is_empty());
+        assert!(mac.apply_supported);
+        assert!(!windows.apply_supported);
+        assert!(!linux.apply_supported);
+        assert!(windows.generated_files[0].contents.contains("<Task"));
+        assert!(linux.generated_files[1].contents.contains("Persistent=true"));
+    }
+
+    #[test]
+    fn preview_schedule_uses_current_platform_when_unspecified() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let preview = preview_schedule(None, Path::new("/tmp/bhb"), &paths, &params)
+            .expect("default preview");
+        assert_eq!(preview.platform, current_platform_name());
+        assert!(!preview.manual_steps.is_empty());
     }
 
     #[test]
@@ -588,6 +656,7 @@ mod tests {
 
     #[test]
     fn file_backed_test_keyring_roundtrips_secrets() {
+        let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
         unsafe {
             std::env::set_var(TEST_KEYRING_DIR_ENV, dir.path());
@@ -608,8 +677,46 @@ mod tests {
         assert_eq!(keyring_get_s3_credentials().expect("get s3"), Some(credentials));
         assert!(s3_credentials_saved());
 
+        keyring_set_provider_api_key("openai-primary", "provider-secret").expect("set provider");
+        assert_eq!(
+            keyring_get_provider_api_key("openai-primary").expect("get provider"),
+            Some("provider-secret".to_string())
+        );
+        assert!(provider_api_key_saved("openai-primary"));
+
         keyring_clear_database_key().expect("clear db");
         keyring_clear_s3_credentials().expect("clear s3");
+        keyring_clear_provider_api_key("openai-primary").expect("clear provider");
+        assert!(!provider_api_key_saved("openai-primary"));
+        unsafe {
+            std::env::remove_var(TEST_KEYRING_DIR_ENV);
+        }
+    }
+
+    #[test]
+    fn file_backed_test_keyring_handles_missing_entries_and_helpers() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        unsafe {
+            std::env::set_var(TEST_KEYRING_DIR_ENV, dir.path());
+        }
+
+        assert_eq!(keyring_get_database_key().expect("missing db key"), None);
+        assert_eq!(keyring_get_s3_credentials().expect("missing s3"), None);
+        assert_eq!(
+            keyring_get_provider_api_key("missing-provider").expect("missing provider"),
+            None
+        );
+        assert!(
+            test_keyring_path(dir.path(), "sample-user")
+                .display()
+                .to_string()
+                .contains("sample-user")
+        );
+        keyring_clear_database_key().expect("clear empty db key");
+        keyring_clear_s3_credentials().expect("clear empty s3 creds");
+        keyring_clear_provider_api_key("missing-provider").expect("clear empty provider key");
+
         unsafe {
             std::env::remove_var(TEST_KEYRING_DIR_ENV);
         }

@@ -15,6 +15,46 @@ export interface RemoteBackupConfig {
   lastError?: string | null
 }
 
+export type AiRequestFormat =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'ollama'
+  | 'lm-studio'
+
+export type AiProviderPurpose = 'llm' | 'embedding'
+
+export interface AiProviderConfig {
+  id: string
+  name: string
+  purpose: AiProviderPurpose
+  requestFormat: AiRequestFormat
+  enabled: boolean
+  baseUrl?: string | null
+  apiKeySaved: boolean
+  defaultModel: string
+  modelCatalog: string[]
+  temperature?: number | null
+  maxTokens?: number | null
+  dimensions?: number | null
+  notes?: string | null
+}
+
+export interface AiSettings {
+  enabled: boolean
+  assistantEnabled: boolean
+  semanticIndexEnabled: boolean
+  mcpEnabled: boolean
+  skillEnabled: boolean
+  autoIndexAfterBackup: boolean
+  llmProviderId?: string | null
+  embeddingProviderId?: string | null
+  retrievalTopK: number
+  assistantSystemPrompt: string
+  llmProviders: AiProviderConfig[]
+  embeddingProviders: AiProviderConfig[]
+}
+
 export interface AppConfig {
   initialized: boolean
   archiveMode: ArchiveMode
@@ -28,6 +68,7 @@ export interface AppConfig {
   rememberDatabaseKeyInKeyring: boolean
   appAutostart: boolean
   remoteBackup: RemoteBackupConfig
+  ai: AiSettings
 }
 
 export interface AppDirectories {
@@ -59,6 +100,19 @@ export interface KeyringStatusReport {
   backend: string
   storedSecret: boolean
   message?: string | null
+}
+
+export interface AiIndexStatus {
+  enabled: boolean
+  assistantEnabled: boolean
+  mcpEnabled: boolean
+  skillEnabled: boolean
+  ready: boolean
+  indexedItems: number
+  lastIndexedAt?: string | null
+  llmProviderId?: string | null
+  embeddingProviderId?: string | null
+  warning?: string | null
 }
 
 export interface BrowserProfile {
@@ -113,6 +167,7 @@ export interface AppSnapshot {
   config: AppConfig
   archiveStatus: ArchiveStatus
   keyringStatus: KeyringStatusReport
+  aiStatus: AiIndexStatus
   browserProfiles: BrowserProfile[]
   recentRuns: BackupRunOverview[]
   recentImportBatches: ImportBatchOverview[]
@@ -273,6 +328,84 @@ export interface HealthCheck {
 export interface HealthReport {
   generatedAt: string
   checks: HealthCheck[]
+}
+
+export interface AiProviderSecretInput {
+  providerId: string
+  apiKey: string
+}
+
+export interface AiIndexRequest {
+  providerId?: string | null
+  fullRebuild: boolean
+  limit?: number | null
+}
+
+export interface AiIndexReport {
+  providerId: string
+  model: string
+  indexedItems: number
+  updatedItems: number
+  skippedItems: number
+  removedItems: number
+  lastIndexedAt: string
+  notes: string[]
+}
+
+export interface AiSearchRequest {
+  query: string
+  profileId?: string | null
+  domain?: string | null
+  limit?: number | null
+}
+
+export interface AiSearchEntry {
+  historyId: number
+  profileId: string
+  url: string
+  title?: string | null
+  domain: string
+  visitedAt: string
+  score: number
+  matchReason: string
+}
+
+export interface AiSearchResponse {
+  total: number
+  providerId: string
+  model: string
+  items: AiSearchEntry[]
+  notes: string[]
+}
+
+export interface AiAssistantRequest {
+  question: string
+  profileId?: string | null
+  domain?: string | null
+}
+
+export interface AiCitation {
+  historyId: number
+  profileId: string
+  url: string
+  title?: string | null
+  visitedAt: string
+  score?: number | null
+}
+
+export interface AiAssistantResponse {
+  answer: string
+  providerId: string
+  embeddingProviderId: string
+  citations: AiCitation[]
+  notes: string[]
+}
+
+export interface AiIntegrationPreview {
+  mcpCommand: string
+  manualSteps: string[]
+  generatedFiles: GeneratedFile[]
+  warnings: string[]
 }
 
 export interface RekeyRequest {

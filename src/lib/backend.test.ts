@@ -38,6 +38,21 @@ const config: AppConfig = {
     lastUploadedObjectKey: null,
     lastError: null,
   },
+  ai: {
+    enabled: false,
+    assistantEnabled: false,
+    semanticIndexEnabled: false,
+    mcpEnabled: false,
+    skillEnabled: false,
+    autoIndexAfterBackup: false,
+    llmProviderId: null,
+    embeddingProviderId: null,
+    retrievalTopK: 8,
+    assistantSystemPrompt:
+      'You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on.',
+    llmProviders: [],
+    embeddingProviders: [],
+  },
 }
 
 const schedulePlan: SchedulePlan = {

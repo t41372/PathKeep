@@ -55,6 +55,104 @@ impl Default for RemoteBackupConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum AiRequestFormat {
+    #[serde(rename = "openai")]
+    #[default]
+    OpenAi,
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "google")]
+    Google,
+    #[serde(rename = "ollama")]
+    Ollama,
+    #[serde(rename = "lm-studio")]
+    LmStudio,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum AiProviderPurpose {
+    #[serde(rename = "llm")]
+    #[default]
+    Llm,
+    #[serde(rename = "embedding")]
+    Embedding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiProviderConfig {
+    pub id: String,
+    pub name: String,
+    pub purpose: AiProviderPurpose,
+    pub request_format: AiRequestFormat,
+    pub enabled: bool,
+    pub base_url: Option<String>,
+    pub api_key_saved: bool,
+    pub default_model: String,
+    pub model_catalog: Vec<String>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub dimensions: Option<u32>,
+    pub notes: Option<String>,
+}
+
+impl Default for AiProviderConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            purpose: AiProviderPurpose::Llm,
+            request_format: AiRequestFormat::OpenAi,
+            enabled: false,
+            base_url: None,
+            api_key_saved: false,
+            default_model: String::new(),
+            model_catalog: Vec::new(),
+            temperature: Some(0.2),
+            max_tokens: Some(1200),
+            dimensions: None,
+            notes: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiSettings {
+    pub enabled: bool,
+    pub assistant_enabled: bool,
+    pub semantic_index_enabled: bool,
+    pub mcp_enabled: bool,
+    pub skill_enabled: bool,
+    pub auto_index_after_backup: bool,
+    pub llm_provider_id: Option<String>,
+    pub embedding_provider_id: Option<String>,
+    pub retrieval_top_k: u32,
+    pub assistant_system_prompt: String,
+    pub llm_providers: Vec<AiProviderConfig>,
+    pub embedding_providers: Vec<AiProviderConfig>,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            assistant_enabled: false,
+            semantic_index_enabled: false,
+            mcp_enabled: false,
+            skill_enabled: false,
+            auto_index_after_backup: false,
+            llm_provider_id: None,
+            embedding_provider_id: None,
+            retrieval_top_k: 8,
+            assistant_system_prompt: "You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on.".to_string(),
+            llm_providers: Vec::new(),
+            embedding_providers: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
@@ -70,6 +168,7 @@ pub struct AppConfig {
     pub remember_database_key_in_keyring: bool,
     pub app_autostart: bool,
     pub remote_backup: RemoteBackupConfig,
+    pub ai: AiSettings,
 }
 
 impl Default for AppConfig {
@@ -87,6 +186,7 @@ impl Default for AppConfig {
             remember_database_key_in_keyring: false,
             app_autostart: false,
             remote_backup: RemoteBackupConfig::default(),
+            ai: AiSettings::default(),
         }
     }
 }
@@ -126,6 +226,21 @@ pub struct KeyringStatusReport {
     pub backend: String,
     pub stored_secret: bool,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiIndexStatus {
+    pub enabled: bool,
+    pub assistant_enabled: bool,
+    pub mcp_enabled: bool,
+    pub skill_enabled: bool,
+    pub ready: bool,
+    pub indexed_items: usize,
+    pub last_indexed_at: Option<String>,
+    pub llm_provider_id: Option<String>,
+    pub embedding_provider_id: Option<String>,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +305,7 @@ pub struct AppSnapshot {
     pub config: AppConfig,
     pub archive_status: ArchiveStatus,
     pub keyring_status: KeyringStatusReport,
+    pub ai_status: AiIndexStatus,
     #[serde(alias = "chromeProfiles")]
     pub browser_profiles: Vec<BrowserProfile>,
     pub recent_runs: Vec<BackupRunOverview>,
@@ -402,4 +518,99 @@ pub struct HealthCheck {
 pub struct HealthReport {
     pub generated_at: String,
     pub checks: Vec<HealthCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderSecretInput {
+    pub provider_id: String,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiIndexRequest {
+    pub provider_id: Option<String>,
+    pub full_rebuild: bool,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiIndexReport {
+    pub provider_id: String,
+    pub model: String,
+    pub indexed_items: usize,
+    pub updated_items: usize,
+    pub skipped_items: usize,
+    pub removed_items: usize,
+    pub last_indexed_at: String,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSearchRequest {
+    pub query: String,
+    pub profile_id: Option<String>,
+    pub domain: Option<String>,
+    pub limit: Option<u32>,
+}
+
+impl Default for AiSearchRequest {
+    fn default() -> Self {
+        Self { query: String::new(), profile_id: None, domain: None, limit: Some(8) }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSearchEntry {
+    pub history_id: i64,
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub visited_at: String,
+    pub score: f32,
+    pub match_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSearchResponse {
+    pub total: usize,
+    pub provider_id: String,
+    pub model: String,
+    pub items: Vec<AiSearchEntry>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAssistantRequest {
+    pub question: String,
+    pub profile_id: Option<String>,
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCitation {
+    pub history_id: i64,
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub visited_at: String,
+    pub score: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAssistantResponse {
+    pub answer: String,
+    pub provider_id: String,
+    pub embedding_provider_id: String,
+    pub citations: Vec<AiCitation>,
+    pub notes: Vec<String>,
 }

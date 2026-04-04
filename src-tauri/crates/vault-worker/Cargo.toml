@@ -6,8 +6,10 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 vault-core = { path = "../vault-core" }
 vault-platform = { path = "../vault-platform" }
 

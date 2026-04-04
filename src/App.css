@@ -319,6 +319,12 @@
   grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
 }
 
+.providerColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .infoGrid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -339,6 +345,7 @@
 
 .fieldBlock input,
 .fieldBlock select,
+.fieldBlock textarea,
 .segmented,
 .readOnlyField {
   min-height: 2.7rem;
@@ -348,6 +355,10 @@
   background: var(--panel-strong);
   color: var(--ink);
   padding: 0.7rem 0.8rem;
+}
+
+.fieldBlock textarea {
+  resize: vertical;
 }
 
 .readOnlyField {
@@ -429,6 +440,7 @@
   grid-template-columns: auto auto minmax(0, 1fr);
   align-items: start;
   position: relative;
+  overflow: hidden;
 }
 
 .profileRow.disabled {
@@ -443,6 +455,24 @@
   border-color: rgba(105, 156, 255, 0.34);
   background: var(--panel-raised);
   box-shadow: 0 0 0 1px rgba(105, 156, 255, 0.08);
+}
+
+.profileRow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(105, 156, 255, 0.12),
+    rgba(105, 156, 255, 0)
+  );
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
+}
+
+.profileRow.selected::after {
+  opacity: 1;
 }
 
 .profileRow:hover {
@@ -512,7 +542,8 @@
     transform 180ms ease,
     background-color 180ms ease,
     border-color 180ms ease,
-    color 180ms ease;
+    color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .profileCheckboxVisual .glyph {
@@ -528,6 +559,7 @@
   border-color: rgba(105, 156, 255, 0.44);
   color: var(--ink);
   transform: scale(1.03);
+  box-shadow: 0 0 0 5px rgba(105, 156, 255, 0.08);
 }
 
 .profileRow.selected .profileCheckboxVisual .glyph {
@@ -537,6 +569,62 @@
 
 .profileBrowserMark {
   color: var(--accent);
+}
+
+.providerPanel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.providerList {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.providerCard {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.95rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(72, 72, 72, 0.24);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.providerCard.selected {
+  border-color: rgba(105, 156, 255, 0.34);
+  background: rgba(105, 156, 255, 0.05);
+  box-shadow: 0 0 0 1px rgba(105, 156, 255, 0.08);
+}
+
+.providerHeader,
+.providerSelect,
+.providerSecretRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.providerSelect {
+  cursor: pointer;
+}
+
+.providerSelect input {
+  accent-color: var(--accent);
+}
+
+.providerMono {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.compactToggleList .toggleRow {
+  padding: 0.7rem 0.8rem;
+}
+
+.multilineInput {
+  min-height: 6rem;
 }
 
 .browserPill {
@@ -865,6 +953,7 @@
   .viewCanvas,
   .splitBody,
   .importWorkspace,
+  .providerColumns,
   .queryBar,
   .fieldGrid.two,
   .infoGrid,
