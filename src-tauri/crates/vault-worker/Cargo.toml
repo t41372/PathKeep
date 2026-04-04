@@ -1,0 +1,16 @@
+[package]
+name = "vault-worker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+vault-core = { path = "../vault-core" }
+vault-platform = { path = "../vault-platform" }
+
+[dev-dependencies]
+rusqlite.workspace = true
+tempfile.workspace = true

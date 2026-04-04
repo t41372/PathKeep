@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
+:root {
+  color-scheme: dark;
+  --page: #0e0e0e;
+  --panel: #131313;
+  --panel-strong: #191a1a;
+  --panel-raised: #1f2020;
+  --ink: #e7e5e4;
+  --muted-strong: #acabaa;
+  --muted: #767575;
+  --accent: #699cff;
+  --line: rgba(72, 72, 72, 0.32);
+  --shadow: none;
+  --sans: 'Inter', 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', 'SFMono-Regular', monospace;
+  font-family: var(--sans);
+  line-height: 1.5;
+  font-weight: 400;
+  background: var(--page);
+  color: var(--ink);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(105, 156, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(105, 156, 255, 0.14);
+}
+
+a {
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--page);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2c2c2c;
+}
