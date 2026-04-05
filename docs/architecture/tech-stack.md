@@ -10,6 +10,7 @@
 |------|------|------|
 | 桌面框架 | Tauri 2 | 跨平台、Rust 核心、輕量級 |
 | 核心邏輯 | Rust workspace（vault-core, vault-worker, vault-platform） | 高性能、安全、跨平台 |
+| 瀏覽器解析 | `browser-history-parser` — 計劃獨立發布的 Rust crate | 通用的瀏覽器歷史紀錄解析，可供社區使用 |
 | 前端 | React 19 + TypeScript + Vite | 現代前端、型別安全 |
 | 工具鏈 | Bun | JS 側的包管理與腳本 |
 | 數據存儲 | SQLite（可選 SQLCipher 加密） | 本地優先、20 年持久性 |

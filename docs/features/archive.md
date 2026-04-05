@@ -39,6 +39,21 @@
   - 同一 URL 在不同時間點的 visit 是獨立事件。
   - Chrome 的 `urls` 表中同一 URL 的 metadata 可能變化（如 title 更新），這些變化應作為新 version 保存。
 
+### 瀏覽器版本追蹤與前向兼容
+
+我們的目標是**永遠跟進最新版本的瀏覽器**，盡可能從中獲取最多信息，同時**保持對舊版瀏覽器數據格式的向後兼容**。
+
+- **主動追蹤瀏覽器更新**：每個主要瀏覽器的新版本發布時，檢查其 History / Favicons 數據庫的 schema 是否有變化。如果有新增的表或欄位，評估是否應該捕獲。
+- **深度研究瀏覽器數據**：在實現各瀏覽器的 parser 時，不要只看「最小可用的 visits + urls 表」，而是要**深入研究最新版本能給我們的所有東西**。例如：
+  - Chrome 近期新增了歷史紀錄分組（history clusters / journey）功能，相關數據已反映在 History DB 中。我們應該理解並捕獲這些 cluster 信息。
+  - Chrome 的 `segments`、`segment_usage` 表記錄了用戶最常訪問的網站排名。
+  - Chrome 的 `content_annotations` 和 `context_annotations` 表可能包含頁面內容摘要和上下文信息。
+  - Firefox 的 `moz_origins`、`moz_meta` 等表包含額外的元數據。
+  - 每個瀏覽器都可能有我們尚未利用的有價值數據。
+- **向後兼容**：parser 必須能處理舊版瀏覽器的數據格式。新欄位或新表不存在時，gracefully degrade — 只是少了一些信息，不會導致備份失敗。
+- **Schema 指紋**：每次備份記錄來源數據庫的完整 schema 指紋，當偵測到 schema 變更時觸發原生快照保存。
+- **Raw capture 保底**：即使 parser 不認識某些新表或新欄位，raw capture 層仍會把所有原始數據落盤，確保不會因為 parser 更新滯後而丟失信息。
+
 ---
 
 ## 2. 排程
@@ -91,6 +106,16 @@
   - 每個步驟都說明我們在做什麼、為什麼要做這件事。
   - 自動化模式下：逐步展示進度。
   - 手動模式下：每步有操作指南，能複製命令，做完再進下一步。
+
+### 模塊化設計：獨立 Rust crate
+
+瀏覽器歷史紀錄的解析和導入邏輯應設計為**可獨立發布的 Rust crate**（例如 `browser-history-parser`），而不是深度耦合在 vault-core 中。
+
+- **解析層**：各瀏覽器的 History DB parser（Chromium、Firefox、Safari、Google Takeout）封裝為獨立 crate，提供結構化的歷史紀錄數據，不依賴 archive schema 或 Tauri。
+- **公開 API**：對外暴露 profile discovery、schema detection、history/visit/URL parsing 等能力。
+- **對社區的價值**：瀏覽器歷史紀錄的解析是一個通用需求（其他備份工具、分析工具、研究項目都可能用到），把這部分獨立出來可以讓其他開發者直接使用。
+- **vault-core 作為消費者**：vault-core 依賴這個 crate，在其之上實現 archive 寫入、去重、run 管理等業務邏輯。
+- **版本獨立**：parser crate 可以獨立發版，追蹤瀏覽器更新更靈活。
 
 ---
 
