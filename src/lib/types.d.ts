@@ -289,19 +289,19 @@ export interface ImportBatchDetail {
 }
 
 export interface TakeoutInspection {
-  sourcePath: string
   dryRun: boolean
+  sourcePath: string
   recognizedFiles: TakeoutFileReport[]
   quarantinedFiles: TakeoutFileReport[]
+  previewEntries: TakeoutPreviewEntry[]
   candidateItems: number
   importedItems: number
   duplicateItems: number
-  previewEntries: TakeoutPreviewEntry[]
-  importBatch?: ImportBatchOverview | null
   notes: string[]
+  importBatch?: ImportBatchOverview | null
 }
 
-export interface GeneratedFile {
+export interface ScheduleGeneratedFile {
   relativePath: string
   absolutePath?: string | null
   purpose: string
@@ -312,7 +312,7 @@ export interface SchedulePlan {
   platform: string
   label: string
   executablePath: string
-  generatedFiles: GeneratedFile[]
+  generatedFiles: ScheduleGeneratedFile[]
   manualSteps: string[]
   applyCommands: string[][]
   rollbackCommands: string[][]
@@ -329,13 +329,18 @@ export interface ApplyResult {
 
 export interface HealthCheck {
   name: string
-  ok: boolean
-  detail: string
+  status: string
+  message: string
 }
 
 export interface HealthReport {
   generatedAt: string
   checks: HealthCheck[]
+}
+
+export interface RekeyRequest {
+  newMode: ArchiveMode
+  newKey?: string | null
 }
 
 export interface AiProviderSecretInput {
@@ -367,7 +372,7 @@ export interface AiSearchRequest {
   limit?: number | null
 }
 
-export interface AiSearchEntry {
+export interface AiSearchResultItem {
   historyId: number
   profileId: string
   url: string
@@ -382,7 +387,7 @@ export interface AiSearchResponse {
   total: number
   providerId: string
   model: string
-  items: AiSearchEntry[]
+  items: AiSearchResultItem[]
   notes: string[]
 }
 
@@ -392,31 +397,26 @@ export interface AiAssistantRequest {
   domain?: string | null
 }
 
-export interface AiCitation {
+export interface AiAssistantCitation {
   historyId: number
   profileId: string
   url: string
   title?: string | null
   visitedAt: string
-  score?: number | null
+  score: number
 }
 
 export interface AiAssistantResponse {
   answer: string
   providerId: string
   embeddingProviderId: string
-  citations: AiCitation[]
+  citations: AiAssistantCitation[]
   notes: string[]
 }
 
 export interface AiIntegrationPreview {
   mcpCommand: string
   manualSteps: string[]
-  generatedFiles: GeneratedFile[]
+  generatedFiles: ScheduleGeneratedFile[]
   warnings: string[]
-}
-
-export interface RekeyRequest {
-  newMode: ArchiveMode
-  newKey?: string | null
 }

@@ -169,10 +169,89 @@ describe('backend facade', () => {
     await expect(backend.clearS3Credentials()).resolves.toMatchObject({
       storedSecret: false,
     })
+    await expect(
+      backend.storeAiProviderApiKey({
+        providerId: 'llm-preview',
+        apiKey: 'secret',
+      }),
+    ).resolves.toMatchObject({
+      browserProfiles: expect.arrayContaining([
+        expect.objectContaining({
+          profileId: 'chrome:Default',
+          browserName: 'Google Chrome',
+        }),
+      ]),
+    })
+    await expect(
+      backend.clearAiProviderApiKey('llm-preview'),
+    ).resolves.toMatchObject({
+      browserProfiles: expect.arrayContaining([
+        expect.objectContaining({
+          profileId: 'chrome:Profile 2',
+          browserFamily: 'chromium',
+        }),
+      ]),
+    })
+    await expect(
+      backend.buildAiIndex({
+        providerId: 'mock-embedding',
+        fullRebuild: false,
+        limit: 20,
+      }),
+    ).resolves.toMatchObject({
+      providerId: 'mock-embedding',
+      indexedItems: 2,
+    })
+    await expect(
+      backend.searchAiHistory({
+        query: 'history',
+        profileId: null,
+        domain: null,
+        limit: 3,
+      }),
+    ).resolves.toMatchObject({
+      providerId: 'lexical-fallback',
+      total: 2,
+      items: [
+        expect.objectContaining({
+          historyId: 1,
+          matchReason: 'Browser preview lexical fixture',
+        }),
+        expect.objectContaining({
+          historyId: 2,
+          score: expect.closeTo(0.7, 5),
+        }),
+      ],
+    })
+    await expect(
+      backend.askAiAssistant({
+        question: 'What did I read?',
+        profileId: null,
+        domain: null,
+      }),
+    ).resolves.toMatchObject({
+      providerId: 'preview-llm',
+      embeddingProviderId: 'lexical-fallback',
+      citations: [
+        expect.objectContaining({ historyId: 1 }),
+        expect.objectContaining({ historyId: 2 }),
+      ],
+    })
+    await expect(backend.previewAiIntegrations()).resolves.toMatchObject({
+      mcpCommand: expect.stringContaining('--worker mcp-server'),
+      generatedFiles: [
+        expect.objectContaining({
+          relativePath: 'integrations/browser-history-backup-mcp.json',
+        }),
+      ],
+    })
     await expect(backend.resetLocalSecretVault()).resolves.toBeUndefined()
     await expect(
       backend.openPathInFileManager('/tmp/browser-history-backup'),
     ).resolves.toBe('/tmp/browser-history-backup')
+    await expect(
+      backendTestHarness.call('open_path_in_file_manager'),
+    ).resolves.toEqual(expect.stringContaining('Browser History Backup'))
   })
 
   test('delegates to Tauri invoke when running inside the desktop shell', async () => {
@@ -181,6 +260,56 @@ describe('backend facade', () => {
 
     await expect(backend.getAppSnapshot()).resolves.toEqual({ ok: true })
     expect(invoke).toHaveBeenCalledWith('app_snapshot', undefined)
+  })
+
+  test('passes explicit AI command payloads through to Tauri invoke', async () => {
+    isTauri.mockReturnValue(true)
+    invoke.mockResolvedValue({ ok: true })
+
+    const buildRequest = {
+      providerId: 'embed-primary',
+      fullRebuild: true,
+      limit: 10,
+    }
+    const searchRequest = {
+      query: 'browser history backup',
+      profileId: 'chrome:Default',
+      domain: 'example.com',
+      limit: 5,
+    }
+    const assistantRequest = {
+      question: 'What did I read?',
+      profileId: 'chrome:Default',
+      domain: 'example.com',
+    }
+
+    await expect(backend.clearAiProviderApiKey('llm-primary')).resolves.toEqual(
+      {
+        ok: true,
+      },
+    )
+    await expect(backend.buildAiIndex(buildRequest)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.searchAiHistory(searchRequest)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.askAiAssistant(assistantRequest)).resolves.toEqual({
+      ok: true,
+    })
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'clear_ai_provider_api_key', {
+      providerId: 'llm-primary',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'build_ai_index', {
+      request: buildRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'search_ai_history', {
+      request: searchRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'ask_ai_assistant', {
+      request: assistantRequest,
+    })
   })
 
   test('throws when a mock command is not implemented in browser preview mode', async () => {

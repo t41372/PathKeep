@@ -248,8 +248,8 @@
 .viewCanvas {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 23rem;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1.3fr) minmax(18rem, 22rem);
+  gap: 1.25rem;
   padding: 1rem 2rem 2rem;
 }
 
@@ -470,10 +470,12 @@
 }
 
 .profileRow {
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   position: relative;
   overflow: hidden;
+  gap: 0.85rem;
+  padding: 1rem 1.05rem;
 }
 
 .profileRow.disabled {
@@ -513,7 +515,6 @@
 }
 
 .profileIdentity,
-.profileMeta,
 .recordMeta,
 .previewMeta,
 .artifactHeader,
@@ -544,10 +545,31 @@
   flex-wrap: wrap;
 }
 
+.profileCardBody,
+.profileSourceLine,
+.profileMetaItem {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.profileCardBody {
+  gap: 0.8rem;
+}
+
+.profileHeaderLine {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+  min-width: 0;
+}
+
 .profileId {
   font-family: var(--mono);
   color: var(--muted);
   font-size: 0.76rem;
+  overflow-wrap: anywhere;
 }
 
 .profileCheckbox {
@@ -602,6 +624,69 @@
 
 .profileBrowserMark {
   color: var(--accent);
+}
+
+.profileBrowserMark .browserIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.supportedBrowserBlock {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.supportedBrowserStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.supportedBrowserChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(72, 72, 72, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
+    rgba(255, 255, 255, 0.02);
+  color: var(--muted-strong);
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.supportedBrowserChip .browserIcon {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+}
+
+.browserIcon {
+  display: block;
+  overflow: visible;
+  flex: none;
+}
+
+.profileMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem 0.9rem;
+}
+
+.profileMetaLabel {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.profileMetaValue {
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .providerPanel {
@@ -676,7 +761,7 @@
   word-break: break-word;
 }
 
-.profileMeta,
+.profileMetaGrid,
 .recordMeta,
 .previewMeta,
 .batchMetaGrid {
@@ -1000,6 +1085,12 @@
   }
 }
 
+@media (max-width: 1480px) {
+  .viewCanvas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 820px) {
   .appShell {
     grid-template-columns: minmax(0, 1fr);
@@ -1038,6 +1129,15 @@
     padding-left: 1rem;
     padding-right: 1rem;
   }
+
+  .profileMetaGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .supportedBrowserChip {
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1048,5 +1148,14 @@
 
   .topBarActions {
     justify-content: flex-start;
+  }
+
+  .profileMetaGrid,
+  .selectionSummaryBar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .supportedBrowserStrip {
+    gap: 0.5rem;
   }
 }
