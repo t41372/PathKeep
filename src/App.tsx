@@ -9,25 +9,50 @@ import {
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
 import './App.css'
 import { backend } from './lib/backend'
-import {
-  createTranslator,
-  languageLabel,
-  localeTag,
-  resolveLanguage,
-  type ResolvedLanguage,
-} from './lib/i18n'
+import { createTranslator, languageLabel, resolveLanguage } from './lib/i18n'
+import { formatDateTime, formatDuration } from './lib/format'
+export { formatDateTime, formatDuration } from './lib/format'
 import {
   readDatabaseKeyStronghold,
   storeDatabaseKeyStronghold,
 } from './lib/stronghold'
 import { BrowserIcon, supportedBrowsers } from './lib/browser-icons'
+import {
+  DataRow,
+  EmptyState,
+  FieldBlock,
+  Glyph,
+  InfoStat,
+  OperationWorkflow,
+  PathRow,
+  PreviewEntryList,
+  StatusTag,
+  Surface,
+  ToggleRow,
+  type WorkflowStep,
+} from './components/ui'
+import { AiProviderEditorList } from './components/ai-provider-editor'
+export {
+  DataRow,
+  EmptyState,
+  FieldBlock,
+  Glyph,
+  InfoStat,
+  OperationWorkflow,
+  PathRow,
+  PreviewEntryList,
+  StatusTag,
+  Surface,
+  ToggleRow,
+  type WorkflowStep,
+} from './components/ui'
+export { AiProviderEditorList } from './components/ai-provider-editor'
 import type {
   AiAssistantResponse,
   AiIndexReport,
   AiIntegrationPreview,
   AiProviderConfig,
   AiProviderPurpose,
-  AiRequestFormat,
   AiSearchResponse,
   AppBuildInfo,
   ApplyResult,
@@ -35,12 +60,18 @@ import type {
   AppSnapshot,
   ArchiveMode,
   BackupReport,
+  ExplainInsightRequest,
   ExportFormat,
   HealthReport,
   HistoryQueryResponse,
   ImportBatchDetail,
+  InsightExplanation,
+  InsightSnapshot,
+  InsightStatus,
+  InsightThreadDetail,
   RemoteBackupConfig,
   RemoteBackupPreview,
+  RunInsightsReport,
   SchedulePlan,
   TakeoutInspection,
 } from './lib/types'
@@ -54,34 +85,6 @@ type ViewId =
   | 'settings'
 
 type PlatformId = 'macos' | 'windows' | 'linux'
-
-export function formatDateTime(
-  value: string | null | undefined,
-  language: ResolvedLanguage,
-) {
-  if (!value) {
-    return null
-  }
-
-  return new Intl.DateTimeFormat(localeTag(language), {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
-}
-
-export function formatDuration(durationMs: number | null | undefined) {
-  if (!durationMs || durationMs <= 0) {
-    return '0s'
-  }
-
-  const totalSeconds = Math.round(durationMs / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  if (minutes === 0) {
-    return `${seconds}s`
-  }
-  return `${minutes}m ${seconds}s`
-}
 
 const EMPTY_REMOTE_BACKUP: RemoteBackupConfig = {
   enabled: false,
@@ -172,6 +175,17 @@ const EMPTY_AI_STATUS: AppSnapshot['aiStatus'] = {
   warning: null,
 }
 
+const EMPTY_INSIGHT_STATUS: InsightStatus = {
+  ready: false,
+  lastRunAt: null,
+  runs: 0,
+  cards: 0,
+  topics: 0,
+  threads: 0,
+  contentCoverage: 0,
+  warning: null,
+}
+
 function App() {
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
@@ -198,6 +212,21 @@ function App() {
   )
   const [aiAssistantResult, setAiAssistantResult] =
     useState<AiAssistantResponse | null>(null)
+  const [insightSnapshot, setInsightSnapshot] =
+    useState<InsightSnapshot | null>(null)
+  const [insightRunReport, setInsightRunReport] =
+    useState<RunInsightsReport | null>(null)
+  const [selectedInsightThreadId, setSelectedInsightThreadId] = useState<
+    string | null
+  >(null)
+  const [insightThreadDetail, setInsightThreadDetail] =
+    useState<InsightThreadDetail | null>(null)
+  const [insightExplanation, setInsightExplanation] =
+    useState<InsightExplanation | null>(null)
+  const [selectedInsightLabel, setSelectedInsightLabel] = useState<
+    string | null
+  >(null)
+  const [insightWindowDays, setInsightWindowDays] = useState(30)
   const [lastBackupReport, setLastBackupReport] = useState<BackupReport | null>(
     null,
   )
@@ -249,6 +278,7 @@ function App() {
   const archiveStatus = snapshot?.archiveStatus ?? EMPTY_ARCHIVE_STATUS
   const keyringStatus = snapshot?.keyringStatus ?? EMPTY_KEYRING_STATUS
   const aiStatus = snapshot?.aiStatus ?? EMPTY_AI_STATUS
+  const insightStatus = snapshot?.insightStatus ?? EMPTY_INSIGHT_STATUS
 
   useEffect(() => {
     void (async () => {
@@ -374,6 +404,90 @@ function App() {
     }
   }, [activeView, selectedImportBatchId])
 
+  useEffect(() => {
+    if (activeView !== 'analysis' || !initialized || !unlocked) {
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const next = await backend.loadInsights({
+          profileId: aiSearchProfile || null,
+          windowDays: insightWindowDays,
+          fullRebuild: false,
+          limit: null,
+        })
+        if (!cancelled) {
+          setInsightSnapshot(next)
+        }
+      } catch (taskError) {
+        if (!cancelled) {
+          setError(
+            taskError instanceof Error ? taskError.message : String(taskError),
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeView, aiSearchProfile, initialized, insightWindowDays, unlocked])
+
+  useEffect(() => {
+    if (!insightSnapshot?.threads.length) {
+      setSelectedInsightThreadId(null)
+      setInsightThreadDetail(null)
+      return
+    }
+
+    const stillExists = insightSnapshot.threads.some(
+      (thread) => thread.threadId === selectedInsightThreadId,
+    )
+    if (!stillExists) {
+      setSelectedInsightThreadId(insightSnapshot.threads[0].threadId)
+    }
+  }, [insightSnapshot, selectedInsightThreadId])
+
+  useEffect(() => {
+    if (
+      activeView !== 'analysis' ||
+      !initialized ||
+      !unlocked ||
+      !selectedInsightThreadId
+    ) {
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const detail = await backend.loadThreadDetail(selectedInsightThreadId)
+        if (!cancelled) {
+          setInsightThreadDetail(detail)
+        }
+      } catch (taskError) {
+        if (!cancelled) {
+          setError(
+            taskError instanceof Error ? taskError.message : String(taskError),
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeView, initialized, selectedInsightThreadId, unlocked])
+
+  useEffect(() => {
+    setInsightExplanation(null)
+    setSelectedInsightLabel(null)
+  }, [aiSearchProfile, insightWindowDays])
+
   const selectedHistory =
     history?.items.find((item) => item.id === selectedHistoryId) ??
     history?.items[0] ??
@@ -387,6 +501,12 @@ function App() {
       (batch) => batch.id === selectedImportBatchId,
     ) ??
     snapshot?.recentImportBatches[0] ??
+    null
+  const selectedInsightThread =
+    insightSnapshot?.threads.find(
+      (thread) => thread.threadId === selectedInsightThreadId,
+    ) ??
+    insightSnapshot?.threads[0] ??
     null
   const llmProviders = aiConfig.llmProviders
   const embeddingProviders = aiConfig.embeddingProviders
@@ -410,6 +530,12 @@ function App() {
       ? t('workingTreeDirty')
       : t('workingTreeClean')
     : t('notAvailable')
+  const insightGeneratedAt =
+    formatDateTime(
+      insightSnapshot?.generatedAt ?? insightStatus.lastRunAt,
+      resolvedLanguage,
+    ) ?? t('notAvailable')
+  const insightCoverage = `${Math.round(insightStatus.contentCoverage * 100)}%`
 
   const viewMeta: Record<
     ViewId,
@@ -631,6 +757,16 @@ function App() {
     setSnapshot(next)
     setDraftConfig(next.config)
     setRememberKey(next.config.rememberDatabaseKeyInKeyring)
+  }
+
+  async function reloadInsights() {
+    const next = await backend.loadInsights({
+      profileId: aiSearchProfile || null,
+      windowDays: insightWindowDays,
+      fullRebuild: false,
+      limit: null,
+    })
+    setInsightSnapshot(next)
   }
 
   async function persistConfig(nextConfig: AppConfig) {
@@ -1090,6 +1226,43 @@ function App() {
       const preview = await backend.previewAiIntegrations()
       setAiIntegrationPreview(preview)
       setLocalizedNotice(t('integrationPreviewReady'))
+    })
+  }
+
+  async function handleRunInsights(fullRebuild: boolean) {
+    await runTask(
+      fullRebuild ? 'Rebuild insights' : 'Refresh insights',
+      async () => {
+        const report = await backend.runInsightsNow({
+          profileId: aiSearchProfile || null,
+          windowDays: insightWindowDays,
+          fullRebuild,
+          limit: null,
+        })
+        setInsightRunReport(report)
+        await reloadSnapshot()
+        await reloadInsights()
+        setLocalizedNotice(
+          fullRebuild ? 'Insights rebuilt.' : 'Insights refreshed.',
+        )
+      },
+    )
+  }
+
+  async function handleExplainInsight(
+    insightId: string,
+    insightKind: ExplainInsightRequest['insightKind'],
+    label: string,
+  ) {
+    await runTask('Explain insight', async () => {
+      const explanation = await backend.explainInsight({
+        insightId,
+        insightKind,
+        profileId: aiSearchProfile || null,
+        windowDays: insightWindowDays,
+      })
+      setInsightExplanation(explanation)
+      setSelectedInsightLabel(label)
     })
   }
 
@@ -2002,6 +2175,344 @@ function App() {
     mainContent = (
       <>
         <Surface
+          eyebrow="Insights"
+          title="Attention and research insights"
+          icon="insights"
+          actions={
+            <>
+              <button
+                className="secondaryButton"
+                type="button"
+                onClick={() => void handleRunInsights(false)}
+              >
+                Refresh insights
+              </button>
+              <button
+                className="ghostButton"
+                type="button"
+                onClick={() => void handleRunInsights(true)}
+              >
+                Rebuild insights
+              </button>
+            </>
+          }
+        >
+          <div className="infoGrid four">
+            <InfoStat
+              label="Insight status"
+              value={insightStatus.ready ? 'Ready' : 'Needs a run'}
+            />
+            <InfoStat label="Cards" value={String(insightStatus.cards)} />
+            <InfoStat label="Threads" value={String(insightStatus.threads)} />
+            <InfoStat label="Content coverage" value={insightCoverage} />
+          </div>
+
+          <div className="segmented">
+            {[7, 30, 90].map((windowDays) => (
+              <button
+                key={windowDays}
+                className={insightWindowDays === windowDays ? 'selected' : ''}
+                type="button"
+                onClick={() => setInsightWindowDays(windowDays)}
+              >
+                {windowDays}d
+              </button>
+            ))}
+          </div>
+
+          <div className="selectionSummaryBar">
+            <InfoStat label="Window" value={`${insightWindowDays} days`} />
+            <InfoStat label="Generated at" value={insightGeneratedAt} />
+          </div>
+
+          {insightStatus.warning ? (
+            <div className="warningPanel subtleWarning">
+              <div className="inlineHeading">
+                <Glyph icon="warning" />
+                <strong>Insight warning</strong>
+              </div>
+              <p>{insightStatus.warning}</p>
+            </div>
+          ) : null}
+
+          {(insightRunReport?.notes.length ||
+            insightSnapshot?.notes.length) && (
+            <ul className="plainList">
+              {(insightRunReport?.notes.length
+                ? insightRunReport.notes
+                : (insightSnapshot?.notes ?? [])
+              ).map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          )}
+        </Surface>
+
+        <Surface
+          eyebrow="Overview cards"
+          title="What stands out right now"
+          icon="auto_awesome"
+        >
+          {insightSnapshot?.cards.length ? (
+            <div className="artifactList">
+              {insightSnapshot.cards.map((card) => (
+                <article className="artifactCard" key={card.cardId}>
+                  <div className="artifactHeader">
+                    <div>
+                      <strong>{card.title}</strong>
+                      <p>{card.summary}</p>
+                    </div>
+                    <StatusTag
+                      tone={card.chromiumEnhanced ? 'info' : 'neutral'}
+                    >
+                      {card.chromiumEnhanced
+                        ? 'Chromium-first'
+                        : 'Archive-wide'}
+                    </StatusTag>
+                  </div>
+                  <div className="toolbarLine">
+                    <span className="surfaceMeta">
+                      Score {card.score.toFixed(2)} · {card.windowDays} day
+                      window
+                    </span>
+                    <button
+                      className="ghostButton"
+                      type="button"
+                      onClick={() =>
+                        void handleExplainInsight(
+                          card.cardId,
+                          'card',
+                          card.title,
+                        )
+                      }
+                    >
+                      Why this?
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState>
+              Run insights to generate trend cards, open loops, and resurfacing
+              suggestions.
+            </EmptyState>
+          )}
+        </Surface>
+
+        <div className="splitBody">
+          <Surface
+            eyebrow="Topic timeline"
+            title="Rising, cooling, and stable topics"
+            icon="show_chart"
+          >
+            {insightSnapshot?.topics.length ? (
+              <div className="trendList">
+                {insightSnapshot.topics.map((topic) => {
+                  const barWidth = `${Math.max(
+                    10,
+                    Math.min(100, topic.trendSlope * 100 + 35),
+                  )}%`
+
+                  return (
+                    <article className="surfaceInset" key={topic.topicId}>
+                      <div className="artifactHeader">
+                        <div>
+                          <strong>{topic.label}</strong>
+                          <p>
+                            {topic.visitCount} visits · {topic.revisitCount}{' '}
+                            revisits
+                          </p>
+                        </div>
+                        <button
+                          className="ghostButton"
+                          type="button"
+                          onClick={() =>
+                            void handleExplainInsight(
+                              topic.topicId,
+                              'topic',
+                              topic.label,
+                            )
+                          }
+                        >
+                          Why this?
+                        </button>
+                      </div>
+                      <div className="trendBarTrack">
+                        <div
+                          className="trendBarFill"
+                          style={{ width: barWidth }}
+                        />
+                      </div>
+                      <div className="recordMeta">
+                        <span>Trend {topic.trendSlope.toFixed(2)}</span>
+                        <span>Burst {topic.burstScore.toFixed(2)}</span>
+                        <span>
+                          Last seen{' '}
+                          {formatDateTime(topic.lastSeenAt, resolvedLanguage)}
+                        </span>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState>
+                No topic trends are available for this window yet.
+              </EmptyState>
+            )}
+          </Surface>
+
+          <Surface
+            eyebrow="Active threads"
+            title="Research threads and open loops"
+            icon="account_tree"
+          >
+            {insightSnapshot?.threads.length ? (
+              <div className="recordList">
+                {insightSnapshot.threads.map((thread) => (
+                  <article
+                    className={`recordRow ${
+                      selectedInsightThread?.threadId === thread.threadId
+                        ? 'selected'
+                        : ''
+                    }`}
+                    key={thread.threadId}
+                  >
+                    <div className="recordMeta">
+                      <span>{thread.profileId}</span>
+                      <span>{thread.status}</span>
+                      <span>{thread.visitCount} visits</span>
+                    </div>
+                    <div className="artifactHeader">
+                      <strong>{thread.title}</strong>
+                      {thread.chromiumEnhanced ? (
+                        <StatusTag tone="info">Chromium-first</StatusTag>
+                      ) : null}
+                    </div>
+                    <p>
+                      Open-loop score {thread.openLoopScore.toFixed(2)} ·
+                      reopened {thread.reopenCount} times
+                    </p>
+                    <div className="toolbarActions">
+                      <button
+                        className="secondaryButton"
+                        type="button"
+                        onClick={() =>
+                          setSelectedInsightThreadId(thread.threadId)
+                        }
+                      >
+                        Inspect thread
+                      </button>
+                      <button
+                        className="ghostButton"
+                        type="button"
+                        onClick={() =>
+                          void handleExplainInsight(
+                            thread.threadId,
+                            'thread',
+                            thread.title,
+                          )
+                        }
+                      >
+                        Why this?
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState>
+                Run a Chromium-first insight pass to recover tasks and reopen
+                patterns.
+              </EmptyState>
+            )}
+          </Surface>
+        </div>
+
+        <div className="splitBody">
+          <Surface
+            eyebrow="Query ladders"
+            title="How search terms got refined"
+            icon="timeline"
+          >
+            {insightSnapshot?.queryLadders.length ? (
+              <div className="artifactList">
+                {insightSnapshot.queryLadders.map((ladder) => (
+                  <article
+                    className="artifactCard compactCard"
+                    key={ladder.rootTerm}
+                  >
+                    <div className="artifactHeader">
+                      <strong>{ladder.rootTerm}</strong>
+                      {ladder.chromiumOnly ? (
+                        <StatusTag tone="info">Chromium-only</StatusTag>
+                      ) : null}
+                    </div>
+                    <p>{ladder.steps.join(' → ')}</p>
+                    <div className="tokenList">
+                      {ladder.stages.map((stage, index) => (
+                        <span
+                          className="tokenChip"
+                          key={`${ladder.rootTerm}:${index}:${stage}`}
+                        >
+                          {stage}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState>
+                Query reformulation ladders only appear for Chromium profiles
+                with search term evidence.
+              </EmptyState>
+            )}
+          </Surface>
+
+          <Surface
+            eyebrow="Workflow map"
+            title="Source roles and transitions"
+            icon="hub"
+          >
+            {insightSnapshot ? (
+              <>
+                <div className="tokenList">
+                  {insightSnapshot.workflowMap.roles.map((role) => (
+                    <span className="tokenChip" key={role.role}>
+                      {role.role} · {role.count}
+                    </span>
+                  ))}
+                </div>
+                {insightSnapshot.workflowMap.edges.length ? (
+                  <ul className="plainList workflowEdgeList">
+                    {insightSnapshot.workflowMap.edges.map((edge) => (
+                      <li key={`${edge.fromRole}:${edge.toRole}`}>
+                        {edge.fromRole} → {edge.toRole} · {edge.count}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyState>
+                    No stable source-role transitions were found yet.
+                  </EmptyState>
+                )}
+                {insightSnapshot.workflowMap.chromiumEnhanced ? (
+                  <StatusTag tone="info">
+                    Chromium-enhanced signals available
+                  </StatusTag>
+                ) : null}
+              </>
+            ) : (
+              <EmptyState>
+                Workflow evidence will appear here after the first insight run.
+              </EmptyState>
+            )}
+          </Surface>
+        </div>
+
+        <Surface
           eyebrow={t('analysisSection')}
           title={t('analysisDescription')}
           icon="neurology"
@@ -2409,6 +2920,127 @@ function App() {
 
     inspectorContent = (
       <>
+        <Surface
+          eyebrow="Profile facets"
+          title="Workstyle snapshot"
+          icon="person_search"
+        >
+          {insightSnapshot?.profileFacets.length ? (
+            <div className="artifactList">
+              {insightSnapshot.profileFacets.map((facet) => (
+                <article className="artifactCard compactCard" key={facet.key}>
+                  <div className="artifactHeader">
+                    <strong>{facet.label}</strong>
+                    <span className="surfaceMeta">
+                      {Math.round(facet.confidence * 100)}% confidence
+                    </span>
+                  </div>
+                  <p>{facet.value}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState>
+              Faceted profile cards appear after a successful insight run.
+            </EmptyState>
+          )}
+        </Surface>
+
+        <Surface
+          eyebrow="Selected thread"
+          title={selectedInsightThread?.title ?? 'Choose a thread'}
+          icon="visibility"
+        >
+          {insightThreadDetail ? (
+            <>
+              <dl className="dataList">
+                <DataRow
+                  label="Status"
+                  value={insightThreadDetail.summary.status}
+                />
+                <DataRow
+                  label="Open-loop score"
+                  value={insightThreadDetail.summary.openLoopScore.toFixed(2)}
+                />
+                <DataRow
+                  label="Reopens"
+                  value={String(insightThreadDetail.summary.reopenCount)}
+                />
+                <DataRow
+                  label="Dominant topic"
+                  value={
+                    insightThreadDetail.summary.dominantTopicId ??
+                    t('notAvailable')
+                  }
+                />
+              </dl>
+              <div className="subsection">
+                <h3>Evidence</h3>
+                <div className="artifactList">
+                  {insightThreadDetail.visits.map((visit) => (
+                    <article
+                      className="artifactCard compactCard"
+                      key={`${visit.historyId}:${visit.visitedAt}`}
+                    >
+                      <strong>{visit.title || visit.url}</strong>
+                      <p>{visit.url}</p>
+                      <small>
+                        {visit.profileId} ·{' '}
+                        {formatDateTime(visit.visitedAt, resolvedLanguage)}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <EmptyState>
+              Pick a thread to inspect its evidence trail and reopen behavior.
+            </EmptyState>
+          )}
+        </Surface>
+
+        <Surface
+          eyebrow="Why this"
+          title={selectedInsightLabel ?? 'Choose an insight'}
+          icon="help"
+        >
+          {insightExplanation ? (
+            <>
+              <p>{insightExplanation.explanation}</p>
+              {insightExplanation.citations.length ? (
+                <div className="artifactList">
+                  {insightExplanation.citations.map((citation) => (
+                    <article
+                      className="artifactCard compactCard"
+                      key={`${citation.historyId}:${citation.url}`}
+                    >
+                      <strong>{citation.title || citation.url}</strong>
+                      <p>{citation.url}</p>
+                      <small>
+                        {citation.profileId} ·{' '}
+                        {formatDateTime(citation.visitedAt, resolvedLanguage)}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {insightExplanation.notes.length ? (
+                <ul className="plainList">
+                  {insightExplanation.notes.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <EmptyState>
+              Use a card, topic, or thread’s “Why this?” action to inspect its
+              evidence.
+            </EmptyState>
+          )}
+        </Surface>
+
         <Surface eyebrow={t('assistantSection')} title="" icon="smart_toy">
           {aiAssistantResult ? (
             <>
@@ -3610,7 +4242,7 @@ function App() {
                 onClick={() => setActiveView(viewId)}
               >
                 <Glyph icon={item.icon} />
-                <span className="srOnly">{item.label}</span>
+                <span className="navLabel">{item.label}</span>
               </button>
             )
           })}
@@ -3684,620 +4316,6 @@ function App() {
         </section>
       </main>
     </div>
-  )
-}
-
-export function Surface({
-  eyebrow,
-  title,
-  icon,
-  actions,
-  children,
-}: {
-  eyebrow: string
-  title: string
-  icon: string
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section className="surface">
-      <header className="surfaceHeader">
-        <div className="surfaceTitle">
-          <span className="surfaceIcon">
-            <Glyph icon={icon} />
-          </span>
-          <div>
-            <p className="sectionEyebrow">{eyebrow}</p>
-            {title ? <h3>{title}</h3> : null}
-          </div>
-        </div>
-        {actions ? <div className="surfaceActions">{actions}</div> : null}
-      </header>
-      <div className="surfaceBody">{children}</div>
-    </section>
-  )
-}
-
-export function FieldBlock({
-  label,
-  control,
-}: {
-  label: string
-  control: ReactNode
-}) {
-  return (
-    <label className="fieldBlock">
-      <span className="fieldLabel">{label}</span>
-      {control}
-    </label>
-  )
-}
-
-export function ToggleRow({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean
-  label: string
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <label className="toggleRow">
-      <span>{label}</span>
-      <input
-        checked={checked}
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
-      />
-    </label>
-  )
-}
-
-export function DataRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="dataRow">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  )
-}
-
-export function PathRow({
-  label,
-  value,
-  actions,
-}: {
-  label: string
-  value: string
-  actions?: ReactNode
-}) {
-  return (
-    <div className="pathRow">
-      <FieldBlock
-        label={label}
-        control={
-          <input readOnly aria-label={label} type="text" value={value} />
-        }
-      />
-      {actions ? <div className="pathActions">{actions}</div> : null}
-    </div>
-  )
-}
-
-export function EmptyState({ children }: { children: ReactNode }) {
-  return <div className="emptyState">{children}</div>
-}
-
-export function InfoStat({
-  label,
-  value,
-}: {
-  label: string
-  value: ReactNode
-}) {
-  return (
-    <div className="infoStat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  )
-}
-
-export type WorkflowStep = {
-  id: string
-  title: string
-  status: 'pending' | 'complete'
-  summary: string
-  reason: string
-  files?: string[]
-  commands?: string[]
-  checklist?: string[]
-  actions?: ReactNode
-}
-
-export function OperationWorkflow({
-  actionLabel,
-  labels,
-  language,
-  onCopy,
-  steps,
-}: {
-  actionLabel: string
-  labels: {
-    why: string
-    files: string
-    commands: string
-    checklist: string
-    copy: string
-    current: string
-    complete: string
-    pending: string
-  }
-  language: ResolvedLanguage
-  onCopy: (value: string) => Promise<void>
-  steps: WorkflowStep[]
-}) {
-  const currentIndex = steps.findIndex((step) => step.status !== 'complete')
-
-  return (
-    <ol className="workflowList" aria-label={actionLabel}>
-      {steps.map((step, index) => {
-        const displayStatus =
-          step.status === 'complete'
-            ? 'complete'
-            : currentIndex === index
-              ? 'current'
-              : 'pending'
-
-        return (
-          <li className={`workflowStep ${displayStatus}`} key={step.id}>
-            <div className="workflowMarker">
-              <span>{index + 1}</span>
-            </div>
-            <div className="workflowCard">
-              <div className="workflowHeader">
-                <div>
-                  <p className="sectionEyebrow">
-                    {displayStatus === 'complete'
-                      ? labels.complete
-                      : displayStatus === 'current'
-                        ? labels.current
-                        : labels.pending}
-                  </p>
-                  <h3>{step.title}</h3>
-                </div>
-                <StatusTag
-                  tone={
-                    displayStatus === 'complete'
-                      ? 'success'
-                      : displayStatus === 'current'
-                        ? 'info'
-                        : 'neutral'
-                  }
-                >
-                  {displayStatus === 'complete'
-                    ? labels.complete
-                    : displayStatus === 'current'
-                      ? labels.current
-                      : labels.pending}
-                </StatusTag>
-              </div>
-              <p className="workflowSummary">{step.summary}</p>
-              <div className="workflowSection">
-                <strong>{labels.why}</strong>
-                <p>{step.reason}</p>
-              </div>
-              {step.files?.length ? (
-                <div className="workflowSection">
-                  <strong>{labels.files}</strong>
-                  <div className="artifactList">
-                    {step.files.map((file) => (
-                      <article className="artifactCard compactCard" key={file}>
-                        <strong>{file}</strong>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {step.commands?.length ? (
-                <div className="workflowSection">
-                  <strong>{labels.commands}</strong>
-                  <div className="generatedList">
-                    {step.commands.map((command) => (
-                      <article className="codeArtifact" key={command}>
-                        <div className="artifactHeader">
-                          <strong>
-                            {formatDateTime(new Date().toISOString(), language)}
-                          </strong>
-                          <button
-                            className="ghostButton"
-                            type="button"
-                            onClick={() => void onCopy(command)}
-                          >
-                            {labels.copy}
-                          </button>
-                        </div>
-                        <pre>{command}</pre>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {step.checklist?.length ? (
-                <div className="workflowSection">
-                  <strong>{labels.checklist}</strong>
-                  <ol className="stepList">
-                    {step.checklist.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
-              {step.actions ? (
-                <div className="workflowActions">{step.actions}</div>
-              ) : null}
-            </div>
-          </li>
-        )
-      })}
-    </ol>
-  )
-}
-
-export const aiRequestFormats: AiRequestFormat[] = [
-  'openai',
-  'anthropic',
-  'google',
-  'ollama',
-  'lm-studio',
-]
-
-export function AiProviderEditorList({
-  addLabel,
-  apiKeys,
-  onAdd,
-  onApiKeyChange,
-  onClearKey,
-  onRemove,
-  onSaveKey,
-  onSelect,
-  onUpdate,
-  providers,
-  purpose,
-  selectedProviderId,
-  title,
-  translations,
-}: {
-  addLabel: string
-  apiKeys: Record<string, string>
-  onAdd: () => void
-  onApiKeyChange: (providerId: string, value: string) => void
-  onClearKey: (providerId: string) => void
-  onRemove: (providerId: string) => void
-  onSaveKey: (providerId: string) => void
-  onSelect: (providerId: string) => void
-  onUpdate: (providerId: string, patch: Partial<AiProviderConfig>) => void
-  providers: AiProviderConfig[]
-  purpose: AiProviderPurpose
-  selectedProviderId: string | null
-  title: string
-  translations: {
-    providerName: string
-    providerId: string
-    requestFormat: string
-    baseUrl: string
-    defaultModel: string
-    modelCatalog: string
-    modelCatalogHint: string
-    enabled: string
-    temperature: string
-    maxTokens: string
-    dimensions: string
-    notes: string
-    apiKey: string
-    keyStored: string
-    saveKey: string
-    clearKey: string
-    remove: string
-  }
-}) {
-  return (
-    <div className="surfaceInset providerPanel">
-      <div className="toolbarLine">
-        <h3>{title}</h3>
-        <button className="secondaryButton" type="button" onClick={onAdd}>
-          {addLabel}
-        </button>
-      </div>
-      {providers.length ? (
-        <div className="providerList">
-          {providers.map((provider) => (
-            <article
-              className={`providerCard ${selectedProviderId === provider.id ? 'selected' : ''}`}
-              key={provider.id}
-            >
-              <div className="providerHeader">
-                <label className="providerSelect">
-                  <input
-                    checked={selectedProviderId === provider.id}
-                    name={`${purpose}-provider`}
-                    type="radio"
-                    onChange={() => onSelect(provider.id)}
-                  />
-                  <strong>{provider.name || provider.id}</strong>
-                </label>
-                <button
-                  className="ghostButton"
-                  type="button"
-                  onClick={() => onRemove(provider.id)}
-                >
-                  {translations.remove}
-                </button>
-              </div>
-
-              <div className="fieldGrid two">
-                <FieldBlock
-                  label={translations.providerName}
-                  control={
-                    <input
-                      value={provider.name}
-                      onChange={(event) =>
-                        onUpdate(provider.id, { name: event.target.value })
-                      }
-                    />
-                  }
-                />
-                <FieldBlock
-                  label={translations.providerId}
-                  control={
-                    <div className="readOnlyField providerMono">
-                      {provider.id}
-                    </div>
-                  }
-                />
-                <FieldBlock
-                  label={translations.requestFormat}
-                  control={
-                    <select
-                      value={provider.requestFormat}
-                      onChange={(event) =>
-                        onUpdate(provider.id, {
-                          requestFormat: event.target.value as AiRequestFormat,
-                        })
-                      }
-                    >
-                      {aiRequestFormats.map((format) => (
-                        <option key={format} value={format}>
-                          {format}
-                        </option>
-                      ))}
-                    </select>
-                  }
-                />
-                <FieldBlock
-                  label={translations.baseUrl}
-                  control={
-                    <input
-                      placeholder="https://api.example.com/v1"
-                      value={provider.baseUrl ?? ''}
-                      onChange={(event) =>
-                        onUpdate(provider.id, {
-                          baseUrl: event.target.value || null,
-                        })
-                      }
-                    />
-                  }
-                />
-                <FieldBlock
-                  label={translations.defaultModel}
-                  control={
-                    <input
-                      value={provider.defaultModel}
-                      onChange={(event) =>
-                        onUpdate(provider.id, {
-                          defaultModel: event.target.value,
-                        })
-                      }
-                    />
-                  }
-                />
-                <FieldBlock
-                  label={translations.modelCatalog}
-                  control={
-                    <input
-                      placeholder={translations.modelCatalogHint}
-                      value={provider.modelCatalog.join(', ')}
-                      onChange={(event) =>
-                        onUpdate(provider.id, {
-                          modelCatalog: event.target.value
-                            .split(',')
-                            .map((value) => value.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                    />
-                  }
-                />
-                {purpose === 'llm' ? (
-                  <>
-                    <FieldBlock
-                      label={translations.temperature}
-                      control={
-                        <input
-                          max={2}
-                          min={0}
-                          step={0.1}
-                          type="number"
-                          value={provider.temperature ?? 0}
-                          onChange={(event) =>
-                            onUpdate(provider.id, {
-                              temperature: Number(event.target.value),
-                            })
-                          }
-                        />
-                      }
-                    />
-                    <FieldBlock
-                      label={translations.maxTokens}
-                      control={
-                        <input
-                          min={1}
-                          step={1}
-                          type="number"
-                          value={provider.maxTokens ?? 1200}
-                          onChange={(event) =>
-                            onUpdate(provider.id, {
-                              maxTokens: Number(event.target.value),
-                            })
-                          }
-                        />
-                      }
-                    />
-                  </>
-                ) : (
-                  <FieldBlock
-                    label={translations.dimensions}
-                    control={
-                      <input
-                        min={1}
-                        step={1}
-                        type="number"
-                        value={provider.dimensions ?? 1536}
-                        onChange={(event) =>
-                          onUpdate(provider.id, {
-                            dimensions: Number(event.target.value),
-                          })
-                        }
-                      />
-                    }
-                  />
-                )}
-              </div>
-
-              <FieldBlock
-                label={translations.notes}
-                control={
-                  <textarea
-                    className="multilineInput"
-                    rows={3}
-                    value={provider.notes ?? ''}
-                    onChange={(event) =>
-                      onUpdate(provider.id, {
-                        notes: event.target.value || null,
-                      })
-                    }
-                  />
-                }
-              />
-
-              <div className="toggleList compactToggleList">
-                <ToggleRow
-                  checked={provider.enabled}
-                  label={translations.enabled}
-                  onChange={(checked) =>
-                    onUpdate(provider.id, { enabled: checked })
-                  }
-                />
-              </div>
-
-              <div className="providerSecretRow">
-                <FieldBlock
-                  label={`${translations.apiKey} · ${translations.keyStored}: ${provider.apiKeySaved ? 'yes' : 'no'}`}
-                  control={
-                    <input
-                      autoComplete="off"
-                      placeholder="sk-..."
-                      type="password"
-                      value={apiKeys[provider.id] ?? ''}
-                      onChange={(event) =>
-                        onApiKeyChange(provider.id, event.target.value)
-                      }
-                    />
-                  }
-                />
-                <div className="toolbarActions">
-                  <button
-                    className="secondaryButton"
-                    type="button"
-                    onClick={() => onSaveKey(provider.id)}
-                  >
-                    {translations.saveKey}
-                  </button>
-                  <button
-                    className="ghostButton"
-                    type="button"
-                    onClick={() => onClearKey(provider.id)}
-                  >
-                    {translations.clearKey}
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <EmptyState>{title}</EmptyState>
-      )}
-    </div>
-  )
-}
-
-export function PreviewEntryList({
-  entries,
-  language,
-}: {
-  entries: TakeoutInspection['previewEntries']
-  language: ResolvedLanguage
-}) {
-  return (
-    <div className="previewList">
-      {entries.map((entry) => (
-        <article
-          className="previewEntry"
-          key={`${entry.sourcePath}:${entry.sourceVisitId}`}
-        >
-          <div className="previewMeta">
-            <span>{formatDateTime(entry.visitedAt, language)}</span>
-            <StatusTag tone={entry.status === 'imported' ? 'success' : 'info'}>
-              {entry.status}
-            </StatusTag>
-          </div>
-          <strong>{entry.title || entry.url}</strong>
-          <p>{entry.url}</p>
-          <small>
-            {entry.sourcePath} · #{entry.sourceVisitId}
-          </small>
-        </article>
-      ))}
-    </div>
-  )
-}
-
-export function StatusTag({
-  tone,
-  children,
-}: {
-  tone: 'info' | 'success' | 'danger' | 'neutral'
-  children: ReactNode
-}) {
-  return <span className={`statusTag ${tone}`}>{children}</span>
-}
-
-export function Glyph({
-  icon,
-  filled = false,
-}: {
-  icon: string
-  filled?: boolean
-}) {
-  return (
-    <span
-      className={`material-symbols-outlined glyph ${filled ? 'filled' : ''}`}
-    >
-      {icon}
-    </span>
   )
 }
 

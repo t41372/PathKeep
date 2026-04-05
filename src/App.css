@@ -1,7 +1,7 @@
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
+  grid-template-columns: 12.5rem minmax(0, 1fr);
   background: var(--page);
   color: var(--ink);
 }
@@ -21,7 +21,6 @@
 
 .brandMark,
 .sideRailFooter,
-.navItem,
 .surfaceIcon {
   display: grid;
   place-items: center;
@@ -51,19 +50,31 @@
 }
 
 .navItem {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
   width: 100%;
-  min-height: 3.2rem;
-  padding: 0;
+  min-height: 2.6rem;
+  padding: 0.45rem 0.75rem;
   border: 0;
   border-right: 2px solid transparent;
-  border-radius: 0;
+  border-radius: 0.35rem 0 0 0.35rem;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: left;
   transition:
     color 140ms ease,
     background-color 140ms ease,
     border-color 140ms ease;
+}
+
+.navLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .navItem:hover:not(:disabled),
@@ -259,6 +270,7 @@
 .toggleList,
 .profileList,
 .recordList,
+.trendList,
 .generatedList,
 .artifactList,
 .checkList,
@@ -353,6 +365,11 @@
 
 .selectionSummaryBar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trendList,
+.workflowEdgeList {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .pathList {
@@ -800,6 +817,41 @@
   word-break: break-word;
 }
 
+.trendBarTrack {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.trendBarFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(105, 156, 255, 0.9),
+    rgba(147, 201, 255, 0.7)
+  );
+}
+
+.tokenList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.tokenChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.6rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid rgba(105, 156, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(105, 156, 255, 0.08);
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+}
+
 .previewEntry small {
   display: block;
   margin-top: 0.35rem;
@@ -1110,8 +1162,13 @@
     overflow-x: auto;
   }
 
+  .navLabel {
+    display: none;
+  }
+
   .navItem {
     min-width: 3.2rem;
+    justify-content: center;
     border-right: 0;
     border-bottom: 2px solid transparent;
     border-radius: 0.35rem;
