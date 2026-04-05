@@ -3,6 +3,7 @@
 - 遵守 conventional commit 規範，你寫完了代碼，就主動提交原子化的 commit。
 - 做新介面前，把需求丟給 stitch 工具，讓他出幾版設計稿，幫你設計介面和交互。
 - 提交 commit 前，保持 100% test coverage 和 mutation test 通過。
+- 如果做出重要決策，比如數據庫的時間格式，需要寫充足的注釋。
 
 ## Project Structure & Module Organization
 
