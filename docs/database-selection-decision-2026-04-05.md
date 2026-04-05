@@ -1,4 +1,4 @@
-# Browser History Vault 數據庫選型決策
+# PathKeep 數據庫選型決策
 
 > Status: Accepted
 > Date: 2026-04-05
@@ -207,7 +207,7 @@ This decision should be revisited only if one of the following becomes true:
 
 ## 6. Final Decision Statement
 
-The next-generation Browser History Vault standardizes on:
+The next-generation PathKeep standardizes on:
 
 - **SQLite** as the canonical archive database
 - **SQLCipher** as the encryption layer

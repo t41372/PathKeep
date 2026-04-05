@@ -51,4 +51,4 @@ These repositories are cloned locally under `reference/` and kept out of version
 
 ## Current Position
 
-Browser History Backup is already broader than the original Chrome-only scope and now covers the main desktop browser families directly in the app. The remaining gaps are mostly niche browsers, mobile browser exports, or custom-path onboarding improvements rather than missing support for mainstream desktop browsers.
+PathKeep is already broader than the original Chrome-only scope and now covers the main desktop browser families directly in the app. The remaining gaps are mostly niche browsers, mobile browser exports, or custom-path onboarding improvements rather than missing support for mainstream desktop browsers.

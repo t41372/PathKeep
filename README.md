@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/t41372/BrowserHistoryBackup?display_name=tag)](https://github.com/t41372/BrowserHistoryBackup/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-1f6feb.svg)](./LICENSE)
 
-# Browser History Backup
+# PathKeep
 
 Browser History Backup is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, Bun, React, and Vite, and is designed around one rule: every meaningful system action should stay inspectable.
 
@@ -248,4 +248,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, release workflow usage
 
 ## License
 
-Browser History Backup is licensed under the [GNU General Public License v3.0](./LICENSE).
+PathKeep is licensed under the [GNU General Public License v3.0](./LICENSE).

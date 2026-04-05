@@ -1,5 +1,18 @@
 # Repository Guidelines
 
+PathKeep — A local-first desktop app for browser history archiving and intelligence. Built with Tauri 2, Rust, Bun, React, and Vite.
+
+## Vision & Requirements
+
+**所有新功能開發必須遵循 `docs/vision-and-requirements.md` 中定義的產品願景和需求。** 這是產品的 single source of truth。
+
+- 開始任何工作前，先讀 `docs/vision-and-requirements.md`（hub 文檔），理解產品定位、核心原則和功能架構。
+- 根據 hub 文檔底部的索引，定位到相關的子文檔（`docs/features/`、`docs/architecture/`、`docs/design/` 等）閱讀具體需求和設計決策。
+- 做出的技術決策必須符合文檔中記載的核心原則（Trust、Data Sovereignty、Longevity、Intelligence Is Optional、Recoverability）。
+- 如果在開發中發現需要修改或擴展需求，先更新對應的文檔，再實現代碼。
+
+## General Rules
+
 - 遵守 conventional commit 規範，你寫完了代碼，就主動提交原子化的 commit。
 - 做新介面前，把需求丟給 stitch 工具，讓他出幾版設計稿，幫你設計介面和交互。
 - 提交 commit 前，保持 100% test coverage 和 mutation test 通過。
