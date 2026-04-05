@@ -1080,7 +1080,10 @@ mod tests {
                 default_chrome_user_data_dir(home).expect("default chrome dir"),
                 home.join(".config/google-chrome")
             );
-            assert_eq!(current_chromium_relative_paths("chrome"), vec![".config/google-chrome"]);
+            assert_eq!(
+                current_chromium_relative_paths("chrome"),
+                vec![".config/google-chrome", ".var/app/com.google.Chrome/config/google-chrome"]
+            );
             assert_eq!(
                 current_firefox_relative_paths("firefox"),
                 vec![
@@ -1101,7 +1104,12 @@ mod tests {
         restore_test_env_var(CHROME_USER_DATA_OVERRIDE_ENV, None);
         restore_test_env_var(SAFARI_ROOT_OVERRIDE_ENV, None);
         let chrome_default = chrome_user_data_dir().expect("default chrome dir");
+        #[cfg(target_os = "macos")]
         assert!(chrome_default.ends_with("Library/Application Support/Google/Chrome"));
+        #[cfg(target_os = "windows")]
+        assert!(chrome_default.ends_with("Google/Chrome/User Data"));
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        assert!(chrome_default.ends_with(".config/google-chrome"));
 
         let root_profile = direct_root_chromium_profile(
             CHROMIUM_BROWSERS
@@ -1155,12 +1163,11 @@ mod tests {
         assert!(current_chromium_relative_paths("unknown").is_empty());
         assert!(current_firefox_relative_paths("unknown").is_empty());
         assert!(parse_firefox_profile_names(dir.path()).is_empty());
-        assert!(
-            default_safari_root()
-                .expect("default safari root")
-                .expect("macOS safari root")
-                .ends_with("Library/Safari")
-        );
+        let safari_root = default_safari_root().expect("default safari root");
+        #[cfg(target_os = "macos")]
+        assert!(safari_root.expect("macOS safari root").ends_with("Library/Safari"));
+        #[cfg(not(target_os = "macos"))]
+        assert!(safari_root.is_none());
 
         let chrome_definition = CHROMIUM_BROWSERS
             .iter()
