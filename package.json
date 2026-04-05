@@ -34,6 +34,7 @@
     "check": "bun run check:js && bun run check:rust && bun run check:supply-chain",
     "coverage": "bun run check:coverage",
     "ci:local": "bun run check && bun run coverage && bun run build && bun run test:e2e && bun run desktop:build:debug",
+    "docs:llm": "bun scripts/build-llm-txt.mjs",
     "preview": "vite preview",
     "verify": "bun run ci:local"
   },
