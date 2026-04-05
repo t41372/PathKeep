@@ -66,14 +66,16 @@ export function Surface({
 export function FieldBlock({
   label,
   control,
+  children,
 }: {
   label: string
-  control: ReactNode
+  control?: ReactNode
+  children?: ReactNode
 }) {
   return (
     <label className="fieldBlock">
       <span className="fieldLabel">{label}</span>
-      {control}
+      {control ?? children}
     </label>
   )
 }
@@ -107,11 +109,19 @@ export function ToggleRow({
 // DataRow — key/value display row
 // ---------------------------------------------------------------------------
 
-export function DataRow({ label, value }: { label: string; value: ReactNode }) {
+export function DataRow({
+  label,
+  value,
+  children,
+}: {
+  label: string
+  value?: ReactNode
+  children?: ReactNode
+}) {
   return (
     <div className="dataRow">
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd>{value ?? children}</dd>
     </div>
   )
 }
@@ -124,11 +134,31 @@ export function PathRow({
   label,
   value,
   actions,
+  onOpen,
+  onCopy,
 }: {
   label: string
   value: string
   actions?: ReactNode
+  onOpen?: () => void
+  onCopy?: () => void
 }) {
+  const actionBar =
+    actions ??
+    (onOpen || onCopy ? (
+      <>
+        {onOpen && (
+          <button className="ghostButton" type="button" onClick={onOpen}>
+            <Glyph icon="folder_open" />
+          </button>
+        )}
+        {onCopy && (
+          <button className="ghostButton" type="button" onClick={onCopy}>
+            <Glyph icon="content_copy" />
+          </button>
+        )}
+      </>
+    ) : null)
   return (
     <div className="pathRow">
       <FieldBlock
@@ -137,7 +167,7 @@ export function PathRow({
           <input readOnly aria-label={label} type="text" value={value} />
         }
       />
-      {actions ? <div className="pathActions">{actions}</div> : null}
+      {actionBar ? <div className="pathActions">{actionBar}</div> : null}
     </div>
   )
 }
@@ -146,8 +176,22 @@ export function PathRow({
 // EmptyState — dashed box placeholder
 // ---------------------------------------------------------------------------
 
-export function EmptyState({ children }: { children: ReactNode }) {
-  return <div className="emptyState">{children}</div>
+export function EmptyState({
+  children,
+  icon,
+  message,
+}: {
+  children?: ReactNode
+  icon?: string
+  message?: string
+}) {
+  return (
+    <div className="emptyState">
+      {icon && <Glyph icon={icon} />}
+      {message && <p>{message}</p>}
+      {children}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
