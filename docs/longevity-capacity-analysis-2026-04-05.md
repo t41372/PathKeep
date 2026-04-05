@@ -1356,6 +1356,120 @@ DuckDB 官方 `vss` extension 很吸引人，因為它提供：
 
 - **Qdrant Edge / Qdrant + quantization**
 
+## 7.21 更務實的產品決策：現在不要硬上 DuckDB，也不要第一天就外掛重型 vector DB
+
+上面幾節是在看「有哪些方案可用」。
+
+但回到我們自己的 vision 與現有代碼，我的更務實結論是：
+
+- **DuckDB 不是現在的必需品**
+- **SQLite 對大多數 V1 功能其實夠用**
+- **真正需要預留的是 vector layer 的演進空間**
+- **但 vector layer 也不必第一天就做成重型 sidecar service**
+
+### 哪些功能其實用 SQLite 就夠
+
+以下這些需求，本質上主要是：
+
+- 時間窗口統計
+- domain / source / query 分組
+- delta 比較
+- persisted summary 展示
+
+所以用 SQLite 就能做好：
+
+- On This Day
+- Site Analytics
+- Explore vs Exploit
+- Query Reformulation Ladder
+- 大部分 Periodic Summaries
+- 大部分 Dashboard / Timeline / Facets
+
+這些功能的瓶頸不是「缺少分析型資料庫」，而是：
+
+- schema 是否合理
+- aggregation 是否預先物化
+- UI 是否分頁與虛擬化
+
+### 現有 insights 也還沒逼到一定要上 DuckDB
+
+目前代碼其實透露出一個很重要的訊號：
+
+- 預設分析窗口只有 `30` 天
+- 預設分析筆數只有 `600`
+- topic / thread 在沒有向量時，仍可退回 token similarity
+
+這代表今天的產品狀態，仍然是：
+
+- **先把洞察管線做對**
+- **而不是先把分析引擎換掉**
+
+對應來說，DuckDB 今天最合理的角色只是：
+
+- 未來的 analytics mart
+- 調參、研究、重算、報表 sidecar
+
+不是 V1 必須引入的主幹元件。
+
+### 真正比較接近「遲早要補」的，是 vector retrieval 能力
+
+因為 vision 很清楚要求：
+
+- semantic search
+- Ask My History 的 agentic retrieval
+- session / task / topic level 的語義匹配
+
+而這些能力若要在長壽命、全量 archive 上成立，最終需要的不是 DuckDB，而是：
+
+- 更合理的 embedding 儲存格式
+- 更合理的 retrieval path
+- 必要時可升級的 vector index
+
+### 但這不等於第一天就要上外部 vector sidecar
+
+如果我們今天就直接引入重型向量層，很容易出現：
+
+- 複雜度先暴增
+- 加密與同步變難
+- 實際資料量還沒到，卻先背了一個 service / storage system
+
+所以我更建議分階段：
+
+#### Phase 1：SQLite-first
+
+- core archive：SQLite / SQLCipher
+- lexical search：FTS5
+- vectors：先做成可重建的獨立資產，但仍由本地 SQLite 管理 metadata
+- retrieval：先 lexical narrowing，再對小候選集做 vector rerank
+
+這一階段的目標是：
+
+- 把產品做出來
+- 把資料模型做穩
+- 不過早承擔分散式或 sidecar 複雜度
+
+#### Phase 2：vector-aware
+
+當下面這些訊號真的出現時，再升級到真正的 vector sidecar：
+
+1. 全量 semantic search 已經無法保持互動
+2. Ask My History 的多步檢索 latency 不可接受
+3. topic / thread / similarity graph 的重建成本過高
+4. embedding 資產已經明顯拖慢主庫備份、VACUUM、查詢或 WAL
+
+### 所以最終決策應該是什麼
+
+如果今天要拍板，我的建議是：
+
+1. **不要因為 DuckDB 很酷就硬上**
+2. **先假設 SQLite 足以支撐 V1 與很大一部分 V1.5**
+3. **預留 vector layer 抽象，但先不綁死某個外部向量庫**
+4. **等 semantic / agentic retrieval 真正成為瓶頸，再引入 vector sidecar**
+
+用一句話總結：
+
+> **DuckDB 是 optional accelerator，不是必要底座；vector sidecar 是 probable future need，但不是 day-one requirement。**
+
 ---
 
 ## 8. 最終判斷
