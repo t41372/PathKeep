@@ -4,7 +4,8 @@ use crate::{
 };
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderSecretInput, AiSearchRequest, AppConfig,
-    ExportRequest, HistoryQuery, S3CredentialInput, SchedulePlan, TakeoutRequest,
+    ExplainInsightRequest, ExportRequest, HistoryQuery, RunInsightsRequest, S3CredentialInput,
+    SchedulePlan, TakeoutRequest,
 };
 use vault_worker::{self, RekeyRequest};
 
@@ -218,6 +219,38 @@ pub(crate) fn ask_ai_assistant_impl(
 
 pub(crate) fn preview_ai_integrations_impl() -> Result<vault_core::AiIntegrationPreview, String> {
     worker_result(vault_worker::preview_ai_integration_files())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn run_insights_now_impl(
+    request: RunInsightsRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::RunInsightsReport, String> {
+    worker_result(vault_worker::run_insights_now(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn load_insights_impl(
+    request: RunInsightsRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::InsightSnapshot, String> {
+    worker_result(vault_worker::load_insights_snapshot(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn load_thread_detail_impl(
+    thread_id: String,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::InsightThreadDetail, String> {
+    worker_result(vault_worker::load_insight_thread(session_database_key, &thread_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn explain_insight_impl(
+    request: ExplainInsightRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::InsightExplanation, String> {
+    worker_result(vault_worker::explain_insight_now(session_database_key, &request))
 }
 
 pub(crate) fn reset_local_secret_vault_impl() -> Result<(), String> {

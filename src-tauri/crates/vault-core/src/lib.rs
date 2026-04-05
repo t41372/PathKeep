@@ -3,6 +3,7 @@ pub mod archive;
 pub mod chrome;
 pub mod config;
 pub mod git_audit;
+pub mod insights;
 pub mod models;
 pub mod remote;
 pub mod takeout;
@@ -18,6 +19,9 @@ pub use archive::{
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};
+pub use insights::{
+    explain_insight, insight_status, load_insight_thread_detail, load_insights, run_insights,
+};
 pub use models::*;
 pub use remote::{preview_remote_backup, run_remote_backup};
 pub use takeout::{

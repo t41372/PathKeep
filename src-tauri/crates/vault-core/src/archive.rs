@@ -3,6 +3,7 @@ use crate::{
     chrome::{ProfileSnapshot, discover_profiles, stage_profile_snapshot},
     config::{ProjectPaths, ensure_paths, save_config},
     git_audit,
+    insights::ensure_insight_schema,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, BackupProfileSummary, BackupReport,
         BackupRunOverview, ExportFormat, ExportRequest, ExportResult, HealthCheck, HealthReport,
@@ -500,6 +501,7 @@ pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
     #[rustfmt::skip]
     connection.execute("CREATE INDEX IF NOT EXISTS idx_raw_row_versions_import_batch_id ON raw_row_versions(import_batch_id)", [])?;
     ensure_ai_schema(connection)?;
+    ensure_insight_schema(connection)?;
     Ok(())
 }
 

@@ -18,14 +18,16 @@ use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIndexStatus,
     AiIntegrationPreview, AiProviderConfig, AiProviderPurpose, AiProviderRuntime,
     AiProviderSecretInput, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot, ArchiveMode,
-    ExportRequest, HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail,
-    KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult, S3CredentialInput, SchedulePlan,
-    TakeoutInspection, TakeoutRequest, ai_index_status, answer_history_question, archive_status,
-    build_ai_index, doctor, ensure_archive_initialized, export_history, import_takeout,
-    inspect_takeout, list_history, load_config, load_import_batches, load_recent_runs,
-    preview_ai_integrations, preview_import_batch, preview_remote_backup, project_paths,
-    rekey_archive, revert_import_batch, run_backup, run_remote_backup, save_config,
-    semantic_search_history,
+    ExplainInsightRequest, ExportRequest, HealthReport, HistoryQuery, HistoryQueryResponse,
+    ImportBatchDetail, InsightExplanation, InsightSnapshot, InsightStatus, InsightThreadDetail,
+    KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult, RunInsightsReport,
+    RunInsightsRequest, S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest,
+    ai_index_status, answer_history_question, archive_status, build_ai_index, doctor,
+    ensure_archive_initialized, explain_insight, export_history, import_takeout, insight_status,
+    inspect_takeout, list_history, load_config, load_import_batches, load_insight_thread_detail,
+    load_insights, load_recent_runs, preview_ai_integrations, preview_import_batch,
+    preview_remote_backup, project_paths, rekey_archive, revert_import_batch, run_backup,
+    run_insights, run_remote_backup, save_config, semantic_search_history,
 };
 use vault_platform::{
     ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
@@ -132,6 +134,19 @@ fn derive_ai_status(
             warning: Some(error.to_string()),
             ..AiIndexStatus::default()
         },
+    }
+}
+
+fn derive_insight_status(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+) -> InsightStatus {
+    match insight_status(paths, config, session_database_key) {
+        Ok(status) => status,
+        Err(error) => {
+            InsightStatus { warning: Some(error.to_string()), ..InsightStatus::default() }
+        }
     }
 }
 
@@ -261,6 +276,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let browser_profiles = vault_core::discover_profiles()?;
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
+    let insight_status = derive_insight_status(&paths, &config, session_database_key);
     let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
     let recent_import_batches =
         load_import_batches(&paths, &config, session_database_key).unwrap_or_default();
@@ -284,6 +300,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         archive_status,
         keyring_status: keyring_status(),
         ai_status,
+        insight_status,
         browser_profiles,
         recent_runs,
         recent_import_batches,
@@ -373,6 +390,18 @@ pub fn run_backup_now(
             Err(error) => report.warnings.push(format!(
                 "AI auto-index is enabled, but the embedding provider is not ready: {error}"
             )),
+        }
+    }
+    if !report.due_skipped {
+        let embedding_provider = selected_optional_embedding_runtime(&config).ok().flatten();
+        if let Err(error) = run_insights(
+            &paths,
+            &config,
+            session_database_key,
+            embedding_provider.as_ref(),
+            &RunInsightsRequest::default(),
+        ) {
+            report.warnings.push(format!("Insight refresh after backup failed: {error}"));
         }
     }
     Ok(report)
@@ -603,6 +632,47 @@ pub fn preview_ai_integration_files() -> Result<AiIntegrationPreview> {
     let mut config = load_config(&paths)?;
     hydrate_derived_config_state(&mut config);
     preview_ai_integrations(&paths, &config)
+}
+
+pub fn run_insights_now(
+    session_database_key: Option<&str>,
+    request: &RunInsightsRequest,
+) -> Result<RunInsightsReport> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    let embedding_provider = selected_optional_embedding_runtime(&config).ok().flatten();
+    run_insights(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
+}
+
+pub fn load_insights_snapshot(
+    session_database_key: Option<&str>,
+    request: &RunInsightsRequest,
+) -> Result<InsightSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    load_insights(&paths, &config, session_database_key, request)
+}
+
+pub fn load_insight_thread(
+    session_database_key: Option<&str>,
+    thread_id: &str,
+) -> Result<InsightThreadDetail> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    load_insight_thread_detail(&paths, &config, session_database_key, thread_id)
+}
+
+pub fn explain_insight_now(
+    session_database_key: Option<&str>,
+    request: &ExplainInsightRequest,
+) -> Result<InsightExplanation> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    explain_insight(&paths, &config, session_database_key, request)
 }
 
 #[tool_router]

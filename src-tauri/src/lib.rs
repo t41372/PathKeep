@@ -13,7 +13,8 @@ use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(test))]
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderSecretInput, AiSearchRequest, AppConfig,
-    ExportRequest, HistoryQuery, S3CredentialInput, SchedulePlan, TakeoutRequest,
+    ExplainInsightRequest, ExportRequest, HistoryQuery, RunInsightsRequest, S3CredentialInput,
+    SchedulePlan, TakeoutRequest,
 };
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
@@ -85,6 +86,10 @@ fn run_app() -> Result<()> {
             build_ai_index,
             search_ai_history,
             ask_ai_assistant,
+            run_insights_now,
+            load_insights,
+            load_thread_detail,
+            explain_insight,
             preview_ai_integrations,
             reset_local_secret_vault,
             open_path_in_file_manager
@@ -324,6 +329,42 @@ fn ask_ai_assistant(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiAssistantResponse, String> {
     worker_bridge::ask_ai_assistant_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn run_insights_now(
+    request: RunInsightsRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RunInsightsReport, String> {
+    worker_bridge::run_insights_now_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_insights(
+    request: RunInsightsRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::InsightSnapshot, String> {
+    worker_bridge::load_insights_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_thread_detail(
+    thread_id: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::InsightThreadDetail, String> {
+    worker_bridge::load_thread_detail_impl(thread_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn explain_insight(
+    request: ExplainInsightRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::InsightExplanation, String> {
+    worker_bridge::explain_insight_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

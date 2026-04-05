@@ -1,6 +1,7 @@
 use crate::{
     archive::{create_schema, list_history, open_archive_connection},
     config::ProjectPaths,
+    insights::preferred_embedding_content,
     models::{
         AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
         AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSearchEntry,
@@ -777,7 +778,14 @@ fn collect_visits_to_index(
         let title: Option<String> = row.get(3)?;
         let visited_at = crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?);
         let domain = url_domain(&url);
-        let content = build_embedding_content(&profile_id, &url, title.as_deref(), &visited_at);
+        let content = preferred_embedding_content(
+            connection,
+            history_id,
+            &profile_id,
+            &url,
+            title.as_deref(),
+            &visited_at,
+        )?;
         let content_hash = sha256_hex(content.as_bytes());
 
         let exists: Option<i64> = connection
@@ -909,6 +917,7 @@ fn sort_stored_embeddings_desc(left: &StoredEmbedding, right: &StoredEmbedding) 
     right.score.partial_cmp(&left.score).unwrap_or(Ordering::Equal)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn build_embedding_content(
     profile_id: &str,
     url: &str,

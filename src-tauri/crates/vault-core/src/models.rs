@@ -316,6 +316,7 @@ pub struct AppSnapshot {
     pub archive_status: ArchiveStatus,
     pub keyring_status: KeyringStatusReport,
     pub ai_status: AiIndexStatus,
+    pub insight_status: InsightStatus,
     #[serde(alias = "chromeProfiles")]
     pub browser_profiles: Vec<BrowserProfile>,
     pub recent_runs: Vec<BackupRunOverview>,
@@ -625,9 +626,190 @@ pub struct AiAssistantResponse {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightStatus {
+    pub ready: bool,
+    pub last_run_at: Option<String>,
+    pub runs: usize,
+    pub cards: usize,
+    pub topics: usize,
+    pub threads: usize,
+    pub content_coverage: f32,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightEvidenceItem {
+    pub history_id: i64,
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub visited_at: String,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightCard {
+    pub card_id: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    pub window_days: u32,
+    pub profile_id: Option<String>,
+    pub score: f32,
+    pub chromium_enhanced: bool,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightTopicSummary {
+    pub topic_id: String,
+    pub label: String,
+    pub profile_scope: String,
+    pub window_days: u32,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    pub visit_count: usize,
+    pub revisit_count: usize,
+    pub trend_slope: f32,
+    pub burst_score: f32,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightThreadSummary {
+    pub thread_id: String,
+    pub title: String,
+    pub profile_id: String,
+    pub status: String,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    pub visit_count: usize,
+    pub reopen_count: usize,
+    pub open_loop_score: f32,
+    pub dominant_topic_id: Option<String>,
+    pub chromium_enhanced: bool,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightThreadDetail {
+    pub summary: InsightThreadSummary,
+    pub visits: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightQueryLadder {
+    pub root_term: String,
+    pub profile_id: String,
+    pub steps: Vec<String>,
+    pub stages: Vec<String>,
+    pub count: usize,
+    pub chromium_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightWorkflowRole {
+    pub role: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightWorkflowEdge {
+    pub from_role: String,
+    pub to_role: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightWorkflowMap {
+    pub profile_id: Option<String>,
+    pub roles: Vec<InsightWorkflowRole>,
+    pub edges: Vec<InsightWorkflowEdge>,
+    pub chromium_enhanced: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightProfileFacet {
+    pub key: String,
+    pub label: String,
+    pub value: String,
+    pub confidence: f32,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightSnapshot {
+    pub generated_at: String,
+    pub window_days: u32,
+    pub profile_id: Option<String>,
+    pub status: InsightStatus,
+    pub cards: Vec<InsightCard>,
+    pub topics: Vec<InsightTopicSummary>,
+    pub threads: Vec<InsightThreadSummary>,
+    pub query_ladders: Vec<InsightQueryLadder>,
+    pub workflow_map: InsightWorkflowMap,
+    pub profile_facets: Vec<InsightProfileFacet>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RunInsightsRequest {
+    pub profile_id: Option<String>,
+    pub window_days: Option<u32>,
+    pub full_rebuild: bool,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RunInsightsReport {
+    pub run_id: i64,
+    pub processed_visits: usize,
+    pub enriched_visits: usize,
+    pub failed_enrichments: usize,
+    pub topic_count: usize,
+    pub thread_count: usize,
+    pub card_count: usize,
+    pub content_coverage: f32,
+    pub last_run_at: String,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplainInsightRequest {
+    pub insight_id: String,
+    pub insight_kind: String,
+    pub profile_id: Option<String>,
+    pub window_days: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightExplanation {
+    pub explanation: String,
+    pub used_llm: bool,
+    pub citations: Vec<InsightEvidenceItem>,
+    pub notes: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::AiSearchRequest;
+    use super::{AiSearchRequest, InsightStatus};
 
     #[test]
     fn ai_search_request_defaults_to_eight_results() {
@@ -636,5 +818,13 @@ mod tests {
         assert_eq!(request.profile_id, None);
         assert_eq!(request.domain, None);
         assert_eq!(request.limit, Some(8));
+    }
+
+    #[test]
+    fn insight_status_defaults_to_empty_state() {
+        let status = InsightStatus::default();
+        assert!(!status.ready);
+        assert_eq!(status.cards, 0);
+        assert_eq!(status.content_coverage, 0.0);
     }
 }
