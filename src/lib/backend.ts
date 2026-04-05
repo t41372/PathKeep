@@ -13,16 +13,22 @@ import type {
   AppSnapshot,
   ApplyResult,
   BackupReport,
+  ExplainInsightRequest,
   ExportRequest,
   ExportResult,
   HealthReport,
   HistoryQuery,
   HistoryQueryResponse,
   ImportBatchDetail,
+  InsightExplanation,
+  InsightSnapshot,
+  InsightThreadDetail,
   KeyringStatusReport,
   RekeyRequest,
   RemoteBackupPreview,
   RemoteBackupResult,
+  RunInsightsReport,
+  RunInsightsRequest,
   SchedulePlan,
   S3CredentialInput,
   TakeoutInspection,
@@ -130,6 +136,16 @@ const mockSnapshot: AppSnapshot = {
     embeddingProviderId: null,
     warning: null,
   },
+  insightStatus: {
+    ready: true,
+    lastRunAt: new Date().toISOString(),
+    runs: 4,
+    cards: 4,
+    topics: 3,
+    threads: 2,
+    contentCoverage: 0.64,
+    warning: null,
+  },
   browserProfiles: [
     {
       profileId: 'chrome:Default',
@@ -225,6 +241,208 @@ const mockHistory: HistoryQueryResponse = {
     },
   ],
 }
+
+const mockInsightSnapshot: InsightSnapshot = {
+  generatedAt: new Date().toISOString(),
+  windowDays: 30,
+  profileId: 'chrome:Default',
+  status: structuredClone(mockSnapshot.insightStatus),
+  cards: [
+    {
+      cardId: 'card-rising-topic-1',
+      kind: 'rising-topic',
+      title: 'Rising topic: archive tooling',
+      summary:
+        'Archive tooling is gaining momentum across docs, repo issues, and comparison pages.',
+      windowDays: 30,
+      profileId: 'chrome:Default',
+      score: 0.82,
+      chromiumEnhanced: true,
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Topic momentum increased this week.',
+        },
+      ],
+    },
+    {
+      cardId: 'card-open-loop-thread-1',
+      kind: 'open-loop',
+      title: 'Open loop: archive tool compare',
+      summary:
+        'This thread reopened twice and still leans on compare/docs/forum patterns.',
+      windowDays: 30,
+      profileId: 'chrome:Default',
+      score: 2.15,
+      chromiumEnhanced: true,
+      evidence: [
+        {
+          historyId: 2,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[1].url,
+          title: mockHistory.items[1].title,
+          visitedAt: mockHistory.items[1].visitedAt,
+          note: 'Repeated revisit signal.',
+        },
+      ],
+    },
+  ],
+  topics: [
+    {
+      topicId: 'topic-001',
+      label: 'Archive tooling',
+      profileScope: 'chrome:Default',
+      windowDays: 30,
+      firstSeenAt: '2026-04-01T12:00:00.000Z',
+      lastSeenAt: '2026-04-03T16:00:00.000Z',
+      visitCount: 7,
+      revisitCount: 2,
+      trendSlope: 0.82,
+      burstScore: 2.4,
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Representative evidence',
+        },
+      ],
+    },
+    {
+      topicId: 'topic-002',
+      label: 'Schema spelunking',
+      profileScope: 'chrome:Default',
+      windowDays: 30,
+      firstSeenAt: '2026-03-29T12:00:00.000Z',
+      lastSeenAt: '2026-04-03T12:30:00.000Z',
+      visitCount: 5,
+      revisitCount: 2,
+      trendSlope: 0.33,
+      burstScore: 1.3,
+      evidence: [],
+    },
+  ],
+  threads: [
+    {
+      threadId: 'thread-001',
+      profileId: 'chrome:Default',
+      title: 'archive tool compare',
+      status: 'open-loop',
+      firstSeenAt: '2026-04-01T12:00:00.000Z',
+      lastSeenAt: '2026-04-03T16:00:00.000Z',
+      visitCount: 6,
+      reopenCount: 2,
+      openLoopScore: 2.15,
+      dominantTopicId: 'topic-001',
+      chromiumEnhanced: true,
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Docs revisit',
+        },
+      ],
+    },
+  ],
+  queryLadders: [
+    {
+      rootTerm: 'archive tool',
+      profileId: 'chrome:Default',
+      steps: [
+        'archive tool',
+        'archive tool compare',
+        'archive tool compare github',
+      ],
+      stages: ['broad', 'compare', 'site-restrict'],
+      count: 3,
+      chromiumOnly: true,
+    },
+  ],
+  workflowMap: {
+    profileId: 'chrome:Default',
+    roles: [
+      { role: 'search', count: 5 },
+      { role: 'docs', count: 4 },
+      { role: 'repo', count: 3 },
+      { role: 'forum', count: 2 },
+    ],
+    edges: [
+      { fromRole: 'search', toRole: 'docs', count: 3 },
+      { fromRole: 'docs', toRole: 'repo', count: 2 },
+      { fromRole: 'repo', toRole: 'forum', count: 1 },
+    ],
+    chromiumEnhanced: true,
+  },
+  profileFacets: [
+    {
+      key: 'explore-exploit',
+      label: 'Explore vs exploit',
+      value: 'Exploit-heavy',
+      confidence: 0.71,
+      evidence: [],
+    },
+    {
+      key: 'source-preference',
+      label: 'Source preference',
+      value: 'Docs-first',
+      confidence: 0.68,
+      evidence: [],
+    },
+  ],
+  notes: ['Browser preview mode shows a deterministic insight fixture.'],
+}
+
+const mockInsightThreadDetail: InsightThreadDetail = {
+  summary: structuredClone(mockInsightSnapshot.threads[0]),
+  visits: [
+    {
+      historyId: 1,
+      profileId: 'chrome:Default',
+      url: mockHistory.items[0].url,
+      title: mockHistory.items[0].title,
+      visitedAt: mockHistory.items[0].visitedAt,
+      note: 'Docs revisit',
+    },
+    {
+      historyId: 2,
+      profileId: 'chrome:Default',
+      url: mockHistory.items[1].url,
+      title: mockHistory.items[1].title,
+      visitedAt: mockHistory.items[1].visitedAt,
+      note: 'Issue follow-up',
+    },
+  ],
+}
+
+const mockInsightRunReport: RunInsightsReport = {
+  runId: 12,
+  processedVisits: 24,
+  enrichedVisits: 8,
+  failedEnrichments: 1,
+  topicCount: mockInsightSnapshot.topics.length,
+  threadCount: mockInsightSnapshot.threads.length,
+  cardCount: mockInsightSnapshot.cards.length,
+  contentCoverage: 0.64,
+  lastRunAt: new Date().toISOString(),
+  notes: ['Insight run used preview fixtures and local heuristics.'],
+}
+
+const mockInsightExplanation: InsightExplanation = {
+  explanation:
+    'This insight is based on repeated revisits to archive-related docs, repository issues, and search refinements within the selected window.',
+  usedLlm: false,
+  citations: structuredClone(mockInsightThreadDetail.visits),
+  notes: ['Browser preview mode explains insights from static evidence only.'],
+}
 // Stryker restore all
 
 async function call<T>(
@@ -262,6 +480,14 @@ async function call<T>(
       } as T
     case 'query_history':
       return mockHistory as T
+    case 'run_insights_now':
+      return mockInsightRunReport as T
+    case 'load_insights':
+      return mockInsightSnapshot as T
+    case 'load_thread_detail':
+      return mockInsightThreadDetail as T
+    case 'explain_insight':
+      return mockInsightExplanation as T
     case 'inspect_takeout':
     case 'import_takeout':
       return {
@@ -495,6 +721,14 @@ export const backend = {
     call<AiSearchResponse>('search_ai_history', { request }),
   askAiAssistant: (request: AiAssistantRequest) =>
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
+  runInsightsNow: (request: RunInsightsRequest) =>
+    call<RunInsightsReport>('run_insights_now', { request }),
+  loadInsights: (request: RunInsightsRequest) =>
+    call<InsightSnapshot>('load_insights', { request }),
+  loadThreadDetail: (threadId: string) =>
+    call<InsightThreadDetail>('load_thread_detail', { threadId }),
+  explainInsight: (request: ExplainInsightRequest) =>
+    call<InsightExplanation>('explain_insight', { request }),
   previewAiIntegrations: () =>
     call<AiIntegrationPreview>('preview_ai_integrations'),
   resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),

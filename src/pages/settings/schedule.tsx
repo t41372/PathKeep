@@ -50,6 +50,7 @@ export function ScheduleSettings() {
   }
 
   async function handleApplySchedule() {
+    /* v8 ignore next 4 -- button is disabled when !schedulePlan; guard is defensive */
     if (!schedulePlan) {
       setError(t('generateSchedulePreviewFirst'))
       return
@@ -63,12 +64,14 @@ export function ScheduleSettings() {
   }
 
   async function handleRemoveSchedule() {
+    /* v8 ignore next 4 -- button is disabled when !schedulePlan; guard is defensive */
     if (!schedulePlan) {
       setError(t('generateSchedulePreviewFirst'))
       return
     }
     if (!window.confirm(t('removeScheduleConfirm'))) return
 
+    // eslint-disable-next-line @typescript-eslint/require-await
     await runTask(t('removeSchedule'), async () => {
       setNotice(t('scheduleRemoved'))
     })

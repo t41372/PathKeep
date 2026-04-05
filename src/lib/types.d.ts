@@ -123,6 +123,155 @@ export interface AiIndexStatus {
   warning?: string | null
 }
 
+export interface InsightStatus {
+  ready: boolean
+  lastRunAt?: string | null
+  runs: number
+  cards: number
+  topics: number
+  threads: number
+  contentCoverage: number
+  warning?: string | null
+}
+
+export interface InsightEvidenceItem {
+  historyId: number
+  profileId: string
+  url: string
+  title?: string | null
+  visitedAt: string
+  note?: string | null
+}
+
+export interface InsightCard {
+  cardId: string
+  kind: string
+  title: string
+  summary: string
+  windowDays: number
+  profileId?: string | null
+  score: number
+  chromiumEnhanced: boolean
+  evidence: InsightEvidenceItem[]
+}
+
+export interface InsightTopicSummary {
+  topicId: string
+  label: string
+  profileScope: string
+  windowDays: number
+  firstSeenAt: string
+  lastSeenAt: string
+  visitCount: number
+  revisitCount: number
+  trendSlope: number
+  burstScore: number
+  evidence: InsightEvidenceItem[]
+}
+
+export interface InsightThreadSummary {
+  threadId: string
+  profileId: string
+  title: string
+  status: string
+  firstSeenAt: string
+  lastSeenAt: string
+  visitCount: number
+  reopenCount: number
+  openLoopScore: number
+  dominantTopicId?: string | null
+  chromiumEnhanced: boolean
+  evidence: InsightEvidenceItem[]
+}
+
+export interface InsightThreadDetail {
+  summary: InsightThreadSummary
+  visits: InsightEvidenceItem[]
+}
+
+export interface InsightQueryLadder {
+  rootTerm: string
+  profileId: string
+  steps: string[]
+  stages: string[]
+  count: number
+  chromiumOnly: boolean
+}
+
+export interface InsightWorkflowRole {
+  role: string
+  count: number
+}
+
+export interface InsightWorkflowEdge {
+  fromRole: string
+  toRole: string
+  count: number
+}
+
+export interface InsightWorkflowMap {
+  profileId?: string | null
+  roles: InsightWorkflowRole[]
+  edges: InsightWorkflowEdge[]
+  chromiumEnhanced: boolean
+}
+
+export interface InsightProfileFacet {
+  key: string
+  label: string
+  value: string
+  confidence: number
+  evidence: InsightEvidenceItem[]
+}
+
+export interface InsightSnapshot {
+  generatedAt: string
+  windowDays: number
+  profileId?: string | null
+  status: InsightStatus
+  cards: InsightCard[]
+  topics: InsightTopicSummary[]
+  threads: InsightThreadSummary[]
+  queryLadders: InsightQueryLadder[]
+  workflowMap: InsightWorkflowMap
+  profileFacets: InsightProfileFacet[]
+  notes: string[]
+}
+
+export interface RunInsightsRequest {
+  profileId?: string | null
+  windowDays?: number | null
+  fullRebuild: boolean
+  limit?: number | null
+}
+
+export interface RunInsightsReport {
+  runId: number
+  processedVisits: number
+  enrichedVisits: number
+  failedEnrichments: number
+  topicCount: number
+  threadCount: number
+  cardCount: number
+  contentCoverage: number
+  lastRunAt: string
+  notes: string[]
+}
+
+export interface ExplainInsightRequest {
+  insightId: string
+  insightKind: string
+  profileId?: string | null
+  windowDays?: number | null
+}
+
+export interface InsightExplanation {
+  explanation: string
+  usedLlm: boolean
+  citations: InsightEvidenceItem[]
+  notes: string[]
+}
+
 export interface BrowserProfile {
   profileId: string
   profileName: string
@@ -176,6 +325,7 @@ export interface AppSnapshot {
   archiveStatus: ArchiveStatus
   keyringStatus: KeyringStatusReport
   aiStatus: AiIndexStatus
+  insightStatus: InsightStatus
   browserProfiles: BrowserProfile[]
   recentRuns: BackupRunOverview[]
   recentImportBatches: ImportBatchOverview[]

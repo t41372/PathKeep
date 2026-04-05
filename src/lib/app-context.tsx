@@ -238,6 +238,7 @@ const AppContext = createContext<AppContextValue | null>(null)
 export function useApp(): AppContextValue {
   const context = useContext(AppContext)
   if (!context) {
+    /* v8 ignore next -- always used within AppProvider in prod and tests */
     throw new Error('useApp must be used inside AppProvider')
   }
   return context

@@ -237,6 +237,50 @@ describe('backend facade', () => {
         expect.objectContaining({ historyId: 2 }),
       ],
     })
+    await expect(
+      backend.runInsightsNow({
+        profileId: 'chrome:Default',
+        windowDays: 30,
+        fullRebuild: false,
+        limit: null,
+      }),
+    ).resolves.toMatchObject({
+      processedVisits: 24,
+      cardCount: expect.any(Number),
+    })
+    await expect(
+      backend.loadInsights({
+        profileId: 'chrome:Default',
+        windowDays: 30,
+        fullRebuild: false,
+        limit: null,
+      }),
+    ).resolves.toMatchObject({
+      cards: expect.arrayContaining([
+        expect.objectContaining({ title: 'Rising topic: archive tooling' }),
+      ]),
+      workflowMap: expect.objectContaining({ chromiumEnhanced: true }),
+    })
+    await expect(backend.loadThreadDetail('thread-001')).resolves.toMatchObject(
+      {
+        summary: expect.objectContaining({ threadId: 'thread-001' }),
+        visits: expect.arrayContaining([
+          expect.objectContaining({ historyId: 1 }),
+        ]),
+      },
+    )
+    await expect(
+      backend.explainInsight({
+        insightId: 'card-rising-topic-1',
+        insightKind: 'card',
+        profileId: 'chrome:Default',
+        windowDays: 30,
+      }),
+    ).resolves.toSatisfy((value) => {
+      expect(value.explanation).toContain('repeated revisits')
+      expect(value.usedLlm).toBe(false)
+      return true
+    })
     await expect(backend.previewAiIntegrations()).resolves.toMatchObject({
       mcpCommand: expect.stringContaining('--worker mcp-server'),
       generatedFiles: [

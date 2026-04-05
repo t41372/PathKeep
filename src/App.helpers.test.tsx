@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
+import { AiProviderEditorList } from './components/ai-provider-editor'
 import {
-  AiProviderEditorList,
   DataRow,
   EmptyState,
   FieldBlock,
@@ -14,10 +14,9 @@ import {
   StatusTag,
   Surface,
   ToggleRow,
-  formatDateTime,
-  formatDuration,
   type WorkflowStep,
-} from './App'
+} from './components/ui'
+import { formatDateTime, formatDuration } from './lib/format'
 import type { AiProviderConfig } from './lib/types'
 
 describe('App helpers', () => {

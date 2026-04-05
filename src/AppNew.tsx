@@ -40,6 +40,7 @@ function AppShell() {
         return <ImportPage />
       case 'settings':
         return <SettingsPage />
+      /* v8 ignore next 2 -- all pages covered above; fallback is defensive */
       default:
         return <DashboardPage />
     }
