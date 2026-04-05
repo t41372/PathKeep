@@ -1216,3 +1216,665 @@
     gap: 0.5rem;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* New modular pages — layout                                         */
+/* ------------------------------------------------------------------ */
+
+.mainPane {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  padding: 2rem;
+}
+
+.pageContent {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 64rem;
+  margin: 0 auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashboard                                                           */
+/* ------------------------------------------------------------------ */
+
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.statCard {
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.healthBadge {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--success);
+}
+
+.healthText {
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings layout                                                     */
+/* ------------------------------------------------------------------ */
+
+.settingsLayout {
+  display: grid;
+  grid-template-columns: 12rem 1fr;
+  gap: 2rem;
+  max-width: 64rem;
+  margin: 0 auto;
+}
+
+.settingsSubNav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.5rem;
+  position: sticky;
+  top: 0;
+}
+
+.settingsSubNavTitle {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0 0.75rem 0.5rem;
+  margin: 0;
+}
+
+.settingsSubNavItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.settingsSubNavItem:hover {
+  background: var(--hover);
+}
+.settingsSubNavItem.active {
+  background: var(--accent-surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.settingsContent {
+  min-width: 0;
+}
+
+.settingsTabContent {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.settingsActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid var(--separator);
+}
+
+/* ------------------------------------------------------------------ */
+/* Onboarding wizard                                                   */
+/* ------------------------------------------------------------------ */
+
+.onboardingShell {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 0;
+}
+
+.onboardingContent {
+  min-height: 20rem;
+}
+
+.onboardingNav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--separator);
+}
+
+.onboardingNavSpacer {
+  flex: 1;
+}
+
+.stepIndicator {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  justify-content: center;
+}
+
+.stepDot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.stepCircle {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 2px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: all 0.2s;
+}
+.stepDot.current .stepCircle {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.stepDot.completed .stepCircle {
+  border-color: var(--success);
+  background: var(--success);
+  color: #fff;
+}
+
+.stepLabel {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  text-align: center;
+  max-width: 5rem;
+}
+.stepDot.current .stepLabel {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reviewSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 0;
+}
+
+.reviewItem {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.warningBanner {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: hsl(40 80% 15%);
+  border: 1px solid hsl(40 80% 25%);
+  color: hsl(40 80% 80%);
+  font-size: 0.875rem;
+}
+.warningBanner strong {
+  font-weight: 600;
+}
+.warningBanner p {
+  margin: 0.25rem 0 0;
+  opacity: 0.85;
+}
+
+/* ------------------------------------------------------------------ */
+/* Explorer                                                            */
+/* ------------------------------------------------------------------ */
+
+.explorerGrid {
+  display: grid;
+  grid-template-columns: 1fr 24rem;
+  gap: 1.5rem;
+}
+
+.explorerFilters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.explorerList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.explorerRowMain {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.explorerTime {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.explorerDomain {
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.explorerActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.detailGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.detailLink {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.detailLink:hover {
+  text-decoration: underline;
+}
+
+.exportButtons {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Insights                                                            */
+/* ------------------------------------------------------------------ */
+
+.insightControls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cardList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+
+.insightCard {
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.insightCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.insightMeta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.topicList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.topicRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.threadList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.threadHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.threadDetail {
+  padding: 0.5rem 0 0.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.threadVisit {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.citation {
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+.citation:hover {
+  text-decoration: underline;
+}
+
+.citationList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.codeWrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ */
+/* Activity Log & Backup Runs                                          */
+/* ------------------------------------------------------------------ */
+
+.runList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.runCard {
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.runCard:hover,
+.runCard.selected {
+  border-color: var(--accent);
+}
+
+.runHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.runDate {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.runStats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.runDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 0;
+}
+
+.runDetailRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+}
+
+.runReportGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.backupReportSummary {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+}
+
+.profileRunSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.remotePreviewDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Import — batch list                                                 */
+/* ------------------------------------------------------------------ */
+
+.batchList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.batchDetailPanel {
+  padding: 1rem 0;
+  border-top: 1px solid var(--separator);
+}
+
+.batchDetailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.inspectionStats {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.875rem;
+  padding: 0.5rem 0;
+}
+
+.remoteCredentials {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--separator);
+}
+
+/* ------------------------------------------------------------------ */
+/* Toast notifications                                                 */
+/* ------------------------------------------------------------------ */
+
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  z-index: 999;
+  box-shadow: 0 4px 20px rgba(0 0 0 / 0.3);
+  animation: toastSlideIn 0.25s ease-out;
+  max-width: 28rem;
+}
+.toast.success {
+  background: hsl(145 50% 18%);
+  border: 1px solid hsl(145 50% 28%);
+  color: hsl(145 50% 80%);
+}
+.toast.danger {
+  background: hsl(0 50% 18%);
+  border: 1px solid hsl(0 50% 28%);
+  color: hsl(0 50% 80%);
+}
+
+.toastClose {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.25rem;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.toastClose:hover {
+  opacity: 1;
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Busy overlay                                                        */
+/* ------------------------------------------------------------------ */
+
+.busyOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0 0 0 / 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 900;
+}
+
+.busyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 3rem;
+  border-radius: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  box-shadow: 0 8px 32px rgba(0 0 0 / 0.4);
+  font-weight: 500;
+}
+
+.spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--separator);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive — settings                                               */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 820px) {
+  .settingsLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsSubNav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--separator);
+  }
+
+  .settingsSubNavTitle {
+    display: none;
+  }
+
+  .explorerGrid {
+    grid-template-columns: 1fr;
+  }
+}
