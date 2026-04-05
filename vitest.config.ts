@@ -14,13 +14,18 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     exclude: ['tests/e2e/**'],
     coverage: {
+      // @ts-expect-error Vitest runtime supports `all`; the bundled type defs lag.
+      all: true,
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       reportsDirectory: './coverage/js',
-      include: [
-        'src/lib/backend.ts',
-        'src/lib/i18n.ts',
-        'src/lib/stronghold.ts',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.test.tsx',
+        'src/assets/**',
+        'src/test/**',
+        'src/lib/types.d.ts',
       ],
       thresholds: {
         lines: 100,

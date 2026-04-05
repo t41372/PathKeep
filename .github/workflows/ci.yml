@@ -19,13 +19,11 @@ jobs:
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
       - name: Frontend checks
-        run: |
-          bun run format:check
-          bun run lint
-          bun run typecheck
-          bun run test:unit
-          bun run build
-          bun run test:e2e
+        run: bun run check:js
+      - name: Frontend build
+        run: bun run build
+      - name: Frontend e2e
+        run: bun run test:e2e
 
   rust:
     runs-on: ubuntu-latest
@@ -58,11 +56,9 @@ jobs:
 
   rust-security:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src-tauri
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
@@ -70,10 +66,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny
-      - name: Supply chain checks
-        run: |
-          cargo audit
-          cargo deny check
+      - name: Rust supply-chain checks
+        run: bun run check:supply-chain
 
   coverage:
     runs-on: ubuntu-latest

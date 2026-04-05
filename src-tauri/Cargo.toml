@@ -3,6 +3,7 @@ name = "browser-history-backup-desktop"
 version = "0.1.0"
 edition = "2024"
 description = "Audit-first desktop archive for browser history"
+license = "GPL-3.0-only"
 
 [lib]
 name = "browser_history_backup_desktop"
@@ -11,6 +12,9 @@ path = "src/lib.rs"
 [workspace]
 members = ["crates/vault-core", "crates/vault-platform", "crates/vault-worker"]
 resolver = "2"
+
+[workspace.package]
+license = "GPL-3.0-only"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
@@ -39,9 +43,9 @@ serde_json.workspace = true
 tauri = { version = "2.8.5", features = [] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-stronghold = "2.3.1"
-vault-core = { path = "crates/vault-core" }
-vault-platform = { path = "crates/vault-platform" }
-vault-worker = { path = "crates/vault-worker" }
+vault-core = { version = "0.1.0", path = "crates/vault-core" }
+vault-platform = { version = "0.1.0", path = "crates/vault-platform" }
+vault-worker = { version = "0.1.0", path = "crates/vault-worker" }
 
 [dev-dependencies]
 rusqlite.workspace = true
@@ -49,3 +53,6 @@ tempfile.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2.5.1", features = [] }
+
+[patch.crates-io]
+cfg_block = { path = "vendor/cfg_block" }

@@ -13,9 +13,12 @@ dist-ssr
 coverage
 playwright-report
 reports
+src-tauri/mutants.out
+src-tauri/mutants.out.old
 src-tauri/target
 test-results
 var
+output
 *.local
 reference
 

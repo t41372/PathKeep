@@ -1,0 +1,32 @@
+# Tauri desktop entrypoints, shell integrations, and IPC/session glue are
+# exercised through desktop/UI flows rather than cargo-test-visible APIs.
+# Platform keyring / scheduler glue has the same constraint because it bridges to
+# native OS services that unit tests stub out or bypass.
+# Mutation testing focuses on the workspace's core Rust logic.
+exclude_globs = [
+  "src/lib.rs",
+  "src/main.rs",
+  "src/file_manager.rs",
+  "src/session.rs",
+  "src/worker_bridge.rs",
+  "crates/vault-platform/src/lib.rs",
+  "crates/vault-worker/src/lib.rs",
+]
+
+# The live LLM client wiring is compiled only outside test/coverage builds; unit
+# tests intentionally exercise the deterministic stubs instead.
+# Cross-platform path selector helpers include target-gated implementations that
+# are not compiled on the current host, so cargo-mutants cannot validate the
+# inactive variants in a single-platform run.
+# The base64 bit-packing helper uses non-overlapping bitfields, so some `|`/`^`
+# substitutions are equivalent mutants rather than behavior changes.
+exclude_re = [
+  "run_llm_agent",
+  "embed_query",
+  "open_readonly_source",
+  "default_chrome_user_data_dir",
+  "current_chromium_relative_paths",
+  "current_firefox_relative_paths",
+  "default_safari_root",
+  "base64_blob",
+]
