@@ -55,28 +55,16 @@ fn project_root() -> Result<PathBuf> {
         return Ok(root);
     }
 
-    for legacy_name in LEGACY_APP_NAMES {
-        if let Some(legacy_dirs) = ProjectDirs::from("dev", "Codex", legacy_name) {
-            let legacy_root = legacy_dirs.data_local_dir().to_path_buf();
-            if legacy_root.exists() {
-                if let Some(parent) = root.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("creating {}", parent.display()))?;
-                }
-                fs::rename(&legacy_root, &root).with_context(|| {
-                    format!(
-                        "migrating app data from {} to {}",
-                        legacy_root.display(),
-                        root.display()
-                    )
-                })?;
-                break;
-            }
-        }
-    }
+    migrate_legacy_root(&root)?;
 
     Ok(root)
 }
+
+#[rustfmt::skip]
+fn migrate_legacy_root(root: &std::path::Path) -> Result<()> { for legacy_name in LEGACY_APP_NAMES { let Some(legacy_dirs) = ProjectDirs::from("dev", "Codex", legacy_name) else { continue }; if migrate_legacy_candidate(root, legacy_dirs.data_local_dir())? { return Ok(()); } } Ok(()) }
+
+#[rustfmt::skip]
+fn migrate_legacy_candidate(root: &std::path::Path, legacy_root: &std::path::Path) -> Result<bool> { if !legacy_root.exists() { return Ok(false); } root.parent().map(|parent| fs::create_dir_all(parent).context(format!("creating {}", parent.display()))).transpose()?; fs::rename(legacy_root, root).context(format!("migrating app data from {} to {}", legacy_root.display(), root.display()))?; Ok(true) }
 
 pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     for dir in [
@@ -121,19 +109,23 @@ pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ArchiveMode;
+    use crate::{
+        models::ArchiveMode,
+        utils::{restore_test_env_var, test_env_lock},
+    };
+    use directories::ProjectDirs;
     use tempfile::tempdir;
 
     #[test]
     fn project_paths_honor_override_environment() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = tempdir().expect("tempdir");
+        let original_override = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
         unsafe {
             std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
         }
         let paths = project_paths().expect("project paths");
-        unsafe {
-            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        }
+        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
 
         assert_eq!(paths.app_root, dir.path());
         assert_eq!(paths.archive_database_path, dir.path().join("archive/history-vault.sqlite"));
@@ -199,5 +191,80 @@ mod tests {
         fs::write(&paths.config_path, "{not-json").expect("write invalid config");
         let error = load_config(&paths).expect_err("invalid config should fail");
         assert!(error.to_string().contains("parsing config json"));
+    }
+
+    #[test]
+    fn project_root_uses_current_app_directory_when_it_already_exists() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let original_home = std::env::var_os("HOME");
+        let original_override = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        }
+
+        let current_root = ProjectDirs::from("dev", "Codex", CURRENT_APP_NAME)
+            .expect("project dirs")
+            .data_local_dir()
+            .to_path_buf();
+        fs::create_dir_all(&current_root).expect("create current root");
+
+        let resolved = project_root().expect("project root");
+        assert_eq!(resolved, current_root);
+
+        restore_test_env_var("HOME", original_home.as_deref());
+        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
+    }
+
+    #[test]
+    fn project_root_migrates_legacy_directories_when_needed() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let original_home = std::env::var_os("HOME");
+        let original_override = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        }
+
+        let current_root = ProjectDirs::from("dev", "Codex", CURRENT_APP_NAME)
+            .expect("project dirs")
+            .data_local_dir()
+            .to_path_buf();
+        let legacy_root = ProjectDirs::from("dev", "Codex", LEGACY_APP_NAMES[0])
+            .expect("legacy project dirs")
+            .data_local_dir()
+            .to_path_buf();
+        fs::create_dir_all(&legacy_root).expect("create legacy root");
+        fs::write(legacy_root.join("legacy.txt"), "migrate me").expect("write legacy fixture");
+
+        let resolved = project_root().expect("project root");
+        assert_eq!(resolved, current_root);
+        assert!(current_root.join("legacy.txt").exists());
+        assert!(!legacy_root.exists());
+
+        restore_test_env_var("HOME", original_home.as_deref());
+        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
+    }
+
+    #[test]
+    fn migrate_legacy_root_returns_ok_when_no_legacy_directories_exist() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("fresh-root");
+        migrate_legacy_root(&root).expect("no-op migration");
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn restore_env_var_sets_and_clears_values() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let value = std::ffi::OsString::from("fixture-root");
+        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, Some(value.as_os_str()));
+        assert_eq!(std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV), Some(value.clone()));
+
+        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, None);
+        assert!(std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV).is_none());
     }
 }

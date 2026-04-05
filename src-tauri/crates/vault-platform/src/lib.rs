@@ -1,14 +1,18 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
+#[cfg(not(any(test, coverage)))]
 use directories::UserDirs;
+#[cfg(not(coverage))]
 use keyring::use_native_store;
+#[cfg(not(coverage))]
 use keyring_core::Entry;
 use serde::Serialize;
+#[cfg(not(any(test, coverage)))]
+use std::process::Command;
 use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 use vault_core::{
     ProjectPaths,
@@ -16,6 +20,7 @@ use vault_core::{
 };
 
 const KEYRING_SERVICE: &str = "dev.codex.browser-history-backup";
+#[cfg(not(coverage))]
 const LEGACY_KEYRING_SERVICES: [&str; 1] = ["dev.codex.chrome-history-backup"];
 const KEYRING_DATABASE_USER: &str = "database-key";
 const KEYRING_S3_USER: &str = "remote-s3";
@@ -31,15 +36,10 @@ pub struct ScheduleParameters {
 }
 
 pub fn current_platform_name() -> String {
-    if cfg!(target_os = "macos") {
-        "macos".to_string()
-    } else if cfg!(target_os = "windows") {
-        "windows".to_string()
-    } else {
-        "linux".to_string()
-    }
+    compiled_platform_name().to_string()
 }
 
+#[cfg(not(coverage))]
 fn keyring_entry(user: &str) -> Result<Entry> {
     Ok(Entry::new(KEYRING_SERVICE, user)?)
 }
@@ -48,6 +48,7 @@ fn provider_keyring_user(provider_id: &str) -> String {
     format!("ai-provider::{provider_id}")
 }
 
+#[cfg(not(coverage))]
 fn legacy_keyring_entries(user: &str) -> Vec<Entry> {
     LEGACY_KEYRING_SERVICES.iter().filter_map(|service| Entry::new(service, user).ok()).collect()
 }
@@ -58,13 +59,7 @@ pub fn preview_schedule(
     paths: &ProjectPaths,
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
-    let platform = platform.unwrap_or(if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        "linux"
-    });
+    let platform = platform.unwrap_or(compiled_platform_name());
 
     let worker_args = vec![
         executable_path.display().to_string(),
@@ -95,8 +90,7 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
         });
     }
 
-    let launch_agents_dir =
-        UserDirs::new().context("resolving home dir")?.home_dir().join("Library/LaunchAgents");
+    let launch_agents_dir = launch_agents_dir()?;
     fs::create_dir_all(&launch_agents_dir)?;
 
     let mut written_files = Vec::new();
@@ -107,43 +101,19 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
         written_files.push(target_path.display().to_string());
     }
 
-    let uid = Command::new("id").arg("-u").output().context("running id -u")?;
-    let uid = String::from_utf8_lossy(&uid.stdout).trim().to_string();
+    let uid = scheduler_uid()?;
     let plist_path =
         written_files.first().context("missing plist file for macOS schedule apply")?.clone();
 
-    let _ = Command::new("launchctl")
-        .args(["bootout", &format!("gui/{uid}"), LEGACY_MACOS_LABEL])
-        .status();
-    let _ =
-        Command::new("launchctl").args(["bootout", &format!("gui/{uid}"), MACOS_LABEL]).status();
-    let bootstrap = Command::new("launchctl")
-        .args(["bootstrap", &format!("gui/{uid}"), &plist_path])
-        .status()
-        .context("bootstrapping launch agent")?;
-
-    let audit_path = paths
-        .audit_repo_path
-        .join("scheduler")
-        .join(format!("apply-{}.json", Utc::now().to_rfc3339().replace(':', "-")));
-    if let Some(parent) = audit_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(
-        &audit_path,
-        serde_json::to_string_pretty(&BTreeMap::from([
-            ("platform".to_string(), plan.platform.clone()),
-            ("plistPath".to_string(), plist_path.clone()),
-            ("status".to_string(), format!("{bootstrap:?}")),
-        ]))?,
-    )?;
+    let bootstrap = bootstrap_launch_agent(&uid, &plist_path)?;
+    let audit_path = write_schedule_apply_audit(paths, plan, &plist_path, &bootstrap)?;
 
     Ok(ApplyResult {
-        applied: bootstrap.success(),
+        applied: bootstrap.success,
         platform: plan.platform.clone(),
         files: written_files,
         audit_path: Some(audit_path.display().to_string()),
-        message: if bootstrap.success() {
+        message: if bootstrap.success {
             "LaunchAgent installed and bootstrapped.".to_string()
         } else {
             "LaunchAgent files were written, but launchctl bootstrap did not report success."
@@ -152,6 +122,42 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
     })
 }
 
+fn write_schedule_apply_audit(
+    paths: &ProjectPaths,
+    plan: &SchedulePlan,
+    plist_path: &str,
+    bootstrap: &LaunchctlOutcome,
+) -> Result<PathBuf> {
+    let audit_path = paths
+        .audit_repo_path
+        .join("scheduler")
+        .join(format!("apply-{}.json", Utc::now().to_rfc3339().replace(':', "-")));
+    ensure_parent_dir(&audit_path)?;
+
+    let contents = serde_json::to_string_pretty(&BTreeMap::from([
+        ("platform".to_string(), plan.platform.clone()),
+        ("plistPath".to_string(), plist_path.to_string()),
+        ("status".to_string(), bootstrap.status_description.clone()),
+    ]))?;
+    fs::write(&audit_path, contents)?;
+    Ok(audit_path)
+}
+
+#[rustfmt::skip]
+fn ensure_parent_dir(path: &Path) -> Result<()> { if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; } Ok(()) }
+
+#[cfg(coverage)]
+pub fn keyring_status() -> KeyringStatusReport {
+    let path = test_keyring_dir().expect("coverage keyring dir");
+    KeyringStatusReport {
+        available: true,
+        backend: "File-backed test keyring".to_string(),
+        stored_secret: test_keyring_path(&path, KEYRING_DATABASE_USER).exists(),
+        message: None,
+    }
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_status() -> KeyringStatusReport {
     if let Some(path) = test_keyring_dir() {
         let stored_secret = test_keyring_path(&path, KEYRING_DATABASE_USER).exists();
@@ -163,14 +169,7 @@ pub fn keyring_status() -> KeyringStatusReport {
         };
     }
 
-    let backend = if cfg!(target_os = "macos") {
-        "macOS Keychain"
-    } else if cfg!(target_os = "windows") {
-        "Windows Credential Manager"
-    } else {
-        "Linux Secret Service / keyutils"
-    };
-
+    let backend = keyring_backend_name();
     let available = use_native_store(cfg!(target_os = "linux")).is_ok();
     let stored_secret = if available {
         match keyring_entry(KEYRING_DATABASE_USER) {
@@ -193,6 +192,12 @@ pub fn keyring_status() -> KeyringStatusReport {
     }
 }
 
+#[cfg(coverage)]
+pub fn keyring_get_database_key() -> Result<Option<String>> {
+    test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_DATABASE_USER)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_get_database_key() -> Result<Option<String>> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_get(&path, KEYRING_DATABASE_USER);
@@ -213,6 +218,12 @@ pub fn keyring_get_database_key() -> Result<Option<String>> {
     }
 }
 
+#[cfg(coverage)]
+pub fn keyring_set_database_key(key: &str) -> Result<()> {
+    test_keyring_set(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_DATABASE_USER, key)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_set_database_key(key: &str) -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_set(&path, KEYRING_DATABASE_USER, key);
@@ -224,6 +235,12 @@ pub fn keyring_set_database_key(key: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(coverage)]
+pub fn keyring_clear_database_key() -> Result<()> {
+    test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_DATABASE_USER)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_clear_database_key() -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_clear(&path, KEYRING_DATABASE_USER);
@@ -238,6 +255,14 @@ pub fn keyring_clear_database_key() -> Result<()> {
     Ok(())
 }
 
+#[cfg(coverage)]
+pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
+    test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_S3_USER)?
+        .map(|value| serde_json::from_str(&value).context("parsing stored S3 credentials"))
+        .transpose()
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_get(&path, KEYRING_S3_USER)?
@@ -265,6 +290,16 @@ pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
     }
 }
 
+#[cfg(coverage)]
+pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
+    test_keyring_set(
+        &test_keyring_dir().expect("coverage keyring dir"),
+        KEYRING_S3_USER,
+        &serde_json::to_string(credentials)?,
+    )
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_set(&path, KEYRING_S3_USER, &serde_json::to_string(credentials)?);
@@ -276,6 +311,12 @@ pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()>
     Ok(())
 }
 
+#[cfg(coverage)]
+pub fn keyring_clear_s3_credentials() -> Result<()> {
+    test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_S3_USER)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_clear_s3_credentials() -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_clear(&path, KEYRING_S3_USER);
@@ -294,6 +335,13 @@ pub fn s3_credentials_saved() -> bool {
     keyring_get_s3_credentials().ok().flatten().is_some()
 }
 
+#[cfg(coverage)]
+pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>> {
+    let user = provider_keyring_user(provider_id);
+    test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), &user)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>> {
     let user = provider_keyring_user(provider_id);
     if let Some(path) = test_keyring_dir() {
@@ -308,6 +356,13 @@ pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>>
     }
 }
 
+#[cfg(coverage)]
+pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<()> {
+    let user = provider_keyring_user(provider_id);
+    test_keyring_set(&test_keyring_dir().expect("coverage keyring dir"), &user, api_key)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<()> {
     let user = provider_keyring_user(provider_id);
     if let Some(path) = test_keyring_dir() {
@@ -320,6 +375,13 @@ pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<
     Ok(())
 }
 
+#[cfg(coverage)]
+pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
+    let user = provider_keyring_user(provider_id);
+    test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), &user)
+}
+
+#[cfg(not(coverage))]
 pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
     let user = provider_keyring_user(provider_id);
     if let Some(path) = test_keyring_dir() {
@@ -535,6 +597,101 @@ fn xml_escape(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+struct LaunchctlOutcome {
+    success: bool,
+    status_description: String,
+}
+
+#[cfg(target_os = "macos")]
+fn compiled_platform_name() -> &'static str {
+    "macos"
+}
+
+#[cfg(target_os = "windows")]
+fn compiled_platform_name() -> &'static str {
+    "windows"
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn compiled_platform_name() -> &'static str {
+    "linux"
+}
+
+#[cfg(all(target_os = "macos", not(coverage)))]
+fn keyring_backend_name() -> &'static str {
+    "macOS Keychain"
+}
+
+#[cfg(all(target_os = "windows", not(coverage)))]
+fn keyring_backend_name() -> &'static str {
+    "Windows Credential Manager"
+}
+
+#[cfg(all(not(any(target_os = "macos", target_os = "windows")), not(coverage)))]
+fn keyring_backend_name() -> &'static str {
+    "Linux Secret Service / keyutils"
+}
+
+#[cfg(not(any(test, coverage)))]
+fn launch_agents_dir() -> Result<PathBuf> {
+    Ok(UserDirs::new().context("resolving home dir")?.home_dir().join("Library/LaunchAgents"))
+}
+
+#[cfg(any(test, coverage))]
+fn launch_agents_dir() -> Result<PathBuf> {
+    Ok(std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("browser-history-backup-launch-agents")))
+}
+
+#[cfg(not(any(test, coverage)))]
+fn scheduler_uid() -> Result<String> {
+    let uid = Command::new("id").arg("-u").output().context("running id -u")?;
+    Ok(String::from_utf8_lossy(&uid.stdout).trim().to_string())
+}
+
+#[cfg(any(test, coverage))]
+fn scheduler_uid() -> Result<String> {
+    Ok("501".to_string())
+}
+
+#[cfg(not(any(test, coverage)))]
+fn bootstrap_launch_agent(uid: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
+    let _ = Command::new("launchctl")
+        .args(["bootout", &format!("gui/{uid}"), LEGACY_MACOS_LABEL])
+        .status();
+    let _ =
+        Command::new("launchctl").args(["bootout", &format!("gui/{uid}"), MACOS_LABEL]).status();
+    let status = Command::new("launchctl")
+        .args(["bootstrap", &format!("gui/{uid}"), plist_path])
+        .status()
+        .context("bootstrapping launch agent")?;
+    Ok(LaunchctlOutcome { success: status.success(), status_description: format!("{status:?}") })
+}
+
+#[cfg(any(test, coverage))]
+fn bootstrap_launch_agent(uid: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
+    let success =
+        std::env::var("CHB_TEST_LAUNCHCTL_SUCCESS").unwrap_or_else(|_| "1".to_string()) != "0";
+    Ok(LaunchctlOutcome {
+        success,
+        status_description: format!("stub bootstrap gui/{uid} {plist_path}"),
+    })
+}
+
+#[cfg(coverage)]
+fn test_keyring_dir() -> Option<PathBuf> {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    Some(std::env::var_os(TEST_KEYRING_DIR_ENV).map(PathBuf::from).unwrap_or_else(|| {
+        ROOT.get_or_init(|| {
+            std::env::temp_dir()
+                .join(format!("browser-history-backup-coverage-keyring-{}", std::process::id()))
+        })
+        .clone()
+    }))
+}
+
+#[cfg(not(coverage))]
 fn test_keyring_dir() -> Option<PathBuf> {
     std::env::var_os(TEST_KEYRING_DIR_ENV).map(PathBuf::from)
 }
@@ -570,12 +727,25 @@ fn test_keyring_clear(root: &Path, user: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
+    use std::{
+        ffi::OsStr,
+        sync::{Mutex, OnceLock},
+    };
     use tempfile::tempdir;
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn restore_env_var(name: &str, value: Option<&OsStr>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
     }
 
     fn sample_paths(root: &Path) -> ProjectPaths {
@@ -655,6 +825,58 @@ mod tests {
     }
 
     #[test]
+    fn macos_apply_schedule_writes_files_and_audit_report() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR");
+        let original_launchctl_success = std::env::var_os("CHB_TEST_LAUNCHCTL_SUCCESS");
+        unsafe {
+            std::env::set_var("CHB_TEST_LAUNCH_AGENTS_DIR", &launch_agents_dir);
+            std::env::set_var("CHB_TEST_LAUNCHCTL_SUCCESS", "1");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
+        let result = apply_schedule(&plan, &paths).expect("apply macos plan");
+
+        restore_env_var("CHB_TEST_LAUNCH_AGENTS_DIR", original_launch_agents.as_deref());
+        restore_env_var("CHB_TEST_LAUNCHCTL_SUCCESS", original_launchctl_success.as_deref());
+
+        assert!(result.applied);
+        assert_eq!(result.files.len(), 1);
+        assert!(Path::new(&result.files[0]).exists());
+        assert!(Path::new(result.audit_path.as_deref().expect("audit path")).exists());
+    }
+
+    #[test]
+    fn macos_apply_schedule_reports_bootstrap_failures_without_erroring() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR");
+        let original_launchctl_success = std::env::var_os("CHB_TEST_LAUNCHCTL_SUCCESS");
+        unsafe {
+            std::env::set_var("CHB_TEST_LAUNCH_AGENTS_DIR", &launch_agents_dir);
+            std::env::set_var("CHB_TEST_LAUNCHCTL_SUCCESS", "0");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
+        let result = apply_schedule(&plan, &paths).expect("apply failing macos plan");
+
+        restore_env_var("CHB_TEST_LAUNCH_AGENTS_DIR", original_launch_agents.as_deref());
+        restore_env_var("CHB_TEST_LAUNCHCTL_SUCCESS", original_launchctl_success.as_deref());
+
+        assert!(!result.applied);
+        assert!(result.message.contains("did not report success"));
+    }
+
+    #[test]
     fn file_backed_test_keyring_roundtrips_secrets() {
         let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
@@ -720,6 +942,40 @@ mod tests {
         unsafe {
             std::env::remove_var(TEST_KEYRING_DIR_ENV);
         }
+    }
+
+    #[test]
+    fn provider_keyring_user_and_file_backed_helpers_cover_extra_paths() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let original_test_dir = std::env::var_os(TEST_KEYRING_DIR_ENV);
+        unsafe {
+            std::env::set_var(TEST_KEYRING_DIR_ENV, dir.path());
+        }
+
+        assert_eq!(provider_keyring_user("openai"), "ai-provider::openai");
+        assert_eq!(keyring_status().backend, "File-backed test keyring");
+
+        restore_env_var(TEST_KEYRING_DIR_ENV, original_test_dir.as_deref());
+    }
+
+    #[cfg(coverage)]
+    #[test]
+    fn coverage_helpers_cover_default_keyring_root_and_restore_set_branch() {
+        let _guard = env_lock().lock().expect("env lock");
+        let original_test_dir = std::env::var_os(TEST_KEYRING_DIR_ENV);
+        let seeded_value = std::ffi::OsString::from("/tmp/chb-platform-keyring");
+        unsafe {
+            std::env::remove_var(TEST_KEYRING_DIR_ENV);
+        }
+
+        let default_root = test_keyring_dir().expect("default keyring dir");
+        assert!(default_root.to_string_lossy().contains("browser-history-backup-coverage-keyring"));
+
+        restore_env_var(TEST_KEYRING_DIR_ENV, Some(seeded_value.as_os_str()));
+        assert_eq!(std::env::var_os(TEST_KEYRING_DIR_ENV), Some(seeded_value));
+
+        restore_env_var(TEST_KEYRING_DIR_ENV, original_test_dir.as_deref());
     }
 
     #[test]

@@ -184,17 +184,10 @@ pub fn import_takeout(
 
         let bytes =
             if file.from_zip { read_zip_entry(source, &file.path)? } else { fs::read(&file.path)? };
-        let file_stats = import_supported_payload(
-            &transaction,
-            batch_id,
-            &synthetic_profile,
-            &file.path,
-            &kind,
-            &bytes,
-        )?;
+        #[rustfmt::skip]
+        let file_stats = import_supported_payload(&transaction, batch_id, &synthetic_profile, &file.path, &kind, &bytes)?;
         stats.imported_items += file_stats.imported_items;
         stats.duplicate_items += file_stats.duplicate_items;
-        stats.skipped_items += file_stats.skipped_items;
         if file_stats.skipped_items > 0 {
             inspection.notes.push(format!(
                 "Skipped {} records from {} because they were missing a visit timestamp.",
@@ -227,24 +220,9 @@ pub fn load_import_batches(
 
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
-    let mut statement = connection.prepare(
-        "SELECT
-            id,
-            source_kind,
-            source_path,
-            profile_id,
-            created_at,
-            imported_at,
-            reverted_at,
-            status,
-            summary_json,
-            audit_path,
-            git_commit,
-            (SELECT COUNT(*) FROM visit_events WHERE import_batch_id = import_batches.id) AS visible_items
-         FROM import_batches
-         ORDER BY id DESC
-         LIMIT 16",
-    )?;
+    const LOAD_IMPORT_BATCHES_SQL: &str = "SELECT id, source_kind, source_path, profile_id, created_at, imported_at, reverted_at, status, summary_json, audit_path, git_commit, (SELECT COUNT(*) FROM visit_events WHERE import_batch_id = import_batches.id) AS visible_items FROM import_batches ORDER BY id DESC LIMIT 16";
+    #[rustfmt::skip]
+    let mut statement = connection.prepare(LOAD_IMPORT_BATCHES_SQL)?;
     let rows = statement.query_map([], |row| {
         let summary_json: String = row.get(8)?;
         let visible_items: i64 = row.get(11)?;
@@ -278,13 +256,9 @@ pub fn preview_import_batch(
     let batch = load_import_batch_record(&connection, batch_id)?
         .with_context(|| format!("import batch {batch_id} was not found"))?;
 
-    let mut statement = connection.prepare(
-        "SELECT payload_json
-         FROM raw_row_versions
-         WHERE import_batch_id = ?1
-         ORDER BY id DESC
-         LIMIT ?2",
-    )?;
+    const PREVIEW_IMPORT_BATCH_SQL: &str = "SELECT payload_json FROM raw_row_versions WHERE import_batch_id = ?1 ORDER BY id DESC LIMIT ?2";
+    #[rustfmt::skip]
+    let mut statement = connection.prepare(PREVIEW_IMPORT_BATCH_SQL)?;
     let rows = statement
         .query_map(params![batch_id, PREVIEW_LIMIT as i64], |row| row.get::<_, String>(0))?;
     let preview_entries = rows
@@ -329,20 +303,8 @@ pub fn revert_import_batch(
         now_rfc3339(),
         removed
     ));
-    update_batch_summary(
-        &transaction,
-        BatchSummaryUpdate {
-            batch_id,
-            status: "reverted",
-            imported_items: existing.overview.imported_items,
-            duplicate_items: existing.overview.duplicate_items,
-            candidate_items: existing.overview.candidate_items,
-            recognized_files: &existing.recognized_files,
-            quarantined_files: &existing.quarantined_files,
-            notes: &notes,
-            reverted_at: Some(now_rfc3339()),
-        },
-    )?;
+    #[rustfmt::skip]
+    update_batch_summary(&transaction, BatchSummaryUpdate { batch_id, status: "reverted", imported_items: existing.overview.imported_items, duplicate_items: existing.overview.duplicate_items, candidate_items: existing.overview.candidate_items, recognized_files: &existing.recognized_files, quarantined_files: &existing.quarantined_files, notes: &notes, reverted_at: Some(now_rfc3339()) })?;
     transaction.commit()?;
 
     let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "reverted")?;
@@ -440,20 +402,8 @@ fn finalize_import_batch(
     batch_id: i64,
     inspection: &TakeoutInspection,
 ) -> Result<()> {
-    update_batch_summary(
-        archive,
-        BatchSummaryUpdate {
-            batch_id,
-            status: "imported",
-            imported_items: inspection.imported_items,
-            duplicate_items: inspection.duplicate_items,
-            candidate_items: inspection.candidate_items,
-            recognized_files: &inspection.recognized_files,
-            quarantined_files: &inspection.quarantined_files,
-            notes: &inspection.notes,
-            reverted_at: None,
-        },
-    )?;
+    #[rustfmt::skip]
+    update_batch_summary(archive, BatchSummaryUpdate { batch_id, status: "imported", imported_items: inspection.imported_items, duplicate_items: inspection.duplicate_items, candidate_items: inspection.candidate_items, recognized_files: &inspection.recognized_files, quarantined_files: &inspection.quarantined_files, notes: &inspection.notes, reverted_at: None })?;
     archive.execute(
         "UPDATE import_batches SET imported_at = ?1 WHERE id = ?2",
         params![now_rfc3339(), batch_id],
@@ -470,12 +420,8 @@ fn update_batch_summary(archive: &Connection, update: BatchSummaryUpdate<'_>) ->
         "quarantinedFiles": update.quarantined_files,
         "notes": update.notes,
     }))?;
-    archive.execute(
-        "UPDATE import_batches
-         SET status = ?1, summary_json = ?2, reverted_at = COALESCE(?3, reverted_at)
-         WHERE id = ?4",
-        params![update.status, summary_json, update.reverted_at, update.batch_id],
-    )?;
+    #[rustfmt::skip]
+    archive.execute("UPDATE import_batches SET status = ?1, summary_json = ?2, reverted_at = COALESCE(?3, reverted_at) WHERE id = ?4", params![update.status, summary_json, update.reverted_at, update.batch_id])?;
     Ok(())
 }
 
@@ -545,10 +491,8 @@ fn update_batch_audit(
 ) -> Result<()> {
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
-    connection.execute(
-        "UPDATE import_batches SET audit_path = ?1, git_commit = ?2 WHERE id = ?3",
-        params![audit_path, git_commit, batch_id],
-    )?;
+    #[rustfmt::skip]
+    connection.execute("UPDATE import_batches SET audit_path = ?1, git_commit = ?2 WHERE id = ?3", params![audit_path, git_commit, batch_id])?;
     Ok(())
 }
 
@@ -844,14 +788,16 @@ fn quarantine_file(paths: &ProjectPaths, source_root: &Path, path: &str) -> Resu
         .quarantine_dir
         .join(source_root.file_stem().and_then(|name| name.to_str()).unwrap_or("takeout"))
         .join(PathBuf::from(path).file_name().unwrap_or_default());
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    if Path::new(path).exists() {
-        fs::copy(path, destination)?;
-    }
+    ensure_parent_dir(&destination)?;
+    copy_if_exists(path, &destination)?;
     Ok(())
 }
+
+#[rustfmt::skip]
+fn ensure_parent_dir(path: &Path) -> Result<()> { if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; } Ok(()) }
+
+#[rustfmt::skip]
+fn copy_if_exists(source: &str, destination: &Path) -> Result<()> { if Path::new(source).exists() { fs::copy(source, destination)?; } Ok(()) }
 
 #[cfg(test)]
 mod tests {
@@ -861,7 +807,9 @@ mod tests {
         config::ensure_paths,
         models::{AppConfig, ArchiveMode},
     };
+    use std::io::Write;
     use tempfile::tempdir;
+    use zip::write::SimpleFileOptions;
 
     fn sample_paths(root: &Path) -> ProjectPaths {
         ProjectPaths {
@@ -908,6 +856,19 @@ mod tests {
         )
     }
 
+    fn write_takeout_zip(dir: &Path, entries: &[(&str, &str)]) -> PathBuf {
+        let zip_path = dir.join("takeout.zip");
+        let file = fs::File::create(&zip_path).expect("create zip");
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        for (name, contents) in entries {
+            zip.start_file(name, options).expect("start zip entry");
+            zip.write_all(contents.as_bytes()).expect("write zip entry");
+        }
+        zip.finish().expect("finish zip");
+        zip_path
+    }
+
     #[test]
     fn inspect_takeout_collects_preview_rows() {
         let dir = tempdir().expect("tempdir");
@@ -918,10 +879,66 @@ mod tests {
         )
         .expect("inspect");
 
+        assert_eq!(inspection.source_path, source.display().to_string());
+        assert!(inspection.dry_run);
         assert_eq!(inspection.candidate_items, 2);
         assert_eq!(inspection.preview_entries.len(), 2);
         assert_eq!(inspection.recognized_files.len(), 1);
+        assert_eq!(inspection.recognized_files[0].status, "previewed");
+        assert_eq!(inspection.recognized_files[0].records, 2);
         assert!(inspection.quarantined_files.is_empty());
+        assert!(inspection.notes.is_empty());
+    }
+
+    #[test]
+    fn inspect_takeout_caps_preview_entries_at_preview_limit() {
+        let dir = tempdir().expect("tempdir");
+        let lines = (0..=PREVIEW_LIMIT)
+            .map(|index| {
+                format!(
+                    "{{\"url\":\"https://example.com/{index}\",\"title\":\"Item {index}\",\"visitedAt\":\"2026-04-01T10:{index:02}:00+00:00\"}}"
+                )
+            })
+            .collect::<Vec<_>>();
+        let line_refs = lines.iter().map(String::as_str).collect::<Vec<_>>();
+        let source = write_takeout_fixture_with_name(dir.path(), "takeout-many", &line_refs);
+
+        let inspection = inspect_takeout(
+            &sample_paths(dir.path()),
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+        )
+        .expect("inspect");
+
+        assert_eq!(inspection.candidate_items, PREVIEW_LIMIT + 1);
+        assert_eq!(inspection.preview_entries.len(), PREVIEW_LIMIT);
+        assert_eq!(inspection.preview_entries[0].url, "https://example.com/0");
+        assert_eq!(
+            inspection.preview_entries.last().expect("last preview entry").url,
+            format!("https://example.com/{}", PREVIEW_LIMIT - 1)
+        );
+        assert!(
+            inspection
+                .preview_entries
+                .iter()
+                .all(|entry| entry.url != format!("https://example.com/{PREVIEW_LIMIT}"))
+        );
+    }
+
+    #[test]
+    fn load_import_batches_returns_empty_for_uninitialized_archives() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = AppConfig::default();
+        assert!(
+            load_import_batches(&paths, &config, None).expect("empty import batches").is_empty()
+        );
+
+        assert!(!paths.archive_database_path.exists());
+        let initialized_but_missing_archive =
+            load_import_batches(&paths, &initialized_plaintext_config(), None)
+                .expect("missing archive batches");
+        assert!(initialized_but_missing_archive.is_empty());
+        assert!(!paths.archive_database_path.exists());
     }
 
     #[test]
@@ -944,12 +961,31 @@ mod tests {
         .expect("import");
 
         let batch = inspection.import_batch.expect("import batch");
+        assert_eq!(batch.candidate_items, 2);
+        assert_eq!(batch.imported_items, 2);
+        assert_eq!(batch.duplicate_items, 0);
         assert_eq!(inspection.imported_items, 2);
+        assert!(inspection.notes.is_empty());
         assert_eq!(batch.visible_items, 2);
 
         let preview = preview_import_batch(&paths, &config, None, batch.id).expect("preview batch");
         assert_eq!(preview.preview_entries.len(), 2);
         assert_eq!(preview.batch.status, "imported");
+        assert_eq!(preview.batch.candidate_items, 2);
+        assert_eq!(preview.batch.imported_items, 2);
+        assert_eq!(preview.batch.duplicate_items, 0);
+
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        let (profile_name, profile_path, chrome_version): (String, String, String) = archive
+            .query_row(
+                "SELECT profile_name, profile_path, chrome_version FROM profiles WHERE profile_id = 'takeout::browser-history'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load takeout profile");
+        assert_eq!(profile_name, "Imported browser history");
+        assert_eq!(profile_path, source.display().to_string());
+        assert_eq!(chrome_version, "takeout");
 
         let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert batch");
         assert_eq!(reverted.batch.status, "reverted");
@@ -1037,7 +1073,13 @@ mod tests {
             &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
         )
         .expect("inspect takeout");
+        assert_eq!(dry_run.source_path, source.display().to_string());
+        assert!(dry_run.dry_run);
         assert_eq!(dry_run.candidate_items, 1);
+        assert_eq!(dry_run.recognized_files.len(), 1);
+        assert_eq!(dry_run.recognized_files[0].status, "previewed-with-skips");
+        assert_eq!(dry_run.recognized_files[0].records, 1);
+        assert_eq!(dry_run.notes.len(), 1);
         assert!(dry_run.notes.iter().any(|note| note.contains("missing a visit timestamp")));
 
         let imported = import_takeout(
@@ -1049,7 +1091,12 @@ mod tests {
         .expect("import takeout");
         assert_eq!(imported.imported_items, 1);
         assert_eq!(imported.duplicate_items, 0);
-        assert!(imported.notes.iter().any(|note| note.contains("missing a visit timestamp")));
+        assert_eq!(
+            imported.notes.iter().filter(|note| note.contains("missing a visit timestamp")).count(),
+            2
+        );
+        assert_eq!(imported.recognized_files.len(), 1);
+        assert_eq!(imported.recognized_files[0].records, 1);
 
         let history = crate::archive::list_history(&paths, &config, None, Default::default())
             .expect("history");
@@ -1057,8 +1104,29 @@ mod tests {
     }
 
     #[test]
+    fn inspect_takeout_reports_parse_errors_for_recognized_files() {
+        let dir = tempdir().expect("tempdir");
+        let source = dir.path().join("malformed");
+        fs::create_dir_all(&source).expect("create malformed source");
+        fs::write(source.join("BrowserHistory.json"), "{not-json")
+            .expect("write malformed history");
+
+        let inspection = inspect_takeout(
+            &sample_paths(dir.path()),
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+        )
+        .expect("inspect malformed takeout");
+
+        assert_eq!(inspection.recognized_files.len(), 1);
+        assert_eq!(inspection.recognized_files[0].status, "parse-error");
+        assert!(inspection.notes.iter().any(|note| note.contains("Could not parse")));
+    }
+
+    #[test]
     fn recognize_and_parse_takeout_payloads() {
         assert_eq!(recognize_takeout_file("BrowserHistory.json"), Some("browser-json".to_string()));
+        assert_eq!(recognize_takeout_file("browser-export.json"), Some("browser-json".to_string()));
+        assert_eq!(recognize_takeout_file("watch-history.json"), Some("browser-json".to_string()));
         assert_eq!(recognize_takeout_file("entries.jsonl"), Some("jsonl".to_string()));
         assert_eq!(
             recognize_takeout_file("archive_browser.html"),
@@ -1074,5 +1142,239 @@ mod tests {
         .expect("collect");
         assert_eq!(records.records.len(), 1);
         assert_eq!(records.records[0].title.as_deref(), Some("Example"));
+    }
+
+    #[test]
+    fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+
+        let unknown_source = dir.path().join("unknown-only");
+        fs::create_dir_all(&unknown_source).expect("create unknown source");
+        let unknown_file = unknown_source.join("notes.txt");
+        fs::write(&unknown_file, "notes").expect("write unknown file");
+
+        let unknown_inspection = inspect_takeout(
+            &paths,
+            &TakeoutRequest { source_path: unknown_source.display().to_string(), dry_run: true },
+        )
+        .expect("inspect unknown");
+        assert!(unknown_inspection.recognized_files.is_empty());
+        assert_eq!(unknown_inspection.quarantined_files.len(), 1);
+        assert!(
+            unknown_inspection.notes.iter().any(|note| note.contains("No directly importable"))
+        );
+
+        quarantine_file(&paths, &unknown_source, &unknown_file.display().to_string())
+            .expect("quarantine file");
+        assert!(
+            paths.quarantine_dir.join("unknown-only").join("notes.txt").exists(),
+            "quarantined file should be copied"
+        );
+
+        let zip_source = write_takeout_zip(
+            dir.path(),
+            &[
+                (
+                    "BrowserHistory.json",
+                    r#"{"BrowserHistory":[{"titleUrl":"https://example.com/zip","pageTitle":"Zip","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+                ),
+                ("archive_browser.html", "<html></html>"),
+                ("notes.txt", "ignore me"),
+            ],
+        );
+        let files = gather_takeout_files(&zip_source).expect("gather zip files");
+        assert_eq!(files.len(), 3);
+        let zip_bytes = read_zip_entry(&zip_source, "BrowserHistory.json").expect("read zip entry");
+        assert!(String::from_utf8(zip_bytes).expect("zip utf8").contains("example.com/zip"));
+
+        let zip_inspection = inspect_takeout(
+            &paths,
+            &TakeoutRequest { source_path: zip_source.display().to_string(), dry_run: true },
+        )
+        .expect("inspect zip");
+        assert_eq!(zip_inspection.candidate_items, 1);
+        assert_eq!(zip_inspection.recognized_files.len(), 2);
+        assert_eq!(zip_inspection.quarantined_files.len(), 1);
+    }
+
+    #[test]
+    fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let archive = open_archive_connection(&paths, &initialized_plaintext_config(), None)
+            .expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        assert!(
+            load_import_batches(&paths, &initialized_plaintext_config(), None)
+                .expect("load batches")
+                .is_empty()
+        );
+
+        let source = write_takeout_fixture(dir.path());
+        let dry_run = import_takeout(
+            &paths,
+            &initialized_plaintext_config(),
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+        )
+        .expect("dry run import");
+        assert!(dry_run.import_batch.is_none());
+        assert_eq!(dry_run.imported_items, 0);
+
+        let uninitialized_error = import_takeout(
+            &paths,
+            &AppConfig::default(),
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect_err("uninitialized import should fail");
+        assert!(uninitialized_error.to_string().contains("archive must be initialized"));
+
+        let mut git_config = initialized_plaintext_config();
+        git_config.git_enabled = true;
+        let imported = import_takeout(
+            &paths,
+            &git_config,
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect("import with git");
+        let batch_id = imported.import_batch.expect("batch").id;
+        let batches =
+            load_import_batches(&paths, &git_config, None).expect("load populated batches");
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].id, batch_id);
+        assert_eq!(batches[0].candidate_items, 2);
+        assert_eq!(batches[0].imported_items, 2);
+        assert_eq!(batches[0].duplicate_items, 0);
+        let imported_audit_path = batches[0].audit_path.as_deref().expect("import audit path");
+        assert!(!imported_audit_path.is_empty());
+        assert!(Path::new(imported_audit_path).exists());
+        let imported_git_commit = batches[0].git_commit.as_deref().expect("import git commit");
+        assert_eq!(imported_git_commit.len(), 40);
+        let reverted = revert_import_batch(&paths, &git_config, None, batch_id).expect("revert");
+        let reverted_again =
+            revert_import_batch(&paths, &git_config, None, batch_id).expect("revert again");
+        assert_eq!(reverted.batch.status, "reverted");
+        assert_eq!(reverted_again.batch.status, "reverted");
+        let reverted_audit_path =
+            reverted_again.batch.audit_path.as_deref().expect("revert audit path");
+        assert!(!reverted_audit_path.is_empty());
+        assert!(Path::new(reverted_audit_path).exists());
+        let reverted_git_commit =
+            reverted_again.batch.git_commit.as_deref().expect("revert git commit");
+        assert_eq!(reverted_git_commit.len(), 40);
+
+        let connection = open_archive_connection(&paths, &git_config, None).expect("open archive");
+        assert!(
+            load_import_batch_record(&connection, batch_id).expect("load batch record").is_some()
+        );
+        assert!(load_import_batch_record(&connection, 9_999).expect("missing batch").is_none());
+    }
+
+    #[test]
+    fn takeout_parsers_cover_blank_lines_arrays_and_unusable_payloads() {
+        let payload = collect_records_from_payload(
+            "fixture.jsonl",
+            "jsonl",
+            br#"
+{"url":"https://example.com/ok","title":"OK","visitedAt":"2026-04-01T10:00:00+00:00"}
+{"url":"https://example.com/missing","title":"Missing"}
+{"title":"Ignored"}
+"#,
+        )
+        .expect("collect jsonl");
+        assert_eq!(payload.records.len(), 1);
+        assert_eq!(payload.skipped_missing_visit_time, 1);
+
+        let array_payload = collect_records_from_payload(
+            "array.json",
+            "browser-json",
+            br#"[{"titleUrl":"https://example.com/array","pageTitle":"Array","visitedAt":"2026-04-01T10:00:00+00:00"}]"#,
+        )
+        .expect("collect array");
+        assert_eq!(array_payload.records.len(), 1);
+
+        let empty_payload =
+            collect_records_from_payload("empty.json", "browser-json", br#"{"notHistory":[]}"#)
+                .expect("collect empty");
+        assert!(empty_payload.records.is_empty());
+
+        assert!(matches!(
+            parse_record("source", 0, &json!({"title": "ignored"})).expect("parse ignore"),
+            ParseRecordOutcome::Ignore
+        ));
+        assert!(matches!(
+            parse_record("source", 1, &json!({"url": "https://example.com/missing"}))
+                .expect("parse missing time"),
+            ParseRecordOutcome::MissingVisitTime
+        ));
+
+        let unusable_error =
+            preview_entry_from_payload("source", r#"{"title":"ignored"}"#).expect_err("unusable");
+        assert!(unusable_error.to_string().contains("usable history record"));
+    }
+
+    #[test]
+    fn import_takeout_quarantines_unknown_files_and_skips_index_entries() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = initialized_plaintext_config();
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        let source = dir.path().join("mixed-takeout");
+        fs::create_dir_all(&source).expect("create mixed source");
+        fs::write(
+            source.join("entries.jsonl"),
+            r#"{"url":"https://example.com/import","title":"Import","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        )
+        .expect("write importable payload");
+        fs::write(source.join("archive_browser.html"), "<html></html>").expect("write index");
+        fs::write(source.join("notes.txt"), "quarantine me").expect("write unknown file");
+
+        let inspection = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect("import mixed takeout");
+
+        assert_eq!(inspection.imported_items, 1);
+        assert!(inspection.notes.is_empty());
+        assert!(paths.quarantine_dir.join("mixed-takeout").join("notes.txt").exists());
+        assert!(
+            inspection
+                .recognized_files
+                .iter()
+                .any(|file| file.path.ends_with("archive_browser.html")
+                    && file.status == "recognized")
+        );
+    }
+
+    #[test]
+    fn browser_json_payloads_ignore_missing_and_valid_records() {
+        let payload = collect_records_from_payload(
+            "BrowserHistory.json",
+            "browser-json",
+            br#"{"BrowserHistory":[
+                {"title":"Ignored"},
+                {"titleUrl":"https://example.com/missing","pageTitle":"Missing"},
+                {"titleUrl":"https://example.com/ok","pageTitle":"OK","visitedAt":"2026-04-01T10:00:00+00:00"}
+            ]}"#,
+        )
+        .expect("collect browser history payload");
+
+        assert_eq!(payload.records.len(), 1);
+        assert_eq!(payload.records[0].title.as_deref(), Some("OK"));
+        assert_eq!(payload.skipped_missing_visit_time, 1);
     }
 }

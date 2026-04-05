@@ -624,3 +624,17 @@ pub struct AiAssistantResponse {
     pub citations: Vec<AiCitation>,
     pub notes: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AiSearchRequest;
+
+    #[test]
+    fn ai_search_request_defaults_to_eight_results() {
+        let request = AiSearchRequest::default();
+        assert_eq!(request.query, "");
+        assert_eq!(request.profile_id, None);
+        assert_eq!(request.domain, None);
+        assert_eq!(request.limit, Some(8));
+    }
+}

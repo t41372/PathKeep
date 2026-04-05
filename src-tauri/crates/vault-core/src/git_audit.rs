@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::{
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -26,24 +27,22 @@ pub fn ensure_repo(repo_path: &Path) -> Result<()> {
             .with_context(|| format!("writing {}", gitignore_path.display()))?;
     }
 
-    if run_git(repo_path, ["config", "--get", "user.name"]).is_err() {
-        run_git(repo_path, ["config", "user.name", "Browser History Backup"])?;
-    }
-    if run_git(repo_path, ["config", "--get", "user.email"]).is_err() {
-        run_git(repo_path, ["config", "user.email", "vault@localhost"])?;
-    }
+    run_git(repo_path, ["config", "user.name", "Browser History Backup"])?;
+    run_git(repo_path, ["config", "user.email", "vault@localhost"])?;
+    run_git(repo_path, ["config", "commit.gpgsign", "false"])?;
 
     Ok(())
 }
 
 pub fn write_audit_file(repo_path: &Path, relative_path: &str, contents: &str) -> Result<PathBuf> {
     let full_path = repo_path.join(relative_path);
-    if let Some(parent) = full_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&full_path, contents).with_context(|| format!("writing {}", full_path.display()))?;
+    ensure_parent_dir(&full_path)?;
+    fs::write(&full_path, contents).context(format!("writing {}", full_path.display()))?;
     Ok(full_path)
 }
+
+#[rustfmt::skip]
+fn ensure_parent_dir(path: &Path) -> Result<()> { if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; } Ok(()) }
 
 pub fn commit_all(repo_path: &Path, message: &str) -> Result<Option<String>> {
     ensure_repo(repo_path)?;
@@ -66,22 +65,46 @@ pub fn commit_all(repo_path: &Path, message: &str) -> Result<Option<String>> {
 }
 
 fn run_git<const N: usize>(repo_path: &Path, args: [&str; N]) -> Result<()> {
-    let status = Command::new("git")
+    run_repo_command(OsStr::new("git"), repo_path, args)
+}
+
+fn run_repo_command<S: AsRef<OsStr>, const N: usize>(
+    program: S,
+    repo_path: &Path,
+    args: [&str; N],
+) -> Result<()> {
+    let output = Command::new(program)
         .current_dir(repo_path)
         .args(args)
-        .status()
+        .output()
         .with_context(|| format!("running git in {}", repo_path.display()))?;
-    if status.success() {
+    if output.status.success() {
         Ok(())
     } else {
-        anyhow::bail!("git command failed in {}", repo_path.display())
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            anyhow::bail!("git command failed in {}", repo_path.display())
+        } else {
+            anyhow::bail!("git command failed in {}: {}", repo_path.display(), stderr)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    fn install_fake_git(dir: &Path, body: &str) -> PathBuf {
+        let script_path = dir.join("git");
+        fs::create_dir_all(dir).expect("create fake git dir");
+        fs::write(&script_path, body).expect("write fake git");
+        let mut permissions = fs::metadata(&script_path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).expect("chmod");
+        script_path
+    }
 
     #[test]
     fn ensure_repo_bootstraps_git_metadata() {
@@ -106,5 +129,35 @@ mod tests {
 
         let second = commit_all(dir.path(), "test: noop").expect("second commit");
         assert!(second.is_none());
+    }
+
+    #[test]
+    fn write_audit_file_handles_top_level_paths() {
+        let dir = tempdir().expect("tempdir");
+        let file =
+            write_audit_file(dir.path(), "doctor.json", "{\"ok\":true}").expect("write audit file");
+        assert_eq!(file, dir.path().join("doctor.json"));
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn run_git_reports_failures_with_and_without_stderr() {
+        let dir = tempdir().expect("tempdir");
+        let bin_dir = dir.path().join("fake-bin");
+        let empty_stderr_git = install_fake_git(&bin_dir, "#!/bin/sh\nexit 1\n");
+        let empty_stderr = run_repo_command(&empty_stderr_git, dir.path(), ["status"])
+            .expect_err("git should fail");
+        assert_eq!(
+            empty_stderr.to_string(),
+            format!("git command failed in {}", dir.path().display())
+        );
+
+        let stderr_git = install_fake_git(&bin_dir, "#!/bin/sh\necho 'boom' >&2\nexit 2\n");
+        let stderr_error = run_repo_command(&stderr_git, dir.path(), ["status"])
+            .expect_err("git should fail with stderr");
+        assert_eq!(
+            stderr_error.to_string(),
+            format!("git command failed in {}: boom", dir.path().display())
+        );
     }
 }

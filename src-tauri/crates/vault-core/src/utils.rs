@@ -107,6 +107,23 @@ fn base64_blob(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+pub(crate) fn restore_test_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
+    unsafe {
+        if let Some(value) = value {
+            std::env::set_var(name, value);
+        } else {
+            std::env::remove_var(name);
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::Connection;
@@ -134,6 +151,11 @@ mod tests {
         let chrome = iso_to_chrome_time_micros(original).expect("to chrome");
         let converted = chrome_time_to_rfc3339(chrome);
         assert_eq!(converted, original);
+
+        let fractional = "2026-04-03T04:00:00.123456+00:00";
+        let chrome = iso_to_chrome_time_micros(fractional).expect("to chrome fractional");
+        let converted = chrome_time_to_rfc3339(chrome);
+        assert_eq!(converted, fractional);
     }
 
     #[test]
@@ -169,5 +191,11 @@ mod tests {
         assert_eq!(value["ratio"], 1.5);
         assert_eq!(value["missing"], Value::Null);
         assert_eq!(value["payload"], "base64:AQI=");
+    }
+
+    #[test]
+    fn blob_serialization_covers_base64_padding_edges() {
+        assert_eq!(sqlite_value_to_json(ValueRef::Blob(&[0x01])), "base64:AQ==");
+        assert_eq!(sqlite_value_to_json(ValueRef::Blob(&[0x01, 0x02, 0x03])), "base64:AQID");
     }
 }

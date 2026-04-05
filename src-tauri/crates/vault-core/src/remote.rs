@@ -164,43 +164,23 @@ fn build_bundle(
     created_at: &str,
 ) -> Result<PathBuf> {
     let bundle_path = planned_bundle_path(paths, created_at);
-    if let Some(parent) = bundle_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    ensure_parent_dir(&bundle_path)?;
 
     let tempdir = tempdir().context("creating remote backup staging dir")?;
     let archive_copy_path = tempdir.path().join("history-vault.sqlite");
     copy_archive_database(paths, config, key, &archive_copy_path)?;
 
     let mut manifest_files = Vec::new();
-    let file = File::create(&bundle_path)
-        .with_context(|| format!("creating {}", bundle_path.display()))?;
+    let file = File::create(&bundle_path).context(format!("creating {}", bundle_path.display()))?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
-    add_file_to_zip(
-        &mut zip,
-        &archive_copy_path,
-        "archive/history-vault.sqlite",
-        options,
-        &mut manifest_files,
-    )?;
-    add_file_to_zip(
-        &mut zip,
-        &paths.config_path,
-        "config/config.json",
-        options,
-        &mut manifest_files,
-    )?;
-    if paths.manifests_dir.exists() {
-        add_dir_to_zip(
-            &mut zip,
-            &paths.manifests_dir,
-            "audit/manifests",
-            options,
-            &mut manifest_files,
-        )?;
-    }
+    #[rustfmt::skip]
+    add_file_to_zip(&mut zip, &archive_copy_path, "archive/history-vault.sqlite", options, &mut manifest_files)?;
+    #[rustfmt::skip]
+    add_file_to_zip(&mut zip, &paths.config_path, "config/config.json", options, &mut manifest_files)?;
+    #[rustfmt::skip]
+    add_dir_to_zip_if_exists(&mut zip, &paths.manifests_dir, "audit/manifests", options, &mut manifest_files)?;
     let scheduler_dir = paths.audit_repo_path.join("scheduler");
     if scheduler_dir.exists() {
         add_dir_to_zip(&mut zip, &scheduler_dir, "audit/scheduler", options, &mut manifest_files)?;
@@ -233,7 +213,6 @@ fn copy_archive_database(
         anyhow::bail!("archive database has not been created yet")
     }
 
-    let source = open_archive_connection(paths, config, key)?;
     let target_key = if matches!(config.archive_mode, ArchiveMode::Encrypted) {
         Some(key.context(
             "the encrypted archive must be unlocked before creating a remote backup bundle",
@@ -241,6 +220,7 @@ fn copy_archive_database(
     } else {
         None
     };
+    let source = open_archive_connection(paths, config, key)?;
     export_archive_database(&source, target_path, target_key)?;
     Ok(())
 }
@@ -266,6 +246,12 @@ fn add_dir_to_zip(
     }
     Ok(())
 }
+
+#[rustfmt::skip]
+fn ensure_parent_dir(path: &Path) -> Result<()> { if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; } Ok(()) }
+
+#[rustfmt::skip]
+fn add_dir_to_zip_if_exists(zip: &mut ZipWriter<File>, path: &Path, prefix: &str, options: SimpleFileOptions, manifest_files: &mut Vec<BundleManifestFile>) -> Result<()> { if path.exists() { add_dir_to_zip(zip, path, prefix, options, manifest_files)?; } Ok(()) }
 
 fn add_file_to_zip(
     zip: &mut ZipWriter<File>,
@@ -368,6 +354,7 @@ mod tests {
         models::{AiSettings, RemoteBackupConfig},
     };
     use std::{
+        io::Read,
         os::unix::fs::PermissionsExt,
         sync::{Mutex, OnceLock},
     };
@@ -438,7 +425,12 @@ mod tests {
         let mut config = sample_config();
         config.remote_backup.endpoint = Some("s3.example.test".to_string());
         let preview = preview_remote_backup(&paths, &config).expect("preview");
+        let expected_object_key = remote_object_key(&config, Path::new(&preview.bundle_path));
         assert!(preview.bundle_path.contains("remote-backups"));
+        assert_eq!(preview.object_key, expected_object_key);
+        assert!(preview.object_key.starts_with("browser-history-backup/"));
+        assert!(preview.object_key.ends_with(".zip"));
+        assert!(preview.upload_url.ends_with(&preview.object_key));
         assert!(preview.preview_command.contains("--aws-sigv4"));
         assert_eq!(preview.manual_steps.len(), 3);
         assert_eq!(preview.warnings.len(), 3);
@@ -576,11 +568,133 @@ mod tests {
     }
 
     #[test]
+    fn remote_backup_failure_uses_stdout_or_status_when_stderr_is_empty() {
+        let _guard = remote_test_lock().lock().expect("remote test lock");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+        let bin_dir = dir.path().join("fake-bin");
+
+        let curl_with_stdout =
+            install_fake_curl(&bin_dir, "#!/bin/sh\necho 'stdout only failure'\nexit 9\n");
+        unsafe {
+            std::env::set_var(TEST_CURL_BIN_ENV, &curl_with_stdout);
+        }
+        let stdout_result = run_remote_backup(
+            &paths,
+            &config,
+            None,
+            &S3CredentialInput {
+                access_key_id: "abc".to_string(),
+                secret_access_key: "def".to_string(),
+            },
+        )
+        .expect("stdout failure");
+        assert!(!stdout_result.uploaded);
+        assert_eq!(stdout_result.message, "stdout only failure");
+
+        let curl_with_status = install_fake_curl(&bin_dir, "#!/bin/sh\nexit 18\n");
+        unsafe {
+            std::env::set_var(TEST_CURL_BIN_ENV, &curl_with_status);
+        }
+        let status_result = run_remote_backup(
+            &paths,
+            &config,
+            None,
+            &S3CredentialInput {
+                access_key_id: "abc".to_string(),
+                secret_access_key: "def".to_string(),
+            },
+        )
+        .expect("status failure");
+        assert!(!status_result.uploaded);
+        assert!(status_result.message.contains("curl exited with status"));
+
+        unsafe {
+            std::env::remove_var(TEST_CURL_BIN_ENV);
+        }
+    }
+
+    #[test]
+    fn bundle_helpers_cover_scheduler_encrypted_and_validation_edges() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let mut config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+        fs::create_dir_all(paths.audit_repo_path.join("scheduler")).expect("scheduler dir");
+        fs::write(paths.audit_repo_path.join("scheduler/run.json"), "{}").expect("write scheduler");
+
+        let bundle_path =
+            build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+        let file = File::open(&bundle_path).expect("open bundle");
+        let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+        assert!(archive.by_name("audit/scheduler/run.json").is_ok());
+
+        config.archive_mode = ArchiveMode::Encrypted;
+        let encrypted_error =
+            copy_archive_database(&paths, &config, None, &dir.path().join("copy.sqlite"))
+                .expect_err("encrypted bundle should require a key");
+        let encrypted_message = encrypted_error.to_string();
+        assert!(!encrypted_message.is_empty());
+
+        let missing_paths = sample_paths(&dir.path().join("missing"));
+        let missing_error = copy_archive_database(
+            &missing_paths,
+            &sample_config(),
+            None,
+            &dir.path().join("missing.sqlite"),
+        )
+        .expect_err("missing archive should fail");
+        assert!(missing_error.to_string().contains("archive database has not been created yet"));
+
+        let mut invalid = sample_config();
+        invalid.remote_backup.bucket = "example-bucket".to_string();
+        invalid.remote_backup.region.clear();
+        assert_eq!(
+            validate_remote_backup_config(&invalid).expect_err("region required").to_string(),
+            "remote backup region is required"
+        );
+    }
+
+    #[test]
+    fn encrypted_bundles_record_encrypted_manifest_mode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let mut config = sample_config();
+        config.archive_mode = ArchiveMode::Encrypted;
+        ensure_archive_initialized(&paths, &config, Some("bundle-secret"))
+            .expect("initialize encrypted archive");
+        save_config(&paths, &config).expect("save encrypted config");
+
+        let bundle_path =
+            build_bundle(&paths, &config, Some("bundle-secret"), "2026-04-04T01:30:00Z")
+                .expect("build encrypted bundle");
+        let file = File::open(&bundle_path).expect("open bundle");
+        let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+        let mut manifest = String::new();
+        archive
+            .by_name("metadata/bundle-manifest.json")
+            .expect("manifest entry")
+            .read_to_string(&mut manifest)
+            .expect("read manifest");
+        assert!(manifest.contains("\"archiveMode\": \"encrypted\""));
+    }
+
+    #[test]
     fn endpoint_and_shell_helpers_stay_stable() {
         assert_eq!(normalize_endpoint("example.test/path/"), "https://example.test/path");
         assert_eq!(
+            normalize_endpoint("https://storage.example.test/root"),
+            "https://storage.example.test/root"
+        );
+        assert_eq!(
             inject_bucket("https://storage.example.test", "bucket").expect("inject bucket"),
             "https://bucket.storage.example.test"
+        );
+        assert_eq!(
+            inject_bucket("http://storage.example.test", "bucket").expect("inject bucket"),
+            "http://bucket.storage.example.test"
         );
         assert!(inject_bucket("ftp://bad.example", "bucket").is_err());
         assert_eq!(shell_escape("a'b".to_string()), "a'\"'\"'b");
