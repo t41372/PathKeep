@@ -10,6 +10,7 @@ PathKeep — A local-first desktop app for browser history archiving and intelli
 - 根據 hub 文檔底部的索引，定位到相關的子文檔（`docs/features/`、`docs/architecture/`、`docs/design/` 等）閱讀具體需求和設計決策。
 - 做出的技術決策必須符合文檔中記載的核心原則（Trust、Data Sovereignty、Longevity、Intelligence Is Optional、Recoverability）。
 - 如果在開發中發現需要修改或擴展需求，先更新對應的文檔，再實現代碼。
+- 設計師做了一版設計 prototype，非常好看，放在了 `reference/PathKeep — Desktop UI Design` 目錄下，在做 UI 相關的動作之前，先去看看。舊版本的 UI 完全打掉，我們走設計師做的新版設計。
 
 ## General Rules
 
