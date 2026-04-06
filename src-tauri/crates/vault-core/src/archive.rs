@@ -46,7 +46,8 @@ struct BackupManifest {
     warnings: Vec<String>,
 }
 
-const ARCHIVE_SCHEMA_SQL: &str = include_str!("archive-schema.sql");
+const MIGRATION_0001_SQL: &str = include_str!("migrations/0001_initial_archive.sql");
+const MIGRATION_0002_SQL: &str = include_str!("migrations/0002_import_recoverability.sql");
 const RECENT_RUNS_SQL: &str = "SELECT id, started_at, finished_at, status, manifest_hash, summary_json FROM backup_runs ORDER BY id DESC LIMIT 12";
 const LIST_HISTORY_SQL: &str = "SELECT id, profile_id, url, title, visit_time, visit_duration, transition, source_visit_id, app_id FROM visit_events WHERE (?1 IS NULL OR profile_id = ?1) AND (?2 IS NULL OR url LIKE '%' || ?2 || '%' OR IFNULL(title, '') LIKE '%' || ?2 || '%') AND (?3 IS NULL OR url LIKE ?3) ORDER BY visit_time DESC LIMIT ?4";
 const INGEST_URLS_SQL: &str = "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden FROM urls WHERE last_visit_time >= ?1 ORDER BY last_visit_time ASC";
@@ -490,18 +491,51 @@ pub(crate) fn export_archive_database(
 }
 
 pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(ARCHIVE_SCHEMA_SQL)?;
-    ensure_column(connection, "visit_events", "import_batch_id", "INTEGER")?;
-    ensure_column(connection, "visit_events", "event_fingerprint", "TEXT")?;
-    ensure_column(connection, "raw_row_versions", "import_batch_id", "INTEGER")?;
-    #[rustfmt::skip]
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_visit_events_import_batch_id ON visit_events(import_batch_id)", [])?;
-    #[rustfmt::skip]
-    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_visit_events_profile_event_fingerprint ON visit_events(profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''", [])?;
-    #[rustfmt::skip]
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_raw_row_versions_import_batch_id ON raw_row_versions(import_batch_id)", [])?;
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+    apply_migration(connection, 1, "initial_archive_schema", || {
+        connection.execute_batch(MIGRATION_0001_SQL)?;
+        Ok(())
+    })?;
+    apply_migration(connection, 2, "import_recoverability_columns", || {
+        ensure_column(connection, "visit_events", "import_batch_id", "INTEGER")?;
+        ensure_column(connection, "visit_events", "event_fingerprint", "TEXT")?;
+        ensure_column(connection, "raw_row_versions", "import_batch_id", "INTEGER")?;
+        connection.execute_batch(MIGRATION_0002_SQL)?;
+        Ok(())
+    })?;
     ensure_ai_schema(connection)?;
     ensure_insight_schema(connection)?;
+    Ok(())
+}
+
+fn apply_migration<F>(connection: &Connection, version: i64, name: &str, migration: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+{
+    let already_applied = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
+            params![version],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .unwrap_or(0)
+        == 1;
+    if already_applied {
+        return Ok(());
+    }
+    migration()?;
+    connection.execute(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+        params![version, name, now_rfc3339()],
+    )?;
     Ok(())
 }
 
@@ -1562,13 +1596,12 @@ mod tests {
     #[test]
     fn schema_migration_helpers_and_text_renderers_are_stable() {
         let connection = Connection::open_in_memory().expect("db");
-        connection
-            .execute("CREATE TABLE visit_events (id INTEGER PRIMARY KEY)", [])
-            .expect("create visit_events");
-        ensure_column(&connection, "visit_events", "import_batch_id", "INTEGER")
-            .expect("add column");
-        ensure_column(&connection, "visit_events", "import_batch_id", "INTEGER")
-            .expect("idempotent");
+        create_schema(&connection).expect("create schema");
+        create_schema(&connection).expect("idempotent");
+        let applied_versions = connection
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
+            .expect("load migration count");
+        assert_eq!(applied_versions, 2);
 
         let results = HistoryQueryResponse {
             total: 1,
@@ -1596,6 +1629,88 @@ mod tests {
         assert!(schema.as_array().is_some_and(|items| {
             items.iter().any(|item| item["name"].as_str() == Some("visit_events"))
         }));
+    }
+
+    #[test]
+    fn create_schema_upgrades_legacy_archives_without_baseline_stamping() {
+        let connection = Connection::open_in_memory().expect("db");
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE profiles (
+                  profile_id TEXT PRIMARY KEY,
+                  profile_name TEXT NOT NULL,
+                  user_name TEXT,
+                  profile_path TEXT NOT NULL,
+                  chrome_version TEXT,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE visit_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  profile_id TEXT NOT NULL,
+                  source_visit_id INTEGER NOT NULL,
+                  source_url_id INTEGER NOT NULL,
+                  url TEXT NOT NULL,
+                  title TEXT,
+                  visit_time INTEGER NOT NULL,
+                  payload_hash TEXT NOT NULL,
+                  recorded_at TEXT NOT NULL,
+                  UNIQUE(profile_id, source_visit_id)
+                );
+                CREATE TABLE raw_row_versions (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  run_id INTEGER NOT NULL,
+                  profile_id TEXT NOT NULL,
+                  source_kind TEXT NOT NULL,
+                  table_name TEXT NOT NULL,
+                  source_pk TEXT NOT NULL,
+                  payload_hash TEXT NOT NULL,
+                  payload_json TEXT NOT NULL,
+                  schema_hash TEXT NOT NULL,
+                  recorded_at TEXT NOT NULL
+                );
+                ",
+            )
+            .expect("legacy schema");
+
+        create_schema(&connection).expect("upgrade legacy schema");
+
+        let migration_names = {
+            let mut statement = connection
+                .prepare("SELECT name FROM schema_migrations ORDER BY version ASC")
+                .expect("prepare migration list");
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .expect("query migrations")
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .expect("collect migrations")
+        };
+        assert_eq!(
+            migration_names,
+            vec!["initial_archive_schema".to_string(), "import_recoverability_columns".to_string()]
+        );
+
+        let visit_has_import_batch = connection
+            .prepare("PRAGMA table_info(visit_events)")
+            .expect("visit info")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("visit columns")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect visit columns")
+            .into_iter()
+            .any(|column| column == "import_batch_id");
+        assert!(visit_has_import_batch);
+
+        let raw_row_has_import_batch = connection
+            .prepare("PRAGMA table_info(raw_row_versions)")
+            .expect("raw_row info")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("raw_row columns")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect raw_row columns")
+            .into_iter()
+            .any(|column| column == "import_batch_id");
+        assert!(raw_row_has_import_batch);
     }
 
     #[test]

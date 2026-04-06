@@ -8,12 +8,12 @@
 
 不同瀏覽器使用完全不同的時間格式來儲存歷史紀錄：
 
-| 瀏覽器 | 原生時間格式 |
-|--------|-------------|
-| Chrome / Chromium | WebKit epoch — 自 1601-01-01 00:00:00 UTC 起的微秒數 |
-| Firefox | Unix epoch 毫秒數 |
-| Safari | Mac absolute time — 自 2001-01-01 00:00:00 UTC 起的秒數（浮點數） |
-| Google Takeout | ISO 8601 字串（如 `2024-03-15T10:30:00.000Z`） |
+| 瀏覽器            | 原生時間格式                                                      |
+| ----------------- | ----------------------------------------------------------------- |
+| Chrome / Chromium | WebKit epoch — 自 1601-01-01 00:00:00 UTC 起的微秒數              |
+| Firefox           | Unix epoch 毫秒數                                                 |
+| Safari            | Mac absolute time — 自 2001-01-01 00:00:00 UTC 起的秒數（浮點數） |
+| Google Takeout    | ISO 8601 字串（如 `2024-03-15T10:30:00.000Z`）                    |
 
 **我們的 archive 必須統一所有時間為單一格式。**
 
