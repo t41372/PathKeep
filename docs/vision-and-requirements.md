@@ -138,6 +138,7 @@ PathKeep 是一個**本地優先、開源、可信賴的瀏覽器歷史紀錄長
 
 - [里程碑](milestones.md) — M1 Solid Archive → M2 Recall & Trust → M3 Intelligence → M4 Full Intelligence
 - [品質標準與社區](standards.md) — 測試覆蓋、代碼品質、CI/CD、i18n、開源、Non-Goals
+- [**工作計劃與進度追蹤**](plan/README.md) — WBS 級別的原子化待辦清單，按里程碑拆分（M0 重構基礎 → M1 → M2 → M3 → M4）
 
 ### 參考
 

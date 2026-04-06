@@ -1,8 +1,21 @@
 # 里程碑
 
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。
+> 
+> ⚡ **原子化待辦清單和工作進度追蹤** → 見 [plan/README.md](plan/README.md)
 
 ---
+
+## M0 — 重構基礎（新增）
+
+前置里程碑：從舊代碼庫過渡到新架構。
+
+- 舊版前端全部移除，照設計師新版設計稿建立前端骨架
+- Rust workspace 重組：新增 `browser-history-parser` 獨立 crate
+- Schema 審查與 migration 系統規劃
+- 統一產品名稱為 PathKeep
+
+📋 詳細待辦 → [plan/m0-foundation.md](plan/m0-foundation.md)
 
 ## M1 — Solid Archive
 
@@ -18,6 +31,8 @@
 - 歷史紀錄瀏覽和搜尋（FTS5）
 - HTML/JSONL 匯出
 
+📋 詳細待辦 → [plan/m1-solid-archive.md](plan/m1-solid-archive.md)
+
 ## M2 — Recall & Trust
 
 - Google Takeout 導入（含 dry-run, quarantine, 完整可回滾）
@@ -28,6 +43,8 @@
 - i18n（en, zh-CN, zh-TW）
 - Windows / Linux 排程正式驗證與支持
 
+📋 詳細待辦 → [plan/m2-recall-and-trust.md](plan/m2-recall-and-trust.md)
+
 ## M3 — Intelligence
 
 - AI provider 配置 UI
@@ -37,6 +54,8 @@
 - Ask My History（AI 問答，rig.rs 驅動 agentic RAG）
 - MCP server + AI IDE Skill
 
+📋 詳細待辦 → [plan/m3-intelligence.md](plan/m3-intelligence.md)
+
 ## M4 — Full Intelligence & Polish
 
 - 完整洞察套件：Thread detection, Open Loops, Contrastive Summary, Explore/Exploit 等
@@ -44,3 +63,5 @@
 - S3 遠端備份
 - 地理位置記錄（實驗性）
 - 多平台完整驗證
+
+📋 詳細待辦 → [plan/m4-full-polish.md](plan/m4-full-polish.md)
