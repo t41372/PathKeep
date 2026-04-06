@@ -1,81 +1,125 @@
 # PathKeep — 工作計劃與進度追蹤
 
-> **Status:** Living document · **Created:** 2026-04-06
-> 
-> 本目錄是 PathKeep 的 **WBS（Work Breakdown Structure）** 計劃中心。
-> 所有待辦任務都以原子化的方式拆分，按里程碑和功能域組織。
+> **Status:** Living document · **Rebuilt:** 2026-04-05  
+> 本目錄是 PathKeep 的實作層 source of truth。  
+> 產品願景、需求和設計定義在 [vision-and-requirements.md](../vision-and-requirements.md) 與它的子文檔裡；這裡回答的是 **接下來怎麼做、先做什麼、哪些事情卡住了、每個里程碑拆到哪一層**。
 
 ---
 
-## 如何使用本文檔
+## 先看哪裡
 
-1. **看全局進度** → 看本頁的里程碑摘要表
-2. **深入某個里程碑** → 點擊對應的里程碑連結
-3. **深入某個具體功能** → 從里程碑文檔跳轉到具體的 task section
-4. **了解產品願景和需求** → 看 [vision-and-requirements.md](../vision-and-requirements.md)
-5. **了解設計方向** → 看 `reference/PathKeep — Desktop UI Design/` 設計稿
-
----
-
-## 當前狀態摘要
-
-### 代碼庫現狀
-
-| 層面 | 現狀 | 需要的動作 |
-|------|------|------------|
-| **Rust backend (vault-core)** | 有大量既有代碼（archive, chrome, takeout, ai, insights 等），但實現粗糙、耦合重、schema 不完全符合新需求 | 大幅重構 — 見各里程碑詳細計劃 |
-| **Rust workspace** | vault-core / vault-platform / vault-worker 三 crate 結構存在 | 需要新增 `browser-history-parser` 獨立 crate，重組模塊邊界 |
-| **前端 UI** | 舊版 UI 已部分模塊化（React 19 + components），但 UX 設計詭異 | **全部打掉重寫**，照設計師新版設計稿來 |
-| **Schema** | `archive-schema.sql` 存在，基本結構可用 | 需對齊新需求：增加 run 類型欄位、軟刪除、FTS5、schema_migrations、enrichment 表等 |
-| **測試** | 有 Vitest + Rust test 基礎設施 | 新代碼必須 100% coverage + mutation test |
-| **CI/CD** | 有 GitHub Actions 和 local verify script | 需補齊多平台 matrix |
-| **文檔** | 全新的 vision + 需求文檔已完成 | 實現和文檔同步更新 |
-
-### 設計資產
-
-設計師已完成完整的 UI 設計 prototype，位於 `reference/PathKeep — Desktop UI Design/`。
-設計稿覆蓋所有主要畫面：Dashboard、Explorer、Insights、AI Assistant、Import、Audit Ledger、Schedule、Security、Settings。
+| 如果你關心 | 先看這份 |
+|-----------|---------|
+| 整體節奏、里程碑順序、依賴關係 | [program/README.md](program/README.md) |
+| 現在這個 repo 和新 vision 的距離 | [program/repo-baseline.md](program/repo-baseline.md) |
+| 哪些技術決策還沒落地、哪些研究要先做 | [program/research-and-decisions.md](program/research-and-decisions.md) |
+| 某份需求/設計文檔應該對應哪份實作計劃 | [program/traceability-map.md](program/traceability-map.md) |
+| M0 重構基礎 | [m0-foundation/README.md](m0-foundation/README.md) |
+| M1 Solid Archive | [m1-solid-archive/README.md](m1-solid-archive/README.md) |
+| M2 Recall & Trust | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
+| M3 Intelligence | [m3-intelligence/README.md](m3-intelligence/README.md) |
+| M4 Full Intelligence & Polish | [m4-full-polish/README.md](m4-full-polish/README.md) |
+| 產品願景、需求、畫面結構 | [../vision-and-requirements.md](../vision-and-requirements.md) |
 
 ---
 
-## 里程碑總覽
+## 這一版計劃是怎麼來的
 
-| 里程碑 | 主題 | 狀態 | 詳細計劃 |
-|--------|------|------|----------|
-| **M0** | 重構基礎 — 清理舊代碼、建立新架構骨架 | `[ ]` 未開始 | [m0-foundation.md](m0-foundation.md) |
-| **M1** | Solid Archive — 核心備份做對 | `[ ]` 未開始 | [m1-solid-archive.md](m1-solid-archive.md) |
-| **M2** | Recall & Trust — 多源導入、回滾、完整性 | `[ ]` 未開始 | [m2-recall-and-trust.md](m2-recall-and-trust.md) |
-| **M3** | Intelligence — AI 語義搜尋與洞察 | `[ ]` 未開始 | [m3-intelligence.md](m3-intelligence.md) |
-| **M4** | Full Intelligence & Polish | `[ ]` 未開始 | [m4-full-polish.md](m4-full-polish.md) |
+這不是把舊的 todo 清單換個排版，而是重新掃過整個 repo 和整份 `docs/` 後，做的一次真正 re-baseline。這次至少確認了幾件事：
 
-> **M0 是新增的里程碑**，專門處理從舊代碼庫到新架構的過渡。這在原始 milestones.md 中沒有，但在實際工作中是必要的第一步。
+- 新的 vision、features、architecture、design 文檔已經成形，而且方向很清楚。
+- 現在的代碼庫不是「完全不能用」，而是**還在穩定驗證一套舊產品假設**。
+- 舊 UI 不只是視覺上不好看，而是整個資訊架構、導航和狀態模型都還綁在舊產品上。
+- Rust 端其實已經有很多功能，但大量功能長在錯的地方，巨型檔案和責任混寫很明顯。
+- 有些決策其實還沒真的落地，例如 schema reset strategy、migration story、rollback visibility、AI sidecar 邊界、跨平台排程。
+
+所以這份 plan 的目的不是「幫我們記得做哪些功能」，而是先把**正確的實作順序、決策順序和刪舊代碼的順序**講清楚。
 
 ---
 
-## 進度符號說明
+## 2026-04-05 基線結論
 
-- `[ ]` — 未開始
-- `[/]` — 進行中
-- `[x]` — 已完成
-- `[~]` — 部分完成 / 需要修改
-- `[!]` — 阻塞 / 需要決策
+根據這次掃描和驗證，目前可以先這樣理解 repo：
+
+- 前端入口 [`src/main.tsx`](../../src/main.tsx) 仍然直接載入 [`src/AppNew.tsx`](../../src/AppNew.tsx)，舊 shell 還是主入口。
+- 舊 UI 不是少量修補就能對齊新設計的狀態。至少 [`src/App.css`](../../src/App.css)、[`src/AppNew.test.tsx`](../../src/AppNew.test.tsx)、[`src/lib/i18n.ts`](../../src/lib/i18n.ts) 都已經到重寫優先的程度。
+- [`src/lib/backend.ts`](../../src/lib/backend.ts) 不只是 IPC 包裝，還混著 browser preview fixture、舊產品文案、舊 app 路徑和假資料模型。
+- Rust 端的大部分複雜度集中在幾個巨檔裡：[`src-tauri/crates/vault-core/src/archive.rs`](../../src-tauri/crates/vault-core/src/archive.rs)、[`src-tauri/crates/vault-core/src/chrome.rs`](../../src-tauri/crates/vault-core/src/chrome.rs)、[`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)、[`src-tauri/crates/vault-core/src/insights.rs`](../../src-tauri/crates/vault-core/src/insights.rs)、[`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs)。
+- canonical archive 目前仍然是 `archive-schema.sql` 加上啟動時補欄位的做法，還沒有正式 migration ledger。
+- 命名遷移沒有完成。`Browser History Backup`、`Chrome History Backup`、`Chrome History Vault` 仍殘留在 `package.json`、Tauri config、README、workflow、前端 mock、keyring / schedule 文案、export 文案、AI/MCP 文案等多處。
+- 設計師的 prototype 很清楚，但當前代碼庫並不是朝著那套 IA 在長，而是另一條舊路徑。
+
+---
+
+## 已做過的基線驗證
+
+這一輪 plan 不是純主觀判斷。下面這些命令已在 2026-04-05 重新執行：
+
+- `bun run typecheck`：通過
+- `bun run test:unit`：通過，8 個 test files / 142 tests
+- `cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --quiet`：通過
+- `bun run test:e2e`：失敗，失敗點是 [`tests/e2e/shell.spec.ts`](../../tests/e2e/shell.spec.ts) 仍然要求舊的 `Setup` heading 和舊 setup shell 文案
+
+這個結果很重要，因為它說明 repo 現在不是「壞掉」，而是「還在穩定地保護舊目標」。所以第一性工作不是零碎修 bug，而是**先重設產品骨架、驗收目標和測試基線**。
+
+---
+
+## 進度符號
+
+- `[ ]` 未開始
+- `[/]` 進行中
+- `[x]` 已完成
+- `[~]` 已有部分實作，但不符合新 vision，需要重做或重構
+- `[!]` 阻塞中，必須先做研究或決策
+
+---
+
+## WBS 根節點
+
+```
+PG  Program / Baseline / Research
+M0  Foundation reset
+M1  Solid Archive
+M2  Recall & Trust
+M3  Intelligence
+M4  Full Intelligence & Polish
+```
+
+每個里程碑目錄都有：
+
+- `README.md`：這個里程碑在做什麼、何時算完成、有哪些工作包
+- 2 到 4 份工作包文檔：把待辦拆到更細的功能域和實作層
+
+---
+
+## 里程碑入口
+
+| 里程碑 | 目標 | 狀態 | 入口 |
+|-------|------|------|------|
+| `PG` | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係 | `[/]` | [program/README.md](program/README.md) |
+| `M0` | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點 | `[ ]` | [m0-foundation/README.md](m0-foundation/README.md) |
+| `M1` | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎 | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md) |
+| `M2` | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
+| `M3` | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md) |
+| `M4` | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證 | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md) |
 
 ---
 
 ## 與其他文檔的關係
 
 ```
-docs/vision-and-requirements.md  ← 產品願景 hub（WHY + WHAT）
-  ├── docs/architecture/         ← 技術架構決策
-  ├── docs/features/             ← 功能需求詳細規格
-  ├── docs/design/               ← UX 設計原則與畫面結構
-  ├── docs/milestones.md         ← 里程碑概要
-  ├── docs/standards.md          ← 品質標準
-  └── docs/plan/                 ← 工作計劃與進度追蹤（HOW + WHEN）  ← 你在這裡
-       ├── README.md             ← 本文件：計劃總覽
-       ├── m0-foundation.md      ← M0: 重構基礎
-       ├── m1-solid-archive.md   ← M1: Solid Archive
-       ├── m2-recall-and-trust.md← M2: Recall & Trust
-       ├── m3-intelligence.md    ← M3: Intelligence
-       └── m4-full-polish.md     ← M4: Full Intelligence & Polish
+docs/vision-and-requirements.md   WHY + WHAT
+  ├── docs/architecture/          技術原則與資料長期設計
+  ├── docs/features/              功能需求詳細規格
+  ├── docs/design/                UX 原則與畫面結構
+  ├── docs/milestones.md          里程碑概覽
+  ├── docs/standards.md           品質標準
+  └── docs/plan/                  HOW + WHEN + WBS
+       ├── README.md
+       ├── program/
+       ├── m0-foundation/
+       ├── m1-solid-archive/
+       ├── m2-recall-and-trust/
+       ├── m3-intelligence/
+       └── m4-full-polish/
 ```

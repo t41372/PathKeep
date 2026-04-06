@@ -1,6 +1,6 @@
 # 里程碑
 
-> 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。
+> 從 [vision-and-requirements.md](vision-and-requirements.md) 抽出。
 > 
 > ⚡ **原子化待辦清單和工作進度追蹤** → 見 [plan/README.md](plan/README.md)
 
@@ -15,7 +15,7 @@
 - Schema 審查與 migration 系統規劃
 - 統一產品名稱為 PathKeep
 
-📋 詳細待辦 → [plan/m0-foundation.md](plan/m0-foundation.md)
+📋 詳細待辦 → [plan/m0-foundation/README.md](plan/m0-foundation/README.md)
 
 ## M1 — Solid Archive
 
@@ -31,7 +31,7 @@
 - 歷史紀錄瀏覽和搜尋（FTS5）
 - HTML/JSONL 匯出
 
-📋 詳細待辦 → [plan/m1-solid-archive.md](plan/m1-solid-archive.md)
+📋 詳細待辦 → [plan/m1-solid-archive/README.md](plan/m1-solid-archive/README.md)
 
 ## M2 — Recall & Trust
 
@@ -43,7 +43,7 @@
 - i18n（en, zh-CN, zh-TW）
 - Windows / Linux 排程正式驗證與支持
 
-📋 詳細待辦 → [plan/m2-recall-and-trust.md](plan/m2-recall-and-trust.md)
+📋 詳細待辦 → [plan/m2-recall-and-trust/README.md](plan/m2-recall-and-trust/README.md)
 
 ## M3 — Intelligence
 
@@ -54,7 +54,7 @@
 - Ask My History（AI 問答，rig.rs 驅動 agentic RAG）
 - MCP server + AI IDE Skill
 
-📋 詳細待辦 → [plan/m3-intelligence.md](plan/m3-intelligence.md)
+📋 詳細待辦 → [plan/m3-intelligence/README.md](plan/m3-intelligence/README.md)
 
 ## M4 — Full Intelligence & Polish
 
@@ -64,4 +64,4 @@
 - 地理位置記錄（實驗性）
 - 多平台完整驗證
 
-📋 詳細待辦 → [plan/m4-full-polish.md](plan/m4-full-polish.md)
+📋 詳細待辦 → [plan/m4-full-polish/README.md](plan/m4-full-polish/README.md)

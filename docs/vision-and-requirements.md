@@ -138,7 +138,15 @@ PathKeep 是一個**本地優先、開源、可信賴的瀏覽器歷史紀錄長
 
 - [里程碑](milestones.md) — M1 Solid Archive → M2 Recall & Trust → M3 Intelligence → M4 Full Intelligence
 - [品質標準與社區](standards.md) — 測試覆蓋、代碼品質、CI/CD、i18n、開源、Non-Goals
-- [**工作計劃與進度追蹤**](plan/README.md) — WBS 級別的原子化待辦清單，按里程碑拆分（M0 重構基礎 → M1 → M2 → M3 → M4）
+- [**工作計劃與進度追蹤**](plan/README.md) — 先看這裡掌握實作順序、當前進度、阻塞與 WBS
+  - [Program 基線與決策待辦](plan/program/README.md) — 先回答「repo 現在在哪裡」「還有哪些決策沒定」
+  - [M0 — 重構基礎](plan/m0-foundation/README.md) — 舊 UI 拆除、新骨架建立、核心邊界重組
+  - [M1 — Solid Archive](plan/m1-solid-archive/README.md) — migration、backup、audit、schedule、security、Explorer v1
+  - [M2 — Recall & Trust](plan/m2-recall-and-trust/README.md) — import、rollback、Doctor、多瀏覽器、i18n、PME
+  - [M3 — Intelligence](plan/m3-intelligence/README.md) — provider、index、assistant、insights、MCP
+  - [M4 — Full Intelligence & Polish](plan/m4-full-polish/README.md) — enrichment、advanced insights、remote backup、release polish
+
+> 想知道某個功能「應該做成什麼樣」看 `features/` / `design/` / `architecture/`；想知道「接下來怎麼做、做到哪裡、卡在哪裡」就看 `docs/plan/`。
 
 ### 參考
 
