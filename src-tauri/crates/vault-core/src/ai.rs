@@ -21,7 +21,7 @@ use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolDyn},
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{cmp::Ordering, collections::HashMap, sync::Arc};
@@ -265,7 +265,7 @@ pub fn ai_index_status(
                  ORDER BY indexed_at DESC
                  LIMIT 1",
                 [provider_id],
-                |row| row.get(0),
+                |row: &Row<'_>| row.get(0),
             )
             .optional()?
     } else {
@@ -335,7 +335,7 @@ pub async fn build_ai_index(
                    AND model = ?3
                  LIMIT 1",
                 params![visit.history_id, provider.config.id, provider.config.default_model],
-                |row| row.get::<_, i64>(0),
+                |row: &Row<'_>| row.get::<_, i64>(0),
             )
             .optional()?
             .is_some();
@@ -833,7 +833,11 @@ fn cleanup_stale_embeddings(
 
 fn provider_embedding_count(connection: &Connection, provider_id: &str) -> Result<i64> {
     #[rustfmt::skip]
-    let count = connection.query_row("SELECT COUNT(*) FROM ai_embeddings WHERE provider_id = ?1", [provider_id], |row| row.get::<_, i64>(0))?;
+    let count = connection.query_row(
+        "SELECT COUNT(*) FROM ai_embeddings WHERE provider_id = ?1",
+        [provider_id],
+        |row: &Row<'_>| row.get::<_, i64>(0),
+    )?;
     Ok(count)
 }
 
@@ -1407,7 +1411,7 @@ mod tests {
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ai_embeddings'",
                 [],
-                |row| row.get(0),
+                |row: &Row<'_>| row.get(0),
         )
         .expect("count");
         assert_eq!(count, 1);
@@ -1741,7 +1745,7 @@ mod tests {
 
         let connection = open_archive_connection(&paths, &config, None).expect("open archive");
         let runs: i64 = connection
-            .query_row("SELECT COUNT(*) FROM ai_assistant_runs", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM ai_assistant_runs", [], |row: &Row<'_>| row.get(0))
             .expect("assistant run count");
         assert_eq!(runs, 1);
     }

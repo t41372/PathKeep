@@ -270,16 +270,16 @@ pub fn insight_status(
     create_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     let runs = connection
-        .query_row("SELECT COUNT(*) FROM insight_runs", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM insight_runs", [], |row: &Row<'_>| row.get::<_, i64>(0))
         .unwrap_or(0);
     let cards = connection
-        .query_row("SELECT COUNT(*) FROM insight_cards", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM insight_cards", [], |row: &Row<'_>| row.get::<_, i64>(0))
         .unwrap_or(0);
     let topics = connection
-        .query_row("SELECT COUNT(*) FROM insight_topics", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM insight_topics", [], |row: &Row<'_>| row.get::<_, i64>(0))
         .unwrap_or(0);
     let threads = connection
-        .query_row("SELECT COUNT(*) FROM insight_threads", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM insight_threads", [], |row: &Row<'_>| row.get::<_, i64>(0))
         .unwrap_or(0);
     let latest = connection
         .query_row(
@@ -289,7 +289,7 @@ pub fn insight_status(
              ORDER BY id DESC
              LIMIT 1",
             [],
-            |row| {
+            |row: &Row<'_>| {
                 Ok((
                     row.get::<_, Option<String>>(0)?,
                     row.get::<_, f32>(1)?,
@@ -462,7 +462,7 @@ pub fn load_insights(
              WHERE status = 'success' AND profile_scope = ?1 AND window_days = ?2
              ORDER BY id DESC LIMIT 1",
             params![profile_scope, window_days as i64],
-            |row| row.get::<_, String>(0),
+            |row: &Row<'_>| row.get::<_, String>(0),
         )
         .optional()?
         .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
@@ -507,7 +507,7 @@ pub fn load_insight_thread_detail(
          ORDER BY insight_thread_members.ordinal ASC",
     )?;
     let visits = statement
-        .query_map([thread_id], |row| {
+        .query_map([thread_id], |row: &Row<'_>| {
             let url: String = row.get(2)?;
             Ok(InsightEvidenceItem {
                 history_id: row.get(0)?,
@@ -691,7 +691,7 @@ fn load_search_term_map(
     let mut statement = connection.prepare(sql)?;
     let mut map = HashMap::new();
     if let Some(profile_id) = profile_id {
-        let rows = statement.query_map([profile_id], |row| {
+        let rows = statement.query_map([profile_id], |row: &Row<'_>| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
         })?;
         for row in rows {
@@ -699,7 +699,7 @@ fn load_search_term_map(
             map.entry((profile_id, url_id)).or_insert(term);
         }
     } else {
-        let rows = statement.query_map([], |row| {
+        let rows = statement.query_map([], |row: &Row<'_>| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
         })?;
         for row in rows {
@@ -886,7 +886,7 @@ fn best_enrichment_for_history(
          ORDER BY CASE content_source WHEN 'capture' THEN 0 ELSE 1 END, fetched_at DESC",
     )?;
     statement
-        .query_row([history_id], |row| {
+        .query_row([history_id], |row: &Row<'_>| {
             let _: Option<String> = row.get(3)?;
             let _: Option<String> = row.get(4)?;
             Ok(StoredEnrichment {
@@ -937,7 +937,7 @@ fn load_embedding_map(
     let allowed = visits.iter().map(|visit| visit.history_id).collect::<HashSet<_>>();
     let mut map = HashMap::new();
     if let (Some(provider_id), Some(model)) = (provider_filter, model_filter) {
-        let rows = statement.query_map(params![provider_id, model], |row| {
+        let rows = statement.query_map(params![provider_id, model], |row: &Row<'_>| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })?;
         for row in rows {
@@ -950,8 +950,8 @@ fn load_embedding_map(
             }
         }
     } else {
-        let rows =
-            statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?;
+        let rows = statement
+            .query_map([], |row: &Row<'_>| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?;
         for row in rows {
             let (history_id, embedding_json) = row?;
             if !allowed.contains(&history_id) {
@@ -1450,20 +1450,23 @@ fn load_cards(
          WHERE profile_scope = ?1 AND window_days = ?2
          ORDER BY score DESC, generated_at DESC",
     )?;
-    let rows = statement.query_map(params![profile_scope, window_days as i64], |row| {
-        Ok(InsightCard {
-            card_id: row.get(0)?,
-            kind: row.get(1)?,
-            title: row.get(2)?,
-            summary: row.get(3)?,
-            window_days: row.get::<_, i64>(4)?.max(0) as u32,
-            profile_id: None,
-            score: row.get(5)?,
-            chromium_enhanced: row.get::<_, i64>(6)? != 0,
-            evidence: serde_json::from_str::<Vec<InsightEvidenceItem>>(&row.get::<_, String>(7)?)
+    let rows =
+        statement.query_map(params![profile_scope, window_days as i64], |row: &Row<'_>| {
+            Ok(InsightCard {
+                card_id: row.get(0)?,
+                kind: row.get(1)?,
+                title: row.get(2)?,
+                summary: row.get(3)?,
+                window_days: row.get::<_, i64>(4)?.max(0) as u32,
+                profile_id: None,
+                score: row.get(5)?,
+                chromium_enhanced: row.get::<_, i64>(6)? != 0,
+                evidence: serde_json::from_str::<Vec<InsightEvidenceItem>>(
+                    &row.get::<_, String>(7)?,
+                )
                 .unwrap_or_default(),
-        })
-    })?;
+            })
+        })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -1479,22 +1482,25 @@ fn load_topics(
          WHERE profile_scope = ?1 AND window_days = ?2
          ORDER BY trend_slope DESC, visit_count DESC",
     )?;
-    let rows = statement.query_map(params![profile_scope, window_days as i64], |row| {
-        Ok(InsightTopicSummary {
-            topic_id: row.get(0)?,
-            label: row.get(1)?,
-            profile_scope: row.get(2)?,
-            window_days: row.get::<_, i64>(3)?.max(0) as u32,
-            first_seen_at: row.get(4)?,
-            last_seen_at: row.get(5)?,
-            visit_count: row.get::<_, i64>(6)?.max(0) as usize,
-            revisit_count: row.get::<_, i64>(7)?.max(0) as usize,
-            trend_slope: row.get(8)?,
-            burst_score: row.get(9)?,
-            evidence: serde_json::from_str::<Vec<InsightEvidenceItem>>(&row.get::<_, String>(10)?)
+    let rows =
+        statement.query_map(params![profile_scope, window_days as i64], |row: &Row<'_>| {
+            Ok(InsightTopicSummary {
+                topic_id: row.get(0)?,
+                label: row.get(1)?,
+                profile_scope: row.get(2)?,
+                window_days: row.get::<_, i64>(3)?.max(0) as u32,
+                first_seen_at: row.get(4)?,
+                last_seen_at: row.get(5)?,
+                visit_count: row.get::<_, i64>(6)?.max(0) as usize,
+                revisit_count: row.get::<_, i64>(7)?.max(0) as usize,
+                trend_slope: row.get(8)?,
+                burst_score: row.get(9)?,
+                evidence: serde_json::from_str::<Vec<InsightEvidenceItem>>(
+                    &row.get::<_, String>(10)?,
+                )
                 .unwrap_or_default(),
-        })
-    })?;
+            })
+        })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -1558,7 +1564,7 @@ fn load_feature_rows(
     let mut statement = connection.prepare(sql)?;
     let mut map = HashMap::new();
     if let Some(profile_id) = profile_id {
-        let rows = statement.query_map([profile_id], |row| {
+        let rows = statement.query_map([profile_id], |row: &Row<'_>| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
@@ -1571,7 +1577,7 @@ fn load_feature_rows(
             map.insert(history_id, (source_role, query_term, query_stage));
         }
     } else {
-        let rows = statement.query_map([], |row| {
+        let rows = statement.query_map([], |row: &Row<'_>| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,

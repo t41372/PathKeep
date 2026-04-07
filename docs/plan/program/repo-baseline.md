@@ -48,19 +48,19 @@
 
 ### 觀察
 
-- [`src-tauri/crates/vault-core/src/archive.rs`](../../../src-tauri/crates/vault-core/src/archive.rs) 2078 行，裡面同時包含 schema bootstrapping、backup orchestration、history query、export、rekey、doctor、Firefox ingest、Safari ingest、favicon ingest 等責任。
+- [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 目前仍承擔 backup orchestration、history query、export、rekey、doctor、Firefox ingest、Safari ingest、favicon ingest 等多項責任，但 schema bootstrapping 已先抽到 [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs)。
 - [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 1229 行，實際上不只 Chrome discovery，還包含 Firefox / Safari discovery、staging copy、path heuristics。
 - [`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 1916 行、[`src-tauri/crates/vault-core/src/insights.rs`](../../../src-tauri/crates/vault-core/src/insights.rs) 2481 行，很多 intelligence 相關邏輯已經提前塞進 canonical SQLite 旁邊。
-- 目前 Rust workspace 只有 `vault-core`、`vault-platform`、`vault-worker`，還沒有 vision 文檔裡規劃的 `browser-history-parser` 獨立 crate。
-- canonical schema 目前仍由 [`archive-schema.sql`](../../../src-tauri/crates/vault-core/src/archive-schema.sql) 加上執行期補欄位邏輯管理，沒有正式 migration ledger。
+- Rust workspace 現在已有 `browser-history-parser` crate，但 `vault-core` 尚未全面切換成它的消費者；目前仍處於 M0 foundation 階段。
+- canonical schema v1 已有 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 和 migration executor；舊 [`archive-schema.sql`](../../../src-tauri/crates/vault-core/src/archive-schema.sql) 只剩 legacy runtime bridge 角色。
 - [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) 暴露了很多 Tauri commands，但命令集合和命名仍然緊貼舊 UI 與舊產品假設。
 - [`src-tauri/crates/vault-worker/src/lib.rs`](../../../src-tauri/crates/vault-worker/src/lib.rs) 1577 行，兼任了 desktop orchestration、CLI worker、MCP server、keyring / schedule bridge 等多個角色。
 
 ### 判斷
 
 - 問題不只是「功能還不完整」，而是**很多功能已經先長錯地方**。如果 M0 不先重切 module boundary，之後每個 feature 都還會繼續把複雜度堆在巨檔裡。
-- `browser-history-parser` 應該被當作正式 workstream，而不是等到 M1/M2 順手抽出去。
-- migration system 需要在 M0 / M1 前段真正落地，否則 archive 會一直沿著 ad-hoc schema upgrade 演進。
+- `browser-history-parser` 已經作為正式 workstream 開始，但還需要在 M1 把更多 Firefox / Safari / Takeout parsing 和 `vault-core` 消費鏈接上。
+- migration system 已在 M0 foundation 落地；接下來的風險轉成「如何讓 M1 archive engine 正式切換到 canonical runtime」，而不是「還沒有 migration ledger」。
 
 ### 待辦
 

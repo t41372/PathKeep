@@ -1,9 +1,13 @@
+mod schema;
+
+#[cfg(test)]
+pub(crate) use self::schema::ensure_column;
+pub(crate) use self::schema::{create_schema, export_archive_database, open_archive_connection};
+pub use self::schema::{current_version, run_migrations};
 use crate::{
-    ai::ensure_ai_schema,
     chrome::{ProfileSnapshot, discover_profiles, stage_profile_snapshot},
     config::{ProjectPaths, ensure_paths, save_config},
     git_audit,
-    insights::ensure_insight_schema,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, BackupProfileSummary, BackupReport,
         BackupRunOverview, ExportFormat, ExportRequest, ExportResult, HealthCheck, HealthReport,
@@ -19,7 +23,7 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params};
 use serde::Serialize;
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::Path, time::Duration as StdDuration};
+use std::{collections::BTreeMap, fs, path::Path};
 
 #[derive(Debug, Default)]
 struct Watermark {
@@ -46,7 +50,6 @@ struct BackupManifest {
     warnings: Vec<String>,
 }
 
-const ARCHIVE_SCHEMA_SQL: &str = include_str!("archive-schema.sql");
 const RECENT_RUNS_SQL: &str = "SELECT id, started_at, finished_at, status, manifest_hash, summary_json FROM backup_runs ORDER BY id DESC LIMIT 12";
 const LIST_HISTORY_SQL: &str = "SELECT id, profile_id, url, title, visit_time, visit_duration, transition, source_visit_id, app_id FROM visit_events WHERE (?1 IS NULL OR profile_id = ?1) AND (?2 IS NULL OR url LIKE '%' || ?2 || '%' OR IFNULL(title, '') LIKE '%' || ?2 || '%') AND (?3 IS NULL OR url LIKE ?3) ORDER BY visit_time DESC LIMIT ?4";
 const INGEST_URLS_SQL: &str = "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden FROM urls WHERE last_visit_time >= ?1 ORDER BY last_visit_time ASC";
@@ -441,89 +444,6 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
         },
     });
     Ok(HealthReport { generated_at: now_rfc3339(), checks })
-}
-
-pub(crate) fn open_archive_connection(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<Connection> {
-    ensure_paths(paths)?;
-    let connection = Connection::open(&paths.archive_database_path)
-        .with_context(|| format!("opening {}", paths.archive_database_path.display()))?;
-    connection.busy_timeout(StdDuration::from_secs(5))?;
-    connection.pragma_update(None, "foreign_keys", true)?;
-    if matches!(config.archive_mode, ArchiveMode::Encrypted) {
-        let key = key.context("database key is required for encrypted archives")?;
-        apply_cipher_key(&connection, key)?;
-    }
-    Ok(connection)
-}
-
-pub(crate) fn apply_cipher_key(connection: &Connection, key: &str) -> Result<()> {
-    connection.pragma_update(None, "key", key)?;
-    Ok(())
-}
-
-pub(crate) fn export_archive_database(
-    source: &Connection,
-    target_path: &Path,
-    target_key: Option<&str>,
-) -> Result<()> {
-    if target_path.exists() {
-        fs::remove_file(target_path)
-            .with_context(|| format!("removing {}", target_path.display()))?;
-    }
-
-    let target = target_path.display().to_string().replace('\'', "''");
-    let key = target_key.unwrap_or("").replace('\'', "''");
-    source
-        .execute_batch(&format!("ATTACH DATABASE '{target}' AS rekeyed KEY '{key}';"))
-        .context("attaching target database for export")?;
-    let export_result = source
-        .query_row("SELECT sqlcipher_export('rekeyed')", [], |_| Ok(()))
-        .context("exporting encrypted database");
-    let detach_result = source.execute_batch("DETACH DATABASE rekeyed;");
-    export_result?;
-    detach_result.context("detaching exported database")?;
-    Ok(())
-}
-
-pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(ARCHIVE_SCHEMA_SQL)?;
-    ensure_column(connection, "visit_events", "import_batch_id", "INTEGER")?;
-    ensure_column(connection, "visit_events", "event_fingerprint", "TEXT")?;
-    ensure_column(connection, "raw_row_versions", "import_batch_id", "INTEGER")?;
-    #[rustfmt::skip]
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_visit_events_import_batch_id ON visit_events(import_batch_id)", [])?;
-    #[rustfmt::skip]
-    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_visit_events_profile_event_fingerprint ON visit_events(profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''", [])?;
-    #[rustfmt::skip]
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_raw_row_versions_import_batch_id ON raw_row_versions(import_batch_id)", [])?;
-    ensure_ai_schema(connection)?;
-    ensure_insight_schema(connection)?;
-    Ok(())
-}
-
-fn ensure_column(
-    connection: &Connection,
-    table_name: &str,
-    column_name: &str,
-    definition: &str,
-) -> Result<()> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table_name})"))?;
-    let exists = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .any(|name| name == column_name);
-
-    if !exists {
-        #[rustfmt::skip]
-        let _ = connection.execute(&format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"), [])?;
-    }
-
-    Ok(())
 }
 
 fn latest_successful_backup_at(connection: &Connection) -> Result<Option<DateTime<Utc>>> {

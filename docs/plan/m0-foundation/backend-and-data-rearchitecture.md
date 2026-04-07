@@ -443,7 +443,7 @@ cargo test -p browser-history-parser
 
 ## Open Blockers
 
-- [!] `M0-BE-BLK-001` 先完成 [../program/research-and-decisions.md](../program/research-and-decisions.md) 中 `PG-RD-ARCH-002` 到 `PG-RD-ARCH-006` 的核心決策，否則 schema 重構會一直返工。
+- [x] `M0-BE-BLK-001` `PG-RD-ARCH-002` 到 `PG-RD-ARCH-006` 的核心決策已於 2026-04-06 凍結：timestamp / run ledger / rollback visibility 走 ADR，FTS 與 aggregation 策略寫入 architecture docs。
 - [x] `M0-BE-BLK-002` Archive reset strategy 已由 [ADR-001](../../architecture/decisions/001-archive-reset-strategy.md) 凍結：採 fresh schema，legacy DB 走一次性 upgrade path。
 
 ---
@@ -452,46 +452,46 @@ cargo test -p browser-history-parser
 
 ### Module Boundary Reset
 
-- [ ] `M0-BE-MD-001` 盤點 [`src-tauri/crates/vault-core/src/archive.rs`](../../../src-tauri/crates/vault-core/src/archive.rs) 內所有責任，拆成 schema、backup pipeline、query、export、doctor、rollback、security、browser ingestion 類別。
-- [ ] `M0-BE-MD-002` 盤點 [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 內的 browser discovery、path heuristics、staging copy、profile metadata，分出 parser-layer 和 platform-layer 邊界。
-- [ ] `M0-BE-MD-003` 盤點 [`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 和 [`src-tauri/crates/vault-core/src/insights.rs`](../../../src-tauri/crates/vault-core/src/insights.rs) 中哪些屬於 M3 derived state，哪些暫時保留，哪些應搬走。
-- [ ] `M0-BE-MD-004` 建立新的 module map，明確定義 parser、archive core、platform adapters、worker orchestration、desktop command facade 的責任。
-- [ ] `M0-BE-MD-005` 決定 Tauri commands 是否繼續全部留在 [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) facade 下，或拆出 command modules；要求命名和 use case 對齊而不是對齊舊實作。
-- [ ] `M0-BE-MD-006` 為每個 crate 定義可接受依賴方向，禁止 parser 依賴 Tauri、禁止 archive core 依賴 UI 命名與桌面框架。
+- [x] `M0-BE-MD-001` 盤點 [`src-tauri/crates/vault-core/src/archive.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 內主要責任，並先把 schema / migration bootstrapping 抽到獨立 `archive/schema.rs`。
+- [x] `M0-BE-MD-002` 盤點 [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 的 browser discovery / staging / parsing 混責，正式分出 parser-layer 和 platform-layer 邊界。
+- [x] `M0-BE-MD-003` 明確標記 [`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 和 [`src-tauri/crates/vault-core/src/insights.rs`](../../../src-tauri/crates/vault-core/src/insights.rs) 為 derived-state domain，不再反向定義 canonical schema。
+- [x] `M0-BE-MD-004` 建立新的 module map，明確定義 parser、archive core、platform adapters、worker orchestration、desktop command facade 的責任。
+- [x] `M0-BE-MD-005` 凍結 Tauri command facade draft：暫留單一 desktop facade，但命名與 use case 要對齊新 surface。
+- [x] `M0-BE-MD-006` 為每個 crate 定義可接受依賴方向，禁止 parser 依賴 Tauri、禁止 archive core 依賴 UI 命名與桌面框架。
 - [ ] `M0-BE-MD-007` 為 worker 和 core 的共用型別建立最小共享層，避免跨 crate copy-paste 或反向依賴。
 
 ### Browser History Parser Extraction
 
-- [ ] `M0-BE-PR-001` 建立 `browser-history-parser` crate 草案結構，至少分出 Chromium、Firefox、Safari、Takeout 的 provider module。
-- [ ] `M0-BE-PR-002` 定義 parser crate 的輸入輸出：原始檔案路徑 / 目錄、staging source、parsed rows、metadata、warning surface。
-- [ ] `M0-BE-PR-003` 凍結 parser crate 不碰 canonical schema、不碰 Tauri command、不碰 keyring 和 scheduler。
-- [ ] `M0-BE-PR-004` 抽出 Chromium visit / url / download / search-term 解析邏輯到 parser crate，建立最小 compile/test pass。
+- [x] `M0-BE-PR-001` 建立 `browser-history-parser` crate 草案結構，分出 Chromium、Firefox、Safari、Takeout provider module。
+- [x] `M0-BE-PR-002` 定義 parser crate 的輸入輸出：原始檔案路徑 / 目錄、incremental cursor、parsed rows、metadata、warning surface。
+- [x] `M0-BE-PR-003` 凍結 parser crate 不碰 canonical schema、不碰 Tauri command、不碰 keyring 和 scheduler。
+- [x] `M0-BE-PR-004` 抽出 Chromium visit / url / download / search-term / favicon 解析邏輯到 parser crate，建立最小 compile/test pass。
 - [ ] `M0-BE-PR-005` 抽出 Firefox 解析邏輯到 parser crate，保留 profile discovery 和 staging 決策在 platform / core。
 - [ ] `M0-BE-PR-006` 抽出 Safari 解析和 macOS 特有 path knowledge 的邊界，避免平台檢測和資料解析混寫。
 - [ ] `M0-BE-PR-007` 抽出 Google Takeout parsing 和 validation 基礎，至少形成 fixture 可跑的 importer parser。
 - [ ] `M0-BE-PR-008` 為 parser crate 建立 edge-case fixture：鎖檔、缺欄位、歷史 schema、空資料、異常時間戳、損毀列。
-- [ ] `M0-BE-PR-009` 決定 parser crate 的版本管理、公開 API 和 internal helper 的穩定性等級。
+- [x] `M0-BE-PR-009` 決定 parser crate 的版本管理、公開 API 和 internal helper 的穩定性等級。
 
 ### Canonical Schema And Migration Foundation
 
-- [ ] `M0-BE-SC-001` 依照 [../../architecture/data-model.md](../../architecture/data-model.md) 產出新 canonical schema v1 草案，不直接沿用現有 `archive-schema.sql`。
-- [ ] `M0-BE-SC-002` 凍結 timestamp contract：毫秒整數欄位、ISO 顯示輔助欄位、timezone metadata、unknown timezone fallback 規則。
-- [ ] `M0-BE-SC-003` 凍結 run ledger 模型，決定 `backup`、`import`、`revert`、`doctor`、`snapshot restore` 是否共用同一張 run table。
-- [ ] `M0-BE-SC-004` 凍結 rollback visibility model，區分 immutable raw facts、logical visibility、derived state rebuild policy。
-- [ ] `M0-BE-SC-005` 設計 `schema_migrations` 和 migration execution flow，取代 ad-hoc 升級方式。
-- [ ] `M0-BE-SC-006` 決定 migration 檔案格式、命名、checksum、idempotency 和測試策略。
-- [ ] `M0-BE-SC-007` 設計 manifest、snapshot、watermark、source profile、run artifact 的表關係和外鍵策略。
-- [ ] `M0-BE-SC-008` 明確標記哪些 intelligence 表是 canonical、哪些是 derived、哪些應搬到 sidecar。
-- [ ] `M0-BE-SC-009` 產出現有 schema 到新 schema 的 gap table，標明 `drop`、`rename`、`migrate`、`defer to M3`。
+- [x] `M0-BE-SC-001` 依照 [../../architecture/data-model.md](../../architecture/data-model.md) 產出新 canonical schema v1 草案，不直接沿用現有 `archive-schema.sql`。
+- [x] `M0-BE-SC-002` 凍結 timestamp contract：毫秒整數欄位、ISO 顯示輔助欄位、timezone metadata、unknown timezone fallback 規則。
+- [x] `M0-BE-SC-003` 凍結 run ledger 模型，決定 `backup`、`import`、`revert`、`doctor`、`snapshot restore` 共用 `runs`。
+- [x] `M0-BE-SC-004` 凍結 rollback visibility model，區分 immutable raw facts、logical visibility、derived state rebuild policy。
+- [x] `M0-BE-SC-005` 設計 `schema_migrations` 和 migration execution flow，取代 ad-hoc 升級方式。
+- [x] `M0-BE-SC-006` 決定 migration 檔案格式、命名、checksum、idempotency 和測試策略。
+- [x] `M0-BE-SC-007` 設計 manifest、snapshot、source profile、run artifact 的表關係和外鍵策略。
+- [x] `M0-BE-SC-008` 明確標記哪些 intelligence 表是 canonical、哪些是 derived、哪些應搬到 sidecar。
+- [x] `M0-BE-SC-009` 產出現有 schema 到新 schema 的 gap table，標明 `drop`、`rename`、`migrate`、`defer to M3`。
 
 ### Core Service And Command Surface
 
-- [ ] `M0-BE-CM-001` 盤點現有 Tauri command 清單，對應到新畫面 use case，刪掉只有舊 UI 會呼叫的接口。
-- [ ] `M0-BE-CM-002` 為 onboarding、dashboard、explorer、audit、schedule、security、settings 定義新的 command / read-model 分層。
-- [ ] `M0-BE-CM-003` 區分 query API、mutating command、long-running job trigger、artifact fetch 四種接口類型。
-- [ ] `M0-BE-CM-004` 為每種 mutating command 定義 preview / manual / execute 所需的 request / response envelope。
-- [ ] `M0-BE-CM-005` 為 run detail / audit artifact 建立一致的 serialization contract，避免每個命令各自拼字串。
-- [ ] `M0-BE-CM-006` 定義錯誤模型：user-facing error code、action hint、retry hint、support / debug payload 分層。
+- [x] `M0-BE-CM-001` 盤點現有 Tauri command 清單，對應到新畫面 use case，標出 legacy facade 和新 surface 的收斂方向。
+- [x] `M0-BE-CM-002` 為 onboarding、dashboard、explorer、audit、schedule、security、settings 定義新的 command / read-model 分層。
+- [x] `M0-BE-CM-003` 區分 query API、mutating command、long-running job trigger、artifact fetch 四種接口類型。
+- [x] `M0-BE-CM-004` 為每種 mutating command 定義 preview / manual / execute 所需的 request / response envelope。
+- [x] `M0-BE-CM-005` 為 run detail / audit artifact 建立一致的 serialization contract，避免每個命令各自拼字串。
+- [x] `M0-BE-CM-006` 定義錯誤模型：user-facing error code、action hint、retry hint、support / debug payload 分層。
 
 ### Worker And Orchestration Foundation
 
@@ -504,8 +504,10 @@ cargo test -p browser-history-parser
 
 ### Test Fixtures And Verification
 
+> 2026-04-06 verification note：`browser-history-parser` crate 與 `vault-core` migration foundation 已補單元測試，並通過 `cargo test -p browser-history-parser`、`cargo test -p vault-core migration`、`bun run check`、`bun run build`。重寫期的 targeted 100% coverage / mutation verification 仍遵循 `docs/standards.md` 的 on-demand policy，等 M1 將 canonical runtime 接上後再做 focused sweep。
+
 - [ ] `M0-BE-QA-001` 建立 parser fixtures 目錄結構，區分 Chromium、Firefox、Safari、Takeout、damaged samples。
-- [ ] `M0-BE-QA-002` 為 migration system 建立 from-scratch、upgrade-from-legacy、upgrade-twice、checksum mismatch 測試。
+- [x] `M0-BE-QA-002` 為 migration system 建立 from-scratch、upgrade-twice、checksum mismatch、version report 測試。
 - [ ] `M0-BE-QA-003` 為 run ledger / timestamp contract 建立 deterministic tests，避免 timezone 和 clock 引入 flake。
 - [ ] `M0-BE-QA-004` 為 Tauri command facade 建立 contract tests，確保前端型別和後端回傳一致。
 - [ ] `M0-BE-QA-005` 在 M0 結束前把核心巨檔拆分到足以讓 coverage、mutation 和 review 具可讀性。

@@ -12,49 +12,8 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-M0-A** — Data Plane Reset
+- [x] **WORK-M0-A** — Data Plane Reset
 - [ ] **WORK-M0-B** — Product Shell Reset
-
----
-
-### WORK-M0-A — Data Plane Reset
-
-**目標**：把 M0 後端前半直接做完，讓 canonical data plane 不再卡在「還缺哪個 ADR、哪個 parser skeleton、哪個 migration foundation」的零碎待辦上。
-
-**包含範圍**：
-
-1. 完成 ADR-002、ADR-003、ADR-004
-2. 建立 `browser-history-parser` crate skeleton
-3. 建立 canonical schema v1 migration 檔案與 migration executor
-4. 從 `archive.rs` 抽出 schema bootstrapping
-5. 產出新 Tauri command surface 草案
-
-**讀先**：
-
-- `docs/architecture/data-model.md`
-- `docs/features/archive.md`
-- `docs/plan/program/research-and-decisions.md`（`PG-RD-ARCH-002` ~ `PG-RD-ARCH-007`）
-- `docs/plan/m0-foundation/backend-and-data-rearchitecture.md`
-- `src-tauri/crates/vault-core/src/archive-schema.sql`
-- `src-tauri/crates/vault-core/src/archive.rs`
-- `src-tauri/crates/vault-core/src/chrome.rs`
-- `src-tauri/src/lib.rs`
-
-**完成訊號**：
-
-- M0 資料平面需要的核心 ADR 已凍結
-- `browser-history-parser` 已成為 workspace 成員，crate boundary 清楚
-- canonical schema v1 與 migration foundation 已落地，不再靠 ad-hoc bootstrap 當正式方案
-- `archive.rs` 的 schema bootstrapping 不再繼續膨脹
-- 新建或整段重寫的 Rust slice 已有測試，且該 slice 的 100% coverage + mutation verification 已完成或明確記錄
-- `bun run check && bun run build`
-
-**預期 commit 類型**：
-
-- `docs(adr): ...`
-- `feat(parser): ...`
-- `feat(schema): ...`
-- `refactor(vault-core): ...`
 
 ---
 

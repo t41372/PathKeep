@@ -9,7 +9,7 @@ use crate::{
     utils::{chrome_time_to_rfc3339, iso_to_chrome_time_micros, now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -223,7 +223,7 @@ pub fn load_import_batches(
     const LOAD_IMPORT_BATCHES_SQL: &str = "SELECT id, source_kind, source_path, profile_id, created_at, imported_at, reverted_at, status, summary_json, audit_path, git_commit, (SELECT COUNT(*) FROM visit_events WHERE import_batch_id = import_batches.id) AS visible_items FROM import_batches ORDER BY id DESC LIMIT 16";
     #[rustfmt::skip]
     let mut statement = connection.prepare(LOAD_IMPORT_BATCHES_SQL)?;
-    let rows = statement.query_map([], |row| {
+    let rows = statement.query_map([], |row: &Row<'_>| {
         let summary_json: String = row.get(8)?;
         let visible_items: i64 = row.get(11)?;
         Ok(import_batch_overview_from_summary(ImportBatchOverviewRow {
@@ -259,8 +259,9 @@ pub fn preview_import_batch(
     const PREVIEW_IMPORT_BATCH_SQL: &str = "SELECT payload_json FROM raw_row_versions WHERE import_batch_id = ?1 ORDER BY id DESC LIMIT ?2";
     #[rustfmt::skip]
     let mut statement = connection.prepare(PREVIEW_IMPORT_BATCH_SQL)?;
-    let rows = statement
-        .query_map(params![batch_id, PREVIEW_LIMIT as i64], |row| row.get::<_, String>(0))?;
+    let rows = statement.query_map(params![batch_id, PREVIEW_LIMIT as i64], |row: &Row<'_>| {
+        row.get::<_, String>(0)
+    })?;
     let preview_entries = rows
         .collect::<rusqlite::Result<Vec<_>>>()?
         .into_iter()
@@ -518,7 +519,7 @@ fn load_import_batch_record(
              FROM import_batches
              WHERE id = ?1",
             [batch_id],
-            |row| {
+            |row: &Row<'_>| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
@@ -980,7 +981,7 @@ mod tests {
             .query_row(
                 "SELECT profile_name, profile_path, chrome_version FROM profiles WHERE profile_id = 'takeout::browser-history'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row: &Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .expect("load takeout profile");
         assert_eq!(profile_name, "Imported browser history");
@@ -1044,7 +1045,7 @@ mod tests {
 
         let archive = open_archive_connection(&paths, &config, None).expect("open archive");
         let raw_rows: i64 = archive
-            .query_row("SELECT COUNT(*) FROM raw_row_versions", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM raw_row_versions", [], |row: &Row<'_>| row.get(0))
             .expect("raw row count");
         assert_eq!(raw_rows, 2);
     }
