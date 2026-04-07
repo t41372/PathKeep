@@ -74,3 +74,21 @@
   - 收斂 review findings：Chromium backup 現在嚴格尊重 `selected_profile_ids` 邊界，Google Takeout rollback 改成 soft-hide imported rows 並寫入 rollback run，而不是硬刪資料
   - 同步回寫 `archive.md`、`screens-and-nav.md`、`ux-principles.md`、`research-and-decisions.md`、M1 README / WBS、`STATUS.md`、`BACKLOG.md`
   - 驗收：`bun run check`、`bun run build`、`bun run test:e2e`
+
+## Post-Audit Corrections
+
+- [x] `AUDIT-2026-04-06` 修正 M1 closeout 的非前端真實性問題
+  - 補上 shell foundation slice 的明確 gate：新增 `bun run check:shell-slice`，並把 Vitest / Stryker 的 targeted scope 與 `src-tauri/target` 等大目錄排除規則對齊，避免 shell mutation 因 sandbox copy 掃到 Rust build artifacts 而直接崩潰
+  - 回寫 `AGENTS.md`、`docs/standards.md`，明確規定 shell foundation slice 的保護範圍與收工命令，避免 agent 只跑 `bun run check` 就誤判 targeted coverage / mutation 已經通過
+  - 回寫 `docs/plan/README.md` 與 `docs/plan/m1-solid-archive/README.md`，把 M1 從「已完全完成」修正為「feature baseline 已落地，但 non-frontend ops / QA closeout 仍開著」
+
+- [x] `AUDIT-2026-04-06-B` 把假裝驗完前端的 shell gate 收斂成可兌現的 desktop contract gate
+  - 將 `vitest.shell.config.ts` / `stryker.shell.config.json` 改成只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts` 的 desktop contract slice，並重新命名腳本為 `test:unit:desktop-contract`、`coverage:js:desktop-contract`、`mutation:js:desktop-contract`、`check:desktop-contract`
+  - 將 `bun run check` 直接納入 `bun run check:desktop-contract`，讓非前端 contract gate 成為真正的 blocking path，而不是靠 agent 額外記憶
+  - 回寫 `AGENTS.md`、`docs/standards.md`、M0 planning docs 與 `docs/plan/README.md`，明確標記前端 shell / route / sidebar 驗收仍需由前端 owner 補獨立驗收，不再誤報成 shell slice 已完成
+
+- [x] `AUDIT-2026-04-06-C` 補上 M1-OPS 缺的非前端 command surface 與 recoverability 基線
+  - 新增 `schedule_status`、`security_status`、`preview_rekey_archive` worker / Tauri command，讓 schedule / security 至少有 read model 與 preview surface，而不是只剩 UI placeholder
+  - macOS schedule status 會檢查已安裝 LaunchAgent 是否 mismatch、是否殘留 legacy plist；Windows / Linux 明確回報 `manual-review`
+  - rekey execute 先建立 safety snapshot，再做 temp export / swap；若最終替換失敗，會嘗試把原始 archive 放回原位
+  - 新增對應的 Rust tests，並回寫 `desktop-command-surface.md`、M1-OPS 文檔與 M1 README，讓後續 agent 知道哪些後端能力已落地、哪些仍然是 UI / acceptance gap

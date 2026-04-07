@@ -81,7 +81,7 @@
 
 - `typecheck`、Vitest 和 Rust 測試都通過，說明 repo 目前有穩定的可執行基線。
 - [`tests/e2e/shell.spec.ts`](../../../tests/e2e/shell.spec.ts) 已改成驗證新 shell、Review onboarding 入口與 dashboard preview，Playwright smoke 可通過。
-- `vitest.shell.config.ts` 與 `stryker.shell.config.json` 已建立 targeted shell verification，讓 route reset slice 可獨立做到 100% coverage + mutation。
+- `vitest.desktop-contract.config.ts` 與 `stryker.desktop-contract.config.json` 已建立 desktop contract verification，讓 `src/main.tsx` / `src/lib/ipc/bridge.ts` 這條非前端 contract slice 可獨立做到 100% coverage + mutation。
 - README、release workflow、Tauri metadata、app-facing strings 已切到 PathKeep。
 - [standards.md](../../standards.md)、[AGENTS.md](../../../AGENTS.md)、M0 planning docs 現在都明確區分：repo-wide deep checks 暫不擋主線，但新碼 / 重寫 slice 仍要求 100% coverage + mutation verification。
 

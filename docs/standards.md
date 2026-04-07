@@ -33,7 +33,9 @@
 
 - M0 期間，**repo-wide** coverage 和 mutation 暫時不作為 blocking gate；它們仍然有價值，但不應反過來保護舊架構。
 - 所有**新建**或**整段重寫**的模組，仍必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
-- shell / route reset 這類大型前端重寫，允許用 targeted scripts 驗證；目前 shell slice 的基準是 `bun run test:unit:shell`、`bun run coverage:js:shell`、`bun run mutation:js:shell`。
+- 大型前端重寫仍可用 targeted scripts 驗證，但不能把非 UI contract gate 當成前端 shell 已驗收的證據。
+- 目前納入 blocking path 的 targeted JS gate 是 desktop contract slice：`bun run test:unit:desktop-contract`、`bun run coverage:js:desktop-contract`、`bun run mutation:js:desktop-contract`，保護範圍固定為 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`。
+- 前端 shell / route / sidebar / primitives 與新的 page-scoped data provider 不在這條 gate 內；它們必須由前端 owner 提供自己的 targeted tests / visual review，不能再誤報成已被 repo gate 完整覆蓋。
 - 驗證舊產品假設的測試應直接刪除或重寫，不保留作長期 legacy harness。
 - 不接受把「目前 typecheck 會紅」「先關掉 coverage 再說」寫成完成狀態；重寫期只是調整 gate 的層級，不是放棄品質。
 

@@ -25,12 +25,14 @@
 - `bun run build`
 - 與本 work block 直接相關的 targeted tests（unit / integration / e2e smoke / Rust crate tests）
 
-目前已固化的前端 shell 驗收組合：
+目前已固化並納入 blocking path 的 non-UI JS 驗收組合：
 
-- `bun run test:unit:shell`
-- `bun run coverage:js:shell`
-- `bun run mutation:js:shell`
+- `bun run test:unit:desktop-contract`
+- `bun run coverage:js:desktop-contract`
+- `bun run mutation:js:desktop-contract`
 - `bun run test:e2e`
+
+frontend shell / route / sidebar / primitives 的驗收必須由前端 owner 補 dedicated tests 或 visual review；不能再把 desktop contract gate 當成 UI 已完成的證據。
 
 ### 暫時拿掉的 blocking gate
 

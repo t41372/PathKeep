@@ -5,6 +5,6 @@
     "eslint.config.js",
     "playwright.config.ts",
     "vitest.config.ts",
-    "vitest.shell.config.ts"
+    "vitest.desktop-contract.config.ts"
   ]
 }

@@ -14,7 +14,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderSecretInput, AiSearchRequest, AppConfig,
     ExplainInsightRequest, ExportRequest, HistoryQuery, RunInsightsRequest, S3CredentialInput,
-    SchedulePlan, TakeoutRequest,
+    SchedulePlan, ScheduleStatus, SecurityStatus, TakeoutRequest,
 };
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
@@ -60,6 +60,7 @@ fn run_app() -> Result<()> {
             app_snapshot,
             save_config,
             initialize_archive,
+            preview_rekey_archive,
             rekey_archive,
             set_session_database_key,
             clear_session_database_key,
@@ -76,8 +77,10 @@ fn run_app() -> Result<()> {
             revert_import_batch,
             preview_schedule,
             apply_schedule,
+            schedule_status,
             doctor_report,
             keyring_status,
+            security_status,
             keyring_get_database_key,
             keyring_store_database_key,
             keyring_clear_database_key,
@@ -143,6 +146,15 @@ fn rekey_archive(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
     worker_bridge::rekey_archive_impl(request, &state)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn preview_rekey_archive(
+    request: RekeyRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RekeyPreview, String> {
+    worker_bridge::preview_rekey_archive_impl(request, &state)
 }
 
 #[cfg(not(test))]
@@ -265,6 +277,15 @@ fn apply_schedule(plan: SchedulePlan) -> Result<vault_core::ApplyResult, String>
 
 #[cfg(not(test))]
 #[tauri::command]
+fn schedule_status(
+    platform: Option<String>,
+    state: State<'_, SessionState>,
+) -> Result<ScheduleStatus, String> {
+    worker_bridge::schedule_status_impl(platform, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 fn doctor_report(state: State<'_, SessionState>) -> Result<vault_core::HealthReport, String> {
     worker_bridge::doctor_report_impl(state.get_key().as_deref())
 }
@@ -273,6 +294,12 @@ fn doctor_report(state: State<'_, SessionState>) -> Result<vault_core::HealthRep
 #[tauri::command]
 fn keyring_status() -> vault_core::KeyringStatusReport {
     worker_bridge::keyring_status_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn security_status(state: State<'_, SessionState>) -> Result<SecurityStatus, String> {
+    worker_bridge::security_status_impl(state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

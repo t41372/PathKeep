@@ -3,11 +3,16 @@
   "testRunner": "vitest",
   "checkers": ["typescript"],
   "reporters": ["clear-text", "progress"],
+  "ignorePatterns": [
+    "src-tauri/target/**",
+    "coverage/**",
+    "dist/**",
+    "output/**",
+    "test-results/**",
+    "var/**"
+  ],
   "mutate": [
     "src/main.tsx",
-    "src/app/**/*.tsx",
-    "src/components/sidebar/**/*.tsx",
-    "src/components/topbar/**/*.tsx",
     "src/lib/ipc/bridge.ts",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx"
@@ -15,13 +20,13 @@
   "coverageAnalysis": "all",
   "disableTypeChecks": "src/**/*.{ts,tsx}",
   "allowConsoleColors": true,
-  "tempDirName": "reports/mutation/.stryker-shell-tmp",
+  "tempDirName": "reports/mutation/.stryker-desktop-contract-tmp",
   "thresholds": {
     "high": 100,
     "low": 100,
     "break": 100
   },
   "vitest": {
-    "configFile": "vitest.shell.config.ts"
+    "configFile": "vitest.desktop-contract.config.ts"
   }
 }

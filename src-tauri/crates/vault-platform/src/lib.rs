@@ -16,7 +16,10 @@ use std::{
 };
 use vault_core::{
     ProjectPaths,
-    models::{ApplyResult, GeneratedFile, KeyringStatusReport, S3CredentialInput, SchedulePlan},
+    models::{
+        ApplyResult, GeneratedFile, KeyringStatusReport, S3CredentialInput, SchedulePlan,
+        ScheduleStatus,
+    },
 };
 
 const KEYRING_SERVICE: &str = "dev.codex.pathkeep";
@@ -122,6 +125,79 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
     })
 }
 
+pub fn schedule_status(
+    platform: Option<&str>,
+    executable_path: &Path,
+    paths: &ProjectPaths,
+    params: &ScheduleParameters,
+) -> Result<ScheduleStatus> {
+    let plan = preview_schedule(platform, executable_path, paths, params)?;
+    let mut status = ScheduleStatus {
+        platform: plan.platform.clone(),
+        label: plan.label.clone(),
+        due_after_hours: params.due_after_hours,
+        check_interval_hours: params.check_interval_hours,
+        apply_supported: plan.apply_supported,
+        install_state: if plan.platform == "macos" {
+            "not-installed".to_string()
+        } else {
+            "manual-review".to_string()
+        },
+        manual_steps: plan.manual_steps.clone(),
+        audit_path: latest_schedule_audit_path(paths),
+        ..ScheduleStatus::default()
+    };
+
+    if plan.platform != "macos" {
+        status.warnings.push(
+            "Automatic install-status detection is only implemented on macOS in v1. Use the manual verification steps for this platform.".to_string(),
+        );
+        return Ok(status);
+    }
+
+    let launch_agents_dir = launch_agents_dir()?;
+    let target_path = launch_agents_dir.join(
+        PathBuf::from(&plan.generated_files[0].relative_path).file_name().unwrap_or_default(),
+    );
+    let legacy_path = launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist"));
+
+    if target_path.exists() {
+        status.detected_files.push(target_path.display().to_string());
+        match fs::read_to_string(&target_path) {
+            Ok(contents) => {
+                status.install_state = if contents == plan.generated_files[0].contents {
+                    "installed".to_string()
+                } else {
+                    status
+                        .warnings
+                        .push("Installed LaunchAgent content no longer matches the current PathKeep schedule plan.".to_string());
+                    "mismatch".to_string()
+                };
+            }
+            Err(error) => {
+                status.install_state = "permission-warning".to_string();
+                status.warnings.push(format!(
+                    "PathKeep could not read the installed LaunchAgent at {}: {error}",
+                    target_path.display()
+                ));
+            }
+        }
+    }
+
+    if legacy_path.exists() {
+        status.detected_files.push(legacy_path.display().to_string());
+        status.warnings.push(format!(
+            "A legacy Browser History Backup LaunchAgent is still present at {}. Remove it before trusting the new schedule state.",
+            legacy_path.display()
+        ));
+        if status.install_state == "not-installed" {
+            status.install_state = "legacy-install-detected".to_string();
+        }
+    }
+
+    Ok(status)
+}
+
 fn write_schedule_apply_audit(
     paths: &ProjectPaths,
     plan: &SchedulePlan,
@@ -141,6 +217,21 @@ fn write_schedule_apply_audit(
     ]))?;
     fs::write(&audit_path, contents)?;
     Ok(audit_path)
+}
+
+fn latest_schedule_audit_path(paths: &ProjectPaths) -> Option<String> {
+    let scheduler_dir = paths.audit_repo_path.join("scheduler");
+    let mut newest = fs::read_dir(&scheduler_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            let modified = metadata.modified().ok()?;
+            Some((modified, entry.path()))
+        })
+        .collect::<Vec<_>>();
+    newest.sort_by_key(|(modified, _)| *modified);
+    newest.last().map(|(_, path)| path.display().to_string())
 }
 
 #[rustfmt::skip]
@@ -807,6 +898,67 @@ mod tests {
             .expect("default preview");
         assert_eq!(preview.platform, current_platform_name());
         assert!(!preview.manual_steps.is_empty());
+    }
+
+    #[test]
+    fn macos_schedule_status_detects_installed_content_and_legacy_warning() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR");
+        unsafe {
+            std::env::set_var("CHB_TEST_LAUNCH_AGENTS_DIR", &launch_agents_dir);
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
+        fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
+        fs::write(
+            launch_agents_dir.join(format!("{MACOS_LABEL}.plist")),
+            &plan.generated_files[0].contents,
+        )
+        .expect("write current plist");
+        fs::write(launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist")), "legacy")
+            .expect("write legacy plist");
+
+        let status =
+            schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
+
+        restore_env_var("CHB_TEST_LAUNCH_AGENTS_DIR", original_launch_agents.as_deref());
+
+        assert_eq!(status.install_state, "installed");
+        assert_eq!(status.detected_files.len(), 2);
+        assert!(status.warnings.iter().any(|warning| warning.contains("legacy")));
+    }
+
+    #[test]
+    fn macos_schedule_status_detects_mismatch() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR");
+        unsafe {
+            std::env::set_var("CHB_TEST_LAUNCH_AGENTS_DIR", &launch_agents_dir);
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
+        fs::write(
+            launch_agents_dir.join(format!("{MACOS_LABEL}.plist")),
+            "<plist>outdated</plist>",
+        )
+        .expect("write mismatched plist");
+
+        let status =
+            schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
+
+        restore_env_var("CHB_TEST_LAUNCH_AGENTS_DIR", original_launch_agents.as_deref());
+
+        assert_eq!(status.install_state, "mismatch");
+        assert!(status.warnings.iter().any(|warning| warning.contains("no longer matches")));
     }
 
     #[test]

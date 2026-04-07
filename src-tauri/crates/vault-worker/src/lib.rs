@@ -35,7 +35,7 @@ use vault_platform::{
     keyring_clear_s3_credentials, keyring_get_database_key, keyring_get_provider_api_key,
     keyring_get_s3_credentials, keyring_set_database_key, keyring_set_provider_api_key,
     keyring_set_s3_credentials, keyring_status, preview_schedule, provider_api_key_saved,
-    s3_credentials_saved,
+    s3_credentials_saved, schedule_status as detect_schedule_status,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -517,6 +517,133 @@ pub fn preview_schedule_plan(
 pub fn apply_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
     let paths = project_paths()?;
     apply_schedule(plan, &paths)
+}
+
+pub fn schedule_status(
+    session_database_key: Option<&str>,
+    platform: Option<&str>,
+    executable_path: Option<PathBuf>,
+) -> Result<vault_core::ScheduleStatus> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    let executable = executable_path
+        .or_else(|| std::env::current_exe().ok())
+        .context("resolving executable path for schedule status")?;
+    let mut status = detect_schedule_status(
+        platform,
+        executable.as_path(),
+        &paths,
+        &ScheduleParameters {
+            due_after_hours: config.due_after_hours,
+            check_interval_hours: config.schedule_check_interval_hours,
+        },
+    )?;
+    status.last_successful_backup_at =
+        archive_status(&paths, &config, session_database_key)?.last_successful_backup_at;
+    Ok(status)
+}
+
+pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core::SecurityStatus> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    let archive = archive_status(&paths, &config, session_database_key)?;
+    let keyring = keyring_status();
+    let mut warnings = Vec::new();
+    if let Some(warning) = archive.warning.clone() {
+        warnings.push(warning);
+    }
+    if matches!(config.archive_mode, ArchiveMode::Encrypted)
+        && config.remember_database_key_in_keyring
+        && !keyring.available
+    {
+        warnings.push(
+            "Archive is configured to remember the database key, but no native keyring backend is available on this machine.".to_string(),
+        );
+    }
+    if matches!(config.archive_mode, ArchiveMode::Encrypted)
+        && config.remember_database_key_in_keyring
+        && !keyring.stored_secret
+    {
+        warnings.push(
+            "Archive is encrypted, but the database key is not currently stored in the system keyring.".to_string(),
+        );
+    }
+
+    let mode = if !archive.initialized {
+        "uninitialized"
+    } else if !archive.encrypted {
+        "plaintext"
+    } else if archive.unlocked {
+        "encrypted"
+    } else {
+        "locked"
+    };
+
+    Ok(vault_core::SecurityStatus {
+        initialized: archive.initialized,
+        mode: mode.to_string(),
+        encrypted: archive.encrypted,
+        unlocked: archive.unlocked,
+        database_path: archive.database_path,
+        stronghold_path: paths.stronghold_path.display().to_string(),
+        remember_database_key_in_keyring: config.remember_database_key_in_keyring,
+        last_successful_backup_at: archive.last_successful_backup_at,
+        keyring_status: keyring,
+        warnings,
+    })
+}
+
+pub fn preview_rekey_archive(
+    session_database_key: Option<&str>,
+    request: &RekeyRequest,
+) -> Result<vault_core::RekeyPreview> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    let archive = archive_status(&paths, &config, session_database_key)?;
+    if !archive.initialized || !paths.archive_database_path.exists() {
+        anyhow::bail!("initialize the archive before previewing a rekey operation");
+    }
+
+    let mut warnings = Vec::new();
+    if archive.encrypted && !archive.unlocked {
+        warnings.push(
+            "The archive is currently locked. Unlock it before executing the rekey.".to_string(),
+        );
+    }
+    if matches!(request.new_mode, ArchiveMode::Encrypted) && request.new_key.is_none() {
+        warnings.push(
+            "Encrypted rekey requires a new database key before execute can run.".to_string(),
+        );
+    }
+    if config.archive_mode == request.new_mode {
+        warnings.push(
+            "The archive will still be rewritten because the target mode matches the current mode, which makes this a key rotation or validation pass rather than a mode switch.".to_string(),
+        );
+    }
+
+    let snapshot_path =
+        paths.raw_snapshots_dir.join("rekey").join("archive-before-rekey-<timestamp>.sqlite");
+    let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
+
+    Ok(vault_core::RekeyPreview {
+        current_mode: config.archive_mode,
+        next_mode: request.new_mode.clone(),
+        requires_new_key: matches!(request.new_mode, ArchiveMode::Encrypted),
+        snapshot_path: snapshot_path.display().to_string(),
+        temp_database_path: temp_path.display().to_string(),
+        steps: vec![
+            format!(
+                "Create a safety snapshot of the current archive at {}.",
+                snapshot_path.display()
+            ),
+            format!(
+                "Export the archive into a temporary database at {} using the requested target mode.",
+                temp_path.display()
+            ),
+            "Swap the rewritten database into place only after the export succeeds, and keep the safety snapshot for manual recovery.".to_string(),
+        ],
+        warnings,
+    })
 }
 
 pub fn read_database_key_from_keyring() -> Result<Option<String>> {
@@ -1247,6 +1374,10 @@ mod tests {
         assert_eq!(preview.platform, "windows");
         let applied = apply_schedule_plan(&preview).expect("apply schedule");
         assert!(!applied.applied);
+        let schedule = schedule_status(None, Some("windows"), Some(PathBuf::from("/tmp/bhb")))
+            .expect("schedule status");
+        assert_eq!(schedule.install_state, "manual-review");
+        assert!(!schedule.warnings.is_empty());
 
         let takeout_preview = inspect_takeout_source(&TakeoutRequest {
             source_path: takeout_source.clone(),
@@ -1276,6 +1407,24 @@ mod tests {
         );
         assert!(keyring_report().stored_secret);
         assert!(!clear_database_key_from_keyring().expect("clear db key").stored_secret);
+
+        let security = security_status(None).expect("security status");
+        assert_eq!(security.mode, "plaintext");
+        assert!(security.initialized);
+
+        let rekey_preview = preview_rekey_archive(
+            None,
+            &RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None },
+        )
+        .expect("preview rekey");
+        assert!(rekey_preview.requires_new_key);
+        assert!(rekey_preview.snapshot_path.contains("raw-snapshots/rekey"));
+        assert!(
+            rekey_preview
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("requires a new database key"))
+        );
 
         store_s3_credentials(&S3CredentialInput {
             access_key_id: "akid".to_string(),

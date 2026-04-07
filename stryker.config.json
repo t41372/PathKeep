@@ -3,6 +3,14 @@
   "testRunner": "vitest",
   "checkers": ["typescript"],
   "reporters": ["clear-text", "html", "progress"],
+  "ignorePatterns": [
+    "src-tauri/target/**",
+    "coverage/**",
+    "dist/**",
+    "output/**",
+    "test-results/**",
+    "var/**"
+  ],
   "htmlReporter": {
     "fileName": "reports/mutation/js/index.html"
   },

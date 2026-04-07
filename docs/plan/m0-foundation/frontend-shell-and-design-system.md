@@ -7,7 +7,7 @@
 
 - 新 shell 已落在 `src/app/`、`src/components/sidebar/`、`src/components/topbar/`、`src/pages/*/index.tsx`、`src/styles/{tokens,app}.css`
 - design token source of truth 已寫入 [../../design/design-tokens.md](../../design/design-tokens.md)
-- shell slice 的 focused verification 已固定為 `bun run test:unit:shell`、`bun run coverage:js:shell`、`bun run mutation:js:shell`
+- 2026-04-06 審查修正：舊的 shell slice gate 已退回成 desktop contract slice（`src/main.tsx` + `src/lib/ipc/bridge.ts`）；frontend shell / route / sidebar / primitives 不再宣稱已由 coverage / mutation gate 完整收口
 
 ---
 

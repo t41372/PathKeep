@@ -607,10 +607,14 @@ pub fn rekey_archive(
     }
 
     let source = open_archive_connection(paths, current_config, old_key)?;
+    let _snapshot_path = create_rekey_snapshot(paths)?;
     let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
     let backup_path = paths.archive_database_path.with_extension("backup.sqlite");
     if temp_path.exists() {
         fs::remove_file(&temp_path)?;
+    }
+    if backup_path.exists() {
+        fs::remove_file(&backup_path)?;
     }
     let target_key = match new_mode {
         ArchiveMode::Encrypted => Some(new_key.context("new encryption key is required")?),
@@ -618,7 +622,11 @@ pub fn rekey_archive(
     };
     export_archive_database(&source, &temp_path, target_key)?;
     fs::rename(&paths.archive_database_path, &backup_path)?;
-    fs::rename(&temp_path, &paths.archive_database_path)?;
+    if let Err(error) = fs::rename(&temp_path, &paths.archive_database_path) {
+        let _ = fs::rename(&backup_path, &paths.archive_database_path);
+        let _ = fs::remove_file(&temp_path);
+        return Err(error).context("replacing archive database after rekey export");
+    }
     let _ = fs::remove_file(&backup_path);
 
     let mut next_config = current_config.clone();
@@ -626,6 +634,17 @@ pub fn rekey_archive(
     next_config.archive_mode = new_mode;
     save_config(paths, &next_config)?;
     archive_status(paths, &next_config, new_key.or(old_key))
+}
+
+fn create_rekey_snapshot(paths: &ProjectPaths) -> Result<PathBuf> {
+    let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::create_dir_all(&snapshot_dir)?;
+    let snapshot_path = snapshot_dir
+        .join(format!("archive-before-rekey-{}.sqlite", now_rfc3339().replace(':', "-")));
+    fs::copy(&paths.archive_database_path, &snapshot_path).with_context(|| {
+        format!("creating rekey safety snapshot at {}", snapshot_path.display())
+    })?;
+    Ok(snapshot_path)
 }
 
 pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Result<HealthReport> {
@@ -2094,6 +2113,28 @@ mod tests {
 
         let report = doctor(&paths, &config, None).expect("doctor");
         assert!(report.checks.iter().any(|check| check.name == "Snapshot artifacts" && !check.ok));
+    }
+
+    #[test]
+    fn rekey_archive_keeps_a_safety_snapshot() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = AppConfig { initialized: true, ..AppConfig::default() };
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let status =
+            rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("vault-passphrase"))
+                .expect("rekey archive");
+
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+        let snapshots = fs::read_dir(&rekey_dir)
+            .expect("read rekey snapshot dir")
+            .filter_map(|entry| entry.ok())
+            .collect::<Vec<_>>();
+
+        assert!(status.encrypted);
+        assert_eq!(snapshots.len(), 1);
+        assert!(snapshots[0].path().is_file());
     }
 
     #[test]

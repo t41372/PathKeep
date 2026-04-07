@@ -20,6 +20,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 2. 讀該 work block 的「讀先」列表裡的文檔（只讀列出的；如果列出的內容互相衝突、引用失效、或不足以完成工作，只補讀直接相關檔案並先修文檔）
 3. 執行整個 work block 的範圍；work block 的粒度約等於半個 milestone，可包含多個子任務
 4. 跑驗收命令：`bun run check && bun run build`
+   - `bun run check` 已內含 desktop contract slice（`src/main.tsx`、`src/lib/ipc/bridge.ts`）的 targeted unit / coverage / mutation gate；不要把它誤讀成前端 shell / route / sidebar 也已驗收
 
 ### 收工（每完成一個 work block）
 
@@ -143,6 +144,7 @@ reference/
 
 - **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit
 - **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。M0 重寫期間，舊碼不再靠 repo-wide coverage / mutation gate 阻塞；但**所有新建或整段重寫的模組**都必須有測試，且該 slice 要做到 100% coverage + mutation verification，否則不算完成
+- **Desktop contract slice**：目前納入 blocking path 的 targeted JS gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`；前端 shell / route / sidebar / primitives 不在這條 coverage / mutation gate 內，不能再把 UI 完成度誤記到這條驗收上
 - **Test 位置**：`foo.ts` → `foo.test.ts`（放旁邊），E2E 放 `tests/e2e/`
 - **注釋**：代碼注釋即開發者文檔，重要技術決策、trade-off 在代碼處寫注釋
 - **文檔更新**：改功能行為 → 更新 `docs/features/`；新技術決策 → 更新 `docs/architecture/`
@@ -159,13 +161,14 @@ bun run build            # TypeScript + Vite bundle
 bun run check            # 所有 quality gate
 bun run verify           # 本地 CI 全掃（coverage + e2e + debug build）
 bun run test:unit        # Vitest unit tests
-bun run test:unit:shell  # 新 shell slice 的 targeted unit tests
+bun run test:unit:desktop-contract # desktop contract slice 的 targeted unit tests
+bun run check:desktop-contract # desktop contract slice 的 targeted unit + coverage + mutation gate
 bun run test:e2e         # Playwright e2e
 bun run coverage:js      # JS 覆蓋率（要求 100%）
-bun run coverage:js:shell # 新 shell slice 的 targeted JS 覆蓋率
+bun run coverage:js:desktop-contract # desktop contract slice 的 targeted JS 覆蓋率
 bun run coverage:rust    # Rust 覆蓋率
 bun run mutation         # Mutation tests
-bun run mutation:js:shell # 新 shell slice 的 targeted mutation tests
+bun run mutation:js:desktop-contract # desktop contract slice 的 targeted mutation tests
 bun run format           # Prettier 格式化
 ```
 

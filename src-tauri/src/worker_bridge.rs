@@ -73,6 +73,13 @@ pub(crate) fn rekey_archive_impl(
     Ok(snapshot)
 }
 
+pub(crate) fn preview_rekey_archive_impl(
+    request: RekeyRequest,
+    state: &SessionState,
+) -> Result<vault_core::RekeyPreview, String> {
+    worker_result(vault_worker::preview_rekey_archive(session_key(state).as_deref(), &request))
+}
+
 pub(crate) fn set_session_database_key_impl(
     database_key: String,
     state: &SessionState,
@@ -165,6 +172,13 @@ pub(crate) fn apply_schedule_impl(plan: SchedulePlan) -> Result<vault_core::Appl
     worker_result(vault_worker::apply_schedule_plan(&plan))
 }
 
+pub(crate) fn schedule_status_impl(
+    platform: Option<String>,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ScheduleStatus, String> {
+    worker_result(vault_worker::schedule_status(session_database_key, platform.as_deref(), None))
+}
+
 pub(crate) fn doctor_report_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::HealthReport, String> {
@@ -173,6 +187,12 @@ pub(crate) fn doctor_report_impl(
 
 pub(crate) fn keyring_status_impl() -> vault_core::KeyringStatusReport {
     vault_worker::keyring_report()
+}
+
+pub(crate) fn security_status_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::SecurityStatus, String> {
+    worker_result(vault_worker::security_status(session_database_key))
 }
 
 pub(crate) fn keyring_get_database_key_impl() -> Result<Option<String>, String> {
@@ -589,9 +609,19 @@ mod tests {
         assert_eq!(plan.platform, "linux");
         let applied = apply_schedule_impl(plan).expect("apply schedule");
         assert!(!applied.applied);
+        let schedule_status =
+            schedule_status_impl(Some("linux".to_string()), session_key(&session).as_deref())
+                .expect("schedule status");
+        assert_eq!(schedule_status.install_state, "manual-review");
 
         let doctor = doctor_report_impl(session_key(&session).as_deref()).expect("doctor");
         assert!(!doctor.checks.is_empty());
+        let rekey_preview = preview_rekey_archive_impl(
+            RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None },
+            &session,
+        )
+        .expect("preview rekey archive");
+        assert!(rekey_preview.requires_new_key);
         let rekeyed_snapshot = rekey_archive_impl(
             RekeyRequest {
                 new_mode: ArchiveMode::Encrypted,
@@ -606,6 +636,9 @@ mod tests {
             app_snapshot_impl(session_key(&session).as_deref()).expect("app snapshot");
         assert_eq!(snapshot_again.browser_profiles.len(), 1);
         assert!(snapshot_again.archive_status.encrypted);
+        let security_status =
+            security_status_impl(session_key(&session).as_deref()).expect("security status");
+        assert_eq!(security_status.mode, "encrypted");
         fs::write(dir.path().join("vault.hold"), "secret vault").expect("write stronghold fixture");
         reset_local_secret_vault_impl().expect("reset local secret vault");
         assert!(!dir.path().join("vault.hold").exists());

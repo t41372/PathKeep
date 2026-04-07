@@ -73,15 +73,17 @@
 
 - `bun run typecheck`：通過
 - `bun run test:unit`：通過
-- `bun run test:unit:shell`：通過
-- `bun run coverage:js:shell`：通過，shell slice 維持 100% coverage
-- `bun run mutation:js:shell`：通過，shell slice 維持 100% mutation score
+- `bun run test:unit:desktop-contract`：通過
+- `bun run coverage:js:desktop-contract`：通過，desktop contract slice 維持 100% coverage
+- `bun run mutation:js:desktop-contract`：通過，desktop contract slice 維持 100% mutation score
 - `cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --quiet`：通過
 - `bun run test:e2e`：通過，驗證新 shell / onboarding / dashboard smoke
 - `bun run check`：通過，repo-wide Markdown / Prettier debt 與驗收途中浮出的 JS ESLint、Rust Clippy 基線問題已清理
 - `bun run build`：通過
 
-這個結果很重要，因為它說明 repo 現在已經不再保護舊 setup shell，而是開始保護新的產品骨架。接下來的主軸可以從 **M1 的 archive shell 收口** 轉到 **M2 的 recall / rollback / multi-browser trust 流程**。
+這個結果很重要，因為它說明 repo 現在至少對 desktop entry + typed IPC contract 有一條可以兌現的硬 gate，而不是只靠口頭宣稱 shell slice 已經驗完。
+
+2026-04-06 審查修正：M1 的 archive feature baseline 已經落地，但 milestone 本身仍有 closeout 要完成。非前端剩餘重點已收斂到 `M1-DB` / `M1-OPS` 的 acceptance matrix、security mode taxonomy、retention / audit summary；前端 shell / route / sidebar 的驗收也不能再借用舊的 shell slice 敘事，必須由前端 owner 補上獨立驗收。
 
 ---
 
@@ -120,7 +122,7 @@ M4  Full Intelligence & Polish
 | ------ | ------------------------------------------------------------------------ | ----- | -------------------------------------------------------------- |
 | `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                         |
 | `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)             |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[/]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
 | `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
 | `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |
 | `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md)           |
