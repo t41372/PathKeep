@@ -38,13 +38,13 @@ Accepted | Proposed | Superseded
 
 ## 相關
 
-- STATUS.md TASK-XXX
+- STATUS.md 對應的 work block / decision bundle
 - [相關文檔連結]
 ```
 
-## 預先決策（已在 STATUS.md 記錄，需要正式寫成 ADR）
+## 已知決策（已有結論，需要正式寫成 ADR）
 
-以下四個決策已在 STATUS.md 的 TASK-001 ~ TASK-003, TASK-006 中預填了結論和理由，
+以下四個決策已經在 planning docs 中有明確結論，
 agent 只需要把它們正式化成 ADR 文件即可：
 
 1. **ADR-001** — [Fresh schema](001-archive-reset-strategy.md)（不在 legacy schema 上繼續演化；既有 DB 走一次性 upgrade）

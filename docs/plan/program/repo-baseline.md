@@ -40,7 +40,7 @@
 - [ ] `PG-BL-FE-002` 產出「prototype 已覆蓋畫面」和「仍需補設計稿畫面」清單。
 - [ ] `PG-BL-FE-003` 把 browser-preview mock data 從正式 IPC contract 中拆開，避免新前端繼續依賴假資料模型。
 - [ ] `PG-BL-FE-004` 定義新的 route tree、sidebar IA、page title / breadcrumb 規範、global search entry 規範。
-- [ ] `PG-BL-FE-005` 為新的 page / component / test 結構建立 naming convention，避免 `AppNew` 這種過渡命名長期留在主幹。
+- [ ] `PG-BL-FE-005` 為新的 page / component / test 結構建立 naming convention，避免 `AppNew` 這種 legacy placeholder 命名長期留在主幹。
 
 ---
 
@@ -79,7 +79,7 @@
 - `typecheck`、Vitest 和 Rust 測試都通過，說明 repo 目前有穩定的可執行基線。
 - [`tests/e2e/shell.spec.ts`](../../../tests/e2e/shell.spec.ts) 仍然驗證舊 setup shell 的 heading 和文案，因此 Playwright 失敗代表「驗收目標過期」，不是環境本身壞掉。
 - README 和 workflow 仍大量描述「Browser History Backup」而不是 PathKeep，也還在宣稱一些舊產品敘事和已完成度。
-- [standards.md](../../standards.md) 要求 100% coverage + mutation test，但 README 又明確承認 Rust coverage 還沒到 100%，這需要在 plan 中如實面對，而不是假裝它已達標。
+- [standards.md](../../standards.md) 的最終標準是 100% coverage + mutation，但重寫期需要把「repo-wide gate」和「新碼 slice 標準」分開寫清楚，否則只會讓舊架構繼續佔據主線。
 - `.github/workflows/ci.yml`、`release.yml`、`mutation.yml` 已存在，但 release 文案和 asset naming 都還停留在舊名稱。
 
 ### 判斷
@@ -92,8 +92,8 @@
 
 - [ ] `PG-BL-QA-001` 定義新的 test pyramid 和 ownership，明確哪些測試屬於 parser、archive、worker、frontend、e2e。
 - [ ] `PG-BL-QA-002` 重寫 Playwright smoke 目標，從舊 setup shell 改成新 app shell / onboarding / dashboard smoke。
-- [ ] `PG-BL-QA-003` 規劃 coverage threshold 拉升路徑，避免在巨量重構期間被舊閾值或舊敘事誤導。
-- [ ] `PG-BL-QA-004` 盤點 mutation test 現況和成本，為 M0 之後的分段恢復做準備。
+- [ ] `PG-BL-QA-003` 定義重寫期 quality policy：repo-wide coverage / mutation 暫時不擋主線，但新碼與整段重寫模組仍必須達到 100% coverage + mutation verification。
+- [ ] `PG-BL-QA-004` 盤點 mutation test 現況和成本，先支持 targeted verification，再決定何時恢復整倉 sweep。
 - [ ] `PG-BL-QA-005` 重寫 README / release workflow 文案，使其描述和新產品定位一致。
 
 ---
@@ -110,11 +110,10 @@
 
 ### 判斷
 
-- 這不是單純的 rename task，而是產品定位切換的一部分。需要區分哪些是對外名稱、哪些是內部 compatibility name。
-- 既然目前還沒有正式用戶，M0 應該優先做乾淨切換，而不是堆太多臨時兼容方案。
+- 這不是單純的 rename task，而是產品定位切換的一部分；因為沒有正式用戶，M0 應直接做乾淨切換，不需要設計長期兼容窗口。
 
 ### 待辦
 
 - [ ] `PG-BL-NM-001` 列出所有對外可見名稱、內部 service name、filesystem path name、bundle id、schedule label、MCP skill 名稱。
-- [ ] `PG-BL-NM-002` 區分「需要短期兼容讀取的 legacy name」和「應立即清除的舊名字串」。
-- [ ] `PG-BL-NM-003` 建立 rename rollout 順序，避免先改 app root 再把舊資料遺失或舊測試全部打散。
+- [ ] `PG-BL-NM-002` 標記哪些舊名字串應直接清除，哪些確實與資料恢復相關、需要被保留到對應重寫完成。
+- [ ] `PG-BL-NM-003` 建立一次性 rename cleanup checklist，確保命名清理不遺漏 build metadata、資料目錄與 automation artifact。

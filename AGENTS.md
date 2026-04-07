@@ -16,50 +16,50 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 ### 開工
 
-1. 讀 `docs/plan/STATUS.md` — 找到第一個 `[ ]` 任務
-2. 讀該任務「讀先」列表裡的文檔（只讀列出的；如果列出的內容互相衝突、引用失效、或不足以完成任務，只補讀直接相關檔案並先修文檔）
-3. 執行任務
+1. 讀 `docs/plan/STATUS.md` — 找到第一個 `[ ]` work block
+2. 讀該 work block 的「讀先」列表裡的文檔（只讀列出的；如果列出的內容互相衝突、引用失效、或不足以完成工作，只補讀直接相關檔案並先修文檔）
+3. 執行整個 work block 的範圍；work block 的粒度約等於半個 milestone，可包含多個子任務
 4. 跑驗收命令：`bun run check && bun run build`
 
-### 收工（每完成一個任務）
+### 收工（每完成一個 work block）
 
 1. 在 `STATUS.md` 把 `[ ]` 改成 `[x]`
-2. 把完成的任務剪切（append）到 `docs/plan/CHANGELOG.md` 底部，不改舊內容
-3. 同步回寫這個任務實際解鎖或完成的 source docs：
+2. 把完成的 work block 剪切（append）到 `docs/plan/CHANGELOG.md` 底部，不改舊內容
+3. 同步回寫這個 work block 實際解鎖或完成的 source docs：
    - `docs/plan/program/research-and-decisions.md` 對應的 `PG-RD-*`
    - milestone `README.md` / checklist
    - `docs/plan/BACKLOG.md` 裡的 inline `[!blocked: ...]` 標記與依賴說明
-   - 如果任務改變了功能行為或技術決策，也要同步更新 `docs/features/`、`docs/design/`、`docs/architecture/`
-4. 如果 `STATUS.md` 裡沒有剩餘 `[ ]` 任務了：
+   - 如果 work block 改變了功能行為或技術決策，也要同步更新 `docs/features/`、`docs/design/`、`docs/architecture/`
+4. 如果 `STATUS.md` 裡沒有剩餘 `[ ]` work blocks 了：
    - 打開 `docs/plan/BACKLOG.md`
-   - 從 BACKLOG 頂部取最多 5 個未被阻塞的任務，剪切到 `STATUS.md` 的 CURRENT FOCUS 區
+   - 從 BACKLOG 頂部取最多 2 個未被阻塞的 work blocks，剪切到 `STATUS.md` 的 CURRENT FOCUS 區
    - 更新 `BACKLOG.md` 裡的 inline `[!blocked: ...]` 標記（如果有依賴被解鎖）
-5. Commit：`feat/fix/chore(scope): 描述` — 一個 task 一個 commit
+5. Commit：保持可 review；`STATUS.md` 的 work block 不等於單一 commit，必要時拆成多個合理 commit
 
 ### 情況判斷
 
-- `STATUS.md` 有 `[ ]` → 直接做第一個
-- `STATUS.md` 全是 `[x]` 或空的 → 去 `BACKLOG.md` 補充任務
-- 任務標記 `[!]` → blocked，跳過，做下一個
-- 遇到計劃外的工作 → 在 `BACKLOG.md` 加一條，不要直接做
+- `STATUS.md` 有 `[ ]` → 直接做第一個 work block
+- `STATUS.md` 全是 `[x]` 或空的 → 去 `BACKLOG.md` 補充 work blocks
+- work block 標記 `[!]` → blocked，跳過，做下一個
+- 遇到計劃外的大工作 → 在 `BACKLOG.md` 加一條，不要直接做
 
 ---
 
 ## 文檔導覽
 
-| 文檔                                          | 說明                               |
-| --------------------------------------------- | ---------------------------------- |
-| `docs/plan/STATUS.md`                         | 當前執行任務（max 5）              |
-| `docs/plan/BACKLOG.md`                        | 待辦隊列 + inline blocked 標記     |
-| `docs/plan/CHANGELOG.md`                      | 已完成任務日誌（只 append）        |
-| `docs/vision-and-requirements.md`             | 產品定位 + 核心原則                |
-| `docs/plan/README.md`                         | 里程碑計劃總覽                     |
-| `docs/plan/program/research-and-decisions.md` | 未落地技術決策                     |
-| `docs/plan/program/repo-baseline.md`          | 現有 repo 問題清單                 |
-| `docs/features/`                              | 各功能詳細需求規格                 |
-| `docs/architecture/`                          | 技術原則 + data model + tech stack |
-| `docs/design/`                                | UX 原則 + 畫面結構規格             |
-| `reference/PathKeep — Desktop UI Design/`     | 設計師 prototype（UI 對齊目標）    |
+| 文檔                                          | 說明                                |
+| --------------------------------------------- | ----------------------------------- |
+| `docs/plan/STATUS.md`                         | 當前 work block（通常 1-2 個）      |
+| `docs/plan/BACKLOG.md`                        | 後續 work block 隊列 + blocked 標記 |
+| `docs/plan/CHANGELOG.md`                      | 已完成 work block 日誌（只 append） |
+| `docs/vision-and-requirements.md`             | 產品定位 + 核心原則                 |
+| `docs/plan/README.md`                         | 里程碑計劃總覽                      |
+| `docs/plan/program/research-and-decisions.md` | 未落地技術決策                      |
+| `docs/plan/program/repo-baseline.md`          | 現有 repo 問題清單                  |
+| `docs/features/`                              | 各功能詳細需求規格                  |
+| `docs/architecture/`                          | 技術原則 + data model + tech stack  |
+| `docs/design/`                                | UX 原則 + 畫面結構規格              |
+| `reference/PathKeep — Desktop UI Design/`     | 設計師 prototype（UI 對齊目標）     |
 
 ---
 
@@ -113,9 +113,9 @@ src-tauri/
     src/lib.rs                1577 行，orchestration + MCP + CLI，待拆
 
 docs/plan/
-  STATUS.md                   當前執行任務（每次開工必讀）
-  BACKLOG.md                  待辦隊列 + inline blocked 標記
-  CHANGELOG.md                已完成任務日誌
+  STATUS.md                   當前 work block（每次開工必讀）
+  BACKLOG.md                  後續 work block 隊列 + inline blocked 標記
+  CHANGELOG.md                已完成 work block 日誌
   README.md                   里程碑總覽
   program/                    決策 backlog、repo baseline
   m0-foundation/              M0 詳細 WBS
@@ -139,8 +139,8 @@ reference/
 
 ## 工作規範
 
-- **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，一個 task 一個 commit
-- **Tests**：JS/TS 用 Vitest（100% coverage），Rust 用 `cargo test`，新 feature 沒有 tests = 不算完成
+- **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit
+- **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。M0 重寫期間，舊碼不再靠 repo-wide coverage / mutation gate 阻塞；但**所有新建或整段重寫的模組**都必須有測試，且該 slice 要做到 100% coverage + mutation verification，否則不算完成
 - **Test 位置**：`foo.ts` → `foo.test.ts`（放旁邊），E2E 放 `tests/e2e/`
 - **注釋**：代碼注釋即開發者文檔，重要技術決策、trade-off 在代碼處寫注釋
 - **文檔更新**：改功能行為 → 更新 `docs/features/`；新技術決策 → 更新 `docs/architecture/`

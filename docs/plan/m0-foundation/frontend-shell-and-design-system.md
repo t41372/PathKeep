@@ -11,7 +11,7 @@
 
 > **前提**：先阅讀 `reference/PathKeep — Desktop UI Design/index.html` 和 `style.css`，直接在瀏覽器開啟 prototype 確認已有哪些畫面。再阅讀 `docs/design/screens-and-nav.md` 確認新 IA。
 
-### Step 1: Delete old files and mark cutover boundary
+### Step 1: Delete old files and clear the rewrite target
 
 **要讀的文檔**
 
@@ -49,8 +49,8 @@ src/lib/browser-icons.tsx      # 保留
 **驗收**
 
 ```bash
-# 團隟確認沒有老檔案被遂忘漏掉
-bun run typecheck  # 裡面的錯誤會變多，這是預期的：等 Step 2 建立新骨架後繼續修復
+# Step 1 不應作為紅燈 checkpoint 單獨提交；刪除和替換要包在同一個 work session 內完成
+bun run typecheck
 ```
 
 **Commit**: `chore(fe): remove legacy AppNew shell and old page files`
@@ -140,8 +140,8 @@ export const routes = [
 **驗收**
 
 ```bash
-bun run typecheck   # 應非零 type error
-bun run test:unit   # 現有 unit tests 仍 pass
+bun run typecheck
+bun run test:unit
 # 確認 src/AppNew.tsx 已不存在， src/app/index.tsx 已存在
 ```
 
@@ -622,13 +622,13 @@ bun run typecheck   # 沒有宣告假資料的 export 被其他檔案依賴
 - [ ] `M0-FE-DC-005` 把 [`src/lib/backend.ts`](../../../src/lib/backend.ts) 裡的假資料和 IPC wrapper 拆開，建立真正的 typed bridge layer。
 - [ ] `M0-FE-DC-006` 決定前端如何表示 capability gating，例如 `archive_ready`、`scheduler_supported`、`keyring_available`、`ai_configured`。
 
-### Legacy Removal And Cutover
+### Legacy Removal
 
 - [ ] `M0-FE-LG-001` 盤點 [`src/AppNew.tsx`](../../../src/AppNew.tsx)、[`src/App.css`](../../../src/App.css)、[`src/AppNew.test.tsx`](../../../src/AppNew.test.tsx)、[`src/lib/i18n.ts`](../../../src/lib/i18n.ts) 的可重用片段和應淘汰片段。
 - [ ] `M0-FE-LG-002` 把舊 shell 中仍有價值的文案、型別、輔助函式搬到新結構或正式刪除，不留「先放著以後再看」。
-- [ ] `M0-FE-LG-003` 將 `AppNew` 從主入口移除後，保留很短期的過渡策略，但不能讓新舊 shell 長期雙軌。
+- [ ] `M0-FE-LG-003` 將 `AppNew` 從主入口直接移除，不讓舊 shell 留在主流程旁邊。
 - [ ] `M0-FE-LG-004` 重寫或刪除舊 setup-first 相關 CSS 和測試斷言，避免新 shell 被舊快照和舊文案拖住。
-- [ ] `M0-FE-LG-005` 盤點 `src/pages/` 舊頁面，標記 `rewrite in place`、`replace with new file`、`delete after cutover`。
+- [ ] `M0-FE-LG-005` 盤點 `src/pages/` 舊頁面，標記 `rewrite in place`、`replace with new file`、`delete immediately after replacement`。
 
 ### Testing And Design Verification
 
@@ -647,4 +647,4 @@ bun run typecheck   # 沒有宣告假資料的 export 被其他檔案依賴
 - design tokens 與 primitive component layer
 - prototype gap list 和補稿需求清單
 - 前端 IPC contract 草案
-- 舊 UI 刪除 / 保留清單與 cutover 順序
+- 舊 UI 刪除 / 保留清單

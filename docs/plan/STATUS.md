@@ -1,191 +1,107 @@
 # STATUS.md — 當前工作
 
-> Agent 每次開工讀這個檔案。完成任務後按 AGENTS.md 的收工流程更新。
+> Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：PG → M0 過渡期**（PG 決策收尾 + M0 前置任務）
+**當前 Milestone：M0 — 重構基礎**
 
 ---
 
 ## CURRENT FOCUS
 
-> 按優先順序排。永遠挑第一個 `[ ]`（未完成）的任務。
-> 完成任何 TASK 後，除了更新 `STATUS.md` / `CHANGELOG.md`，也要同步更新該任務對應的 `PG-RD-*`、milestone checklist、以及 `BACKLOG.md` 裡被解鎖的 inline `[!blocked: ...]` 標記。
-> 2026-04-06 更新：`TASK-019` 已完成，`bun run check` / `bun run build` 已恢復為可用硬 gate。
+> 這裡的單位是 **work block**，每個 block 的份量大約是半個 milestone。
+> work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
+> `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **TASK-002** — 寫 ADR: Run Model (unified run ledger)
-- [ ] **TASK-003** — 寫 ADR: Rollback Visibility Model
-- [ ] **TASK-004** — 從 prototype CSS 抽取 design tokens 表
-- [ ] **TASK-005** — 建立 `browser-history-parser` crate skeleton
+- [ ] **WORK-M0-A** — Data Plane Reset
+- [ ] **WORK-M0-B** — Product Shell Reset
 
 ---
 
-### TASK-002 — 寫 ADR: Run Model
+### WORK-M0-A — Data Plane Reset
 
-**解鎖關係**：決定 `runs` 表是否統一設計。M0-BE-SC-003 依賴這個。
+**目標**：把 M0 後端前半直接做完，讓 canonical data plane 不再卡在「還缺哪個 ADR、哪個 parser skeleton、哪個 migration foundation」的零碎待辦上。
 
-**決策已知答案**：
+**包含範圍**：
 
-- **決策**：所有 run 類型（`backup`、`import`、`revert`、`doctor`、`snapshot_restore`）共用同一 `runs` ledger table，以 `run_type` enum 欄位區分。
-- **理由**：統一 ledger 意味著 Audit UI 只需要一個 query surface，run ID 可以跨類型引用，manifest chain 不需要拆 table。
+1. 完成 ADR-002、ADR-003、ADR-004
+2. 建立 `browser-history-parser` crate skeleton
+3. 建立 canonical schema v1 migration 檔案與 migration executor
+4. 從 `archive.rs` 抽出 schema bootstrapping
+5. 產出新 Tauri command surface 草案
 
 **讀先**：
 
-- `docs/architecture/data-model.md` (Section 2: Schema 演化)
-- `docs/plan/program/research-and-decisions.md` (PG-RD-ARCH-003)
-- `docs/plan/m0-foundation/backend-and-data-rearchitecture.md` (M0-BE-SC-003)
+- `docs/architecture/data-model.md`
+- `docs/features/archive.md`
+- `docs/plan/program/research-and-decisions.md`（`PG-RD-ARCH-002` ~ `PG-RD-ARCH-007`）
+- `docs/plan/m0-foundation/backend-and-data-rearchitecture.md`
+- `src-tauri/crates/vault-core/src/archive-schema.sql`
+- `src-tauri/crates/vault-core/src/archive.rs`
+- `src-tauri/crates/vault-core/src/chrome.rs`
+- `src-tauri/src/lib.rs`
 
-**要建立的檔案**：
+**完成訊號**：
 
-- `docs/architecture/decisions/002-run-model.md`
+- M0 資料平面需要的核心 ADR 已凍結
+- `browser-history-parser` 已成為 workspace 成員，crate boundary 清楚
+- canonical schema v1 與 migration foundation 已落地，不再靠 ad-hoc bootstrap 當正式方案
+- `archive.rs` 的 schema bootstrapping 不再繼續膨脹
+- 新建或整段重寫的 Rust slice 已有測試，且該 slice 的 100% coverage + mutation verification 已完成或明確記錄
+- `bun run check && bun run build`
 
-**決策需覆蓋**：
+**預期 commit 類型**：
 
-1. `runs` 表的最小欄位集：id, run_type, trigger_source, started_at_ms, finished_at_ms, timezone, result, artifact_index
-2. `run_type` 的合法值：`backup | import | revert | doctor | snapshot_restore`
-3. `run_artifacts` 如何關聯 run
-
-**驗收**：檔案存在，包含 runs 表欄位草案。
-
-**Commit**：`docs(adr): add ADR-002 unified run model`
+- `docs(adr): ...`
+- `feat(parser): ...`
+- `feat(schema): ...`
+- `refactor(vault-core): ...`
 
 ---
 
-### TASK-003 — 寫 ADR: Rollback Visibility Model
+### WORK-M0-B — Product Shell Reset
 
-**解鎖關係**：M0-BE-SC-004 和 M2-IR-RB-001 都依賴這個。決定了哪些表需要 `reverted_at` 欄位。
+**目標**：把 M0 前端與產品表面前半直接做完，讓新 shell、design token、命名清理與重寫期 quality policy 一次到位，而不是再開一串臨時中繼 task。
 
-**決策已知答案**：
+**包含範圍**：
 
-- **決策**：Soft-delete via `reverted_at` + `reverted_by_run_id` columns on rows that were inserted by a run (i.e. `visits`, `urls`, `downloads`, `search_terms`).
-- **Immutable raw facts**：`runs`, `manifests`, `raw_row_versions` — 這些永遠不標 reverted，只記歷史。
-- **Derived state**：`fts_index`, embedding sidecar — 回滾時直接刪除並標記 stale，讓重建任務去處理。
-- **可見性查詢規則**：所有 query 預設加上 `WHERE reverted_at IS NULL`，除非明確要看「包含回滾資料的完整視圖」。
+1. 抽出 prototype design tokens，建立 token docs / CSS token layer
+2. 刪除舊 UI 入口並建立新 shell / router / page skeletons
+3. 重寫 Playwright shell smoke target
+4. 完成 PathKeep rename sweep（package / Tauri / README / workflow / public strings）
+5. 把 rewrite-phase quality policy 寫進 docs / AGENTS / CI
 
 **讀先**：
 
-- `docs/plan/program/research-and-decisions.md` (PG-RD-ARCH-004)
-- `docs/plan/m0-foundation/backend-and-data-rearchitecture.md` (M0-BE-SC-004)
-- `docs/features/archive.md` (Section 6: 審計與可信性)
+- `reference/PathKeep — Desktop UI Design/`
+- `docs/design/ux-principles.md`
+- `docs/design/screens-and-nav.md`
+- `docs/standards.md`
+- `docs/plan/program/repo-baseline.md`
+- `docs/plan/m0-foundation/frontend-shell-and-design-system.md`
+- `docs/plan/m0-foundation/rename-quality-and-rewrite-discipline.md`
+- `src/main.tsx`
+- `src/AppNew.tsx`
+- `src/App.css`
+- `tests/e2e/shell.spec.ts`
 
-**要建立的檔案**：
+**完成訊號**：
 
-- `docs/architecture/decisions/003-rollback-visibility-model.md`
+- `docs/design/design-tokens.md` 與前端 token layer 已建立
+- 新 shell 成為主入口，舊 `AppNew` 不再是主流程
+- Playwright smoke 對齊新 shell / onboarding / dashboard
+- PathKeep 對外命名在 package / Tauri / README / workflow 層完成清理
+- CI / standards / AGENTS 對同一套 rewrite quality policy 沒有互相打架
+- 新建或整段重寫的 frontend slice 已有測試，且該 slice 的 100% coverage + mutation verification 已完成或明確記錄
+- `bun run check && bun run build`
 
-**ADR 必須回答**：
+**預期 commit 類型**：
 
-1. 哪些表有 `reverted_at` / `reverted_by_run_id`
-2. 哪些表是 immutable raw facts（不可 revert）
-3. 前端 query 的預設可見性規則
-4. un-revert 的語義（清空 `reverted_at`）
-
-**驗收**：檔案存在，明確列出哪些表 mutable / immutable。
-
-**Commit**：`docs(adr): add ADR-003 rollback visibility model`
-
----
-
-### TASK-004 — 從 prototype CSS 抽取 design tokens 表
-
-**解鎖關係**：M0-FE-DS-001 和 M0-FE-DS-002 的先決條件。前端重寫需要 token 表才能建立 design system。
-
-**決策**：這不是 opinion task，是 extraction task。從 prototype 的 `style.css` 精確抽出現有的 CSS 變數和設計決策，不需要新建。
-
-**讀先**：
-
-- `reference/PathKeep — Desktop UI Design/style.css` (如果存在，否則找 `reference/` 目錄下的 HTML/CSS prototype 檔案)
-- `docs/design/ux-principles.md` — 確認 dark-first、data density 等原則
-- `docs/plan/program/research-and-decisions.md` (PG-RD-UX-003)
-
-**要建立的檔案**：
-
-- `docs/design/design-tokens.md`
-
-**文檔格式要求**（每一類 token 都要有）：
-
-```markdown
-## Colors
-
-| Token name | Dark value | Light value | Semantic meaning |
-|...
-
-## Typography
-
-| Token | Value | Usage |
-|...
-
-## Spacing
-
-| Token | Value | Usage |
-|...
-
-## Radius, Shadow, Motion
-
-...
-```
-
-**如果找不到 prototype 檔案**：在文檔裡明確寫 `STATUS: prototype CSS not found, tokens derived from screenshots and ux-principles.md`，然後用 `ux-principles.md` 裡的原則建立最小 token 集（dark-first、適中 density、tech aesthetic）。
-
-**驗收**：`docs/design/design-tokens.md` 存在，至少包含 colors / typography / spacing 三類 token。
-
-**Commit**：`docs(design): extract design tokens from prototype`
+- `docs(design): ...`
+- `feat(shell): ...`
+- `test(e2e): ...`
+- `chore(rename): ...`
+- `docs(quality): ...`
 
 ---
 
-### TASK-005 — 建立 `browser-history-parser` crate skeleton
-
-**解鎖關係**：M0-BE-PR-001。這個 crate skeleton 是 M0 後端重構的起點，也是之後所有 parser 工作的落地點。
-
-**決策已知答案**：
-
-- `browser-history-parser` 是獨立 crate，不依賴 Tauri、不依賴 canonical schema、不依賴 keyring。
-- Installed profile discovery、權限檢查、staging copy 留在 `vault-platform` / `vault-core`；parser crate 只做 parsing 和對已提供路徑的 inspection helper。
-- 它的 public API 接收 `&Path` 或 staging 路徑，輸出 typed structs（`ParsedVisit`, `ParsedUrl`, `ParsedDownload`, `ParsedSearchTerm`）。
-
-**讀先**：
-
-- `docs/features/archive.md` (Section 3: 模塊化設計)
-- `docs/plan/m0-foundation/backend-and-data-rearchitecture.md` (M0-BE-PR-001 到 PR-003)
-- `src-tauri/Cargo.toml` — 了解現有 workspace 結構
-- `src-tauri/crates/vault-core/src/chrome.rs` — 了解現有 Chromium 解析邏輯在哪（之後搬過來）
-
-**要建立或修改的檔案**：
-
-```
-src-tauri/crates/browser-history-parser/
-  Cargo.toml
-  src/
-    lib.rs           ← public API re-exports
-    chromium/
-      mod.rs         ← history parsing + provided-path inspection helper
-    firefox/
-      mod.rs         ← stub
-    safari/
-      mod.rs         ← stub
-    takeout/
-      mod.rs         ← stub
-    types.rs         ← ParsedVisit, ParsedUrl, ParsedDownload, ParsedSearchTerm
-    error.rs         ← ParseError enum
-```
-
-**修改**：
-
-- `src-tauri/Cargo.toml` 的 `[workspace]` members 加入 `crates/browser-history-parser`
-
-**Cargo.toml 依賴**：只允許 `rusqlite`、`serde`、`thiserror`、`chrono`。不能加 Tauri。
-
-**驗收**：
-
-```bash
-cd src-tauri
-cargo build -p browser-history-parser
-cargo test -p browser-history-parser
-```
-
-兩個命令都要通過（即使 firefox/safari/takeout stub 是 `todo!()` 也沒關係，但 chromium 至少要有編譯通過的基礎 struct 定義）。
-
-**Commit**：`feat(parser): add browser-history-parser crate skeleton`
-
----
-
-> 做完了？→ 按 [AGENTS.md](../../AGENTS.md) 的收工流程更新本檔案，然後從 [BACKLOG.md](BACKLOG.md) 補充新任務。
-> 歷史紀錄 → [CHANGELOG.md](CHANGELOG.md)
+> 做完了？→ 把完成的 work block append 到 [CHANGELOG.md](CHANGELOG.md)，同步 source docs，然後再從 [BACKLOG.md](BACKLOG.md) 補下一個 block。

@@ -2,13 +2,13 @@
 
 > 從 [vision-and-requirements.md](vision-and-requirements.md) 抽出。
 >
-> ⚡ **原子化待辦清單和工作進度追蹤** → 見 [plan/README.md](plan/README.md)
+> ⚡ **半里程碑 work block 與工作進度追蹤** → 見 [plan/README.md](plan/README.md)
 
 ---
 
 ## M0 — 重構基礎（新增）
 
-前置里程碑：從舊代碼庫過渡到新架構。
+第一個重寫里程碑：直接拆掉舊骨架，建立新架構。
 
 - 舊版前端全部移除，照設計師新版設計稿建立前端骨架
 - Rust workspace 重組：新增 `browser-history-parser` 獨立 crate

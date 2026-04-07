@@ -1,4 +1,4 @@
-> **⚡ 找下一個要做的任務？直接看 [STATUS.md](STATUS.md)**
+> **⚡ 找下一個要做的 work block？直接看 [STATUS.md](STATUS.md)**
 
 # PathKeep — 工作計劃與進度追蹤
 
@@ -6,13 +6,19 @@
 > 本目錄是 PathKeep 的實作層 source of truth。  
 > 產品願景、需求和設計定義在 [vision-and-requirements.md](../vision-and-requirements.md) 與它的子文檔裡；這裡回答的是 **接下來怎麼做、先做什麼、哪些事情卡住了、每個里程碑拆到哪一層**。
 
-### 任務追蹤系統
+### 工作塊追蹤系統
 
-| 檔案                         | 用途                  | Agent 何時讀        |
-| ---------------------------- | --------------------- | ------------------- |
-| [STATUS.md](STATUS.md)       | 當前執行任務（max 5） | 每次開工            |
-| [BACKLOG.md](BACKLOG.md)     | 待辦佇列 + 依賴圖     | STATUS.md 清空時    |
-| [CHANGELOG.md](CHANGELOG.md) | 已完成任務紀錄        | 不需要讀，只 append |
+| 檔案                         | 用途                           | Agent 何時讀        |
+| ---------------------------- | ------------------------------ | ------------------- |
+| [STATUS.md](STATUS.md)       | 當前 work block（通常 1-2 個） | 每次開工            |
+| [BACKLOG.md](BACKLOG.md)     | 後續 work block 佇列 + 依賴圖  | STATUS.md 清空時    |
+| [CHANGELOG.md](CHANGELOG.md) | 已完成 work block 紀錄         | 不需要讀，只 append |
+
+這一層不再追求原子 task。`STATUS.md` / `BACKLOG.md` 的單位改成**半個 milestone 左右的 work block**：
+
+- 一個 work block 可以橫跨多個 docs / code 子任務，但要有單一可驗收成果。
+- work block 可以拆成多個可 review commit；不要把「work block 變大」誤解成「commit 也要巨大」。
+- 更細的 WBS 仍保留在各 milestone 文檔裡，作為 block 內部的拆解參考，而不是每日追蹤單位。
 
 ---
 
@@ -104,6 +110,7 @@ M4  Full Intelligence & Polish
 
 - `README.md`：這個里程碑在做什麼、何時算完成、有哪些工作包
 - 2 到 4 份工作包文檔：把待辦拆到更細的功能域和實作層
+- `STATUS.md` / `BACKLOG.md`：以 half-milestone work block 追蹤目前真正要做的範圍
 
 ---
 

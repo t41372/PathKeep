@@ -24,9 +24,17 @@
 
 ### 測試覆蓋
 
-- Rust 側：100% test coverage + mutation test + integration test。
-- JS/TS 側：100% statement/branch/function/line coverage + mutation test。
+- 最終標準：
+  - Rust 側：100% test coverage + mutation test + integration test。
+  - JS/TS 側：100% statement/branch/function/line coverage + mutation test。
 - E2E：Playwright spec 覆蓋關鍵用戶流程。
+
+### M0 重寫期規則
+
+- M0 期間，**repo-wide** coverage 和 mutation 暫時不作為 blocking gate；它們仍然有價值，但不應反過來保護舊架構。
+- 所有**新建**或**整段重寫**的模組，仍必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
+- 驗證舊產品假設的測試應直接刪除或重寫，不保留作長期 legacy harness。
+- 不接受把「目前 typecheck 會紅」「先關掉 coverage 再說」寫成完成狀態；重寫期只是調整 gate 的層級，不是放棄品質。
 
 ### 代碼品質
 
@@ -37,7 +45,9 @@
 ### CI/CD
 
 - GitHub Actions：
-  - PR 檢查：lint + test + coverage + build。
+  - M0 重寫期 blocking 檢查：lint + test + build。
+  - repo-wide coverage / mutation 在新架構穩定前可改成 on-demand 或 scheduled deep check。
+  - M1 之後再恢復「coverage 也是 blocking gate」。
   - Release pipeline：多平台構建 + 自動產出安裝檔。
 - README badges 顯示 CI 狀態、coverage。
 

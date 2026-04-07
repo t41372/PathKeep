@@ -21,7 +21,7 @@
 
 - [frontend-shell-and-design-system.md](frontend-shell-and-design-system.md)
 - [backend-and-data-rearchitecture.md](backend-and-data-rearchitecture.md)
-- [rename-quality-and-cutover.md](rename-quality-and-cutover.md)
+- [rename-quality-and-rewrite-discipline.md](rename-quality-and-rewrite-discipline.md)
 
 ---
 
@@ -31,7 +31,7 @@
 | ------- | ------------------------------------------------------------------------------- |
 | `M0-FE` | 新 app shell、route tree、design system、prototype token extraction、舊 UI 移除 |
 | `M0-BE` | parser crate、vault-core / vault-worker 重切、schema 與 migration foundation    |
-| `M0-CO` | 命名遷移、README / workflow 修正、測試基線重設、cutover 策略                    |
+| `M0-RQ` | 命名清理、README / workflow 修正、重寫期品質規則、刪舊紀律                      |
 
 ---
 
@@ -41,6 +41,13 @@
 2. 先完成 parser / core / worker / module boundary，避免 M1 又把功能堆回巨檔。
 3. 先完成 schema / migration 設計，再開始 M1 backup engine 正式實作。
 4. 在 M0 結束前，必須把命名和測試基線一起切過去，否則後面的里程碑會持續被舊名稱和舊測試干擾。
+
+## 執行粒度
+
+M0 不再拆成大量原子 task 追蹤；`STATUS.md` 以兩個大 work blocks 執行：
+
+1. `WORK-M0-A`：資料平面重置（ADR、parser、schema、migration foundation）
+2. `WORK-M0-B`：產品骨架重置（shell、design token、rename、rewrite quality）
 
 ---
 

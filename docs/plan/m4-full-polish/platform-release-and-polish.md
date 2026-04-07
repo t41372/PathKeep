@@ -12,7 +12,7 @@
 - [../../vision-and-requirements.md](../../vision-and-requirements.md)
 - [../program/research-and-decisions.md](../program/research-and-decisions.md)
 - [enrichment-advanced-intelligence-and-remote.md](enrichment-advanced-intelligence-and-remote.md)
-- [../m0-foundation/rename-quality-and-cutover.md](../m0-foundation/rename-quality-and-cutover.md)
+- [../m0-foundation/rename-quality-and-rewrite-discipline.md](../m0-foundation/rename-quality-and-rewrite-discipline.md)
 
 ---
 
