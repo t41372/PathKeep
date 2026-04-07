@@ -11,10 +11,6 @@
 
 ### M2 — Recall & Trust
 
-- [ ] **WORK-M2-B** — Trust UX, I18n, And Platforms `[!blocked: 需要 WORK-M2-A]`
-  - 讀先：`docs/design/ux-principles.md`、`docs/standards.md`、`docs/plan/m2-recall-and-trust/trust-ux-i18n-and-platforms.md`
-  - 目標：把 PME、i18n、跨平台排程、accessibility、trust UX 做到可驗收
-
 ### M3 — Intelligence
 
 - [ ] **WORK-M3-A** — Providers, Queue, And Indexing `[!blocked: 需要 WORK-M2-B]`

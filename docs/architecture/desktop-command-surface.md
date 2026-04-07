@@ -38,6 +38,7 @@
 現有 `src-tauri/src/lib.rs` 還保留舊的 command 名稱與 worker bridge 封裝，因為 M0-B 前端 shell 和 M1 archive engine 尚未切換到這套 surface。這不改變上面的凍結方向：
 
 - 2026-04-06 audit follow-up：目前已經有對應的現行命令可承接這份草案的核心 read models / previews，例如 `schedule_status`、`security_status`、`preview_rekey_archive`、`preview_schedule`、`apply_schedule`
+- 2026-04-07 M2-A follow-up：`inspect_takeout`、`import_takeout`、`preview_import_batch`、`revert_import_batch`、`restore_import_batch`、`doctor_report`、`repair_health` 已把 import / rollback / doctor 的現行 command surface 接上 unified run / artifact story
 - 新命令不要再以舊 UI 頁面名稱或 legacy product strings 命名
 - 新 preview / execute 流程要直接對齊 PME
 - 新 long-running 操作要以 unified `runs` ledger 為中心回報狀態

@@ -12,7 +12,8 @@
 
 - 支援自動發現本機安裝的瀏覽器和 profiles。
   - Chromium 系列（Chrome, Edge, Brave, Arc, Vivaldi 等）為主要支持對象。
-  - Firefox 和 Safari 為次要支持對象。
+  - Firefox 已納入正式 backup / query / export baseline。
+  - Safari 為基礎支持：profile 會被偵測並保留在 UI 中；若缺少 Full Disk Access，必須顯示 needs-access guidance，而不是把 profile 靜默隱藏。
 - **Profile 選擇是備份的入口**：
   - 用戶在 UI 中看到所有被發現的瀏覽器和 profiles，以勾選的方式選擇要備份哪些。
   - 交互清晰：選中/未選中狀態有明顯視覺差異和動畫反饋。
@@ -23,6 +24,7 @@
   1. 複製瀏覽器的 History / Favicons 數據庫及其 sidecar 檔（`-journal`, `-wal`, `-shm`）到 staging 區。
   2. 對 staging 副本做完整性檢查（`PRAGMA quick_check`）。
   3. 解析並寫入 archive 數據庫。
+  4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
 - 備份是**增量的**：只新增/更新有變化的記錄。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
@@ -99,8 +101,10 @@
   4. 未知文件進入 quarantine（隱離區），不會被導入，在 UI 中顯示原因和文件內容摘要，讓用戶決定如何處理。
   5. 用戶確認後，才正式寫入 archive。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
+- dry-run / preview 必須回報 candidate item 數量、preview entries、warnings、quarantine 結果，以及可回看的 audit artifact 路徑。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
+  - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
 - 提供詳細的操作指南：怎麼從 Google Takeout 請求導出、怎麼下載、怎麼找到歷史紀錄文件。
 
 ### 瀏覽器直接導入
@@ -178,6 +182,7 @@
 - 主 SQLite archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Doctor / 健康檢查命令：重算 archive table hash 並出報告。
+- doctor / repair baseline 至少要涵蓋 missing import audit artifact、broken visibility references、stale derived state，並把 repair 本身寫回 unified `runs` ledger。
 - 如果用戶已配置 GPG 簽名 commit，就沿用。
 
 ---

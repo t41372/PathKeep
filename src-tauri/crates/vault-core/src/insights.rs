@@ -684,9 +684,14 @@ fn load_search_term_map(
     profile_id: Option<&str>,
 ) -> Result<HashMap<(String, i64), String>> {
     let sql = if profile_id.is_some() {
-        "SELECT profile_id, url_id, normalized_term FROM search_terms WHERE profile_id = ?1"
+        "SELECT profile_id, url_id, normalized_term
+         FROM search_terms
+         WHERE profile_id = ?1
+           AND reverted_at IS NULL"
     } else {
-        "SELECT profile_id, url_id, normalized_term FROM search_terms"
+        "SELECT profile_id, url_id, normalized_term
+         FROM search_terms
+         WHERE reverted_at IS NULL"
     };
     let mut statement = connection.prepare(sql)?;
     let mut map = HashMap::new();

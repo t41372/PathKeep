@@ -341,6 +341,61 @@ pub fn revert_import_batch(
     preview_import_batch(paths, config, key, batch_id)
 }
 
+pub fn restore_import_batch(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    batch_id: i64,
+) -> Result<ImportBatchDetail> {
+    let mut connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    let transaction = connection.transaction()?;
+
+    let existing = load_import_batch_record(&transaction, batch_id)?
+        .with_context(|| format!("import batch {batch_id} was not found"))?;
+    if existing.overview.status != "reverted" {
+        drop(transaction);
+        return preview_import_batch(paths, config, key, batch_id);
+    }
+
+    let restored_at = now_rfc3339();
+    let restored: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NOT NULL",
+        [batch_id],
+        |row| row.get(0),
+    )?;
+    let restore_run_id = create_import_restore_run(
+        &transaction,
+        existing.overview.profile_id.as_str(),
+        batch_id,
+        restored,
+        &restored_at,
+    )?;
+    transaction.execute(
+        "UPDATE visits
+         SET reverted_at = NULL,
+             reverted_by_run_id = NULL
+         WHERE import_batch_id = ?1
+           AND reverted_at IS NOT NULL",
+        [batch_id],
+    )?;
+    let mut notes = existing.notes.clone();
+    notes.push(format!(
+        "Restored at {}. Returned {} hidden history rows to the visible archive view via restore run #{}.",
+        restored_at, restored, restore_run_id
+    ));
+    #[rustfmt::skip]
+    update_batch_summary(&transaction, BatchSummaryUpdate { batch_id, status: "imported", imported_items: existing.overview.imported_items, duplicate_items: existing.overview.duplicate_items, candidate_items: existing.overview.candidate_items, recognized_files: &existing.recognized_files, quarantined_files: &existing.quarantined_files, notes: &notes, reverted_at: None })?;
+    transaction
+        .execute("UPDATE import_batches SET reverted_at = NULL WHERE id = ?1", [batch_id])?;
+    transaction.commit()?;
+
+    let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "restored")?;
+    update_batch_audit(paths, config, key, batch_id, audit_path.as_deref(), git_commit.as_deref())?;
+
+    preview_import_batch(paths, config, key, batch_id)
+}
+
 fn import_supported_payload(
     archive: &Transaction<'_>,
     batch_id: i64,
@@ -513,6 +568,53 @@ fn create_import_revert_run(
             serde_json::to_string(&json!({
                 "importBatchId": batch_id,
                 "softHiddenVisits": removed.max(0),
+            }))?,
+        ],
+    )?;
+    Ok(archive.last_insert_rowid())
+}
+
+fn create_import_restore_run(
+    archive: &Transaction<'_>,
+    profile_id: &str,
+    batch_id: i64,
+    restored: i64,
+    started_at: &str,
+) -> Result<i64> {
+    archive.execute(
+        "INSERT INTO runs (
+           run_type,
+           trigger,
+           started_at,
+           finished_at,
+           timezone,
+           status,
+           profile_scope_json,
+           stats_json,
+           warnings_json,
+           error_message,
+           due_only
+         )
+         VALUES (
+           'rollback',
+           'manual',
+           ?1,
+           ?1,
+           'UTC',
+           'success',
+           ?2,
+           ?3,
+           '[]',
+           NULL,
+           0
+         )",
+        params![
+            started_at,
+            serde_json::to_string(&vec![profile_id])?,
+            serde_json::to_string(&json!({
+                "importBatchId": batch_id,
+                "restoredVisits": restored.max(0),
+                "action": "restore",
             }))?,
         ],
     )?;
@@ -1101,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn import_preview_and_revert_batch_are_reversible() {
+    fn import_preview_revert_and_restore_batch_are_reversible() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
         ensure_paths(&paths).expect("ensure paths");
@@ -1158,6 +1260,20 @@ mod tests {
             )
             .expect("load hidden visit count");
         assert_eq!(hidden_rows, 2);
+
+        let restored =
+            restore_import_batch(&paths, &config, None, batch.id).expect("restore batch");
+        assert_eq!(restored.batch.status, "imported");
+        assert_eq!(restored.batch.visible_items, 2);
+        assert!(restored.notes.iter().any(|note| note.contains("Restored at")));
+        let visible_rows: i64 = archive
+            .query_row(
+                "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NULL",
+                [batch.id],
+                |row| row.get(0),
+            )
+            .expect("load restored visit count");
+        assert_eq!(visible_rows, 2);
     }
 
     #[test]
@@ -1436,6 +1552,20 @@ mod tests {
         let reverted_git_commit =
             reverted_again.batch.git_commit.as_deref().expect("revert git commit");
         assert_eq!(reverted_git_commit.len(), 40);
+
+        let restored =
+            restore_import_batch(&paths, &git_config, None, batch_id).expect("restore batch");
+        let restored_again =
+            restore_import_batch(&paths, &git_config, None, batch_id).expect("restore again");
+        assert_eq!(restored.batch.status, "imported");
+        assert_eq!(restored_again.batch.status, "imported");
+        let restored_audit_path =
+            restored_again.batch.audit_path.as_deref().expect("restore audit path");
+        assert!(!restored_audit_path.is_empty());
+        assert!(Path::new(restored_audit_path).exists());
+        let restored_git_commit =
+            restored_again.batch.git_commit.as_deref().expect("restore git commit");
+        assert_eq!(restored_git_commit.len(), 40);
 
         let connection = open_archive_connection(&paths, &git_config, None).expect("open archive");
         assert!(

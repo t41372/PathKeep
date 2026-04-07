@@ -550,6 +550,14 @@ export interface HealthReport {
   checks: HealthCheck[]
 }
 
+export interface HealthRepairReport {
+  runId?: number | null
+  repairedImportAudits: number
+  repairedVisibilityRows: number
+  clearedDerivedRows: number
+  notes: string[]
+}
+
 export interface RekeyRequest {
   newMode: ArchiveMode
   newKey?: string | null

@@ -55,7 +55,7 @@ pathkeep-desktop (src-tauri/src)
 - Guarantee:
   - parser crate 不知道 archive schema、不知道 `run_id`、不知道 Tauri
   - provider modules 可以新增欄位或 warning code，但不應破壞既有欄位語義
-  - stub providers（Firefox / Safari / Takeout）可先回傳 `UnsupportedProvider`，但 module path 與 type boundary 現在就固定下來
+  - Firefox / Safari provider 已落地 history baseline；後續 richer metadata、downloads / search / favicon coverage 應以 additive 欄位或 warning code 演進，不要打破 module path 與 type boundary
 
 Versioning policy:
 

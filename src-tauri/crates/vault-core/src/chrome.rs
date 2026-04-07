@@ -576,10 +576,6 @@ fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
     let Some(safari_root) = std::env::var_os(SAFARI_ROOT_OVERRIDE_ENV).map(PathBuf::from).map(Some).unwrap_or(default_safari_root()?) else { return Ok(None); };
 
     let history_path = safari_root.join("History.db");
-    if !history_path.exists() {
-        return Ok(None);
-    }
-
     Ok(Some(BrowserProfile {
         profile_id: "safari:default".to_string(),
         profile_name: "Default".to_string(),
@@ -587,9 +583,9 @@ fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
         browser_name: "Safari".to_string(),
         user_name: None,
         profile_path: safari_root.display().to_string(),
-        history_path: Some(history_path.display().to_string()),
+        history_path: history_path.exists().then(|| history_path.display().to_string()),
         favicons_path: None,
-        history_exists: true,
+        history_exists: history_path.exists(),
         browser_version: None,
         history_file_name: "History.db".to_string(),
     }))
@@ -818,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_safari_profile_returns_none_when_history_is_missing() {
+    fn discover_safari_profile_marks_missing_history_without_hiding_the_profile() {
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         unsafe {
@@ -828,7 +824,10 @@ mod tests {
         unsafe {
             std::env::remove_var(SAFARI_ROOT_OVERRIDE_ENV);
         }
-        assert!(profile.is_none());
+        let profile = profile.expect("safari profile");
+        assert_eq!(profile.profile_id, "safari:default");
+        assert!(!profile.history_exists);
+        assert!(profile.history_path.is_none());
     }
 
     #[test]
@@ -860,7 +859,10 @@ mod tests {
         assert!(
             discover_firefox_profiles(firefox_definition).expect("discover firefox").is_empty()
         );
-        assert!(discover_safari_profile().expect("discover safari without root").is_none());
+        let safari_profile = discover_safari_profile()
+            .expect("discover safari without root")
+            .expect("safari profile placeholder");
+        assert!(!safari_profile.history_exists);
 
         restore_test_env_var("HOME", original_home.as_deref());
         restore_test_env_var(FIREFOX_PROFILES_OVERRIDE_ENV, original_firefox.as_deref());

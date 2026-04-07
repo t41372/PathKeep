@@ -159,6 +159,9 @@ describe('backend facade', () => {
     await expect(backend.revertImportBatch(7)).resolves.toMatchObject({
       batch: expect.objectContaining({ id: 1, status: 'reverted' }),
     })
+    await expect(backend.restoreImportBatch(7)).resolves.toMatchObject({
+      batch: expect.objectContaining({ id: 1, status: 'imported' }),
+    })
     await expect(backend.previewSchedule()).resolves.toMatchObject({
       platform: 'macos',
       applySupported: false,
@@ -168,6 +171,10 @@ describe('backend facade', () => {
     })
     await expect(backend.doctor()).resolves.toMatchObject({
       checks: [],
+    })
+    await expect(backend.repairHealth()).resolves.toMatchObject({
+      runId: 1,
+      repairedImportAudits: 0,
     })
     await expect(backend.keyringStatus()).resolves.toMatchObject({
       available: true,

@@ -92,3 +92,12 @@
   - macOS schedule status 會檢查已安裝 LaunchAgent 是否 mismatch、是否殘留 legacy plist；Windows / Linux 明確回報 `manual-review`
   - rekey execute 先建立 safety snapshot，再做 temp export / swap；若最終替換失敗，會嘗試把原始 archive 放回原位
   - 新增對應的 Rust tests，並回寫 `desktop-command-surface.md`、M1-OPS 文檔與 M1 README，讓後續 agent 知道哪些後端能力已落地、哪些仍然是 UI / acceptance gap
+
+## M2 — Recall & Trust (Work Blocks)
+
+- [x] **WORK-M2-A** — Imports, Rollback, And Multi-Browser
+  - 2026-04-07：把 Google Takeout 流程補齊到 dry-run / preview / quarantine / import / revert / restore，並讓 import batch audit artifact 可預覽、可重建、可透過 worker / Tauri / frontend surface 操作
+  - `browser-history-parser` 現在提供 Firefox 與 Safari history baseline parser；`vault-core` backup pipeline 也改為 ingest Chromium、Firefox 與具備權限的 Safari profile，Safari 在缺少 Full Disk Access 時會保留 profile 並顯示 needs-access guidance
+  - visibility-aware filtering 擴到 query / dashboard / insights 相關 read models；doctor / repair run 新增 missing import artifact、broken visibility reference、stale AI / insight derived state 檢查與修復，並補齊對應 fixture 與 acceptance-style Rust tests
+  - 同步回寫 `archive.md`、`recall.md`、`module-boundary-map.md`、`desktop-command-surface.md`、`research-and-decisions.md`、`repo-baseline.md`、M2 README / WBS、`STATUS.md`、`BACKLOG.md`
+  - 驗收：`bun run check`、`bun run build`

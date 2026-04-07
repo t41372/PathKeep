@@ -90,14 +90,16 @@ export function OnboardingPage() {
   }
 
   const currentConfig = snapshot.config
-  const chromiumProfiles = snapshot.browserProfiles.filter(
-    (p) => p.browserFamily === 'chromium' && p.historyExists,
+  const readableProfiles = snapshot.browserProfiles.filter(
+    (p) => p.historyExists,
   )
-  const otherProfiles = snapshot.browserProfiles.filter(
-    (p) => p.browserFamily !== 'chromium' && p.historyExists,
+  const attentionProfiles = snapshot.browserProfiles.filter(
+    (p) => !p.historyExists,
   )
-  const selectedCount = snapshot.config.selectedProfileIds.filter(
-    (id) => id.startsWith('chrome:') || id.startsWith('arc:'),
+  const selectedCount = snapshot.config.selectedProfileIds.filter((id) =>
+    snapshot.browserProfiles.some(
+      (profile) => profile.profileId === id && profile.historyExists,
+    ),
   ).length
 
   async function updateConfig(
@@ -111,7 +113,7 @@ export function OnboardingPage() {
     setLocalError(null)
     if (selectedCount === 0) {
       setLocalError(
-        'Select at least one Chromium profile before the first backup.',
+        'Select at least one readable browser profile before the first backup.',
       )
       return
     }
@@ -220,9 +222,9 @@ export function OnboardingPage() {
               <div className="feature-text">
                 <div className="feature-title">AUTOMATIC BACKUP</div>
                 <div className="feature-desc">
-                  Incrementally back up Chrome and Arc into a local SQLite
-                  archive in M1. Firefox and Safari detection stay visible, but
-                  their ingest pipeline lands in later milestones.
+                  Incrementally back up Chromium, Firefox, and Safari history
+                  into a local SQLite archive. Safari may still require Full
+                  Disk Access before PathKeep can stage `History.db`.
                 </div>
               </div>
             </div>
@@ -303,7 +305,7 @@ export function OnboardingPage() {
             </div>
             <div className="panel-body" style={{ padding: 0 }}>
               <div className="profile-list">
-                {[...chromiumProfiles, ...otherProfiles].map((profile) => {
+                {[...readableProfiles, ...attentionProfiles].map((profile) => {
                   const selected = snapshot.config.selectedProfileIds.includes(
                     profile.profileId,
                   )
@@ -344,8 +346,16 @@ export function OnboardingPage() {
                         </div>
                       </div>
                       <div className="profile-detection">
-                        <span className="status-badge status-completed">
-                          HISTORY FOUND
+                        <span
+                          className={`status-badge ${
+                            profile.historyExists
+                              ? 'status-completed'
+                              : 'status-pending'
+                          }`}
+                        >
+                          {profile.historyExists
+                            ? 'HISTORY FOUND'
+                            : 'ACTION REQUIRED'}
                         </span>
                         <span
                           className="mono dim"
@@ -355,8 +365,11 @@ export function OnboardingPage() {
                             display: 'block',
                           }}
                         >
-                          {profile.browserVersion ?? 'Version unknown'} ·{' '}
-                          {profile.browserFamily} engine
+                          {profile.historyExists
+                            ? `${profile.browserVersion ?? 'Version unknown'} · ${profile.browserFamily} engine`
+                            : profile.browserFamily === 'safari'
+                              ? 'Grant Full Disk Access so PathKeep can read Safari History.db.'
+                              : `PathKeep could not read ${profile.historyFileName} at this location yet.`}
                         </span>
                       </div>
                     </div>
@@ -366,12 +379,16 @@ export function OnboardingPage() {
             </div>
           </div>
 
-          {otherProfiles.length > 0 && (
+          {snapshot.browserProfiles.some(
+            (profile) => profile.browserFamily !== 'chromium',
+          ) && (
             <div className="ob-info-box">
               <span className="info-icon">ℹ</span>
               <span className="info-text">
-                <strong>Non-Chromium browsers</strong> (Firefox, Safari) are
-                detected but backup stays preview-only in M1.
+                <strong>Firefox</strong> now lands in the same backup flow as
+                Chromium. <strong>Safari</strong> supports baseline history
+                ingest, but the file may stay unreadable until Full Disk Access
+                is granted on macOS.
               </span>
             </div>
           )}
@@ -730,7 +747,7 @@ export function OnboardingPage() {
                 <div className="config-row">
                   <span className="config-label">Profiles</span>
                   <span className="config-value">
-                    {selectedCount} Chromium profiles selected
+                    {selectedCount} readable profiles selected
                   </span>
                 </div>
                 <div className="config-row">

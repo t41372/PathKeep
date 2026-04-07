@@ -43,6 +43,7 @@
   - 按頁面類型（如果有分類數據：docs, forum, video, news 等）
   - 按來源途徑（typed, link, redirect, bookmark 等）
   - 按 run ID / 導入批次
+- Explorer、Export、Dashboard、AI search、Insights 等 read models 都只能讀取**當前可見** facts；已 rollback 的 visits / downloads / search terms 不能漏出，restore 後則要重新可見。
 - 篩選狀態在 UI 上有清晰的標籤式展示，可逐個移除或一鍵清除。
 
 ### 單條記錄顯示
@@ -104,11 +105,12 @@
   - 寫入記錄數量（新增 / 更新 / 跳過 / 失敗）
   - 當前狀態（completed / reverted / partial）
 - 用戶能展開某次 run，預覽它寫入的所有記錄。
+- Audit / import batch detail 必須顯示 visible / reverted item 數量、warnings 與 audit artifact 路徑，讓使用者能先確認再 rollback 或 restore。
 - 用戶能**回滾整次 run**：
   - 該 run 寫入的所有記錄標記為 reverted（軟刪除，不物理刪除）。
   - Reverted 的記錄從正常搜尋和瀏覽中隱藏，但保留在底層以備審計。
   - 回滾操作本身記入審計日誌，產生新的 manifest。
-  - 回滾是可逆的 — 用戶可以「取消回滾」，重新恢復那次 run 的記錄。
+  - 回滾是可逆的 — 用戶可以「取消回滾」，重新恢復那次 run 的記錄；恢復後 Explorer / Export / AI / Insights 必須回到一致的可見狀態。
 
 ### 典型誤操作場景
 
@@ -136,3 +138,4 @@
 - 回滾在 archive DB 層面實現（軟刪除 + 快照），不是 Git revert。
 - 回滾操作要足夠快 — O(records in run)，不需要重建整個 archive。
 - UI 中回滾必須有確認步驟和影響預覽（將會隱藏多少筆記錄）。
+- rollback / restore 後若衍生狀態（FTS、AI embeddings、insights）失真，doctor repair 必須能偵測並清理，讓系統回到可重建狀態。

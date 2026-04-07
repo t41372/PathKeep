@@ -164,6 +164,14 @@ pub(crate) fn revert_import_batch_impl(
     worker_result(vault_worker::revert_import_batch_detail(session_database_key, batch_id))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn restore_import_batch_impl(
+    batch_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ImportBatchDetail, String> {
+    worker_result(vault_worker::restore_import_batch_detail(session_database_key, batch_id))
+}
+
 pub(crate) fn preview_schedule_impl(platform: Option<String>) -> Result<SchedulePlan, String> {
     worker_result(vault_worker::preview_schedule_plan(platform.as_deref(), None))
 }
@@ -183,6 +191,13 @@ pub(crate) fn doctor_report_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::HealthReport, String> {
     worker_result(vault_worker::doctor_report(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn repair_health_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::HealthRepairReport, String> {
+    worker_result(vault_worker::repair_health(session_database_key))
 }
 
 pub(crate) fn keyring_status_impl() -> vault_core::KeyringStatusReport {
@@ -523,6 +538,10 @@ mod tests {
             .expect("revert import batch");
         assert_eq!(reverted_batch.batch.status, "reverted");
         assert_eq!(reverted_batch.batch.visible_items, 0);
+        let restored_batch = restore_import_batch_impl(batch_id, session_key(&session).as_deref())
+            .expect("restore import batch");
+        assert_eq!(restored_batch.batch.status, "imported");
+        assert_eq!(restored_batch.batch.visible_items, 1);
 
         let keyring = keyring_store_database_key_impl("session-secret".to_string())
             .expect("store database key");
@@ -589,7 +608,7 @@ mod tests {
             session_key(&session).as_deref(),
         )
         .expect("ai search");
-        assert_eq!(ai_search.total, 1);
+        assert_eq!(ai_search.total, 2);
 
         let assistant_error = ask_ai_assistant_impl(
             AiAssistantRequest {

@@ -615,6 +615,16 @@ pub struct HealthReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct HealthRepairReport {
+    pub run_id: Option<i64>,
+    pub repaired_import_audits: usize,
+    pub repaired_visibility_rows: usize,
+    pub cleared_derived_rows: usize,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct SecurityStatus {
     pub initialized: bool,
     pub mode: String,

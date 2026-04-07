@@ -9,15 +9,15 @@ use crate::{
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat, ExportRequest,
-        ExportResult, HealthCheck, HealthReport, HistoryEntry, HistoryQuery, HistoryQueryResponse,
-        StorageSummary,
+        ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry, HistoryQuery,
+        HistoryQueryResponse, StorageSummary,
     },
     utils::{now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain},
 };
 use anyhow::{Context, Result};
 use browser_history_parser::{
-    ChromiumReadCursor, HistoryDatabaseSet, ParsedDownload, ParsedFavicon, ParsedSearchTerm,
-    ParsedUrl, ParsedVisit, chromium,
+    ChromiumReadCursor, HistoryDatabaseSet, ParsedDownload, ParsedFavicon, ParsedHistory,
+    ParsedSearchTerm, ParsedUrl, ParsedVisit, chromium, firefox, safari,
 };
 use chrono::{DateTime, Duration, Utc};
 use iana_time_zone::get_timezone;
@@ -131,6 +131,16 @@ struct RawRowInsert<'a> {
     schema_hash: &'a str,
     chrome_version: Option<&'a str>,
     import_batch_id: Option<i64>,
+}
+
+#[derive(Debug)]
+struct ParsedProfileSnapshot {
+    source_kind: &'static str,
+    history: ParsedHistory,
+    last_visit_id: i64,
+    last_url_marker: Option<i64>,
+    last_download_id: Option<i64>,
+    last_favicon_marker: Option<i64>,
 }
 
 pub fn ensure_archive_initialized(
@@ -256,10 +266,7 @@ pub fn load_dashboard_snapshot(
         .optional()?;
 
     let next_action = if recent_runs.is_empty() {
-        Some(
-            "Run a manual Chromium backup to create the first manifest and snapshot artifacts."
-                .to_string(),
-        )
+        Some("Run a manual backup to create the first manifest and snapshot artifacts.".to_string())
     } else {
         None
     };
@@ -412,12 +419,12 @@ pub fn run_backup(
 
     let discovered = discover_profiles()?;
     if config.selected_profile_ids.is_empty() {
-        anyhow::bail!("select at least one Chromium profile before running a backup")
+        anyhow::bail!("select at least one readable browser profile before running a backup")
     }
     let selected_profiles = select_supported_profiles(&discovered, &config.selected_profile_ids);
     if selected_profiles.is_empty() {
         anyhow::bail!(
-            "the selected profiles are not supported yet; choose at least one Chromium profile with a readable History database"
+            "the selected profiles are not readable yet; choose at least one detected profile with a readable history database"
         )
     }
     let skipped_profiles = collect_skipped_profiles(&discovered, &config.selected_profile_ids);
@@ -447,10 +454,7 @@ pub fn run_backup(
     let mut profile_summaries = Vec::new();
     let mut source_hashes = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut snapshot_artifacts = Vec::new();
-    let mut warnings = skipped_profiles
-        .into_iter()
-        .map(|profile_id| format!("Skipped unsupported non-Chromium profile `{profile_id}` during M1 archive foundation."))
-        .collect::<Vec<_>>();
+    let mut warnings = skipped_profiles;
 
     let backup_result = (|| -> Result<()> {
         let transaction = connection.transaction()?;
@@ -699,9 +703,226 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
         });
         checks.push(check_manifest_chain(connection)?);
         checks.push(check_snapshot_files(connection)?);
+        checks.push(check_import_audit_artifacts(connection)?);
+        checks.push(check_broken_visibility(connection)?);
+        checks.push(check_stale_derived_state(connection)?);
     }
 
     Ok(HealthReport { generated_at: now_rfc3339(), checks })
+}
+
+pub fn repair_health_issues(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<HealthRepairReport> {
+    ensure_paths(paths)?;
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+
+    let missing_import_audits = missing_import_audit_batches(&connection)?;
+    let broken_visibility_rows: usize = connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM visits
+             LEFT JOIN runs
+               ON runs.id = visits.reverted_by_run_id
+             WHERE visits.reverted_at IS NOT NULL
+               AND (visits.reverted_by_run_id IS NULL OR runs.id IS NULL)",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?
+        .max(0) as usize;
+    let stale_ai_embeddings = if table_exists(&connection, "ai_embeddings")? {
+        connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM ai_embeddings
+                 WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?
+            .max(0) as usize
+    } else {
+        0
+    };
+    let stale_insight_state = if table_exists(&connection, "insight_thread_members")?
+        || table_exists(&connection, "visit_insight_features")?
+    {
+        let stale_members = if table_exists(&connection, "insight_thread_members")? {
+            connection
+                .query_row(
+                    "SELECT COUNT(*)
+                     FROM insight_thread_members
+                     WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?
+                .max(0) as usize
+        } else {
+            0
+        };
+        let stale_features = if table_exists(&connection, "visit_insight_features")? {
+            connection
+                .query_row(
+                    "SELECT COUNT(*)
+                     FROM visit_insight_features
+                     WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?
+                .max(0) as usize
+        } else {
+            0
+        };
+        stale_members + stale_features
+    } else {
+        0
+    };
+
+    if missing_import_audits.is_empty()
+        && broken_visibility_rows == 0
+        && stale_ai_embeddings == 0
+        && stale_insight_state == 0
+    {
+        return Ok(HealthRepairReport {
+            run_id: None,
+            notes: vec!["Doctor repair found no actionable damage.".to_string()],
+            ..HealthRepairReport::default()
+        });
+    }
+
+    let started_at = now_rfc3339();
+    let timezone = current_timezone_name();
+    connection.execute(
+        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+         VALUES ('doctor', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
+        params![started_at, timezone],
+    )?;
+    let run_id = connection.last_insert_rowid();
+
+    let repair_result = (|| -> Result<HealthRepairReport> {
+        let mut notes = Vec::new();
+        let repaired_audit_paths =
+            rewrite_import_audit_artifacts(paths, config, key, &missing_import_audits)?;
+        let repaired_import_audits = repaired_audit_paths.len();
+        for (batch_id, audit_path) in &repaired_audit_paths {
+            connection.execute(
+                "UPDATE import_batches SET audit_path = ?1 WHERE id = ?2",
+                params![audit_path, batch_id],
+            )?;
+        }
+        if repaired_import_audits > 0 {
+            notes.push(format!(
+                "Rebuilt {} missing import audit artifact(s).",
+                repaired_import_audits
+            ));
+        }
+
+        let repaired_visibility_rows = connection.execute(
+            "UPDATE visits
+             SET reverted_by_run_id = ?1
+             WHERE reverted_at IS NOT NULL
+               AND (
+                 reverted_by_run_id IS NULL
+                 OR reverted_by_run_id NOT IN (SELECT id FROM runs)
+               )",
+            [run_id],
+        )?;
+        if repaired_visibility_rows > 0 {
+            notes.push(format!(
+                "Re-linked {} reverted visit rows to doctor repair run #{}.",
+                repaired_visibility_rows, run_id
+            ));
+        }
+
+        let cleared_ai_embeddings = if table_exists(&connection, "ai_embeddings")? {
+            connection.execute(
+                "DELETE FROM ai_embeddings
+                 WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                [],
+            )?
+        } else {
+            0
+        };
+        if cleared_ai_embeddings > 0 {
+            notes.push(format!(
+                "Removed {} stale AI embedding rows that pointed at hidden or missing visits.",
+                cleared_ai_embeddings
+            ));
+        }
+
+        let cleared_insight_rows =
+            if stale_insight_state > 0 { invalidate_insight_state(&connection)? } else { 0 };
+        if cleared_insight_rows > 0 {
+            notes.push(format!(
+                "Cleared {} stale insight rows so the next insight run rebuilds from visible history only.",
+                cleared_insight_rows
+            ));
+        }
+
+        let cleared_derived_rows = cleared_ai_embeddings + cleared_insight_rows;
+        let git_commit = if config.git_enabled && repaired_import_audits > 0 {
+            git_audit::commit_all(&paths.audit_repo_path, "doctor repair import audit artifacts")?
+        } else {
+            None
+        };
+        if let Some(git_commit) = git_commit {
+            for batch_id in &missing_import_audits {
+                connection.execute(
+                    "UPDATE import_batches SET git_commit = ?1 WHERE id = ?2",
+                    params![git_commit, batch_id],
+                )?;
+            }
+            notes.push(format!(
+                "Recorded repaired import artifacts in audit commit {}.",
+                git_commit
+            ));
+        }
+
+        Ok(HealthRepairReport {
+            run_id: Some(run_id),
+            repaired_import_audits,
+            repaired_visibility_rows,
+            cleared_derived_rows,
+            notes,
+        })
+    })();
+
+    match repair_result {
+        Ok(report) => {
+            connection.execute(
+                "UPDATE runs
+                 SET finished_at = ?1,
+                     status = 'success',
+                     stats_json = ?2,
+                     warnings_json = ?3
+                 WHERE id = ?4",
+                params![
+                    now_rfc3339(),
+                    serde_json::to_string(&json!({
+                        "repairedImportAudits": report.repaired_import_audits,
+                        "repairedVisibilityRows": report.repaired_visibility_rows,
+                        "clearedDerivedRows": report.cleared_derived_rows,
+                    }))?,
+                    serde_json::to_string(&report.notes)?,
+                    run_id,
+                ],
+            )?;
+            Ok(report)
+        }
+        Err(error) => {
+            connection.execute(
+                "UPDATE runs
+                 SET finished_at = ?1,
+                     status = 'failed',
+                     error_message = ?2
+                 WHERE id = ?3",
+                params![now_rfc3339(), error.to_string(), run_id],
+            )?;
+            Err(error)
+        }
+    }
 }
 
 fn select_supported_profiles<'a>(
@@ -710,7 +931,7 @@ fn select_supported_profiles<'a>(
 ) -> Vec<&'a crate::models::BrowserProfile> {
     discovered
         .iter()
-        .filter(|profile| profile.history_exists && profile.browser_family == "chromium")
+        .filter(|profile| profile.history_exists)
         .filter(|profile| {
             selected_profile_ids.iter().any(|selected| selected == &profile.profile_id)
         })
@@ -721,14 +942,36 @@ fn collect_skipped_profiles(
     discovered: &[crate::models::BrowserProfile],
     selected_profile_ids: &[String],
 ) -> Vec<String> {
-    discovered
+    let mut warnings = discovered
         .iter()
-        .filter(|profile| profile.history_exists && profile.browser_family != "chromium")
+        .filter(|profile| !profile.history_exists)
         .filter(|profile| {
             selected_profile_ids.iter().any(|selected| selected == &profile.profile_id)
         })
-        .map(|profile| profile.profile_id.clone())
-        .collect()
+        .map(|profile| {
+            if profile.browser_family == "safari" {
+                format!(
+                    "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
+                    profile.profile_id
+                )
+            } else {
+                format!(
+                    "Skipped `{}` because {} is missing or unreadable at {}.",
+                    profile.profile_id, profile.history_file_name, profile.profile_path
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for selected_profile_id in selected_profile_ids {
+        if !discovered.iter().any(|profile| profile.profile_id == *selected_profile_id) {
+            warnings.push(format!(
+                "Skipped `{selected_profile_id}` because it is no longer detected on this device."
+            ));
+        }
+    }
+
+    warnings
 }
 
 fn process_profile_snapshot(
@@ -744,33 +987,22 @@ fn process_profile_snapshot(
     let schema_string = serde_json::to_string(&schema_payload)?;
     let schema_hash = sha256_hex(schema_string.as_bytes());
     let watermark = load_watermark(archive, &snapshot.profile.profile_id)?;
-    let parsed = chromium::parse_history(
-        &HistoryDatabaseSet {
-            history_path: snapshot.history_path.clone(),
-            favicons_path: if config.capture_favicons {
-                snapshot.favicons_path.clone()
-            } else {
-                None
-            },
-        },
-        ChromiumReadCursor {
-            after_visit_id: watermark.last_visit_id,
-            after_url_last_visit_time: watermark.last_url_last_visit_time,
-            after_download_id: watermark.last_download_id,
-            after_favicon_last_updated: watermark.last_favicon_last_updated,
-        },
-    )
-    .context("parsing Chromium staging copy")?;
+    let parsed_snapshot = parse_profile_snapshot(snapshot, config, &watermark)
+        .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
 
     let mut summary = BackupProfileSummary {
         profile_id: snapshot.profile.profile_id.clone(),
-        notes: parsed.warnings.into_iter().map(|warning| warning.message).collect(),
+        notes: parsed_snapshot
+            .history
+            .warnings
+            .iter()
+            .map(|warning| warning.message.clone())
+            .collect(),
         ..BackupProfileSummary::default()
     };
 
     let mut url_id_map = HashMap::new();
-    let mut max_url_last_visit_time = watermark.last_url_last_visit_time;
-    for url in &parsed.urls {
+    for url in &parsed_snapshot.history.urls {
         let canonical_url_id =
             upsert_url(archive, run_id, source_profile_id, &snapshot.profile, url)?;
         url_id_map.insert(url.source_url_id, canonical_url_id);
@@ -780,7 +1012,7 @@ fn process_profile_snapshot(
                 run_id,
                 source_profile_id,
                 profile_id: &snapshot.profile.profile_id,
-                source_kind: "chromium-history",
+                source_kind: parsed_snapshot.source_kind,
                 table_name: "urls",
                 source_pk: &url.source_url_id.to_string(),
                 payload_hash: &payload_hash(url)?,
@@ -790,14 +1022,11 @@ fn process_profile_snapshot(
                 import_batch_id: None,
             },
         )?;
-        max_url_last_visit_time =
-            max_url_last_visit_time.max(ms_to_chromium_time(url.last_visit_ms));
         summary.new_urls += 1;
         summary.raw_rows += 1;
     }
 
-    let mut max_visit_id = watermark.last_visit_id;
-    for visit in &parsed.visits {
+    for visit in &parsed_snapshot.history.visits {
         let Some(&url_id) = url_id_map.get(&visit.source_url_id) else {
             continue;
         };
@@ -818,7 +1047,7 @@ fn process_profile_snapshot(
                 run_id,
                 source_profile_id,
                 profile_id: &snapshot.profile.profile_id,
-                source_kind: "chromium-history",
+                source_kind: parsed_snapshot.source_kind,
                 table_name: "visits",
                 source_pk: &visit.source_visit_id.to_string(),
                 payload_hash: &payload_hash(visit)?,
@@ -828,13 +1057,11 @@ fn process_profile_snapshot(
                 import_batch_id: None,
             },
         )?;
-        max_visit_id = max_visit_id.max(visit.source_visit_id);
         summary.raw_rows += 1;
         sync_url_bounds(archive, url_id, visit.visit_time_ms, &visit.visit_time_iso)?;
     }
 
-    let mut max_download_id = watermark.last_download_id;
-    for download in &parsed.downloads {
+    for download in &parsed_snapshot.history.downloads {
         let inserted = insert_download(archive, run_id, source_profile_id, download)?;
         if inserted > 0 {
             summary.new_downloads += 1;
@@ -845,7 +1072,7 @@ fn process_profile_snapshot(
                 run_id,
                 source_profile_id,
                 profile_id: &snapshot.profile.profile_id,
-                source_kind: "chromium-history",
+                source_kind: parsed_snapshot.source_kind,
                 table_name: "downloads",
                 source_pk: &download.source_download_id.to_string(),
                 payload_hash: &payload_hash(download)?,
@@ -855,12 +1082,11 @@ fn process_profile_snapshot(
                 import_batch_id: None,
             },
         )?;
-        max_download_id = max_download_id.max(download.source_download_id);
         summary.raw_rows += 1;
     }
 
     let mut inserted_search_terms = 0usize;
-    for term in &parsed.search_terms {
+    for term in &parsed_snapshot.history.search_terms {
         let Some(&url_id) = url_id_map.get(&term.url_id) else {
             continue;
         };
@@ -874,14 +1100,14 @@ fn process_profile_snapshot(
         )?;
     }
     if inserted_search_terms > 0 {
-        summary.notes.push(format!("Captured {inserted_search_terms} Chromium search term rows."));
+        summary.notes.push(format!(
+            "Captured {inserted_search_terms} {} search term rows.",
+            snapshot.profile.browser_name
+        ));
     }
 
-    let mut max_favicon_last_updated = watermark.last_favicon_last_updated;
-    for favicon in &parsed.favicons {
+    for favicon in &parsed_snapshot.history.favicons {
         insert_favicon(archive, run_id, source_profile_id, favicon)?;
-        max_favicon_last_updated =
-            max_favicon_last_updated.max(ms_to_chromium_time(favicon.last_updated_ms));
     }
 
     if should_checkpoint(&watermark, &schema_hash, config.checkpoint_days) {
@@ -904,11 +1130,18 @@ fn process_profile_snapshot(
         archive,
         &snapshot.profile.profile_id,
         &Watermark {
-            last_visit_id: max_visit_id.max(watermark.last_visit_id),
-            last_url_last_visit_time: max_url_last_visit_time
+            last_visit_id: parsed_snapshot.last_visit_id.max(watermark.last_visit_id),
+            last_url_last_visit_time: parsed_snapshot
+                .last_url_marker
+                .unwrap_or(watermark.last_url_last_visit_time)
                 .max(watermark.last_url_last_visit_time),
-            last_download_id: max_download_id.max(watermark.last_download_id),
-            last_favicon_last_updated: max_favicon_last_updated
+            last_download_id: parsed_snapshot
+                .last_download_id
+                .unwrap_or(watermark.last_download_id)
+                .max(watermark.last_download_id),
+            last_favicon_last_updated: parsed_snapshot
+                .last_favicon_marker
+                .unwrap_or(watermark.last_favicon_last_updated)
                 .max(watermark.last_favicon_last_updated),
             last_checkpoint_at: if summary.checkpoint_created {
                 Some(now_rfc3339())
@@ -921,6 +1154,80 @@ fn process_profile_snapshot(
     )?;
 
     Ok(summary)
+}
+
+fn parse_profile_snapshot(
+    snapshot: &ProfileSnapshot,
+    config: &AppConfig,
+    watermark: &Watermark,
+) -> Result<ParsedProfileSnapshot> {
+    match snapshot.profile.browser_family.as_str() {
+        "chromium" => {
+            let history = chromium::parse_history(
+                &HistoryDatabaseSet {
+                    history_path: snapshot.history_path.clone(),
+                    favicons_path: if config.capture_favicons {
+                        snapshot.favicons_path.clone()
+                    } else {
+                        None
+                    },
+                },
+                ChromiumReadCursor {
+                    after_visit_id: watermark.last_visit_id,
+                    after_url_last_visit_time: watermark.last_url_last_visit_time,
+                    after_download_id: watermark.last_download_id,
+                    after_favicon_last_updated: watermark.last_favicon_last_updated,
+                },
+            )?;
+            let last_visit_id =
+                history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
+            let last_url_marker =
+                history.urls.iter().map(|url| ms_to_chromium_time(url.last_visit_ms)).max();
+            let last_download_id =
+                history.downloads.iter().map(|download| download.source_download_id).max();
+            let last_favicon_marker = history
+                .favicons
+                .iter()
+                .map(|favicon| ms_to_chromium_time(favicon.last_updated_ms))
+                .max();
+
+            Ok(ParsedProfileSnapshot {
+                source_kind: "chromium-history",
+                history,
+                last_visit_id,
+                last_url_marker,
+                last_download_id,
+                last_favicon_marker,
+            })
+        }
+        "firefox" => {
+            let history = firefox::parse_history(&snapshot.history_path, watermark.last_visit_id)?;
+            let last_visit_id =
+                history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
+            Ok(ParsedProfileSnapshot {
+                source_kind: "firefox-history",
+                history,
+                last_visit_id,
+                last_url_marker: None,
+                last_download_id: None,
+                last_favicon_marker: None,
+            })
+        }
+        "safari" => {
+            let history = safari::parse_history(&snapshot.history_path, watermark.last_visit_id)?;
+            let last_visit_id =
+                history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
+            Ok(ParsedProfileSnapshot {
+                source_kind: "safari-history",
+                history,
+                last_visit_id,
+                last_url_marker: None,
+                last_download_id: None,
+                last_favicon_marker: None,
+            })
+        }
+        family => anyhow::bail!("browser family `{family}` is not supported by the archive engine"),
+    }
 }
 
 fn upsert_source_profile(
@@ -1784,6 +2091,210 @@ fn check_snapshot_files(connection: &Connection) -> Result<HealthCheck> {
     })
 }
 
+fn check_import_audit_artifacts(connection: &Connection) -> Result<HealthCheck> {
+    let mut statement = connection.prepare(
+        "SELECT id, audit_path
+         FROM import_batches
+         ORDER BY id DESC",
+    )?;
+    let mut rows = statement.query([])?;
+    let mut missing = None;
+    while let Some(row) = rows.next()? {
+        let batch_id = row.get::<_, i64>(0)?;
+        let audit_path = row.get::<_, Option<String>>(1)?;
+        match audit_path {
+            Some(path) if !path.is_empty() && Path::new(&path).exists() => continue,
+            other => {
+                missing = Some((batch_id, other));
+                break;
+            }
+        }
+    }
+
+    Ok(match missing {
+        Some((batch_id, Some(path))) => HealthCheck {
+            name: "Import audit artifacts".to_string(),
+            ok: false,
+            detail: format!("import batch {batch_id} points to a missing audit artifact at {path}"),
+        },
+        Some((batch_id, None)) => HealthCheck {
+            name: "Import audit artifacts".to_string(),
+            ok: false,
+            detail: format!("import batch {batch_id} does not have an audit artifact yet"),
+        },
+        None => HealthCheck {
+            name: "Import audit artifacts".to_string(),
+            ok: true,
+            detail: "All recorded import batches have readable audit artifacts.".to_string(),
+        },
+    })
+}
+
+fn check_broken_visibility(connection: &Connection) -> Result<HealthCheck> {
+    let broken_visibility: i64 = connection.query_row(
+        "SELECT COUNT(*)
+         FROM visits
+         LEFT JOIN runs
+           ON runs.id = visits.reverted_by_run_id
+         WHERE visits.reverted_at IS NOT NULL
+           AND (visits.reverted_by_run_id IS NULL OR runs.id IS NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+
+    Ok(if broken_visibility > 0 {
+        HealthCheck {
+            name: "Broken visibility references".to_string(),
+            ok: false,
+            detail: format!(
+                "{broken_visibility} reverted visit rows are missing the rollback run that should explain their hidden state"
+            ),
+        }
+    } else {
+        HealthCheck {
+            name: "Broken visibility references".to_string(),
+            ok: true,
+            detail: "All hidden visit rows still point at a valid rollback run.".to_string(),
+        }
+    })
+}
+
+fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
+    let mut stale_details = Vec::new();
+
+    if table_exists(connection, "ai_embeddings")? {
+        let stale_embeddings: i64 = connection.query_row(
+            "SELECT COUNT(*)
+             FROM ai_embeddings
+             WHERE history_id NOT IN (SELECT id FROM visit_events)",
+            [],
+            |row| row.get(0),
+        )?;
+        if stale_embeddings > 0 {
+            stale_details.push(format!("{stale_embeddings} stale AI embeddings"));
+        }
+    }
+
+    if table_exists(connection, "insight_thread_members")? {
+        let stale_members: i64 = connection.query_row(
+            "SELECT COUNT(*)
+             FROM insight_thread_members
+             WHERE history_id NOT IN (SELECT id FROM visit_events)",
+            [],
+            |row| row.get(0),
+        )?;
+        if stale_members > 0 {
+            stale_details.push(format!("{stale_members} stale insight thread members"));
+        }
+    }
+
+    if table_exists(connection, "visit_insight_features")? {
+        let stale_features: i64 = connection.query_row(
+            "SELECT COUNT(*)
+             FROM visit_insight_features
+             WHERE history_id NOT IN (SELECT id FROM visit_events)",
+            [],
+            |row| row.get(0),
+        )?;
+        if stale_features > 0 {
+            stale_details.push(format!("{stale_features} stale insight feature rows"));
+        }
+    }
+
+    Ok(if stale_details.is_empty() {
+        HealthCheck {
+            name: "Derived state freshness".to_string(),
+            ok: true,
+            detail: "Derived AI and insight tables match the visible visit set.".to_string(),
+        }
+    } else {
+        HealthCheck {
+            name: "Derived state freshness".to_string(),
+            ok: false,
+            detail: stale_details.join(", "),
+        }
+    })
+}
+
+fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table_name],
+        |row| row.get::<_, i64>(0),
+    )? > 0)
+}
+
+fn missing_import_audit_batches(connection: &Connection) -> Result<Vec<i64>> {
+    let mut statement = connection.prepare(
+        "SELECT id, audit_path
+         FROM import_batches
+         ORDER BY id ASC",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)))?;
+
+    let mut batch_ids = Vec::new();
+    for row in rows {
+        let (batch_id, audit_path) = row?;
+        match audit_path {
+            Some(path) if !path.is_empty() && Path::new(&path).exists() => {}
+            _ => batch_ids.push(batch_id),
+        }
+    }
+    Ok(batch_ids)
+}
+
+fn rewrite_import_audit_artifacts(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    batch_ids: &[i64],
+) -> Result<Vec<(i64, String)>> {
+    if batch_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    git_audit::ensure_repo(&paths.audit_repo_path)?;
+    let mut rewritten = Vec::new();
+    for batch_id in batch_ids {
+        let detail = crate::takeout::preview_import_batch(paths, config, key, *batch_id)?;
+        let action = match detail.batch.status.as_str() {
+            "reverted" => "reverted",
+            _ => "imported",
+        };
+        let file_name = format!(
+            "imports/{}/batch-{}-{}.json",
+            &detail.batch.created_at[0..10],
+            detail.batch.id,
+            action
+        );
+        let contents = serde_json::to_string_pretty(&detail)?;
+        let audit_path =
+            git_audit::write_audit_file(&paths.audit_repo_path, &file_name, &contents)?;
+        rewritten.push((*batch_id, audit_path.display().to_string()));
+    }
+    Ok(rewritten)
+}
+
+fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
+    let mut cleared_rows = 0usize;
+    for table_name in [
+        "insight_cards",
+        "insight_thread_members",
+        "insight_threads",
+        "insight_topics",
+        "visit_insight_features",
+        "insight_runs",
+    ] {
+        if table_exists(connection, table_name)? {
+            cleared_rows += connection
+                .execute(&format!("DELETE FROM {table_name}"), [])
+                .with_context(|| format!("clearing stale derived table {table_name}"))?;
+        }
+    }
+    Ok(cleared_rows)
+}
+
 fn latest_successful_backup_at(connection: &Connection) -> Result<Option<DateTime<Utc>>> {
     let latest: Option<String> = connection
         .query_row(
@@ -1908,6 +2419,7 @@ mod tests {
     use super::*;
     use crate::{
         config::ProjectPaths,
+        models::{ArchiveMode, TakeoutRequest},
         utils::{restore_test_env_var, test_env_lock},
     };
     use rusqlite::Connection;
@@ -2051,6 +2563,100 @@ mod tests {
         chrome_root
     }
 
+    fn seed_firefox_fixture(root: &Path) -> PathBuf {
+        let firefox_root = root.join("firefox");
+        let profiles_dir = firefox_root.join("Profiles");
+        let profile_dir = profiles_dir.join("abcd.default-release");
+        fs::create_dir_all(&profile_dir).expect("create firefox profile dir");
+        fs::write(
+            firefox_root.join("profiles.ini"),
+            "[Profile0]\nName=Work Firefox\nPath=abcd.default-release\nIsRelative=1\n",
+        )
+        .expect("write firefox profiles.ini");
+
+        let history = Connection::open(profile_dir.join("places.sqlite")).expect("open firefox db");
+        history
+            .execute_batch(
+                "CREATE TABLE moz_places (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER,
+                   hidden INTEGER,
+                   last_visit_date INTEGER
+                 );
+                 CREATE TABLE moz_historyvisits (
+                   id INTEGER PRIMARY KEY,
+                   place_id INTEGER NOT NULL,
+                   visit_date INTEGER NOT NULL,
+                   from_visit INTEGER,
+                   visit_type INTEGER
+                 );",
+            )
+            .expect("create firefox tables");
+        history
+            .execute(
+                "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                 VALUES (1, 'https://example.com/firefox', 'Firefox docs', 1, 0, 1744146000000000)",
+                [],
+            )
+            .expect("insert firefox place");
+        history
+            .execute(
+                "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
+                 VALUES (1, 1, 1744146000000000, NULL, 1)",
+                [],
+            )
+            .expect("insert firefox visit");
+
+        profiles_dir
+    }
+
+    fn seed_safari_fixture(root: &Path) -> PathBuf {
+        let safari_root = root.join("Safari");
+        fs::create_dir_all(&safari_root).expect("create safari root");
+        let history = Connection::open(safari_root.join("History.db")).expect("open safari db");
+        history
+            .execute_batch(
+                "CREATE TABLE history_items (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL
+                 );
+                 CREATE TABLE history_visits (
+                   id INTEGER PRIMARY KEY,
+                   history_item INTEGER NOT NULL,
+                   title TEXT,
+                   visit_time REAL NOT NULL
+                 );",
+            )
+            .expect("create safari tables");
+        history
+            .execute(
+                "INSERT INTO history_items (id, url) VALUES (1, 'https://example.com/safari')",
+                [],
+            )
+            .expect("insert safari item");
+        history
+            .execute(
+                "INSERT INTO history_visits (id, history_item, title, visit_time)
+                 VALUES (1, 1, 'Safari docs', 765838800.0)",
+                [],
+            )
+            .expect("insert safari visit");
+        safari_root
+    }
+
+    fn seed_takeout_fixture(root: &Path) -> PathBuf {
+        let source_dir = root.join("takeout-source");
+        fs::create_dir_all(&source_dir).expect("create takeout dir");
+        fs::write(
+            source_dir.join("entries.jsonl"),
+            r#"{"url":"https://example.com/import","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        )
+        .expect("write takeout fixture");
+        source_dir
+    }
+
     #[test]
     fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2096,6 +2702,49 @@ mod tests {
     }
 
     #[test]
+    fn multi_browser_backup_ingests_firefox_and_safari_history() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let firefox_profiles = seed_firefox_fixture(dir.path());
+        let safari_root = seed_safari_fixture(dir.path());
+        let original_firefox = std::env::var_os("CHB_FIREFOX_PROFILES_DIR");
+        let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+        unsafe {
+            std::env::set_var("CHB_FIREFOX_PROFILES_DIR", &firefox_profiles);
+            std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec![
+                "firefox:abcd.default-release".to_string(),
+                "safari:default".to_string(),
+            ],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let report = run_backup(&paths, &config, None, false).expect("run multi-browser backup");
+        assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
+        assert_eq!(report.run.as_ref().expect("run").new_urls, 2);
+        assert_eq!(report.profiles.len(), 2);
+        assert!(report.profiles.iter().any(|profile| profile.profile_id.starts_with("firefox:")));
+        assert!(report.profiles.iter().any(|profile| profile.profile_id.starts_with("safari:")));
+        assert!(report.warnings.iter().any(|warning| warning.contains("Firefox baseline ingest")));
+        assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
+
+        let history =
+            list_history(&paths, &config, None, HistoryQuery::default()).expect("history");
+        assert_eq!(history.total, 2);
+        assert!(history.items.iter().any(|entry| entry.profile_id.starts_with("firefox:")));
+        assert!(history.items.iter().any(|entry| entry.profile_id.starts_with("safari:")));
+
+        restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
+        restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+    }
+
+    #[test]
     fn doctor_detects_missing_snapshot_artifacts() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
@@ -2113,6 +2762,81 @@ mod tests {
 
         let report = doctor(&paths, &config, None).expect("doctor");
         assert!(report.checks.iter().any(|check| check.name == "Snapshot artifacts" && !check.ok));
+    }
+
+    #[test]
+    fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let takeout_source = seed_takeout_fixture(dir.path());
+        let inspection = crate::takeout::import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
+        )
+        .expect("import takeout");
+        let batch = inspection.import_batch.expect("batch");
+        let audit_path = batch.audit_path.expect("audit path");
+        fs::remove_file(&audit_path).expect("remove import audit artifact");
+
+        let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+        create_schema(&connection).expect("schema");
+        connection
+            .execute(
+                "UPDATE visits SET reverted_at = ?1, reverted_by_run_id = NULL WHERE import_batch_id = ?2",
+                params![now_rfc3339(), batch.id],
+            )
+            .expect("break visibility");
+        connection
+            .execute(
+                "INSERT INTO ai_embeddings
+                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at)
+                 VALUES (999, 'takeout::browser-history', 'https://example.com/import', 'Imported', 'example.com', ?1, 'Imported', 'hash', 'provider', 'model', '[0.1]', 1, ?1)",
+                [now_rfc3339()],
+            )
+            .expect("insert stale ai embedding");
+        connection
+            .execute(
+                "INSERT INTO insight_thread_members (thread_id, history_id, ordinal, visited_at)
+                 VALUES ('thread-1', 999, 0, ?1)",
+                [now_rfc3339()],
+            )
+            .expect("insert stale insight member");
+        connection
+            .execute(
+                "INSERT INTO visit_insight_features
+                 (history_id, profile_id, topic_id, thread_id, page_type, source_role, query_term, query_stage, novelty_score, importance_score, explore_score, keywords_json, entities_json, updated_at, pipeline_version)
+                 VALUES (999, 'takeout::browser-history', 'topic', 'thread-1', 'doc', 'research', NULL, NULL, 0.1, 0.2, 0.3, '[]', '[]', ?1, 'test-pipeline')",
+                [now_rfc3339()],
+            )
+            .expect("insert stale insight feature");
+
+        let report = doctor(&paths, &config, None).expect("doctor before repair");
+        assert!(
+            report.checks.iter().any(|check| check.name == "Import audit artifacts" && !check.ok)
+        );
+        assert!(
+            report
+                .checks
+                .iter()
+                .any(|check| check.name == "Broken visibility references" && !check.ok)
+        );
+        assert!(
+            report.checks.iter().any(|check| check.name == "Derived state freshness" && !check.ok)
+        );
+
+        let repair = repair_health_issues(&paths, &config, None).expect("repair health");
+        assert!(repair.run_id.is_some());
+        assert_eq!(repair.repaired_import_audits, 1);
+        assert_eq!(repair.repaired_visibility_rows, 1);
+        assert!(repair.cleared_derived_rows >= 2);
+
+        let repaired_report = doctor(&paths, &config, None).expect("doctor after repair");
+        assert!(repaired_report.checks.iter().all(|check| check.ok));
     }
 
     #[test]

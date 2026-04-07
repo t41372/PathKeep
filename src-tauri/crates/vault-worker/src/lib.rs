@@ -18,17 +18,18 @@ use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIndexStatus,
     AiIntegrationPreview, AiProviderConfig, AiProviderPurpose, AiProviderRuntime,
     AiProviderSecretInput, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot, ArchiveMode,
-    AuditRunDetail, DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthReport,
-    HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot,
-    InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
+    AuditRunDetail, DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthRepairReport,
+    HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation,
+    InsightSnapshot, InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
     RemoteBackupResult, RunInsightsReport, RunInsightsRequest, S3CredentialInput, SchedulePlan,
     TakeoutInspection, TakeoutRequest, ai_index_status, answer_history_question, archive_status,
     build_ai_index, doctor, ensure_archive_initialized, explain_insight, export_history,
     import_takeout, insight_status, inspect_takeout, list_history, load_audit_run_detail,
     load_config, load_dashboard_snapshot, load_import_batches, load_insight_thread_detail,
     load_insights, load_recent_runs, preview_ai_integrations, preview_import_batch,
-    preview_remote_backup, project_paths, rekey_archive, revert_import_batch, run_backup,
-    run_insights, run_remote_backup, save_config, semantic_search_history,
+    preview_remote_backup, project_paths, rekey_archive, repair_health_issues,
+    restore_import_batch, revert_import_batch, run_backup, run_insights, run_remote_backup,
+    save_config, semantic_search_history,
 };
 use vault_platform::{
     ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
@@ -488,10 +489,25 @@ pub fn revert_import_batch_detail(
     revert_import_batch(&paths, &config, session_database_key, batch_id)
 }
 
+pub fn restore_import_batch_detail(
+    session_database_key: Option<&str>,
+    batch_id: i64,
+) -> Result<ImportBatchDetail> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    restore_import_batch(&paths, &config, session_database_key, batch_id)
+}
+
 pub fn doctor_report(session_database_key: Option<&str>) -> Result<HealthReport> {
     let paths = project_paths()?;
     let config = load_config(&paths)?;
     doctor(&paths, &config, session_database_key)
+}
+
+pub fn repair_health(session_database_key: Option<&str>) -> Result<HealthRepairReport> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    repair_health_issues(&paths, &config, session_database_key)
 }
 
 pub fn preview_schedule_plan(
@@ -1397,6 +1413,8 @@ mod tests {
         assert_eq!(import_preview.batch.status, "imported");
         let reverted = revert_import_batch_detail(None, batch_id).expect("revert batch");
         assert_eq!(reverted.batch.status, "reverted");
+        let restored = restore_import_batch_detail(None, batch_id).expect("restore batch");
+        assert_eq!(restored.batch.status, "imported");
 
         assert_eq!(read_database_key_from_keyring().expect("read empty db key"), None);
         let stored_report = write_database_key_to_keyring("db-secret").expect("store db key");

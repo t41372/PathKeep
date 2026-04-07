@@ -18,6 +18,7 @@ import type {
   ExplainInsightRequest,
   ExportRequest,
   ExportResult,
+  HealthRepairReport,
   HealthReport,
   HistoryQuery,
   HistoryQueryResponse,
@@ -857,6 +858,7 @@ async function call<T>(
       } as T
     case 'preview_import_batch':
     case 'revert_import_batch':
+    case 'restore_import_batch':
       return {
         batch: {
           id: 1,
@@ -899,6 +901,14 @@ async function call<T>(
       return {
         generatedAt: new Date().toISOString(),
         checks: [],
+      } as T
+    case 'repair_health':
+      return {
+        runId: 1,
+        repairedImportAudits: 0,
+        repairedVisibilityRows: 0,
+        clearedDerivedRows: 0,
+        notes: ['Tauri is not available in browser preview mode.'],
       } as T
     case 'preview_remote_backup':
       return {
@@ -1077,6 +1087,8 @@ export const backend = {
     call<ImportBatchDetail>('preview_import_batch', { batchId }),
   revertImportBatch: (batchId: number) =>
     call<ImportBatchDetail>('revert_import_batch', { batchId }),
+  restoreImportBatch: (batchId: number) =>
+    call<ImportBatchDetail>('restore_import_batch', { batchId }),
   previewSchedule: (platform?: string) =>
     call<SchedulePlan>('preview_schedule', { platform }),
   scheduleStatus: (platform?: string) =>
@@ -1084,6 +1096,7 @@ export const backend = {
   applySchedule: (plan: SchedulePlan) =>
     call<ApplyResult>('apply_schedule', { plan }),
   doctor: () => call<HealthReport>('doctor_report'),
+  repairHealth: () => call<HealthRepairReport>('repair_health'),
   keyringStatus: () => call<KeyringStatusReport>('keyring_status'),
   securityStatus: () => call<SecurityStatus>('security_status'),
   keyringGetDatabaseKey: () => call<string | null>('keyring_get_database_key'),

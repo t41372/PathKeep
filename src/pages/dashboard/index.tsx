@@ -5,8 +5,11 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
 
-function isBackupReadyProfile(profileId: string) {
-  return profileId.startsWith('chrome:') || profileId.startsWith('arc:')
+function isBackupReadyProfile(profile: {
+  profileId: string
+  historyExists: boolean
+}) {
+  return profile.historyExists
 }
 
 function browserIconClass(profileId: string) {
@@ -62,10 +65,10 @@ export function DashboardPage() {
     snapshot.config.selectedProfileIds.includes(profile.profileId),
   )
   const backupReadyProfiles = selectedProfiles.filter((profile) =>
-    isBackupReadyProfile(profile.profileId),
+    isBackupReadyProfile(profile),
   )
   const previewOnlyProfiles = selectedProfiles.filter(
-    (profile) => !isBackupReadyProfile(profile.profileId),
+    (profile) => !isBackupReadyProfile(profile),
   )
   const totalStorage =
     dashboard.storage.archiveDatabaseBytes +
@@ -116,7 +119,7 @@ export function DashboardPage() {
     {
       label: 'PROFILES IN SCOPE',
       value: `${selectedProfiles.length}`,
-      detail: `${backupReadyProfiles.length} backup-ready · ${previewOnlyProfiles.length} preview-only`,
+      detail: `${backupReadyProfiles.length} readable · ${previewOnlyProfiles.length} need attention`,
       tone: 'neutral' as const,
     },
     {
@@ -263,14 +266,14 @@ export function DashboardPage() {
                   </div>
                   <span
                     className={`tag tag-sm ${
-                      isBackupReadyProfile(profile.profileId)
+                      isBackupReadyProfile(profile)
                         ? 'tag-backup'
                         : 'tag-search'
                     }`}
                   >
-                    {isBackupReadyProfile(profile.profileId)
+                    {isBackupReadyProfile(profile)
                       ? 'backup-ready'
-                      : 'preview-only'}
+                      : 'needs-access'}
                   </span>
                 </div>
               ))}
@@ -278,8 +281,9 @@ export function DashboardPage() {
                 <div className="summary-label">VISIBLE SCOPE</div>
                 <p>
                   Explorer, Export, and Audit read only the canonical archive.
-                  Preview-only browser detections are visible here, but they do
-                  not count as ingested history until their pipeline ships.
+                  Profiles that still need access, such as Safari without Full
+                  Disk Access, stay visible here so you can fix the source
+                  before the next backup run.
                 </p>
               </div>
             </div>

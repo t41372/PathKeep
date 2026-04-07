@@ -75,10 +75,12 @@ fn run_app() -> Result<()> {
             import_takeout,
             preview_import_batch,
             revert_import_batch,
+            restore_import_batch,
             preview_schedule,
             apply_schedule,
             schedule_status,
             doctor_report,
+            repair_health,
             keyring_status,
             security_status,
             keyring_get_database_key,
@@ -265,6 +267,15 @@ fn revert_import_batch(
 
 #[cfg(not(test))]
 #[tauri::command]
+fn restore_import_batch(
+    batch_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ImportBatchDetail, String> {
+    worker_bridge::restore_import_batch_impl(batch_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 fn preview_schedule(platform: Option<String>) -> Result<SchedulePlan, String> {
     worker_bridge::preview_schedule_impl(platform)
 }
@@ -288,6 +299,12 @@ fn schedule_status(
 #[tauri::command]
 fn doctor_report(state: State<'_, SessionState>) -> Result<vault_core::HealthReport, String> {
     worker_bridge::doctor_report_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn repair_health(state: State<'_, SessionState>) -> Result<vault_core::HealthRepairReport, String> {
+    worker_bridge::repair_health_impl(state.get_key().as_deref())
 }
 
 #[cfg(not(test))]
