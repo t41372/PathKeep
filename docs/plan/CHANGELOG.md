@@ -101,3 +101,11 @@
   - visibility-aware filtering 擴到 query / dashboard / insights 相關 read models；doctor / repair run 新增 missing import artifact、broken visibility reference、stale AI / insight derived state 檢查與修復，並補齊對應 fixture 與 acceptance-style Rust tests
   - 同步回寫 `archive.md`、`recall.md`、`module-boundary-map.md`、`desktop-command-surface.md`、`research-and-decisions.md`、`repo-baseline.md`、M2 README / WBS、`STATUS.md`、`BACKLOG.md`
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M2-B** — Trust UX, I18n, And Platforms
+  - 2026-04-07：把 `src/lib/i18n.ts` 巨檔拆成 [`src/lib/i18n/`](../../src/lib/i18n/) catalog / provider / hooks 結構，正式落地 `en` / `zh-CN` / `zh-TW` namespace-based i18n、route metadata 翻譯、locale-aware relative time / bytes formatting、缺 key coverage test 與 pseudo-locale smoke
+  - 重寫 [`src/pages/import/index.tsx`](../../src/pages/import/index.tsx)、[`src/pages/security/index.tsx`](../../src/pages/security/index.tsx)、[`src/pages/schedule/index.tsx`](../../src/pages/schedule/index.tsx)、[`src/pages/settings/index.tsx`](../../src/pages/settings/index.tsx)、[`src/pages/dashboard/index.tsx`](../../src/pages/dashboard/index.tsx)、[`src/pages/audit/index.tsx`](../../src/pages/audit/index.tsx)，補齊 PME workflow、rollback / restore / doctor repair / rekey preview、trust callout、platform capability guidance 與跨頁修復入口
+  - 新增 [`src/lib/platform-guidance.ts`](../../src/lib/platform-guidance.ts) 與 [`src/components/primitives/status-callout.tsx`](../../src/components/primitives/status-callout.tsx)，把 Windows / Linux scheduler story、Safari Full Disk Access、keyring unavailable、scheduler mismatch / legacy install 收斂成正式 warning grammar
+  - 擴寫 [`src/lib/backend.ts`](../../src/lib/backend.ts) browser preview mock，讓 import batch preview / revert / restore、doctor / repair、schedule / security support state 能支撐 trust-critical UI；同步補齊相關 unit tests，並做一輪 Settings keyboard / locale smoke review（含 `zh-CN` / `zh-TW`）
+  - 同步回寫 `ux-principles.md`、`screens-and-nav.md`、`archive.md`、`standards.md`、`research-and-decisions.md`、M2 README / WBS、`plan/README.md`、`STATUS.md`、`BACKLOG.md`
+  - 驗收：`bun run check`、`bun run build`
