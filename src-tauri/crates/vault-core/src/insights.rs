@@ -1041,12 +1041,12 @@ fn build_sessions(visits: &[VisitRecord]) -> Vec<SessionRecord> {
 
 fn assign_topics(visits: &mut [VisitRecord], window_days: u32) -> Vec<TopicAccumulator> {
     let mut topics = Vec::<TopicAccumulator>::new();
-    for index in 0..visits.len() {
-        let visit_tokens = visits[index].keywords.iter().cloned().collect::<HashSet<_>>();
+    for (index, visit) in visits.iter_mut().enumerate() {
+        let visit_tokens = visit.keywords.iter().cloned().collect::<HashSet<_>>();
         let mut best_index = None;
         let mut best_score = 0.0f32;
         for (topic_index, topic) in topics.iter().enumerate() {
-            let score = topic_similarity(topic, &visits[index], &visit_tokens);
+            let score = topic_similarity(topic, visit, &visit_tokens);
             if score > best_score {
                 best_score = score;
                 best_index = Some(topic_index);
@@ -1059,8 +1059,8 @@ fn assign_topics(visits: &mut [VisitRecord], window_days: u32) -> Vec<TopicAccum
             topics.push(TopicAccumulator {
                 topic_id: format!("topic-{:03}", topics.len() + 1),
                 label: String::new(),
-                first_seen_at: visits[index].visited_at.clone(),
-                last_seen_at: visits[index].visited_at.clone(),
+                first_seen_at: visit.visited_at.clone(),
+                last_seen_at: visit.visited_at.clone(),
                 visit_indexes: Vec::new(),
                 revisit_count: 0,
                 trend_slope: 0.0,
@@ -1071,16 +1071,16 @@ fn assign_topics(visits: &mut [VisitRecord], window_days: u32) -> Vec<TopicAccum
             topics.len() - 1
         };
 
-        visits[index].topic_id = Some(topics[topic_index].topic_id.clone());
+        visit.topic_id = Some(topics[topic_index].topic_id.clone());
         topics[topic_index].visit_indexes.push(index);
-        topics[topic_index].last_seen_at = visits[index].visited_at.clone();
+        topics[topic_index].last_seen_at = visit.visited_at.clone();
         if topics[topic_index].first_seen_at.is_empty() {
-            topics[topic_index].first_seen_at = visits[index].visited_at.clone();
+            topics[topic_index].first_seen_at = visit.visited_at.clone();
         }
-        for keyword in &visits[index].keywords {
+        for keyword in &visit.keywords {
             *topics[topic_index].keyword_counts.entry(keyword.clone()).or_insert(0) += 1;
         }
-        if let Some(vector) = &visits[index].vector {
+        if let Some(vector) = &visit.vector {
             update_centroid(&mut topics[topic_index].centroid, vector);
         }
     }
@@ -1897,7 +1897,7 @@ fn percent_decode(input: &str) -> String {
                 let hi = (bytes[index + 1] as char).to_digit(16);
                 let lo = (bytes[index + 2] as char).to_digit(16);
                 if let (Some(hi), Some(lo)) = (hi, lo) {
-                    output.push(char::from_u32((hi * 16 + lo) as u32).unwrap_or('%'));
+                    output.push(char::from_u32(hi * 16 + lo).unwrap_or('%'));
                     index += 2;
                 } else {
                     output.push('%');

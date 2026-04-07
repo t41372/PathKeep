@@ -41,6 +41,15 @@ export function InsightsPage() {
   >(null)
 
   const profiles = snapshot?.browserProfiles ?? []
+  const activeSelectedThreadId = insightSnapshot?.threads.some(
+    (thread) => thread.threadId === selectedThreadId,
+  )
+    ? selectedThreadId
+    : (insightSnapshot?.threads[0]?.threadId ?? null)
+  const visibleThreadDetail =
+    threadDetail?.summary.threadId === activeSelectedThreadId
+      ? threadDetail
+      : null
 
   // Load insights on mount/filter change
   useEffect(() => {
@@ -70,29 +79,14 @@ export function InsightsPage() {
     }
   }, [initialized, unlocked, profileFilter, windowDays, setError])
 
-  // Thread selection
-  useEffect(() => {
-    if (!insightSnapshot?.threads.length) {
-      setSelectedThreadId(null)
-      setThreadDetail(null)
-      return
-    }
-    const stillExists = insightSnapshot.threads.some(
-      (t) => t.threadId === selectedThreadId,
-    )
-    if (!stillExists) {
-      setSelectedThreadId(insightSnapshot.threads[0].threadId)
-    }
-  }, [insightSnapshot, selectedThreadId])
-
   // Thread detail loading
   useEffect(() => {
-    if (!initialized || !unlocked || !selectedThreadId) return
+    if (!initialized || !unlocked || !activeSelectedThreadId) return
     let cancelled = false
 
     void (async () => {
       try {
-        const detail = await backend.loadThreadDetail(selectedThreadId)
+        const detail = await backend.loadThreadDetail(activeSelectedThreadId)
         if (!cancelled) setThreadDetail(detail)
       } catch (taskError) {
         if (!cancelled) {
@@ -106,13 +100,7 @@ export function InsightsPage() {
     return () => {
       cancelled = true
     }
-  }, [initialized, unlocked, selectedThreadId, setError])
-
-  // Reset explanation on filter change
-  useEffect(() => {
-    setExplanation(null)
-    setSelectedInsightLabel(null)
-  }, [profileFilter, windowDays])
+  }, [activeSelectedThreadId, initialized, unlocked, setError])
 
   async function handleRunInsights() {
     await runTask(t('runInsightsNow'), async () => {
@@ -176,7 +164,12 @@ export function InsightsPage() {
               <select
                 className="selectInput"
                 value={profileFilter}
-                onChange={(e) => setProfileFilter(e.target.value)}
+                onChange={(e) => {
+                  setProfileFilter(e.target.value)
+                  setExplanation(null)
+                  setSelectedInsightLabel(null)
+                  setThreadDetail(null)
+                }}
               >
                 <option value="">{t('allProfiles')}</option>
                 {profiles.map((p) => (
@@ -188,7 +181,12 @@ export function InsightsPage() {
               <select
                 className="selectInput"
                 value={windowDays}
-                onChange={(e) => setWindowDays(Number(e.target.value))}
+                onChange={(e) => {
+                  setWindowDays(Number(e.target.value))
+                  setExplanation(null)
+                  setSelectedInsightLabel(null)
+                  setThreadDetail(null)
+                }}
               >
                 <option value={7}>7 {t('days')}</option>
                 <option value={14}>14 {t('days')}</option>
@@ -308,7 +306,7 @@ export function InsightsPage() {
                 {insightSnapshot.threads.map((thread) => (
                   <button
                     key={thread.threadId}
-                    className={`threadRow ${selectedThreadId === thread.threadId ? 'selected' : ''}`}
+                    className={`threadRow ${activeSelectedThreadId === thread.threadId ? 'selected' : ''}`}
                     type="button"
                     onClick={() => setSelectedThreadId(thread.threadId)}
                   >
@@ -331,10 +329,10 @@ export function InsightsPage() {
               </div>
 
               {/* Thread detail  */}
-              {threadDetail && (
+              {visibleThreadDetail && (
                 <div className="threadDetail">
-                  <h4>{threadDetail.summary.title}</h4>
-                  {threadDetail.visits.map((visit, i) => (
+                  <h4>{visibleThreadDetail.summary.title}</h4>
+                  {visibleThreadDetail.visits.map((visit, i) => (
                     <div key={i} className="threadVisit">
                       <a
                         href={visit.url}

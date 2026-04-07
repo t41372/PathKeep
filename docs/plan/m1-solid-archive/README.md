@@ -26,11 +26,11 @@
 
 ## 工作包摘要
 
-| 工作包 | 內容 |
-|-------|------|
-| `M1-DB` | schema、migration、backup engine、manifest、snapshot |
-| `M1-OPS` | schedule、security、storage、operation transparency |
-| `M1-UX` | onboarding、dashboard、explorer、export、audit entrypoints |
+| 工作包   | 內容                                                       |
+| -------- | ---------------------------------------------------------- |
+| `M1-DB`  | schema、migration、backup engine、manifest、snapshot       |
+| `M1-OPS` | schedule、security、storage、operation transparency        |
+| `M1-UX`  | onboarding、dashboard、explorer、export、audit entrypoints |
 
 ---
 

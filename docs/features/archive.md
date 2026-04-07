@@ -185,6 +185,7 @@
 ### 增強層級
 
 **第一層：立即可用（不需要外部請求）**
+
 - URL 結構解析：domain, subdomain, path tokens, query parameters
 - Domain 分類：docs / forum / video / news / social / shopping / code 等
 - 搜尋引擎 query 提取（從 URL 參數中解析 `q=`, `search_query=` 等）
@@ -192,11 +193,13 @@
 - Favicon
 
 **第二層：背景 refetch**
+
 - 訪問 URL 抓取頁面內容，提取 readable text、meta description、OG tags
 - 提取頁面語言
 - Best-effort，失敗不阻塞
 
 **第三層：基於 URL 的專屬 enrichment 插件**
+
 - 設計為**可擴展的插件架構**：每個插件匹配一組 URL pattern，負責提取特定的結構化信息。
 - 插件範例：
   - **arXiv 插件**：匹配 `arxiv.org/abs/*`，調用 arXiv API 獲取論文標題、作者、abstract、分類、發表日期
@@ -210,6 +213,7 @@
 - 插件的增強結果存入統一的 enrichment 表，以 JSON 格式保存，欄位隨插件不同而不同。
 
 **第四層：未來擴展 — 瀏覽時即時捕獲**
+
 - 未來可能透過瀏覽器擴充套件在瀏覽時即時抓取頁面內容。
 - Schema 預留 `content_source` 欄位標記來源（`plugin`, `refetch`, `realtime_capture`），讓即時捕獲的數據可以取代 refetch 結果。
 

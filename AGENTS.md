@@ -15,12 +15,14 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 ## 你的工作循環
 
 ### 開工
+
 1. 讀 `docs/plan/STATUS.md` — 找到第一個 `[ ]` 任務
 2. 讀該任務「讀先」列表裡的文檔（只讀列出的；如果列出的內容互相衝突、引用失效、或不足以完成任務，只補讀直接相關檔案並先修文檔）
 3. 執行任務
 4. 跑驗收命令：`bun run check && bun run build`
 
 ### 收工（每完成一個任務）
+
 1. 在 `STATUS.md` 把 `[ ]` 改成 `[x]`
 2. 把完成的任務剪切（append）到 `docs/plan/CHANGELOG.md` 底部，不改舊內容
 3. 同步回寫這個任務實際解鎖或完成的 source docs：
@@ -35,6 +37,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 5. Commit：`feat/fix/chore(scope): 描述` — 一個 task 一個 commit
 
 ### 情況判斷
+
 - `STATUS.md` 有 `[ ]` → 直接做第一個
 - `STATUS.md` 全是 `[x]` 或空的 → 去 `BACKLOG.md` 補充任務
 - 任務標記 `[!]` → blocked，跳過，做下一個
@@ -44,37 +47,40 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 ## 文檔導覽
 
-| 文檔 | 說明 |
-|------|------|
-| `docs/plan/STATUS.md` | 當前執行任務（max 5） |
-| `docs/plan/BACKLOG.md` | 待辦隊列 + inline blocked 標記 |
-| `docs/plan/CHANGELOG.md` | 已完成任務日誌（只 append） |
-| `docs/vision-and-requirements.md` | 產品定位 + 核心原則 |
-| `docs/plan/README.md` | 里程碑計劃總覽 |
-| `docs/plan/program/research-and-decisions.md` | 未落地技術決策 |
-| `docs/plan/program/repo-baseline.md` | 現有 repo 問題清單 |
-| `docs/features/` | 各功能詳細需求規格 |
-| `docs/architecture/` | 技術原則 + data model + tech stack |
-| `docs/design/` | UX 原則 + 畫面結構規格 |
-| `reference/PathKeep — Desktop UI Design/` | 設計師 prototype（UI 對齊目標） |
+| 文檔                                          | 說明                               |
+| --------------------------------------------- | ---------------------------------- |
+| `docs/plan/STATUS.md`                         | 當前執行任務（max 5）              |
+| `docs/plan/BACKLOG.md`                        | 待辦隊列 + inline blocked 標記     |
+| `docs/plan/CHANGELOG.md`                      | 已完成任務日誌（只 append）        |
+| `docs/vision-and-requirements.md`             | 產品定位 + 核心原則                |
+| `docs/plan/README.md`                         | 里程碑計劃總覽                     |
+| `docs/plan/program/research-and-decisions.md` | 未落地技術決策                     |
+| `docs/plan/program/repo-baseline.md`          | 現有 repo 問題清單                 |
+| `docs/features/`                              | 各功能詳細需求規格                 |
+| `docs/architecture/`                          | 技術原則 + data model + tech stack |
+| `docs/design/`                                | UX 原則 + 畫面結構規格             |
+| `reference/PathKeep — Desktop UI Design/`     | 設計師 prototype（UI 對齊目標）    |
 
 ---
 
 ## 開始任務前的 checklist
 
 ### UI 相關
+
 - 看 `reference/PathKeep — Desktop UI Design/` — 嚴格對齊設計稿
 - 看 `docs/design/screens-and-nav.md` — 畫面結構和導航規格
 - 看 `docs/design/ux-principles.md` — PME 模型
 - `AppNew.tsx`、`App.css`、`src/pages/` 全部是要重寫的，不是修補的
 
 ### Rust/後端相關
+
 - 看 `docs/architecture/data-model.md` — canonical schema
 - 看 `docs/architecture/tech-stack.md` — 技術選型決策
 - 看 `docs/plan/program/research-and-decisions.md` — 確認沒有 `[!]` blocker
 - 巨型檔案要拆，不要繼續往裡加：`archive.rs`(2078)、`chrome.rs`(1229)、`ai.rs`(1916)、`insights.rs`(2481)、`vault-worker/src/lib.rs`(1577)
 
 ### 任何工作
+
 - 先讀對應的 `docs/features/` 子文檔
 - 如果「讀先」文檔之間打架：先修文檔，讓 source of truth 恢復一致，再寫代碼
 - 完成後跑 `bun run check`，通過才提交
@@ -170,4 +176,4 @@ bun run format           # Prettier 格式化
 
 ---
 
-*這份文檔是 living document。發現過期或不準確，直接修正它。*
+_這份文檔是 living document。發現過期或不準確，直接修正它。_

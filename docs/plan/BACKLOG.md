@@ -10,12 +10,6 @@
 
 ### Phase 0 收尾
 
-- [ ] **TASK-019** — 修復 repo-wide doc formatting baseline，讓 `bun run check` 重新可作為硬 gate
-  - 讀先：`package.json`, `docs/standards.md`, `docs/plan/m0-foundation/rename-quality-and-cutover.md` (M0-CO-QA-001)
-  - 做法：只處理 formatting / Prettier debt，不混入行為改動；如果發現 formatter 規則本身不合理，再另開決策任務
-  - 驗收：`bun run check` 至少不再卡在 `prettier --check .`
-  - Commit：`chore(format): restore doc formatting baseline for quality gate`
-
 - [ ] **TASK-006** — 凍結 timestamp contract
   - 讀先：`docs/architecture/data-model.md` Section 1
   - 建：`docs/architecture/decisions/004-timestamp-contract.md`

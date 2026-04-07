@@ -30,21 +30,12 @@ export function ExplorerPage() {
     })()
   }, [deferredSearch, domain, profileFilter, unlocked])
 
-  useEffect(() => {
-    if (!history?.items.length) {
-      setSelectedId(null)
-      return
-    }
-    const stillExists = history.items.some((item) => item.id === selectedId)
-    if (!stillExists) {
-      setSelectedId(history.items[0].id)
-    }
-  }, [history, selectedId])
+  const activeSelectedId = history?.items.some((item) => item.id === selectedId)
+    ? selectedId
+    : (history?.items[0]?.id ?? null)
 
   const selectedEntry =
-    history?.items.find((item) => item.id === selectedId) ??
-    history?.items[0] ??
-    null
+    history?.items.find((item) => item.id === activeSelectedId) ?? null
 
   async function handleExport(format: ExportFormat) {
     await runTask(`${t('exportLabel')} ${format.toUpperCase()}`, async () => {
@@ -142,7 +133,7 @@ export function ExplorerPage() {
               {history?.items.map((item) => (
                 <button
                   key={item.id}
-                  className={`explorerRow ${selectedId === item.id ? 'selected' : ''}`}
+                  className={`explorerRow ${activeSelectedId === item.id ? 'selected' : ''}`}
                   type="button"
                   onClick={() => setSelectedId(item.id)}
                 >

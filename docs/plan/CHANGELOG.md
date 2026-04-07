@@ -18,3 +18,9 @@
 - [x] 建立 research & decisions backlog (`program/research-and-decisions.md`)
 - [x] 建立 traceability map (`program/traceability-map.md`)
 - [x] 建立所有 milestone 的詳細 WBS 文檔
+
+## M0 — Foundation
+
+- [x] `TASK-019` 修復 repo-wide doc formatting baseline，讓 `bun run check` 重新可作為硬 gate
+  - 2026-04-06：清理 repo-wide Markdown / Prettier debt，並一併修正驗收途中浮出的 JS ESLint 與 Rust Clippy 基線問題
+  - 驗收：`bun run check`、`bun run build`

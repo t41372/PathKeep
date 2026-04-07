@@ -8,28 +8,28 @@
 
 ### 任務追蹤系統
 
-| 檔案 | 用途 | Agent 何時讀 |
-|------|------|---------------|
-| [STATUS.md](STATUS.md) | 當前執行任務（max 5） | 每次開工 |
-| [BACKLOG.md](BACKLOG.md) | 待辦佇列 + 依賴圖 | STATUS.md 清空時 |
-| [CHANGELOG.md](CHANGELOG.md) | 已完成任務紀錄 | 不需要讀，只 append |
+| 檔案                         | 用途                  | Agent 何時讀        |
+| ---------------------------- | --------------------- | ------------------- |
+| [STATUS.md](STATUS.md)       | 當前執行任務（max 5） | 每次開工            |
+| [BACKLOG.md](BACKLOG.md)     | 待辦佇列 + 依賴圖     | STATUS.md 清空時    |
+| [CHANGELOG.md](CHANGELOG.md) | 已完成任務紀錄        | 不需要讀，只 append |
 
 ---
 
 ## 先看哪裡
 
-| 如果你關心 | 先看這份 |
-|-----------|---------|
-| 整體節奏、里程碑順序、依賴關係 | [program/README.md](program/README.md) |
-| 現在這個 repo 和新 vision 的距離 | [program/repo-baseline.md](program/repo-baseline.md) |
-| 哪些技術決策還沒落地、哪些研究要先做 | [program/research-and-decisions.md](program/research-and-decisions.md) |
-| 某份需求/設計文檔應該對應哪份實作計劃 | [program/traceability-map.md](program/traceability-map.md) |
-| M0 重構基礎 | [m0-foundation/README.md](m0-foundation/README.md) |
-| M1 Solid Archive | [m1-solid-archive/README.md](m1-solid-archive/README.md) |
-| M2 Recall & Trust | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
-| M3 Intelligence | [m3-intelligence/README.md](m3-intelligence/README.md) |
-| M4 Full Intelligence & Polish | [m4-full-polish/README.md](m4-full-polish/README.md) |
-| 產品願景、需求、畫面結構 | [../vision-and-requirements.md](../vision-and-requirements.md) |
+| 如果你關心                            | 先看這份                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| 整體節奏、里程碑順序、依賴關係        | [program/README.md](program/README.md)                                 |
+| 現在這個 repo 和新 vision 的距離      | [program/repo-baseline.md](program/repo-baseline.md)                   |
+| 哪些技術決策還沒落地、哪些研究要先做  | [program/research-and-decisions.md](program/research-and-decisions.md) |
+| 某份需求/設計文檔應該對應哪份實作計劃 | [program/traceability-map.md](program/traceability-map.md)             |
+| M0 重構基礎                           | [m0-foundation/README.md](m0-foundation/README.md)                     |
+| M1 Solid Archive                      | [m1-solid-archive/README.md](m1-solid-archive/README.md)               |
+| M2 Recall & Trust                     | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)         |
+| M3 Intelligence                       | [m3-intelligence/README.md](m3-intelligence/README.md)                 |
+| M4 Full Intelligence & Polish         | [m4-full-polish/README.md](m4-full-polish/README.md)                   |
+| 產品願景、需求、畫面結構              | [../vision-and-requirements.md](../vision-and-requirements.md)         |
 
 ---
 
@@ -70,6 +70,11 @@
 - `cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --quiet`：通過
 - `bun run test:e2e`：失敗，失敗點是 [`tests/e2e/shell.spec.ts`](../../tests/e2e/shell.spec.ts) 仍然要求舊的 `Setup` heading 和舊 setup shell 文案
 
+2026-04-06 補充：
+
+- `bun run check`：通過，repo-wide Markdown / Prettier debt 與驗收途中浮出的 JS ESLint、Rust Clippy 基線問題已清理
+- `bun run build`：通過
+
 這個結果很重要，因為它說明 repo 現在不是「壞掉」，而是「還在穩定地保護舊目標」。所以第一性工作不是零碎修 bug，而是**先重設產品骨架、驗收目標和測試基線**。
 
 ---
@@ -104,14 +109,14 @@ M4  Full Intelligence & Polish
 
 ## 里程碑入口
 
-| 里程碑 | 目標 | 狀態 | 入口 |
-|-------|------|------|------|
-| `PG` | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係 | `[/]` | [program/README.md](program/README.md) |
-| `M0` | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點 | `[ ]` | [m0-foundation/README.md](m0-foundation/README.md) |
-| `M1` | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎 | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md) |
-| `M2` | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
-| `M3` | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md) |
-| `M4` | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證 | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md) |
+| 里程碑 | 目標                                                                     | 狀態  | 入口                                                           |
+| ------ | ------------------------------------------------------------------------ | ----- | -------------------------------------------------------------- |
+| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                         |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[ ]` | [m0-foundation/README.md](m0-foundation/README.md)             |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
+| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md)           |
 
 ---
 

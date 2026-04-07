@@ -52,14 +52,14 @@
 
 ## 里程碑 gate
 
-| Gate | 進入條件 | 完成條件 |
-|------|----------|----------|
-| `PG` | vision / docs 已重寫完成 | baseline、研究 backlog、traceability、分層 WBS 都建立完成 |
-| `M0` | `PG` 完成 | 新 shell 可跑、舊 UI 不再是主流程、parser/core/worker 邊界定稿 |
-| `M1` | `M0` 完成 | backup、migration、manifest、schedule、security、Explorer v1 可驗收 |
-| `M2` | `M1` 完成 | import、rollback、Doctor、i18n、跨平台排程可驗收 |
-| `M3` | `M2` 完成 | optional AI pipeline、semantic search、assistant、insights v1 可驗收 |
-| `M4` | `M3` 完成 | enrichment、advanced insights、remote backup、release readiness 完成 |
+| Gate | 進入條件                 | 完成條件                                                             |
+| ---- | ------------------------ | -------------------------------------------------------------------- |
+| `PG` | vision / docs 已重寫完成 | baseline、研究 backlog、traceability、分層 WBS 都建立完成            |
+| `M0` | `PG` 完成                | 新 shell 可跑、舊 UI 不再是主流程、parser/core/worker 邊界定稿       |
+| `M1` | `M0` 完成                | backup、migration、manifest、schedule、security、Explorer v1 可驗收  |
+| `M2` | `M1` 完成                | import、rollback、Doctor、i18n、跨平台排程可驗收                     |
+| `M3` | `M2` 完成                | optional AI pipeline、semantic search、assistant、insights v1 可驗收 |
+| `M4` | `M3` 完成                | enrichment、advanced insights、remote backup、release readiness 完成 |
 
 ---
 

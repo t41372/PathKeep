@@ -2,6 +2,7 @@
 
 > 目標：切斷舊產品骨架，建立新的前端、後端和資料平面起點。  
 > 這個里程碑不追求功能完整，而是追求「後續所有功能都能在正確骨架上落地」。
+> 2026-04-06 基線：`bun run check` / `bun run build` 已恢復通過，可再次作為 M0 期間的硬 gate。
 
 ---
 
@@ -26,11 +27,11 @@
 
 ## 工作包摘要
 
-| 工作包 | 內容 |
-|-------|------|
+| 工作包  | 內容                                                                            |
+| ------- | ------------------------------------------------------------------------------- |
 | `M0-FE` | 新 app shell、route tree、design system、prototype token extraction、舊 UI 移除 |
-| `M0-BE` | parser crate、vault-core / vault-worker 重切、schema 與 migration foundation |
-| `M0-CO` | 命名遷移、README / workflow 修正、測試基線重設、cutover 策略 |
+| `M0-BE` | parser crate、vault-core / vault-worker 重切、schema 與 migration foundation    |
+| `M0-CO` | 命名遷移、README / workflow 修正、測試基線重設、cutover 策略                    |
 
 ---
 

@@ -62,7 +62,7 @@ const EMPTY_AI_SETTINGS: AppConfig['ai'] = {
   embeddingProviders: [],
 }
 
-export const EMPTY_CONFIG: AppConfig = {
+const EMPTY_CONFIG: AppConfig = {
   initialized: false,
   archiveMode: 'Encrypted',
   preferredLanguage: 'system',
@@ -78,7 +78,7 @@ export const EMPTY_CONFIG: AppConfig = {
   ai: EMPTY_AI_SETTINGS,
 }
 
-export const EMPTY_DIRECTORIES: AppSnapshot['directories'] = {
+const EMPTY_DIRECTORIES: AppSnapshot['directories'] = {
   appRoot: '',
   configPath: '',
   archiveDatabasePath: '',
@@ -93,7 +93,7 @@ export const EMPTY_DIRECTORIES: AppSnapshot['directories'] = {
   strongholdSaltPath: '',
 }
 
-export const EMPTY_ARCHIVE_STATUS: AppSnapshot['archiveStatus'] = {
+const EMPTY_ARCHIVE_STATUS: AppSnapshot['archiveStatus'] = {
   initialized: false,
   encrypted: true,
   unlocked: false,
@@ -102,14 +102,14 @@ export const EMPTY_ARCHIVE_STATUS: AppSnapshot['archiveStatus'] = {
   warning: null,
 }
 
-export const EMPTY_KEYRING_STATUS: AppSnapshot['keyringStatus'] = {
+const EMPTY_KEYRING_STATUS: AppSnapshot['keyringStatus'] = {
   available: false,
   backend: '',
   storedSecret: false,
   message: null,
 }
 
-export const EMPTY_AI_STATUS: AppSnapshot['aiStatus'] = {
+const EMPTY_AI_STATUS: AppSnapshot['aiStatus'] = {
   enabled: false,
   assistantEnabled: false,
   mcpEnabled: false,
@@ -122,7 +122,7 @@ export const EMPTY_AI_STATUS: AppSnapshot['aiStatus'] = {
   warning: null,
 }
 
-export const EMPTY_INSIGHT_STATUS: InsightStatus = {
+const EMPTY_INSIGHT_STATUS: InsightStatus = {
   ready: false,
   lastRunAt: null,
   runs: 0,
@@ -235,6 +235,7 @@ export interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null)
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useApp(): AppContextValue {
   const context = useContext(AppContext)
   if (!context) {

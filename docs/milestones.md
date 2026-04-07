@@ -1,7 +1,7 @@
 # 里程碑
 
 > 從 [vision-and-requirements.md](vision-and-requirements.md) 抽出。
-> 
+>
 > ⚡ **原子化待辦清單和工作進度追蹤** → 見 [plan/README.md](plan/README.md)
 
 ---

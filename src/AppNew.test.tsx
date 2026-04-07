@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
+const clipboardWriteText = vi.fn().mockResolvedValue(undefined)
+
 const { autostartMocks, mockBackend, strongholdMocks } = vi.hoisted(() => ({
   autostartMocks: {
     disable: vi.fn(),
@@ -393,9 +395,10 @@ describe('AppNew integration', () => {
       writable: true,
       value: vi.fn().mockReturnValue(true),
     })
+    clipboardWriteText.mockReset().mockResolvedValue(undefined)
     Object.defineProperty(window.navigator, 'clipboard', {
       writable: true,
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      value: { writeText: clipboardWriteText },
     })
 
     Object.values(mockBackend).forEach((m) => m.mockReset())
@@ -1400,9 +1403,7 @@ describe('AppNew integration', () => {
     const copyBtns = allButtons.filter((b) => b.textContent?.includes('Copy'))
     if (copyBtns.length > 0) {
       await user.click(copyBtns[0])
-      await waitFor(() =>
-        expect(window.navigator.clipboard.writeText).toHaveBeenCalled(),
-      )
+      await waitFor(() => expect(clipboardWriteText).toHaveBeenCalled())
     }
   })
 
@@ -1591,8 +1592,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/Remote/))
     // Type access key ID and secret
     const allInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (allInputs.length >= 2) {
       await user.type(allInputs[0], 'AKID123')
       await user.type(allInputs[1], 'SECRET456')
@@ -1684,8 +1685,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/AI Providers/))
     // Find API key input and save/clear buttons in the provider editor
     const keyInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (keyInputs.length > 0) {
       await user.type(keyInputs[0], 'sk-test-key')
       const saveBtns = screen
@@ -2382,8 +2383,8 @@ describe('AppNew integration', () => {
     await user.click(navBtn('Settings'))
     // Click all copy buttons (ghostButton with content_copy icon)
     const copyBtns = Array.from(
-      document.querySelectorAll('.pathActions .ghostButton'),
-    ) as HTMLElement[]
+      document.querySelectorAll<HTMLButtonElement>('.pathActions .ghostButton'),
+    )
     for (const btn of copyBtns) {
       await user.click(btn)
     }
@@ -2443,8 +2444,8 @@ describe('AppNew integration', () => {
     }
     // Fill credentials and save
     const passwordInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (passwordInputs.length >= 2) {
       await user.type(passwordInputs[0], 'AKID')
       await user.type(passwordInputs[1], 'SECRET')
@@ -2519,8 +2520,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/Security/))
     // Type a new password and click rotate
     const pwInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (pwInputs.length > 0) {
       await user.type(pwInputs[0], 'new-password')
     }
@@ -3063,8 +3064,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/Security/))
     // Type a password and try to unlock
     const pwInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (pwInputs.length > 0) {
       await user.type(pwInputs[0], 'wrong-password')
     }
