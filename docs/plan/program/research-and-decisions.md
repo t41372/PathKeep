@@ -26,12 +26,12 @@
 ## 資料模型 / 架構決策
 
 - [x] `PG-RD-ARCH-001` 決定 archive reset strategy：採 fresh schema，新 canonical schema v1 獨立建立；既有 archive DB 走一次性升級路徑。見 [ADR-001](../../architecture/decisions/001-archive-reset-strategy.md)。（2026-04-06）
-- [!] `PG-RD-ARCH-002` 凍結 canonical timestamp contract：欄位命名、毫秒整數欄位、ISO 輔助欄位、run timezone、fallback timezone、前端顯示規則。
-- [!] `PG-RD-ARCH-003` 凍結 run model：`backup` / `import` / `revert` / `doctor` / `snapshot restore` 是否共用同一 ledger。
-- [!] `PG-RD-ARCH-004` 凍結 rollback visibility model：哪些表需要 `reverted_at` / `reverted_by_run_id` / `visible_state`，哪些表應視為 immutable raw facts。
-- [!] `PG-RD-ARCH-005` 決定 FTS projection 範圍：只索引 URL / title / search term，還是納入 selected enrichment text；如何避免把所有 refetch 文本直接塞進 FTS。
-- [!] `PG-RD-ARCH-006` 設計 aggregation strategy：`daily_visit_counts`、`domain_daily_counts`、heatmap density、timeline buckets 是否使用 materialized table。
-- [ ] `PG-RD-ARCH-007` 定義 `browser-history-parser` 的 public API 和 versioning policy，明確它不依賴 archive schema 或 Tauri。
+- [x] `PG-RD-ARCH-002` 凍結 canonical timestamp contract：欄位命名、毫秒整數欄位、ISO 輔助欄位、run timezone、fallback timezone、前端顯示規則。見 [ADR-002](../../architecture/decisions/002-timestamp-contract.md)。（2026-04-06）
+- [x] `PG-RD-ARCH-003` 凍結 run model：`backup` / `import` / `revert` / `doctor` / `snapshot restore` 共用同一 `runs` ledger。見 [ADR-003](../../architecture/decisions/003-run-model.md)。（2026-04-06）
+- [x] `PG-RD-ARCH-004` 凍結 rollback visibility model：user-visible facts soft-hide、raw facts immutable、derived state rebuild。見 [ADR-004](../../architecture/decisions/004-rollback-visibility-model.md)。（2026-04-06）
+- [x] `PG-RD-ARCH-005` 決定 FTS projection 範圍：canonical FTS 只索引 URL / title / search term 與 whitelist projection，不直接塞完整 refetch 文本。見 [data-model.md](../../architecture/data-model.md)。（2026-04-06）
+- [x] `PG-RD-ARCH-006` 設計 aggregation strategy：canonical v1 不把 timeline / heatmap / daily counts 當 source of truth；materialized table 只作 derived state。見 [data-model.md](../../architecture/data-model.md)。（2026-04-06）
+- [x] `PG-RD-ARCH-007` 定義 `browser-history-parser` 的 public API 和 versioning policy，明確它不依賴 archive schema 或 Tauri。見 [module-boundary-map.md](../../architecture/module-boundary-map.md)。（2026-04-06）
 - [ ] `PG-RD-ARCH-008` 定義 fixture strategy：Chromium / Firefox / Safari / Takeout 都要有可重跑、可公開測試的最小樣本和 edge-case 樣本。
 
 ---

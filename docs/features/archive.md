@@ -53,6 +53,8 @@
 - **向後兼容**：parser 必須能處理舊版瀏覽器的數據格式。新欄位或新表不存在時，gracefully degrade — 只是少了一些信息，不會導致備份失敗。
 - **Schema 指紋**：每次備份記錄來源數據庫的完整 schema 指紋，當偵測到 schema 變更時觸發原生快照保存。
 - **Raw capture 保底**：即使 parser 不認識某些新表或新欄位，raw capture 層仍會把所有原始數據落盤，確保不會因為 parser 更新滯後而丟失信息。
+- canonical archive 的 run ledger 使用共用 `runs` 表；backup、import、rollback、doctor、snapshot restore 都要帶上 `run_id` 與 artifact 關聯。
+- rollback 採 soft-hide visibility：user-visible facts 以 `reverted_at` / `reverted_by_run_id` 隱藏，raw rows / manifests / snapshots 保持 immutable。
 
 ---
 

@@ -1,14 +1,14 @@
 # Architecture Decision Records (ADR)
 
-> 這裡放所有正式的技術決策記錄。每個 ADR 對應 `docs/plan/STATUS.md` 中的一個 TASK。
+> 這裡放所有正式的技術決策記錄。每個 ADR 對應 `docs/plan/STATUS.md` 中的一個 decision bundle 或 work block。
 
 ## 命名規則
 
 ```
 001-archive-reset-strategy.md
-002-run-model.md
-003-rollback-visibility-model.md
-004-timestamp-contract.md
+002-timestamp-contract.md
+003-run-model.md
+004-rollback-visibility-model.md
 ```
 
 ## ADR 模板
@@ -48,6 +48,6 @@ Accepted | Proposed | Superseded
 agent 只需要把它們正式化成 ADR 文件即可：
 
 1. **ADR-001** — [Fresh schema](001-archive-reset-strategy.md)（不在 legacy schema 上繼續演化；既有 DB 走一次性 upgrade）
-2. **ADR-002** — Unified run ledger（所有操作類型共用一張 runs 表）
-3. **ADR-003** — Soft-delete rollback（用 `reverted_at` 標記，不刪資料）
-4. **ADR-004** — Unix epoch ms timestamps（毫秒整數 + ISO 輔助欄位）
+2. **ADR-002** — [Canonical timestamp contract](002-timestamp-contract.md)（`*_ms` + `*_iso` + run timezone + fallback timezone）
+3. **ADR-003** — [Unified run ledger](003-run-model.md)（所有操作類型共用一張 `runs` 表）
+4. **ADR-004** — [Soft-hide rollback](004-rollback-visibility-model.md)（用 `reverted_at` / `reverted_by_run_id` 標記可見性，不刪 immutable facts）

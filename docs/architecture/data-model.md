@@ -99,6 +99,25 @@
 - 每次 migration 前自動做 archive snapshot。
 - Migration report 寫入審計工件。
 
+### Run ledger 與 rollback visibility
+
+- canonical schema 採 **unified run ledger**：`backup`、`import`、`revert`、`doctor`、`snapshot_restore` 共用 `runs` 表，以 `run_type` 和 `trigger` 區分語義。
+- `raw_row_versions`、`manifests`、`snapshots`、`schema_migrations` 視為 immutable audit facts，不做 soft-delete。
+- `visits`、`downloads`、`search_terms` 等 user-visible facts 用 `reverted_at` / `reverted_by_run_id` 表示 rollback visibility。
+- `urls` 和 `source_profiles` 作為 canonical anchors，不直接以 rollback 做 destructive delete；read model 以關聯 facts 的可見性來判斷是否顯示。
+
+### FTS projection 範圍
+
+- canonical v1 的 FTS 只索引 **URL、title、search term**，以及後續明確挑選的 enrichment projection 欄位。
+- 完整 refetch 文本、readable content、AI 生成摘要不直接塞進 FTS 主索引。
+- 若某個 enrichment 需要被全文搜尋，先經 projection / truncation / field whitelist 進入獨立 projection table，再由 FTS 索引。
+
+### Aggregation strategy
+
+- canonical v1 不把 `daily_visit_counts`、`domain_daily_counts`、heatmap density、timeline buckets 當作 source of truth。
+- M1 先以 on-demand query + bounded bucket strategy 支撐 UI；如果之後需要 materialized tables，它們也只能是 **可重建的 derived state**。
+- 任何 materialized aggregation table 都必須能從 canonical facts 重新產生，rollback 後靠 rebuild / invalidate 修正，不在 aggregation table 內複製 rollback metadata。
+
 ---
 
 ## 3. 長期容量設計原則

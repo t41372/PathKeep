@@ -44,3 +44,8 @@
 
 - macOS（主要開發和測試平台）
 - Windows 和 Linux（第一天做好 platform adapter 設計，後續補齊完整實機驗證）
+
+## Module Boundary
+
+- crate / desktop facade 的責任切分見 [module-boundary-map.md](module-boundary-map.md)
+- Tauri IPC draft surface 見 [desktop-command-surface.md](desktop-command-surface.md)
