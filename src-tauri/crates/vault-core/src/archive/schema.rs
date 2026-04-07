@@ -234,7 +234,11 @@ END;
 CREATE TRIGGER visit_events_delete
 INSTEAD OF DELETE ON visit_events
 BEGIN
-  DELETE FROM visits WHERE id = OLD.id;
+  UPDATE visits
+  SET reverted_at = CURRENT_TIMESTAMP,
+      reverted_by_run_id = COALESCE(reverted_by_run_id, 0)
+  WHERE id = OLD.id
+    AND reverted_at IS NULL;
 END;
 "#;
 

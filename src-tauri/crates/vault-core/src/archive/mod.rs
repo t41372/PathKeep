@@ -411,8 +411,16 @@ pub fn run_backup(
     }
 
     let discovered = discover_profiles()?;
+    if config.selected_profile_ids.is_empty() {
+        anyhow::bail!("select at least one Chromium profile before running a backup")
+    }
     let selected_profiles = select_supported_profiles(&discovered, &config.selected_profile_ids);
-    let skipped_profiles = collect_skipped_profiles(&discovered, &selected_profiles);
+    if selected_profiles.is_empty() {
+        anyhow::bail!(
+            "the selected profiles are not supported yet; choose at least one Chromium profile with a readable History database"
+        )
+    }
+    let skipped_profiles = collect_skipped_profiles(&discovered, &config.selected_profile_ids);
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
     let trigger = if due_only { "schedule" } else { "manual" };
@@ -685,23 +693,20 @@ fn select_supported_profiles<'a>(
         .iter()
         .filter(|profile| profile.history_exists && profile.browser_family == "chromium")
         .filter(|profile| {
-            selected_profile_ids.is_empty()
-                || selected_profile_ids.iter().any(|selected| selected == &profile.profile_id)
+            selected_profile_ids.iter().any(|selected| selected == &profile.profile_id)
         })
         .collect()
 }
 
 fn collect_skipped_profiles(
     discovered: &[crate::models::BrowserProfile],
-    selected: &[&crate::models::BrowserProfile],
+    selected_profile_ids: &[String],
 ) -> Vec<String> {
-    let selected_ids =
-        selected.iter().map(|profile| profile.profile_id.as_str()).collect::<Vec<_>>();
     discovered
         .iter()
         .filter(|profile| profile.history_exists && profile.browser_family != "chromium")
         .filter(|profile| {
-            selected_ids.is_empty() || selected_ids.contains(&profile.profile_id.as_str())
+            selected_profile_ids.iter().any(|selected| selected == &profile.profile_id)
         })
         .map(|profile| profile.profile_id.clone())
         .collect()

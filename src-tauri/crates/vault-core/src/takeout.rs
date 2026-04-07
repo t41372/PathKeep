@@ -305,20 +305,34 @@ pub fn revert_import_batch(
         return preview_import_batch(paths, config, key, batch_id);
     }
 
+    let reverted_at = now_rfc3339();
     let removed: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM visit_events WHERE import_batch_id = ?1",
+        "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NULL",
         [batch_id],
         |row| row.get(0),
     )?;
-    transaction.execute("DELETE FROM visit_events WHERE import_batch_id = ?1", [batch_id])?;
+    let rollback_run_id = create_import_revert_run(
+        &transaction,
+        existing.overview.profile_id.as_str(),
+        batch_id,
+        removed,
+        &reverted_at,
+    )?;
+    transaction.execute(
+        "UPDATE visits
+         SET reverted_at = ?1,
+             reverted_by_run_id = ?2
+         WHERE import_batch_id = ?3
+           AND reverted_at IS NULL",
+        params![reverted_at, rollback_run_id, batch_id],
+    )?;
     let mut notes = existing.notes.clone();
     notes.push(format!(
-        "Reverted at {}. Removed {} live history rows from the archive view.",
-        now_rfc3339(),
-        removed
+        "Reverted at {}. Soft-hid {} live history rows from the archive view.",
+        reverted_at, removed
     ));
     #[rustfmt::skip]
-    update_batch_summary(&transaction, BatchSummaryUpdate { batch_id, status: "reverted", imported_items: existing.overview.imported_items, duplicate_items: existing.overview.duplicate_items, candidate_items: existing.overview.candidate_items, recognized_files: &existing.recognized_files, quarantined_files: &existing.quarantined_files, notes: &notes, reverted_at: Some(now_rfc3339()) })?;
+    update_batch_summary(&transaction, BatchSummaryUpdate { batch_id, status: "reverted", imported_items: existing.overview.imported_items, duplicate_items: existing.overview.duplicate_items, candidate_items: existing.overview.candidate_items, recognized_files: &existing.recognized_files, quarantined_files: &existing.quarantined_files, notes: &notes, reverted_at: Some(reverted_at) })?;
     transaction.commit()?;
 
     let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "reverted")?;
@@ -457,6 +471,52 @@ fn import_supported_payload(
     }
 
     Ok(stats)
+}
+
+fn create_import_revert_run(
+    archive: &Transaction<'_>,
+    profile_id: &str,
+    batch_id: i64,
+    removed: i64,
+    started_at: &str,
+) -> Result<i64> {
+    archive.execute(
+        "INSERT INTO runs (
+           run_type,
+           trigger,
+           started_at,
+           finished_at,
+           timezone,
+           status,
+           profile_scope_json,
+           stats_json,
+           warnings_json,
+           error_message,
+           due_only
+         )
+         VALUES (
+           'rollback',
+           'manual',
+           ?1,
+           ?1,
+           'UTC',
+           'success',
+           ?2,
+           ?3,
+           '[]',
+           NULL,
+           0
+         )",
+        params![
+            started_at,
+            serde_json::to_string(&vec![profile_id])?,
+            serde_json::to_string(&json!({
+                "importBatchId": batch_id,
+                "softHiddenVisits": removed.max(0),
+            }))?,
+        ],
+    )?;
+    Ok(archive.last_insert_rowid())
 }
 
 fn create_import_batch(
@@ -1089,7 +1149,15 @@ mod tests {
         let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert batch");
         assert_eq!(reverted.batch.status, "reverted");
         assert_eq!(reverted.batch.visible_items, 0);
-        assert!(reverted.notes.iter().any(|note| note.contains("Removed 2 live history rows")));
+        assert!(reverted.notes.iter().any(|note| note.contains("Soft-hid 2 live history rows")));
+        let hidden_rows: i64 = archive
+            .query_row(
+                "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NOT NULL",
+                [batch.id],
+                |row| row.get(0),
+            )
+            .expect("load hidden visit count");
+        assert_eq!(hidden_rows, 2);
     }
 
     #[test]
