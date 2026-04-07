@@ -25,41 +25,116 @@ interface ExplorerQueryState {
   error: string | null
 }
 
+interface RecentSearchEntry {
+  label: string
+  params: {
+    q?: string | null
+    domain?: string | null
+    profileId?: string | null
+    browserKind?: string | null
+    start?: string | null
+    end?: string | null
+    sort?: 'newest' | 'oldest'
+  }
+}
+
+const dateShortcutWindows = [
+  { key: 'DAY', days: 1 },
+  { key: 'WEEK', days: 7 },
+  { key: 'MONTH', days: 30 },
+  { key: 'YEAR', days: 365 },
+] as const
+
+function endOfDayMs(value: string) {
+  const timestamp = new Date(`${value}T23:59:59.999`).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function toLocalDateString(value: Date) {
+  return value.toLocaleDateString('en-CA')
+}
+
+function buildRecentSearchLabel(params: RecentSearchEntry['params']) {
+  const labelParts = [
+    params.q?.trim() ? `q:${params.q.trim()}` : null,
+    params.domain?.trim() ? `domain:${params.domain.trim()}` : null,
+    params.profileId ? `profile:${params.profileId}` : null,
+    params.browserKind ? `browser:${params.browserKind}` : null,
+    params.start || params.end
+      ? `range:${params.start ?? '…'}→${params.end ?? '…'}`
+      : null,
+  ].filter(Boolean)
+
+  return labelParts.join(' · ')
+}
+
+function isRecentSearchEntry(value: unknown): value is RecentSearchEntry {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'label' in value &&
+    typeof value.label === 'string' &&
+    'params' in value &&
+    typeof value.params === 'object' &&
+    value.params !== null
+  )
+}
+
 function loadRecentSearches() {
-  if (typeof window === 'undefined') {
-    return [] as string[]
-  }
-
+  if (typeof window === 'undefined') return [] as RecentSearchEntry[]
   const raw = window.localStorage.getItem(recentSearchesStorageKey)
-  if (!raw) {
-    return []
-  }
-
+  if (!raw) return []
   try {
     const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? parsed.filter((item) => typeof item === 'string')
-      : []
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .map((entry) => {
+        if (typeof entry === 'string') {
+          return {
+            label: entry,
+            params: { q: entry, sort: 'newest' as const },
+          }
+        }
+
+        if (isRecentSearchEntry(entry)) {
+          return entry
+        }
+
+        return null
+      })
+      .filter((entry): entry is RecentSearchEntry => entry !== null)
   } catch {
     return []
   }
 }
 
-function persistRecentSearch(label: string) {
-  if (typeof window === 'undefined' || !label.trim()) {
-    return
-  }
+function persistRecentSearch(params: RecentSearchEntry['params']) {
+  if (typeof window === 'undefined') return
 
-  const next = [
+  const label = buildRecentSearchLabel(params)
+  if (!label) return
+
+  const nextEntry: RecentSearchEntry = {
     label,
-    ...loadRecentSearches().filter((item) => item !== label),
+    params: {
+      ...params,
+      sort: params.sort ?? 'newest',
+    },
+  }
+  const next = [
+    nextEntry,
+    ...loadRecentSearches().filter((entry) => entry.label !== label),
   ].slice(0, 4)
   window.localStorage.setItem(recentSearchesStorageKey, JSON.stringify(next))
 }
 
-function endOfDayMs(value: string) {
-  const timestamp = new Date(`${value}T23:59:59.999`).getTime()
-  return Number.isNaN(timestamp) ? null : timestamp
+function browserLabel(kind: string) {
+  if (kind === 'chrome') return 'Chrome'
+  if (kind === 'arc') return 'Arc'
+  if (kind === 'firefox') return 'Firefox'
+  if (kind === 'safari') return 'Safari'
+  return kind
 }
 
 export function ExplorerPage() {
@@ -78,7 +153,7 @@ export function ExplorerPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [recentSearches, setRecentSearches] =
-    useState<string[]>(loadRecentSearches)
+    useState<RecentSearchEntry[]>(loadRecentSearches)
   const [copiedExportPath, setCopiedExportPath] = useState<string | null>(null)
 
   const deferredQuery = useDeferredValue(searchParams.get('q') ?? '')
@@ -89,6 +164,7 @@ export function ExplorerPage() {
   const end = searchParams.get('end')
   const sort =
     (searchParams.get('sort') as 'newest' | 'oldest' | null) ?? 'newest'
+
   const currentQuery = useMemo(
     () => ({
       q: deferredQuery || null,
@@ -102,6 +178,7 @@ export function ExplorerPage() {
     }),
     [browserKind, deferredQuery, domain, end, profileId, sort, start],
   )
+
   const archiveReady = Boolean(
     snapshot?.config.initialized && snapshot.archiveStatus.unlocked,
   )
@@ -111,59 +188,43 @@ export function ExplorerPage() {
   )
 
   useEffect(() => {
-    if (!archiveReady) {
-      return
-    }
-
+    if (!archiveReady) return
     let cancelled = false
     const loadResults = async () => {
       try {
         const response = await backend.queryHistory(currentQuery)
-        if (cancelled) {
-          return
-        }
-
-        setQueryState({
-          requestKey,
-          results: response,
-          error: null,
-        })
+        if (cancelled) return
+        setQueryState({ requestKey, results: response, error: null })
         setSelectedId((current) =>
           response.items.some((item) => item.id === current)
             ? current
             : (response.items[0]?.id ?? null),
         )
-
-        const labelParts = [
-          currentQuery.q,
-          currentQuery.domain ? `domain:${currentQuery.domain}` : null,
-          currentQuery.profileId,
-        ].filter(Boolean)
-        if (labelParts.length > 0) {
-          const label = labelParts.join(' · ')
-          persistRecentSearch(label)
-          setRecentSearches(loadRecentSearches())
-        }
+        persistRecentSearch({
+          q: currentQuery.q,
+          domain: currentQuery.domain,
+          profileId: currentQuery.profileId,
+          browserKind: currentQuery.browserKind,
+          start,
+          end,
+          sort: currentQuery.sort ?? 'newest',
+        })
+        setRecentSearches(loadRecentSearches())
       } catch (nextError) {
-        if (!cancelled) {
+        if (!cancelled)
           setQueryState({
             requestKey,
             results: null,
             error:
-              nextError instanceof Error
-                ? nextError.message
-                : 'PathKeep could not read the current explorer query.',
+              nextError instanceof Error ? nextError.message : 'Query failed.',
           })
-        }
       }
     }
-
     void loadResults()
-
     return () => {
       cancelled = true
     }
-  }, [archiveReady, currentQuery, requestKey])
+  }, [archiveReady, currentQuery, end, requestKey, start])
 
   const results =
     archiveReady && queryState.requestKey === requestKey
@@ -174,27 +235,59 @@ export function ExplorerPage() {
       ? queryState.error
       : null
   const loading = archiveReady && queryState.requestKey !== requestKey
-
   const selectedEntry =
     results?.items.find((item) => item.id === selectedId) ??
     results?.items[0] ??
     null
   const browserKinds = Array.from(
     new Set(
-      (snapshot?.browserProfiles ?? [])
-        .filter((profile) => profile.historyExists)
-        .map((profile) => profile.profileId.split(':')[0]),
+      (snapshot?.config.selectedProfileIds ?? []).map(
+        (profile) => profile.split(':')[0] ?? profile,
+      ),
     ),
   )
+  const activeFilters = [
+    searchParams.get('q') ? `keyword: ${searchParams.get('q')}` : null,
+    searchParams.get('domain') ? `domain: ${searchParams.get('domain')}` : null,
+    searchParams.get('profileId')
+      ? `profile: ${searchParams.get('profileId')}`
+      : null,
+    searchParams.get('browserKind')
+      ? `browser: ${searchParams.get('browserKind')}`
+      : null,
+    start ? `start: ${start}` : null,
+    end ? `end: ${end}` : null,
+  ].filter(Boolean) as string[]
 
   function updateParam(key: string, value: string | null) {
-    const nextParams = new URLSearchParams(searchParams)
-    if (!value) {
-      nextParams.delete(key)
-    } else {
-      nextParams.set(key, value)
-    }
-    setSearchParams(nextParams)
+    const next = new URLSearchParams(searchParams)
+    if (!value) next.delete(key)
+    else next.set(key, value)
+    setSearchParams(next)
+  }
+
+  function applyDateShortcut(days: number) {
+    const endDate = new Date()
+    const startDate = new Date(endDate)
+    startDate.setDate(endDate.getDate() - (days - 1))
+    updateParam('start', toLocalDateString(startDate))
+    updateParam('end', toLocalDateString(endDate))
+  }
+
+  function activeDateShortcut() {
+    if (!start || !end) return null
+
+    const today = new Date()
+    const endString = toLocalDateString(today)
+    if (end !== endString) return null
+
+    return (
+      dateShortcutWindows.find((entry) => {
+        const startDate = new Date(today)
+        startDate.setDate(today.getDate() - (entry.days - 1))
+        return start === toLocalDateString(startDate)
+      })?.key ?? null
+    )
   }
 
   async function handleExport(format: ExportFormat) {
@@ -207,9 +300,8 @@ export function ExplorerPage() {
 
   async function handleCopyExportPath(path: string) {
     try {
-      if (!navigator.clipboard?.writeText) {
+      if (!navigator.clipboard?.writeText)
         throw new Error('Clipboard unavailable')
-      }
       await navigator.clipboard.writeText(path)
       setCopiedExportPath(path)
     } catch {
@@ -217,31 +309,24 @@ export function ExplorerPage() {
     }
   }
 
-  if (shellLoading && !snapshot) {
+  if (shellLoading && !snapshot)
     return (
       <section className="page-shell">
         <LoadingState label="Loading explorer workspace" />
       </section>
     )
-  }
-
-  if (shellError && !snapshot) {
+  if (shellError && !snapshot)
     return (
       <section className="page-shell">
-        <ErrorState
-          title="Explorer could not load the archive shell"
-          description={shellError}
-        />
+        <ErrorState title="Explorer could not load" description={shellError} />
       </section>
     )
-  }
-
   if (!snapshot?.config.initialized) {
     return (
       <section className="page-shell">
         <EmptyState
           action={
-            <Link className="primary-button" to="/onboarding">
+            <Link className="btn-primary" to="/onboarding">
               Initialize archive first
             </Link>
           }
@@ -252,16 +337,15 @@ export function ExplorerPage() {
       </section>
     )
   }
-
   if (!snapshot.archiveStatus.unlocked) {
     return (
       <section className="page-shell">
         <PermissionGate
-          detail="The archive is locked right now. Unlock it first so PathKeep can query visit evidence and export the current result set."
+          detail="The archive is locked. Unlock it first."
           eyebrow="LOCKED"
           title="Explorer needs an unlocked archive"
         >
-          <Link className="primary-button" to="/security">
+          <Link className="btn-primary" to="/security">
             Review security
           </Link>
         </PermissionGate>
@@ -271,117 +355,237 @@ export function ExplorerPage() {
 
   return (
     <section className="page-shell explorer-page" data-testid="explorer-page">
-      <section className="shell-panel">
+      <div className="timeline-bar">
+        <div className="timeline-controls">
+          {dateShortcutWindows.map((entry) => (
+            <button
+              key={entry.key}
+              className={`tl-btn ${
+                activeDateShortcut() === entry.key ? 'active' : ''
+              }`}
+              type="button"
+              onClick={() => applyDateShortcut(entry.days)}
+            >
+              {entry.key}
+            </button>
+          ))}
+        </div>
+        <div className="timeline-track">
+          <span className="timeline-label">
+            {results ? `${results.total} visible records` : 'Waiting for query'}
+          </span>
+          <span className="timeline-label">
+            {start || end
+              ? `${start ?? '…'} → ${end ?? '…'}`
+              : 'All recorded time'}
+          </span>
+          {(start || end) && (
+            <button
+              className="tl-today"
+              type="button"
+              onClick={() => {
+                updateParam('start', null)
+                updateParam('end', null)
+              }}
+            >
+              Clear range
+            </button>
+          )}
+        </div>
+      </div>
+
+      {activeFilters.length > 0 && (
+        <div className="filter-bar">
+          <div className="filter-tags">
+            {activeFilters.map((filter) => (
+              <div key={filter} className="filter-tag">
+                <span>{filter}</span>
+                <button
+                  className="filter-remove"
+                  type="button"
+                  onClick={() => {
+                    const key = filter.split(':')[0].trim()
+                    if (key === 'keyword') updateParam('q', null)
+                    else if (key === 'domain') updateParam('domain', null)
+                    else if (key === 'profile') updateParam('profileId', null)
+                    else if (key === 'browser') updateParam('browserKind', null)
+                    else if (key === 'start') updateParam('start', null)
+                    else if (key === 'end') updateParam('end', null)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="filter-actions">
+            <button
+              className="filter-btn"
+              type="button"
+              onClick={() => setSearchParams(new URLSearchParams())}
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="panel">
         <div className="panel-header">
           <span className="panel-title">QUERY + FILTERS</span>
           <span className="panel-action">
             {results ? `${results.total} visible records` : 'Waiting for query'}
           </span>
         </div>
-        <div className="panel-body explorer-filters">
-          <label className="field-stack">
-            <span className="mono-kicker">KEYWORD</span>
-            <input
-              aria-label="Explorer keyword"
-              type="search"
-              value={searchParams.get('q') ?? ''}
-              onChange={(event) => updateParam('q', event.target.value || null)}
-            />
-          </label>
-          <label className="field-stack">
-            <span className="mono-kicker">PROFILE</span>
-            <select
-              aria-label="Explorer profile"
-              value={searchParams.get('profileId') ?? ''}
-              onChange={(event) =>
-                updateParam('profileId', event.target.value || null)
-              }
+        <div className="panel-body">
+          <div className="explorer-filters">
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <option value="">All selected profiles</option>
-              {snapshot.config.selectedProfileIds.map((profileId) => (
-                <option key={profileId} value={profileId}>
-                  {profileId}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-stack">
-            <span className="mono-kicker">BROWSER</span>
-            <select
-              aria-label="Explorer browser"
-              value={searchParams.get('browserKind') ?? ''}
-              onChange={(event) =>
-                updateParam('browserKind', event.target.value || null)
-              }
+              <span className="mono-kicker">KEYWORD</span>
+              <input
+                aria-label="Explorer keyword"
+                type="search"
+                value={searchParams.get('q') ?? ''}
+                onChange={(event) =>
+                  updateParam('q', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <option value="">All browsers</option>
-              {browserKinds.map((browserKind) => (
-                <option key={browserKind} value={browserKind}>
-                  {browserKind}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-stack">
-            <span className="mono-kicker">DOMAIN</span>
-            <input
-              aria-label="Explorer domain"
-              type="search"
-              value={searchParams.get('domain') ?? ''}
-              onChange={(event) =>
-                updateParam('domain', event.target.value || null)
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span className="mono-kicker">START</span>
-            <input
-              aria-label="Explorer start date"
-              type="date"
-              value={searchParams.get('start') ?? ''}
-              onChange={(event) =>
-                updateParam('start', event.target.value || null)
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span className="mono-kicker">END</span>
-            <input
-              aria-label="Explorer end date"
-              type="date"
-              value={searchParams.get('end') ?? ''}
-              onChange={(event) =>
-                updateParam('end', event.target.value || null)
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span className="mono-kicker">SORT</span>
-            <select
-              aria-label="Explorer sort order"
-              value={searchParams.get('sort') ?? 'newest'}
-              onChange={(event) => updateParam('sort', event.target.value)}
+              <span className="mono-kicker">DOMAIN</span>
+              <input
+                aria-label="Explorer domain"
+                type="search"
+                value={searchParams.get('domain') ?? ''}
+                onChange={(event) =>
+                  updateParam('domain', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-            </select>
-          </label>
-        </div>
-        {recentSearches.length > 0 ? (
-          <div className="panel-body recent-search-bar">
-            {recentSearches.map((item) => (
-              <button
-                key={item}
-                className="chip-button"
-                type="button"
-                onClick={() => updateParam('q', item)}
+              <span className="mono-kicker">PROFILE</span>
+              <select
+                aria-label="Explorer profile"
+                value={searchParams.get('profileId') ?? ''}
+                onChange={(event) =>
+                  updateParam('profileId', event.target.value || null)
+                }
               >
-                {item}
-              </button>
-            ))}
+                <option value="">All profiles</option>
+                {snapshot.config.selectedProfileIds.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">BROWSER</span>
+              <select
+                aria-label="Explorer browser"
+                value={searchParams.get('browserKind') ?? ''}
+                onChange={(event) =>
+                  updateParam('browserKind', event.target.value || null)
+                }
+              >
+                <option value="">All browsers</option>
+                {browserKinds.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {browserLabel(kind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">START</span>
+              <input
+                aria-label="Explorer start date"
+                type="date"
+                value={start ?? ''}
+                onChange={(event) =>
+                  updateParam('start', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">END</span>
+              <input
+                aria-label="Explorer end date"
+                type="date"
+                value={end ?? ''}
+                onChange={(event) =>
+                  updateParam('end', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">SORT</span>
+              <select
+                aria-label="Explorer sort"
+                value={searchParams.get('sort') ?? 'newest'}
+                onChange={(event) => updateParam('sort', event.target.value)}
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </label>
           </div>
-        ) : null}
-      </section>
+        </div>
+        <div
+          className="panel-body"
+          style={{
+            borderTop: '1px solid var(--border)',
+            paddingTop: 'var(--space-2)',
+          }}
+        >
+          <div className="recent-search-bar">
+            {recentSearches.length > 0 ? (
+              recentSearches.map((entry) => (
+                <button
+                  key={entry.label}
+                  className="chip-button"
+                  type="button"
+                  onClick={() =>
+                    setSearchParams(
+                      new URLSearchParams(
+                        Object.entries(entry.params).flatMap(([key, value]) =>
+                          value ? [[key, value]] : [],
+                        ),
+                      ),
+                    )
+                  }
+                >
+                  {entry.label}
+                </button>
+              ))
+            ) : (
+              <span className="mono-support">
+                Recent filters appear here after the first successful query.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       {loading ? (
         <LoadingState label="Searching the canonical archive" />
@@ -391,114 +595,116 @@ export function ExplorerPage() {
         <EmptyState
           action={
             <button
-              className="ghost-button"
+              className="btn-secondary"
               type="button"
               onClick={() => setSearchParams(new URLSearchParams())}
             >
               Clear filters
             </button>
           }
-          description="No visible visit matched the current keyword, facet, and date filters. Adjust the query or clear the date range."
+          description="No visible visit matched the current filters."
           eyebrow="NO MATCHES"
           title="Explorer did not find any visible history"
         />
       ) : (
         <div className="explorer-grid">
-          <section className="shell-panel">
-            <div className="panel-header">
-              <span className="panel-title">RESULTS</span>
-              <span className="panel-action">Evidence source · visit</span>
-            </div>
-            <div className="panel-body explorer-results">
+          <div className="record-list">
+            <div className="record-group">
+              <div className="record-group-header">
+                Visible archive rows · {results?.total ?? 0} records
+              </div>
               {(results?.items ?? []).map((item) => (
                 <button
                   key={item.id}
-                  className={`result-row ${
-                    selectedEntry?.id === item.id ? 'result-row--active' : ''
-                  }`}
+                  className={`record-item ${selectedEntry?.id === item.id ? 'selected' : ''}`}
                   type="button"
                   onClick={() => setSelectedId(item.id)}
                 >
-                  <div className="result-row__header">
-                    <strong>{item.title || item.url}</strong>
-                    <span className="mono-support">
+                  <div className="favicon-placeholder">
+                    {(item.domain ?? '?')[0].toUpperCase()}
+                  </div>
+                  <div className="record-main">
+                    <div className="record-title">{item.title || item.url}</div>
+                    <div className="record-url dim mono">{item.url}</div>
+                  </div>
+                  <div className="record-meta">
+                    <span className="dim mono" style={{ fontSize: '10px' }}>
                       {formatRelativeTime(item.visitedAt)}
                     </span>
-                  </div>
-                  <p>{item.url}</p>
-                  <div className="result-row__meta">
-                    <span className="state-chip state-chip--ready">visit</span>
-                    <span className="mono-support">{item.profileId}</span>
-                    <span className="mono-support">#{item.sourceVisitId}</span>
+                    <span className="tag tag-sm tag-backup">visit</span>
                   </div>
                 </button>
               ))}
             </div>
-          </section>
+          </div>
 
-          <aside className="stacked-column">
-            <section className="shell-panel shell-panel--accent">
-              <div className="panel-header">
-                <span className="panel-title">DETAIL</span>
-                <span className="panel-action">Canonical visit evidence</span>
-              </div>
-              <div className="panel-body stack-list">
-                {selectedEntry ? (
-                  <>
-                    <article className="list-item">
-                      <strong>
-                        {selectedEntry.title || selectedEntry.url}
-                      </strong>
-                      <span className="mono-support">{selectedEntry.url}</span>
-                    </article>
-                    <article className="list-item">
-                      <strong>Visited at</strong>
-                      <span className="mono-support">
-                        {formatDateTime(selectedEntry.visitedAt, 'en') ??
-                          selectedEntry.visitedAt}
-                      </span>
-                    </article>
-                    <article className="list-item">
-                      <strong>Evidence source</strong>
-                      <span className="mono-support">
-                        visit · {selectedEntry.profileId} · #
-                        {selectedEntry.sourceVisitId}
-                      </span>
-                    </article>
-                    <article className="list-item">
-                      <strong>Interaction details</strong>
-                      <span className="mono-support">
-                        {formatDuration(selectedEntry.durationMs)} · transition{' '}
-                        {selectedEntry.transition ?? 'n/a'}
-                        {selectedEntry.appId
-                          ? ` · app ${selectedEntry.appId}`
-                          : ''}
-                      </span>
-                    </article>
-                  </>
-                ) : (
-                  <EmptyState
-                    description="Pick a result to inspect the visit, source profile, and export boundary."
-                    eyebrow="DETAIL"
-                    title="No result selected"
-                  />
-                )}
-              </div>
-            </section>
-
-            <section className="shell-panel">
-              <div className="panel-header">
-                <span className="panel-title">EXPORT</span>
-                <span className="panel-action">Visible query only</span>
-              </div>
-              <div className="panel-body stack-list">
-                <div className="segmented-row">
+          <div className="detail-panel">
+            <div className="detail-header">
+              <span className="crosshair-mark small">+</span>
+              <span className="detail-label">RECORD DETAIL</span>
+            </div>
+            {selectedEntry ? (
+              <div className="detail-body">
+                <div className="detail-section">
+                  <div className="detail-field">
+                    <span className="field-label">TITLE</span>
+                    <span className="field-value">
+                      {selectedEntry.title || selectedEntry.url}
+                    </span>
+                  </div>
+                  <div className="detail-field">
+                    <span className="field-label">URL</span>
+                    <span
+                      className="field-value"
+                      style={{ wordBreak: 'break-all' }}
+                    >
+                      {selectedEntry.url}
+                    </span>
+                  </div>
+                </div>
+                <div className="detail-divider" />
+                <div className="detail-row">
+                  <div className="detail-field half">
+                    <span className="field-label">VISITED AT</span>
+                    <span className="field-value">
+                      {formatDateTime(selectedEntry.visitedAt, 'en') ??
+                        selectedEntry.visitedAt}
+                    </span>
+                  </div>
+                  <div className="detail-field half">
+                    <span className="field-label">DURATION</span>
+                    <span className="field-value">
+                      {formatDuration(selectedEntry.durationMs)}
+                    </span>
+                  </div>
+                </div>
+                <div className="detail-row">
+                  <div className="detail-field half">
+                    <span className="field-label">PROFILE</span>
+                    <span className="field-value">
+                      {selectedEntry.profileId}
+                    </span>
+                  </div>
+                  <div className="detail-field half">
+                    <span className="field-label">TRANSITION</span>
+                    <span className="field-value">
+                      {selectedEntry.transition ?? 'N/A'}
+                    </span>
+                  </div>
+                </div>
+                <div className="detail-divider" />
+                <div className="summary-label">EXPORT VISIBLE QUERY</div>
+                <p className="dashboard-next-action">
+                  Export uses the current visible archive scope only. M1 ships
+                  visit exports; richer content-type evidence lands later.
+                </p>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                   {(
                     ['jsonl', 'markdown', 'html', 'text'] as ExportFormat[]
                   ).map((format) => (
                     <button
                       key={format}
-                      className="chip-button"
+                      className="btn-tiny"
                       type="button"
                       onClick={() => {
                         void handleExport(format)
@@ -508,53 +714,55 @@ export function ExplorerPage() {
                     </button>
                   ))}
                 </div>
-                <article className="list-item">
-                  <strong>Export boundary</strong>
-                  <span className="mono-support">
-                    Export uses the current visible query only. Reverted or
-                    hidden facts stay out of this artifact.
-                  </span>
-                </article>
-                {exportResult ? (
-                  <article className="list-item">
-                    <strong>Latest export</strong>
-                    <span className="mono-support">{exportResult.path}</span>
-                    <span className="mono-support">
-                      {exportResult.count} records · {exportResult.format}
-                    </span>
-                    <div className="utility-block__actions">
+                {exportResult && (
+                  <div
+                    style={{ marginTop: 'var(--space-3)', fontSize: '11px' }}
+                  >
+                    <span className="dim mono">{exportResult.path}</span>
+                    <div
+                      style={{
+                        marginTop: 'var(--space-1)',
+                        display: 'flex',
+                        gap: 'var(--space-2)',
+                      }}
+                    >
                       <button
-                        className="ghost-button"
+                        className="btn-tiny"
                         type="button"
                         onClick={() => {
                           void backend.openPathInFileManager(exportResult.path)
                         }}
                       >
-                        Open path
+                        Open
                       </button>
                       <button
-                        className="ghost-button"
+                        className="btn-tiny"
                         type="button"
                         onClick={() => {
                           void handleCopyExportPath(exportResult.path)
                         }}
                       >
-                        Copy path
+                        Copy
                       </button>
                     </div>
-                    {copiedExportPath === exportResult.path ? (
-                      <span className="mono-support">Copied path</span>
-                    ) : null}
-                    {copiedExportPath === `error:${exportResult.path}` ? (
-                      <span className="mono-support">
-                        Clipboard unavailable
+                    {copiedExportPath === exportResult.path && (
+                      <span className="dim mono" style={{ fontSize: '10px' }}>
+                        Copied
                       </span>
-                    ) : null}
-                  </article>
-                ) : null}
+                    )}
+                  </div>
+                )}
               </div>
-            </section>
-          </aside>
+            ) : (
+              <div className="detail-body">
+                <EmptyState
+                  description="Pick a result to inspect visit detail."
+                  eyebrow="DETAIL"
+                  title="No result selected"
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

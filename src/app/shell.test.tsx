@@ -33,7 +33,7 @@ describe('AppShell', () => {
       await screen.findByRole('heading', { name: 'Dashboard' }),
     ).toBeVisible()
     expect(
-      screen.getByRole('button', { name: 'Initialize first' }),
+      screen.getByRole('button', { name: /Initialize first/ }),
     ).toBeVisible()
   })
 })

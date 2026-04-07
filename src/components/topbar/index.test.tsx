@@ -26,10 +26,7 @@ describe('Topbar', () => {
       screen.getByRole('searchbox', { name: 'Search history' }),
     ).toBeVisible()
     expect(
-      screen.getByRole('link', { name: 'Review onboarding' }),
-    ).toBeVisible()
-    expect(
-      await screen.findByRole('button', { name: 'Initialize first' }),
+      await screen.findByRole('button', { name: /Initialize first/ }),
     ).toBeVisible()
   })
 })

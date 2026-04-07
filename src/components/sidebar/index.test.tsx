@@ -15,7 +15,7 @@ describe('Sidebar', () => {
       [
         {
           path: '/',
-          element: <Sidebar />,
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
         },
       ],
       { initialEntries: ['/'] },
@@ -45,7 +45,7 @@ describe('Sidebar', () => {
       [
         {
           path: '/',
-          element: <Sidebar />,
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
         },
       ],
       { initialEntries: ['/'] },
@@ -65,7 +65,7 @@ describe('Sidebar', () => {
       [
         {
           path: '*',
-          element: <Sidebar />,
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
         },
       ],
       { initialEntries: ['/explorer'] },
@@ -83,5 +83,28 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: 'Explorer' })).toHaveClass(
       'nav-item--active',
     )
+  })
+
+  test('keeps navigation accessible when the sidebar is collapsed', async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Sidebar collapsed onToggle={() => {}} />,
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <ShellDataProvider>
+        <RouterProvider router={router} />
+      </ShellDataProvider>,
+    )
+
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeVisible()
+    expect(await screen.findByLabelText('Expand navigation')).toBeVisible()
+    expect(screen.getByText('PATHKEEP')).toHaveClass('logo-name')
+    expect(screen.getByText('Dashboard')).toHaveAttribute('aria-hidden', 'true')
   })
 })

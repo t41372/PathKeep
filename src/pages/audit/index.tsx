@@ -5,11 +5,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { backend } from '../../lib/backend'
-import {
-  formatBytes,
-  formatDateTime,
-  formatRelativeTime,
-} from '../../lib/format'
+import { formatBytes, formatDateTime } from '../../lib/format'
 import type { AuditRunDetail } from '../../lib/types'
 
 interface AuditDetailState {
@@ -41,23 +37,14 @@ export function AuditPage() {
       : (snapshot?.recentRuns[0]?.id ?? null)
 
   useEffect(() => {
-    if (!runId) {
-      return
-    }
-
+    if (!runId) return
     let cancelled = false
     const loadDetail = async () => {
       try {
         const response = await backend.loadAuditRunDetail(runId)
-        if (!cancelled) {
-          setDetailState({
-            runId,
-            detail: response,
-            error: null,
-          })
-        }
+        if (!cancelled) setDetailState({ runId, detail: response, error: null })
       } catch (nextError) {
-        if (!cancelled) {
+        if (!cancelled)
           setDetailState({
             runId,
             detail: null,
@@ -66,12 +53,9 @@ export function AuditPage() {
                 ? nextError.message
                 : 'PathKeep could not load the selected audit run.',
           })
-        }
       }
     }
-
     void loadDetail()
-
     return () => {
       cancelled = true
     }
@@ -83,9 +67,8 @@ export function AuditPage() {
 
   async function handleCopyPath(path: string) {
     try {
-      if (!navigator.clipboard?.writeText) {
+      if (!navigator.clipboard?.writeText)
         throw new Error('Clipboard unavailable')
-      }
       await navigator.clipboard.writeText(path)
       setCopiedPath(path)
     } catch {
@@ -93,15 +76,13 @@ export function AuditPage() {
     }
   }
 
-  if (shellLoading && !snapshot) {
+  if (shellLoading && !snapshot)
     return (
       <section className="page-shell">
         <LoadingState label="Loading audit ledger" />
       </section>
     )
-  }
-
-  if (shellError && !snapshot) {
+  if (shellError && !snapshot)
     return (
       <section className="page-shell">
         <ErrorState
@@ -110,14 +91,13 @@ export function AuditPage() {
         />
       </section>
     )
-  }
 
   if (!snapshot?.config.initialized) {
     return (
       <section className="page-shell">
         <EmptyState
           action={
-            <Link className="primary-button" to="/onboarding">
+            <Link className="btn-primary" to="/onboarding">
               Finish onboarding
             </Link>
           }
@@ -135,7 +115,7 @@ export function AuditPage() {
         <EmptyState
           action={
             <button
-              className="primary-button"
+              className="btn-primary"
               type="button"
               onClick={() => {
                 void runBackup()
@@ -154,227 +134,243 @@ export function AuditPage() {
 
   return (
     <section className="page-shell audit-page" data-testid="audit-page">
-      <div className="explorer-grid">
-        <section className="shell-panel">
+      {/* Manifest Chain Visualization */}
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">MANIFEST CHAIN</span>
+          <span className="panel-action">Verify integrity</span>
+        </div>
+        <div className="panel-body">
+          <div className="chain-viz">
+            {snapshot.recentRuns.slice(0, 4).map((run, i) => (
+              <div key={run.id} style={{ display: 'contents' }}>
+                {i > 0 && <div className="chain-link">→</div>}
+                <div
+                  className={`chain-block ${i >= 3 ? 'older' : ''}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => {
+                    const nextParams = new URLSearchParams(searchParams)
+                    nextParams.set('run', String(run.id))
+                    setSearchParams(nextParams)
+                  }}
+                >
+                  <div className="chain-hash mono">#{run.id}</div>
+                  <div className="chain-meta dim">
+                    <div>
+                      {run.status.toUpperCase()} · {run.profilesProcessed}{' '}
+                      profiles
+                    </div>
+                    <div className="mono">
+                      {run.manifestHash
+                        ? `sha256:${run.manifestHash.slice(0, 8)}...`
+                        : 'pending'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {snapshot.recentRuns.length > 4 && (
+              <div className="chain-link dim">→ ···</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Run Detail */}
+      {loading ? (
+        <LoadingState label="Loading run detail" />
+      ) : error ? (
+        <ErrorState title="Run detail is unavailable" description={error} />
+      ) : detail ? (
+        <div className="panel">
           <div className="panel-header">
-            <span className="panel-title">RUN LEDGER</span>
-            <span className="panel-action">
-              {snapshot.recentRuns.length} recent backup runs
+            <span className="panel-title">
+              RUN #{detail.run.id} · MANIFEST DETAIL
             </span>
           </div>
-          <div className="panel-body explorer-results">
-            {snapshot.recentRuns.map((run) => (
-              <button
-                key={run.id}
-                className={`result-row ${detail?.run.id === run.id ? 'result-row--active' : ''}`}
-                type="button"
-                onClick={() => {
-                  const nextParams = new URLSearchParams(searchParams)
-                  nextParams.set('run', String(run.id))
-                  setSearchParams(nextParams)
-                }}
-              >
-                <div className="result-row__header">
-                  <strong>Run #{run.id}</strong>
-                  <span className="mono-support">
-                    {formatRelativeTime(run.finishedAt ?? run.startedAt)}
-                  </span>
-                </div>
-                <p>
-                  {run.status} · {run.profilesProcessed} profiles ·{' '}
-                  {run.newVisits} visits
-                </p>
-                <div className="result-row__meta">
-                  <span className="state-chip state-chip--ready">
-                    {run.status}
-                  </span>
-                  <span className="mono-support">
-                    {run.manifestHash ?? 'manifest pending'}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-          {snapshot.recentImportBatches.length > 0 ? (
-            <div className="panel-body stack-list">
-              <article className="list-item">
-                <strong>Recent import batches</strong>
-                <span className="mono-support">
-                  {snapshot.recentImportBatches.length} batch entries stay
-                  available for rollback review.
+          <div className="panel-body">
+            <div className="manifest-grid">
+              <div className="manifest-field">
+                <span className="field-label">RUN ID</span>
+                <span className="field-value mono">#{detail.run.id}</span>
+              </div>
+              <div className="manifest-field">
+                <span className="field-label">TYPE</span>
+                <span className="field-value">
+                  {detail.trigger === 'manual'
+                    ? 'Manual Backup'
+                    : 'Scheduled Backup'}
                 </span>
-              </article>
+              </div>
+              <div className="manifest-field">
+                <span className="field-label">SOURCE</span>
+                <span className="field-value">
+                  {detail.profileScope.join(' · ') || 'Archive-wide'}
+                </span>
+              </div>
+              <div className="manifest-field">
+                <span className="field-label">EXECUTED AT</span>
+                <span className="field-value mono">
+                  {formatDateTime(detail.run.startedAt, 'en') ??
+                    detail.run.startedAt}
+                </span>
+              </div>
+              <div className="manifest-field">
+                <span className="field-label">MANIFEST HASH</span>
+                <span className="field-value mono">
+                  {detail.manifestHash ?? 'N/A'}
+                </span>
+              </div>
+              <div className="manifest-field">
+                <span className="field-label">MANIFEST PATH</span>
+                <span className="field-value mono">
+                  {detail.manifestPath ?? 'N/A'}
+                </span>
+              </div>
             </div>
-          ) : null}
-        </section>
+            <div className="detail-divider" />
+            <div className="manifest-stats">
+              <div className="manifest-stat">
+                <span className="dim">New visits</span>
+                <span className="mono accent">+{detail.run.newVisits}</span>
+              </div>
+              <div className="manifest-stat">
+                <span className="dim">New URLs</span>
+                <span className="mono">{detail.run.newUrls}</span>
+              </div>
+              <div className="manifest-stat">
+                <span className="dim">Downloads</span>
+                <span className="mono">{detail.run.newDownloads}</span>
+              </div>
+              <div className="manifest-stat">
+                <span className="dim">Profiles</span>
+                <span className="mono">{detail.run.profilesProcessed}</span>
+              </div>
+            </div>
 
-        <aside className="stacked-column">
-          {loading ? (
-            <LoadingState label="Loading run detail" />
-          ) : error ? (
-            <ErrorState title="Run detail is unavailable" description={error} />
-          ) : detail ? (
-            <>
-              <section className="shell-panel shell-panel--accent">
-                <div className="panel-header">
-                  <span className="panel-title">RUN DETAIL</span>
-                  <span className="panel-action">{detail.trigger}</span>
-                </div>
-                <div className="panel-body stack-list">
-                  <article className="list-item">
-                    <strong>Summary</strong>
-                    <span className="mono-support">
-                      {detail.run.status} · {detail.run.newVisits} visits ·{' '}
-                      {detail.run.newUrls} URLs · {detail.run.newDownloads}{' '}
-                      downloads
-                    </span>
-                  </article>
-                  <article className="list-item">
-                    <strong>Started</strong>
-                    <span className="mono-support">
-                      {formatDateTime(detail.run.startedAt, 'en') ??
-                        detail.run.startedAt}
-                    </span>
-                  </article>
-                  <article className="list-item">
-                    <strong>Profile scope</strong>
-                    <span className="mono-support">
-                      {detail.profileScope.join(' · ') || 'Archive-wide'}
-                    </span>
-                  </article>
-                  <article className="list-item">
-                    <strong>Manifest</strong>
-                    <span className="mono-support">
-                      {detail.manifestPath ?? 'No manifest artifact recorded'}
-                    </span>
-                    <div className="utility-block__actions">
-                      {detail.manifestPath ? (
-                        <>
-                          <button
-                            className="ghost-button"
-                            type="button"
-                            onClick={() => {
-                              void backend.openPathInFileManager(
-                                detail.manifestPath!,
-                              )
-                            }}
-                          >
-                            Open path
-                          </button>
-                          <button
-                            className="ghost-button"
-                            type="button"
-                            onClick={() => {
-                              void handleCopyPath(detail.manifestPath!)
-                            }}
-                          >
-                            Copy path
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                    {detail.manifestPath &&
-                    copiedPath === detail.manifestPath ? (
-                      <span className="mono-support">Copied path</span>
-                    ) : null}
-                    {detail.manifestPath &&
-                    copiedPath === `error:${detail.manifestPath}` ? (
-                      <span className="mono-support">
-                        Clipboard unavailable
-                      </span>
-                    ) : null}
-                  </article>
-                </div>
-              </section>
-
-              <section className="shell-panel">
-                <div className="panel-header">
-                  <span className="panel-title">ARTIFACTS</span>
-                  <span className="panel-action">
-                    {detail.artifacts.length} files
+            {/* Artifacts */}
+            {detail.artifacts.length > 0 && (
+              <>
+                <div className="detail-divider" />
+                <div style={{ marginTop: 'var(--space-3)' }}>
+                  <span
+                    className="mono-kicker"
+                    style={{ marginBottom: 'var(--space-2)', display: 'block' }}
+                  >
+                    ARTIFACTS · {detail.artifacts.length} files
                   </span>
-                </div>
-                <div className="panel-body stack-list">
                   {detail.artifacts.map((artifact) => (
-                    <article
+                    <div
                       key={`${artifact.kind}:${artifact.path}`}
-                      className="list-item"
+                      style={{ marginBottom: 'var(--space-2)' }}
                     >
-                      <strong>{artifact.kind}</strong>
-                      <span className="mono-support">{artifact.path}</span>
-                      <span className="mono-support">
-                        {artifact.reason ?? 'Artifact recorded'} ·{' '}
-                        {formatBytes(artifact.sizeBytes ?? 0)}
-                      </span>
-                      <div className="utility-block__actions">
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span className="mono" style={{ fontSize: '11px' }}>
+                          {artifact.kind} — {artifact.path}
+                        </span>
+                        <span className="dim mono" style={{ fontSize: '10px' }}>
+                          {formatBytes(artifact.sizeBytes ?? 0)}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: 'var(--space-2)',
+                          marginTop: 'var(--space-1)',
+                        }}
+                      >
                         <button
-                          className="ghost-button"
+                          className="btn-tiny"
                           type="button"
                           onClick={() => {
                             void backend.openPathInFileManager(artifact.path)
                           }}
                         >
-                          Open path
+                          Open
                         </button>
                         <button
-                          className="ghost-button"
+                          className="btn-tiny"
                           type="button"
                           onClick={() => {
                             void handleCopyPath(artifact.path)
                           }}
                         >
-                          Copy path
+                          Copy
                         </button>
                       </div>
-                      {copiedPath === artifact.path ? (
-                        <span className="mono-support">Copied path</span>
-                      ) : null}
-                      {copiedPath === `error:${artifact.path}` ? (
-                        <span className="mono-support">
-                          Clipboard unavailable
+                      {copiedPath === artifact.path && (
+                        <span className="dim mono" style={{ fontSize: '10px' }}>
+                          Copied
                         </span>
-                      ) : null}
-                    </article>
+                      )}
+                    </div>
                   ))}
                 </div>
-              </section>
+              </>
+            )}
 
-              <section className="shell-panel">
-                <div className="panel-header">
-                  <span className="panel-title">WARNINGS + NOTES</span>
-                  <span className="panel-action">
-                    {detail.warnings.length} warning
-                    {detail.warnings.length === 1 ? '' : 's'}
-                  </span>
+            {/* Warnings */}
+            {detail.warnings.length > 0 && (
+              <>
+                <div className="detail-divider" />
+                <div className="warning-box">
+                  <div className="warning-icon">⚠</div>
+                  <div className="warning-text">
+                    {detail.warnings.map((w) => (
+                      <div key={w}>{w}</div>
+                    ))}
+                  </div>
                 </div>
-                <div className="panel-body stack-list">
-                  {detail.warnings.length > 0 ? (
-                    detail.warnings.map((warning) => (
-                      <article key={warning} className="list-item">
-                        <strong>Warning</strong>
-                        <span className="mono-support">{warning}</span>
-                      </article>
-                    ))
-                  ) : (
-                    <article className="list-item">
-                      <strong>No warnings recorded</strong>
-                      <span className="mono-support">
-                        This run finished without audit warnings.
-                      </span>
-                    </article>
-                  )}
-                </div>
-              </section>
-            </>
-          ) : (
-            <EmptyState
-              description="Pick a run from the ledger to inspect the manifest path, snapshot artifacts, and warning trail."
-              eyebrow="DETAIL"
-              title="No audit run selected"
-            />
-          )}
-        </aside>
-      </div>
+              </>
+            )}
+
+            <div
+              className="wizard-actions"
+              style={{ marginTop: 'var(--space-4)' }}
+            >
+              {detail.manifestPath && (
+                <>
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void backend.openPathInFileManager(detail.manifestPath!)
+                    }}
+                  >
+                    View Manifest
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void handleCopyPath(detail.manifestPath!)
+                    }}
+                  >
+                    Copy Path
+                  </button>
+                </>
+              )}
+            </div>
+            {detail.manifestPath && copiedPath === detail.manifestPath && (
+              <span className="dim mono" style={{ fontSize: '10px' }}>
+                Copied
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <EmptyState
+          description="Click a block in the manifest chain above to inspect run details, artifacts, and the hash trail."
+          eyebrow="DETAIL"
+          title="No audit run selected"
+        />
+      )}
     </section>
   )
 }

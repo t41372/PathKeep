@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import type { AppScreen } from '../../app/router'
 import { useShellData } from '../../app/shell-data-context'
 
@@ -9,7 +9,6 @@ interface TopbarProps {
 
 export function Topbar({ screen }: TopbarProps) {
   const navigate = useNavigate()
-  const location = useLocation()
   const { busyAction, notice, runBackup, snapshot } = useShellData()
   const [query, setQuery] = useState('')
 
@@ -55,13 +54,8 @@ export function Topbar({ screen }: TopbarProps) {
             type="search"
           />
         </form>
-        <Link className="ghost-button" to="/onboarding">
-          {location.pathname === '/onboarding'
-            ? 'Back to dashboard'
-            : 'Review onboarding'}
-        </Link>
         <button
-          className="primary-button"
+          className="btn-backup"
           type="button"
           disabled={backupDisabled}
           onClick={() => {
@@ -72,6 +66,9 @@ export function Topbar({ screen }: TopbarProps) {
             void runBackup()
           }}
         >
+          <span aria-hidden className="backup-icon">
+            ▶
+          </span>
           {busyAction ?? backupLabel}
         </button>
       </div>

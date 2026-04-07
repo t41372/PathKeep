@@ -1,16 +1,39 @@
+import { useEffect, useState } from 'react'
 import { Outlet, useMatches } from 'react-router-dom'
 import { Sidebar } from '../components/sidebar'
 import { Topbar } from '../components/topbar'
 import { appScreens, readRouteHandle } from './router'
 
 export function AppShell() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    typeof window !== 'undefined' && 'matchMedia' in window
+      ? window.matchMedia('(max-width: 1200px)').matches
+      : false,
+  )
   const activeScreen =
     [...useMatches()]
       .map((match) => readRouteHandle(match.handle))
       .find(Boolean)?.screen ?? appScreens[0]
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('matchMedia' in window)) return
+    const mediaQuery = window.matchMedia('(max-width: 1200px)')
+    const handleChange = (event: MediaQueryListEvent) => {
+      setSidebarCollapsed(event.matches)
+    }
+
+    mediaQuery.addEventListener('change', handleChange)
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange)
+    }
+  }, [])
+
   return (
-    <div className="app-frame" data-testid="app-shell">
+    <div
+      className="app-frame"
+      data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}
+      data-testid="app-shell"
+    >
       <div aria-hidden className="shell-dot-grid" />
       <span aria-hidden className="corner-mark corner-mark--tl">
         +
@@ -25,7 +48,10 @@ export function AppShell() {
         +
       </span>
       <div className="shell-grid">
-        <Sidebar />
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed((value) => !value)}
+        />
         <div className="workspace-frame">
           <Topbar screen={activeScreen} />
           <main className="workspace-scroll">

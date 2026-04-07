@@ -1,22 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { BrandMark } from '../../components/brand-mark'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
-import { PermissionGate } from '../../components/primitives/permission-gate'
 import { backend } from '../../lib/backend'
-import { formatBytes } from '../../lib/format'
 import type { SchedulePlan } from '../../lib/types'
 
+const stepLabels = [
+  'Welcome',
+  'Browsers',
+  'Storage',
+  'Security',
+  'Schedule',
+  'Ready',
+]
 const dueAfterOptions = [6, 12, 24, 72]
-const scheduleOptions = [1, 6, 12]
-
-interface SchedulePreviewState {
-  requestKey: string | null
-  plan: SchedulePlan | null
-  error: string | null
-}
 
 export function OnboardingPage() {
   const navigate = useNavigate()
@@ -29,58 +29,25 @@ export function OnboardingPage() {
     runBackup,
     snapshot,
   } = useShellData()
-  const [scheduleState, setScheduleState] = useState<SchedulePreviewState>({
-    requestKey: null,
-    plan: null,
-    error: null,
-  })
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0)
+  const [step, setStep] = useState(0)
   const [masterPassword, setMasterPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [rememberKey, setRememberKey] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
-  const schedulePreviewKey = snapshot
-    ? `${snapshot.config.dueAfterHours}:${snapshot.config.scheduleCheckIntervalHours}`
-    : null
+  const [schedulePlan, setSchedulePlan] = useState<SchedulePlan | null>(null)
 
   useEffect(() => {
-    if (!schedulePreviewKey) {
-      return
-    }
-
-    let cancelled = false
-    const loadSchedule = async () => {
-      try {
-        const plan = await backend.previewSchedule()
-        if (cancelled) {
-          return
-        }
-        setScheduleState({
-          requestKey: schedulePreviewKey,
-          plan,
-          error: null,
-        })
-        setSelectedFileIndex(0)
-      } catch (nextError) {
-        if (!cancelled) {
-          setScheduleState({
-            requestKey: schedulePreviewKey,
-            plan: null,
-            error:
-              nextError instanceof Error
-                ? nextError.message
-                : 'PathKeep could not preview the native schedule.',
-          })
-        }
+    if (step === 4 && snapshot) {
+      let cancelled = false
+      void backend.previewSchedule().then((plan) => {
+        if (!cancelled) setSchedulePlan(plan)
+      })
+      return () => {
+        cancelled = true
       }
     }
-
-    void loadSchedule()
-
-    return () => {
-      cancelled = true
-    }
-  }, [schedulePreviewKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, snapshot?.config.dueAfterHours])
 
   if (loading && !snapshot) {
     return (
@@ -122,44 +89,32 @@ export function OnboardingPage() {
     )
   }
 
-  const chromiumProfiles = snapshot.browserProfiles.filter(
-    (profile) => profile.browserFamily === 'chromium' && profile.historyExists,
-  )
-  const unsupportedProfiles = snapshot.browserProfiles.filter(
-    (profile) => profile.browserFamily !== 'chromium' && profile.historyExists,
-  )
   const currentConfig = snapshot.config
-  const selectedChromiumCount = snapshot.config.selectedProfileIds.filter(
-    (profileId) =>
-      profileId.startsWith('chrome:') || profileId.startsWith('arc:'),
+  const chromiumProfiles = snapshot.browserProfiles.filter(
+    (p) => p.browserFamily === 'chromium' && p.historyExists,
+  )
+  const otherProfiles = snapshot.browserProfiles.filter(
+    (p) => p.browserFamily !== 'chromium' && p.historyExists,
+  )
+  const selectedCount = snapshot.config.selectedProfileIds.filter(
+    (id) => id.startsWith('chrome:') || id.startsWith('arc:'),
   ).length
-  const scheduleLoading =
-    Boolean(schedulePreviewKey) &&
-    scheduleState.requestKey !== schedulePreviewKey
-  const schedulePlan =
-    scheduleState.requestKey === schedulePreviewKey ? scheduleState.plan : null
-  const scheduleError =
-    scheduleState.requestKey === schedulePreviewKey ? scheduleState.error : null
-  const selectedGeneratedFile =
-    schedulePlan?.generatedFiles[selectedFileIndex] ?? null
 
   async function updateConfig(
-    updater: (current: typeof currentConfig) => typeof currentConfig,
+    updater: (c: typeof currentConfig) => typeof currentConfig,
   ) {
     setLocalError(null)
     await saveConfig(updater(currentConfig))
   }
 
-  async function handleFirstBackup() {
+  async function handleFinish() {
     setLocalError(null)
-
-    if (selectedChromiumCount === 0) {
+    if (selectedCount === 0) {
       setLocalError(
         'Select at least one Chromium profile before the first backup.',
       )
       return
     }
-
     const encrypted = currentConfig.archiveMode === 'Encrypted'
     if (encrypted) {
       if (!masterPassword.trim()) {
@@ -168,7 +123,6 @@ export function OnboardingPage() {
         )
         return
       }
-
       if (masterPassword !== confirmPassword) {
         setLocalError(
           'The confirmation password does not match the master password.',
@@ -176,407 +130,704 @@ export function OnboardingPage() {
         return
       }
     }
-
     try {
       if (!currentConfig.initialized) {
         await initializeArchive(
           currentConfig,
           encrypted ? masterPassword : null,
         )
-
         if (encrypted && rememberKey) {
           await backend.keyringStoreDatabaseKey(masterPassword)
         }
       }
-
       await runBackup()
       void navigate('/')
-    } catch (nextError) {
+    } catch (e) {
       setLocalError(
-        nextError instanceof Error
-          ? nextError.message
+        e instanceof Error
+          ? e.message
           : 'PathKeep could not finish the first backup flow.',
       )
     }
   }
 
+  function browserIconClass(profileId: string) {
+    if (profileId.startsWith('chrome:')) return 'chrome'
+    if (profileId.startsWith('arc:')) return 'arc'
+    if (profileId.startsWith('firefox:')) return 'firefox'
+    if (profileId.startsWith('safari:')) return 'safari'
+    return ''
+  }
+
+  function browserIconLetter(profileId: string) {
+    if (profileId.startsWith('chrome:')) return 'C'
+    if (profileId.startsWith('arc:')) return 'A'
+    if (profileId.startsWith('firefox:')) return 'F'
+    if (profileId.startsWith('safari:')) return 'S'
+    return '?'
+  }
+
   return (
-    <section
-      className="page-shell onboarding-page"
-      data-testid="onboarding-page"
-    >
-      <div className="onboarding-hero shell-panel shell-panel--accent">
-        <div className="panel-header">
-          <span className="panel-title">ONBOARDING / SETUP</span>
-          <span className="panel-action">Preview, manual, then execute</span>
+    <section data-testid="onboarding-page">
+      {/* Stepper Bar */}
+      {step > 0 && (
+        <div className="onboarding-stepper">
+          <div className="stepper-track">
+            {stepLabels.map((label, i) => (
+              <div key={label} style={{ display: 'contents' }}>
+                <div
+                  className={`stepper-step ${i < step ? 'completed' : ''} ${i === step ? 'active' : ''} ${i < step ? 'clickable' : ''}`}
+                  onClick={() => {
+                    if (i < step) setStep(i)
+                  }}
+                >
+                  <div className="stepper-dot">
+                    <span className="stepper-check">✓</span>
+                    <span className="stepper-num">{i}</span>
+                  </div>
+                  <span className="stepper-label">{label}</span>
+                </div>
+                {i < stepLabels.length - 1 && (
+                  <div
+                    className={`stepper-line ${i < step ? 'completed' : ''} ${i === step - 1 ? 'active' : ''}`}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="panel-body onboarding-hero__body">
-          <div>
-            <h2>Onboarding / Setup</h2>
-            <p>
-              Set the first archive boundary before PathKeep touches history.
-              Storage path, browser scope, security mode, and schedule artifacts
-              all stay inspectable before the first mutating run.
+      )}
+
+      {/* STEP 0: WELCOME */}
+      {step === 0 && (
+        <div className="welcome-hero">
+          <div className="welcome-logo">
+            <BrandMark alt="" />
+          </div>
+          <h1 className="welcome-title">PATHKEEP</h1>
+          <p className="welcome-version mono">
+            v0.1.0-alpha · Tauri desktop app
+          </p>
+          <p className="welcome-tagline">
+            Your browsing history is yours.
+            <br />
+            Archive it, search it, understand it.
+          </p>
+
+          <div className="welcome-features">
+            <div className="welcome-feature">
+              <div className="feature-icon">↓</div>
+              <div className="feature-text">
+                <div className="feature-title">AUTOMATIC BACKUP</div>
+                <div className="feature-desc">
+                  Incrementally back up Chrome and Arc into a local SQLite
+                  archive in M1. Firefox and Safari detection stay visible, but
+                  their ingest pipeline lands in later milestones.
+                </div>
+              </div>
+            </div>
+            <div className="welcome-feature">
+              <div className="feature-icon">◎</div>
+              <div className="feature-text">
+                <div className="feature-title">FULL-TEXT SEARCH</div>
+                <div className="feature-desc">
+                  FTS5-powered search across millions of records. Find any page
+                  you ever visited, even years later.
+                </div>
+              </div>
+            </div>
+            <div className="welcome-feature">
+              <div className="feature-icon">◈</div>
+              <div className="feature-text">
+                <div className="feature-title">INTELLIGENT INSIGHTS</div>
+                <div className="feature-desc">
+                  Intelligence is optional and comes after the archive
+                  foundation. M1 focuses on backup, audit, search, export, and
+                  trustworthy local operation.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="welcome-trust">
+            <div className="trust-item">
+              <span className="trust-icon">⊘</span>
+              <span>Local-first — data never leaves your machine</span>
+            </div>
+            <div className="trust-item">
+              <span className="trust-icon">⊞</span>
+              <span>Open-source — MIT licensed, audit the code</span>
+            </div>
+            <div className="trust-item">
+              <span className="trust-icon">⚙</span>
+              <span>Built with Tauri + Rust + SQLite</span>
+            </div>
+          </div>
+
+          <button
+            className="btn-primary btn-lg"
+            type="button"
+            onClick={() => setStep(1)}
+          >
+            Begin Setup →
+          </button>
+        </div>
+      )}
+
+      {/* STEP 1: BROWSER DETECTION */}
+      {step === 1 && (
+        <div className="ob-panel-container">
+          <div className="ob-header">
+            <div className="crosshair-mark">+</div>
+            <h2 className="ob-title">Browser Detection</h2>
+            <p className="ob-desc">
+              We scanned your system and found the following browser profiles.
+              Select which ones to include in automatic backups.
             </p>
           </div>
-          <div className="onboarding-summary-grid">
-            <article className="pme-column">
-              <span className="mono-kicker">Storage</span>
-              <p>{snapshot.directories.archiveDatabasePath}</p>
-            </article>
-            <article className="pme-column">
-              <span className="mono-kicker">Profiles ready</span>
-              <p>
-                {selectedChromiumCount} Chromium profiles selected for backup.
-              </p>
-            </article>
-            <article className="pme-column">
-              <span className="mono-kicker">Security</span>
-              <p>
-                {snapshot.config.archiveMode === 'Encrypted'
-                  ? 'Encrypted archive with an explicit unlock step.'
-                  : 'Plaintext archive with no key material required.'}
-              </p>
-            </article>
-          </div>
-        </div>
-      </div>
 
-      <div className="onboarding-workflow-grid">
-        <section className="shell-panel">
-          <div className="panel-header">
-            <span className="panel-title">1 · STORAGE</span>
-            <span className="panel-action">Local-first by default</span>
-          </div>
-          <div className="panel-body stack-list">
-            <article className="list-item">
-              <strong>Archive database</strong>
-              <span className="mono-support">
-                {snapshot.directories.archiveDatabasePath}
-              </span>
-            </article>
-            <article className="list-item">
-              <strong>Audit manifests</strong>
-              <span className="mono-support">
-                {snapshot.directories.manifestsDir}
-              </span>
-            </article>
-            <article className="list-item">
-              <strong>Snapshot checkpoints</strong>
-              <span className="mono-support">
-                {snapshot.directories.rawSnapshotsDir}
-              </span>
-            </article>
-            <article className="list-item">
-              <strong>Current archive footprint</strong>
-              <span className="mono-support">
-                {formatBytes(snapshot.config.initialized ? 146_800_640 : 0)}
-              </span>
-            </article>
-          </div>
-        </section>
-
-        <section className="shell-panel">
-          <div className="panel-header">
-            <span className="panel-title">2 · BROWSER DETECTION</span>
-            <span className="panel-action">
-              Profiles are the backup boundary
+          <div className="ob-scan-status">
+            <div className="status-dot status-ok" />
+            <span className="mono">
+              Scan complete · {snapshot.browserProfiles.length} profiles
+              detected · {selectedCount} selected for backup
             </span>
           </div>
-          <div className="panel-body stack-list">
-            {chromiumProfiles.map((profile) => {
-              const selected = snapshot.config.selectedProfileIds.includes(
-                profile.profileId,
-              )
 
-              return (
-                <label
-                  key={profile.profileId}
-                  className="choice-row"
-                  data-active={selected}
-                >
-                  <input
-                    checked={selected}
-                    type="checkbox"
-                    onChange={() => {
-                      const nextSelected = selected
-                        ? snapshot.config.selectedProfileIds.filter(
-                            (value) => value !== profile.profileId,
-                          )
-                        : [
-                            ...snapshot.config.selectedProfileIds,
-                            profile.profileId,
-                          ]
-
-                      void updateConfig((current) => ({
-                        ...current,
-                        selectedProfileIds: nextSelected,
-                      }))
-                    }}
-                  />
-                  <div>
-                    <strong>{profile.browserName}</strong>
-                    <span className="mono-support">
-                      {profile.profileName} · {profile.profileId}
-                    </span>
-                    <p>
-                      {profile.userName ?? 'Local profile'} ·{' '}
-                      {profile.browserVersion ?? 'Version unknown'}
-                    </p>
-                  </div>
-                </label>
-              )
-            })}
-            {unsupportedProfiles.length > 0 ? (
-              <PermissionGate
-                detail={`Detected ${unsupportedProfiles.length} non-Chromium source${
-                  unsupportedProfiles.length > 1 ? 's' : ''
-                }. They stay visible here, but PathKeep will not back them up during M1.`}
-                eyebrow="MANUAL REVIEW"
-                title="Firefox and Safari stay preview-only for this milestone"
-              />
-            ) : null}
-          </div>
-        </section>
-      </div>
-
-      <div className="onboarding-workflow-grid">
-        <section className="shell-panel">
-          <div className="panel-header">
-            <span className="panel-title">3 · SECURITY CHOICE</span>
-            <span className="panel-action">No silent high-risk defaults</span>
-          </div>
-          <div className="panel-body stack-list">
-            <label
-              className="choice-row"
-              data-active={snapshot.config.archiveMode === 'Encrypted'}
-            >
-              <input
-                checked={snapshot.config.archiveMode === 'Encrypted'}
-                name="archive-mode"
-                type="radio"
-                onChange={() => {
-                  void updateConfig((current) => ({
-                    ...current,
-                    archiveMode: 'Encrypted',
-                  }))
-                }}
-              />
-              <div>
-                <strong>Encrypted archive</strong>
-                <span className="mono-support">
-                  Requires a master password before the first backup.
-                </span>
-                <p>
-                  Forgetting the password means losing access to the archive.
-                  The key can optionally live in the native keyring for
-                  convenience.
-                </p>
-              </div>
-            </label>
-            <label
-              className="choice-row"
-              data-active={snapshot.config.archiveMode === 'Plaintext'}
-            >
-              <input
-                checked={snapshot.config.archiveMode === 'Plaintext'}
-                name="archive-mode"
-                type="radio"
-                onChange={() => {
-                  void updateConfig((current) => ({
-                    ...current,
-                    archiveMode: 'Plaintext',
-                  }))
-                }}
-              />
-              <div>
-                <strong>Plaintext archive</strong>
-                <span className="mono-support">
-                  No password gate. The database stays readable on disk.
-                </span>
-                <p>
-                  Pick this only if the device storage is already protected and
-                  the archive path is acceptable in cleartext.
-                </p>
-              </div>
-            </label>
-
-            {snapshot.config.archiveMode === 'Encrypted' ? (
-              <div className="security-form-grid">
-                <label className="field-stack">
-                  <span className="mono-kicker">MASTER PASSWORD</span>
-                  <input
-                    autoComplete="new-password"
-                    type="password"
-                    value={masterPassword}
-                    onChange={(event) => setMasterPassword(event.target.value)}
-                  />
-                </label>
-                <label className="field-stack">
-                  <span className="mono-kicker">CONFIRM PASSWORD</span>
-                  <input
-                    autoComplete="new-password"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                  />
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    checked={rememberKey}
-                    type="checkbox"
-                    onChange={(event) => setRememberKey(event.target.checked)}
-                  />
-                  <span>
-                    Store the unlock key in the native keyring after
-                    initialization.
-                  </span>
-                </label>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="shell-panel">
-          <div className="panel-header">
-            <span className="panel-title">4 · SCHEDULE PREVIEW</span>
-            <span className="panel-action">Preview only in onboarding</span>
-          </div>
-          <div className="panel-body stack-list">
-            <article className="list-item">
-              <strong>Backup interval</strong>
-              <div className="segmented-row">
-                {dueAfterOptions.map((hours) => (
-                  <button
-                    key={hours}
-                    className={`chip-button ${
-                      snapshot.config.dueAfterHours === hours
-                        ? 'chip-button--active'
-                        : ''
-                    }`}
-                    type="button"
-                    onClick={() => {
-                      void updateConfig((current) => ({
-                        ...current,
-                        dueAfterHours: hours,
-                      }))
-                    }}
-                  >
-                    {hours}h
-                  </button>
-                ))}
-              </div>
-            </article>
-            <article className="list-item">
-              <strong>Wake-up cadence</strong>
-              <div className="segmented-row">
-                {scheduleOptions.map((hours) => (
-                  <button
-                    key={hours}
-                    className={`chip-button ${
-                      snapshot.config.scheduleCheckIntervalHours === hours
-                        ? 'chip-button--active'
-                        : ''
-                    }`}
-                    type="button"
-                    onClick={() => {
-                      void updateConfig((current) => ({
-                        ...current,
-                        scheduleCheckIntervalHours: hours,
-                      }))
-                    }}
-                  >
-                    {hours}h
-                  </button>
-                ))}
-              </div>
-            </article>
-
-            {scheduleLoading ? (
-              <LoadingState label="Rendering native schedule preview" />
-            ) : scheduleError ? (
-              <ErrorState
-                title="Schedule preview is unavailable"
-                description={scheduleError}
-              />
-            ) : schedulePlan ? (
-              <>
-                <article className="list-item">
-                  <strong>{schedulePlan.platform} timer plan</strong>
-                  <span className="mono-support">
-                    {schedulePlan.manualSteps[0] ??
-                      'Manual instructions stay visible before PathKeep applies anything.'}
-                  </span>
-                </article>
-                <div className="generated-file-tabs">
-                  {schedulePlan.generatedFiles.map((file, index) => (
-                    <button
-                      key={file.relativePath}
-                      className={`chip-button ${
-                        selectedFileIndex === index ? 'chip-button--active' : ''
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedFileIndex(index)}
+          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="panel-header">
+              <span className="panel-title">DETECTED PROFILES</span>
+              <span className="panel-action">
+                {snapshot.browserProfiles.length} found
+              </span>
+            </div>
+            <div className="panel-body" style={{ padding: 0 }}>
+              <div className="profile-list">
+                {[...chromiumProfiles, ...otherProfiles].map((profile) => {
+                  const selected = snapshot.config.selectedProfileIds.includes(
+                    profile.profileId,
+                  )
+                  return (
+                    <div
+                      key={profile.profileId}
+                      className="profile-item"
+                      onClick={() => {
+                        const nextSelected = selected
+                          ? snapshot.config.selectedProfileIds.filter(
+                              (v) => v !== profile.profileId,
+                            )
+                          : [
+                              ...snapshot.config.selectedProfileIds,
+                              profile.profileId,
+                            ]
+                        void updateConfig((c) => ({
+                          ...c,
+                          selectedProfileIds: nextSelected,
+                        }))
+                      }}
+                      style={{ cursor: 'pointer' }}
                     >
-                      {file.relativePath}
-                    </button>
-                  ))}
-                </div>
-                {selectedGeneratedFile ? (
-                  <article className="code-panel">
-                    <div className="row-between">
-                      <strong>{selectedGeneratedFile.purpose}</strong>
-                      <span className="mono-support">
-                        {selectedGeneratedFile.relativePath}
-                      </span>
+                      <div className={`checkbox ${selected ? 'active' : ''}`}>
+                        {selected ? '✓' : ''}
+                      </div>
+                      <div
+                        className={`browser-icon ${browserIconClass(profile.profileId)}`}
+                      >
+                        {browserIconLetter(profile.profileId)}
+                      </div>
+                      <div className="profile-info">
+                        <div className="profile-name">
+                          {profile.browserName} / {profile.profileName}
+                        </div>
+                        <div className="profile-path dim mono">
+                          {profile.profilePath}
+                        </div>
+                      </div>
+                      <div className="profile-detection">
+                        <span className="status-badge status-completed">
+                          HISTORY FOUND
+                        </span>
+                        <span
+                          className="mono dim"
+                          style={{
+                            fontSize: '10px',
+                            marginTop: '2px',
+                            display: 'block',
+                          }}
+                        >
+                          {profile.browserVersion ?? 'Version unknown'} ·{' '}
+                          {profile.browserFamily} engine
+                        </span>
+                      </div>
                     </div>
-                    <pre>{selectedGeneratedFile.contents}</pre>
-                  </article>
-                ) : null}
-              </>
-            ) : null}
+                  )
+                })}
+              </div>
+            </div>
           </div>
-        </section>
-      </div>
 
-      <section className="shell-panel shell-panel--accent">
-        <div className="panel-header">
-          <span className="panel-title">5 · FIRST BACKUP READY</span>
-          <span className="panel-action">Manual backup stays explicit</span>
-        </div>
-        <div className="panel-body onboarding-final-panel">
-          <div>
-            <h2>
-              {snapshot.config.initialized
-                ? 'The archive exists. You can run another manual backup now.'
-                : 'Initialize the archive and run the first manual backup.'}
-            </h2>
-            <p>
-              PathKeep will only touch the profiles selected above. Native
-              schedule installation still stays manual-first after this backup.
-            </p>
-            {localError ? (
-              <p className="inline-error" role="alert">
-                {localError}
-              </p>
-            ) : null}
-          </div>
-          <div className="utility-block__actions">
-            <Link className="ghost-button" to="/">
-              Skip for now
-            </Link>
+          {otherProfiles.length > 0 && (
+            <div className="ob-info-box">
+              <span className="info-icon">ℹ</span>
+              <span className="info-text">
+                <strong>Non-Chromium browsers</strong> (Firefox, Safari) are
+                detected but backup stays preview-only in M1.
+              </span>
+            </div>
+          )}
+
+          <div className="ob-actions">
             <button
-              className="primary-button"
+              className="btn-secondary"
               type="button"
-              onClick={() => {
-                void handleFirstBackup()
-              }}
+              onClick={() => setStep(0)}
             >
-              {busyAction ?? 'Initialize + run first backup'}
+              ← Back
+            </button>
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={() => setStep(2)}
+            >
+              Continue →
             </button>
           </div>
         </div>
-      </section>
+      )}
+
+      {/* STEP 2: STORAGE */}
+      {step === 2 && (
+        <div className="ob-panel-container">
+          <div className="ob-header">
+            <div className="crosshair-mark">+</div>
+            <h2 className="ob-title">Storage Location</h2>
+            <p className="ob-desc">
+              PathKeep stores everything locally. Here&apos;s the directory
+              layout the archive will use.
+            </p>
+          </div>
+
+          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="panel-header">
+              <span className="panel-title">ARCHIVE ROOT</span>
+              <span className="panel-action">Local-first</span>
+            </div>
+            <div className="panel-body">
+              <div
+                className="storage-path-display"
+                style={{ marginBottom: 'var(--space-4)' }}
+              >
+                <span className="storage-path-field">
+                  {snapshot.directories.appRoot}
+                </span>
+              </div>
+
+              <div className="dir-tree">
+                <div className="dir-item">
+                  <span className="dir-icon">📁</span>
+                  <span>{snapshot.directories.appRoot}</span>
+                </div>
+                <div className="dir-item indent">
+                  <span className="dir-icon">🗄</span>
+                  <span>archive/history-vault.sqlite</span>
+                </div>
+                <div className="dir-item indent">
+                  <span className="dir-icon">📋</span>
+                  <span>audit/manifests/</span>
+                </div>
+                <div className="dir-item indent">
+                  <span className="dir-icon">📸</span>
+                  <span>raw-snapshots/</span>
+                </div>
+                <div className="dir-item indent">
+                  <span className="dir-icon">📤</span>
+                  <span>exports/</span>
+                </div>
+                <div className="dir-item indent">
+                  <span className="dir-icon">⚙</span>
+                  <span>config.json</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="panel-header">
+              <span className="panel-title">SIZE ESTIMATES</span>
+              <span className="panel-action">Projected</span>
+            </div>
+            <div className="panel-body">
+              <div className="estimate-grid">
+                <div className="estimate-item">
+                  <span className="estimate-label">Archive database</span>
+                  <span className="estimate-value">~140 MB</span>
+                </div>
+                <div className="estimate-item">
+                  <span className="estimate-label">Manifest ledger</span>
+                  <span className="estimate-value">~375 KB</span>
+                </div>
+                <div className="estimate-item">
+                  <span className="estimate-label">Raw snapshots</span>
+                  <span className="estimate-value">~1.2 MB</span>
+                </div>
+                <div className="estimate-item highlight">
+                  <span className="estimate-label">Total estimated</span>
+                  <span className="estimate-value">~142 MB</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ob-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setStep(1)}
+            >
+              ← Back
+            </button>
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={() => setStep(3)}
+            >
+              Continue →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 3: SECURITY */}
+      {step === 3 && (
+        <div className="ob-panel-container">
+          <div className="ob-header">
+            <div className="crosshair-mark">+</div>
+            <h2 className="ob-title">Security</h2>
+            <p className="ob-desc">
+              Choose whether to encrypt the archive at rest. This decision is
+              visible before PathKeep writes any data.
+            </p>
+          </div>
+
+          <div className="security-options">
+            <div
+              className={`security-option ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
+              onClick={() =>
+                void updateConfig((c) => ({ ...c, archiveMode: 'Encrypted' }))
+              }
+            >
+              <div className="option-header">
+                <div
+                  className={`option-radio ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
+                />
+                <div className="option-title-row">
+                  <span className="option-title">🔒 Encrypted</span>
+                  <span className="tag tag-sm tag-backup">RECOMMENDED</span>
+                </div>
+              </div>
+              <div className="option-body">
+                <p className="option-desc">
+                  SQLCipher AES-256 encryption at rest. Requires a master
+                  password on each unlock.
+                </p>
+                {currentConfig.archiveMode === 'Encrypted' && (
+                  <div className="security-form">
+                    <div className="form-field">
+                      <label className="field-label">MASTER PASSWORD</label>
+                      <input
+                        className="form-input"
+                        type="password"
+                        autoComplete="new-password"
+                        value={masterPassword}
+                        onChange={(e) => setMasterPassword(e.target.value)}
+                        placeholder="Enter master password"
+                      />
+                    </div>
+                    <div className="form-field">
+                      <label className="field-label">CONFIRM PASSWORD</label>
+                      <input
+                        className="form-input"
+                        type="password"
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Confirm password"
+                      />
+                    </div>
+                    <label className="form-checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={rememberKey}
+                        onChange={(e) => setRememberKey(e.target.checked)}
+                      />
+                      <span>Store in native keyring for auto-unlock</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div
+              className={`security-option ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
+              onClick={() =>
+                void updateConfig((c) => ({ ...c, archiveMode: 'Plaintext' }))
+              }
+            >
+              <div className="option-header">
+                <div
+                  className={`option-radio ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
+                />
+                <div className="option-title-row">
+                  <span className="option-title">📄 Plaintext</span>
+                </div>
+              </div>
+              <div className="option-body">
+                <p className="option-desc">
+                  No encryption. The database stays readable on disk. Choose
+                  only if your system storage is already protected.
+                </p>
+                {currentConfig.archiveMode === 'Plaintext' && (
+                  <div className="plaintext-tradeoffs">
+                    <div className="tradeoff-row tradeoff-pro">
+                      ✓ No password to remember
+                    </div>
+                    <div className="tradeoff-row tradeoff-pro">
+                      ✓ Easier to inspect with external tools
+                    </div>
+                    <div className="tradeoff-row tradeoff-con">
+                      ✗ Browsing history visible to anyone with file access
+                    </div>
+                    <div className="tradeoff-row tradeoff-con">
+                      ✗ Cannot upgrade to encrypted later without rekey
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="warning-box">
+            <span className="warning-icon">⚠</span>
+            <span className="warning-text">
+              <strong>Password recovery is not possible.</strong> If you choose
+              encrypted mode and forget the master password, the archive data
+              cannot be recovered. PathKeep does not store passwords or have any
+              backdoor.
+            </span>
+          </div>
+
+          <div className="ob-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setStep(2)}
+            >
+              ← Back
+            </button>
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={() => setStep(4)}
+            >
+              Continue →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 4: SCHEDULE */}
+      {step === 4 && (
+        <div className="ob-panel-container">
+          <div className="ob-header">
+            <div className="crosshair-mark">+</div>
+            <h2 className="ob-title">Backup Schedule</h2>
+            <p className="ob-desc">
+              How often should PathKeep check for new browsing history? This
+              controls the due-after interval.
+            </p>
+          </div>
+
+          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="panel-header">
+              <span className="panel-title">BACKUP INTERVAL</span>
+              <span className="panel-action">Select hours between checks</span>
+            </div>
+            <div className="panel-body">
+              <div className="interval-chips">
+                {dueAfterOptions.map((hours) => (
+                  <button
+                    key={hours}
+                    className={`interval-chip ${currentConfig.dueAfterHours === hours ? 'active' : ''}`}
+                    type="button"
+                    onClick={() =>
+                      void updateConfig((c) => ({ ...c, dueAfterHours: hours }))
+                    }
+                  >
+                    {hours}h
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {schedulePlan && (
+            <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+              <div className="panel-header">
+                <span className="panel-title">SCHEDULE PREVIEW</span>
+                <span className="panel-action">{schedulePlan.platform}</span>
+              </div>
+              <div className="panel-body">
+                <div className="manual-steps">
+                  {schedulePlan.manualSteps.map((s, i) => (
+                    <div key={i} className="manual-step">
+                      <span className="step-num-inline">{i + 1}.</span>
+                      <span>{s}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="ob-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setStep(3)}
+            >
+              ← Back
+            </button>
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={() => setStep(5)}
+            >
+              Continue →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 5: READY */}
+      {step === 5 && (
+        <div className="ob-panel-container">
+          <div className="ob-header">
+            <div className="crosshair-mark">+</div>
+            <h2 className="ob-title">Ready to Initialize</h2>
+            <p className="ob-desc">
+              Review your configuration below. When ready, initialize the
+              archive and run the first backup.
+            </p>
+          </div>
+
+          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="panel-header">
+              <span className="panel-title">CONFIGURATION SUMMARY</span>
+              <span className="panel-action">Review before init</span>
+            </div>
+            <div className="panel-body">
+              <div className="summary-config">
+                <div className="config-row">
+                  <span className="config-label">Profiles</span>
+                  <span className="config-value">
+                    {selectedCount} Chromium profiles selected
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">Storage</span>
+                  <span className="config-value">
+                    {snapshot.directories.appRoot}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">Encryption</span>
+                  <span className="config-value">
+                    {currentConfig.archiveMode}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">Schedule</span>
+                  <span className="config-value">
+                    Every {currentConfig.dueAfterHours}h
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+            <div className="panel-header">
+              <span className="panel-title">INITIALIZATION STEPS</span>
+              <span className="panel-action">What happens next</span>
+            </div>
+            <div className="panel-body">
+              <div className="init-steps">
+                <div className="init-step">
+                  <span className="init-num">1.</span>
+                  <div className="init-info">
+                    <span className="init-action">
+                      Create the archive database
+                    </span>
+                    <span className="init-detail">
+                      SQLite +{' '}
+                      {currentConfig.archiveMode === 'Encrypted'
+                        ? 'SQLCipher encryption'
+                        : 'plaintext mode'}
+                    </span>
+                  </div>
+                </div>
+                <div className="init-step">
+                  <span className="init-num">2.</span>
+                  <div className="init-info">
+                    <span className="init-action">
+                      Write the config and audit manifests
+                    </span>
+                    <span className="init-detail">
+                      First manifest starts the hash chain
+                    </span>
+                  </div>
+                </div>
+                <div className="init-step">
+                  <span className="init-num">3.</span>
+                  <div className="init-info">
+                    <span className="init-action">Run the first backup</span>
+                    <span className="init-detail">
+                      Ingest history from {selectedCount} selected profile
+                      {selectedCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {localError && (
+            <p className="inline-error" role="alert">
+              {localError}
+            </p>
+          )}
+
+          <div className="ob-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setStep(4)}
+            >
+              ← Back
+            </button>
+            <button
+              className="btn-primary btn-lg"
+              type="button"
+              disabled={busyAction !== null}
+              onClick={() => {
+                void handleFinish()
+              }}
+            >
+              {busyAction ?? 'Initialize + First Backup →'}
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

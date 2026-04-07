@@ -525,6 +525,20 @@ export interface ApplyResult {
   message: string
 }
 
+export interface ScheduleStatus {
+  platform: string
+  label: string
+  dueAfterHours: number
+  checkIntervalHours: number
+  applySupported: boolean
+  installState: string
+  detectedFiles: string[]
+  manualSteps: string[]
+  auditPath?: string | null
+  lastSuccessfulBackupAt?: string | null
+  warnings: string[]
+}
+
 export interface HealthCheck {
   name: string
   status: string
@@ -539,6 +553,29 @@ export interface HealthReport {
 export interface RekeyRequest {
   newMode: ArchiveMode
   newKey?: string | null
+}
+
+export interface SecurityStatus {
+  initialized: boolean
+  mode: string
+  encrypted: boolean
+  unlocked: boolean
+  databasePath: string
+  strongholdPath: string
+  rememberDatabaseKeyInKeyring: boolean
+  lastSuccessfulBackupAt?: string | null
+  keyringStatus: KeyringStatusReport
+  warnings: string[]
+}
+
+export interface RekeyPreview {
+  currentMode: ArchiveMode
+  nextMode: ArchiveMode
+  requiresNewKey: boolean
+  snapshotPath: string
+  tempDatabasePath: string
+  steps: string[]
+  warnings: string[]
 }
 
 export interface AiProviderSecretInput {

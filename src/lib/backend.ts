@@ -26,12 +26,15 @@ import type {
   InsightSnapshot,
   InsightThreadDetail,
   KeyringStatusReport,
+  RekeyPreview,
   RekeyRequest,
   RemoteBackupPreview,
   RemoteBackupResult,
   RunInsightsReport,
   RunInsightsRequest,
   SchedulePlan,
+  ScheduleStatus,
+  SecurityStatus,
   S3CredentialInput,
   TakeoutInspection,
   TakeoutRequest,
@@ -543,6 +546,110 @@ function buildMockAuditRunDetail(
   }
 }
 
+function buildMockScheduleStatus(state: MockBackendState): ScheduleStatus {
+  return {
+    platform: 'macos',
+    label: 'dev.codex.pathkeep.backup',
+    dueAfterHours: state.snapshot.config.dueAfterHours,
+    checkIntervalHours: state.snapshot.config.scheduleCheckIntervalHours,
+    applySupported: false,
+    installState: 'manual-review',
+    detectedFiles: [],
+    manualSteps: [
+      'Browser preview mode cannot inspect the installed native schedule state.',
+      'Open the desktop build to verify the LaunchAgent artifact and install status.',
+    ],
+    auditPath: null,
+    lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
+    warnings: [
+      'Browser preview mode keeps schedule verification read-only. Use the desktop app for the real platform status.',
+    ],
+  }
+}
+
+function buildMockSecurityStatus(state: MockBackendState): SecurityStatus {
+  const warnings = state.snapshot.archiveStatus.warning
+    ? [state.snapshot.archiveStatus.warning]
+    : []
+
+  if (
+    state.snapshot.config.archiveMode === 'Encrypted' &&
+    state.snapshot.config.rememberDatabaseKeyInKeyring &&
+    !state.snapshot.keyringStatus.storedSecret
+  ) {
+    warnings.push(
+      'Archive is encrypted, but the database key is not currently stored in the system keyring.',
+    )
+  }
+
+  const mode = !state.snapshot.archiveStatus.initialized
+    ? 'uninitialized'
+    : !state.snapshot.archiveStatus.encrypted
+      ? 'plaintext'
+      : state.snapshot.archiveStatus.unlocked
+        ? 'encrypted'
+        : 'locked'
+
+  return {
+    initialized: state.snapshot.archiveStatus.initialized,
+    mode,
+    encrypted: state.snapshot.archiveStatus.encrypted,
+    unlocked: state.snapshot.archiveStatus.unlocked,
+    databasePath: state.snapshot.archiveStatus.databasePath,
+    strongholdPath: state.snapshot.directories.strongholdPath,
+    rememberDatabaseKeyInKeyring:
+      state.snapshot.config.rememberDatabaseKeyInKeyring,
+    lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
+    keyringStatus: structuredClone(state.snapshot.keyringStatus),
+    warnings,
+  }
+}
+
+function buildMockRekeyPreview(
+  state: MockBackendState,
+  request: RekeyRequest,
+): RekeyPreview {
+  if (!state.snapshot.archiveStatus.initialized) {
+    throw new Error(
+      'Initialize the archive before previewing a rekey operation.',
+    )
+  }
+
+  const warnings: string[] = []
+  if (
+    state.snapshot.archiveStatus.encrypted &&
+    !state.snapshot.archiveStatus.unlocked
+  ) {
+    warnings.push(
+      'The archive is currently locked. Unlock it before executing the rekey.',
+    )
+  }
+  if (request.newMode === 'Encrypted' && !request.newKey?.trim()) {
+    warnings.push(
+      'Encrypted rekey requires a new database key before execute can run.',
+    )
+  }
+  if (state.snapshot.config.archiveMode === request.newMode) {
+    warnings.push(
+      'The target mode matches the current mode, so PathKeep will treat this as a key rotation / validation pass.',
+    )
+  }
+
+  return {
+    currentMode: state.snapshot.config.archiveMode,
+    nextMode: request.newMode,
+    requiresNewKey: request.newMode === 'Encrypted',
+    snapshotPath: `${state.snapshot.directories.rawSnapshotsDir}/rekey/archive-before-rekey-<timestamp>.sqlite`,
+    tempDatabasePath: `${state.snapshot.directories.archiveDatabasePath}.rekey.sqlite`,
+    steps: [
+      'Create a safety snapshot before rewriting the archive.',
+      'Export the archive into a temporary database using the requested target mode.',
+      'Swap the rewritten database into place only after the export succeeds.',
+    ],
+    warnings,
+  }
+}
+
 function filterMockHistory(
   state: MockBackendState,
   query: HistoryQuery | undefined,
@@ -651,6 +758,11 @@ async function call<T>(
         Boolean(request.newKey && request.newKey.trim())
       return structuredClone(mockState.snapshot) as T
     }
+    case 'preview_rekey_archive':
+      return buildMockRekeyPreview(
+        mockState,
+        structuredClone(args?.request as RekeyRequest),
+      ) as T
     case 'set_session_database_key':
       mockState.snapshot.archiveStatus.unlocked = true
       return undefined as T
@@ -781,6 +893,8 @@ async function call<T>(
         rollbackCommands: [],
         applySupported: false,
       } as T
+    case 'schedule_status':
+      return buildMockScheduleStatus(mockState) as T
     case 'doctor_report':
       return {
         generatedAt: new Date().toISOString(),
@@ -808,6 +922,8 @@ async function call<T>(
       } as T
     case 'keyring_status':
       return structuredClone(mockState.snapshot.keyringStatus) as T
+    case 'security_status':
+      return buildMockSecurityStatus(mockState) as T
     case 'keyring_get_database_key':
       return mockState.keyringSecret as T
     case 'keyring_store_database_key':
@@ -936,6 +1052,8 @@ export const backend = {
     call<AppSnapshot>('initialize_archive', { config, databaseKey }),
   rekeyArchive: (request: RekeyRequest) =>
     call<AppSnapshot>('rekey_archive', { request }),
+  previewRekeyArchive: (request: RekeyRequest) =>
+    call<RekeyPreview>('preview_rekey_archive', { request }),
   setSessionDatabaseKey: (databaseKey: string) =>
     call<void>('set_session_database_key', { databaseKey }),
   clearSessionDatabaseKey: () => call<void>('clear_session_database_key'),
@@ -961,10 +1079,13 @@ export const backend = {
     call<ImportBatchDetail>('revert_import_batch', { batchId }),
   previewSchedule: (platform?: string) =>
     call<SchedulePlan>('preview_schedule', { platform }),
+  scheduleStatus: (platform?: string) =>
+    call<ScheduleStatus>('schedule_status', { platform }),
   applySchedule: (plan: SchedulePlan) =>
     call<ApplyResult>('apply_schedule', { plan }),
   doctor: () => call<HealthReport>('doctor_report'),
   keyringStatus: () => call<KeyringStatusReport>('keyring_status'),
+  securityStatus: () => call<SecurityStatus>('security_status'),
   keyringGetDatabaseKey: () => call<string | null>('keyring_get_database_key'),
   keyringStoreDatabaseKey: (value: string) =>
     call<KeyringStatusReport>('keyring_store_database_key', { value }),
