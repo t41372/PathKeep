@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
+import { hasSafariAccessIssue } from '../../lib/platform-guidance'
 
 function isBackupReadyProfile(profile: {
   profileId: string
@@ -30,11 +33,12 @@ function browserIconLetter(profileId: string) {
 
 export function DashboardPage() {
   const { dashboard, error, loading, snapshot } = useShellData()
+  const { language, t } = useI18n()
 
   if (loading && !dashboard) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
-        <LoadingState label="Loading archive overview" />
+        <LoadingState label={t('dashboard.loadingOverview')} />
       </section>
     )
   }
@@ -43,7 +47,7 @@ export function DashboardPage() {
     return (
       <section className="page-shell" data-testid="dashboard-page">
         <ErrorState
-          title="Dashboard could not read the archive"
+          title={t('dashboard.archiveReadError')}
           description={error}
         />
       </section>
@@ -54,8 +58,8 @@ export function DashboardPage() {
     return (
       <section className="page-shell" data-testid="dashboard-page">
         <ErrorState
-          title="Dashboard data is unavailable"
-          description="PathKeep could not load the current archive snapshot."
+          title={t('dashboard.archiveUnavailable')}
+          description={t('dashboard.archiveUnavailableBody')}
         />
       </section>
     )
@@ -77,57 +81,61 @@ export function DashboardPage() {
     dashboard.storage.exportBytes
   const storageSegments = [
     {
-      label: 'Archive Database',
+      label: t('dashboard.archiveDatabase'),
       tone: 'storage-fill',
       value: dashboard.storage.archiveDatabaseBytes,
     },
     {
-      label: 'Manifests',
+      label: t('dashboard.manifests'),
       tone: 'storage-fill secondary',
       value: dashboard.storage.manifestBytes,
     },
     {
-      label: 'Snapshots',
+      label: t('dashboard.snapshots'),
       tone: 'storage-fill tertiary',
       value: dashboard.storage.snapshotBytes,
     },
     {
-      label: 'Exports',
+      label: t('dashboard.exports'),
       tone: 'storage-fill dim',
       value: dashboard.storage.exportBytes,
     },
   ]
   const stats = [
     {
-      label: 'TOTAL RECORDS',
-      value: dashboard.totalVisits.toLocaleString(),
-      detail: `${dashboard.totalUrls.toLocaleString()} unique URLs`,
+      label: t('dashboard.totalRecords'),
+      value: dashboard.totalVisits.toLocaleString(language),
+      detail: t('dashboard.uniqueUrls', {
+        count: dashboard.totalUrls.toLocaleString(language),
+      }),
       tone: 'accent' as const,
     },
     {
-      label: 'LAST BACKUP',
+      label: t('dashboard.lastBackup'),
       value: dashboard.lastSuccessfulBackupAt
-        ? formatRelativeTime(dashboard.lastSuccessfulBackupAt)
-        : 'Pending',
+        ? formatRelativeTime(dashboard.lastSuccessfulBackupAt, language)
+        : t('common.pending'),
       detail:
-        dashboard.recentRuns[0]?.manifestHash ??
-        'No manifest written to the chain yet',
+        dashboard.recentRuns[0]?.manifestHash ?? t('dashboard.noManifestYet'),
       tone: dashboard.lastSuccessfulBackupAt
         ? ('success' as const)
         : ('neutral' as const),
     },
     {
-      label: 'PROFILES IN SCOPE',
+      label: t('dashboard.profilesInScope'),
       value: `${selectedProfiles.length}`,
-      detail: `${backupReadyProfiles.length} readable · ${previewOnlyProfiles.length} need attention`,
+      detail: t('dashboard.profilesReadableAttention', {
+        readable: backupReadyProfiles.length,
+        attention: previewOnlyProfiles.length,
+      }),
       tone: 'neutral' as const,
     },
     {
-      label: 'ARCHIVE MODE',
+      label: t('dashboard.archiveMode'),
       value: snapshot.config.archiveMode.toUpperCase(),
       detail: snapshot.archiveStatus.unlocked
-        ? 'Archive session is unlocked'
-        : 'Archive requires an unlock before Explorer / Audit can read',
+        ? t('dashboard.archiveUnlocked')
+        : t('dashboard.archiveNeedsUnlock'),
       tone: snapshot.archiveStatus.unlocked
         ? ('success' as const)
         : ('neutral' as const),
@@ -153,19 +161,22 @@ export function DashboardPage() {
         <EmptyState
           action={
             <Link className="btn-primary" to="/onboarding">
-              Open onboarding flow
+              {t('dashboard.openOnboardingFlow')}
             </Link>
           }
-          description={
-            dashboard.nextAction ??
-            'Dashboard cards stay empty until the archive is initialized and the first manual backup finishes.'
-          }
-          eyebrow="DAY-ONE"
-          title="The first archive run still needs review"
+          description={dashboard.nextAction ?? t('dashboard.zeroStateBody')}
+          eyebrow={t('dashboard.zeroStateEyebrow')}
+          title={t('dashboard.zeroStateTitle')}
         />
       </section>
     )
   }
+
+  const needsKeyringReview =
+    snapshot.config.archiveMode === 'Encrypted' &&
+    snapshot.config.rememberDatabaseKeyInKeyring &&
+    !snapshot.keyringStatus.storedSecret
+  const safariNeedsAccess = hasSafariAccessIssue(selectedProfiles)
 
   return (
     <section className="page-shell" data-testid="dashboard-page">
@@ -183,25 +194,54 @@ export function DashboardPage() {
         ))}
       </div>
 
+      {(needsKeyringReview || safariNeedsAccess) && (
+        <div className="dashboard-callouts">
+          {needsKeyringReview ? (
+            <StatusCallout
+              tone="warning"
+              title={t('platform.keyringTitle')}
+              body={t('platform.keyringBody')}
+              actions={
+                <Link className="btn-secondary" to="/security">
+                  {t('dashboard.reviewSecurity')}
+                </Link>
+              }
+            />
+          ) : null}
+          {safariNeedsAccess ? (
+            <StatusCallout
+              tone="blocked"
+              title={t('platform.safariAccessTitle')}
+              body={t('platform.safariAccessBody')}
+              actions={
+                <Link className="btn-secondary" to="/import">
+                  {t('dashboard.reviewImportBatches')}
+                </Link>
+              }
+            />
+          ) : null}
+        </div>
+      )}
+
       <div className="dashboard-grid">
         <div className="dashboard-left">
           <div className="panel">
             <div className="panel-header">
-              <span className="panel-title">RECENT RUNS</span>
+              <span className="panel-title">{t('dashboard.recentRuns')}</span>
               <Link className="panel-action" to="/audit">
-                Full ledger →
+                {t('dashboard.fullLedger')}
               </Link>
             </div>
             <div className="panel-body" style={{ padding: 0 }}>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>RUN</th>
-                    <th>TYPE</th>
-                    <th>SOURCE</th>
-                    <th>RECORDS</th>
-                    <th>STATUS</th>
-                    <th>TIME</th>
+                    <th>{t('dashboard.run')}</th>
+                    <th>{t('dashboard.type')}</th>
+                    <th>{t('dashboard.source')}</th>
+                    <th>{t('dashboard.records')}</th>
+                    <th>{t('dashboard.status')}</th>
+                    <th>{t('dashboard.time')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -216,9 +256,15 @@ export function DashboardPage() {
                         </Link>
                       </td>
                       <td>
-                        <span className="tag tag-sm tag-backup">BACKUP</span>
+                        <span className="tag tag-sm tag-backup">
+                          {t('dashboard.backupType')}
+                        </span>
                       </td>
-                      <td>{run.profilesProcessed} profiles</td>
+                      <td>
+                        {t('dashboard.profilesLabel', {
+                          count: run.profilesProcessed,
+                        })}
+                      </td>
                       <td className="accent">+{run.newVisits}</td>
                       <td>
                         <span
@@ -232,7 +278,10 @@ export function DashboardPage() {
                         </span>
                       </td>
                       <td className="dim">
-                        {formatRelativeTime(run.finishedAt ?? run.startedAt)}
+                        {formatRelativeTime(
+                          run.finishedAt ?? run.startedAt,
+                          language,
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -243,9 +292,13 @@ export function DashboardPage() {
 
           <div className="panel">
             <div className="panel-header">
-              <span className="panel-title">ARCHIVE BOUNDARY</span>
+              <span className="panel-title">
+                {t('dashboard.archiveBoundary')}
+              </span>
               <span className="panel-action">
-                {selectedProfiles.length} selected profiles
+                {t('dashboard.selectedProfiles', {
+                  count: selectedProfiles.length,
+                })}
               </span>
             </div>
             <div className="panel-body">
@@ -260,54 +313,36 @@ export function DashboardPage() {
                     <div className="otd-title">
                       {profile.browserName} / {profile.profileName}
                     </div>
-                    <div className="otd-url dim mono">
-                      {profile.profilePath}
+                    <div className="otd-meta mono">
+                      {profile.historyExists
+                        ? t('dashboard.historyDetected')
+                        : t('dashboard.historyMissing')}
                     </div>
                   </div>
-                  <span
-                    className={`tag tag-sm ${
-                      isBackupReadyProfile(profile)
-                        ? 'tag-backup'
-                        : 'tag-search'
-                    }`}
-                  >
-                    {isBackupReadyProfile(profile)
-                      ? 'backup-ready'
-                      : 'needs-access'}
-                  </span>
                 </div>
               ))}
-              <div className="otd-summary">
-                <div className="summary-label">VISIBLE SCOPE</div>
-                <p>
-                  Explorer, Export, and Audit read only the canonical archive.
-                  Profiles that still need access, such as Safari without Full
-                  Disk Access, stay visible here so you can fix the source
-                  before the next backup run.
-                </p>
-              </div>
             </div>
           </div>
         </div>
 
         <div className="dashboard-right">
-          <div className="panel panel-accent">
+          <div className="panel">
             <div className="panel-header">
-              <span className="panel-title">NEXT ACTION</span>
-              <span className="panel-badge">M1</span>
+              <span className="panel-title">{t('dashboard.trustActions')}</span>
             </div>
             <div className="panel-body">
-              <div className="summary-label">VERIFY</div>
               <p className="dashboard-next-action">
-                {dashboard.nextAction ??
-                  'Manual backup is current. Review the latest audit run, then confirm schedule and security before treating the archive as hands-off.'}
+                {t('dashboard.trustActionsBody')}
               </p>
-              <div className="wizard-actions">
-                <Link className="btn-secondary" to="/audit">
-                  Review audit
+              <div className="quick-actions-grid">
+                <Link className="btn-secondary" to="/import">
+                  {t('dashboard.reviewImportBatches')}
+                </Link>
+                <Link className="btn-secondary" to="/security">
+                  {t('dashboard.reviewSecurity')}
                 </Link>
                 <Link className="btn-secondary" to="/schedule">
-                  Review schedule
+                  {t('dashboard.reviewSchedule')}
                 </Link>
               </div>
             </div>
@@ -315,108 +350,35 @@ export function DashboardPage() {
 
           <div className="panel">
             <div className="panel-header">
-              <span className="panel-title">STORAGE</span>
-              <span className="panel-action">{formatBytes(totalStorage)}</span>
+              <span className="panel-title">
+                {t('dashboard.storageFootprint')}
+              </span>
+              <span className="panel-action">
+                {t('dashboard.storageTotal', {
+                  size: formatBytes(totalStorage, language),
+                })}
+              </span>
             </div>
             <div className="panel-body">
-              {storageSegments.map((segment) => (
-                <div key={segment.label} className="storage-item">
-                  <div className="storage-label">
-                    <span>{segment.label}</span>
-                    <span className="dim">{formatBytes(segment.value)}</span>
+              <div className="storage-chart">
+                {storageSegments.map((segment) => (
+                  <div key={segment.label} className="storage-row">
+                    <div className="row-between">
+                      <span>{segment.label}</span>
+                      <span className="mono">
+                        {formatBytes(segment.value, language)}
+                      </span>
+                    </div>
+                    <div className="storage-bar">
+                      <div
+                        className={segment.tone}
+                        style={{
+                          width: `${totalStorage > 0 ? (segment.value / totalStorage) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="storage-bar">
-                    <div
-                      className={segment.tone}
-                      style={{
-                        width:
-                          totalStorage === 0
-                            ? '0%'
-                            : `${(segment.value / totalStorage) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-              <div className="storage-total">
-                <span>Total</span>
-                <span>{formatBytes(totalStorage)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">SECURITY POSTURE</span>
-              <Link className="panel-action" to="/security">
-                Open security →
-              </Link>
-            </div>
-            <div className="panel-body">
-              <div className="config-row">
-                <span className="config-label">Mode</span>
-                <span className="config-value">
-                  {snapshot.config.archiveMode}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">Session</span>
-                <span className="config-value">
-                  {snapshot.archiveStatus.unlocked ? 'Unlocked' : 'Locked'}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">Keyring</span>
-                <span className="config-value">
-                  {snapshot.keyringStatus.storedSecret
-                    ? `${snapshot.keyringStatus.backend} stored`
-                    : `${snapshot.keyringStatus.backend} empty`}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">Database</span>
-                <span className="config-value mono dim">
-                  {snapshot.directories.archiveDatabasePath}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">EXPLORER + EXPORT</span>
-              <Link className="panel-action" to="/explorer">
-                Open explorer →
-              </Link>
-            </div>
-            <div className="panel-body">
-              <div className="otd-item">
-                <span className="otd-favicon">◎</span>
-                <div>
-                  <div className="otd-title">URL-deep-link queries</div>
-                  <div className="otd-url dim mono">
-                    Re-openable filters for keyword, domain, profile, browser,
-                    and date range.
-                  </div>
-                </div>
-              </div>
-              <div className="otd-item">
-                <span className="otd-favicon">⊞</span>
-                <div>
-                  <div className="otd-title">Audit-first exports</div>
-                  <div className="otd-url dim mono">
-                    Export reads the current visible archive scope only. Review
-                    the run ledger for the manifest and artifact trail.
-                  </div>
-                </div>
-              </div>
-              <div className="wizard-actions">
-                <Link className="btn-secondary" to="/explorer">
-                  Search history
-                </Link>
-                <Link className="btn-secondary" to="/audit">
-                  Manifest chain
-                </Link>
+                ))}
               </div>
             </div>
           </div>

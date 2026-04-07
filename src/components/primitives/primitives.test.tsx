@@ -5,6 +5,7 @@ import { EmptyState } from './empty-state'
 import { ErrorState } from './error-state'
 import { LoadingState } from './loading-state'
 import { PermissionGate } from './permission-gate'
+import { StatusCallout } from './status-callout'
 
 describe('Shell primitives', () => {
   test('renders an empty state with optional action content', () => {
@@ -81,5 +82,21 @@ describe('Shell primitives', () => {
     expect(container.querySelectorAll('.utility-block__actions')).toHaveLength(
       0,
     )
+  })
+
+  test('renders reusable severity callouts', () => {
+    render(
+      <StatusCallout
+        tone="blocked"
+        eyebrow="TRUST"
+        title="Scheduler needs review"
+        body="Mismatch and manual-review states should stay visible until the user re-checks the plan."
+      />,
+    )
+
+    expect(screen.getByText('TRUST')).toBeVisible()
+    expect(
+      screen.getByRole('heading', { name: 'Scheduler needs review' }),
+    ).toBeVisible()
   })
 })

@@ -1771,6 +1771,13 @@
   margin-bottom: var(--space-4);
 }
 
+.inline-note-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: 11px;
+}
+
 .preview-stat {
   border: 1px solid var(--border);
   padding: var(--space-3);
@@ -1951,6 +1958,9 @@
   min-width: 160px;
   flex-shrink: 0;
   background: var(--accent-glow);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .chain-block.older {
@@ -2135,6 +2145,234 @@
   color: var(--warning);
 }
 
+.status-callout {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.status-callout h3,
+.status-callout p {
+  margin: 0;
+}
+
+.status-callout p {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.status-callout--info {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 80%, var(--bg-elevated));
+}
+
+.status-callout--success {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
+  background: color-mix(in srgb, var(--success-dim) 80%, var(--bg-elevated));
+}
+
+.status-callout--warning {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning-dim) 90%, var(--bg-elevated));
+}
+
+.status-callout--danger,
+.status-callout--blocked {
+  border-color: color-mix(in srgb, var(--error) 42%, var(--border));
+  background: color-mix(in srgb, var(--error-dim) 90%, var(--bg-elevated));
+}
+
+.dashboard-callouts,
+.settings-support-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.quick-actions-grid,
+.result-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.settings-select {
+  min-width: 220px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.previewList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.previewEntry {
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.previewEntry strong,
+.previewEntry p,
+.previewEntry small {
+  margin: 0;
+}
+
+.previewEntry p,
+.previewEntry small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.previewMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.statusTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.statusTag.info {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.statusTag.success {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.statusTag.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.statusTag.neutral {
+  color: var(--text-muted);
+}
+
+.workflowList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.workflowStep {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.workflowMarker {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.workflowStep.current .workflowMarker {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.workflowStep.complete .workflowMarker {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-dim);
+}
+
+.workflowCard {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+}
+
+.workflowHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.workflowHeader h3,
+.workflowSummary,
+.workflowSection p,
+.workflowSection strong {
+  margin: 0;
+}
+
+.workflowSummary,
+.workflowSection p {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.workflowSection {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.workflowActions,
+.artifactList,
+.generatedList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.artifactCard.compactCard,
+.codeArtifact {
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+}
+
+.artifactHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.codeArtifact pre {
+  margin: var(--space-3) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stepList {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: grid;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}
+
 /* ═══ SETTINGS ═══ */
 .settings-container {
   display: flex;
@@ -2153,6 +2391,12 @@
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--bg-elevated);
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
 }
 
 .checkbox {

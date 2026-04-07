@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { ShellDataProvider } from '../../app/shell-data'
 import { backendTestHarness } from '../../lib/backend'
+import { I18nProvider } from '../../lib/i18n'
 import { Sidebar } from './index'
 
 describe('Sidebar', () => {
@@ -22,9 +23,11 @@ describe('Sidebar', () => {
     )
 
     render(
-      <ShellDataProvider>
-        <RouterProvider router={router} />
-      </ShellDataProvider>,
+      <I18nProvider>
+        <ShellDataProvider>
+          <RouterProvider router={router} />
+        </ShellDataProvider>
+      </I18nProvider>,
     )
 
     expect(screen.getByText('PATHKEEP')).toBeVisible()
@@ -36,7 +39,7 @@ describe('Sidebar', () => {
       'nav-item--active',
     )
     expect(await screen.findByText('Archive not initialized')).toBeVisible()
-    expect(screen.getByText('Encrypted archive')).toBeVisible()
+    expect(await screen.findByText('Encrypted archive')).toBeVisible()
     expect(screen.getByText('0 B')).toBeVisible()
   })
 
@@ -52,9 +55,11 @@ describe('Sidebar', () => {
     )
 
     render(
-      <ShellDataProvider>
-        <RouterProvider router={router} />
-      </ShellDataProvider>,
+      <I18nProvider>
+        <ShellDataProvider>
+          <RouterProvider router={router} />
+        </ShellDataProvider>
+      </I18nProvider>,
     )
 
     expect(screen.getByText('OPT')).toBeVisible()
@@ -72,9 +77,11 @@ describe('Sidebar', () => {
     )
 
     render(
-      <ShellDataProvider>
-        <RouterProvider router={router} />
-      </ShellDataProvider>,
+      <I18nProvider>
+        <ShellDataProvider>
+          <RouterProvider router={router} />
+        </ShellDataProvider>
+      </I18nProvider>,
     )
 
     expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveClass(
@@ -97,9 +104,11 @@ describe('Sidebar', () => {
     )
 
     render(
-      <ShellDataProvider>
-        <RouterProvider router={router} />
-      </ShellDataProvider>,
+      <I18nProvider>
+        <ShellDataProvider>
+          <RouterProvider router={router} />
+        </ShellDataProvider>
+      </I18nProvider>,
     )
 
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeVisible()

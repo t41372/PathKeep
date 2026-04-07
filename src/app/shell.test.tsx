@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { AppShell } from './shell'
 import { ShellDataProvider } from './shell-data'
+import { I18nProvider } from '../lib/i18n'
 import { backendTestHarness } from '../lib/backend'
 
 describe('AppShell', () => {
@@ -24,9 +25,11 @@ describe('AppShell', () => {
     )
 
     render(
-      <ShellDataProvider>
-        <RouterProvider router={router} />
-      </ShellDataProvider>,
+      <I18nProvider>
+        <ShellDataProvider>
+          <RouterProvider router={router} />
+        </ShellDataProvider>
+      </I18nProvider>,
     )
 
     expect(

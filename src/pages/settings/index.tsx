@@ -1,27 +1,77 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import { LoadingState } from '../../components/primitives/loading-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
+import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
+import {
+  hasSafariAccessIssue,
+  keyringNeedsReview,
+  normalizePlatform,
+  platformLabelKey,
+  platformSummaryKey,
+} from '../../lib/platform-guidance'
+import type { ScheduleStatus, SecurityStatus } from '../../lib/types'
+import { LoadingState } from '../../components/primitives/loading-state'
+
+interface SupportState {
+  scheduleStatus: ScheduleStatus | null
+  securityStatus: SecurityStatus | null
+}
 
 export function SettingsPage() {
-  const { loading, saveConfig, snapshot } = useShellData()
+  const { saveConfig, snapshot } = useShellData()
+  const { setLanguagePreference, t } = useI18n()
+  const { language } = useI18n()
   const [saving, setSaving] = useState(false)
+  const [supportState, setSupportState] = useState<SupportState>({
+    scheduleStatus: null,
+    securityStatus: null,
+  })
 
-  if (loading && !snapshot)
+  useEffect(() => {
+    let cancelled = false
+    const loadSupportState = async () => {
+      try {
+        const [scheduleStatus, securityStatus] = await Promise.all([
+          backend.scheduleStatus(),
+          backend.securityStatus(),
+        ])
+
+        if (!cancelled) {
+          setSupportState({ scheduleStatus, securityStatus })
+        }
+      } catch {
+        if (!cancelled) {
+          setSupportState({ scheduleStatus: null, securityStatus: null })
+        }
+      }
+    }
+
+    void loadSupportState()
+    return () => {
+      cancelled = true
+    }
+  }, [snapshot?.config.preferredLanguage])
+
+  if (!snapshot) {
     return (
       <section className="page-shell">
-        <LoadingState label="Loading settings" />
+        <LoadingState label={t('settings.loadingModules')} />
       </section>
     )
-  if (!snapshot)
-    return (
-      <section className="page-shell">
-        <LoadingState label="Settings modules loading" />
-      </section>
-    )
+  }
 
   const profiles = snapshot.browserProfiles
   const selectedIds = new Set(snapshot.config.selectedProfileIds)
+  const safariNeedsAccess = hasSafariAccessIssue(profiles)
+  const platform = normalizePlatform(supportState.scheduleStatus?.platform)
+  const scheduleNeedsHelp =
+    supportState.scheduleStatus?.installState === 'manual-review' ||
+    supportState.scheduleStatus?.installState === 'mismatch' ||
+    supportState.scheduleStatus?.installState === 'permission-warning' ||
+    supportState.scheduleStatus?.installState === 'legacy-install-detected'
+  const keyringWarning = keyringNeedsReview(supportState.securityStatus)
 
   function browserIcon(profileId: string): string {
     const kind = profileId.split(':')[0]
@@ -50,26 +100,51 @@ export function SettingsPage() {
     }
   }
 
+  async function handleLanguageChange(nextLanguage: string) {
+    if (!snapshot) {
+      return
+    }
+
+    if (
+      nextLanguage !== 'system' &&
+      nextLanguage !== 'en' &&
+      nextLanguage !== 'zh-CN' &&
+      nextLanguage !== 'zh-TW'
+    ) {
+      return
+    }
+
+    setSaving(true)
+    try {
+      setLanguagePreference(nextLanguage)
+      await saveConfig({
+        ...snapshot.config,
+        preferredLanguage: nextLanguage,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <section className="page-shell settings-page" data-testid="settings-page">
-      {/* Browser Profiles */}
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">BROWSER PROFILES</span>
-          <span className="panel-action">Rescan</span>
+          <span className="panel-title">{t('settings.browserProfiles')}</span>
+          <span className="panel-action">{t('common.rescanAction')}</span>
         </div>
         <div className="panel-body">
           <div className="profile-list">
             {profiles.map((profile) => {
               const checked = selectedIds.has(profile.profileId)
               return (
-                <div
+                <button
                   key={profile.profileId}
                   className={`profile-item ${checked ? 'checked' : ''}`}
+                  type="button"
                   onClick={() => {
                     void toggleProfile(profile.profileId)
                   }}
-                  style={{ cursor: 'pointer' }}
                 >
                   <div className="profile-check">
                     <div className={`checkbox ${checked ? 'active' : ''}`}>
@@ -91,21 +166,20 @@ export function SettingsPage() {
                   </div>
                   <div className="profile-stats mono dim">
                     {profile.historyExists
-                      ? `History found · ${profile.browserVersion ?? 'unknown version'}`
-                      : 'No history file detected'}
+                      ? `${t('settings.historyFound')} · ${profile.browserVersion ?? t('common.notAvailable')}`
+                      : t('settings.noHistoryDetected')}
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>
         </div>
       </div>
 
-      {/* AI Provider */}
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">AI PROVIDER</span>
-          <span className="panel-badge">OPTIONAL</span>
+          <span className="panel-title">{t('settings.aiProvider')}</span>
+          <span className="panel-badge">{t('settings.optional')}</span>
         </div>
         <div className="panel-body">
           <div className="provider-cards">
@@ -125,22 +199,30 @@ export function SettingsPage() {
                       : undefined
                   }
                 >
-                  {snapshot.config.ai.enabled ? 'CONNECTED' : 'DISABLED'}
+                  {snapshot.config.ai.enabled
+                    ? t('settings.enabled')
+                    : t('settings.disabled')}
                 </span>
               </div>
               <div className="provider-config">
                 <div className="config-row">
-                  <span className="config-label">Base URL</span>
+                  <span className="config-label">
+                    {t('settings.baseUrlLabel')}
+                  </span>
                   <span className="config-value mono">
                     http://localhost:11434
                   </span>
                 </div>
                 <div className="config-row">
-                  <span className="config-label">Embedding Model</span>
+                  <span className="config-label">
+                    {t('settings.embeddingModelLabel')}
+                  </span>
                   <span className="config-value mono">nomic-embed-text</span>
                 </div>
                 <div className="config-row">
-                  <span className="config-label">LLM Model</span>
+                  <span className="config-label">
+                    {t('settings.llmModelLabel')}
+                  </span>
                   <span className="config-value mono">llama3.2:8b</span>
                 </div>
               </div>
@@ -155,13 +237,17 @@ export function SettingsPage() {
                     borderColor: 'var(--border)',
                   }}
                 >
-                  DISABLED
+                  {t('settings.disabled')}
                 </span>
               </div>
               <div className="provider-config dim">
                 <div className="config-row">
-                  <span className="config-label">API Key</span>
-                  <span className="config-value mono">Not configured</span>
+                  <span className="config-label">
+                    {t('settings.apiKeyLabel')}
+                  </span>
+                  <span className="config-value mono">
+                    {t('common.notAvailable')}
+                  </span>
                 </div>
               </div>
             </div>
@@ -169,22 +255,42 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* General */}
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">GENERAL</span>
+          <span className="panel-title">{t('settings.general')}</span>
         </div>
         <div className="panel-body">
           <div className="config-row">
-            <span className="config-label">Language</span>
+            <span className="config-label">
+              {t('settings.interfaceLanguage')}
+            </span>
+            <select
+              aria-label={t('settings.interfaceLanguage')}
+              className="settings-select"
+              disabled={saving}
+              value={snapshot.config.preferredLanguage}
+              onChange={(event) => {
+                void handleLanguageChange(event.target.value)
+              }}
+            >
+              <option value="system">{t('common.followSystem')}</option>
+              {supportedLanguages.map((entry) => (
+                <option key={entry} value={entry}>
+                  {languageLabel(entry, language)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.currentLanguage')}
+            </span>
             <span className="config-value">
-              {snapshot.config.preferredLanguage === 'system'
-                ? 'System'
-                : snapshot.config.preferredLanguage}
+              {languageLabel(language, language)}
             </span>
           </div>
           <div className="config-row">
-            <span className="config-label">Data Directory</span>
+            <span className="config-label">{t('settings.dataDirectory')}</span>
             <span className="config-value mono">
               {snapshot.directories.appRoot}
             </span>
@@ -195,19 +301,79 @@ export function SettingsPage() {
                 void backend.openPathInFileManager(snapshot.directories.appRoot)
               }}
             >
-              Open in Finder
+              {t('settings.openDirectory')}
             </button>
           </div>
           <div className="config-row">
-            <span className="config-label">MCP Server</span>
+            <span className="config-label">{t('settings.mcpServer')}</span>
             <span className="config-value">
-              {snapshot.config.ai.mcpEnabled ? 'Enabled' : 'Disabled'}
+              {snapshot.config.ai.mcpEnabled
+                ? t('settings.enabled')
+                : t('settings.disabled')}
             </span>
           </div>
           <div className="config-row">
-            <span className="config-label">Version</span>
-            <span className="config-value mono">0.1.0-alpha</span>
+            <span className="config-label">{t('settings.version')}</span>
+            <span className="config-value mono">
+              {snapshot.config.initialized ? '0.1.0-alpha' : '0.1.0-preview'}
+            </span>
           </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">
+            {t('settings.platformTroubleshooting')}
+          </span>
+        </div>
+        <div className="panel-body settings-support-grid">
+          <StatusCallout
+            tone={scheduleNeedsHelp ? 'warning' : 'info'}
+            title={t(platformLabelKey(platform))}
+            body={t(platformSummaryKey(platform))}
+            actions={
+              <Link className="btn-secondary" to="/schedule">
+                {t('settings.reviewSchedule')}
+              </Link>
+            }
+          />
+          {safariNeedsAccess ? (
+            <StatusCallout
+              tone="blocked"
+              title={t('platform.safariAccessTitle')}
+              body={t('platform.safariAccessBody')}
+              actions={
+                <Link className="btn-secondary" to="/import">
+                  {t('settings.reviewImports')}
+                </Link>
+              }
+            />
+          ) : null}
+          {keyringWarning ? (
+            <StatusCallout
+              tone="warning"
+              title={t('platform.keyringTitle')}
+              body={t('platform.keyringBody')}
+              actions={
+                <Link className="btn-secondary" to="/security">
+                  {t('settings.reviewSecurity')}
+                </Link>
+              }
+            />
+          ) : null}
+          {scheduleNeedsHelp ? (
+            <StatusCallout
+              tone="blocked"
+              title={t('platform.schedulerMismatchTitle')}
+              body={t('platform.schedulerMismatchBody')}
+              actions={
+                <Link className="btn-secondary" to="/schedule">
+                  {t('settings.reviewSchedule')}
+                </Link>
+              }
+            />
+          ) : null}
         </div>
       </div>
     </section>

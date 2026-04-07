@@ -28,7 +28,10 @@ export function formatDuration(durationMs: number | null | undefined) {
   return `${minutes}m ${seconds}s`
 }
 
-export function formatBytes(value: number | null | undefined) {
+export function formatBytes(
+  value: number | null | undefined,
+  language: ResolvedLanguage = 'en',
+) {
   if (!value || value <= 0) {
     return '0 B'
   }
@@ -44,14 +47,26 @@ export function formatBytes(value: number | null | undefined) {
 
   const rounded =
     size >= 10 || unitIndex === 0
-      ? Math.round(size).toString()
-      : Number(size.toFixed(1)).toString()
+      ? new Intl.NumberFormat(localeTag(language), {
+          maximumFractionDigits: 0,
+        }).format(size)
+      : new Intl.NumberFormat(localeTag(language), {
+          maximumFractionDigits: 1,
+          minimumFractionDigits: 0,
+        }).format(Number(size.toFixed(1)))
   return `${rounded} ${units[unitIndex]}`
 }
 
-export function formatRelativeTime(value: string | null | undefined) {
+export function formatRelativeTime(
+  value: string | null | undefined,
+  language: ResolvedLanguage = 'en',
+) {
   if (!value) {
-    return 'Not yet'
+    return language === 'zh-CN'
+      ? '尚未发生'
+      : language === 'zh-TW'
+        ? '尚未發生'
+        : 'Not yet'
   }
 
   const timestamp = new Date(value).getTime()
@@ -63,18 +78,24 @@ export function formatRelativeTime(value: string | null | undefined) {
   const absMinutes = Math.round(Math.abs(diffMs) / 60_000)
 
   if (absMinutes < 1) {
-    return 'Just now'
+    return new Intl.RelativeTimeFormat(localeTag(language), {
+      numeric: 'auto',
+    }).format(0, 'second')
   }
 
+  const formatter = new Intl.RelativeTimeFormat(localeTag(language), {
+    numeric: 'auto',
+  })
+
   if (absMinutes < 60) {
-    return `${absMinutes}m ${diffMs >= 0 ? 'from now' : 'ago'}`
+    return formatter.format(diffMs >= 0 ? absMinutes : -absMinutes, 'minute')
   }
 
   const absHours = Math.round(absMinutes / 60)
   if (absHours < 48) {
-    return `${absHours}h ${diffMs >= 0 ? 'from now' : 'ago'}`
+    return formatter.format(diffMs >= 0 ? absHours : -absHours, 'hour')
   }
 
   const absDays = Math.round(absHours / 24)
-  return `${absDays}d ${diffMs >= 0 ? 'from now' : 'ago'}`
+  return formatter.format(diffMs >= 0 ? absDays : -absDays, 'day')
 }

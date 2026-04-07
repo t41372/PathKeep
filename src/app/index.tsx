@@ -1,4 +1,5 @@
 import { RouterProvider } from 'react-router-dom'
+import { I18nProvider } from '../lib/i18n'
 import { createDesktopRouter, type AppRouter } from './router-factory'
 import { ShellDataProvider } from './shell-data'
 
@@ -8,8 +9,10 @@ interface AppProps {
 
 export default function App({ router = createDesktopRouter() }: AppProps) {
   return (
-    <ShellDataProvider>
-      <RouterProvider router={router} />
-    </ShellDataProvider>
+    <I18nProvider>
+      <ShellDataProvider>
+        <RouterProvider router={router} />
+      </ShellDataProvider>
+    </I18nProvider>
   )
 }

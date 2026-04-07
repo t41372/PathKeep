@@ -29,11 +29,15 @@ export type NavigationSection = 'CORE' | 'OPERATIONS' | 'SYSTEM'
 export interface AppScreen {
   id: AppRouteId
   title: string
+  titleKey?: string
   label: string
+  labelKey?: string
   subtitle: string
+  subtitleKey?: string
   icon: string
   href: string
   badge?: string
+  badgeKey?: string
   section?: NavigationSection
 }
 
@@ -45,8 +49,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'dashboard',
     label: 'Dashboard',
+    labelKey: 'navigation.dashboardLabel',
     title: 'Dashboard',
+    titleKey: 'navigation.dashboardTitle',
     subtitle: 'Archive overview & system status',
+    subtitleKey: 'navigation.dashboardSubtitle',
     icon: '⌂',
     href: '/',
     section: 'CORE',
@@ -54,8 +61,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'explorer',
     label: 'Explorer',
+    labelKey: 'navigation.explorerLabel',
     title: 'History Explorer',
+    titleKey: 'navigation.explorerTitle',
     subtitle: 'Browse, search & filter your archive',
+    subtitleKey: 'navigation.explorerSubtitle',
     icon: '◎',
     href: '/explorer',
     section: 'CORE',
@@ -63,8 +73,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'insights',
     label: 'Insights',
+    labelKey: 'navigation.insightsLabel',
     title: 'Insights',
+    titleKey: 'navigation.insightsTitle',
     subtitle: 'Topics, threads & browsing patterns',
+    subtitleKey: 'navigation.insightsSubtitle',
     icon: '◈',
     href: '/insights',
     section: 'CORE',
@@ -72,18 +85,25 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'assistant',
     label: 'AI Assistant',
+    labelKey: 'navigation.assistantLabel',
     title: 'AI Assistant',
+    titleKey: 'navigation.assistantTitle',
     subtitle: 'Ask questions about your browsing history',
+    subtitleKey: 'navigation.assistantSubtitle',
     icon: '▷',
     href: '/assistant',
     badge: 'OPT',
+    badgeKey: 'navigation.assistantBadge',
     section: 'CORE',
   },
   {
     id: 'import',
     label: 'Import',
+    labelKey: 'navigation.importLabel',
     title: 'Import',
+    titleKey: 'navigation.importTitle',
     subtitle: 'Google Takeout & browser direct import',
+    subtitleKey: 'navigation.importSubtitle',
     icon: '↓',
     href: '/import',
     section: 'OPERATIONS',
@@ -91,8 +111,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'audit',
     label: 'Audit Ledger',
+    labelKey: 'navigation.auditLabel',
     title: 'Audit Ledger',
+    titleKey: 'navigation.auditTitle',
     subtitle: 'Manifest chain, run history & integrity',
+    subtitleKey: 'navigation.auditSubtitle',
     icon: '⊞',
     href: '/audit',
     section: 'OPERATIONS',
@@ -100,8 +123,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'schedule',
     label: 'Schedule',
+    labelKey: 'navigation.scheduleLabel',
     title: 'Schedule',
+    titleKey: 'navigation.scheduleTitle',
     subtitle: 'Backup schedule & install artifacts',
+    subtitleKey: 'navigation.scheduleSubtitle',
     icon: '⏀',
     href: '/schedule',
     section: 'OPERATIONS',
@@ -109,8 +135,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'security',
     label: 'Security',
+    labelKey: 'navigation.securityLabel',
     title: 'Security',
+    titleKey: 'navigation.securityTitle',
     subtitle: 'Encryption, keyring & password management',
+    subtitleKey: 'navigation.securitySubtitle',
     icon: '⊘',
     href: '/security',
     section: 'SYSTEM',
@@ -118,8 +147,11 @@ const appShellScreens: AppScreen[] = [
   {
     id: 'settings',
     label: 'Settings',
+    labelKey: 'navigation.settingsLabel',
     title: 'Settings',
-    subtitle: 'Profiles, AI provider & general config',
+    titleKey: 'navigation.settingsTitle',
+    subtitle: 'Profiles, language & platform guidance',
+    subtitleKey: 'navigation.settingsSubtitle',
     icon: '⚙',
     href: '/settings',
     section: 'SYSTEM',
@@ -129,8 +161,11 @@ const appShellScreens: AppScreen[] = [
 export const onboardingScreen: AppScreen = {
   id: 'onboarding',
   label: 'Onboarding',
+  labelKey: 'navigation.onboardingLabel',
   title: 'Onboarding / Setup',
+  titleKey: 'navigation.onboardingTitle',
   subtitle: 'Preview, manual guidance, and first-run archive decisions',
+  subtitleKey: 'navigation.onboardingSubtitle',
   icon: '◌',
   href: '/onboarding',
 }
@@ -140,14 +175,17 @@ export const appScreens = [...appShellScreens, onboardingScreen]
 export const sidebarSections = [
   {
     label: 'CORE',
+    labelKey: 'navigation.coreSection',
     items: appShellScreens.filter((screen) => screen.section === 'CORE'),
   },
   {
     label: 'OPERATIONS',
+    labelKey: 'navigation.operationsSection',
     items: appShellScreens.filter((screen) => screen.section === 'OPERATIONS'),
   },
   {
     label: 'SYSTEM',
+    labelKey: 'navigation.systemSection',
     items: appShellScreens.filter((screen) => screen.section === 'SYSTEM'),
   },
 ]

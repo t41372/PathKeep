@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { AppScreen } from '../../app/router'
+import { useI18n } from '../../lib/i18n'
 import { useShellData } from '../../app/shell-data-context'
 
 interface TopbarProps {
@@ -9,13 +10,16 @@ interface TopbarProps {
 
 export function Topbar({ screen }: TopbarProps) {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const { busyAction, notice, runBackup, snapshot } = useShellData()
   const [query, setQuery] = useState('')
 
   const backupDisabled = !snapshot || busyAction !== null
   const backupLabel = snapshot?.config.initialized
-    ? 'Backup Now'
-    : 'Initialize first'
+    ? t('navigation.backupNow')
+    : t('navigation.initializeFirst')
+  const title = screen.titleKey ? t(screen.titleKey) : screen.title
+  const subtitle = screen.subtitleKey ? t(screen.subtitleKey) : screen.subtitle
 
   return (
     <header className="topbar">
@@ -24,8 +28,8 @@ export function Topbar({ screen }: TopbarProps) {
           +
         </span>
         <div>
-          <h1 className="page-title">{screen.title}</h1>
-          <p className="page-subtitle">{screen.subtitle}</p>
+          <h1 className="page-title">{title}</h1>
+          <p className="page-subtitle">{subtitle}</p>
         </div>
       </div>
 
@@ -46,11 +50,11 @@ export function Topbar({ screen }: TopbarProps) {
             ⌕
           </span>
           <input
-            aria-label="Search history"
+            aria-label={t('navigation.searchHistory')}
             className="search-input"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search history...  ⌘K"
+            placeholder={t('navigation.searchHistoryPlaceholder')}
             type="search"
           />
         </form>

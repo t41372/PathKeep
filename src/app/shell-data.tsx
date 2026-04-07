@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { backend } from '../lib/backend'
+import { useI18nContext } from '../lib/i18n'
 import type {
   AppBuildInfo,
   AppConfig,
@@ -19,6 +20,7 @@ function waitForNextPaint() {
 }
 
 export function ShellDataProvider({ children }: { children: ReactNode }) {
+  const { setLanguagePreference, t } = useI18nContext()
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null)
@@ -28,49 +30,56 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  async function refreshAppData(showSpinner = true) {
-    if (showSpinner) {
-      setLoading(true)
-      await waitForNextPaint()
-    }
-    setError(null)
-
-    try {
-      const [nextSnapshot, nextBuildInfo, nextDashboard] = await Promise.all([
-        backend.getAppSnapshot(),
-        backend.getAppBuildInfo(),
-        backend.loadDashboardSnapshot(),
-      ])
-      setSnapshot(nextSnapshot)
-      setBuildInfo(nextBuildInfo)
-      setDashboard(nextDashboard)
-      setRefreshKey((value) => value + 1)
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : 'PathKeep could not load the latest archive state.',
-      )
-      throw nextError
-    } finally {
+  const refreshAppData = useCallback(
+    async (showSpinner = true) => {
       if (showSpinner) {
-        setLoading(false)
+        setLoading(true)
+        await waitForNextPaint()
       }
-    }
-  }
+      setError(null)
+
+      try {
+        const [nextSnapshot, nextBuildInfo, nextDashboard] = await Promise.all([
+          backend.getAppSnapshot(),
+          backend.getAppBuildInfo(),
+          backend.loadDashboardSnapshot(),
+        ])
+        setLanguagePreference(nextSnapshot.config.preferredLanguage, {
+          persist: false,
+        })
+        setSnapshot(nextSnapshot)
+        setBuildInfo(nextBuildInfo)
+        setDashboard(nextDashboard)
+        setRefreshKey((value) => value + 1)
+      } catch (nextError) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : t('shell.loadingLatestArchiveState'),
+        )
+        throw nextError
+      } finally {
+        if (showSpinner) {
+          setLoading(false)
+        }
+      }
+    },
+    [setLanguagePreference, t],
+  )
 
   useEffect(() => {
     void refreshAppData()
-  }, [])
+  }, [refreshAppData])
 
   async function saveConfig(config: AppConfig) {
-    setBusyAction('Saving archive choices')
+    setBusyAction(t('shell.savingArchiveChoices'))
     setNotice(null)
     setError(null)
 
     try {
       await waitForNextPaint()
       const nextSnapshot = await backend.saveConfig(config)
+      setLanguagePreference(nextSnapshot.config.preferredLanguage)
       setSnapshot(nextSnapshot)
       setRefreshKey((value) => value + 1)
       void backend
@@ -82,7 +91,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'PathKeep could not save the updated archive settings.',
+          : t('shell.savingSettingsFailed'),
       )
       throw nextError
     } finally {
@@ -94,7 +103,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     config: AppConfig,
     databaseKey?: string | null,
   ) {
-    setBusyAction('Preparing the archive')
+    setBusyAction(t('shell.preparingArchive'))
     setNotice(null)
     setError(null)
 
@@ -102,18 +111,17 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       await waitForNextPaint()
       const nextSnapshot = await backend.initializeArchive(config, databaseKey)
       const nextDashboard = await backend.loadDashboardSnapshot()
+      setLanguagePreference(nextSnapshot.config.preferredLanguage)
       setSnapshot(nextSnapshot)
       setDashboard(nextDashboard)
-      setNotice(
-        'Archive initialized. Review the first backup before automation.',
-      )
+      setNotice(t('shell.initializedNotice'))
       setRefreshKey((value) => value + 1)
       return nextSnapshot
     } catch (nextError) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'PathKeep could not initialize the archive.',
+          : t('shell.initializeArchiveFailed'),
       )
       throw nextError
     } finally {
@@ -122,7 +130,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   }
 
   async function runBackup() {
-    setBusyAction('Running a manual backup')
+    setBusyAction(t('shell.runningManualBackup'))
     setNotice(null)
     setError(null)
 
@@ -132,15 +140,17 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       await refreshAppData(false)
       setNotice(
         report.dueSkipped
-          ? (report.reason ?? 'The archive is still within the due window.')
-          : `Manual backup finished${report.run ? ` as run #${report.run.id}` : ''}.`,
+          ? (report.reason ?? t('shell.manualBackupDueWindow'))
+          : report.run
+            ? t('shell.manualBackupFinished', { runId: report.run.id })
+            : t('common.complete'),
       )
       return report
     } catch (nextError) {
       setError(
         nextError instanceof Error
           ? nextError.message
-          : 'PathKeep could not complete the manual backup.',
+          : t('shell.manualBackupFailed'),
       )
       throw nextError
     } finally {

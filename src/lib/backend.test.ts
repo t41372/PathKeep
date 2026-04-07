@@ -145,21 +145,31 @@ describe('backend facade', () => {
       backend.inspectTakeout({ sourcePath: '/tmp/takeout', dryRun: true }),
     ).resolves.toMatchObject({
       dryRun: true,
-      notes: ['Tauri is not available in browser preview mode.'],
+      notes: [
+        'Preview includes recognized BrowserHistory rows and quarantined unsupported files.',
+      ],
+    })
+    const imported = await backend.importTakeout({
+      sourcePath: '/tmp/takeout',
+      dryRun: false,
+    })
+    expect(imported).toMatchObject({
+      dryRun: false,
+      importBatch: expect.objectContaining({ id: 1, status: 'imported' }),
     })
     await expect(
-      backend.importTakeout({ sourcePath: '/tmp/takeout', dryRun: false }),
+      backend.previewImportBatch(imported.importBatch!.id),
     ).resolves.toMatchObject({
-      dryRun: true,
-      notes: ['Tauri is not available in browser preview mode.'],
-    })
-    await expect(backend.previewImportBatch(7)).resolves.toMatchObject({
       batch: expect.objectContaining({ id: 1, status: 'imported' }),
     })
-    await expect(backend.revertImportBatch(7)).resolves.toMatchObject({
+    await expect(
+      backend.revertImportBatch(imported.importBatch!.id),
+    ).resolves.toMatchObject({
       batch: expect.objectContaining({ id: 1, status: 'reverted' }),
     })
-    await expect(backend.restoreImportBatch(7)).resolves.toMatchObject({
+    await expect(
+      backend.restoreImportBatch(imported.importBatch!.id),
+    ).resolves.toMatchObject({
       batch: expect.objectContaining({ id: 1, status: 'imported' }),
     })
     await expect(backend.previewSchedule()).resolves.toMatchObject({
@@ -173,11 +183,13 @@ describe('backend facade', () => {
       applied: false,
     })
     await expect(backend.doctor()).resolves.toMatchObject({
-      checks: [],
+      checks: expect.arrayContaining([
+        expect.objectContaining({ name: 'import-artifacts' }),
+      ]),
     })
     await expect(backend.repairHealth()).resolves.toMatchObject({
       runId: 1,
-      repairedImportAudits: 0,
+      repairedImportAudits: 1,
     })
     await expect(backend.keyringStatus()).resolves.toMatchObject({
       available: true,

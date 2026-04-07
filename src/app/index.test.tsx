@@ -220,13 +220,16 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     expect(await screen.findByText('BACKUP SCHEDULE')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'EXECUTE' }))
-    const removeButton = await screen.findByRole('button', {
-      name: 'Remove schedule',
-    })
-
-    await waitFor(() => expect(removeButton).toBeEnabled())
-    await user.click(removeButton)
+    await user.click(screen.getByRole('button', { name: 'Execute' }))
+    await waitFor(() =>
+      expect(screen.getByText('launchctl bootstrap')).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Remove schedule' }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Remove schedule' }))
 
     await waitFor(() =>
       expect(removeSpy).toHaveBeenCalledWith(
@@ -245,6 +248,7 @@ describe('App shell', () => {
     expect(sidebarSections).toEqual([
       {
         label: 'CORE',
+        labelKey: 'navigation.coreSection',
         items: [
           expect.objectContaining({
             id: 'dashboard',
@@ -279,6 +283,7 @@ describe('App shell', () => {
       },
       {
         label: 'OPERATIONS',
+        labelKey: 'navigation.operationsSection',
         items: [
           expect.objectContaining({
             id: 'import',
@@ -305,6 +310,7 @@ describe('App shell', () => {
       },
       {
         label: 'SYSTEM',
+        labelKey: 'navigation.systemSection',
         items: [
           expect.objectContaining({
             id: 'security',
@@ -316,7 +322,7 @@ describe('App shell', () => {
           expect.objectContaining({
             id: 'settings',
             label: 'Settings',
-            subtitle: 'Profiles, AI provider & general config',
+            subtitle: 'Profiles, language & platform guidance',
             icon: '⚙',
             href: '/settings',
           }),
