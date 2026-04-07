@@ -48,19 +48,22 @@
 
 ### 觀察
 
-- [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 目前仍承擔 backup orchestration、history query、export、rekey、doctor、Firefox ingest、Safari ingest、favicon ingest 等多項責任，但 schema bootstrapping 已先抽到 [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs)。
+- [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 目前仍承擔 backup orchestration、history query、export、rekey、doctor 等多項責任，但 M1-A 已把主 runtime 切到 canonical `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` 寫入面。
 - [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 1229 行，實際上不只 Chrome discovery，還包含 Firefox / Safari discovery、staging copy、path heuristics。
 - [`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 1916 行、[`src-tauri/crates/vault-core/src/insights.rs`](../../../src-tauri/crates/vault-core/src/insights.rs) 2481 行，很多 intelligence 相關邏輯已經提前塞進 canonical SQLite 旁邊。
-- Rust workspace 現在已有 `browser-history-parser` crate，但 `vault-core` 尚未全面切換成它的消費者；目前仍處於 M0 foundation 階段。
-- canonical schema v1 已有 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 和 migration executor；舊 [`archive-schema.sql`](../../../src-tauri/crates/vault-core/src/archive-schema.sql) 只剩 legacy runtime bridge 角色。
+- Rust workspace 現在已有 `browser-history-parser` crate，且 `vault-core` 已用它接通 Chromium manual backup 的 parse-to-canonical ingest；Firefox / Safari / richer browser coverage 仍待後續 milestones。
+- canonical schema v1 + v2 runtime foundation 已落在 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 與 [`migrations/002_archive_runtime_foundation.sql`](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)；archive init 已統一走 migration executor。
+- [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在同時承擔 migration runtime、runtime backfill，以及 `profiles` / `visit_events` compatibility views，供 AI / insights / takeout 過渡期繼續工作。
 - [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) 暴露了很多 Tauri commands，但命令集合和命名仍然緊貼舊 UI 與舊產品假設。
 - [`src-tauri/crates/vault-worker/src/lib.rs`](../../../src-tauri/crates/vault-worker/src/lib.rs) 1577 行，兼任了 desktop orchestration、CLI worker、MCP server、keyring / schedule bridge 等多個角色。
+- [`src-tauri/crates/vault-platform/src/lib.rs`](../../../src-tauri/crates/vault-platform/src/lib.rs) 已具備 macOS preview / manual / apply 與 Windows / Linux preview / manual schedule surface，Linux timer contract 也已明確切到 `OnCalendar=` + `Persistent=true`。
+- Dashboard / Audit / Explorer 的第一批 read models 已存在於 [`src-tauri/crates/vault-core/src/models.rs`](../../../src-tauri/crates/vault-core/src/models.rs) 與 [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs)，包含 `DashboardSnapshot`、`AuditRunDetail`、`StorageSummary` 與擴充後的 `HistoryQuery`。
 
 ### 判斷
 
-- 問題不只是「功能還不完整」，而是**很多功能已經先長錯地方**。如果 M0 不先重切 module boundary，之後每個 feature 都還會繼續把複雜度堆在巨檔裡。
-- `browser-history-parser` 已經作為正式 workstream 開始，但還需要在 M1 把更多 Firefox / Safari / Takeout parsing 和 `vault-core` 消費鏈接上。
-- migration system 已在 M0 foundation 落地；接下來的風險轉成「如何讓 M1 archive engine 正式切換到 canonical runtime」，而不是「還沒有 migration ledger」。
+- M1-A 已把「如何讓 archive engine 正式切到 canonical runtime」這個主要風險拿掉；現在最大的後端風險變成巨型模組拆分、更多 browser/import path 轉正，以及 UI 端如何接好新的 read model / PME contract。
+- `browser-history-parser` 已不只是 foundation，而是被 `vault-core` 真正消費的 runtime 依賴；下一步要擴的是 Firefox / Safari / Takeout fixture 深度與 parser coverage，而不是再回頭討論 parser 是否存在。
+- legacy surface 並沒有完全消失，但它已退到 compatibility bridge。接下來應避免再把新功能寫回 `visit_events` / `profiles` 這類舊名稱。
 
 ### 待辦
 

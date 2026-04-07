@@ -84,7 +84,9 @@
 - 兩層處理：
   - **Raw capture 層**：永遠動態讀取所有欄位並落盤。即使 Chrome 加了新欄位或改了結構，raw capture 只要 SQLite 能打開就能繼續工作。
   - **Derived normalizer 層**：把 raw data 映射到我們的統一 schema。新增未知欄位時只降級該欄位，不丟全部數據。
-- Archive schema 獨立版本管理，用編號 SQL migration。每次升級前自動備份 archive DB。
+- Archive schema 獨立版本管理，用編號 SQL migration。archive init / upgrade path 一律先跑 migration executor，不再允許 runtime ad-hoc schema bootstrapping。
+- `profile_watermarks` 是 canonical backup pipeline 的正式一部分：每個 profile 分別記錄 visit / URL metadata / download / favicon 的增量 cursor，只在成功 ingest 後前推。
+- 重寫期間，舊 `profiles` / `visit_events` 名稱只保留為 compatibility view / trigger bridge；真正的 canonical 寫入面是 `source_profiles`、`urls`、`visits`、`downloads`、`search_terms`、`favicons`。
 - 關鍵時刻保存完整原生快照（壓縮保存 History/Favicons DB 原檔）：
   - 首次備份
   - 來源 schema 變更時

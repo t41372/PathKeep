@@ -49,7 +49,7 @@
 
 ## 平台與運維研究
 
-- [!] `PG-RD-PLAT-001` 梳理 macOS / Windows / Linux 的 scheduler artifact、install path、manual instructions、remove / uninstall 路徑、rollback story。
+- [x] `PG-RD-PLAT-001` 梳理 macOS / Windows / Linux 的 scheduler artifact、install path、manual instructions、remove / uninstall 路徑、rollback story。見 [archive.md](../../features/archive.md) 的跨平台 timer 約束與 [schedule-security-and-storage.md](../m1-solid-archive/schedule-security-and-storage.md) 的 M1-OPS 實作註記。（2026-04-06）
 - [!] `PG-RD-PLAT-002` 研究 Safari / macOS Full Disk Access 的 detection、提示和 manual guidance UX。
 - [!] `PG-RD-PLAT-003` 研究 Linux keyring 不可用時的 UX：哪些功能可退化、哪些功能必須阻止、哪些警告要前置。
 - [ ] `PG-RD-PLAT-004` 研究 remote backup bundle format：bundle manifest、加密模式、restore story、checksum strategy。

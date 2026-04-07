@@ -12,44 +12,42 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-M1-A** — Archive Engine Foundation
+- [ ] **WORK-M1-B** — Archive UX And Operations
 
 ---
 
-### WORK-M1-A — Archive Engine Foundation
+### WORK-M1-B — Archive UX And Operations
 
-**目標**：把 M0 打好的 schema / shell foundation 接成第一批真正可信的 archive engine，讓 Chromium manual backup、run ledger、manifest、snapshot safety net 與 M1 必需的 schedule / security / storage foundation 一次成形。
+**目標**：把 M1-A 打好的 archive engine foundation 接成真正可驗收的使用流程，讓 Onboarding、Dashboard、Explorer、Audit、Export 與 Security day-one UX 全部接上真實 read model 和 PME 邊界。
 
 **包含範圍**：
 
-1. 把 canonical schema / migration executor 接成 archive init 與 upgrade path 的正式入口
-2. 做出 Chromium profile discovery、staging copy、parse-to-canonical ingest、dedupe、watermark 的第一版 backup pipeline
-3. 接通 run ledger、manifest chain、snapshot artifact、doctor baseline 與第一批 Audit / Dashboard read model
-4. 建立 Explorer / Audit / Dashboard 可直接消費的 query/read model foundation
-5. 落下 macOS schedule PME、security mode、storage layout 的 domain contract，讓高風險操作開始有 Preview / Manual / Execute 邊界
+1. 重寫 onboarding 流程，接通 storage / browser detection / security / schedule / first backup 的第一版體驗
+2. 實作 Dashboard v1，展示 archive health、recent runs、coverage、storage summary 與 zero / unhealthy states
+3. 實作 Explorer v1 的搜尋、篩選、結果列表 / detail pane、evidence source 與 locked / empty / loading states
+4. 實作 Audit / run detail / Export v1，把 artifacts、warning、copy path、匯出入口接上真實資料
+5. 補齊 smoke / e2e / interaction acceptance，並對照 prototype 收斂 trust copy 與視覺層級
 
 **讀先**：
 
+- `docs/design/screens-and-nav.md`
 - `docs/features/archive.md`
-- `docs/architecture/data-model.md`
-- `docs/plan/m1-solid-archive/schema-backup-and-ledger.md`
-- `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
+- `docs/plan/m1-solid-archive/explorer-export-and-onboarding.md`
 
 **完成訊號**：
 
-- 至少一個 Chromium profile 的 manual backup path 可重跑驗收
-- run ledger / manifest / snapshot artifact 能被 Audit / Dashboard read model 使用
-- canonical migration system 成為 archive init 的正式入口，不再靠 ad-hoc schema bootstrapping
-- schedule / security / storage foundation 已建立對應 docs、domain contract 與最小 acceptance
+- onboarding 可走到 first backup ready / dashboard entry，且不偷做高風險操作
+- dashboard / explorer / audit / export 讀取真實 archive read model，而不是只靠 preview data
+- 至少一輪 onboarding / dashboard / explorer / audit smoke 或 interaction 驗收可重跑
 - `bun run check && bun run build`
 
 **預期 commit 類型**：
 
-- `feat(archive): ...`
+- `feat(onboarding): ...`
+- `feat(dashboard): ...`
+- `feat(explorer): ...`
 - `feat(audit): ...`
-- `feat(schedule): ...`
-- `feat(security): ...`
-- `test(archive): ...`
+- `test(e2e): ...`
 
 ---
 

@@ -58,3 +58,11 @@
   - 重寫 [`tests/e2e/shell.spec.ts`](../../tests/e2e/shell.spec.ts) 以驗證新 shell、onboarding 與 dashboard preview，並完成 PathKeep rename sweep（package / Tauri / README / release workflow / public strings）
   - 同步回寫 `research-and-decisions.md`、`repo-baseline.md`、`docs/plan/README.md`、M0 README / WBS、`standards.md`、`AGENTS.md`、`screens-and-nav.md`、`module-boundary-map.md`
   - 驗收：`bun run test:unit:shell`、`bun run coverage:js:shell`、`bun run mutation:js:shell`、`bun run test:e2e`、`bun run check`、`bun run build`
+
+- [x] **WORK-M1-A** — Archive Engine Foundation
+  - 2026-04-06：把 [`archive/schema.rs`](../../src-tauri/crates/vault-core/src/archive/schema.rs) 接成 canonical migration / init 正式入口，新增 [`002_archive_runtime_foundation.sql`](../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)，補上 runtime 欄位、`profile_watermarks` 與 rewrite 過渡期的 `profiles` / `visit_events` compatibility views
+  - 重寫 [`archive/mod.rs`](../../src-tauri/crates/vault-core/src/archive/mod.rs) 的 archive engine，使 Chromium manual backup 經由 `browser-history-parser` + staging copy 寫入 canonical `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` / `raw_row_versions`，並串起 manifest chain、snapshot artifact、doctor baseline、storage summary、Dashboard / Audit read models
+  - 更新 [`models.rs`](../../src-tauri/crates/vault-core/src/models.rs)、[`lib.rs`](../../src-tauri/crates/vault-core/src/lib.rs)、[`takeout.rs`](../../src-tauri/crates/vault-core/src/takeout.rs)、[`ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)、[`insights.rs`](../../src-tauri/crates/vault-core/src/insights.rs) 與 worker / desktop bridge，讓既有 AI / insights / takeout surface 在 canonical runtime 上繼續工作
+  - 修正 [`vault-platform/src/lib.rs`](../../src-tauri/crates/vault-platform/src/lib.rs) 的 Linux scheduler timer contract，明確使用 `OnCalendar=` + `Persistent=true`，並保留 macOS preview / manual / apply 與 Windows / Linux manual guidance
+  - 同步回寫 `data-model.md`、`research-and-decisions.md`、`repo-baseline.md`、M1 README / WBS、`STATUS.md`、`BACKLOG.md`
+  - 驗收：`bun run check`、`bun run build`

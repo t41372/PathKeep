@@ -9,10 +9,6 @@
 
 ### M1 — Solid Archive
 
-- [ ] **WORK-M1-B** — Archive UX And Operations `[!blocked: 需要 WORK-M1-A]`
-  - 讀先：`docs/design/screens-and-nav.md`、`docs/features/archive.md`、`docs/plan/m1-solid-archive/explorer-export-and-onboarding.md`
-  - 目標：把 Explorer / Audit / Onboarding / Export / Security 等 day-one UX 做到可驗收，並補齊對應 smoke / acceptance
-
 ### M2 — Recall & Trust
 
 - [ ] **WORK-M2-A** — Imports, Rollback, And Multi-Browser `[!blocked: 需要 WORK-M1-B]`
