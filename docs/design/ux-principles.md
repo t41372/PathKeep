@@ -34,6 +34,8 @@
 - **Execute**：執行按鈕文案必須直接說明會做什麼，例如 first backup、run backup、copy path、open path；不要把高風險操作藏在模糊 CTA 裡。
 - **Verify**：完成後要在原頁面留下可見的結果訊號，例如 recent run、latest export path、artifact list、warning / no-warning 狀態。
 - **Rollback hint**：凡是會寫入 archive 的流程，都要讓使用者知道之後去哪裡檢查或回滾，而不是只回報「成功」。
+- 高風險流程至少要能完成 keyboard-only walkthrough，current step / selected filter / status chip 要有可朗讀的 label，而不是只靠顏色或位置辨識。
+- 高風險流程在 reduced motion 模式下要降低動畫和 loading shimmer，避免把「透明」做成另一種視覺負擔。
 
 ### Trust warning grammar
 

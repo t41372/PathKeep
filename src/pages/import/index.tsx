@@ -4,6 +4,12 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { backend } from '../../lib/backend'
 import { useI18n } from '../../lib/i18n'
+import {
+  healthCheckStatusKey,
+  healthCheckStatusTone,
+  importBatchStatusKey,
+  importBatchStatusTone,
+} from '../../lib/trust-review'
 import type {
   HealthReport,
   ImportBatchDetail,
@@ -16,7 +22,7 @@ type ImportMethod = 'takeout' | 'browser'
 type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
 
 export function ImportPage() {
-  const { snapshot } = useShellData()
+  const { refreshAppData, snapshot } = useShellData()
   const { language, t } = useI18n()
   const [method, setMethod] = useState<ImportMethod>('takeout')
   const [step, setStep] = useState<WizardStep>('select')
@@ -177,6 +183,7 @@ export function ImportPage() {
     try {
       const result = await backend.importTakeout({ sourcePath, dryRun: false })
       setImportResult(result)
+      await refreshAppData()
       setStep('done')
       if (result.importBatch) {
         setSelectedBatchId(result.importBatch.id)
@@ -251,6 +258,7 @@ export function ImportPage() {
         action === 'revert'
           ? await backend.revertImportBatch(batch.id)
           : await backend.restoreImportBatch(batch.id)
+      await refreshAppData()
       setSelectedBatchId(detail.batch.id)
       setSelectedBatchDetail(detail)
     } catch (nextError) {
@@ -354,6 +362,7 @@ export function ImportPage() {
                   />
                 )}
                 <div
+                  aria-current={index === stepIndex ? 'step' : undefined}
                   className={`wizard-step ${
                     index < stepIndex
                       ? 'completed'
@@ -515,6 +524,10 @@ export function ImportPage() {
                       <PreviewEntryList
                         entries={inspection.previewEntries}
                         language={language}
+                        statusLabel={(status) =>
+                          t(importBatchStatusKey(status))
+                        }
+                        statusTone={importBatchStatusTone}
                       />
                     </div>
                   </div>
@@ -627,7 +640,12 @@ export function ImportPage() {
                     >
                       <div className="result-row__header">
                         <strong>#{batch.id}</strong>
-                        <span className="status-badge">{batch.status}</span>
+                        <span
+                          aria-label={t(importBatchStatusKey(batch.status))}
+                          className="status-badge"
+                        >
+                          {t(importBatchStatusKey(batch.status))}
+                        </span>
                       </div>
                       <p className="mono">{batch.sourcePath}</p>
                       <div className="result-row__meta dim">
@@ -679,14 +697,12 @@ export function ImportPage() {
                   style={{ marginTop: 'var(--space-4)' }}
                 >
                   {healthReport.checks.map((check) => (
-                    <div key={check.name} className="manual-step">
-                      <span className="step-num-inline mono">
-                        {check.status}
-                      </span>
-                      <span>
-                        <strong>{check.name}</strong> — {check.message}
-                      </span>
-                    </div>
+                    <StatusCallout
+                      key={check.name}
+                      tone={healthCheckStatusTone(check.status)}
+                      title={t(healthCheckStatusKey(check.status))}
+                      body={`${check.name} — ${check.message}`}
+                    />
                   ))}
                 </div>
               ) : (
@@ -759,6 +775,8 @@ export function ImportPage() {
                     <PreviewEntryList
                       entries={selectedBatchDetail.previewEntries}
                       language={language}
+                      statusLabel={(status) => t(importBatchStatusKey(status))}
+                      statusTone={importBatchStatusTone}
                     />
                   ) : (
                     <p className="dim">{t('import.noPreviewRows')}</p>

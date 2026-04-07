@@ -7,6 +7,12 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import { hasSafariAccessIssue } from '../../lib/platform-guidance'
+import {
+  archiveModeKey,
+  runStatusKey,
+  runTypeKey,
+  sourceKindFromProfileScope,
+} from '../../lib/trust-review'
 
 function isBackupReadyProfile(profile: {
   profileId: string
@@ -79,6 +85,23 @@ export function DashboardPage() {
     dashboard.storage.manifestBytes +
     dashboard.storage.snapshotBytes +
     dashboard.storage.exportBytes
+  const latestManifestHash =
+    dashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ?? null
+
+  function runSourceSummary(profileScope: string[] | undefined) {
+    const sourceKinds = sourceKindFromProfileScope(profileScope ?? [])
+    return sourceKinds
+      .map((sourceKind) => {
+        if (sourceKind === 'chrome') return t('audit.sourceChrome')
+        if (sourceKind === 'firefox') return t('audit.sourceFirefox')
+        if (sourceKind === 'safari') return t('audit.sourceSafari')
+        if (sourceKind === 'takeout') return t('audit.sourceTakeout')
+        if (sourceKind === 'archive-wide') return t('audit.archiveWide')
+        return sourceKind
+      })
+      .join(' · ')
+  }
+
   const storageSegments = [
     {
       label: t('dashboard.archiveDatabase'),
@@ -115,8 +138,7 @@ export function DashboardPage() {
       value: dashboard.lastSuccessfulBackupAt
         ? formatRelativeTime(dashboard.lastSuccessfulBackupAt, language)
         : t('common.pending'),
-      detail:
-        dashboard.recentRuns[0]?.manifestHash ?? t('dashboard.noManifestYet'),
+      detail: latestManifestHash ?? t('dashboard.noManifestYet'),
       tone: dashboard.lastSuccessfulBackupAt
         ? ('success' as const)
         : ('neutral' as const),
@@ -132,7 +154,7 @@ export function DashboardPage() {
     },
     {
       label: t('dashboard.archiveMode'),
-      value: snapshot.config.archiveMode.toUpperCase(),
+      value: t(archiveModeKey(snapshot.config.archiveMode)),
       detail: snapshot.archiveStatus.unlocked
         ? t('dashboard.archiveUnlocked')
         : t('dashboard.archiveNeedsUnlock'),
@@ -257,24 +279,21 @@ export function DashboardPage() {
                       </td>
                       <td>
                         <span className="tag tag-sm tag-backup">
-                          {t('dashboard.backupType')}
+                          {t(runTypeKey(run.runType ?? 'backup'))}
                         </span>
                       </td>
-                      <td>
-                        {t('dashboard.profilesLabel', {
-                          count: run.profilesProcessed,
-                        })}
-                      </td>
+                      <td>{runSourceSummary(run.profileScope)}</td>
                       <td className="accent">+{run.newVisits}</td>
                       <td>
                         <span
+                          aria-label={t(runStatusKey(run.status))}
                           className={`status-badge ${
                             run.status === 'success'
                               ? 'status-completed'
                               : 'status-pending'
                           }`}
                         >
-                          {run.status}
+                          {t(runStatusKey(run.status))}
                         </span>
                       </td>
                       <td className="dim">

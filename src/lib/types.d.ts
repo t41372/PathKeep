@@ -291,6 +291,9 @@ export interface BackupRunOverview {
   startedAt: string
   finishedAt?: string | null
   status: string
+  runType?: string
+  trigger?: string
+  profileScope?: string[]
   manifestHash?: string | null
   profilesProcessed: number
   newVisits: number

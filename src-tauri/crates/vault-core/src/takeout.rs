@@ -164,9 +164,11 @@ pub fn import_takeout(
 
     let source = Path::new(&request.source_path);
     let synthetic_profile = "takeout::browser-history".to_string();
+    let started_at = now_rfc3339();
 
     let mut archive = open_archive_connection(paths, config, key)?;
     create_schema(&archive)?;
+    let run_id = create_import_run(&archive, &synthetic_profile, &started_at)?;
     let transaction = archive.transaction()?;
     let source_profile_id = upsert_takeout_profile(&transaction, &synthetic_profile, source)?;
 
@@ -174,41 +176,55 @@ pub fn import_takeout(
     let files = gather_takeout_files(source)?;
     let mut stats = ImportStats::default();
 
-    for file in files {
-        let Some(kind) = recognize_takeout_file(&file.path) else {
-            quarantine_file(paths, source, &file.path)?;
-            continue;
-        };
-        if kind == "takeout-index" {
-            continue;
+    let import_result = (|| -> Result<()> {
+        for file in files {
+            let Some(kind) = recognize_takeout_file(&file.path) else {
+                quarantine_file(paths, source, &file.path)?;
+                continue;
+            };
+            if kind == "takeout-index" {
+                continue;
+            }
+
+            let bytes = if file.from_zip {
+                read_zip_entry(source, &file.path)?
+            } else {
+                fs::read(&file.path)?
+            };
+            #[rustfmt::skip]
+            let file_stats = import_supported_payload(
+                &transaction,
+                run_id,
+                batch_id,
+                source_profile_id,
+                &synthetic_profile,
+                &file.path,
+                &kind,
+                &bytes,
+            )?;
+            stats.imported_items += file_stats.imported_items;
+            stats.duplicate_items += file_stats.duplicate_items;
+            if file_stats.skipped_items > 0 {
+                inspection.notes.push(format!(
+                    "Skipped {} records from {} because they were missing a visit timestamp.",
+                    file_stats.skipped_items, file.path
+                ));
+            }
         }
 
-        let bytes =
-            if file.from_zip { read_zip_entry(source, &file.path)? } else { fs::read(&file.path)? };
-        #[rustfmt::skip]
-        let file_stats = import_supported_payload(
-            &transaction,
-            batch_id,
-            source_profile_id,
-            &synthetic_profile,
-            &file.path,
-            &kind,
-            &bytes,
-        )?;
-        stats.imported_items += file_stats.imported_items;
-        stats.duplicate_items += file_stats.duplicate_items;
-        if file_stats.skipped_items > 0 {
-            inspection.notes.push(format!(
-                "Skipped {} records from {} because they were missing a visit timestamp.",
-                file_stats.skipped_items, file.path
-            ));
-        }
+        inspection.imported_items = stats.imported_items;
+        inspection.duplicate_items = stats.duplicate_items;
+        finalize_import_batch(&transaction, batch_id, &inspection)?;
+        transaction.commit()?;
+        Ok(())
+    })();
+
+    if let Err(error) = import_result {
+        finalize_failed_import_run(&archive, run_id, &inspection.notes, &stats, &error)?;
+        return Err(error);
     }
 
-    inspection.imported_items = stats.imported_items;
-    inspection.duplicate_items = stats.duplicate_items;
-    finalize_import_batch(&transaction, batch_id, &inspection)?;
-    transaction.commit()?;
+    finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
 
     let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "imported")?;
     update_batch_audit(paths, config, key, batch_id, audit_path.as_deref(), git_commit.as_deref())?;
@@ -398,6 +414,7 @@ pub fn restore_import_batch(
 
 fn import_supported_payload(
     archive: &Transaction<'_>,
+    run_id: i64,
     batch_id: i64,
     source_profile_id: i64,
     profile_id: &str,
@@ -415,13 +432,14 @@ fn import_supported_payload(
         archive.execute(
             "INSERT OR IGNORE INTO raw_row_versions
              (source_profile_id, source_kind, table_name, source_pk, payload_hash, schema_fingerprint, browser_version, payload_json, recorded_at, run_id, profile_id, schema_hash, chrome_version, import_batch_id)
-             VALUES (?1, 'takeout', 'records', ?2, ?3, 'takeout', 'takeout', ?4, ?5, 0, ?6, 'takeout', 'takeout', ?7)",
+             VALUES (?1, 'takeout', 'records', ?2, ?3, 'takeout', 'takeout', ?4, ?5, ?6, ?7, 'takeout', 'takeout', ?8)",
             params![
                 source_profile_id,
                 record.source_visit_id.to_string(),
                 record.payload_hash,
                 record.payload_json,
                 now_rfc3339(),
+                run_id,
                 profile_id,
                 batch_id
             ],
@@ -443,7 +461,7 @@ fn import_supported_payload(
                payload_hash,
                recorded_at
              )
-             VALUES (?1, ?2, 1, 0, ?3, ?4, ?3, ?4, ?5, 0, ?6, 0, ?7, ?8)
+             VALUES (?1, ?2, 1, 0, ?3, ?4, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
              ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
                url = excluded.url,
                title = excluded.title,
@@ -463,6 +481,7 @@ fn import_supported_payload(
                 visit_time_ms,
                 visit_time_iso,
                 source_profile_id,
+                run_id,
                 record.source_visit_id,
                 record.payload_hash,
                 now_rfc3339(),
@@ -496,13 +515,14 @@ fn import_supported_payload(
                recorded_at,
                import_batch_id
              )
-             VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, 0, NULL, 0, NULL, ?6, 'takeout', ?7, ?8, ?9, ?10)",
+             VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
             params![
                 url_id,
                 record.source_visit_id.to_string(),
                 visit_time_ms,
                 visit_time_iso,
                 source_profile_id,
+                run_id,
                 record.source_path,
                 visit_event_fingerprint(
                     "takeout",
@@ -526,6 +546,101 @@ fn import_supported_payload(
     }
 
     Ok(stats)
+}
+
+fn create_import_run(archive: &Connection, profile_id: &str, started_at: &str) -> Result<i64> {
+    archive.execute(
+        "INSERT INTO runs (
+           run_type,
+           trigger,
+           started_at,
+           timezone,
+           status,
+           profile_scope_json,
+           warnings_json,
+           stats_json,
+           due_only
+         )
+         VALUES (
+           'import',
+           'manual',
+           ?1,
+           'UTC',
+           'running',
+           ?2,
+           '[]',
+           '{}',
+           0
+         )",
+        params![started_at, serde_json::to_string(&vec![profile_id.to_string()])?],
+    )?;
+    Ok(archive.last_insert_rowid())
+}
+
+fn finalize_successful_import_run(
+    archive: &Connection,
+    run_id: i64,
+    batch_id: i64,
+    inspection: &TakeoutInspection,
+    stats: &ImportStats,
+) -> Result<()> {
+    archive.execute(
+        "UPDATE runs
+         SET finished_at = ?1,
+             status = 'success',
+             stats_json = ?2,
+             warnings_json = ?3,
+             error_message = NULL
+         WHERE id = ?4",
+        params![
+            now_rfc3339(),
+            serde_json::to_string(&json!({
+                "profilesProcessed": 1,
+                "newVisits": stats.imported_items,
+                "newUrls": 0,
+                "newDownloads": 0,
+                "candidateItems": inspection.candidate_items,
+                "importedItems": stats.imported_items,
+                "duplicateItems": stats.duplicate_items,
+                "importBatchId": batch_id,
+            }))?,
+            serde_json::to_string(&inspection.notes)?,
+            run_id,
+        ],
+    )?;
+    Ok(())
+}
+
+fn finalize_failed_import_run(
+    archive: &Connection,
+    run_id: i64,
+    notes: &[String],
+    stats: &ImportStats,
+    error: &anyhow::Error,
+) -> Result<()> {
+    archive.execute(
+        "UPDATE runs
+         SET finished_at = ?1,
+             status = 'failed',
+             stats_json = ?2,
+             warnings_json = ?3,
+             error_message = ?4
+         WHERE id = ?5",
+        params![
+            now_rfc3339(),
+            serde_json::to_string(&json!({
+                "profilesProcessed": 1,
+                "newVisits": stats.imported_items,
+                "newUrls": 0,
+                "newDownloads": 0,
+                "duplicateItems": stats.duplicate_items,
+            }))?,
+            serde_json::to_string(notes)?,
+            format!("{error:#}"),
+            run_id,
+        ],
+    )?;
+    Ok(())
 }
 
 fn create_import_revert_run(
@@ -1064,7 +1179,7 @@ fn copy_if_exists(source: &str, destination: &Path) -> Result<()> { if Path::new
 mod tests {
     use super::*;
     use crate::{
-        archive::create_schema,
+        archive::{create_schema, load_audit_run_detail, load_recent_runs},
         config::ensure_paths,
         models::{AppConfig, ArchiveMode},
     };
@@ -1228,6 +1343,16 @@ mod tests {
         assert_eq!(inspection.imported_items, 2);
         assert!(inspection.notes.is_empty());
         assert_eq!(batch.visible_items, 2);
+        let recent_runs =
+            load_recent_runs(&paths, &config, None).expect("recent runs after import");
+        assert_eq!(recent_runs[0].run_type, "import");
+        assert_eq!(recent_runs[0].profiles_processed, 1);
+        assert_eq!(recent_runs[0].new_visits, 2);
+        assert_eq!(recent_runs[0].profile_scope, vec!["takeout::browser-history".to_string()]);
+        let import_detail = load_audit_run_detail(&paths, &config, None, recent_runs[0].id)
+            .expect("import run detail");
+        assert_eq!(import_detail.run.run_type, "import");
+        assert_eq!(import_detail.profile_scope, vec!["takeout::browser-history".to_string()]);
 
         let preview = preview_import_batch(&paths, &config, None, batch.id).expect("preview batch");
         assert_eq!(preview.preview_entries.len(), 2);
@@ -1260,6 +1385,10 @@ mod tests {
             )
             .expect("load hidden visit count");
         assert_eq!(hidden_rows, 2);
+        let recent_runs =
+            load_recent_runs(&paths, &config, None).expect("recent runs after revert");
+        assert_eq!(recent_runs[0].run_type, "rollback");
+        assert_eq!(recent_runs[0].new_visits, 2);
 
         let restored =
             restore_import_batch(&paths, &config, None, batch.id).expect("restore batch");
@@ -1274,6 +1403,10 @@ mod tests {
             )
             .expect("load restored visit count");
         assert_eq!(visible_rows, 2);
+        let recent_runs =
+            load_recent_runs(&paths, &config, None).expect("recent runs after restore");
+        assert_eq!(recent_runs[0].run_type, "rollback");
+        assert_eq!(recent_runs[0].new_visits, 2);
     }
 
     #[test]

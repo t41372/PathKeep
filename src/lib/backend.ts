@@ -13,6 +13,7 @@ import type {
   AppSnapshot,
   ApplyResult,
   AuditRunDetail,
+  BackupRunOverview,
   BackupReport,
   DashboardSnapshot,
   ExplainInsightRequest,
@@ -523,10 +524,10 @@ function buildMockAuditRunDetail(
 
   return {
     run,
-    trigger: 'manual',
+    trigger: run.trigger ?? 'manual',
     timezone: 'America/Phoenix',
     dueOnly: false,
-    profileScope: state.snapshot.config.selectedProfileIds,
+    profileScope: run.profileScope ?? state.snapshot.config.selectedProfileIds,
     warnings: [],
     errorMessage: null,
     stats: {
@@ -550,23 +551,148 @@ function buildMockAuditRunDetail(
   }
 }
 
-function buildMockScheduleStatus(state: MockBackendState): ScheduleStatus {
+function prependMockRun(
+  state: MockBackendState,
+  run: BackupRunOverview,
+): BackupRunOverview {
+  state.snapshot.recentRuns = [run, ...state.snapshot.recentRuns]
+  return run
+}
+
+function normalizeMockPlatform(platform?: unknown) {
+  if (platform === 'windows') return 'windows'
+  if (platform === 'linux') return 'linux'
+  return 'macos'
+}
+
+function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
+  const resolvedPlatform = normalizeMockPlatform(platform)
+  if (resolvedPlatform === 'windows') {
+    return {
+      platform: 'windows',
+      label: 'dev.codex.pathkeep.backup',
+      executablePath: 'C:/Program Files/PathKeep/pathkeep.exe',
+      generatedFiles: [
+        {
+          relativePath: 'schedule/pathkeep-backup.xml',
+          absolutePath:
+            'C:/Users/test/AppData/Local/PathKeep/schedule/pathkeep-backup.xml',
+          purpose: 'Task Scheduler XML',
+          contents:
+            '<Task><Triggers><TimeTrigger /></Triggers><Settings><StartWhenAvailable>true</StartWhenAvailable></Settings></Task>',
+        },
+      ],
+      manualSteps: [
+        'Review the generated Task Scheduler XML.',
+        'Import it manually in Task Scheduler if you do not want PathKeep to apply it.',
+      ],
+      applyCommands: [['schtasks', '/Create', '/XML', 'pathkeep-backup.xml']],
+      rollbackCommands: [
+        ['schtasks', '/Delete', '/TN', 'dev.codex.pathkeep.backup', '/F'],
+      ],
+      applySupported: false,
+    }
+  }
+
+  if (resolvedPlatform === 'linux') {
+    return {
+      platform: 'linux',
+      label: 'dev.codex.pathkeep.backup',
+      executablePath: '/usr/bin/pathkeep',
+      generatedFiles: [
+        {
+          relativePath: 'schedule/pathkeep-backup.service',
+          absolutePath:
+            '/home/test/.config/systemd/user/pathkeep-backup.service',
+          purpose: 'systemd user service',
+          contents:
+            '[Unit]\nDescription=PathKeep backup\n[Service]\nExecStart=/usr/bin/pathkeep backup',
+        },
+        {
+          relativePath: 'schedule/pathkeep-backup.timer',
+          absolutePath: '/home/test/.config/systemd/user/pathkeep-backup.timer',
+          purpose: 'systemd user timer',
+          contents:
+            '[Timer]\nOnCalendar=hourly\nPersistent=true\n[Install]\nWantedBy=timers.target',
+        },
+      ],
+      manualSteps: [
+        'Review the generated systemd user unit files.',
+        'Copy them into ~/.config/systemd/user and run systemctl --user daemon-reload.',
+      ],
+      applyCommands: [
+        ['systemctl', '--user', 'enable', '--now', 'pathkeep-backup.timer'],
+      ],
+      rollbackCommands: [
+        ['systemctl', '--user', 'disable', '--now', 'pathkeep-backup.timer'],
+      ],
+      applySupported: false,
+    }
+  }
+
   return {
     platform: 'macos',
+    label: 'dev.codex.pathkeep.backup',
+    executablePath: '/Applications/PathKeep.app',
+    generatedFiles: [
+      {
+        relativePath: 'schedule/dev.codex.pathkeep.backup.plist',
+        absolutePath:
+          '/Users/test/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+        purpose: 'LaunchAgent plist',
+        contents:
+          '<?xml version="1.0"?><plist><dict><key>Label</key><string>dev.codex.pathkeep.backup</string></dict></plist>',
+      },
+    ],
+    manualSteps: [
+      'Open the desktop build to verify the LaunchAgent artifact and install status.',
+    ],
+    applyCommands: [
+      ['launchctl', 'bootstrap', 'gui/501', 'dev.codex.pathkeep.backup.plist'],
+    ],
+    rollbackCommands: [
+      ['launchctl', 'bootout', 'gui/501', 'dev.codex.pathkeep.backup'],
+    ],
+    applySupported: false,
+  }
+}
+
+function buildMockScheduleStatus(
+  state: MockBackendState,
+  platform?: unknown,
+): ScheduleStatus {
+  const resolvedPlatform = normalizeMockPlatform(platform)
+  return {
+    platform: resolvedPlatform,
     label: 'dev.codex.pathkeep.backup',
     dueAfterHours: state.snapshot.config.dueAfterHours,
     checkIntervalHours: state.snapshot.config.scheduleCheckIntervalHours,
     applySupported: false,
     installState: 'manual-review',
     detectedFiles: [],
-    manualSteps: [
-      'Browser preview mode cannot inspect the installed native schedule state.',
-      'Open the desktop build to verify the LaunchAgent artifact and install status.',
-    ],
+    manualSteps:
+      resolvedPlatform === 'windows'
+        ? [
+            'Browser preview mode cannot inspect Task Scheduler directly.',
+            'Review the XML, then import it manually if you want to test the plan.',
+          ]
+        : resolvedPlatform === 'linux'
+          ? [
+              'Browser preview mode cannot inspect systemd user services directly.',
+              'Review the generated units, then run the documented systemctl --user commands manually.',
+            ]
+          : [
+              'Browser preview mode cannot inspect the installed native schedule state.',
+              'Open the desktop build to verify the LaunchAgent artifact and install status.',
+            ],
     auditPath: null,
     lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
     warnings: [
-      'Browser preview mode keeps schedule verification read-only. Use the desktop app for the real platform status.',
+      resolvedPlatform === 'windows'
+        ? 'Browser preview mode keeps Task Scheduler verification read-only. Use the desktop app or Task Scheduler to inspect the real install state.'
+        : resolvedPlatform === 'linux'
+          ? 'Browser preview mode keeps systemd verification read-only. Use the desktop app or systemctl --user to inspect the real install state.'
+          : 'Browser preview mode keeps schedule verification read-only. Use the desktop app for the real platform status.',
     ],
   }
 }
@@ -740,6 +866,20 @@ function buildMockTakeoutInspection(
     importBatch,
     ...state.snapshot.recentImportBatches,
   ]
+  prependMockRun(state, {
+    id: (state.snapshot.recentRuns[0]?.id ?? batchId) + 1,
+    startedAt: importBatch.importedAt ?? importBatch.createdAt,
+    finishedAt: importBatch.importedAt ?? importBatch.createdAt,
+    status: 'success',
+    runType: 'import',
+    trigger: 'manual',
+    profileScope: [importBatch.profileId],
+    manifestHash: null,
+    profilesProcessed: 1,
+    newVisits: importBatch.importedItems,
+    newUrls: 0,
+    newDownloads: 0,
+  })
   state.importBatchDetails[batchId] = {
     batch: importBatch,
     previewEntries,
@@ -797,6 +937,20 @@ function mutateImportBatch(
   state.snapshot.recentImportBatches = state.snapshot.recentImportBatches.map(
     (batch) => (batch.id === batchId ? updatedBatch : batch),
   )
+  prependMockRun(state, {
+    id: (state.snapshot.recentRuns[0]?.id ?? batchId) + 1,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    status: 'success',
+    runType: 'rollback',
+    trigger: 'manual',
+    profileScope: [updatedBatch.profileId],
+    manifestHash: null,
+    profilesProcessed: 1,
+    newVisits: updatedBatch.importedItems,
+    newUrls: 0,
+    newDownloads: 0,
+  })
   return updatedDetail
 }
 
@@ -944,6 +1098,9 @@ async function call<T>(
         startedAt: finishedAt,
         finishedAt,
         status: 'success',
+        runType: 'backup',
+        trigger: 'manual',
+        profileScope: mockState.snapshot.config.selectedProfileIds,
         manifestHash: `preview-manifest-${nextRunId}`,
         profilesProcessed: mockState.snapshot.config.selectedProfileIds.filter(
           (profileId) => profileId.startsWith('chrome:'),
@@ -952,7 +1109,7 @@ async function call<T>(
         newUrls: uniqueUrlCount(mockState.history.items),
         newDownloads: 1,
       }
-      mockState.snapshot.recentRuns = [run, ...mockState.snapshot.recentRuns]
+      prependMockRun(mockState, run)
       mockState.snapshot.archiveStatus.initialized = true
       mockState.snapshot.archiveStatus.unlocked = true
       mockState.snapshot.archiveStatus.lastSuccessfulBackupAt = finishedAt
@@ -1028,18 +1185,9 @@ async function call<T>(
         'restore',
       ) as T
     case 'preview_schedule':
-      return {
-        platform: 'macos',
-        label: 'dev.codex.pathkeep.backup',
-        executablePath: '/Applications/PathKeep.app',
-        generatedFiles: [],
-        manualSteps: ['Tauri is not available in browser preview mode.'],
-        applyCommands: [],
-        rollbackCommands: [],
-        applySupported: false,
-      } as T
+      return buildMockSchedulePlan(args?.platform) as T
     case 'schedule_status':
-      return buildMockScheduleStatus(mockState) as T
+      return buildMockScheduleStatus(mockState, args?.platform) as T
     case 'doctor_report':
       return {
         generatedAt: new Date().toISOString(),
@@ -1069,8 +1217,26 @@ async function call<T>(
         ],
       } as T
     case 'repair_health':
+      prependMockRun(mockState, {
+        id: (mockState.snapshot.recentRuns[0]?.id ?? 1) + 1,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        status: 'success',
+        runType: 'doctor',
+        trigger: 'manual',
+        profileScope: [],
+        manifestHash: null,
+        profilesProcessed: 0,
+        newVisits: mockState.snapshot.recentImportBatches.some(
+          (batch) => batch.status === 'reverted',
+        )
+          ? 1
+          : 0,
+        newUrls: 0,
+        newDownloads: 0,
+      })
       return {
-        runId: 1,
+        runId: mockState.snapshot.recentRuns[0]?.id ?? 1,
         repairedImportAudits: mockState.snapshot.recentImportBatches.length
           ? 1
           : 0,

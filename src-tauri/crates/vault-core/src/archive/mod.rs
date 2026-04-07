@@ -65,12 +65,18 @@ SELECT
   runs.started_at,
   runs.finished_at,
   runs.status,
-  manifests.content_hash,
+  runs.run_type,
+  runs.trigger,
+  runs.profile_scope_json,
+  (
+    SELECT manifests.content_hash
+    FROM manifests
+    WHERE manifests.run_id = runs.id
+    ORDER BY manifests.id DESC
+    LIMIT 1
+  ) AS manifest_hash,
   runs.stats_json
 FROM runs
-LEFT JOIN manifests
-  ON manifests.run_id = runs.id
-WHERE runs.run_type = 'backup'
 ORDER BY runs.id DESC
 LIMIT 12
 "#;
@@ -295,6 +301,7 @@ pub fn load_audit_run_detail(
     let row = connection.query_row(
         "SELECT
            id,
+           run_type,
            trigger,
            timezone,
            due_only,
@@ -312,15 +319,16 @@ pub fn load_audit_run_detail(
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
             ))
         },
     )?;
@@ -353,18 +361,10 @@ pub fn load_audit_run_detail(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    let profile_scope = row
-        .7
-        .as_ref()
-        .map(|value| serde_json::from_str::<Vec<String>>(value).unwrap_or_default())
-        .unwrap_or_default();
-    let stats = row
-        .8
-        .as_ref()
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .unwrap_or_else(|| json!({}));
+    let profile_scope = decode_profile_scope(row.8.as_deref());
+    let stats = decode_run_stats(row.9.as_deref());
     let warnings = row
-        .9
+        .10
         .as_ref()
         .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
         .unwrap_or_default();
@@ -372,22 +372,24 @@ pub fn load_audit_run_detail(
     Ok(AuditRunDetail {
         run: BackupRunOverview {
             id: row.0,
-            started_at: row.4,
-            finished_at: row.5,
-            status: row.6,
+            started_at: row.5,
+            finished_at: row.6,
+            status: row.7,
+            run_type: row.1,
+            trigger: row.2.clone(),
+            profile_scope: profile_scope.clone(),
             manifest_hash: manifest.as_ref().and_then(|(_, hash)| hash.clone()),
-            profiles_processed: stats.get("profilesProcessed").and_then(Value::as_u64).unwrap_or(0)
-                as usize,
-            new_visits: stats.get("newVisits").and_then(Value::as_u64).unwrap_or(0) as usize,
-            new_urls: stats.get("newUrls").and_then(Value::as_u64).unwrap_or(0) as usize,
-            new_downloads: stats.get("newDownloads").and_then(Value::as_u64).unwrap_or(0) as usize,
+            profiles_processed: run_profiles_processed(&stats, &profile_scope),
+            new_visits: run_new_visits(&stats),
+            new_urls: run_new_urls(&stats),
+            new_downloads: run_new_downloads(&stats),
         },
-        trigger: row.1,
-        timezone: row.2,
-        due_only: row.3 != 0,
+        trigger: row.2,
+        timezone: row.3,
+        due_only: row.4 != 0,
         profile_scope,
         warnings,
-        error_message: row.10,
+        error_message: row.11,
         stats,
         manifest_path: manifest.as_ref().and_then(|(path, _)| path.clone()),
         manifest_hash: manifest.and_then(|(_, hash)| hash),
@@ -483,7 +485,14 @@ pub fn run_backup(
     }
 
     let finished_at = now_rfc3339();
-    let summary = backup_run_summary(run_id, &started_at, &finished_at, &profile_summaries);
+    let summary = backup_run_summary(
+        run_id,
+        &started_at,
+        &finished_at,
+        trigger,
+        &selected_profiles.iter().map(|profile| profile.profile_id.clone()).collect::<Vec<_>>(),
+        &profile_summaries,
+    );
     let row_counts = archive_row_counts(&connection)?;
     let manifest = BackupManifest {
         created_at: finished_at.clone(),
@@ -1848,6 +1857,8 @@ fn backup_run_summary(
     run_id: i64,
     started_at: &str,
     finished_at: &str,
+    trigger: &str,
+    profile_scope: &[String],
     profile_summaries: &[BackupProfileSummary],
 ) -> BackupRunOverview {
     BackupRunOverview {
@@ -1855,6 +1866,9 @@ fn backup_run_summary(
         started_at: started_at.to_string(),
         finished_at: Some(finished_at.to_string()),
         status: "success".to_string(),
+        run_type: "backup".to_string(),
+        trigger: trigger.to_string(),
+        profile_scope: profile_scope.to_vec(),
         manifest_hash: None,
         profiles_processed: profile_summaries.len(),
         new_visits: profile_summaries.iter().map(|item| item.new_visits).sum(),
@@ -1927,23 +1941,62 @@ fn directory_size(path: &Path) -> u64 {
 }
 
 fn backup_run_overview_from_row(row: &Row<'_>) -> rusqlite::Result<BackupRunOverview> {
-    let summary_json: Option<String> = row.get(5)?;
-    let summary = summary_json
-        .as_deref()
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .unwrap_or_else(|| json!({}));
+    let profile_scope = decode_profile_scope(row.get::<_, Option<String>>(6)?.as_deref());
+    let summary = decode_run_stats(row.get::<_, Option<String>>(8)?.as_deref());
     Ok(BackupRunOverview {
         id: row.get(0)?,
         started_at: row.get(1)?,
         finished_at: row.get(2)?,
         status: row.get(3)?,
-        manifest_hash: row.get(4)?,
-        profiles_processed: summary.get("profilesProcessed").and_then(Value::as_u64).unwrap_or(0)
-            as usize,
-        new_visits: summary.get("newVisits").and_then(Value::as_u64).unwrap_or(0) as usize,
-        new_urls: summary.get("newUrls").and_then(Value::as_u64).unwrap_or(0) as usize,
-        new_downloads: summary.get("newDownloads").and_then(Value::as_u64).unwrap_or(0) as usize,
+        run_type: row.get(4)?,
+        trigger: row.get(5)?,
+        profile_scope: profile_scope.clone(),
+        manifest_hash: row.get(7)?,
+        profiles_processed: run_profiles_processed(&summary, &profile_scope),
+        new_visits: run_new_visits(&summary),
+        new_urls: run_new_urls(&summary),
+        new_downloads: run_new_downloads(&summary),
     })
+}
+
+fn decode_profile_scope(value: Option<&str>) -> Vec<String> {
+    value.and_then(|content| serde_json::from_str::<Vec<String>>(content).ok()).unwrap_or_default()
+}
+
+fn decode_run_stats(value: Option<&str>) -> Value {
+    value
+        .and_then(|content| serde_json::from_str::<Value>(content).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+fn run_stat_count(stats: &Value, keys: &[&str]) -> usize {
+    keys.iter().find_map(|key| stats.get(*key).and_then(Value::as_u64)).unwrap_or(0) as usize
+}
+
+fn run_profiles_processed(stats: &Value, profile_scope: &[String]) -> usize {
+    let explicit = run_stat_count(stats, &["profilesProcessed"]);
+    if explicit > 0 { explicit } else { profile_scope.len() }
+}
+
+fn run_new_visits(stats: &Value) -> usize {
+    run_stat_count(
+        stats,
+        &[
+            "newVisits",
+            "importedItems",
+            "softHiddenVisits",
+            "restoredVisits",
+            "repairedVisibilityRows",
+        ],
+    )
+}
+
+fn run_new_urls(stats: &Value) -> usize {
+    run_stat_count(stats, &["newUrls"])
+}
+
+fn run_new_downloads(stats: &Value) -> usize {
+    run_stat_count(stats, &["newDownloads"])
 }
 
 fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryEntry> {
@@ -2693,8 +2746,8 @@ mod tests {
         assert!(report.profiles[0].checkpoint_created);
 
         let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
-        assert_eq!(recent_runs.len(), 1);
-        assert_eq!(recent_runs[0].status, "success");
+        assert!(!recent_runs.is_empty());
+        assert!(recent_runs.iter().any(|run| run.run_type == "backup" && run.status == "success"));
 
         let history = list_history(
             &paths,

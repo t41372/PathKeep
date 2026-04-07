@@ -218,13 +218,19 @@ export function InfoStat({
 // ---------------------------------------------------------------------------
 
 export function StatusTag({
+  ariaLabel,
   tone,
   children,
 }: {
+  ariaLabel?: string
   tone: 'info' | 'success' | 'danger' | 'neutral'
   children: ReactNode
 }) {
-  return <span className={`statusTag ${tone}`}>{children}</span>
+  return (
+    <span aria-label={ariaLabel} className={`statusTag ${tone}`}>
+      {children}
+    </span>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -234,9 +240,13 @@ export function StatusTag({
 export function PreviewEntryList({
   entries,
   language,
+  statusLabel,
+  statusTone,
 }: {
   entries: TakeoutPreviewEntry[]
   language: ResolvedLanguage
+  statusLabel?: (status: string) => string
+  statusTone?: (status: string) => 'info' | 'success' | 'danger' | 'neutral'
 }) {
   return (
     <div className="previewList">
@@ -247,8 +257,14 @@ export function PreviewEntryList({
         >
           <div className="previewMeta">
             <span>{formatDateTime(entry.visitedAt, language)}</span>
-            <StatusTag tone={entry.status === 'imported' ? 'success' : 'info'}>
-              {entry.status}
+            <StatusTag
+              ariaLabel={statusLabel?.(entry.status)}
+              tone={
+                statusTone?.(entry.status) ??
+                (entry.status === 'imported' ? 'success' : 'info')
+              }
+            >
+              {statusLabel?.(entry.status) ?? entry.status}
             </StatusTag>
           </div>
           <strong>{entry.title || entry.url}</strong>
@@ -313,7 +329,11 @@ export function OperationWorkflow({
               : 'pending'
 
         return (
-          <li className={`workflowStep ${displayStatus}`} key={step.id}>
+          <li
+            aria-current={displayStatus === 'current' ? 'step' : undefined}
+            className={`workflowStep ${displayStatus}`}
+            key={step.id}
+          >
             <div className="workflowMarker">
               <span>{index + 1}</span>
             </div>
@@ -330,6 +350,13 @@ export function OperationWorkflow({
                   <h3>{step.title}</h3>
                 </div>
                 <StatusTag
+                  ariaLabel={
+                    displayStatus === 'complete'
+                      ? labels.complete
+                      : displayStatus === 'current'
+                        ? labels.current
+                        : labels.pending
+                  }
                   tone={
                     displayStatus === 'complete'
                       ? 'success'

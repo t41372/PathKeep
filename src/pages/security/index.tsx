@@ -8,6 +8,7 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { archiveModeKey, securityModeKey } from '../../lib/trust-review'
 import type {
   ArchiveMode,
   RekeyPreview,
@@ -18,13 +19,6 @@ import type {
 interface SecurityLoadState {
   status: SecurityStatus | null
   error: string | null
-}
-
-function securityModeLabel(status: SecurityStatus) {
-  if (status.mode === 'uninitialized') return 'UNINITIALIZED'
-  if (status.mode === 'locked') return 'ENCRYPTED / LOCKED'
-  if (status.mode === 'encrypted') return 'ENCRYPTED'
-  return 'PLAINTEXT'
 }
 
 function waitForNextPaint() {
@@ -273,7 +267,7 @@ export function SecurityPage() {
             <div className="security-info">
               <div className="security-state">
                 {t('security.archiveIs', {
-                  mode: securityModeLabel(status),
+                  mode: t(securityModeKey(status.mode)),
                 })}
               </div>
               <div className="security-detail dim mono">
@@ -448,8 +442,12 @@ export function SecurityPage() {
                   setRekeyMode(event.target.value as ArchiveMode)
                 }}
               >
-                <option value="Encrypted">Encrypted</option>
-                <option value="Plaintext">Plaintext</option>
+                <option value="Encrypted">
+                  {t(archiveModeKey('Encrypted'))}
+                </option>
+                <option value="Plaintext">
+                  {t(archiveModeKey('Plaintext'))}
+                </option>
               </select>
             </label>
             {rekeyMode === 'Encrypted' && (
@@ -520,7 +518,8 @@ export function SecurityPage() {
                   {t('security.mode')}
                 </span>
                 <span>
-                  {preview.currentMode} → {preview.nextMode}
+                  {t(archiveModeKey(preview.currentMode))} →{' '}
+                  {t(archiveModeKey(preview.nextMode))}
                 </span>
               </div>
               <div className="manual-step">

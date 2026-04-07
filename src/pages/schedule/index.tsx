@@ -11,6 +11,7 @@ import {
   platformLabelKey,
   platformSummaryKey,
 } from '../../lib/platform-guidance'
+import { scheduleInstallTone } from '../../lib/trust-review'
 import type { ApplyResult, SchedulePlan, ScheduleStatus } from '../../lib/types'
 
 interface ScheduleLoadState {
@@ -191,13 +192,7 @@ export function SchedulePage() {
   return (
     <section className="page-shell schedule-page" data-testid="schedule-page">
       <StatusCallout
-        tone={
-          status.installState === 'installed'
-            ? 'success'
-            : status.installState === 'not-installed'
-              ? 'info'
-              : 'blocked'
-        }
+        tone={scheduleInstallTone(status.installState)}
         title={t(platformLabelKey(status.platform))}
         body={t(platformSummaryKey(status.platform))}
       />
@@ -216,13 +211,17 @@ export function SchedulePage() {
             <div className="config-row">
               <span className="config-label">{t('schedule.interval')}</span>
               <span className="config-value mono">
-                Every {status.dueAfterHours} hours
+                {t('schedule.intervalValue', {
+                  hours: status.dueAfterHours,
+                })}
               </span>
             </div>
             <div className="config-row">
               <span className="config-label">{t('schedule.verification')}</span>
               <span className="config-value mono">
-                Check every {status.checkIntervalHours} hours
+                {t('schedule.verificationValue', {
+                  hours: status.checkIntervalHours,
+                })}
               </span>
             </div>
             <div className="config-row">
@@ -269,6 +268,7 @@ export function SchedulePage() {
           <div className="pme-tabs">
             {(['preview', 'manual', 'execute'] as PmeTab[]).map((tab) => (
               <button
+                aria-pressed={pmeTab === tab}
                 key={tab}
                 className={`pme-tab ${pmeTab === tab ? 'active' : ''}`}
                 type="button"
@@ -363,7 +363,9 @@ export function SchedulePage() {
               ))}
               {status.detectedFiles.map((path) => (
                 <div key={path} className="manual-step">
-                  <span className="step-num-inline mono">FILE</span>
+                  <span className="step-num-inline mono">
+                    {t('common.fileStepLabel')}
+                  </span>
                   <span className="mono">{path}</span>
                 </div>
               ))}

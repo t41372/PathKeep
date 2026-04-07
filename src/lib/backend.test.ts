@@ -157,6 +157,11 @@ describe('backend facade', () => {
       dryRun: false,
       importBatch: expect.objectContaining({ id: 1, status: 'imported' }),
     })
+    const snapshotAfterImport = await backend.getAppSnapshot()
+    expect(snapshotAfterImport.recentRuns[0]).toMatchObject({
+      runType: 'import',
+      profileScope: ['takeout::browser-history'],
+    })
     await expect(
       backend.previewImportBatch(imported.importBatch!.id),
     ).resolves.toMatchObject({
@@ -172,9 +177,31 @@ describe('backend facade', () => {
     ).resolves.toMatchObject({
       batch: expect.objectContaining({ id: 1, status: 'imported' }),
     })
+    await expect(backend.loadAuditRunDetail(1851)).resolves.toMatchObject({
+      run: expect.objectContaining({
+        id: 1851,
+        runType: 'rollback',
+      }),
+    })
     await expect(backend.previewSchedule()).resolves.toMatchObject({
       platform: 'macos',
       applySupported: false,
+    })
+    await expect(backend.previewSchedule('windows')).resolves.toMatchObject({
+      platform: 'windows',
+      generatedFiles: [
+        expect.objectContaining({
+          relativePath: 'schedule/pathkeep-backup.xml',
+        }),
+      ],
+    })
+    await expect(backend.scheduleStatus('linux')).resolves.toMatchObject({
+      platform: 'linux',
+      installState: 'manual-review',
+      manualSteps: [
+        expect.stringContaining('systemd'),
+        expect.stringContaining('systemctl --user'),
+      ],
     })
     await expect(backend.applySchedule(schedulePlan)).resolves.toMatchObject({
       applied: false,
@@ -188,8 +215,14 @@ describe('backend facade', () => {
       ]),
     })
     await expect(backend.repairHealth()).resolves.toMatchObject({
-      runId: 1,
+      runId: 1852,
       repairedImportAudits: 1,
+    })
+    await expect(backend.loadAuditRunDetail(1852)).resolves.toMatchObject({
+      run: expect.objectContaining({
+        id: 1852,
+        runType: 'doctor',
+      }),
     })
     await expect(backend.keyringStatus()).resolves.toMatchObject({
       available: true,

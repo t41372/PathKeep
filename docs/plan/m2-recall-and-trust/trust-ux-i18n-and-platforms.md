@@ -24,7 +24,7 @@
 - 正式 i18n 架構和核心語系內容
 - Windows / Linux 平台的排程和操作指引
 
-> **Closeout（2026-04-07，WORK-M2-B）**：核心 trust UX、namespace-based i18n、平台 capability / troubleshooting UX 已落地；更深的 audit diff/filter、reduced motion 與更完整的 AX contract test 留待後續 polish work。
+> **Closeout（2026-04-07，WORK-M2-B）**：核心 trust UX、namespace-based i18n、平台 capability / troubleshooting UX、Audit filter / summary delta、unified run ledger（含 import / rollback / doctor run types）可視化、keyboard-only walkthrough、reduced motion fallback 與 trust flow acceptance / platform contract tests 已落地。後續 polish 只剩更廣的全站 AX 與非 trust route 的語系擴張。
 
 ---
 
@@ -40,8 +40,8 @@
 
 ### Trust And Audit UX
 
-- [ ] `M2-TX-AU-001` 深化 Audit UI，支援按 run type、severity、source、profile、artifact type 篩選。
-- [ ] `M2-TX-AU-002` 實作 run-to-run diff 或至少 summary delta，讓使用者知道某次 import / rollback 改了什麼。
+- [x] `M2-TX-AU-001` 深化 Audit UI，支援按 run type、severity、source、profile、artifact type 篩選。
+- [x] `M2-TX-AU-002` 實作 run-to-run diff 或至少 summary delta，讓使用者知道某次 import / rollback 改了什麼。
 - [x] `M2-TX-AU-003` 為 warning 和 finding 定義一致視覺語法，區分 information、needs attention、danger、blocked。
 - [x] `M2-TX-AU-004` 補齊 permission guidance UX，例如 Full Disk Access、keyring unavailable、scheduler install mismatch。
 - [x] `M2-TX-AU-005` 在 Dashboard / Settings / Audit 之間建立清晰跳轉，讓使用者能從問題卡片直接進到對應修復入口。
@@ -66,16 +66,16 @@
 
 ### Accessibility And Interaction Quality
 
-- [ ] `M2-TX-AX-001` 為所有核心流程完成 keyboard-only walkthrough，修正 focus trap、tab order、dialog announcement。
-- [ ] `M2-TX-AX-002` 為圖表、audit severity、status chips、timeline 等建立文字替代和 screen-reader friendly label。
-- [ ] `M2-TX-AX-003` 在 reduced motion 模式下降低動畫，尤其是 panel transition、chart animation、loading shimmer。
-- [ ] `M2-TX-AX-004` 為多語系字串長度變化重新校正 layout，避免 prototype 視覺在真實內容下崩壞。
+- [x] `M2-TX-AX-001` 為所有核心流程完成 keyboard-only walkthrough，修正 focus trap、tab order、dialog announcement。
+- [x] `M2-TX-AX-002` 為圖表、audit severity、status chips、timeline 等建立文字替代和 screen-reader friendly label。
+- [x] `M2-TX-AX-003` 在 reduced motion 模式下降低動畫，尤其是 panel transition、chart animation、loading shimmer。
+- [x] `M2-TX-AX-004` 為多語系字串長度變化重新校正 layout，避免 prototype 視覺在真實內容下崩壞。
 
 ### Testing And Acceptance
 
-- [ ] `M2-TX-QA-001` 建立 PME 跨流程 acceptance tests，覆蓋 import、rollback、rekey、doctor repair。
+- [x] `M2-TX-QA-001` 建立 PME 跨流程 acceptance tests，覆蓋 import、rollback、rekey、doctor repair。
 - [x] `M2-TX-QA-002` 建立 i18n coverage test，確保核心語系不存在缺 key 和不當 fallback。
-- [ ] `M2-TX-QA-003` 建立 Windows / Linux 平台 capability 和 schedule guidance 的 contract tests。
+- [x] `M2-TX-QA-003` 建立 Windows / Linux 平台 capability 和 schedule guidance 的 contract tests。
 - [x] `M2-TX-QA-004` 進行至少一輪 accessibility review 和一輪多語系 visual QA。
 - [x] `M2-TX-QA-005` 把所有 trust UX 的 user-facing 文案和 warning style 回寫到 docs 或 design notes，避免後續被無聲改壞。
 
