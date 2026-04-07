@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -308,6 +309,58 @@ pub struct BackupReport {
     pub remote_backup: Option<RemoteBackupResult>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSummary {
+    pub archive_database_bytes: u64,
+    pub manifest_bytes: u64,
+    pub snapshot_bytes: u64,
+    pub export_bytes: u64,
+    pub staging_bytes: u64,
+    pub quarantine_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardSnapshot {
+    pub generated_at: String,
+    pub total_profiles: usize,
+    pub total_urls: usize,
+    pub total_visits: usize,
+    pub total_downloads: usize,
+    pub last_successful_backup_at: Option<String>,
+    pub recent_runs: Vec<BackupRunOverview>,
+    pub storage: StorageSummary,
+    pub next_action: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditArtifact {
+    pub kind: String,
+    pub path: String,
+    pub checksum: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub created_at: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditRunDetail {
+    pub run: BackupRunOverview,
+    pub trigger: String,
+    pub timezone: Option<String>,
+    pub due_only: bool,
+    pub profile_scope: Vec<String>,
+    pub warnings: Vec<String>,
+    pub error_message: Option<String>,
+    pub stats: Value,
+    pub manifest_path: Option<String>,
+    pub manifest_hash: Option<String>,
+    pub artifacts: Vec<AuditArtifact>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSnapshot {
@@ -328,13 +381,26 @@ pub struct AppSnapshot {
 pub struct HistoryQuery {
     pub q: Option<String>,
     pub profile_id: Option<String>,
+    pub browser_kind: Option<String>,
     pub domain: Option<String>,
+    pub start_time_ms: Option<i64>,
+    pub end_time_ms: Option<i64>,
+    pub sort: Option<String>,
     pub limit: Option<u32>,
 }
 
 impl Default for HistoryQuery {
     fn default() -> Self {
-        Self { q: None, profile_id: None, domain: None, limit: Some(150) }
+        Self {
+            q: None,
+            profile_id: None,
+            browser_kind: None,
+            domain: None,
+            start_time_ms: None,
+            end_time_ms: None,
+            sort: Some("newest".to_string()),
+            limit: Some(150),
+        }
     }
 }
 

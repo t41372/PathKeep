@@ -7474,9 +7474,11 @@ name = "vault-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "browser-history-parser",
  "chrono",
  "directories",
  "hex",
+ "iana-time-zone",
  "mockito",
  "plist",
  "reqwest 0.12.28",

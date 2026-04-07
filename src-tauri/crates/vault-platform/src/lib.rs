@@ -552,8 +552,8 @@ fn linux_schedule_plan(
         worker_args[1..].join(" ")
     );
     let timer = format!(
-        "[Unit]\nDescription=PathKeep periodic backup\n\n[Timer]\nOnBootSec=2m\nOnUnitActiveSec={}h\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
-        params.check_interval_hours
+        "[Unit]\nDescription=PathKeep periodic backup\n\n[Timer]\nOnCalendar={}\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
+        linux_on_calendar(params.check_interval_hours)
     );
     Ok(SchedulePlan {
         platform: "linux".to_string(),
@@ -580,6 +580,8 @@ fn linux_schedule_plan(
             "Copy the files to ~/.config/systemd/user/.".to_string(),
             "Run `systemctl --user daemon-reload`.".to_string(),
             "Run `systemctl --user enable --now pathkeep.timer`.".to_string(),
+            "Run `systemctl --user list-timers pathkeep.timer` to verify the next scheduled run."
+                .to_string(),
         ],
         apply_commands: Vec::new(),
         rollback_commands: vec![vec![
@@ -591,6 +593,10 @@ fn linux_schedule_plan(
         ]],
         apply_supported: false,
     })
+}
+
+fn linux_on_calendar(hours: u64) -> String {
+    if hours <= 1 { "*-*-* *:00:00".to_string() } else { format!("*-*-* 00/{hours}:00:00") }
 }
 
 fn xml_escape(value: &str) -> String {
@@ -788,6 +794,8 @@ mod tests {
         assert!(!linux.apply_supported);
         assert!(windows.generated_files[0].contents.contains("<Task"));
         assert!(linux.generated_files[1].contents.contains("Persistent=true"));
+        assert!(linux.generated_files[1].contents.contains("OnCalendar="));
+        assert!(!linux.generated_files[1].contents.contains("OnUnitActiveSec"));
     }
 
     #[test]

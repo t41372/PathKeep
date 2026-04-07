@@ -9,6 +9,7 @@ use crate::{
     utils::{chrome_time_to_rfc3339, iso_to_chrome_time_micros, now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
+use browser_history_parser::chromium::chrome_time_to_unix_ms;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde_json::{Value, json};
 use std::{
@@ -167,7 +168,7 @@ pub fn import_takeout(
     let mut archive = open_archive_connection(paths, config, key)?;
     create_schema(&archive)?;
     let transaction = archive.transaction()?;
-    upsert_takeout_profile(&transaction, &synthetic_profile, source)?;
+    let source_profile_id = upsert_takeout_profile(&transaction, &synthetic_profile, source)?;
 
     let batch_id = create_import_batch(&transaction, &synthetic_profile, request, &inspection)?;
     let files = gather_takeout_files(source)?;
@@ -185,7 +186,15 @@ pub fn import_takeout(
         let bytes =
             if file.from_zip { read_zip_entry(source, &file.path)? } else { fs::read(&file.path)? };
         #[rustfmt::skip]
-        let file_stats = import_supported_payload(&transaction, batch_id, &synthetic_profile, &file.path, &kind, &bytes)?;
+        let file_stats = import_supported_payload(
+            &transaction,
+            batch_id,
+            source_profile_id,
+            &synthetic_profile,
+            &file.path,
+            &kind,
+            &bytes,
+        )?;
         stats.imported_items += file_stats.imported_items;
         stats.duplicate_items += file_stats.duplicate_items;
         if file_stats.skipped_items > 0 {
@@ -296,8 +305,12 @@ pub fn revert_import_batch(
         return preview_import_batch(paths, config, key, batch_id);
     }
 
-    let removed =
-        transaction.execute("DELETE FROM visit_events WHERE import_batch_id = ?1", [batch_id])?;
+    let removed: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM visit_events WHERE import_batch_id = ?1",
+        [batch_id],
+        |row| row.get(0),
+    )?;
+    transaction.execute("DELETE FROM visit_events WHERE import_batch_id = ?1", [batch_id])?;
     let mut notes = existing.notes.clone();
     notes.push(format!(
         "Reverted at {}. Removed {} live history rows from the archive view.",
@@ -317,6 +330,7 @@ pub fn revert_import_batch(
 fn import_supported_payload(
     archive: &Transaction<'_>,
     batch_id: i64,
+    source_profile_id: i64,
     profile_id: &str,
     source_path: &str,
     kind: &str,
@@ -327,30 +341,99 @@ fn import_supported_payload(
         ImportStats { skipped_items: payload.skipped_missing_visit_time, ..ImportStats::default() };
 
     for record in payload.records {
+        let visit_time_ms = chrome_time_to_unix_ms(record.visit_time);
+        let visit_time_iso = chrome_time_to_rfc3339(record.visit_time);
         archive.execute(
             "INSERT OR IGNORE INTO raw_row_versions
-             (run_id, profile_id, source_kind, table_name, source_pk, payload_hash, payload_json, schema_hash, chrome_version, recorded_at, import_batch_id)
-             VALUES (0, ?1, 'takeout', 'records', ?2, ?3, ?4, 'takeout', 'takeout', ?5, ?6)",
+             (source_profile_id, source_kind, table_name, source_pk, payload_hash, schema_fingerprint, browser_version, payload_json, recorded_at, run_id, profile_id, schema_hash, chrome_version, import_batch_id)
+             VALUES (?1, 'takeout', 'records', ?2, ?3, 'takeout', 'takeout', ?4, ?5, 0, ?6, 'takeout', 'takeout', ?7)",
             params![
-                profile_id,
+                source_profile_id,
                 record.source_visit_id.to_string(),
                 record.payload_hash,
                 record.payload_json,
                 now_rfc3339(),
+                profile_id,
                 batch_id
             ],
         )?;
-        let inserted = archive.execute(
-            "INSERT OR IGNORE INTO visit_events
-             (profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at, import_batch_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
+        archive.execute(
+            "INSERT INTO urls (
+               url,
+               title,
+               visit_count,
+               typed_count,
+               first_visit_ms,
+               first_visit_iso,
+               last_visit_ms,
+               last_visit_iso,
+               source_profile_id,
+               created_by_run_id,
+               source_url_id,
+               hidden,
+               payload_hash,
+               recorded_at
+             )
+             VALUES (?1, ?2, 1, 0, ?3, ?4, ?3, ?4, ?5, 0, ?6, 0, ?7, ?8)
+             ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
+               url = excluded.url,
+               title = excluded.title,
+               last_visit_ms = CASE
+                 WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
+                 ELSE urls.last_visit_ms
+               END,
+               last_visit_iso = CASE
+                 WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
+                 ELSE urls.last_visit_iso
+               END,
+               payload_hash = excluded.payload_hash,
+               recorded_at = excluded.recorded_at",
             params![
-                profile_id,
-                record.source_visit_id,
-                record.source_visit_id,
                 record.url,
                 record.title,
-                record.visit_time,
+                visit_time_ms,
+                visit_time_iso,
+                source_profile_id,
+                record.source_visit_id,
+                record.payload_hash,
+                now_rfc3339(),
+            ],
+        )?;
+        let url_id = archive.query_row(
+            "SELECT id
+             FROM urls
+             WHERE source_profile_id = ?1
+               AND source_url_id = ?2",
+            params![source_profile_id, record.source_visit_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let inserted = archive.execute(
+            "INSERT OR IGNORE INTO visits (
+               url_id,
+               source_visit_id,
+               visit_time_ms,
+               visit_time_iso,
+               transition_type,
+               visit_duration_ms,
+               source_profile_id,
+               created_by_run_id,
+               from_visit,
+               is_known_to_sync,
+               visited_link_id,
+               external_referrer_url,
+               app_id,
+               event_fingerprint,
+               payload_hash,
+               recorded_at,
+               import_batch_id
+             )
+             VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, 0, NULL, 0, NULL, ?6, 'takeout', ?7, ?8, ?9, ?10)",
+            params![
+                url_id,
+                record.source_visit_id.to_string(),
+                visit_time_ms,
+                visit_time_iso,
+                source_profile_id,
                 record.source_path,
                 visit_event_fingerprint(
                     "takeout",
@@ -362,7 +445,7 @@ fn import_supported_payload(
                 ),
                 record.payload_hash,
                 now_rfc3339(),
-                batch_id
+                batch_id,
             ],
         )?;
 
@@ -442,23 +525,38 @@ fn upsert_takeout_profile(
     archive: &Transaction<'_>,
     profile_id: &str,
     source: &Path,
-) -> Result<()> {
+) -> Result<i64> {
     archive.execute(
-        "INSERT INTO profiles (profile_id, profile_name, user_name, profile_path, chrome_version, updated_at)
-         VALUES (?1, ?2, NULL, ?3, 'takeout', ?4)
-         ON CONFLICT(profile_id) DO UPDATE SET
+        "INSERT INTO source_profiles (
+           browser_kind,
+           browser_version,
+           profile_name,
+           profile_path,
+           discovered_at,
+           enabled,
+           profile_key,
+           user_name,
+           updated_at
+         )
+         VALUES ('takeout', 'takeout', ?1, ?2, ?3, 1, ?4, NULL, ?3)
+         ON CONFLICT(profile_key) DO UPDATE SET
            profile_name = excluded.profile_name,
            profile_path = excluded.profile_path,
-           chrome_version = excluded.chrome_version,
-           updated_at = excluded.updated_at",
+           browser_version = excluded.browser_version,
+           updated_at = excluded.updated_at,
+           enabled = 1",
         params![
-            profile_id,
             "Imported browser history".to_string(),
             source.display().to_string(),
-            now_rfc3339()
+            now_rfc3339(),
+            profile_id,
         ],
     )?;
-    Ok(())
+    archive
+        .query_row("SELECT id FROM source_profiles WHERE profile_key = ?1", [profile_id], |row| {
+            row.get(0)
+        })
+        .map_err(Into::into)
 }
 
 fn write_batch_audit(

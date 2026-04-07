@@ -887,7 +887,11 @@ fn lexical_history_results(
         HistoryQuery {
             q: Some(query.to_string()),
             profile_id: request.profile_id.clone(),
+            browser_kind: None,
             domain: request.domain.clone(),
+            start_time_ms: None,
+            end_time_ms: None,
+            sort: Some("newest".to_string()),
             limit: Some(request.limit.unwrap_or(12).max(1)),
         },
     )
@@ -1453,11 +1457,16 @@ mod tests {
         seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
         seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
 
+        let visit_time = connection
+            .query_row("SELECT visit_time FROM visit_events WHERE id = 1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("load visit time");
         let first_content = build_embedding_content(
             "chrome:Default",
             "https://example.com/docs",
             Some("Docs"),
-            &crate::utils::chrome_time_to_rfc3339(1),
+            &crate::utils::chrome_time_to_rfc3339(visit_time),
         );
         seed_embedding(&connection, 1, &provider, &sha256_hex(first_content.as_bytes()));
         seed_embedding(&connection, 999, &provider, "orphan-hash");

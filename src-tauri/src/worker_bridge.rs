@@ -448,9 +448,8 @@ mod tests {
         let history = query_history_impl(
             HistoryQuery {
                 q: Some("example".to_string()),
-                profile_id: None,
-                domain: None,
                 limit: Some(10),
+                ..HistoryQuery::default()
             },
             session_key(&session).as_deref(),
         )

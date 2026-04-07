@@ -1215,9 +1215,8 @@ mod tests {
             None,
             HistoryQuery {
                 q: Some("example".to_string()),
-                profile_id: None,
-                domain: None,
                 limit: Some(10),
+                ..HistoryQuery::default()
             },
         )
         .expect("query history");

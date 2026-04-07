@@ -2395,8 +2395,26 @@ mod tests {
             .expect("insert visits");
         connection
             .execute(
-                "INSERT INTO search_terms (profile_id, keyword_id, url_id, term, normalized_term, recorded_at)
-                 VALUES ('chrome:Default', 1, 3, 'archive tool compare', 'archive tool compare', ?1)",
+                "INSERT INTO search_terms (
+                   url_id,
+                   term,
+                   normalized_term,
+                   source_profile_id,
+                   created_by_run_id,
+                   profile_id,
+                   keyword_id,
+                   recorded_at
+                 )
+                 VALUES (
+                   3,
+                   'archive tool compare',
+                   'archive tool compare',
+                   (SELECT id FROM source_profiles WHERE profile_key = 'chrome:Default'),
+                   0,
+                   'chrome:Default',
+                   1,
+                   ?1
+                 )",
                 [visit_three],
             )
             .expect("insert search term");

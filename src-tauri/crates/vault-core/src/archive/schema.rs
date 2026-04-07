@@ -9,8 +9,234 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{collections::BTreeMap, fs, path::Path, time::Duration as StdDuration};
 
-const LEGACY_ARCHIVE_SCHEMA_SQL: &str = include_str!("../archive-schema.sql");
 const MIGRATION_001_INITIAL_SQL: &str = include_str!("../migrations/001_initial.sql");
+const MIGRATION_002_RUNTIME_SQL: &str =
+    include_str!("../migrations/002_archive_runtime_foundation.sql");
+
+const IMPORT_BATCH_SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS import_batches (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_kind  TEXT NOT NULL,
+  source_path  TEXT NOT NULL,
+  profile_id   TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  imported_at  TEXT,
+  reverted_at  TEXT,
+  status       TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  audit_path   TEXT,
+  git_commit   TEXT
+);
+"#;
+
+const LEGACY_PROFILES_VIEW_SQL: &str = r#"
+CREATE VIEW profiles AS
+SELECT
+  profile_key AS profile_id,
+  profile_name,
+  user_name,
+  profile_path,
+  browser_version AS chrome_version,
+  COALESCE(updated_at, discovered_at) AS updated_at
+FROM source_profiles;
+"#;
+
+const LEGACY_VISIT_EVENTS_VIEW_SQL: &str = r#"
+CREATE VIEW visit_events AS
+SELECT
+  visits.id AS id,
+  source_profiles.profile_key AS profile_id,
+  CAST(visits.source_visit_id AS INTEGER) AS source_visit_id,
+  urls.id AS source_url_id,
+  urls.url AS url,
+  urls.title AS title,
+  (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
+  visits.from_visit AS from_visit,
+  visits.transition_type AS transition,
+  visits.visit_duration_ms AS visit_duration,
+  visits.is_known_to_sync AS is_known_to_sync,
+  visits.visited_link_id AS visited_link_id,
+  visits.external_referrer_url AS external_referrer_url,
+  visits.app_id AS app_id,
+  visits.event_fingerprint AS event_fingerprint,
+  visits.payload_hash AS payload_hash,
+  visits.recorded_at AS recorded_at,
+  visits.import_batch_id AS import_batch_id
+FROM visits
+JOIN urls
+  ON urls.id = visits.url_id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+WHERE visits.reverted_at IS NULL;
+"#;
+
+const LEGACY_VIEW_TRIGGER_SQL: &str = r#"
+CREATE TRIGGER profiles_insert
+INSTEAD OF INSERT ON profiles
+BEGIN
+  INSERT INTO source_profiles (
+    browser_kind,
+    browser_version,
+    profile_name,
+    profile_path,
+    discovered_at,
+    enabled,
+    profile_key,
+    user_name,
+    updated_at
+  )
+  VALUES (
+    CASE
+      WHEN instr(NEW.profile_id, ':') > 0 THEN substr(NEW.profile_id, 1, instr(NEW.profile_id, ':') - 1)
+      ELSE COALESCE(NEW.profile_id, 'legacy')
+    END,
+    NEW.chrome_version,
+    NEW.profile_name,
+    NEW.profile_path,
+    COALESCE(NEW.updated_at, CURRENT_TIMESTAMP),
+    1,
+    NEW.profile_id,
+    NEW.user_name,
+    COALESCE(NEW.updated_at, CURRENT_TIMESTAMP)
+  )
+  ON CONFLICT(profile_key) DO UPDATE SET
+    browser_version = excluded.browser_version,
+    profile_name = excluded.profile_name,
+    profile_path = excluded.profile_path,
+    user_name = excluded.user_name,
+    updated_at = excluded.updated_at,
+    enabled = 1;
+END;
+
+CREATE TRIGGER visit_events_insert
+INSTEAD OF INSERT ON visit_events
+BEGIN
+  INSERT INTO source_profiles (
+    browser_kind,
+    browser_version,
+    profile_name,
+    profile_path,
+    discovered_at,
+    enabled,
+    profile_key,
+    updated_at
+  )
+  VALUES (
+    CASE
+      WHEN instr(NEW.profile_id, ':') > 0 THEN substr(NEW.profile_id, 1, instr(NEW.profile_id, ':') - 1)
+      ELSE COALESCE(NEW.profile_id, 'legacy')
+    END,
+    NULL,
+    COALESCE(NEW.profile_id, 'legacy'),
+    COALESCE(NEW.profile_id, 'legacy'),
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
+    1,
+    NEW.profile_id,
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP)
+  )
+  ON CONFLICT(profile_key) DO UPDATE SET
+    updated_at = excluded.updated_at,
+    enabled = 1;
+
+  INSERT INTO urls (
+    url,
+    title,
+    visit_count,
+    typed_count,
+    first_visit_ms,
+    first_visit_iso,
+    last_visit_ms,
+    last_visit_iso,
+    source_profile_id,
+    created_by_run_id,
+    source_url_id,
+    hidden,
+    payload_hash,
+    recorded_at
+  )
+  VALUES (
+    NEW.url,
+    NEW.title,
+    1,
+    0,
+    CAST((NEW.visit_time - 11644473600000000) / 1000 AS INTEGER),
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
+    CAST((NEW.visit_time - 11644473600000000) / 1000 AS INTEGER),
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
+    (SELECT id FROM source_profiles WHERE profile_key = NEW.profile_id),
+    0,
+    NEW.source_url_id,
+    0,
+    COALESCE(NEW.payload_hash, NEW.event_fingerprint, 'legacy-view'),
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP)
+  )
+  ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
+    url = excluded.url,
+    title = excluded.title,
+    payload_hash = excluded.payload_hash,
+    recorded_at = excluded.recorded_at,
+    last_visit_ms = CASE
+      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
+      ELSE urls.last_visit_ms
+    END,
+    last_visit_iso = CASE
+      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
+      ELSE urls.last_visit_iso
+    END;
+
+  INSERT OR REPLACE INTO visits (
+    id,
+    url_id,
+    source_visit_id,
+    visit_time_ms,
+    visit_time_iso,
+    transition_type,
+    visit_duration_ms,
+    source_profile_id,
+    created_by_run_id,
+    from_visit,
+    is_known_to_sync,
+    visited_link_id,
+    external_referrer_url,
+    app_id,
+    event_fingerprint,
+    payload_hash,
+    recorded_at,
+    import_batch_id
+  )
+  VALUES (
+    NEW.id,
+    (
+      SELECT id
+      FROM urls
+      WHERE source_profile_id = (SELECT id FROM source_profiles WHERE profile_key = NEW.profile_id)
+        AND source_url_id = NEW.source_url_id
+    ),
+    CAST(NEW.source_visit_id AS TEXT),
+    CAST((NEW.visit_time - 11644473600000000) / 1000 AS INTEGER),
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
+    NEW.transition,
+    NEW.visit_duration,
+    (SELECT id FROM source_profiles WHERE profile_key = NEW.profile_id),
+    0,
+    NEW.from_visit,
+    COALESCE(NEW.is_known_to_sync, 0),
+    NEW.visited_link_id,
+    NEW.external_referrer_url,
+    NEW.app_id,
+    NEW.event_fingerprint,
+    COALESCE(NEW.payload_hash, NEW.event_fingerprint, 'legacy-view'),
+    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
+    NEW.import_batch_id
+  );
+END;
+
+CREATE TRIGGER visit_events_delete
+INSTEAD OF DELETE ON visit_events
+BEGIN
+  DELETE FROM visits WHERE id = OLD.id;
+END;
+"#;
 
 #[derive(Clone, Copy)]
 struct MigrationSpec<'a> {
@@ -18,8 +244,10 @@ struct MigrationSpec<'a> {
     sql: &'a str,
 }
 
-const MIGRATIONS: &[MigrationSpec<'static>] =
-    &[MigrationSpec { version: 1, sql: MIGRATION_001_INITIAL_SQL }];
+const MIGRATIONS: &[MigrationSpec<'static>] = &[
+    MigrationSpec { version: 1, sql: MIGRATION_001_INITIAL_SQL },
+    MigrationSpec { version: 2, sql: MIGRATION_002_RUNTIME_SQL },
+];
 
 pub(crate) fn open_archive_connection(
     paths: &ProjectPaths,
@@ -68,42 +296,12 @@ pub(crate) fn export_archive_database(
 }
 
 pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
-    // The existing backup/query pipeline still targets the legacy archive tables.
-    // Canonical schema v1 now lives in numbered migrations and is verified separately
-    // until the M1 archive engine switches the runtime over to that data plane.
-    connection.execute_batch(LEGACY_ARCHIVE_SCHEMA_SQL)?;
-    ensure_column(connection, "visit_events", "import_batch_id", "INTEGER")?;
-    ensure_column(connection, "visit_events", "event_fingerprint", "TEXT")?;
-    ensure_column(connection, "raw_row_versions", "import_batch_id", "INTEGER")?;
-    #[rustfmt::skip]
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_visit_events_import_batch_id ON visit_events(import_batch_id)", [])?;
-    #[rustfmt::skip]
-    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_visit_events_profile_event_fingerprint ON visit_events(profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''", [])?;
-    #[rustfmt::skip]
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_raw_row_versions_import_batch_id ON raw_row_versions(import_batch_id)", [])?;
+    run_migrations(connection)?;
+    ensure_import_batch_schema(connection)?;
+    backfill_runtime_columns(connection)?;
+    install_legacy_views(connection)?;
     ensure_ai_schema(connection)?;
     ensure_insight_schema(connection)?;
-    Ok(())
-}
-
-pub(crate) fn ensure_column(
-    connection: &Connection,
-    table_name: &str,
-    column_name: &str,
-    definition: &str,
-) -> Result<()> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table_name})"))?;
-    let exists = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .any(|name| name == column_name);
-
-    if !exists {
-        #[rustfmt::skip]
-        let _ = connection.execute(&format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"), [])?;
-    }
-
     Ok(())
 }
 
@@ -158,11 +356,94 @@ fn apply_migration(
         .execute(
             "INSERT INTO schema_migrations (version, applied_at, checksum, backup_path)
              VALUES (?1, ?2, ?3, ?4)",
-            params![migration.version, now_rfc3339(), checksum, Option::<String>::None],
+            params![migration.version, now_rfc3339(), checksum, Option::<String>::None,],
         )
         .with_context(|| format!("recording migration {}", migration.version))?;
     transaction.commit()?;
     Ok(())
+}
+
+fn ensure_import_batch_schema(connection: &Connection) -> Result<()> {
+    connection.execute_batch(IMPORT_BATCH_SCHEMA_SQL)?;
+    Ok(())
+}
+
+fn backfill_runtime_columns(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        r#"
+UPDATE source_profiles
+SET profile_key = COALESCE(
+      NULLIF(profile_key, ''),
+      browser_kind || ':' || profile_name
+    ),
+    updated_at = COALESCE(updated_at, discovered_at);
+
+UPDATE raw_row_versions
+SET schema_hash = COALESCE(schema_hash, schema_fingerprint),
+    chrome_version = COALESCE(chrome_version, browser_version),
+    profile_id = COALESCE(
+      profile_id,
+      (
+        SELECT profile_key
+        FROM source_profiles
+        WHERE source_profiles.id = raw_row_versions.source_profile_id
+      )
+    )
+WHERE schema_hash IS NULL
+   OR chrome_version IS NULL
+   OR profile_id IS NULL;
+
+UPDATE search_terms
+SET profile_id = COALESCE(
+      profile_id,
+      (
+        SELECT profile_key
+        FROM source_profiles
+        WHERE source_profiles.id = search_terms.source_profile_id
+      )
+    )
+WHERE profile_id IS NULL;
+"#,
+    )?;
+    Ok(())
+}
+
+fn install_legacy_views(connection: &Connection) -> Result<()> {
+    create_or_replace_view(connection, "profiles", LEGACY_PROFILES_VIEW_SQL)?;
+    create_or_replace_view(connection, "visit_events", LEGACY_VISIT_EVENTS_VIEW_SQL)?;
+    connection.execute_batch(
+        "DROP TRIGGER IF EXISTS profiles_insert;
+         DROP TRIGGER IF EXISTS visit_events_insert;
+         DROP TRIGGER IF EXISTS visit_events_delete;",
+    )?;
+    connection.execute_batch(LEGACY_VIEW_TRIGGER_SQL)?;
+    Ok(())
+}
+
+fn create_or_replace_view(connection: &Connection, name: &str, sql: &str) -> Result<()> {
+    match object_type(connection, name)? {
+        Some(kind) if kind == "table" => return Ok(()),
+        Some(kind) if kind == "view" => {
+            connection.execute_batch(&format!("DROP VIEW IF EXISTS {name};"))?;
+        }
+        _ => {}
+    }
+    connection.execute_batch(sql)?;
+    Ok(())
+}
+
+fn object_type(connection: &Connection, object_name: &str) -> Result<Option<String>> {
+    connection
+        .query_row(
+            "SELECT type
+             FROM sqlite_master
+             WHERE name = ?1
+             LIMIT 1",
+            [object_name],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 fn load_applied_migrations(connection: &Connection) -> Result<BTreeMap<i64, String>> {
@@ -181,7 +462,11 @@ fn load_applied_migrations(connection: &Connection) -> Result<BTreeMap<i64, Stri
 fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
     let exists = connection
         .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1 LIMIT 1",
+            "SELECT 1
+             FROM sqlite_master
+             WHERE type = 'table'
+               AND name = ?1
+             LIMIT 1",
             [table_name],
             |_| Ok(()),
         )
@@ -202,25 +487,31 @@ mod tests {
     fn migration_from_scratch_succeeds() {
         let connection = Connection::open_in_memory().expect("memory db");
 
-        run_migrations(&connection).expect("migrate");
+        create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 1);
+        assert_eq!(current_version(&connection).expect("schema version"), 2);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "raw_row_versions"));
+        assert!(has_table(&connection, "profile_watermarks"));
+        assert!(has_table(&connection, "import_batches"));
+        assert_eq!(
+            object_type(&connection, "visit_events").expect("view type"),
+            Some("view".to_string())
+        );
     }
 
     #[test]
     fn migration_is_idempotent() {
         let connection = Connection::open_in_memory().expect("memory db");
 
-        run_migrations(&connection).expect("first migration");
-        run_migrations(&connection).expect("second migration");
+        create_schema(&connection).expect("first migration");
+        create_schema(&connection).expect("second migration");
 
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 1);
+        assert_eq!(count, 2);
     }
 
     #[test]
@@ -247,7 +538,7 @@ mod tests {
         let connection = Connection::open_in_memory().expect("memory db");
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
-        run_migrations(&connection).expect("migrate");
-        assert_eq!(current_version(&connection).expect("migrated version"), 1);
+        create_schema(&connection).expect("create schema");
+        assert_eq!(current_version(&connection).expect("migrated version"), 2);
     }
 }
