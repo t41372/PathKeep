@@ -47,7 +47,7 @@ Accepted | Proposed | Superseded
 以下四個決策已在 STATUS.md 的 TASK-001 ~ TASK-003, TASK-006 中預填了結論和理由，
 agent 只需要把它們正式化成 ADR 文件即可：
 
-1. **ADR-001** — Fresh schema（不做 migration，直接建新 DB）
+1. **ADR-001** — [Fresh schema](001-archive-reset-strategy.md)（不在 legacy schema 上繼續演化；既有 DB 走一次性 upgrade）
 2. **ADR-002** — Unified run ledger（所有操作類型共用一張 runs 表）
 3. **ADR-003** — Soft-delete rollback（用 `reverted_at` 標記，不刪資料）
 4. **ADR-004** — Unix epoch ms timestamps（毫秒整數 + ISO 輔助欄位）

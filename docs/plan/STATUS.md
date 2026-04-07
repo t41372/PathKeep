@@ -12,58 +12,10 @@
 > 完成任何 TASK 後，除了更新 `STATUS.md` / `CHANGELOG.md`，也要同步更新該任務對應的 `PG-RD-*`、milestone checklist、以及 `BACKLOG.md` 裡被解鎖的 inline `[!blocked: ...]` 標記。
 > 2026-04-06 更新：`TASK-019` 已完成，`bun run check` / `bun run build` 已恢復為可用硬 gate。
 
-- [ ] **TASK-001** — 寫 ADR: Archive Reset Strategy
 - [ ] **TASK-002** — 寫 ADR: Run Model (unified run ledger)
 - [ ] **TASK-003** — 寫 ADR: Rollback Visibility Model
 - [ ] **TASK-004** — 從 prototype CSS 抽取 design tokens 表
 - [ ] **TASK-005** — 建立 `browser-history-parser` crate skeleton
-
----
-
-### TASK-001 — 寫 ADR: Archive Reset Strategy
-
-**解鎖關係**：這個 ADR 決定了 M0 的 schema 重構策略。沒有它，後面所有 schema 相關的工作都不知道要對齊什麼。
-
-**決策已知答案**（agent 直接採用，不需要再研究）：
-
-- **決策**：Fresh schema。沒有真實用戶，沒有向下相容需求。新 canonical schema v1 獨立建立，現有 DB 提供一次性升級路徑。
-- **理由**：`browser-history-backup` 時代的 schema 是 ad-hoc 疊加的，累積了太多 `ensure_column()` 補丁。新產品新起點比帶著舊包袱演進乾淨得多。
-
-**讀先**：
-
-- `docs/architecture/data-model.md`
-- `docs/plan/program/research-and-decisions.md` (PG-RD-ARCH-001)
-- `src-tauri/crates/vault-core/src/archive-schema.sql` — 了解現有 schema 長什麼樣
-
-**要建立的檔案**：
-
-- `docs/architecture/decisions/001-archive-reset-strategy.md`
-
-**ADR 格式**：
-
-```markdown
-# ADR-001: Archive Reset Strategy
-
-## Status
-
-Accepted
-
-## Context
-
-[描述目前 ad-hoc schema 的問題]
-
-## Decision
-
-Fresh schema (no backward compat). 提供一次性升級轉換工具。
-
-## Consequences
-
-[列出 migration 工具需要做什麼]
-```
-
-**驗收**：檔案存在且包含 Status / Context / Decision / Consequences 四節。
-
-**Commit**：`docs(adr): add ADR-001 archive reset strategy`
 
 ---
 

@@ -24,3 +24,11 @@
 - [x] `TASK-019` 修復 repo-wide doc formatting baseline，讓 `bun run check` 重新可作為硬 gate
   - 2026-04-06：清理 repo-wide Markdown / Prettier debt，並一併修正驗收途中浮出的 JS ESLint 與 Rust Clippy 基線問題
   - 驗收：`bun run check`、`bun run build`
+
+## PG → M0 Transition
+
+- [x] `TASK-001` 寫 ADR: Archive Reset Strategy
+  - 2026-04-06：新增 [ADR-001](../architecture/decisions/001-archive-reset-strategy.md)，正式凍結 fresh schema 策略：canonical schema v1 獨立建立，legacy archive DB 走一次性 upgrade path
+  - 同步回寫 `docs/architecture/data-model.md`、`docs/plan/program/research-and-decisions.md`、`docs/plan/m0-foundation/backend-and-data-rearchitecture.md`、`docs/plan/BACKLOG.md`、`docs/architecture/decisions/README.md`
+  - 驗收：`bun run check`、`bun run build`
+  - Commit：`docs(adr): add ADR-001 archive reset strategy`

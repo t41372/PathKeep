@@ -25,7 +25,7 @@
 
 ## 資料模型 / 架構決策
 
-- [!] `PG-RD-ARCH-001` 決定 archive reset strategy：是基於現有 DB 做 migration，還是直接以新 canonical schema 開新檔並提供一次性升級路徑。
+- [x] `PG-RD-ARCH-001` 決定 archive reset strategy：採 fresh schema，新 canonical schema v1 獨立建立；既有 archive DB 走一次性升級路徑。見 [ADR-001](../../architecture/decisions/001-archive-reset-strategy.md)。（2026-04-06）
 - [!] `PG-RD-ARCH-002` 凍結 canonical timestamp contract：欄位命名、毫秒整數欄位、ISO 輔助欄位、run timezone、fallback timezone、前端顯示規則。
 - [!] `PG-RD-ARCH-003` 凍結 run model：`backup` / `import` / `revert` / `doctor` / `snapshot restore` 是否共用同一 ledger。
 - [!] `PG-RD-ARCH-004` 凍結 rollback visibility model：哪些表需要 `reverted_at` / `reverted_by_run_id` / `visible_state`，哪些表應視為 immutable raw facts。

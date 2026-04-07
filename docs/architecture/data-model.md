@@ -65,6 +65,12 @@
 
 **作為**開發者 / 長期用戶，**我想要** archive 能夠適應瀏覽器未來的格式變化，**以便** 10 年後依然能正常備份新版瀏覽器的紀錄，且舊數據不受影響。
 
+### PathKeep v1 起點
+
+- PathKeep 的 canonical archive schema v1 採 **fresh schema** 策略，不在舊 `browser-history-backup` archive schema 上繼續疊 migration。
+- 既有 legacy archive DB 透過**一次性升級工具**轉入新的 canonical schema v1；原始 DB 或 migration 前 snapshot 必須保留，作為 recoverability 安全網。
+- 從 canonical schema v1 開始，後續所有 PathKeep schema 調整才進入正式的 migration ledger。
+
 ### 核心策略：追蹤最新，兼容歷史
 
 我們的策略是**永遠追蹤最新版本的瀏覽器數據格式，同時向後兼容所有舊版格式**。
@@ -87,6 +93,7 @@
 
 ### Migration 系統
 
+- migration ledger 適用於 **PathKeep canonical schema v1 之後** 的演化；legacy archive → v1 走一次性 upgrade path，不和正式 migration 編號混用。
 - 新增 `schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT, checksum TEXT, backup_path TEXT)` 表。
 - Migration 採編號 SQL 檔。
 - 每次 migration 前自動做 archive snapshot。

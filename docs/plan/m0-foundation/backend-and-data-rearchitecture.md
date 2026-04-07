@@ -443,8 +443,8 @@ cargo test -p browser-history-parser
 
 ## Open Blockers
 
-- [!] `M0-BE-BLK-001` 先完成 [../program/research-and-decisions.md](../program/research-and-decisions.md) 中 `PG-RD-ARCH-001` 到 `PG-RD-ARCH-006` 的核心決策，否則 schema 重構會一直返工。
-- [!] `M0-BE-BLK-002` 先決定 archive reset strategy，否則無法安排舊 DB 和新 DB 的切換與 migration story。
+- [!] `M0-BE-BLK-001` 先完成 [../program/research-and-decisions.md](../program/research-and-decisions.md) 中 `PG-RD-ARCH-002` 到 `PG-RD-ARCH-006` 的核心決策，否則 schema 重構會一直返工。
+- [x] `M0-BE-BLK-002` Archive reset strategy 已由 [ADR-001](../../architecture/decisions/001-archive-reset-strategy.md) 凍結：採 fresh schema，legacy DB 走一次性 upgrade path。
 
 ---
 

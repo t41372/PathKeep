@@ -17,7 +17,7 @@
 
 ### Phase 1 — M0 Backend
 
-- [ ] **TASK-007** — 寫 canonical schema v1 migration 檔案 `[!blocked: 需要 TASK-001,002,003,006]`
+- [ ] **TASK-007** — 寫 canonical schema v1 migration 檔案 `[!blocked: 需要 TASK-002,003,006]`
   - 讀先：`docs/architecture/data-model.md`, ADR-001 ~ ADR-004
   - 建：`src-tauri/crates/vault-core/src/migrations/001_init.sql`
   - Commit：`feat(schema): add canonical schema v1 migration 001_init.sql`
