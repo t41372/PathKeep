@@ -5,6 +5,504 @@
 
 ---
 
+## Quick-Start Implementation Guide
+
+以下是本工作包的建議執行順序。每個步驟都標註了要讀的文檔、要改的文件、和驗收方式。
+
+> **前提**：先阅讀 `reference/PathKeep — Desktop UI Design/index.html` 和 `style.css`，直接在瀏覽器開啟 prototype 確認已有哪些畫面。再阅讀 `docs/design/screens-and-nav.md` 確認新 IA。
+
+### Step 1: Delete old files and mark cutover boundary
+
+**要讀的文檔**
+- `docs/plan/program/repo-baseline.md` 的「前端基線」段落 — 確認哪些檔案將被淢汰
+- `src/AppNew.tsx` — 先讀清楚艷子，再刪除
+
+**要刪除的文件**
+```
+src/AppNew.tsx                 # 舊 shell—刪除前先備份可複用的 type/helper
+src/App.css                    # 1880 行舊樣式，全部用新 design token 替換
+src/AppNew.test.tsx            # 3081 行舊小型測試，按新頁面拆分後建立新測試
+src/lib/i18n.ts                # 1547 行舊 i18n，M0 先暫置，M2 再正式重做
+src/pages/dashboard.tsx        # 舊頁面，將被新 skeleton 取代
+src/pages/explorer.tsx         # 同上
+src/pages/insights.tsx         # 同上
+src/pages/activity-log.tsx     # 同上
+src/pages/import.tsx           # 同上
+src/pages/onboarding.tsx       # 同上
+src/pages/settings/           # 整個 settings 目錄，將被新 skeleton 取代
+```
+
+**要保留（可複用 / 將 refactor）的文件**
+```
+src/main.tsx                   # 保留，但將 import AppNew 改成 import App
+src/lib/backend.ts             # 保留作 reference，但將拆出假資料和 IPC wrapper
+src/lib/types.d.ts             # 保留和擴展，新的 type 往這裡加
+src/lib/format.ts              # 保留
+src/lib/stronghold.ts          # 保留
+src/components/ui.tsx          # 保留，但用新 design token 更新
+src/lib/browser-icons.tsx      # 保留
+```
+
+**驗收**
+```bash
+# 團隟確認沒有老檔案被遂忘漏掉
+bun run typecheck  # 裡面的錯誤會變多，這是預期的：等 Step 2 建立新骨架後繼續修復
+```
+
+**Commit**: `chore(fe): remove legacy AppNew shell and old page files`
+
+---
+
+### Step 2: Create new directory structure
+
+**要讀的文檔**
+- `docs/design/screens-and-nav.md` — 新的 IA 和導航規則
+- `reference/PathKeep — Desktop UI Design/index.html` — prototype 的實際結構
+
+**要建立的目錄和檔案**
+```
+src/
+  app/
+    index.tsx              # 新 app 入口，取代 AppNew.tsx
+    shell.tsx              # 主 shell layout（sidebar + topbar + content）
+    router.tsx             # route tree 定義
+    onboarding-shell.tsx   # onboarding 獨立 shell（不含 sidebar）
+  components/
+    sidebar/
+      index.tsx            # Sidebar 元件
+      nav-item.tsx         # 單個導航項
+    topbar/
+      index.tsx
+    primitives/
+      empty-state.tsx      # 全局共用 empty state
+      loading-state.tsx    # 全局共用 loading
+      error-state.tsx      # 全局共用 error
+      permission-gate.tsx  # Full Disk Access / keyring 等權限請求
+  pages/
+    dashboard/
+      index.tsx
+    explorer/
+      index.tsx
+    insights/
+      index.tsx
+    assistant/
+      index.tsx
+    import/
+      index.tsx
+    audit/
+      index.tsx
+    schedule/
+      index.tsx
+    security/
+      index.tsx
+    settings/
+      index.tsx
+    onboarding/
+      index.tsx
+  lib/
+    tokens.ts              # Design token 常數（CSS variable names）
+    ipc/
+      bridge.ts            # 真正的 typed IPC wrapper，不含假資料
+```
+
+**`src/main.tsx` 更新**
+```tsx
+// 將這一行：
+import AppNew from './AppNew'
+// 改成：
+import App from './app'
+```
+
+**`src/app/router.tsx` 起手式**（使用現有 `react-router-dom` v7）
+```tsx
+export const routes = [
+  { path: '/',            element: <DashboardPage /> },
+  { path: '/explorer',   element: <ExplorerPage /> },
+  { path: '/insights',   element: <InsightsPage /> },
+  { path: '/assistant',  element: <AssistantPage /> },
+  { path: '/import',     element: <ImportPage /> },
+  { path: '/audit',      element: <AuditPage /> },
+  { path: '/schedule',   element: <SchedulePage /> },
+  { path: '/security',   element: <SecurityPage /> },
+  { path: '/settings',   element: <SettingsPage /> },
+  { path: '/onboarding', element: <OnboardingPage /> },
+]
+```
+
+**驗收**
+```bash
+bun run typecheck   # 應非零 type error
+bun run test:unit   # 現有 unit tests 仍 pass
+# 確認 src/AppNew.tsx 已不存在， src/app/index.tsx 已存在
+```
+
+**Commit**: `feat(fe): create new src/app/ directory structure and route tree`
+
+---
+
+### Step 3: Extract design tokens from prototype style.css
+
+**要讀的文檔**
+- `reference/PathKeep — Desktop UI Design/style.css` — 讀取全文 `:root` 的所有 CSS variable
+- `docs/plan/program/research-and-decisions.md` 的 `PG-RD-UX-003` — token 轉換明確要求
+
+**要建立的文件**
+```
+src/lib/tokens.ts         # Token 常數對照表（TS）
+src/styles/tokens.css     # CSS variable 定義（從 prototype 直接搬過來並整理）
+```
+
+**Prototype 的 `:root` 平直搬到 `tokens.css`**
+```css
+/* src/styles/tokens.css */
+:root {
+  /* Core Palette */
+  --bg:           #0A0A0A;
+  --bg-elevated:  #111111;
+  --bg-surface:   #161616;
+  --bg-hover:     #1A1A1A;
+  --border:       #2A2A2A;
+  --border-active:#3A3A3A;
+
+  /* Text */
+  --text:         #C8C8C8;
+  --text-muted:   #6A6A6A;
+  --text-faint:   #3E3E3E;
+  --text-bright:  #E8E8E8;
+
+  /* Accent */
+  --accent:       #FF7832;
+  --accent-dim:   rgba(255, 120, 50, 0.15);
+  --accent-hover: #FF944D;
+  --accent-glow:  rgba(255, 120, 50, 0.08);
+
+  /* Semantic */
+  --success:      #4ADE80;
+  --success-dim:  rgba(74, 222, 128, 0.15);
+  --warning:      #FBBF24;
+  --warning-dim:  rgba(251, 191, 36, 0.15);
+  --error:        #F87171;
+  --error-dim:    rgba(248, 113, 113, 0.15);
+  --info:         #60A5FA;
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', monospace;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Spacing (4px grid) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Radius — Brutalism: no rounding */
+  --radius: 0px;
+
+  /* Transition */
+  --transition: 120ms ease;
+}
+```
+
+**`src/lib/tokens.ts` — TS 層對照**
+```ts
+export const tokens = {
+  color: {
+    bg: 'var(--bg)',
+    bgElevated: 'var(--bg-elevated)',
+    bgSurface: 'var(--bg-surface)',
+    accent: 'var(--accent)',
+    text: 'var(--text)',
+    textMuted: 'var(--text-muted)',
+    success: 'var(--success)',
+    warning: 'var(--warning)',
+    error: 'var(--error)',
+  },
+  font: {
+    mono: 'var(--font-mono)',
+    body: 'var(--font-body)',
+  },
+  space: {
+    1: 'var(--space-1)',
+    2: 'var(--space-2)',
+    4: 'var(--space-4)',
+    6: 'var(--space-6)',
+    8: 'var(--space-8)',
+  },
+} as const;
+```
+
+**在 `src/index.css` 引入 tokens.css**
+```css
+/* src/index.css */
+@import './styles/tokens.css';
+/* ... 其他 global reset ... */
+```
+
+**驗收**
+```bash
+bun run typecheck          # tokens.ts 沒有 type error
+bun run build              # 確認 tokens.css 已被打包
+# 手動檢查：沒有頁面直接寫無對照的顏色字串（如 #FF7832 或 #0A0A0A）
+```
+
+**Commit**: `feat(design): extract design tokens from prototype`
+
+---
+
+### Step 4: Build shell layout
+
+**要讀的文檔**
+- `reference/PathKeep — Desktop UI Design/index.html` — prototype 的實際 HTML 結構
+- `reference/PathKeep — Desktop UI Design/style.css` 的 `.app-shell`、`.sidebar`、`.main-content` 段落
+- `docs/design/screens-and-nav.md` — sidebar hierarchy 和 nav item 規格
+
+**要建立的文件**
+```
+src/app/shell.tsx
+src/components/sidebar/index.tsx
+src/components/sidebar/nav-item.tsx
+src/components/topbar/index.tsx
+```
+
+**Prototype 的 HTML 結構對照**—從 prototype 可看到 app shell 的模式：
+```html
+<div class="app-shell">
+  <div class="dot-grid"></div>       <!-- 背景點陣列 -->
+  <nav class="sidebar">...</nav>
+  <main class="main-content">...  </main>
+</div>
+```
+
+**`src/app/shell.tsx` 起手式**
+```tsx
+import { Outlet, NavLink } from 'react-router-dom'
+import { Sidebar } from '../components/sidebar'
+import { Topbar } from '../components/topbar'
+
+export function MainShell() {
+  return (
+    <div className="app-shell">
+      <div className="dot-grid" aria-hidden />
+      <Sidebar />
+      <div className="shell-right">
+        <Topbar />
+        <main className="main-content">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  )
+}
+```
+
+**Sidebar nav items**—順序和圖示依照 prototype （直接從 `reference/PathKeep — Desktop UI Design/app.js` 查看）
+```tsx
+const NAV_ITEMS = [
+  { path: '/',           label: 'Dashboard',  icon: 'dashboard' },
+  { path: '/explorer',  label: 'Explorer',   icon: 'search' },
+  { path: '/insights',  label: 'Insights',   icon: 'insights' },
+  { path: '/assistant', label: 'Assistant',  icon: 'chat' },
+  { path: '/import',    label: 'Import',     icon: 'upload' },
+  { path: '/audit',     label: 'Audit',      icon: 'history' },
+]
+// settings / schedule / security 在 sidebar 底部
+```
+
+**驗斖**
+```bash
+bun run dev   # app 可啟動，能看到 sidebar + main content 區域
+# 視覚檢查：與 prototype 的寬度 / 間距 / 差異小於視覺誤差範圍
+bun run typecheck
+```
+
+**Commit**: `feat(fe): build main shell layout with sidebar and topbar`
+
+---
+
+### Step 5: Create route tree with react-router-dom
+
+**要讀的文檔**
+- `docs/design/screens-and-nav.md` — 這是 route tree 的 source of truth
+- Step 2 中建立的 `src/app/router.tsx`
+
+**要更新的文件**
+```
+src/app/index.tsx     # 使用 createBrowserRouter 時需要在這裡組裝
+```
+
+**Route 結構**（注意 onboarding 独立 shell，不含 sidebar）
+```tsx
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
+import { MainShell } from './shell'
+import { OnboardingShell } from './onboarding-shell'
+
+const router = createBrowserRouter([
+  {
+    path: '/onboarding',
+    element: <OnboardingShell />,
+    children: [{ index: true, element: <OnboardingPage /> }],
+  },
+  {
+    path: '/',
+    element: <MainShell />,   // 包含 sidebar + topbar
+    children: [
+      { index: true, element: <DashboardPage /> },
+      { path: 'explorer',  element: <ExplorerPage /> },
+      { path: 'insights',  element: <InsightsPage /> },
+      { path: 'assistant', element: <AssistantPage /> },
+      { path: 'import',    element: <ImportPage /> },
+      { path: 'audit',     element: <AuditPage />,
+        children: [{ path: ':runId', element: <AuditDetailPage /> }] },
+      { path: 'schedule',  element: <SchedulePage /> },
+      { path: 'security',  element: <SecurityPage /> },
+      { path: 'settings',  element: <SettingsPage /> },
+    ],
+  },
+])
+
+export default function App() {
+  return <RouterProvider router={router} />
+}
+```
+
+**Onboarding 第一次啟動轉向邏輯**
+```tsx
+// src/app/index.tsx 或 main.tsx 的一次性轉向
+// 如果 backend.ts 的 archive_initialized === false ，則 navigate('/onboarding')
+// 如果已初始化，则直接到主 shell
+```
+
+**驗收**
+```bash
+bun run typecheck
+bun run test:unit        # 路由相關 tests pass
+# 手動驗成：切換各個 route，確認 sidebar active 狀態正確、back button 正常
+```
+
+**Commit**: `feat(fe): implement react-router route tree`
+
+---
+
+### Step 6: Create page skeleton components
+
+**要讀的文檔**
+- `reference/PathKeep — Desktop UI Design/index.html` — 每個歓迎畫面的 HTML 結構
+- `docs/design/screens-and-nav.md` — 每層欳構的內容規格
+
+**Skeleton 建立觳則**
+- 每個 skeleton 只做 layout 和 slot 定義，不含真實 IPC 呼叫
+- 用注解標注每個 slot 將連到哪個 IPC command（M1 實作時再對接）
+- 每個頁面都要有 `EmptyState` 、 `LoadingState` 、 `ErrorState` 視圖
+
+**要建立的文件（一次建全）**
+```
+src/pages/dashboard/index.tsx
+  └── slots: recent-runs, archive-health, next-schedule, storage-summary, trust-callouts
+
+src/pages/explorer/index.tsx
+  └── slots: search-bar, facet-bar, timeline-list-switch, result-list, detail-pane, export-action
+
+src/pages/insights/index.tsx
+  └── slots: chart-modules, time-range-picker, zero-state, ai-unavailable-fallback
+
+src/pages/assistant/index.tsx
+  └── slots: thread-list, composer, evidence-panel, provider-not-configured-fallback
+
+src/pages/import/index.tsx
+  └── slots: file-picker, dry-run-summary, preview-artifacts, quarantine-status, execute-action
+
+src/pages/audit/index.tsx
+  └── slots: run-ledger-table, run-detail-panel, artifact-viewer, copy-command, rollback-entry
+
+src/pages/onboarding/index.tsx
+  └── slots: product-intro, storage-choice, browser-detection, schedule-preview, privacy-promise
+
+src/pages/schedule/index.tsx
+  └── slots: current-schedule, pme-flow, next-run-preview
+
+src/pages/security/index.tsx
+  └── slots: encryption-status, rekey-flow, key-backup-hint
+
+src/pages/settings/index.tsx
+  └── slots: general-tab, providers-tab, storage-tab
+```
+
+**Dashboard skeleton 範例**
+```tsx
+export function DashboardPage() {
+  // TODO M1: const { data, isLoading } = useQuery('dashboard_summary', ...)
+  return (
+    <div className="page dashboard">
+      <header className="page-header">
+        <h1>Dashboard</h1>
+      </header>
+      <section className="dashboard-grid">
+        {/* 近期備份 run 列表 — M1-DB */}
+        <div className="widget" data-slot="recent-runs">
+          <LoadingState label="Loading recent runs…" />
+        </div>
+        {/* Archive 健康狀態 — M1-DB */}
+        <div className="widget" data-slot="archive-health">
+          <LoadingState label="Loading archive health…" />
+        </div>
+        {/* 下次蒐排 — M1-OPS */}
+        <div className="widget" data-slot="next-schedule">
+          <EmptyState label="Schedule not configured" />
+        </div>
+      </section>
+    </div>
+  )
+}
+```
+
+**驗斖**
+```bash
+bun run typecheck
+bun run test:unit   # 新 skeleton 的 smoke render tests pass
+bun run dev         # 所有 route 會渲染出頁面，不出現空白頁
+```
+
+**Commit**: `feat(fe): add page skeleton components for all routes`
+
+---
+
+### Step 7: Update legacy backend.ts and create typed IPC bridge
+
+**要讀的文檔**
+- `src/lib/backend.ts` — 先全文學讀一遍，列出其中假資料和真實 IPC 呼叫的關鍵字
+
+**要建立的文件**
+```
+src/lib/ipc/bridge.ts   # 只有真實 invoke() 呼叫和返回型別，不含 mock data
+```
+
+**拆分原則**
+```
+src/lib/backend.ts 中要移除的部分：
+  - 模擬資料（browser preview fixture）
+  - 舊產品文案字串（"Browser History Backup" 等）
+  - 舊導航狀態管理（activePage 等）
+
+src/lib/backend.ts 中要保留的部分：
+  - 真實的 invoke() 包裝（archive_status、run_backup 等）
+  - 返回型別定義
+  → 搬到 src/lib/ipc/bridge.ts
+```
+
+**驗斖**
+```bash
+bun run typecheck   # 沒有宣告假資料的 export 被其他檔案依賴
+```
+
+**Commit**: `refactor(fe): split backend.ts into typed IPC bridge and remove mock data`
+
+---
+
 ## Source Inputs
 
 - [../../vision-and-requirements.md](../../vision-and-requirements.md)

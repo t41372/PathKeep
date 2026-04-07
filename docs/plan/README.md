@@ -1,8 +1,18 @@
+> **⚡ 找下一個要做的任務？直接看 [STATUS.md](STATUS.md)**
+
 # PathKeep — 工作計劃與進度追蹤
 
 > **Status:** Living document · **Rebuilt:** 2026-04-05  
 > 本目錄是 PathKeep 的實作層 source of truth。  
 > 產品願景、需求和設計定義在 [vision-and-requirements.md](../vision-and-requirements.md) 與它的子文檔裡；這裡回答的是 **接下來怎麼做、先做什麼、哪些事情卡住了、每個里程碑拆到哪一層**。
+
+### 任務追蹤系統
+
+| 檔案 | 用途 | Agent 何時讀 |
+|------|------|---------------|
+| [STATUS.md](STATUS.md) | 當前執行任務（max 5） | 每次開工 |
+| [BACKLOG.md](BACKLOG.md) | 待辦佇列 + 依賴圖 | STATUS.md 清空時 |
+| [CHANGELOG.md](CHANGELOG.md) | 已完成任務紀錄 | 不需要讀，只 append |
 
 ---
 

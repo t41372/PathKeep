@@ -112,7 +112,8 @@
 瀏覽器歷史紀錄的解析和導入邏輯應設計為**可獨立發布的 Rust crate**（例如 `browser-history-parser`），而不是深度耦合在 vault-core 中。
 
 - **解析層**：各瀏覽器的 History DB parser（Chromium、Firefox、Safari、Google Takeout）封裝為獨立 crate，提供結構化的歷史紀錄數據，不依賴 archive schema 或 Tauri。
-- **公開 API**：對外暴露 profile discovery、schema detection、history/visit/URL parsing 等能力。
+- **公開 API**：對外暴露 schema detection、history/visit/URL parsing，以及對「已提供的 profile / DB 路徑」做 metadata inspection 的能力。
+- **平台邊界**：OS 級的已安裝 browser / profile discovery、權限檢查、staging copy 仍留在 `vault-platform` / `vault-core`，不塞進 parser crate。
 - **對社區的價值**：瀏覽器歷史紀錄的解析是一個通用需求（其他備份工具、分析工具、研究項目都可能用到），把這部分獨立出來可以讓其他開發者直接使用。
 - **vault-core 作為消費者**：vault-core 依賴這個 crate，在其之上實現 archive 寫入、去重、run 管理等業務邏輯。
 - **版本獨立**：parser crate 可以獨立發版，追蹤瀏覽器更新更靈活。

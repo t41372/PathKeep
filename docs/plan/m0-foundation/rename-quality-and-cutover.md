@@ -5,6 +5,338 @@
 
 ---
 
+## Quick-Start Implementation Guide
+
+以下是本工作包的建議執行順序。每個步驟都標註了要讀的文檔、要改的文件、和驗收方式。
+
+> **前提**：本工作包建議在 M0-FE 和 M0-BE 開工後並行執行，而非等它們完全完成再開始。命名遷移和管線更新不依賴前端或後端的實際實作進度。
+
+### Step 1: Build rename inventory with grep
+
+**要讀的文檔**
+- `docs/plan/program/repo-baseline.md` 的「命名遷移基線」段落 — 了解需要清除的舊名字串
+
+**執行以下命令，產出完整幫存貨**
+```bash
+# 找出所有舊產品名稱出現的檔案
+ grep -rn --include="*.json" --include="*.ts" --include="*.tsx" --include="*.rs" \
+   --include="*.md" --include="*.yml" --include="*.yaml" --include="*.toml" \
+   -e "Browser History Backup" \
+   -e "Chrome History Backup" \
+   -e "Chrome History Vault" \
+   -e "browser-history-backup" \
+   -e "browser_history_backup" \
+   -e "BHB" \
+   . \
+   --exclude-dir=node_modules \
+   --exclude-dir=target \
+   --exclude-dir=.git \
+   > /tmp/rename-inventory.txt 2>&1
+
+cat /tmp/rename-inventory.txt | wc -l   # 查看總出現次數
+cat /tmp/rename-inventory.txt           # 透過分類看各檔案的出現位置
+```
+
+**預期發現的帶有舊名稱的主要檔案**
+```
+package.json                              # name: "browser-history-backup"
+src-tauri/Cargo.toml                      # name = "browser-history-backup-desktop"
+src-tauri/tauri.conf.json                 # productName, identifier, window title
+src-tauri/capabilities/default.json      # description
+README.md                                 # 正文中的舊產品文案
+.github/workflows/ci.yml                  # 工作流文案和 artifact 名稱
+.github/workflows/release.yml             # release asset 名稱
+src-tauri/src/lib.rs                      # BHB_GIT_COMMIT_FULL 等環境變數
+src-tauri/build.rs                        # BHB_GIT_COMMIT_* 陸
+```
+
+**將清單記錄為文檔**
+```
+docs/plan/m0-foundation/rename-inventory.md   # 新建，記錄每檔每行的舊名批注和處理方案
+```
+
+**驗收**
+```bash
+# 確認幫存貨已建立且包含實際筆數
+wc -l docs/plan/m0-foundation/rename-inventory.md
+```
+
+**Commit**: `docs(co): create rename inventory`
+
+---
+
+### Step 2: Update package.json and tauri.conf.json
+
+**要讀的文檔**
+- Step 1 產出的 `rename-inventory.md`
+- `src-tauri/tauri.conf.json` — 确認所有 productName / identifier / window title 字段
+
+**要修改的文件**
+
+`package.json`：
+```json
+// 將
+"name": "browser-history-backup"
+// 改成
+"name": "pathkeep"
+```
+
+`src-tauri/Cargo.toml`：
+```toml
+# 將
+name = "browser-history-backup-desktop"
+# 改成
+name = "pathkeep-desktop"
+
+[lib]
+name = "pathkeep_desktop"   # 同步修改
+```
+
+`src-tauri/tauri.conf.json`：
+```json
+// 將
+"productName": "Browser History Backup"
+"identifier": "dev.codex.browser-history-backup"
+// window title 也將 "Browser History Backup"
+// 改成
+"productName": "PathKeep"
+"identifier": "dev.pathkeep.app"
+// window title: "PathKeep"
+```
+
+`src-tauri/capabilities/default.json`：
+```json
+// 將
+"description": "Default capability set for Browser History Backup"
+// 改成
+"description": "Default capability set for PathKeep"
+```
+
+`src-tauri/build.rs`：
+```rust
+// 將 BHB_GIT_COMMIT_FULL 等環境變數陥頭
+// 改成
+PK_GIT_COMMIT_FULL
+PK_GIT_COMMIT_SHORT
+PK_GIT_DIRTY
+```
+
+**驗收**
+```bash
+bun run typecheck
+cargo build -p pathkeep-desktop 2>&1 | head -20   # 確認新名稱能編譯
+# 檢查 src-tauri/tauri.conf.json 的 productName 已是 "PathKeep"
+jq '.productName' src-tauri/tauri.conf.json   # 應輸出 "PathKeep"
+```
+
+**Commit**: `chore(rename): update package.json, Cargo.toml, tauri.conf.json to PathKeep`
+
+---
+
+### Step 3: Rewrite README
+
+**要讀的文檔**
+- `docs/vision-and-requirements.md` — 新產品定位和功能描述
+- 現有 `README.md` — 先讀清楚舊內容結構再重寫
+
+**要更新的文件**`README.md`
+
+**新 README 必須包含的內容**
+```markdown
+# PathKeep
+
+> Audit-first local desktop archive for your browser history.
+
+## What is PathKeep
+[依照 vision-and-requirements.md 重寫產品定位：對就各自的 M0—M4 等级]
+
+## Status
+- [ ] M0 基礎重構（進行中）
+- [ ] M1 Solid Archive
+- [ ] M2 Recall & Trust
+- [ ] M3 Intelligence
+- [ ] M4 Full Polish
+
+## Development
+[建置要求、展開命令、測試命令]
+
+## Architecture
+[指向 docs/architecture/ 地址，不要將細局影射內嵌在 README 裡]
+
+## Contributing
+[資料 / 鈲欧展開方式]
+```
+
+**要移除的舊內容**
+```
+- 所有提到 "Browser History Backup" 的句子
+- 所有提到 "Chrome History Vault" 的句子
+- 宣稱已完成的功能列表（M1—M4 尚未建置）
+- 舊的 coverage badge 或 status badge（等 M1 穩定後再加）
+```
+
+**驗收**
+```bash
+grep -i "Browser History Backup\|Chrome History\|Chrome Vault" README.md
+# 應輸出空白（沒有舊產品名稱殘留）
+grep "PathKeep" README.md | head -5
+# 應看到新產品名稱
+```
+
+**Commit**: `docs(readme): rewrite README for PathKeep product positioning`
+
+---
+
+### Step 4: Update CI workflows
+
+**要讀的文檔**
+- `.github/workflows/ci.yml`、`release.yml`、`mutation.yml` — 確認現有文案和 artifact 命名
+
+**要修改的文件**
+
+`.github/workflows/ci.yml`：
+```yaml
+# workflow name
+name: CI  # 保留原名不變，但檢查 step 文案和 artifact 名稱
+
+# 修改 artifact 名稱
+- name: Upload coverage artifacts
+  uses: actions/upload-artifact@v4
+  with:
+    name: pathkeep-coverage-artifacts   # 舊名稱是 coverage-artifacts
+```
+
+`.github/workflows/release.yml`：
+```yaml
+# 修改 release notes 和 asset 命名樣式
+# 舊樣式："Browser History Backup vX.Y.Z"
+# 新樣式："PathKeep vX.Y.Z"
+
+# 修改 macOS 封裝地 (tauri.conf.json 變化後 build 會自動使用新 productName)
+```
+
+`.github/workflows/mutation.yml`：
+```yaml
+# 檢查最上層的 name 和 參數，確認沒有舊產品名稱
+```
+
+**驗斖**
+```bash
+grep -n "Browser History Backup\|Chrome History\|browser-history-backup" \
+  .github/workflows/ci.yml \
+  .github/workflows/release.yml \
+  .github/workflows/mutation.yml
+# 應輸出空白（舊名稱已全清除）
+```
+
+**Commit**: `chore(ci): update workflow names and artifact names to PathKeep`
+
+---
+
+### Step 5: Reset e2e tests to new shell
+
+**要讀的文檔**
+- `tests/e2e/shell.spec.ts` — 先讀現有斷言，了解它在驗證什麼
+- `docs/plan/m0-foundation/frontend-shell-and-design-system.md` 的 Step 4 — 新 shell 的 HTML 結構
+
+**現有 `tests/e2e/shell.spec.ts` 所驗證的舊目標**
+```typescript
+// 現有失敗點：測試舊 setup shell 的 heading 和文案
+// 例：wait page.getByRole('heading', { name: 'Setup' })
+// 這就是為什麼 e2e 目前一定失敗
+```
+
+**要更新的文件** `tests/e2e/shell.spec.ts`：
+```typescript
+import { test, expect } from '@playwright/test'
+
+test.describe('PathKeep shell smoke', () => {
+  test('app loads and shows main shell or onboarding', async ({ page }) => {
+    await page.goto('/')
+    // 新驗證：確認詞性有 app-shell
+    await expect(page.locator('[data-testid="app-shell"]')).toBeVisible()
+  })
+
+  test('sidebar is visible after initialization', async ({ page }) => {
+    await page.goto('/')
+    // 新驗證：確認 sidebar 存在和可見
+    await expect(page.locator('.sidebar')).toBeVisible()
+  })
+
+  test('can navigate to explorer route', async ({ page }) => {
+    await page.goto('/explorer')
+    // 新驗證：確認 URL 和畫面標題
+    await expect(page).toHaveURL(/\/explorer/)
+    await expect(page.locator('h1')).toContainText('Explorer')
+  })
+
+  test('onboarding route exists and renders', async ({ page }) => {
+    await page.goto('/onboarding')
+    await expect(page.locator('[data-testid="onboarding-shell"]')).toBeVisible()
+  })
+})
+```
+
+**要更新的 playwright.config.ts**（如有舊產品名稱利徕）：
+```typescript
+// 修改 baseURL、專案名稱等，移除舊產品利徕
+```
+
+**驗斖**
+```bash
+bun run test:e2e   # shell smoke tests 會 pass，舊的 "Setup" heading 驗證已不存在
+```
+
+**Commit**: `test(e2e): reset shell smoke tests for new PathKeep shell`
+
+---
+
+### Step 6: Final rename sweep and cutover verification
+
+**執行最終游揳**
+```bash
+# 1. 再次执行 Step 1 的 grep，確認舊名稱完全清除
+grep -rn \
+  -e "Browser History Backup" \
+  -e "Chrome History Backup" \
+  -e "Chrome History Vault" \
+  -e "browser-history-backup" \
+  -e "browser_history_backup" \
+  --include="*.json" --include="*.ts" --include="*.tsx" --include="*.rs" \
+  --include="*.md" --include="*.yml" --include="*.toml" \
+  --exclude-dir=node_modules --exclude-dir=target --exclude-dir=.git \
+  . \
+  | grep -v "docs/plan/m0-foundation/rename-inventory.md"   # 排除清單本身
+
+# 2. 驗證新名稱正確出現
+jq '.productName' src-tauri/tauri.conf.json     # "PathKeep"
+jq '.name' package.json                         # "pathkeep"
+grep 'name = ' src-tauri/Cargo.toml | head -1   # name = "pathkeep-desktop"
+
+# 3. 全量驗證組
+ bun run typecheck
+cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --quiet
+bun run test:unit
+bun run test:e2e
+```
+
+**M0-CO 完成訊號 checklist**
+```
+[✓] README 正文不含舊產品名稱
+[✓] package.json name = "pathkeep"
+[✓] tauri.conf.json productName = "PathKeep", identifier = "dev.pathkeep.app"
+[✓] src-tauri/Cargo.toml name = "pathkeep-desktop"
+[✓] .github/workflows 文案不含舊產品名稱
+[✓] tests/e2e/shell.spec.ts 驗證新 shell，不驗證舊 "Setup" heading
+[✓] bun run test:e2e pass
+[✓] cargo test --workspace pass
+[✓] bun run typecheck pass
+```
+
+**Commit**: `chore(co): final rename sweep, M0-CO cutover complete`
+
+---
+
 ## Source Inputs
 
 - [../../vision-and-requirements.md](../../vision-and-requirements.md)
