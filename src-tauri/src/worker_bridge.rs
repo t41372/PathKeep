@@ -98,6 +98,21 @@ pub(crate) fn query_history_impl(
     worker_result(vault_worker::query_history(session_database_key, query))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn dashboard_snapshot_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::DashboardSnapshot, String> {
+    worker_result(vault_worker::dashboard_snapshot(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn audit_run_detail_impl(
+    run_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AuditRunDetail, String> {
+    worker_result(vault_worker::audit_run_detail(session_database_key, run_id))
+}
+
 pub(crate) fn export_history_impl(
     request: ExportRequest,
     session_database_key: Option<&str>,

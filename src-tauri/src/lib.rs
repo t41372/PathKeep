@@ -65,6 +65,8 @@ fn run_app() -> Result<()> {
             clear_session_database_key,
             run_backup_now,
             query_history,
+            load_dashboard_snapshot,
+            load_audit_run_detail,
             export_history,
             preview_remote_backup,
             run_remote_backup,
@@ -174,6 +176,23 @@ fn query_history(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HistoryQueryResponse, String> {
     worker_bridge::query_history_impl(query, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_dashboard_snapshot(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::DashboardSnapshot, String> {
+    worker_bridge::dashboard_snapshot_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_audit_run_detail(
+    run_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AuditRunDetail, String> {
+    worker_bridge::audit_run_detail_impl(run_id, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

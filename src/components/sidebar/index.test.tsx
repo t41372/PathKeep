@@ -1,10 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { ShellDataProvider } from '../../app/shell-data'
+import { backendTestHarness } from '../../lib/backend'
 import { Sidebar } from './index'
 
 describe('Sidebar', () => {
-  test('renders the product name, sections, and archive status', () => {
+  beforeEach(() => {
+    backendTestHarness.reset()
+  })
+
+  test('renders the product name, sections, and archive status', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -15,7 +21,11 @@ describe('Sidebar', () => {
       { initialEntries: ['/'] },
     )
 
-    render(<RouterProvider router={router} />)
+    render(
+      <ShellDataProvider>
+        <RouterProvider router={router} />
+      </ShellDataProvider>,
+    )
 
     expect(screen.getByText('PATHKEEP')).toBeVisible()
     expect(screen.getByText('CORE')).toBeVisible()
@@ -25,7 +35,9 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveClass(
       'nav-item--active',
     )
-    expect(screen.getByText('Archive healthy')).toBeVisible()
+    expect(await screen.findByText('Archive not initialized')).toBeVisible()
+    expect(screen.getByText('Encrypted archive')).toBeVisible()
+    expect(screen.getByText('0 B')).toBeVisible()
   })
 
   test('renders the optional assistant badge', () => {
@@ -39,7 +51,11 @@ describe('Sidebar', () => {
       { initialEntries: ['/'] },
     )
 
-    render(<RouterProvider router={router} />)
+    render(
+      <ShellDataProvider>
+        <RouterProvider router={router} />
+      </ShellDataProvider>,
+    )
 
     expect(screen.getByText('OPT')).toBeVisible()
   })
@@ -55,7 +71,11 @@ describe('Sidebar', () => {
       { initialEntries: ['/explorer'] },
     )
 
-    render(<RouterProvider router={router} />)
+    render(
+      <ShellDataProvider>
+        <RouterProvider router={router} />
+      </ShellDataProvider>,
+    )
 
     expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveClass(
       'nav-item--active',

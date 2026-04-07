@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
 import App from './index'
 import { createDesktopRouter } from './router-factory'
 import {
@@ -10,9 +10,62 @@ import {
   readRouteHandle,
   sidebarSections,
 } from './router'
+import { backend, backendTestHarness } from '../lib/backend'
+import type { AppConfig } from '../lib/types'
+
+const initializedConfig: AppConfig = {
+  initialized: false,
+  archiveMode: 'Encrypted',
+  preferredLanguage: 'system',
+  dueAfterHours: 72,
+  scheduleCheckIntervalHours: 6,
+  checkpointDays: 90,
+  captureFavicons: true,
+  selectedProfileIds: ['chrome:Default'],
+  gitEnabled: true,
+  rememberDatabaseKeyInKeyring: false,
+  appAutostart: false,
+  remoteBackup: {
+    enabled: false,
+    bucket: '',
+    region: 'us-east-1',
+    endpoint: null,
+    prefix: 'pathkeep',
+    pathStyle: true,
+    uploadAfterBackup: false,
+    credentialsSaved: false,
+    lastUploadedAt: null,
+    lastUploadedObjectKey: null,
+    lastError: null,
+  },
+  ai: {
+    enabled: false,
+    assistantEnabled: false,
+    semanticIndexEnabled: false,
+    mcpEnabled: false,
+    skillEnabled: false,
+    autoIndexAfterBackup: false,
+    llmProviderId: null,
+    embeddingProviderId: null,
+    retrievalTopK: 8,
+    assistantSystemPrompt:
+      'You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on.',
+    llmProviders: [],
+    embeddingProviders: [],
+  },
+}
+
+async function seedArchiveRun() {
+  await backend.initializeArchive(initializedConfig, 'vault-passphrase')
+  await backend.runBackupNow(false)
+}
 
 describe('App shell', () => {
-  test('renders the dashboard shell and navigates across core pages', async () => {
+  beforeEach(() => {
+    backendTestHarness.reset()
+  })
+
+  test('renders the dashboard zero state and routes into onboarding', async () => {
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/'],
@@ -20,41 +73,21 @@ describe('App shell', () => {
 
     render(<App router={router} />)
 
-    expect(screen.getByTestId('app-shell')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-    expect(screen.getByText('Archive healthy')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Backup Now' })).toBeVisible()
-    expect(screen.getByText('RECENT RUNS')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
-
-    await user.click(screen.getByRole('link', { name: 'Explorer' }))
-
+    expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { level: 1, name: 'History Explorer' }),
+      screen.getByText('The first archive run still needs review'),
     ).toBeVisible()
-    expect(
-      screen.getByText('Browse, search & filter your archive'),
-    ).toBeVisible()
-    expect(
-      screen.getByText(/Time-travel and full-text search land here next\./),
-    ).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute(
-      'aria-current',
-    )
 
-    await user.click(screen.getByRole('link', { name: /AI Assistant/ }))
+    await user.click(screen.getByRole('link', { name: 'Review onboarding' }))
 
-    expect(screen.getByRole('heading', { name: 'AI Assistant' })).toBeVisible()
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+    expect(screen.getByText('Profiles are the backup boundary')).toBeVisible()
     expect(
-      screen.getByText('Ask questions about your browsing history'),
+      screen.getByRole('button', { name: 'Initialize + run first backup' }),
     ).toBeVisible()
-    expect(screen.getByText('AI stays optional')).toBeVisible()
   })
 
-  test('renders the onboarding shell and routes back to the dashboard preview', async () => {
+  test('initializes the archive from onboarding and returns to a populated dashboard', async () => {
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/onboarding'],
@@ -62,16 +95,69 @@ describe('App shell', () => {
 
     render(<App router={router} />)
 
-    expect(screen.getByTestId('onboarding-shell')).toBeInTheDocument()
-    expect(
-      screen.getByRole('heading', { name: 'Onboarding / Setup' }),
-    ).toBeVisible()
-    expect(screen.getByText('Preview native schedule')).toBeVisible()
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('link', { name: 'Skip onboarding' }))
+    await user.type(
+      screen.getByLabelText('MASTER PASSWORD'),
+      'vault-passphrase',
+    )
+    await user.type(
+      screen.getByLabelText('CONFIRM PASSWORD'),
+      'vault-passphrase',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Initialize + run first backup' }),
+    )
 
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+    expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
+    expect(await screen.findByText('RECENT RUNS')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Detail' })).toBeVisible()
   })
+
+  test('renders explorer filters, detail, export, and audit run detail from live shell data', async () => {
+    await seedArchiveRun()
+    const user = userEvent.setup()
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/explorer?q=sqlite'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
+    const explorerPage = screen.getByTestId('explorer-page')
+    const explorerMatches = await within(explorerPage).findAllByText(
+      'SQLite inspection in browser developer tools',
+    )
+    expect(explorerMatches).toHaveLength(2)
+    expect(screen.getByText('Canonical visit evidence')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'jsonl' }))
+
+    expect(await screen.findByText(/pathkeep-export-/)).toBeVisible()
+
+    await user.click(screen.getByRole('link', { name: 'Audit Ledger' }))
+
+    expect(await screen.findByTestId('audit-page')).toBeInTheDocument()
+    expect(await screen.findByText('RUN LEDGER')).toBeVisible()
+    expect(screen.getByText('ARTIFACTS')).toBeVisible()
+  })
+
+  test.each([
+    ['/schedule', 'SCHEDULE PREVIEW'],
+    ['/security', 'ARCHIVE MODE'],
+  ])(
+    'renders route %s with live data-backed content',
+    async (entry, sentinel) => {
+      await seedArchiveRun()
+      const router = createMemoryRouter(appRoutes, {
+        initialEntries: [entry],
+      })
+
+      render(<App router={router} />)
+
+      expect(await screen.findByText(sentinel)).toBeVisible()
+    },
+  )
 
   test('keeps sidebar information architecture grouped by section', () => {
     expect(sidebarSections).toEqual([
@@ -167,30 +253,6 @@ describe('App shell', () => {
     expect(appRoutes[0]).toEqual(expect.objectContaining({ path: '/' }))
   })
 
-  test.each([
-    ['/insights', 'Insights', 'Review insight cards'],
-    ['/import', 'Import', 'Inspect Takeout contents'],
-    ['/audit', 'Audit Ledger', 'M1 engine'],
-    ['/schedule', 'Schedule', 'Preview native schedule'],
-    ['/security', 'Security', 'Review keyring preview'],
-    [
-      '/settings',
-      'Settings',
-      'Settings modules are being split out of the legacy context.',
-    ],
-  ])('renders shell route %s', (entry, title, sentinel) => {
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: [entry],
-    })
-
-    render(<App router={router} />)
-
-    expect(screen.getByRole('heading', { level: 1, name: title })).toBeVisible()
-    expect(
-      screen.getByText((content) => content.includes(sentinel)),
-    ).toBeVisible()
-  })
-
   test('creates a desktop router and validates route handles', () => {
     const router = createDesktopRouter()
 
@@ -204,15 +266,5 @@ describe('App shell', () => {
     expect(router.state.location.pathname).toBe('/')
 
     router.dispose()
-  })
-
-  test('redirects unknown routes back to the dashboard shell', () => {
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/missing'],
-    })
-
-    render(<App router={router} />)
-
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
   })
 })

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { formatDateTime, formatDuration } from './format'
+import {
+  formatBytes,
+  formatDateTime,
+  formatDuration,
+  formatRelativeTime,
+} from './format'
 
 describe('format utilities', () => {
   test('formatDateTime returns null for falsy input', () => {
@@ -22,5 +27,26 @@ describe('format utilities', () => {
     expect(formatDuration(-1000)).toBe('0s')
     expect(formatDuration(59_000)).toBe('59s')
     expect(formatDuration(125_000)).toBe('2m 5s')
+  })
+
+  test('formatBytes handles empty and scaled values', () => {
+    expect(formatBytes(null)).toBe('0 B')
+    expect(formatBytes(undefined)).toBe('0 B')
+    expect(formatBytes(0)).toBe('0 B')
+    expect(formatBytes(512)).toBe('512 B')
+    expect(formatBytes(2048)).toBe('2 KB')
+    expect(formatBytes(1_572_864)).toBe('1.5 MB')
+  })
+
+  test('formatRelativeTime handles missing and recent values', () => {
+    expect(formatRelativeTime(null)).toBe('Not yet')
+    expect(formatRelativeTime(undefined)).toBe('Not yet')
+    expect(formatRelativeTime('not-a-date')).toBe('not-a-date')
+    expect(
+      formatRelativeTime(new Date(Date.now() - 10 * 60_000).toISOString()),
+    ).toMatch(/10m ago/)
+    expect(
+      formatRelativeTime(new Date(Date.now() + 3 * 60 * 60_000).toISOString()),
+    ).toMatch(/3h from now/)
   })
 })

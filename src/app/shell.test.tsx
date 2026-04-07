@@ -1,10 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { AppShell } from './shell'
+import { ShellDataProvider } from './shell-data'
+import { backendTestHarness } from '../lib/backend'
 
 describe('AppShell', () => {
-  test('falls back to the dashboard metadata when no route handle is present', () => {
+  beforeEach(() => {
+    backendTestHarness.reset()
+  })
+
+  test('falls back to the dashboard metadata when no route handle is present', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -17,9 +23,17 @@ describe('AppShell', () => {
       },
     )
 
-    render(<RouterProvider router={router} />)
+    render(
+      <ShellDataProvider>
+        <RouterProvider router={router} />
+      </ShellDataProvider>,
+    )
 
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Backup Now' })).toBeVisible()
+    expect(
+      await screen.findByRole('heading', { name: 'Dashboard' }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Initialize first' }),
+    ).toBeVisible()
   })
 })

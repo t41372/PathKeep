@@ -18,13 +18,14 @@ use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIndexStatus,
     AiIntegrationPreview, AiProviderConfig, AiProviderPurpose, AiProviderRuntime,
     AiProviderSecretInput, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot, ArchiveMode,
-    ExplainInsightRequest, ExportRequest, HealthReport, HistoryQuery, HistoryQueryResponse,
-    ImportBatchDetail, InsightExplanation, InsightSnapshot, InsightStatus, InsightThreadDetail,
-    KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult, RunInsightsReport,
-    RunInsightsRequest, S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest,
-    ai_index_status, answer_history_question, archive_status, build_ai_index, doctor,
-    ensure_archive_initialized, explain_insight, export_history, import_takeout, insight_status,
-    inspect_takeout, list_history, load_config, load_import_batches, load_insight_thread_detail,
+    AuditRunDetail, DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthReport,
+    HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot,
+    InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
+    RemoteBackupResult, RunInsightsReport, RunInsightsRequest, S3CredentialInput, SchedulePlan,
+    TakeoutInspection, TakeoutRequest, ai_index_status, answer_history_question, archive_status,
+    build_ai_index, doctor, ensure_archive_initialized, explain_insight, export_history,
+    import_takeout, insight_status, inspect_takeout, list_history, load_audit_run_detail,
+    load_config, load_dashboard_snapshot, load_import_batches, load_insight_thread_detail,
     load_insights, load_recent_runs, preview_ai_integrations, preview_import_batch,
     preview_remote_backup, project_paths, rekey_archive, revert_import_batch, run_backup,
     run_insights, run_remote_backup, save_config, semantic_search_history,
@@ -414,6 +415,18 @@ pub fn query_history(
     let paths = project_paths()?;
     let config = load_config(&paths)?;
     list_history(&paths, &config, session_database_key, query)
+}
+
+pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<DashboardSnapshot> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    load_dashboard_snapshot(&paths, &config, session_database_key)
+}
+
+pub fn audit_run_detail(session_database_key: Option<&str>, run_id: i64) -> Result<AuditRunDetail> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    load_audit_run_detail(&paths, &config, session_database_key, run_id)
 }
 
 pub fn export_query(

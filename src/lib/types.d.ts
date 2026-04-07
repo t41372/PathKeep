@@ -319,6 +319,50 @@ export interface BackupReport {
   remoteBackup?: RemoteBackupResult | null
 }
 
+export interface StorageSummary {
+  archiveDatabaseBytes: number
+  manifestBytes: number
+  snapshotBytes: number
+  exportBytes: number
+  stagingBytes: number
+  quarantineBytes: number
+}
+
+export interface DashboardSnapshot {
+  generatedAt: string
+  totalProfiles: number
+  totalUrls: number
+  totalVisits: number
+  totalDownloads: number
+  lastSuccessfulBackupAt?: string | null
+  recentRuns: BackupRunOverview[]
+  storage: StorageSummary
+  nextAction?: string | null
+}
+
+export interface AuditArtifact {
+  kind: string
+  path: string
+  checksum?: string | null
+  sizeBytes?: number | null
+  createdAt: string
+  reason?: string | null
+}
+
+export interface AuditRunDetail {
+  run: BackupRunOverview
+  trigger: string
+  timezone?: string | null
+  dueOnly: boolean
+  profileScope: string[]
+  warnings: string[]
+  errorMessage?: string | null
+  stats: Record<string, unknown>
+  manifestPath?: string | null
+  manifestHash?: string | null
+  artifacts: AuditArtifact[]
+}
+
 export interface AppSnapshot {
   directories: AppDirectories
   config: AppConfig
@@ -334,7 +378,11 @@ export interface AppSnapshot {
 export interface HistoryQuery {
   q?: string | null
   profileId?: string | null
+  browserKind?: string | null
   domain?: string | null
+  startTimeMs?: number | null
+  endTimeMs?: number | null
+  sort?: 'newest' | 'oldest' | null
   limit?: number | null
 }
 

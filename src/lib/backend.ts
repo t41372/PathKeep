@@ -12,7 +12,9 @@ import type {
   AppConfig,
   AppSnapshot,
   ApplyResult,
+  AuditRunDetail,
   BackupReport,
+  DashboardSnapshot,
   ExplainInsightRequest,
   ExportRequest,
   ExportResult,
@@ -437,6 +439,161 @@ const mockInsightExplanation: InsightExplanation = {
   citations: structuredClone(mockInsightThreadDetail.visits),
   notes: ['Browser preview mode explains insights from static evidence only.'],
 }
+
+interface MockBackendState {
+  snapshot: AppSnapshot
+  history: HistoryQueryResponse
+  keyringSecret: string | null
+}
+
+function browserKindFromProfileId(profileId: string) {
+  return profileId.split(':')[0] ?? profileId
+}
+
+function uniqueUrlCount(items: HistoryQueryResponse['items']) {
+  return new Set(items.map((item) => item.url)).size
+}
+
+function buildMockDashboardSnapshot(
+  state: MockBackendState,
+): DashboardSnapshot {
+  if (!state.snapshot.config.initialized) {
+    return {
+      generatedAt: new Date().toISOString(),
+      totalProfiles: 0,
+      totalUrls: 0,
+      totalVisits: 0,
+      totalDownloads: 0,
+      lastSuccessfulBackupAt: null,
+      recentRuns: state.snapshot.recentRuns,
+      storage: {
+        archiveDatabaseBytes: 0,
+        manifestBytes: 0,
+        snapshotBytes: 0,
+        exportBytes: 0,
+        stagingBytes: 0,
+        quarantineBytes: 0,
+      },
+      nextAction:
+        'Initialize the archive, confirm at least one Chromium profile, and run the first manual backup.',
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalProfiles: state.snapshot.config.selectedProfileIds.filter(
+      (profileId) =>
+        profileId.startsWith('chrome:') || profileId.startsWith('arc:'),
+    ).length,
+    totalUrls: uniqueUrlCount(state.history.items),
+    totalVisits: state.history.items.length,
+    totalDownloads: state.snapshot.recentRuns[0]?.newDownloads ?? 1,
+    lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
+    recentRuns: state.snapshot.recentRuns,
+    storage: {
+      archiveDatabaseBytes: 146_800_640,
+      manifestBytes: 384_000,
+      snapshotBytes: 1_228_800,
+      exportBytes: 96_000,
+      stagingBytes: 0,
+      quarantineBytes: 0,
+    },
+    nextAction:
+      state.snapshot.recentRuns.length === 0
+        ? 'Run the first manual backup to write the manifest chain and explorer index.'
+        : null,
+  }
+}
+
+function buildMockAuditRunDetail(
+  state: MockBackendState,
+  runId: number,
+): AuditRunDetail {
+  const run = state.snapshot.recentRuns.find((item) => item.id === runId)
+  if (!run) {
+    throw new Error(`Mock backend does not know audit run ${runId}`)
+  }
+
+  return {
+    run,
+    trigger: 'manual',
+    timezone: 'America/Phoenix',
+    dueOnly: false,
+    profileScope: state.snapshot.config.selectedProfileIds,
+    warnings: [],
+    errorMessage: null,
+    stats: {
+      profilesProcessed: run.profilesProcessed,
+      newVisits: run.newVisits,
+      newUrls: run.newUrls,
+      newDownloads: run.newDownloads,
+    },
+    manifestPath: `${state.snapshot.directories.manifestsDir}/2026-04-06/run-${run.id}-preview.json`,
+    manifestHash: run.manifestHash ?? `preview-manifest-${run.id}`,
+    artifacts: [
+      {
+        kind: 'snapshot',
+        path: `${state.snapshot.directories.rawSnapshotsDir}/run-${run.id}`,
+        checksum: `snapshot-${run.id}`,
+        sizeBytes: 4096,
+        createdAt: run.finishedAt ?? run.startedAt,
+        reason: 'periodic-checkpoint',
+      },
+    ],
+  }
+}
+
+function filterMockHistory(
+  state: MockBackendState,
+  query: HistoryQuery | undefined,
+): HistoryQueryResponse {
+  const q = query?.q?.trim().toLowerCase() ?? ''
+  const domain = query?.domain?.trim().toLowerCase() ?? ''
+  const profileId = query?.profileId ?? null
+  const browserKind = query?.browserKind ?? null
+  const startTimeMs = query?.startTimeMs ?? null
+  const endTimeMs = query?.endTimeMs ?? null
+  const sort = query?.sort ?? 'newest'
+  const limit = Math.max(1, Math.min(query?.limit ?? 150, 1000))
+
+  const items = [...state.history.items]
+    .filter((item) => !profileId || item.profileId === profileId)
+    .filter(
+      (item) =>
+        !browserKind ||
+        browserKindFromProfileId(item.profileId) === browserKind,
+    )
+    .filter(
+      (item) =>
+        !q ||
+        item.url.toLowerCase().includes(q) ||
+        (item.title ?? '').toLowerCase().includes(q),
+    )
+    .filter((item) => !domain || item.domain.toLowerCase().includes(domain))
+    .filter((item) => !startTimeMs || item.visitTime >= startTimeMs)
+    .filter((item) => !endTimeMs || item.visitTime <= endTimeMs)
+    .sort((left, right) =>
+      sort === 'oldest'
+        ? left.visitTime - right.visitTime
+        : right.visitTime - left.visitTime,
+    )
+    .slice(0, limit)
+
+  return {
+    total: items.length,
+    items,
+  }
+}
+
+function createMockState(): MockBackendState {
+  return {
+    snapshot: structuredClone(mockSnapshot),
+    history: structuredClone(mockHistory),
+    keyringSecret: null,
+  }
+}
+
+let mockState = createMockState()
 // Stryker restore all
 
 async function call<T>(
@@ -451,29 +608,117 @@ async function call<T>(
     case 'app_build_info':
       return mockBuildInfo as T
     case 'app_snapshot':
-    case 'save_config':
-    case 'initialize_archive':
-    case 'rekey_archive':
-      return structuredClone(mockSnapshot) as T
+      return structuredClone(mockState.snapshot) as T
+    case 'save_config': {
+      const nextConfig = structuredClone(args?.config as AppConfig)
+      mockState.snapshot.config = nextConfig
+      mockState.snapshot.archiveStatus.encrypted =
+        nextConfig.archiveMode === 'Encrypted'
+      return structuredClone(mockState.snapshot) as T
+    }
+    case 'initialize_archive': {
+      const nextConfig = structuredClone(args?.config as AppConfig)
+      const databaseKey =
+        typeof args?.databaseKey === 'string' ? args.databaseKey : null
+      if (
+        nextConfig.archiveMode === 'Encrypted' &&
+        (!databaseKey || !databaseKey.trim())
+      ) {
+        throw new Error(
+          'Mock encrypted archive initialization requires a database key.',
+        )
+      }
+      nextConfig.initialized = true
+      mockState.snapshot.config = nextConfig
+      mockState.snapshot.archiveStatus = {
+        ...mockState.snapshot.archiveStatus,
+        initialized: true,
+        encrypted: nextConfig.archiveMode === 'Encrypted',
+        unlocked:
+          nextConfig.archiveMode === 'Plaintext' ||
+          Boolean(databaseKey && databaseKey.trim()),
+        warning: null,
+      }
+      return structuredClone(mockState.snapshot) as T
+    }
+    case 'rekey_archive': {
+      const request = args?.request as RekeyRequest
+      mockState.snapshot.config.archiveMode = request.newMode
+      mockState.snapshot.archiveStatus.encrypted =
+        request.newMode === 'Encrypted'
+      mockState.snapshot.archiveStatus.unlocked =
+        request.newMode === 'Plaintext' ||
+        Boolean(request.newKey && request.newKey.trim())
+      return structuredClone(mockState.snapshot) as T
+    }
     case 'set_session_database_key':
+      mockState.snapshot.archiveStatus.unlocked = true
+      return undefined as T
     case 'clear_session_database_key':
+      mockState.snapshot.archiveStatus.unlocked =
+        mockState.snapshot.config.archiveMode === 'Plaintext'
+      return undefined as T
     case 'reset_local_secret_vault':
       return undefined as T
     case 'open_path_in_file_manager':
       return (
         typeof args?.path === 'string'
           ? args.path
-          : mockSnapshot.directories.appRoot
+          : mockState.snapshot.directories.appRoot
       ) as T
-    case 'run_backup_now':
+    case 'run_backup_now': {
+      if (!mockState.snapshot.config.initialized) {
+        throw new Error('Initialize the archive before running a backup.')
+      }
+      if (mockState.snapshot.config.selectedProfileIds.length === 0) {
+        throw new Error('Select at least one profile before running a backup.')
+      }
+      const finishedAt = new Date().toISOString()
+      const nextRunId = (mockState.snapshot.recentRuns[0]?.id ?? 1847) + 1
+      const run = {
+        id: nextRunId,
+        startedAt: finishedAt,
+        finishedAt,
+        status: 'success',
+        manifestHash: `preview-manifest-${nextRunId}`,
+        profilesProcessed: mockState.snapshot.config.selectedProfileIds.filter(
+          (profileId) => profileId.startsWith('chrome:'),
+        ).length,
+        newVisits: mockState.history.items.length,
+        newUrls: uniqueUrlCount(mockState.history.items),
+        newDownloads: 1,
+      }
+      mockState.snapshot.recentRuns = [run, ...mockState.snapshot.recentRuns]
+      mockState.snapshot.archiveStatus.initialized = true
+      mockState.snapshot.archiveStatus.unlocked = true
+      mockState.snapshot.archiveStatus.lastSuccessfulBackupAt = finishedAt
       return {
         dueSkipped: false,
-        profiles: [],
+        run,
+        profiles: mockState.snapshot.config.selectedProfileIds
+          .filter((profileId) => profileId.startsWith('chrome:'))
+          .map((profileId) => ({
+            profileId,
+            newVisits: 1,
+            newUrls: 1,
+            newDownloads: 1,
+            rawRows: 4,
+            checkpointCreated: true,
+            notes: [],
+          })),
         warnings: [],
         remoteBackup: null,
       } as T
+    }
     case 'query_history':
-      return mockHistory as T
+      return filterMockHistory(mockState, args?.query as HistoryQuery) as T
+    case 'load_dashboard_snapshot':
+      return buildMockDashboardSnapshot(mockState) as T
+    case 'load_audit_run_detail':
+      return buildMockAuditRunDetail(
+        mockState,
+        Number(args?.runId ?? mockState.snapshot.recentRuns[0]?.id ?? 1848),
+      ) as T
     case 'run_insights_now':
       return mockInsightRunReport as T
     case 'load_insights':
@@ -562,21 +807,30 @@ async function call<T>(
         message: 'Remote backup upload is only available in the desktop app.',
       } as T
     case 'keyring_status':
-      return mockSnapshot.keyringStatus as T
+      return structuredClone(mockState.snapshot.keyringStatus) as T
     case 'keyring_get_database_key':
-      return null as T
+      return mockState.keyringSecret as T
     case 'keyring_store_database_key':
+      mockState.keyringSecret =
+        typeof args?.value === 'string' ? args.value : mockState.keyringSecret
+      mockState.snapshot.keyringStatus.storedSecret = Boolean(
+        mockState.keyringSecret,
+      )
+      return structuredClone(mockState.snapshot.keyringStatus) as T
     case 'keyring_clear_database_key':
+      mockState.keyringSecret = null
+      mockState.snapshot.keyringStatus.storedSecret = false
+      return structuredClone(mockState.snapshot.keyringStatus) as T
     case 'store_s3_credentials':
     case 'clear_s3_credentials':
       return {
         available: true,
         backend: 'Mock keyring',
-        storedSecret: command === 'keyring_store_database_key',
+        storedSecret: false,
       } as T
     case 'store_ai_provider_api_key':
     case 'clear_ai_provider_api_key':
-      return structuredClone(mockSnapshot) as T
+      return structuredClone(mockState.snapshot) as T
     case 'build_ai_index':
       return {
         providerId: 'mock-embedding',
@@ -590,10 +844,10 @@ async function call<T>(
       } as T
     case 'search_ai_history':
       return {
-        total: mockHistory.items.length,
+        total: mockState.history.items.length,
         providerId: 'lexical-fallback',
         model: 'none',
-        items: mockHistory.items.map((item, index) => ({
+        items: mockState.history.items.map((item, index) => ({
           historyId: item.id,
           profileId: item.profileId,
           url: item.url,
@@ -611,7 +865,7 @@ async function call<T>(
           'Browser preview mode can show the assistant layout, but real LLM answers only run in the desktop app.',
         providerId: 'preview-llm',
         embeddingProviderId: 'lexical-fallback',
-        citations: mockHistory.items.map((item) => ({
+        citations: mockState.history.items.map((item) => ({
           historyId: item.id,
           profileId: item.profileId,
           url: item.url,
@@ -642,9 +896,17 @@ async function call<T>(
       } as T
     case 'export_history':
       return {
-        format: 'jsonl',
-        path: '/tmp/history-export.jsonl',
-        count: mockHistory.items.length,
+        format: (args?.request as ExportRequest)?.format ?? 'jsonl',
+        path: `/tmp/pathkeep-export-${new Date()
+          .toISOString()
+          .replaceAll(
+            ':',
+            '-',
+          )}.${((args?.request as ExportRequest)?.format ?? 'jsonl').replace('markdown', 'md')}`,
+        count: filterMockHistory(
+          mockState,
+          (args?.request as ExportRequest)?.query,
+        ).items.length,
       } as T
     case 'apply_schedule':
       return {
@@ -660,6 +922,9 @@ async function call<T>(
 
 export const backendTestHarness = {
   call,
+  reset: () => {
+    mockState = createMockState()
+  },
 }
 
 export const backend = {
@@ -678,6 +943,10 @@ export const backend = {
     call<BackupReport>('run_backup_now', { dueOnly }),
   queryHistory: (query: HistoryQuery) =>
     call<HistoryQueryResponse>('query_history', { query }),
+  loadDashboardSnapshot: () =>
+    call<DashboardSnapshot>('load_dashboard_snapshot'),
+  loadAuditRunDetail: (runId: number) =>
+    call<AuditRunDetail>('load_audit_run_detail', { runId }),
   exportHistory: (request: ExportRequest) =>
     call<ExportResult>('export_history', { request }),
   previewRemoteBackup: () => call<RemoteBackupPreview>('preview_remote_backup'),

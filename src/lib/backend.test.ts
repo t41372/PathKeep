@@ -70,11 +70,15 @@ describe('backend facade', () => {
   beforeEach(() => {
     isTauri.mockReturnValue(false)
     invoke.mockReset()
+    backendTestHarness.reset()
   })
 
   test('covers browser preview commands with deterministic mock data', async () => {
     await expect(backend.getAppSnapshot()).resolves.toMatchObject({
-      config: expect.objectContaining({ archiveMode: 'Encrypted' }),
+      config: expect.objectContaining({
+        archiveMode: 'Encrypted',
+        initialized: false,
+      }),
     })
     await expect(backend.getAppBuildInfo()).resolves.toMatchObject({
       productName: 'PathKeep',
@@ -86,12 +90,19 @@ describe('backend facade', () => {
     await expect(
       backend.initializeArchive(config, 'key'),
     ).resolves.toMatchObject({
-      config: expect.objectContaining({ archiveMode: 'Encrypted' }),
+      config: expect.objectContaining({
+        archiveMode: 'Encrypted',
+        initialized: true,
+      }),
+      archiveStatus: expect.objectContaining({
+        initialized: true,
+        unlocked: true,
+      }),
     })
     await expect(
       backend.rekeyArchive({ newMode: 'Plaintext', newKey: null }),
     ).resolves.toMatchObject({
-      config: expect.objectContaining({ archiveMode: 'Encrypted' }),
+      config: expect.objectContaining({ archiveMode: 'Plaintext' }),
     })
     await expect(
       backend.setSessionDatabaseKey('session-key'),
@@ -99,18 +110,31 @@ describe('backend facade', () => {
     await expect(backend.clearSessionDatabaseKey()).resolves.toBeUndefined()
     await expect(backend.runBackupNow()).resolves.toMatchObject({
       dueSkipped: false,
+      run: expect.objectContaining({ status: 'success' }),
+    })
+    await expect(backend.loadDashboardSnapshot()).resolves.toMatchObject({
+      totalVisits: 2,
+      recentRuns: [expect.objectContaining({ status: 'success' })],
+    })
+    await expect(backend.loadAuditRunDetail(1848)).resolves.toMatchObject({
+      run: expect.objectContaining({ id: 1848 }),
+      artifacts: [expect.objectContaining({ kind: 'snapshot' })],
     })
     await expect(
       backend.queryHistory({
         q: 'sqlite',
         domain: null,
         profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
         limit: 10,
       }),
-    ).resolves.toMatchObject({ total: 2 })
+    ).resolves.toMatchObject({ total: 1 })
     await expect(
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
-    ).resolves.toMatchObject({ format: 'jsonl' })
+    ).resolves.toMatchObject({ format: 'jsonl', count: 1 })
     await expect(backend.previewRemoteBackup()).resolves.toMatchObject({
       bundlePath: expect.stringContaining('pathkeep-remote.zip'),
     })
