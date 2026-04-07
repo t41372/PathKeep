@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { backend } from '../../lib/backend'
 import { formatBytes, formatDateTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
 import type { AuditRunDetail } from '../../lib/types'
 
 interface AuditDetailState {
@@ -22,6 +24,7 @@ export function AuditPage() {
     runBackup,
     snapshot,
   } = useShellData()
+  const { language, t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const [detailState, setDetailState] = useState<AuditDetailState>({
     runId: null,
@@ -51,7 +54,7 @@ export function AuditPage() {
             error:
               nextError instanceof Error
                 ? nextError.message
-                : 'PathKeep could not load the selected audit run.',
+                : t('audit.runDetailUnavailable'),
           })
       }
     }
@@ -59,7 +62,7 @@ export function AuditPage() {
     return () => {
       cancelled = true
     }
-  }, [refreshKey, runId])
+  }, [refreshKey, runId, t])
 
   const detail = detailState.runId === runId ? detailState.detail : null
   const error = detailState.runId === runId ? detailState.error : null
@@ -79,14 +82,14 @@ export function AuditPage() {
   if (shellLoading && !snapshot)
     return (
       <section className="page-shell">
-        <LoadingState label="Loading audit ledger" />
+        <LoadingState label={t('audit.loadingLedger')} />
       </section>
     )
   if (shellError && !snapshot)
     return (
       <section className="page-shell">
         <ErrorState
-          title="Audit ledger is unavailable"
+          title={t('audit.unavailableTitle')}
           description={shellError}
         />
       </section>
@@ -98,12 +101,12 @@ export function AuditPage() {
         <EmptyState
           action={
             <Link className="btn-primary" to="/onboarding">
-              Finish onboarding
+              {t('audit.finishOnboarding')}
             </Link>
           }
-          description="Audit records appear after the first successful backup writes a manifest and artifact trail."
-          eyebrow="AUDIT"
-          title="The audit ledger has no archive runs yet"
+          description={t('audit.emptyLedgerBody')}
+          eyebrow={t('navigation.auditLabel')}
+          title={t('audit.emptyLedgerTitle')}
         />
       </section>
     )
@@ -121,12 +124,12 @@ export function AuditPage() {
                 void runBackup()
               }}
             >
-              Run a manual backup
+              {t('audit.runManualBackup')}
             </button>
           }
-          description="The audit ledger will populate as soon as a manual backup finishes and PathKeep writes the manifest chain."
-          eyebrow="AUDIT"
-          title="No backup runs recorded yet"
+          description={t('audit.noRunsBody')}
+          eyebrow={t('navigation.auditLabel')}
+          title={t('audit.noRunsTitle')}
         />
       </section>
     )
@@ -134,20 +137,38 @@ export function AuditPage() {
 
   return (
     <section className="page-shell audit-page" data-testid="audit-page">
-      {/* Manifest Chain Visualization */}
+      <StatusCallout
+        tone="info"
+        title={t('audit.repairRoutesTitle')}
+        body={t('audit.repairRoutesBody')}
+        actions={
+          <>
+            <Link className="btn-secondary" to="/import">
+              {t('audit.repairImports')}
+            </Link>
+            <Link className="btn-secondary" to="/schedule">
+              {t('audit.repairSchedule')}
+            </Link>
+            <Link className="btn-secondary" to="/security">
+              {t('audit.repairSecurity')}
+            </Link>
+          </>
+        }
+      />
+
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">MANIFEST CHAIN</span>
-          <span className="panel-action">Verify integrity</span>
+          <span className="panel-title">{t('audit.manifestChain')}</span>
+          <span className="panel-action">{t('audit.verifyIntegrity')}</span>
         </div>
         <div className="panel-body">
           <div className="chain-viz">
-            {snapshot.recentRuns.slice(0, 4).map((run, i) => (
+            {snapshot.recentRuns.slice(0, 4).map((run, index) => (
               <div key={run.id} style={{ display: 'contents' }}>
-                {i > 0 && <div className="chain-link">→</div>}
-                <div
-                  className={`chain-block ${i >= 3 ? 'older' : ''}`}
-                  style={{ cursor: 'pointer' }}
+                {index > 0 && <div className="chain-link">→</div>}
+                <button
+                  className={`chain-block ${index >= 3 ? 'older' : ''}`}
+                  type="button"
                   onClick={() => {
                     const nextParams = new URLSearchParams(searchParams)
                     nextParams.set('run', String(run.id))
@@ -158,15 +179,17 @@ export function AuditPage() {
                   <div className="chain-meta dim">
                     <div>
                       {run.status.toUpperCase()} · {run.profilesProcessed}{' '}
-                      profiles
+                      {t('dashboard.profilesLabel', {
+                        count: run.profilesProcessed,
+                      })}
                     </div>
                     <div className="mono">
                       {run.manifestHash
                         ? `sha256:${run.manifestHash.slice(0, 8)}...`
-                        : 'pending'}
+                        : t('common.pending')}
                     </div>
                   </div>
-                </div>
+                </button>
               </div>
             ))}
             {snapshot.recentRuns.length > 4 && (
@@ -176,79 +199,80 @@ export function AuditPage() {
         </div>
       </div>
 
-      {/* Run Detail */}
       {loading ? (
-        <LoadingState label="Loading run detail" />
+        <LoadingState label={t('audit.loadingRunDetail')} />
       ) : error ? (
-        <ErrorState title="Run detail is unavailable" description={error} />
+        <ErrorState
+          title={t('audit.runDetailUnavailable')}
+          description={error}
+        />
       ) : detail ? (
         <div className="panel">
           <div className="panel-header">
             <span className="panel-title">
-              RUN #{detail.run.id} · MANIFEST DETAIL
+              {t('audit.manifestDetail', { runId: detail.run.id })}
             </span>
           </div>
           <div className="panel-body">
             <div className="manifest-grid">
               <div className="manifest-field">
-                <span className="field-label">RUN ID</span>
+                <span className="field-label">{t('audit.runId')}</span>
                 <span className="field-value mono">#{detail.run.id}</span>
               </div>
               <div className="manifest-field">
-                <span className="field-label">TYPE</span>
+                <span className="field-label">{t('audit.runType')}</span>
                 <span className="field-value">
                   {detail.trigger === 'manual'
-                    ? 'Manual Backup'
-                    : 'Scheduled Backup'}
+                    ? t('audit.manualBackup')
+                    : t('audit.scheduledBackup')}
                 </span>
               </div>
               <div className="manifest-field">
-                <span className="field-label">SOURCE</span>
+                <span className="field-label">{t('audit.runSource')}</span>
                 <span className="field-value">
-                  {detail.profileScope.join(' · ') || 'Archive-wide'}
+                  {detail.profileScope.join(' · ') || t('audit.archiveWide')}
                 </span>
               </div>
               <div className="manifest-field">
-                <span className="field-label">EXECUTED AT</span>
+                <span className="field-label">{t('audit.executedAt')}</span>
                 <span className="field-value mono">
-                  {formatDateTime(detail.run.startedAt, 'en') ??
+                  {formatDateTime(detail.run.startedAt, language) ??
                     detail.run.startedAt}
                 </span>
               </div>
               <div className="manifest-field">
-                <span className="field-label">MANIFEST HASH</span>
+                <span className="field-label">{t('audit.manifestHash')}</span>
                 <span className="field-value mono">
-                  {detail.manifestHash ?? 'N/A'}
+                  {detail.manifestHash ?? t('common.notAvailable')}
                 </span>
               </div>
               <div className="manifest-field">
-                <span className="field-label">MANIFEST PATH</span>
+                <span className="field-label">{t('audit.manifestPath')}</span>
                 <span className="field-value mono">
-                  {detail.manifestPath ?? 'N/A'}
+                  {detail.manifestPath ?? t('common.notAvailable')}
                 </span>
               </div>
             </div>
             <div className="detail-divider" />
             <div className="manifest-stats">
               <div className="manifest-stat">
-                <span className="dim">New visits</span>
+                <span className="dim">{t('audit.newVisits')}</span>
                 <span className="mono accent">+{detail.run.newVisits}</span>
               </div>
               <div className="manifest-stat">
-                <span className="dim">New URLs</span>
+                <span className="dim">{t('audit.newUrls')}</span>
                 <span className="mono">{detail.run.newUrls}</span>
               </div>
               <div className="manifest-stat">
-                <span className="dim">Downloads</span>
+                <span className="dim">{t('audit.downloads')}</span>
                 <span className="mono">{detail.run.newDownloads}</span>
               </div>
               <div className="manifest-stat">
-                <span className="dim">Profiles</span>
+                <span className="dim">{t('audit.profiles')}</span>
                 <span className="mono">{detail.run.profilesProcessed}</span>
               </div>
             </div>
 
-            {/* Artifacts */}
             {detail.artifacts.length > 0 && (
               <>
                 <div className="detail-divider" />
@@ -257,7 +281,7 @@ export function AuditPage() {
                     className="mono-kicker"
                     style={{ marginBottom: 'var(--space-2)', display: 'block' }}
                   >
-                    ARTIFACTS · {detail.artifacts.length} files
+                    {t('audit.artifacts', { count: detail.artifacts.length })}
                   </span>
                   {detail.artifacts.map((artifact) => (
                     <div
@@ -275,7 +299,7 @@ export function AuditPage() {
                           {artifact.kind} — {artifact.path}
                         </span>
                         <span className="dim mono" style={{ fontSize: '10px' }}>
-                          {formatBytes(artifact.sizeBytes ?? 0)}
+                          {formatBytes(artifact.sizeBytes ?? 0, language)}
                         </span>
                       </div>
                       <div
@@ -292,7 +316,7 @@ export function AuditPage() {
                             void backend.openPathInFileManager(artifact.path)
                           }}
                         >
-                          Open
+                          {t('common.openAction')}
                         </button>
                         <button
                           className="btn-tiny"
@@ -301,12 +325,12 @@ export function AuditPage() {
                             void handleCopyPath(artifact.path)
                           }}
                         >
-                          Copy
+                          {t('common.copyAction')}
                         </button>
                       </div>
                       {copiedPath === artifact.path && (
                         <span className="dim mono" style={{ fontSize: '10px' }}>
-                          Copied
+                          {t('audit.copied')}
                         </span>
                       )}
                     </div>
@@ -315,15 +339,14 @@ export function AuditPage() {
               </>
             )}
 
-            {/* Warnings */}
             {detail.warnings.length > 0 && (
               <>
                 <div className="detail-divider" />
                 <div className="warning-box">
                   <div className="warning-icon">⚠</div>
                   <div className="warning-text">
-                    {detail.warnings.map((w) => (
-                      <div key={w}>{w}</div>
+                    {detail.warnings.map((warning) => (
+                      <div key={warning}>{warning}</div>
                     ))}
                   </div>
                 </div>
@@ -343,7 +366,7 @@ export function AuditPage() {
                       void backend.openPathInFileManager(detail.manifestPath!)
                     }}
                   >
-                    View Manifest
+                    {t('audit.viewManifest')}
                   </button>
                   <button
                     className="btn-secondary"
@@ -352,23 +375,23 @@ export function AuditPage() {
                       void handleCopyPath(detail.manifestPath!)
                     }}
                   >
-                    Copy Path
+                    {t('audit.copyPath')}
                   </button>
                 </>
               )}
             </div>
             {detail.manifestPath && copiedPath === detail.manifestPath && (
               <span className="dim mono" style={{ fontSize: '10px' }}>
-                Copied
+                {t('audit.copied')}
               </span>
             )}
           </div>
         </div>
       ) : (
         <EmptyState
-          description="Click a block in the manifest chain above to inspect run details, artifacts, and the hash trail."
-          eyebrow="DETAIL"
-          title="No audit run selected"
+          description={t('audit.detailEmptyBody')}
+          eyebrow={t('navigation.auditLabel')}
+          title={t('audit.detailEmptyTitle')}
         />
       )}
     </section>

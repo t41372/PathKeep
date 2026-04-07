@@ -35,6 +35,14 @@
 - **Verify**：完成後要在原頁面留下可見的結果訊號，例如 recent run、latest export path、artifact list、warning / no-warning 狀態。
 - **Rollback hint**：凡是會寫入 archive 的流程，都要讓使用者知道之後去哪裡檢查或回滾，而不是只回報「成功」。
 
+### Trust warning grammar
+
+- **Info**：能力存在但仍需閱讀說明，例如 platform summary、可選便利功能、手動安裝入口。
+- **Needs attention**：mismatch、legacy install、部分權限缺失等需要人工確認的狀態。
+- **Blocked / degraded**：Full Disk Access 未授予、keyring unavailable、native schedule 無法安全 apply 之類會改變能力邊界的情境。
+- **Success**：已驗證、可追蹤、可回滾的狀態，而不是單純「看起來沒錯」。
+- warning / callout 不能只是說明文字；要直接附上下一步或修復入口，至少能跳到 Import、Schedule、Security 或 Audit 的對應頁面。
+
 ---
 
 ## 3. 狀態清晰

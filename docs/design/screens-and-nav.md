@@ -1,7 +1,8 @@
 # 畫面與導航結構
 
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。  
-> **目前的具體視覺 source of truth 是 `reference/PathKeep — Desktop UI Design/` 的 designer prototype。**
+> **designer prototype 仍然是目標視覺語言，但目前 repo 內沒有同步帶上 `reference/PathKeep — Desktop UI Design/` 匯出檔。**
+> 在 prototype 重新補回 repo 之前，這份文檔與 [design-tokens.md](design-tokens.md) 視為現行 source of truth。
 > production token source of truth 是 [design-tokens.md](design-tokens.md)；新增 token 時要同步更新文檔與 `src/styles/tokens.css`。
 > 如果 prototype 缺少某個畫面或狀態，才用 Stitch / 補充設計決策補齊；補齊時仍需維持和 prototype 一致的視覺語言與導航結構。
 
@@ -38,5 +39,6 @@
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
 - Onboarding shell header 必須有明確的 `Exit setup` 動作；離開後保留目前已選的 storage / profile / security 決策，避免把使用者困在 setup route。
-- Schedule / Security 在 M1 是 review surface：先顯示 preview、artifact 和 trust copy，不在導航層暗示背景自動執行。
+- Schedule / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings 也要能透過 callout / quick action 直接跳回這些修復頁，而不是把排障資訊藏在單一路由裡。
 - Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態與 theme toggle 在不捲動主內容區的情況下也要可見。
+- Settings 擁有 day-one 語言切換與平台 troubleshooting；Schedule 擁有 platform-specific Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。

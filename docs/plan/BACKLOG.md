@@ -13,10 +13,6 @@
 
 ### M3 — Intelligence
 
-- [ ] **WORK-M3-A** — Providers, Queue, And Indexing `[!blocked: 需要 WORK-M2-B]`
-  - 讀先：`docs/features/intelligence.md`、`docs/plan/m3-intelligence/providers-indexing-and-jobs.md`
-  - 目標：完成 AI provider 設定、job queue、embedding / semantic index foundation
-
 - [ ] **WORK-M3-B** — Search, Assistant, And Insights `[!blocked: 需要 WORK-M3-A]`
   - 讀先：`docs/features/intelligence.md`、`docs/design/screens-and-nav.md`、`docs/plan/m3-intelligence/search-assistant-and-insights.md`
   - 目標：完成 semantic search、assistant、insights v1 與 evidence UX

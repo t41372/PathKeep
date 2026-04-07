@@ -81,6 +81,7 @@
   - 如果原生排程已安裝，Schedule 頁也必須提供明確的移除 / 解除安裝 CTA，而不是要求使用者自己回到系統資料夾手動刪檔。
   - 安裝結果記入審計日誌。
   - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。
+- Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
 
 ### 平台注意事項
@@ -108,6 +109,7 @@
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
+- Import review surface 應把 preview、recent batch detail、revert / restore、doctor report 與 repair CTA 放在同一條 trust workflow 裡，避免使用者切頁後失去驗證上下文。
 - 提供詳細的操作指南：怎麼從 Google Takeout 請求導出、怎麼下載、怎麼找到歷史紀錄文件。
 
 ### 瀏覽器直接導入
@@ -159,9 +161,10 @@
 - 加密方案：
   - 使用隨機數據庫金鑰，由用戶主密碼經 Argon2id 導出的金鑰包裝。
   - 包裝後的 secret 存入 Stronghold vault（Tauri 提供的加密安全存儲，類似於 macOS Keychain 但跨平台）。
-  - 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
+- 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
+- keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
 - **密碼遺忘等於數據丟失**：UI 中必須有明確、醒目的警告，要求用戶把密碼妥善保存，並且告知風險。
 

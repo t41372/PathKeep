@@ -4,8 +4,10 @@ import { useShellData } from '../../app/shell-data-context'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
 import { formatRelativeTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
 import type {
   ArchiveMode,
   RekeyPreview,
@@ -37,6 +39,7 @@ function waitForNextPaint() {
 
 export function SecurityPage() {
   const { loading, refreshAppData, refreshKey, snapshot } = useShellData()
+  const { language, t } = useI18n()
   const [loadState, setLoadState] = useState<SecurityLoadState>({
     status: null,
     error: null,
@@ -69,7 +72,7 @@ export function SecurityPage() {
             error:
               nextError instanceof Error
                 ? nextError.message
-                : 'PathKeep could not read the current security posture.',
+                : t('security.unavailableBody'),
           })
       }
     }
@@ -77,7 +80,7 @@ export function SecurityPage() {
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [refreshKey, t])
 
   const status = loadState.status
   const pageError = loadState.error
@@ -105,7 +108,7 @@ export function SecurityPage() {
       setActionError(
         nextError instanceof Error
           ? nextError.message
-          : 'PathKeep could not complete the security action.',
+          : t('common.unavailable'),
       )
     } finally {
       setBusy(null)
@@ -115,54 +118,52 @@ export function SecurityPage() {
   async function handleUnlock() {
     const trimmedKey = sessionKey.trim()
     if (!trimmedKey) {
-      setActionError('Enter the current archive key before unlocking.')
+      setActionError(t('security.currentDatabaseKeyPlaceholder'))
       return
     }
 
-    await withBusy('Unlocking archive', async () => {
+    await withBusy(t('security.unlockArchive'), async () => {
       await backend.setSessionDatabaseKey(trimmedKey)
-      await reloadAfterAction('Archive unlocked for Explorer and Audit.')
+      await reloadAfterAction(t('security.sessionUnlocked'))
       setSessionKey('')
     })
   }
 
   async function handleUnlockFromKeyring() {
-    await withBusy('Reading keyring', async () => {
+    await withBusy(t('security.useKeyring'), async () => {
       const key = await backend.keyringGetDatabaseKey()
       if (!key) {
-        throw new Error('No database key is stored in the native keyring.')
+        throw new Error(t('platform.keyringTitle'))
       }
       await backend.setSessionDatabaseKey(key)
-      await reloadAfterAction('Archive unlocked using the native keyring.')
+      await reloadAfterAction(t('security.sessionUnlocked'))
     })
   }
 
   async function handleStoreKeyringKey() {
     const trimmedKey = sessionKey.trim()
     if (!trimmedKey) {
-      setActionError('Enter a database key before storing it in the keyring.')
+      setActionError(t('security.currentDatabaseKeyPlaceholder'))
       return
     }
 
-    await withBusy('Saving keyring secret', async () => {
+    await withBusy(t('security.storeInKeyring'), async () => {
       await backend.keyringStoreDatabaseKey(trimmedKey)
-      await reloadAfterAction('Database key saved to the native keyring.')
+      await reloadAfterAction(t('security.storeInKeyring'))
     })
   }
 
   async function handleClearKeyring() {
-    await withBusy('Clearing keyring secret', async () => {
+    await withBusy(t('security.clearKeyring'), async () => {
       await backend.keyringClearDatabaseKey()
-      await reloadAfterAction('Stored database key removed from the keyring.')
+      await reloadAfterAction(t('security.clearKeyring'))
     })
   }
 
   async function handleLockArchive() {
-    await withBusy('Locking archive', async () => {
+    await withBusy(t('security.lockArchive'), async () => {
       await backend.clearSessionDatabaseKey()
-      await reloadAfterAction(
-        'Archive session cleared. Explorer and Audit are locked again.',
-      )
+      await reloadAfterAction(t('security.sessionLocked'))
     })
   }
 
@@ -174,12 +175,10 @@ export function SecurityPage() {
       newKey: rekeyMode === 'Encrypted' ? rekeyKey : null,
     }
 
-    await withBusy('Previewing re-key', async () => {
+    await withBusy(t('security.previewRekey'), async () => {
       const nextPreview = await backend.previewRekeyArchive(request)
       setPreview(nextPreview)
-      setNotice(
-        'Preview generated. Review the snapshot path and rewrite steps before execute.',
-      )
+      setNotice(t('security.previewBeforeExecute'))
     })
   }
 
@@ -192,13 +191,11 @@ export function SecurityPage() {
     }
 
     if (request.newMode === 'Encrypted' && !request.newKey?.trim()) {
-      setActionError(
-        'Encrypted re-key needs a new database key before execute.',
-      )
+      setActionError(t('security.newDatabaseKeyPlaceholder'))
       return
     }
 
-    await withBusy('Executing re-key', async () => {
+    await withBusy(t('security.executeRekey'), async () => {
       await backend.rekeyArchive(request)
       if (request.newMode === 'Encrypted' && saveRekeyKey && request.newKey) {
         await backend.keyringStoreDatabaseKey(request.newKey)
@@ -206,9 +203,7 @@ export function SecurityPage() {
       if (request.newMode === 'Plaintext') {
         await backend.keyringClearDatabaseKey()
       }
-      await reloadAfterAction(
-        'Archive re-key completed. Review the safety snapshot and verify Explorer access.',
-      )
+      await reloadAfterAction(t('security.executeRekey'))
       setPreview(null)
       setRekeyKey('')
     })
@@ -217,19 +212,16 @@ export function SecurityPage() {
   if (loading && !snapshot)
     return (
       <section className="page-shell">
-        <LoadingState label="Loading security posture" />
+        <LoadingState label={t('security.loadingPosture')} />
       </section>
     )
   if (!snapshot || !status) {
     return (
       <section className="page-shell">
         <EmptyState
-          description={
-            pageError ??
-            'PathKeep needs the local app snapshot before it can describe the current encryption and keyring posture.'
-          }
-          eyebrow="SECURITY"
-          title="Security posture is unavailable"
+          description={pageError ?? t('security.unavailableBody')}
+          eyebrow={t('navigation.securityLabel')}
+          title={t('security.unavailableTitle')}
         />
       </section>
     )
@@ -241,12 +233,12 @@ export function SecurityPage() {
         <EmptyState
           action={
             <Link className="btn-primary" to="/onboarding">
-              Initialize archive first
+              {t('security.initFirstAction')}
             </Link>
           }
-          description="Security review becomes meaningful after onboarding creates the archive and the first backup writes the baseline manifest chain."
-          eyebrow="SECURITY"
-          title="The archive has not been initialized yet"
+          description={t('security.notInitializedBody')}
+          eyebrow={t('navigation.securityLabel')}
+          title={t('security.notInitializedTitle')}
         />
       </section>
     )
@@ -254,9 +246,22 @@ export function SecurityPage() {
 
   return (
     <section className="page-shell security-page" data-testid="security-page">
+      {!status.keyringStatus.available ? (
+        <StatusCallout
+          tone="blocked"
+          title={t('platform.keyringTitle')}
+          body={t('platform.keyringBody')}
+          actions={
+            <Link className="btn-secondary" to="/settings">
+              {t('navigation.settingsLabel')}
+            </Link>
+          }
+        />
+      ) : null}
+
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">ENCRYPTION STATUS</span>
+          <span className="panel-title">{t('security.encryptionStatus')}</span>
         </div>
         <div className="panel-body">
           <div className="security-status">
@@ -267,12 +272,14 @@ export function SecurityPage() {
             </div>
             <div className="security-info">
               <div className="security-state">
-                Archive is <strong>{securityModeLabel(status)}</strong>
+                {t('security.archiveIs', {
+                  mode: securityModeLabel(status),
+                })}
               </div>
               <div className="security-detail dim mono">
                 {status.encrypted
-                  ? 'SQLCipher at rest · unlock required before read access'
-                  : 'Standard SQLite archive · disk encryption depends on the host system'}
+                  ? t('security.encryptedDetail')
+                  : t('security.plaintextDetail')}
               </div>
             </div>
           </div>
@@ -281,38 +288,40 @@ export function SecurityPage() {
 
           <div className="security-fields">
             <div className="config-row">
-              <span className="config-label">Keyring</span>
+              <span className="config-label">{t('security.keyring')}</span>
               <span className="config-value">
                 {status.keyringStatus.backend}
                 {status.keyringStatus.storedSecret
-                  ? ' (database key stored)'
-                  : ' (no stored database key)'}
+                  ? ` (${t('settings.enabled')})`
+                  : ` (${t('settings.disabled')})`}
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Session Status</span>
+              <span className="config-label">
+                {t('security.sessionStatus')}
+              </span>
               <span className="config-value">
                 {status.unlocked
-                  ? 'Archive is currently unlocked'
-                  : 'Archive is locked — Explorer and Audit remain read-blocked'}
+                  ? t('security.sessionUnlocked')
+                  : t('security.sessionLocked')}
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Last Backup</span>
+              <span className="config-label">{t('security.lastBackup')}</span>
               <span className="config-value mono">
                 {status.lastSuccessfulBackupAt
-                  ? formatRelativeTime(status.lastSuccessfulBackupAt)
-                  : 'N/A'}
+                  ? formatRelativeTime(status.lastSuccessfulBackupAt, language)
+                  : t('common.notAvailable')}
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Stronghold</span>
+              <span className="config-label">{t('security.stronghold')}</span>
               <span className="config-value mono dim">
                 {status.strongholdPath}
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Archive Path</span>
+              <span className="config-label">{t('security.archivePath')}</span>
               <span className="config-value mono dim">
                 {status.databasePath}
               </span>
@@ -329,9 +338,8 @@ export function SecurityPage() {
             <div className="warning-box">
               <div className="warning-icon">⚠</div>
               <div className="warning-text">
-                <strong>Password loss = data loss.</strong> PathKeep does not
-                have a recovery backdoor. Keep the current or future database
-                key in a secure place before re-keying.
+                <strong>{t('security.passwordLossTitle')}</strong>{' '}
+                {t('security.passwordLossBody')}
               </div>
             </div>
           )}
@@ -340,21 +348,27 @@ export function SecurityPage() {
 
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">UNLOCK + KEYRING</span>
+          <span className="panel-title">
+            {t('security.unlockKeyringTitle')}
+          </span>
           <span className="panel-action">
-            {status.unlocked ? 'Session active' : 'Needs unlock'}
+            {status.unlocked
+              ? t('security.sessionActive')
+              : t('security.needsUnlock')}
           </span>
         </div>
         <div className="panel-body">
           <div className="security-form-grid">
             <label className="field-stack">
-              <span className="mono-kicker">CURRENT DATABASE KEY</span>
+              <span className="mono-kicker">
+                {t('security.currentDatabaseKey')}
+              </span>
               <input
-                aria-label="Current database key"
+                aria-label={t('security.currentDatabaseKey')}
                 type="password"
                 value={sessionKey}
                 onChange={(event) => setSessionKey(event.target.value)}
-                placeholder="Enter current archive key"
+                placeholder={t('security.currentDatabaseKeyPlaceholder')}
               />
             </label>
           </div>
@@ -367,14 +381,18 @@ export function SecurityPage() {
                   type="button"
                   onClick={() => void handleUnlock()}
                 >
-                  {busy === 'Unlocking archive' ? busy : 'Unlock archive'}
+                  {busy === t('security.unlockArchive')
+                    ? busy
+                    : t('security.unlockArchive')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
                   onClick={() => void handleUnlockFromKeyring()}
                 >
-                  {busy === 'Reading keyring' ? busy : 'Use keyring'}
+                  {busy === t('security.useKeyring')
+                    ? busy
+                    : t('security.useKeyring')}
                 </button>
               </>
             ) : status.encrypted ? (
@@ -383,7 +401,9 @@ export function SecurityPage() {
                 type="button"
                 onClick={() => void handleLockArchive()}
               >
-                {busy === 'Locking archive' ? busy : 'Lock archive'}
+                {busy === t('security.lockArchive')
+                  ? busy
+                  : t('security.lockArchive')}
               </button>
             ) : null}
             <button
@@ -391,35 +411,37 @@ export function SecurityPage() {
               type="button"
               onClick={() => void handleStoreKeyringKey()}
             >
-              {busy === 'Saving keyring secret' ? busy : 'Store in keyring'}
+              {busy === t('security.storeInKeyring')
+                ? busy
+                : t('security.storeInKeyring')}
             </button>
             <button
               className="btn-secondary"
               type="button"
               onClick={() => void handleClearKeyring()}
             >
-              {busy === 'Clearing keyring secret' ? busy : 'Clear keyring'}
+              {busy === t('security.clearKeyring')
+                ? busy
+                : t('security.clearKeyring')}
             </button>
           </div>
-          <p className="mono-support">
-            Storing the key in the native keyring is optional convenience
-            unlock. PathKeep still keeps the archive local-first and does not
-            upload secrets anywhere.
-          </p>
+          <p className="mono-support">{t('security.keyringConvenience')}</p>
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">RE-KEY PREVIEW</span>
-          <span className="panel-action">Preview before execute</span>
+          <span className="panel-title">{t('security.rekeyTitle')}</span>
+          <span className="panel-action">
+            {t('security.previewBeforeExecute')}
+          </span>
         </div>
         <div className="panel-body">
           <div className="security-form-grid">
             <label className="field-stack">
-              <span className="mono-kicker">TARGET MODE</span>
+              <span className="mono-kicker">{t('security.targetMode')}</span>
               <select
-                aria-label="Target archive mode"
+                aria-label={t('security.targetMode')}
                 value={rekeyMode}
                 onChange={(event) => {
                   setPreview(null)
@@ -432,13 +454,15 @@ export function SecurityPage() {
             </label>
             {rekeyMode === 'Encrypted' && (
               <label className="field-stack">
-                <span className="mono-kicker">NEW DATABASE KEY</span>
+                <span className="mono-kicker">
+                  {t('security.newDatabaseKey')}
+                </span>
                 <input
-                  aria-label="New database key"
+                  aria-label={t('security.newDatabaseKey')}
                   type="password"
                   value={rekeyKey}
                   onChange={(event) => setRekeyKey(event.target.value)}
-                  placeholder="Enter the replacement archive key"
+                  placeholder={t('security.newDatabaseKeyPlaceholder')}
                 />
               </label>
             )}
@@ -454,9 +478,7 @@ export function SecurityPage() {
                 checked={saveRekeyKey}
                 onChange={(event) => setSaveRekeyKey(event.target.checked)}
               />
-              <span>
-                Store the new database key in the native keyring after execute
-              </span>
+              <span>{t('security.storeNewKey')}</span>
             </label>
           )}
 
@@ -468,7 +490,9 @@ export function SecurityPage() {
                 void handlePreviewRekey()
               }}
             >
-              {busy === 'Previewing re-key' ? busy : 'Preview re-key'}
+              {busy === t('security.previewRekey')
+                ? busy
+                : t('security.previewRekey')}
             </button>
             <button
               className={
@@ -480,7 +504,9 @@ export function SecurityPage() {
                 void handleExecuteRekey()
               }}
             >
-              {busy === 'Executing re-key' ? busy : 'Execute re-key'}
+              {busy === t('security.executeRekey')
+                ? busy
+                : t('security.executeRekey')}
             </button>
           </div>
 
@@ -490,17 +516,23 @@ export function SecurityPage() {
               style={{ marginTop: 'var(--space-4)' }}
             >
               <div className="manual-step">
-                <span className="step-num-inline mono">MODE</span>
+                <span className="step-num-inline mono">
+                  {t('security.mode')}
+                </span>
                 <span>
                   {preview.currentMode} → {preview.nextMode}
                 </span>
               </div>
               <div className="manual-step">
-                <span className="step-num-inline mono">SNAPSHOT</span>
+                <span className="step-num-inline mono">
+                  {t('security.snapshot')}
+                </span>
                 <span className="mono">{preview.snapshotPath}</span>
               </div>
               <div className="manual-step">
-                <span className="step-num-inline mono">TEMP</span>
+                <span className="step-num-inline mono">
+                  {t('security.temporaryDatabase')}
+                </span>
                 <span className="mono">{preview.tempDatabasePath}</span>
               </div>
               {preview.steps.map((step, index) => (

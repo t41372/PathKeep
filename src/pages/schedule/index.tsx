@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { useShellData } from '../../app/shell-data-context'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
+import { useShellData } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend'
 import { formatRelativeTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
+import {
+  platformLabelKey,
+  platformSummaryKey,
+} from '../../lib/platform-guidance'
 import type { ApplyResult, SchedulePlan, ScheduleStatus } from '../../lib/types'
 
 interface ScheduleLoadState {
@@ -31,52 +37,6 @@ function waitForNextPaint() {
   })
 }
 
-function scheduleBadge(status: ScheduleStatus | null) {
-  if (!status) return { className: 'status-pending', label: 'Loading' }
-
-  if (status.installState === 'installed') {
-    return { className: 'status-completed', label: 'Installed' }
-  }
-
-  if (
-    status.installState === 'mismatch' ||
-    status.installState === 'permission-warning' ||
-    status.installState === 'legacy-install-detected'
-  ) {
-    return { className: 'status-pending', label: 'Attention' }
-  }
-
-  if (status.installState === 'manual-review') {
-    return { className: 'status-pending', label: 'Manual review' }
-  }
-
-  return { className: 'status-pending', label: 'Not installed' }
-}
-
-function describeInstallState(status: ScheduleStatus) {
-  if (status.installState === 'installed') {
-    return 'Native schedule files match the current PathKeep plan.'
-  }
-
-  if (status.installState === 'mismatch') {
-    return 'Installed files exist, but they no longer match the current preview.'
-  }
-
-  if (status.installState === 'permission-warning') {
-    return 'PathKeep could not inspect the installed files cleanly on this machine.'
-  }
-
-  if (status.installState === 'legacy-install-detected') {
-    return 'A legacy install is still present. Review it before trusting this schedule.'
-  }
-
-  if (status.installState === 'manual-review') {
-    return 'This platform stays manual-first in v1. Verify it using the documented steps.'
-  }
-
-  return 'No installed native schedule was detected yet.'
-}
-
 function joinCommand(command: string[]) {
   return command
     .map((part) => (part.includes(' ') ? `"${part}"` : part))
@@ -85,6 +45,7 @@ function joinCommand(command: string[]) {
 
 export function SchedulePage() {
   const { refreshAppData, refreshKey, snapshot } = useShellData()
+  const { language, t } = useI18n()
   const [loadState, setLoadState] = useState<ScheduleLoadState>({
     requestKey: -1,
     plan: null,
@@ -124,7 +85,7 @@ export function SchedulePage() {
             error:
               nextError instanceof Error
                 ? nextError.message
-                : 'PathKeep could not preview the native schedule.',
+                : t('schedule.unavailableBody'),
           })
       }
     }
@@ -132,22 +93,43 @@ export function SchedulePage() {
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [refreshKey, t])
 
   const plan = loadState.requestKey === refreshKey ? loadState.plan : null
   const status = loadState.requestKey === refreshKey ? loadState.status : null
   const error = loadState.requestKey === refreshKey ? loadState.error : null
   const loading = loadState.requestKey !== refreshKey
   const selectedFile = plan?.generatedFiles[selectedFileIndex] ?? null
-  const badge = scheduleBadge(status)
   const lastBackup =
     status?.lastSuccessfulBackupAt ??
     snapshot?.archiveStatus.lastSuccessfulBackupAt
 
+  const badge =
+    status?.installState === 'installed'
+      ? t('schedule.installedBadge')
+      : status?.installState === 'manual-review'
+        ? t('schedule.manualReviewBadge')
+        : status?.installState === 'not-installed'
+          ? t('schedule.notInstalledBadge')
+          : t('schedule.attentionBadge')
+
+  const installDescription =
+    status?.installState === 'installed'
+      ? t('schedule.installedDescription')
+      : status?.installState === 'mismatch'
+        ? t('schedule.mismatchDescription')
+        : status?.installState === 'permission-warning'
+          ? t('schedule.permissionWarningDescription')
+          : status?.installState === 'legacy-install-detected'
+            ? t('schedule.legacyInstallDescription')
+            : status?.installState === 'manual-review'
+              ? t('schedule.manualReviewDescription')
+              : t('schedule.notInstalledDescription')
+
   async function handleApply() {
     if (!plan) return
 
-    setBusy('Applying native schedule')
+    setBusy(t('schedule.applySchedule'))
     setActionError(null)
     setExecutionResult(null)
 
@@ -160,7 +142,7 @@ export function SchedulePage() {
       setActionError(
         nextError instanceof Error
           ? nextError.message
-          : 'PathKeep could not apply the native schedule.',
+          : t('common.unavailable'),
       )
     } finally {
       setBusy(null)
@@ -170,7 +152,7 @@ export function SchedulePage() {
   async function handleRemove() {
     if (!plan) return
 
-    setBusy('Removing native schedule')
+    setBusy(t('schedule.removeSchedule'))
     setActionError(null)
     setExecutionResult(null)
 
@@ -183,7 +165,7 @@ export function SchedulePage() {
       setActionError(
         nextError instanceof Error
           ? nextError.message
-          : 'PathKeep could not remove the native schedule.',
+          : t('common.unavailable'),
       )
     } finally {
       setBusy(null)
@@ -193,72 +175,81 @@ export function SchedulePage() {
   if (loading && !plan)
     return (
       <section className="page-shell">
-        <LoadingState label="Rendering native schedule preview" />
+        <LoadingState label={t('schedule.loadingPreview')} />
       </section>
     )
   if (error || !plan || !status)
     return (
       <section className="page-shell">
         <ErrorState
-          title="Schedule preview unavailable"
-          description={
-            error ?? 'PathKeep could not render the native schedule artifacts.'
-          }
+          title={t('schedule.unavailableTitle')}
+          description={error ?? t('schedule.unavailableBody')}
         />
       </section>
     )
 
   return (
     <section className="page-shell schedule-page" data-testid="schedule-page">
+      <StatusCallout
+        tone={
+          status.installState === 'installed'
+            ? 'success'
+            : status.installState === 'not-installed'
+              ? 'info'
+              : 'blocked'
+        }
+        title={t(platformLabelKey(status.platform))}
+        body={t(platformSummaryKey(status.platform))}
+      />
+
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">BACKUP SCHEDULE</span>
-          <span className={`status-badge ${badge.className}`}>
-            {badge.label}
-          </span>
+          <span className="panel-title">{t('schedule.backupSchedule')}</span>
+          <span className="status-badge">{badge}</span>
         </div>
         <div className="panel-body">
           <div className="schedule-config">
             <div className="config-row">
-              <span className="config-label">Install State</span>
-              <span className="config-value">
-                {describeInstallState(status)}
-              </span>
+              <span className="config-label">{t('schedule.installState')}</span>
+              <span className="config-value">{installDescription}</span>
             </div>
             <div className="config-row">
-              <span className="config-label">Interval</span>
+              <span className="config-label">{t('schedule.interval')}</span>
               <span className="config-value mono">
                 Every {status.dueAfterHours} hours
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Verification</span>
+              <span className="config-label">{t('schedule.verification')}</span>
               <span className="config-value mono">
                 Check every {status.checkIntervalHours} hours
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Mechanism</span>
+              <span className="config-label">{t('schedule.mechanism')}</span>
               <span className="config-value mono">
-                {status.platform === 'macos'
-                  ? 'macOS LaunchAgent'
-                  : status.platform}
+                {t(platformLabelKey(status.platform))}
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Last Triggered</span>
+              <span className="config-label">
+                {t('schedule.lastTriggered')}
+              </span>
               <span className="config-value mono">
-                {lastBackup ? formatRelativeTime(lastBackup) : 'N/A'}
+                {lastBackup
+                  ? formatRelativeTime(lastBackup, language)
+                  : t('common.notAvailable')}
               </span>
             </div>
             <div className="config-row">
-              <span className="config-label">Label</span>
+              <span className="config-label">{t('schedule.label')}</span>
               <span className="config-value mono">{status.label}</span>
             </div>
             <div className="config-row">
-              <span className="config-label">Profiles</span>
+              <span className="config-label">{t('schedule.profiles')}</span>
               <span className="config-value">
-                {snapshot?.config.selectedProfileIds.join(', ') ?? 'None'}
+                {snapshot?.config.selectedProfileIds.join(', ') ??
+                  t('common.notAvailable')}
               </span>
             </div>
           </div>
@@ -274,39 +265,32 @@ export function SchedulePage() {
 
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">SCHEDULE PME</span>
+          <span className="panel-title">{t('schedule.pmeTitle')}</span>
           <div className="pme-tabs">
-            <button
-              className={`pme-tab ${pmeTab === 'preview' ? 'active' : ''}`}
-              type="button"
-              onClick={() => setPmeTab('preview')}
-            >
-              PREVIEW
-            </button>
-            <button
-              className={`pme-tab ${pmeTab === 'manual' ? 'active' : ''}`}
-              type="button"
-              onClick={() => setPmeTab('manual')}
-            >
-              MANUAL
-            </button>
-            <button
-              className={`pme-tab ${pmeTab === 'execute' ? 'active' : ''}`}
-              type="button"
-              onClick={() => setPmeTab('execute')}
-            >
-              EXECUTE
-            </button>
+            {(['preview', 'manual', 'execute'] as PmeTab[]).map((tab) => (
+              <button
+                key={tab}
+                className={`pme-tab ${pmeTab === tab ? 'active' : ''}`}
+                type="button"
+                onClick={() => setPmeTab(tab)}
+              >
+                {tab === 'preview'
+                  ? t('common.previewTab')
+                  : tab === 'manual'
+                    ? t('common.manualTab')
+                    : t('common.executeTab')}
+              </button>
+            ))}
           </div>
         </div>
         <div className="panel-body">
           {pmeTab === 'preview' && (
             <>
-              <div className="summary-label">PREVIEW BOUNDARY</div>
+              <div className="summary-label">
+                {t('schedule.previewBoundary')}
+              </div>
               <p className="dashboard-next-action">
-                Review the exact artifact PathKeep would install before trusting
-                any native automation. This page never assumes the install state
-                without reading the platform status surface.
+                {t('schedule.previewBody')}
               </p>
               {plan.generatedFiles.length > 0 ? (
                 <>
@@ -352,7 +336,7 @@ export function SchedulePage() {
                               )
                             }}
                           >
-                            Open path
+                            {t('common.openPath')}
                           </button>
                         </div>
                       )}
@@ -361,8 +345,7 @@ export function SchedulePage() {
                 </>
               ) : (
                 <div className="dim" style={{ fontSize: '12px' }}>
-                  No generated files are available in browser preview mode. Open
-                  the desktop build to inspect the full native artifact.
+                  {t('schedule.noGeneratedFiles')}
                 </div>
               )}
             </>
@@ -393,7 +376,7 @@ export function SchedulePage() {
                       void backend.openPathInFileManager(status.auditPath ?? '')
                     }}
                   >
-                    Open latest scheduler audit
+                    {t('schedule.openLatestAudit')}
                   </button>
                 </div>
               )}
@@ -403,18 +386,19 @@ export function SchedulePage() {
           {pmeTab === 'execute' && (
             <div className="manual-steps">
               <div className="manual-step">
-                <span className="step-num-inline mono">RUN</span>
-                <span>
-                  Execute installs or updates the current native schedule plan.
-                  Review the preview artifact and warnings first.
+                <span className="step-num-inline mono">
+                  {t('schedule.executeRun')}
                 </span>
+                <span>{t('schedule.executeBody')}</span>
               </div>
               {plan.applyCommands.map((command, index) => (
                 <div
                   key={`${command.join(' ')}-${index}`}
                   className="code-panel"
                 >
-                  <div className="summary-label">APPLY COMMAND {index + 1}</div>
+                  <div className="summary-label">
+                    {t('schedule.applyCommand', { index: index + 1 })}
+                  </div>
                   <pre className="code-block">
                     <code>{joinCommand(command)}</code>
                   </pre>
@@ -426,7 +410,7 @@ export function SchedulePage() {
                   className="code-panel"
                 >
                   <div className="summary-label">
-                    ROLLBACK COMMAND {index + 1}
+                    {t('schedule.rollbackCommand', { index: index + 1 })}
                   </div>
                   <pre className="code-block">
                     <code>{joinCommand(command)}</code>
@@ -444,12 +428,8 @@ export function SchedulePage() {
                   <div className="warning-text">
                     <strong>
                       {executionResult.mode === 'apply'
-                        ? executionResult.result.applied
-                          ? 'Schedule updated.'
-                          : 'Apply stayed read-only.'
-                        : executionResult.result.applied
-                          ? 'Schedule removed.'
-                          : 'Remove stayed read-only.'}
+                        ? t('schedule.applySchedule')
+                        : t('schedule.removeSchedule')}
                     </strong>{' '}
                     {executionResult.result.message}
                   </div>
@@ -468,16 +448,15 @@ export function SchedulePage() {
                     void handleApply()
                   }}
                 >
-                  {busy === 'Applying native schedule'
+                  {busy === t('schedule.applySchedule')
                     ? busy
-                    : 'Apply schedule'}
+                    : t('schedule.applySchedule')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
                   disabled={
                     busy !== null ||
-                    !snapshot?.config.initialized ||
                     !plan.applySupported ||
                     (status.installState === 'not-installed' &&
                       status.detectedFiles.length === 0)
@@ -486,9 +465,9 @@ export function SchedulePage() {
                     void handleRemove()
                   }}
                 >
-                  {busy === 'Removing native schedule'
+                  {busy === t('schedule.removeSchedule')
                     ? busy
-                    : 'Remove schedule'}
+                    : t('schedule.removeSchedule')}
                 </button>
                 {executionResult?.result.auditPath ? (
                   <button
@@ -500,14 +479,13 @@ export function SchedulePage() {
                       )
                     }}
                   >
-                    Open scheduler audit
+                    {t('schedule.openSchedulerAudit')}
                   </button>
                 ) : null}
               </div>
               {!snapshot?.config.initialized && (
                 <p className="mono-support">
-                  Initialize the archive first, then return here to apply the
-                  reviewed native schedule.
+                  {t('schedule.initializeArchiveFirst')}
                 </p>
               )}
             </div>

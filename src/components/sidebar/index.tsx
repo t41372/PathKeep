@@ -1,6 +1,7 @@
 import { sidebarSections } from '../../app/router'
 import { useShellData } from '../../app/shell-data-context'
 import { formatBytes } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
 import { BrandMark } from '../brand-mark'
 import { SidebarNavItem } from './nav-item'
 
@@ -10,17 +11,21 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+  const { language, t } = useI18n()
   const { buildInfo, dashboard, snapshot } = useShellData()
 
   const archiveLabel = snapshot?.archiveStatus.warning
-    ? 'Archive attention needed'
+    ? t('navigation.archiveAttentionNeeded')
     : snapshot?.config.initialized
-      ? 'Archive healthy'
-      : 'Archive not initialized'
+      ? t('navigation.archiveHealthy')
+      : t('navigation.archiveNotInitialized')
   const runtimeLabel = snapshot?.archiveStatus.encrypted
-    ? 'Encrypted archive'
-    : 'Plaintext archive'
-  const archiveSize = formatBytes(dashboard?.storage.archiveDatabaseBytes)
+    ? t('navigation.encryptedArchive')
+    : t('navigation.plaintextArchive')
+  const archiveSize = formatBytes(
+    dashboard?.storage.archiveDatabaseBytes,
+    language,
+  )
 
   function toggleTheme() {
     const html = document.documentElement
@@ -31,7 +36,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className="sidebar"
-      aria-label="Primary"
+      aria-label={t('navigation.coreSection')}
       data-collapsed={collapsed ? 'true' : 'false'}
     >
       <div className="sidebar-header">
@@ -42,12 +47,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <div className="logo-text">
             <span className="logo-name">PATHKEEP</span>
             <span className="logo-version">
-              {buildInfo ? `v${buildInfo.version}` : 'Loading build'}
+              {buildInfo
+                ? `v${buildInfo.version}`
+                : t('navigation.loadingBuild')}
             </span>
           </div>
         </div>
         <button
-          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          aria-label={
+            collapsed
+              ? t('navigation.expandNavigation')
+              : t('navigation.collapseNavigation')
+          }
           className="sidebar-toggle"
           type="button"
           onClick={onToggle}
@@ -59,7 +70,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <nav className="nav-main">
         {sidebarSections.map((section) => (
           <div key={section.label} className="nav-section">
-            <div className="nav-section-label">{section.label}</div>
+            <div className="nav-section-label">
+              {section.labelKey ? t(section.labelKey) : section.label}
+            </div>
             {section.items.map((item) => (
               <SidebarNavItem
                 key={item.id}
@@ -91,7 +104,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <button
           className="theme-toggle"
           type="button"
-          aria-label="Toggle theme"
+          aria-label={t('navigation.toggleTheme')}
           onClick={toggleTheme}
         >
           <span>◐</span>

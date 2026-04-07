@@ -2,7 +2,7 @@
 
 > 目標：把多來源導入、回滾、Doctor、PME、i18n 和跨平台支持做完整，讓產品從「可備份」進化到「可長期信任地使用」。
 >
-> **狀態註記（2026-04-07）**：`WORK-M2-A` 已完成，Google Takeout import / rollback / restore、Firefox 正式支持、Safari baseline support 與 doctor / repair 基線都已落地。M2 目前剩下的主軸是 Trust UX、i18n 與跨平台 polish。
+> **狀態註記（2026-04-07）**：`WORK-M2-A` 與 `WORK-M2-B` 都已完成，Google Takeout import / rollback / restore、Firefox 正式支持、Safari baseline support、doctor / repair、trust UX、namespace-based i18n 與跨平台 guidance 都已落地。M3 接手 optional intelligence。
 
 ---
 
@@ -28,5 +28,5 @@
 - [x] `M2-001` Google Takeout 端到端導入、回滾、再恢復都已驗收。（2026-04-07，WORK-M2-A）
 - [x] `M2-002` Firefox backup 和 Explorer recall 可驗收。（2026-04-07，WORK-M2-A）
 - [x] `M2-003` Doctor 能發現至少 integrity / chain / orphan / index 類問題。（2026-04-07，WORK-M2-A）
-- [ ] `M2-004` `en` / `zh-CN` / `zh-TW` 的核心流程已可用。
-- [ ] `M2-005` Windows / Linux 的排程規劃和 manual / apply story 已驗證。
+- [x] `M2-004` `en` / `zh-CN` / `zh-TW` 的核心流程已可用。（2026-04-07，WORK-M2-B）
+- [x] `M2-005` Windows / Linux 的排程規劃和 manual / apply story 已驗證。（2026-04-07，WORK-M2-B）

@@ -23,6 +23,7 @@ import type {
   HistoryQuery,
   HistoryQueryResponse,
   ImportBatchDetail,
+  ImportBatchOverview,
   InsightExplanation,
   InsightSnapshot,
   InsightThreadDetail,
@@ -448,6 +449,8 @@ interface MockBackendState {
   snapshot: AppSnapshot
   history: HistoryQueryResponse
   keyringSecret: string | null
+  importBatchDetails: Record<number, ImportBatchDetail>
+  nextImportBatchId: number
 }
 
 function browserKindFromProfileId(profileId: string) {
@@ -651,6 +654,152 @@ function buildMockRekeyPreview(
   }
 }
 
+function buildMockTakeoutInspection(
+  state: MockBackendState,
+  sourcePath: string,
+  dryRun: boolean,
+): TakeoutInspection {
+  const previewEntries = [
+    {
+      sourcePath: `${sourcePath}/Takeout/Chrome/BrowserHistory.json`,
+      url: 'https://example.org/archive/trust-ui',
+      title: 'PathKeep trust UX notes',
+      visitedAt: new Date(Date.now() - 86_400_000).toISOString(),
+      sourceVisitId: 41,
+      status: dryRun ? 'preview' : 'imported',
+    },
+    {
+      sourcePath: `${sourcePath}/Takeout/Chrome/BrowserHistory.json`,
+      url: 'https://example.org/archive/linux-timer',
+      title: 'systemd timer notes',
+      visitedAt: new Date(Date.now() - 43_200_000).toISOString(),
+      sourceVisitId: 42,
+      status: dryRun ? 'preview' : 'imported',
+    },
+  ]
+  const recognizedFiles = [
+    {
+      path: `${sourcePath}/Takeout/Chrome/BrowserHistory.json`,
+      kind: 'browser-history',
+      status: dryRun ? 'preview' : 'imported',
+      records: previewEntries.length,
+    },
+  ]
+  const quarantinedFiles = [
+    {
+      path: `${sourcePath}/Takeout/Chrome/unsupported.csv`,
+      kind: 'unknown',
+      status: 'quarantined',
+      records: 1,
+    },
+  ]
+  const notes = dryRun
+    ? [
+        'Preview includes recognized BrowserHistory rows and quarantined unsupported files.',
+      ]
+    : [
+        'Import wrote a local batch and kept unsupported files quarantined for audit review.',
+      ]
+
+  if (dryRun) {
+    return {
+      dryRun: true,
+      sourcePath,
+      recognizedFiles,
+      quarantinedFiles,
+      previewEntries,
+      candidateItems: 2,
+      importedItems: 0,
+      duplicateItems: 1,
+      notes,
+      importBatch: null,
+    }
+  }
+
+  const batchId = state.nextImportBatchId
+  state.nextImportBatchId += 1
+
+  const importBatch: ImportBatchOverview = {
+    id: batchId,
+    sourceKind: 'takeout',
+    sourcePath,
+    profileId: 'takeout::browser-history',
+    createdAt: new Date().toISOString(),
+    importedAt: new Date().toISOString(),
+    revertedAt: null,
+    status: 'imported',
+    candidateItems: 2,
+    importedItems: 2,
+    duplicateItems: 1,
+    visibleItems: 2,
+    auditPath: `${state.snapshot.directories.quarantineDir}/import-batch-${batchId}.json`,
+    gitCommit: null,
+  }
+
+  state.snapshot.recentImportBatches = [
+    importBatch,
+    ...state.snapshot.recentImportBatches,
+  ]
+  state.importBatchDetails[batchId] = {
+    batch: importBatch,
+    previewEntries,
+    recognizedFiles,
+    quarantinedFiles,
+    notes,
+  }
+
+  return {
+    dryRun: false,
+    sourcePath,
+    recognizedFiles,
+    quarantinedFiles,
+    previewEntries,
+    candidateItems: 2,
+    importedItems: 2,
+    duplicateItems: 1,
+    notes,
+    importBatch,
+  }
+}
+
+function mutateImportBatch(
+  state: MockBackendState,
+  batchId: number,
+  action: 'revert' | 'restore',
+): ImportBatchDetail {
+  const detail = state.importBatchDetails[batchId]
+  if (!detail) {
+    throw new Error(`Mock backend does not know import batch ${batchId}`)
+  }
+
+  const updatedBatch: ImportBatchOverview = {
+    ...detail.batch,
+    status: action === 'revert' ? 'reverted' : 'imported',
+    revertedAt: action === 'revert' ? new Date().toISOString() : null,
+    visibleItems: action === 'revert' ? 0 : detail.batch.importedItems,
+  }
+
+  const updatedDetail: ImportBatchDetail = {
+    ...detail,
+    batch: updatedBatch,
+    previewEntries: detail.previewEntries.map((entry) => ({
+      ...entry,
+      status: action === 'revert' ? 'reverted' : 'imported',
+    })),
+    notes: [
+      action === 'revert'
+        ? 'Import batch was reverted from the live archive view.'
+        : 'Import batch was restored into the live archive view.',
+    ],
+  }
+
+  state.importBatchDetails[batchId] = updatedDetail
+  state.snapshot.recentImportBatches = state.snapshot.recentImportBatches.map(
+    (batch) => (batch.id === batchId ? updatedBatch : batch),
+  )
+  return updatedDetail
+}
+
 function filterMockHistory(
   state: MockBackendState,
   query: HistoryQuery | undefined,
@@ -698,6 +847,8 @@ function createMockState(): MockBackendState {
     snapshot: structuredClone(mockSnapshot),
     history: structuredClone(mockHistory),
     keyringSecret: null,
+    importBatchDetails: {},
+    nextImportBatchId: 1,
   }
 }
 
@@ -841,49 +992,41 @@ async function call<T>(
     case 'explain_insight':
       return mockInsightExplanation as T
     case 'inspect_takeout':
-    case 'import_takeout':
-      return {
-        sourcePath: args?.request
+      return buildMockTakeoutInspection(
+        mockState,
+        args?.request
           ? String((args.request as TakeoutRequest).sourcePath)
           : '/tmp/takeout.zip',
-        dryRun: true,
-        recognizedFiles: [],
-        quarantinedFiles: [],
-        candidateItems: 0,
-        importedItems: 0,
-        duplicateItems: 0,
-        previewEntries: [],
-        importBatch: null,
-        notes: ['Tauri is not available in browser preview mode.'],
-      } as T
-    case 'preview_import_batch':
+        true,
+      ) as T
+    case 'import_takeout':
+      return buildMockTakeoutInspection(
+        mockState,
+        args?.request
+          ? String((args.request as TakeoutRequest).sourcePath)
+          : '/tmp/takeout.zip',
+        false,
+      ) as T
+    case 'preview_import_batch': {
+      const batchId = Number(args?.batchId ?? 0)
+      if (mockState.importBatchDetails[batchId]) {
+        return structuredClone(mockState.importBatchDetails[batchId]) as T
+      }
+      buildMockTakeoutInspection(mockState, '/tmp/takeout.zip', false)
+      return structuredClone(mockState.importBatchDetails[1]) as T
+    }
     case 'revert_import_batch':
+      return mutateImportBatch(
+        mockState,
+        Number(args?.batchId ?? 1),
+        'revert',
+      ) as T
     case 'restore_import_batch':
-      return {
-        batch: {
-          id: 1,
-          sourceKind: 'takeout',
-          sourcePath: '/tmp/takeout.zip',
-          profileId: 'takeout::browser-history',
-          createdAt: new Date().toISOString(),
-          importedAt: new Date().toISOString(),
-          revertedAt:
-            command === 'revert_import_batch' ? new Date().toISOString() : null,
-          status: command === 'revert_import_batch' ? 'reverted' : 'imported',
-          candidateItems: 0,
-          importedItems: 0,
-          duplicateItems: 0,
-          visibleItems: command === 'revert_import_batch' ? 0 : 0,
-          auditPath: null,
-          gitCommit: null,
-        },
-        previewEntries: [],
-        recognizedFiles: [],
-        quarantinedFiles: [],
-        notes: [
-          'Desktop-only import batch preview is unavailable in browser preview mode.',
-        ],
-      } as T
+      return mutateImportBatch(
+        mockState,
+        Number(args?.batchId ?? 1),
+        'restore',
+      ) as T
     case 'preview_schedule':
       return {
         platform: 'macos',
@@ -900,15 +1043,46 @@ async function call<T>(
     case 'doctor_report':
       return {
         generatedAt: new Date().toISOString(),
-        checks: [],
+        checks: [
+          {
+            name: 'import-artifacts',
+            status: mockState.snapshot.recentImportBatches.length
+              ? 'ok'
+              : 'info',
+            message: mockState.snapshot.recentImportBatches.length
+              ? 'Import batch audit artifacts are present and reviewable.'
+              : 'No import batches have been created yet.',
+          },
+          {
+            name: 'visibility-state',
+            status: mockState.snapshot.recentImportBatches.some(
+              (batch) => batch.status === 'reverted',
+            )
+              ? 'warning'
+              : 'ok',
+            message: mockState.snapshot.recentImportBatches.some(
+              (batch) => batch.status === 'reverted',
+            )
+              ? 'One or more batches are reverted. Verify downstream read models after restore.'
+              : 'Visible import rows match the current batch state.',
+          },
+        ],
       } as T
     case 'repair_health':
       return {
         runId: 1,
-        repairedImportAudits: 0,
-        repairedVisibilityRows: 0,
-        clearedDerivedRows: 0,
-        notes: ['Tauri is not available in browser preview mode.'],
+        repairedImportAudits: mockState.snapshot.recentImportBatches.length
+          ? 1
+          : 0,
+        repairedVisibilityRows: mockState.snapshot.recentImportBatches.some(
+          (batch) => batch.status === 'reverted',
+        )
+          ? 1
+          : 0,
+        clearedDerivedRows: mockState.snapshot.recentImportBatches.length
+          ? 2
+          : 0,
+        notes: ['Browser preview mode simulates a targeted doctor repair run.'],
       } as T
     case 'preview_remote_backup':
       return {
