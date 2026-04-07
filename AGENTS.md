@@ -145,6 +145,9 @@ reference/
 - **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit
 - **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。M0 重寫期間，舊碼不再靠 repo-wide coverage / mutation gate 阻塞；但**所有新建或整段重寫的模組**都必須有測試，且該 slice 要做到 100% coverage + mutation verification，否則不算完成
 - **Desktop contract slice**：目前納入 blocking path 的 targeted JS gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`；前端 shell / route / sidebar / primitives 不在這條 coverage / mutation gate 內，不能再把 UI 完成度誤記到這條驗收上
+- **Accepted docs 決策不可隨意推翻**：如果 `docs/` 中已經有 `Accepted` 狀態、或其他明文確立的 source-of-truth 決策，**不允許** agent 因為直覺、實作偏好、或一句「降低複雜度」就直接改寫。這不代表不能推翻；但要推翻時，必須先產出**詳細的 trade-off 決策文檔**，包含問題定義、約束、候選方案、優缺點、多方案比較、風險、回滾策略與推薦理由。
+- **推翻 accepted docs 的前置要求**：必須先做深度調研與必要的外部研究 / benchmark / packaging / upgrade / operational evidence，不能只靠本地猜測；必須明確說明為什麼既有決策不再成立、替代方案為什麼更好、代價是什麼；整理完後**先徵求用戶意見**，得到明確確認後，才能修改 accepted docs 與相關計劃 / 架構文檔。
+- **Backlog / research item 不是推翻授權**：`research-and-decisions.md` 裡的未決項、`[!]` blocker、或 work block 需求，不代表 agent 可以自行覆寫既有 accepted docs。若發現 backlog 與 accepted docs 看起來衝突，先停下來補研究或提問，不能直接把 pending research 當成重開決策的授權。
 - **Test 位置**：`foo.ts` → `foo.test.ts`（放旁邊），E2E 放 `tests/e2e/`
 - **注釋**：代碼注釋即開發者文檔，重要技術決策、trade-off 在代碼處寫注釋
 - **文檔更新**：改功能行為 → 更新 `docs/features/`；新技術決策 → 更新 `docs/architecture/`
