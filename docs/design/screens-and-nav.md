@@ -29,3 +29,12 @@
 - 左側 sidebar 導航（可收合）。
 - 頂部顯示當前頁面的 breadcrumb / title。
 - 全局快速搜尋入口。
+
+### M1 導航與 deep-link 規則
+
+- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Insights / Assistant）、`OPERATIONS`（Import / Audit / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
+- 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
+- Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`。
+- Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
+- Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
+- Schedule / Security 在 M1 是 review surface：先顯示 preview、artifact 和 trust copy，不在導航層暗示背景自動執行。

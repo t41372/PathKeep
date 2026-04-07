@@ -66,3 +66,11 @@
   - 修正 [`vault-platform/src/lib.rs`](../../src-tauri/crates/vault-platform/src/lib.rs) 的 Linux scheduler timer contract，明確使用 `OnCalendar=` + `Persistent=true`，並保留 macOS preview / manual / apply 與 Windows / Linux manual guidance
   - 同步回寫 `data-model.md`、`research-and-decisions.md`、`repo-baseline.md`、M1 README / WBS、`STATUS.md`、`BACKLOG.md`
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M1-B** — Archive UX And Operations
+  - 2026-04-06：新增 [`src/app/shell-data.tsx`](../../src/app/shell-data.tsx) / [`src/app/shell-data-context.ts`](../../src/app/shell-data-context.ts) 真實 shell data provider，並把 [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs)、[`src-tauri/src/worker_bridge.rs`](../../src-tauri/src/worker_bridge.rs)、[`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs) 接上 dashboard snapshot / audit run detail command surface
+  - 重寫 [`src/pages/onboarding/index.tsx`](../../src/pages/onboarding/index.tsx)、[`src/pages/dashboard/index.tsx`](../../src/pages/dashboard/index.tsx)、[`src/pages/explorer/index.tsx`](../../src/pages/explorer/index.tsx)、[`src/pages/audit/index.tsx`](../../src/pages/audit/index.tsx)、[`src/pages/security/index.tsx`](../../src/pages/security/index.tsx)、[`src/pages/schedule/index.tsx`](../../src/pages/schedule/index.tsx) 與 sidebar / topbar，讓 Onboarding、Dashboard、Explorer、Audit、Export、Security、Schedule 全部讀取 canonical archive read model，並補齊 empty / locked / loading / zero-state、open / copy path 與 PME trust copy
+  - 擴寫 [`src/lib/backend.ts`](../../src/lib/backend.ts) browser preview mock，使 onboarding、manual backup、Explorer query、Export、Audit detail、keyring / AI preview 都有 stateful fixture；同步更新 `types.d.ts`、format helpers、shell/unit tests 與 [`tests/e2e/shell.spec.ts`](../../tests/e2e/shell.spec.ts)
+  - 收斂 review findings：Chromium backup 現在嚴格尊重 `selected_profile_ids` 邊界，Google Takeout rollback 改成 soft-hide imported rows 並寫入 rollback run，而不是硬刪資料
+  - 同步回寫 `archive.md`、`screens-and-nav.md`、`ux-principles.md`、`research-and-decisions.md`、M1 README / WBS、`STATUS.md`、`BACKLOG.md`
+  - 驗收：`bun run check`、`bun run build`、`bun run test:e2e`

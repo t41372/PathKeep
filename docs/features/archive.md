@@ -23,6 +23,7 @@
   1. 複製瀏覽器的 History / Favicons 數據庫及其 sidecar 檔（`-journal`, `-wal`, `-shm`）到 staging 區。
   2. 對 staging 副本做完整性檢查（`PRAGMA quick_check`）。
   3. 解析並寫入 archive 數據庫。
+- M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
 - 備份是**增量的**：只新增/更新有變化的記錄。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
 - 對於會變動的記錄（如 URL metadata），採用 row versioning，保留所有歷史版本。
@@ -99,6 +100,7 @@
   5. 用戶確認後，才正式寫入 archive。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
+  - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
 - 提供詳細的操作指南：怎麼從 Google Takeout 請求導出、怎麼下載、怎麼找到歷史紀錄文件。
 
 ### 瀏覽器直接導入
@@ -130,6 +132,7 @@
 
 - 支援格式：HTML、Markdown、純文本、JSONL。
 - 匯出支援篩選：profile、時間範圍、domain、搜尋 query。
+- 匯出只包含**當前可見** query 結果；已回滾或 hidden 的 facts 不會進入 artifact。
 - 匯出報告記入審計日誌。
 
 ### 遠端備份
@@ -173,6 +176,7 @@
 - Manifest 形成 hash chain（可審計的 append-only ledger）。
 - Git 只管理審計文字工件：manifests, schema snapshots, 排程設定草稿, 導入/匯出報告, 完整性報告。
 - 主 SQLite archive、raw 快照、cache 和 staging 不進 git。
+- Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Doctor / 健康檢查命令：重算 archive table hash 並出報告。
 - 如果用戶已配置 GPG 簽名 commit，就沿用。
 

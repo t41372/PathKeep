@@ -39,4 +39,4 @@
 - [x] `M1-001` archive schema 和 migration 已凍結到可支撐 M2 的程度。（2026-04-06，WORK-M1-A）
 - [x] `M1-002` 至少一個 Chromium profile 的完整 manual backup 流程可重複驗收。（2026-04-06，WORK-M1-A）
 - [x] `M1-003` manifest chain、audit repo、snapshot safety net、doctor baseline 全部接通。（2026-04-06，WORK-M1-A）
-- [ ] `M1-004` 無 AI 配置下，產品已可完成 onboarding、備份、搜尋、匯出、查看 audit。
+- [x] `M1-004` 無 AI 配置下，產品已可完成 onboarding、備份、搜尋、匯出、查看 audit。（2026-04-06，WORK-M1-B）

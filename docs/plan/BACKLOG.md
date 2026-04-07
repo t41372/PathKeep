@@ -11,10 +11,6 @@
 
 ### M2 — Recall & Trust
 
-- [ ] **WORK-M2-A** — Imports, Rollback, And Multi-Browser `[!blocked: 需要 WORK-M1-B]`
-  - 讀先：`docs/features/archive.md`、`docs/features/recall.md`、`docs/plan/m2-recall-and-trust/imports-browsers-and-rollback.md`
-  - 目標：完成 Google Takeout、Firefox、rollback / un-revert、Doctor 核心能力
-
 - [ ] **WORK-M2-B** — Trust UX, I18n, And Platforms `[!blocked: 需要 WORK-M2-A]`
   - 讀先：`docs/design/ux-principles.md`、`docs/standards.md`、`docs/plan/m2-recall-and-trust/trust-ux-i18n-and-platforms.md`
   - 目標：把 PME、i18n、跨平台排程、accessibility、trust UX 做到可驗收

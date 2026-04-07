@@ -27,6 +27,14 @@
 - 對於自動模式：逐步顯示進度，每步可展開查看詳情。
 - 對於手動模式：每步有指南、理由、可複製的命令、完成後的確認。
 
+### PME 共用 grammar
+
+- **Preview**：先顯示邊界、影響範圍、generated artifact / visible query / profile scope，再出現真正的 execute CTA。
+- **Manual**：所有需要碰檔案系統、排程或匯出物的流程，都要有可檢視的 artifact viewer 與 open / copy path 動作，不要求使用者自行去資料夾猜位置。
+- **Execute**：執行按鈕文案必須直接說明會做什麼，例如 first backup、run backup、copy path、open path；不要把高風險操作藏在模糊 CTA 裡。
+- **Verify**：完成後要在原頁面留下可見的結果訊號，例如 recent run、latest export path、artifact list、warning / no-warning 狀態。
+- **Rollback hint**：凡是會寫入 archive 的流程，都要讓使用者知道之後去哪裡檢查或回滾，而不是只回報「成功」。
+
 ---
 
 ## 3. 狀態清晰

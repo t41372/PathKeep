@@ -81,7 +81,7 @@
 - `bun run check`：通過，repo-wide Markdown / Prettier debt 與驗收途中浮出的 JS ESLint、Rust Clippy 基線問題已清理
 - `bun run build`：通過
 
-這個結果很重要，因為它說明 repo 現在已經不再保護舊 setup shell，而是開始保護新的產品骨架。接下來的主軸可以從「切換骨架」轉到 **把 archive engine 真正接上這個新骨架**。
+這個結果很重要，因為它說明 repo 現在已經不再保護舊 setup shell，而是開始保護新的產品骨架。接下來的主軸可以從 **M1 的 archive shell 收口** 轉到 **M2 的 recall / rollback / multi-browser trust 流程**。
 
 ---
 
@@ -119,8 +119,8 @@ M4  Full Intelligence & Polish
 | 里程碑 | 目標                                                                     | 狀態  | 入口                                                           |
 | ------ | ------------------------------------------------------------------------ | ----- | -------------------------------------------------------------- |
 | `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                         |
-| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[/]` | [m0-foundation/README.md](m0-foundation/README.md)             |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)             |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
 | `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
 | `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |
 | `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md)           |
