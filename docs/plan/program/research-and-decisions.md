@@ -17,7 +17,7 @@
 
 - [!] `PG-RD-UX-001` 逐頁比對 [screens-and-nav.md](../../design/screens-and-nav.md) 和 `reference/PathKeep — Desktop UI Design/`，列出 prototype 已覆蓋和未覆蓋的畫面。
 - [!] `PG-RD-UX-002` 補 onboarding、empty state、error state、long-running operation、rollback confirmation 等 prototype 缺口；缺口畫面先補設計決策，再開做。
-- [ ] `PG-RD-UX-003` 從 prototype 的 `style.css` 抽取正式 design token 表，明確暗色主題、淺色主題、字體、間距、狀態色和資料密度規範。
+- [x] `PG-RD-UX-003` 從 prototype 的 `style.css` 抽取正式 design token 表，明確暗色主題、淺色主題、字體、間距、狀態色和資料密度規範。見 [design-tokens.md](../../design/design-tokens.md)。（2026-04-06）
 - [ ] `PG-RD-UX-004` 定義 PME（Preview / Manual / Execute）在各類操作上的共用 interaction grammar：stepper、artifact viewer、copy command、verify result、rollback hint。
 - [ ] `PG-RD-UX-005` 決定 Dashboard / Explorer / Audit Ledger / Assistant 之間的導航策略與 deep-link 規則。
 

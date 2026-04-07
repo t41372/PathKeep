@@ -10,7 +10,7 @@ fn entrypoint_exit_code(result: anyhow::Result<()>) -> i32 {
 
 #[cfg(not(test))]
 fn main() {
-    let exit_code = entrypoint_exit_code(browser_history_backup_desktop::entrypoint());
+    let exit_code = entrypoint_exit_code(pathkeep_desktop::entrypoint());
     if exit_code != 0 {
         std::process::exit(exit_code);
     }

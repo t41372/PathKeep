@@ -37,7 +37,7 @@ import type {
 
 // Stryker disable all: browser-preview fixtures are static reference data, not behavior.
 const mockBuildInfo: AppBuildInfo = {
-  productName: 'Browser History Backup',
+  productName: 'PathKeep',
   version: '0.1.0',
   gitCommitShort: 'preview',
   gitCommitFull: 'preview-build',
@@ -46,26 +46,20 @@ const mockBuildInfo: AppBuildInfo = {
 
 const mockSnapshot: AppSnapshot = {
   directories: {
-    appRoot: '~/Library/Application Support/Browser History Backup',
-    configPath:
-      '~/Library/Application Support/Browser History Backup/config.json',
+    appRoot: '~/Library/Application Support/PathKeep',
+    configPath: '~/Library/Application Support/PathKeep/config.json',
     archiveDatabasePath:
-      '~/Library/Application Support/Browser History Backup/archive/history-vault.sqlite',
-    auditRepoPath: '~/Library/Application Support/Browser History Backup/audit',
-    manifestsDir:
-      '~/Library/Application Support/Browser History Backup/audit/manifests',
-    exportsDir: '~/Library/Application Support/Browser History Backup/exports',
-    rawSnapshotsDir:
-      '~/Library/Application Support/Browser History Backup/raw-snapshots',
-    stagingDir: '~/Library/Application Support/Browser History Backup/staging',
-    quarantineDir:
-      '~/Library/Application Support/Browser History Backup/quarantine',
-    scheduleDir:
-      '~/Library/Application Support/Browser History Backup/schedule',
-    strongholdPath:
-      '~/Library/Application Support/Browser History Backup/vault.hold',
+      '~/Library/Application Support/PathKeep/archive/history-vault.sqlite',
+    auditRepoPath: '~/Library/Application Support/PathKeep/audit',
+    manifestsDir: '~/Library/Application Support/PathKeep/audit/manifests',
+    exportsDir: '~/Library/Application Support/PathKeep/exports',
+    rawSnapshotsDir: '~/Library/Application Support/PathKeep/raw-snapshots',
+    stagingDir: '~/Library/Application Support/PathKeep/staging',
+    quarantineDir: '~/Library/Application Support/PathKeep/quarantine',
+    scheduleDir: '~/Library/Application Support/PathKeep/schedule',
+    strongholdPath: '~/Library/Application Support/PathKeep/vault.hold',
     strongholdSaltPath:
-      '~/Library/Application Support/Browser History Backup/stronghold-salt.txt',
+      '~/Library/Application Support/PathKeep/stronghold-salt.txt',
   },
   config: {
     initialized: false,
@@ -88,7 +82,7 @@ const mockSnapshot: AppSnapshot = {
       bucket: '',
       region: 'us-east-1',
       endpoint: null,
-      prefix: 'browser-history-backup',
+      prefix: 'pathkeep',
       pathStyle: true,
       uploadAfterBackup: false,
       credentialsSaved: false,
@@ -117,7 +111,7 @@ const mockSnapshot: AppSnapshot = {
     encrypted: true,
     unlocked: false,
     databasePath:
-      '~/Library/Application Support/Browser History Backup/archive/history-vault.sqlite',
+      '~/Library/Application Support/PathKeep/archive/history-vault.sqlite',
   },
   keyringStatus: {
     available: true,
@@ -534,8 +528,8 @@ async function call<T>(
     case 'preview_schedule':
       return {
         platform: 'macos',
-        label: 'dev.codex.browser-history-backup.backup',
-        executablePath: '/Applications/Browser History Backup.app',
+        label: 'dev.codex.pathkeep.backup',
+        executablePath: '/Applications/PathKeep.app',
         generatedFiles: [],
         manualSteps: ['Tauri is not available in browser preview mode.'],
         applyCommands: [],
@@ -549,22 +543,22 @@ async function call<T>(
       } as T
     case 'preview_remote_backup':
       return {
-        bundlePath: '/tmp/browser-history-backup-remote.zip',
-        objectKey: 'browser-history-backup/browser-history-backup-remote.zip',
+        bundlePath: '/tmp/pathkeep-remote.zip',
+        objectKey: 'pathkeep/pathkeep-remote.zip',
         uploadUrl:
-          'https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/browser-history-backup-remote.zip',
+          'https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/pathkeep-remote.zip',
         previewCommand:
-          'curl --fail --show-error --aws-sigv4 "aws:amz:us-east-1:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T \'/tmp/browser-history-backup-remote.zip\' \'https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/browser-history-backup-remote.zip\'',
+          'curl --fail --show-error --aws-sigv4 "aws:amz:us-east-1:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T \'/tmp/pathkeep-remote.zip\' \'https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/pathkeep-remote.zip\'',
         manualSteps: ['Browser preview mode cannot generate the real bundle.'],
         warnings: [],
       } as T
     case 'run_remote_backup':
       return {
         uploaded: false,
-        bundlePath: '/tmp/browser-history-backup-remote.zip',
-        objectKey: 'browser-history-backup/browser-history-backup-remote.zip',
+        bundlePath: '/tmp/pathkeep-remote.zip',
+        objectKey: 'pathkeep/pathkeep-remote.zip',
         uploadUrl:
-          'https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/browser-history-backup-remote.zip',
+          'https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/pathkeep-remote.zip',
         message: 'Remote backup upload is only available in the desktop app.',
       } as T
     case 'keyring_status':
@@ -629,8 +623,7 @@ async function call<T>(
       } as T
     case 'preview_ai_integrations':
       return {
-        mcpCommand:
-          '/Applications/Browser History Backup.app --worker mcp-server',
+        mcpCommand: '/Applications/PathKeep.app --worker mcp-server',
         manualSteps: [
           'Enable MCP or Skill integration in Settings first.',
           'Store the database key in the native keyring if the archive is encrypted.',
@@ -638,10 +631,10 @@ async function call<T>(
         ],
         generatedFiles: [
           {
-            relativePath: 'integrations/browser-history-backup-mcp.json',
+            relativePath: 'integrations/pathkeep-mcp.json',
             absolutePath:
-              '~/Library/Application Support/Browser History Backup/integrations/browser-history-backup-mcp.json',
-            purpose: 'Browser History Backup MCP client snippet',
+              '~/Library/Application Support/PathKeep/integrations/pathkeep-mcp.json',
+            purpose: 'PathKeep MCP client snippet',
             contents: '{\n  "mcpServers": {}\n}',
           },
         ],

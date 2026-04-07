@@ -19,12 +19,12 @@ use vault_core::{
     models::{ApplyResult, GeneratedFile, KeyringStatusReport, S3CredentialInput, SchedulePlan},
 };
 
-const KEYRING_SERVICE: &str = "dev.codex.browser-history-backup";
+const KEYRING_SERVICE: &str = "dev.codex.pathkeep";
 #[cfg(not(coverage))]
 const LEGACY_KEYRING_SERVICES: [&str; 1] = ["dev.codex.chrome-history-backup"];
 const KEYRING_DATABASE_USER: &str = "database-key";
 const KEYRING_S3_USER: &str = "remote-s3";
-const MACOS_LABEL: &str = "dev.codex.browser-history-backup.backup";
+const MACOS_LABEL: &str = "dev.codex.pathkeep.backup";
 const LEGACY_MACOS_LABEL: &str = "dev.codex.chrome-history-backup.backup";
 const TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";
 
@@ -443,7 +443,7 @@ fn macos_schedule_plan(
         manual_steps: vec![
             format!("Save the plist to ~/Library/LaunchAgents/{MACOS_LABEL}.plist."),
             format!(
-                "Run `launchctl bootout gui/$(id -u) {}` to unload an older Browser History Backup or Chrome History Backup schedule if one still exists.",
+                "Run `launchctl bootout gui/$(id -u) {}` to unload an older pre-PathKeep schedule if one still exists.",
                 LEGACY_MACOS_LABEL
             ),
             format!(
@@ -520,14 +520,14 @@ fn windows_schedule_plan(
         label: MACOS_LABEL.to_string(),
         executable_path: executable_path.display().to_string(),
         generated_files: vec![GeneratedFile {
-                relative_path: "windows/browser-history-backup-task.xml".to_string(),
+            relative_path: "windows/pathkeep-task.xml".to_string(),
             absolute_path: None,
             purpose: "Import into Task Scheduler or register with schtasks.exe".to_string(),
             contents: xml,
         }],
         manual_steps: vec![
             "Save the XML file and import it in Task Scheduler.".to_string(),
-            "Alternatively run `schtasks /Create /TN BrowserHistoryBackup /XML browser-history-backup-task.xml`.".to_string(),
+            "Alternatively run `schtasks /Create /TN PathKeep /XML pathkeep-task.xml`.".to_string(),
         ],
         apply_commands: Vec::new(),
         rollback_commands: vec![vec![
@@ -547,12 +547,12 @@ fn linux_schedule_plan(
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
     let service = format!(
-        "[Unit]\nDescription=Browser History Backup backup worker\n\n[Service]\nType=oneshot\nExecStart={} {}\n",
+        "[Unit]\nDescription=PathKeep backup worker\n\n[Service]\nType=oneshot\nExecStart={} {}\n",
         executable_path.display(),
         worker_args[1..].join(" ")
     );
     let timer = format!(
-        "[Unit]\nDescription=Browser History Backup periodic backup\n\n[Timer]\nOnBootSec=2m\nOnUnitActiveSec={}h\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
+        "[Unit]\nDescription=PathKeep periodic backup\n\n[Timer]\nOnBootSec=2m\nOnUnitActiveSec={}h\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
         params.check_interval_hours
     );
     Ok(SchedulePlan {
@@ -561,13 +561,13 @@ fn linux_schedule_plan(
         executable_path: executable_path.display().to_string(),
         generated_files: vec![
             GeneratedFile {
-                relative_path: "systemd/browser-history-backup.service".to_string(),
+                relative_path: "systemd/pathkeep.service".to_string(),
                 absolute_path: None,
                 purpose: "User service entry for the worker mode".to_string(),
                 contents: service,
             },
             GeneratedFile {
-                relative_path: "systemd/browser-history-backup.timer".to_string(),
+                relative_path: "systemd/pathkeep.timer".to_string(),
                 absolute_path: None,
                 purpose: format!(
                     "Persistent user timer that wakes every {} hours.",
@@ -579,7 +579,7 @@ fn linux_schedule_plan(
         manual_steps: vec![
             "Copy the files to ~/.config/systemd/user/.".to_string(),
             "Run `systemctl --user daemon-reload`.".to_string(),
-            "Run `systemctl --user enable --now browser-history-backup.timer`.".to_string(),
+            "Run `systemctl --user enable --now pathkeep.timer`.".to_string(),
         ],
         apply_commands: Vec::new(),
         rollback_commands: vec![vec![
@@ -587,7 +587,7 @@ fn linux_schedule_plan(
             "--user".to_string(),
             "disable".to_string(),
             "--now".to_string(),
-            "browser-history-backup.timer".to_string(),
+            "pathkeep.timer".to_string(),
         ]],
         apply_supported: false,
     })
@@ -641,7 +641,7 @@ fn launch_agents_dir() -> Result<PathBuf> {
 fn launch_agents_dir() -> Result<PathBuf> {
     Ok(std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("browser-history-backup-launch-agents")))
+        .unwrap_or_else(|| std::env::temp_dir().join("pathkeep-launch-agents")))
 }
 
 #[cfg(not(any(test, coverage)))]
@@ -684,8 +684,7 @@ fn test_keyring_dir() -> Option<PathBuf> {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     Some(std::env::var_os(TEST_KEYRING_DIR_ENV).map(PathBuf::from).unwrap_or_else(|| {
         ROOT.get_or_init(|| {
-            std::env::temp_dir()
-                .join(format!("browser-history-backup-coverage-keyring-{}", std::process::id()))
+            std::env::temp_dir().join(format!("pathkeep-coverage-keyring-{}", std::process::id()))
         })
         .clone()
     }))
@@ -970,7 +969,7 @@ mod tests {
         }
 
         let default_root = test_keyring_dir().expect("default keyring dir");
-        assert!(default_root.to_string_lossy().contains("browser-history-backup-coverage-keyring"));
+        assert!(default_root.to_string_lossy().contains("pathkeep-coverage-keyring"));
 
         restore_env_var(TEST_KEYRING_DIR_ENV, Some(seeded_value.as_os_str()));
         assert_eq!(std::env::var_os(TEST_KEYRING_DIR_ENV), Some(seeded_value));

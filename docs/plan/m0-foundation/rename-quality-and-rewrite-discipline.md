@@ -25,6 +25,13 @@
 - `bun run build`
 - 與本 work block 直接相關的 targeted tests（unit / integration / e2e smoke / Rust crate tests）
 
+目前已固化的前端 shell 驗收組合：
+
+- `bun run test:unit:shell`
+- `bun run coverage:js:shell`
+- `bun run mutation:js:shell`
+- `bun run test:e2e`
+
 ### 暫時拿掉的 blocking gate
 
 - repo-wide JS coverage
@@ -149,22 +156,22 @@ bun run check && bun run build
 
 ### Rename Cleanup
 
-- [ ] `M0-RQ-RN-001` 一次性盤點並清除 package、README、Tauri config、workflow、release artifact、bundle metadata 中的舊產品名字串。
-- [ ] `M0-RQ-RN-002` 凍結 day-one 公開產品名稱、bundle name、app root、資料目錄名稱、CLI / MCP 名稱策略，直接對齊 PathKeep。
-- [ ] `M0-RQ-RN-003` 清理 schedule / launch agent / task scheduler / systemd artifact 的名稱敘事，不再保留舊品牌詞。
+- [x] `M0-RQ-RN-001` 一次性盤點並清除 package、README、Tauri config、workflow、release artifact、bundle metadata 中的舊產品名字串。
+- [x] `M0-RQ-RN-002` 凍結 day-one 公開產品名稱、bundle name、app root、資料目錄名稱、CLI / MCP 名稱策略，直接對齊 PathKeep。
+- [x] `M0-RQ-RN-003` 清理 schedule / launch agent / task scheduler / systemd artifact 的名稱敘事，不再保留舊品牌詞。
 
 ### Rewrite-Time Quality
 
-- [ ] `M0-RQ-QA-001` 把 repo-wide coverage 從 blocking CI 拿掉，並保留 lint / typecheck / unit / Rust / build gate。
-- [ ] `M0-RQ-QA-002` 在 `docs/standards.md`、`AGENTS.md`、M0 文檔中明確寫下：新碼與整段重寫模組必須 100% coverage + mutation verification。
-- [ ] `M0-RQ-QA-003` 重寫 Playwright smoke 驗收目標，只驗證新 shell / onboarding / dashboard / navigation，不再保護舊 setup shell。
-- [ ] `M0-RQ-QA-004` 為 docs-only、frontend-only、rust-core-only work block 定義最小必跑驗證組合。
+- [x] `M0-RQ-QA-001` 把 repo-wide coverage 從 blocking CI 拿掉，並保留 lint / typecheck / unit / Rust / build gate。
+- [x] `M0-RQ-QA-002` 在 `docs/standards.md`、`AGENTS.md`、M0 文檔中明確寫下：新碼與整段重寫模組必須 100% coverage + mutation verification。
+- [x] `M0-RQ-QA-003` 重寫 Playwright smoke 驗收目標，只驗證新 shell / onboarding / dashboard / navigation，不再保護舊 setup shell。
+- [x] `M0-RQ-QA-004` 為 docs-only、frontend-only、rust-core-only work block 定義最小必跑驗證組合。
 
 ### Rewrite Discipline
 
-- [ ] `M0-RQ-RW-001` 從 plan 文檔中刪除中繼式切換、舊新並存與回舊主幹敘事。
-- [ ] `M0-RQ-RW-002` 規定 detailed step 不得把「typecheck 預期失敗」或「先紅燈再補」寫成正式 acceptance。
-- [ ] `M0-RQ-RW-003` 更新 `STATUS.md` / `BACKLOG.md` 的粒度，改成半個 milestone 的 work blocks，而不是原子 task。
+- [x] `M0-RQ-RW-001` 從 plan 文檔中刪除中繼式切換、舊新並存與回舊主幹敘事。
+- [x] `M0-RQ-RW-002` 規定 detailed step 不得把「typecheck 預期失敗」或「先紅燈再補」寫成正式 acceptance。
+- [x] `M0-RQ-RW-003` 更新 `STATUS.md` / `BACKLOG.md` 的粒度，改成半個 milestone 的 work blocks，而不是原子 task。
 
 ---
 

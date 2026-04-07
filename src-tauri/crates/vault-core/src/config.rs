@@ -4,7 +4,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
-const CURRENT_APP_NAME: &str = "Browser History Backup";
+const CURRENT_APP_NAME: &str = "PathKeep";
 const LEGACY_APP_NAMES: [&str; 2] = ["Chrome History Backup", "Chrome History Vault"];
 const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 

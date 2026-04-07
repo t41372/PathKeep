@@ -70,14 +70,15 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 - 看 `reference/PathKeep — Desktop UI Design/` — 嚴格對齊設計稿
 - 看 `docs/design/screens-and-nav.md` — 畫面結構和導航規格
 - 看 `docs/design/ux-principles.md` — PME 模型
-- `AppNew.tsx`、`App.css`、`src/pages/` 全部是要重寫的，不是修補的
+- 看 `docs/design/design-tokens.md` — token 與 theme contract 的 source of truth
+- `src/app/`、`src/styles/`、`src/pages/` 是目前活的 shell surface；不要把新工作塞回已刪除的 `AppNew` 思路
 
 ### Rust/後端相關
 
 - 看 `docs/architecture/data-model.md` — canonical schema
 - 看 `docs/architecture/tech-stack.md` — 技術選型決策
 - 看 `docs/plan/program/research-and-decisions.md` — 確認沒有 `[!]` blocker
-- 巨型檔案要拆，不要繼續往裡加：`archive.rs`(2078)、`chrome.rs`(1229)、`ai.rs`(1916)、`insights.rs`(2481)、`vault-worker/src/lib.rs`(1577)
+- 巨型檔案要拆，不要繼續往裡加：`archive/mod.rs`、`chrome.rs`、`ai.rs`、`insights.rs`、`vault-worker/src/lib.rs`
 
 ### 任何工作
 
@@ -91,13 +92,14 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 ```
 src/                          React 19 + TypeScript 前端
-  main.tsx                    入口（掛著舊 AppNew，M0 要換掉）
-  AppNew.tsx                  舊 shell，待刪除
-  App.css                     1880 行舊 CSS，待刪除
-  lib/backend.ts              IPC wrapper（混著假資料，M0 拆清）
-  lib/app-context.tsx         全域狀態（太肥，M0 重設計）
-  pages/                      舊頁面（全部重寫）
-  components/                 部分 components 可能有可復用邏輯
+  main.tsx                    入口（載入 src/app）
+  app/                        shell、router、preview data、onboarding shell
+  styles/                     token layer + app shell styles
+  lib/backend.ts              legacy helper / reference surface，避免新增 shell contract
+  lib/ipc/bridge.ts           typed IPC wrapper
+  lib/app-context.tsx         舊全域狀態，reference only，不再擴寫
+  pages/                      route-scoped page skeletons 與後續正式頁面
+  components/                 shared components / primitives
 
 src-tauri/
   src/lib.rs                  Tauri command facade
@@ -157,10 +159,13 @@ bun run build            # TypeScript + Vite bundle
 bun run check            # 所有 quality gate
 bun run verify           # 本地 CI 全掃（coverage + e2e + debug build）
 bun run test:unit        # Vitest unit tests
+bun run test:unit:shell  # 新 shell slice 的 targeted unit tests
 bun run test:e2e         # Playwright e2e
 bun run coverage:js      # JS 覆蓋率（要求 100%）
+bun run coverage:js:shell # 新 shell slice 的 targeted JS 覆蓋率
 bun run coverage:rust    # Rust 覆蓋率
 bun run mutation         # Mutation tests
+bun run mutation:js:shell # 新 shell slice 的 targeted mutation tests
 bun run format           # Prettier 格式化
 ```
 

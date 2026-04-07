@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn sha_helpers_are_stable() {
         assert_eq!(
-            sha256_hex(b"browser-history-backup"),
-            "d827d2ac464bf9d1b99a9d0c7adfcdea9f209afc4b25d39e3d3420b175635615"
+            sha256_hex(b"pathkeep"),
+            "fb2062a6b0c6b2735d597e50e410d6510e6f081fca1f3eb7d7fff3b26f0fe64e"
         );
 
         let dir = tempdir().expect("tempdir");

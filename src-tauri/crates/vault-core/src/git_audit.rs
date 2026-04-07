@@ -16,7 +16,7 @@ pub fn ensure_repo(repo_path: &Path) -> Result<()> {
     if !readme_path.exists() {
         fs::write(
             &readme_path,
-            "# Browser History Backup Audit Repo\n\nThis repository stores manifests, scheduler artifacts, and health reports.\n",
+            "# PathKeep Audit Repo\n\nThis repository stores manifests, scheduler artifacts, and health reports.\n",
         )
         .with_context(|| format!("writing {}", readme_path.display()))?;
     }
@@ -27,7 +27,7 @@ pub fn ensure_repo(repo_path: &Path) -> Result<()> {
             .with_context(|| format!("writing {}", gitignore_path.display()))?;
     }
 
-    run_git(repo_path, ["config", "user.name", "Browser History Backup"])?;
+    run_git(repo_path, ["config", "user.name", "PathKeep"])?;
     run_git(repo_path, ["config", "user.email", "vault@localhost"])?;
     run_git(repo_path, ["config", "commit.gpgsign", "false"])?;
 

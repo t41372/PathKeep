@@ -2,6 +2,7 @@
 
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。  
 > **目前的具體視覺 source of truth 是 `reference/PathKeep — Desktop UI Design/` 的 designer prototype。**
+> production token source of truth 是 [design-tokens.md](design-tokens.md)；新增 token 時要同步更新文檔與 `src/styles/tokens.css`。
 > 如果 prototype 缺少某個畫面或狀態，才用 Stitch / 補充設計決策補齊；補齊時仍需維持和 prototype 一致的視覺語言與導航結構。
 
 ---

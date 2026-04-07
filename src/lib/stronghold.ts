@@ -1,9 +1,9 @@
 import { isTauri } from '@tauri-apps/api/core'
 import { Stronghold } from '@tauri-apps/plugin-stronghold'
 
-const CLIENT_NAME = 'browser-history-backup'
+const CLIENT_NAME = 'pathkeep'
 const STORE_KEY = 'database-key'
-const LOCAL_STORAGE_KEY = 'browser-history-backup.database-key'
+const LOCAL_STORAGE_KEY = 'pathkeep.database-key'
 
 async function loadStronghold(password: string, strongholdPath: string) {
   const stronghold = await Stronghold.load(strongholdPath, password)

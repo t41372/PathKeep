@@ -4,7 +4,7 @@ export type ResolvedLanguage = 'en' | 'zh-CN' | 'zh-TW'
 
 // Stryker disable all: translation tables are static content; mutation focus should stay on the i18n logic below.
 const english = {
-  productName: 'Browser History Backup',
+  productName: 'PathKeep',
   localOnly: 'Local only',
   encrypted: 'Encrypted',
   plaintext: 'Plaintext',
@@ -524,7 +524,7 @@ type TranslationDictionary = Record<TranslationKey, string>
 const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
   en: english,
   'zh-CN': {
-    productName: 'Browser History Backup',
+    productName: 'PathKeep',
     localOnly: '仅本地',
     encrypted: '已加密',
     plaintext: '明文',
@@ -995,7 +995,7 @@ const dictionaries: Record<ResolvedLanguage, TranslationDictionary> = {
     backButton: '返回',
   },
   'zh-TW': {
-    productName: 'Browser History Backup',
+    productName: 'PathKeep',
     localOnly: '僅本地',
     encrypted: '已加密',
     plaintext: '明文',

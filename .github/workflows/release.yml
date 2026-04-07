@@ -104,9 +104,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
-          releaseName: Browser History Backup ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          releaseName: PathKeep ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseBody: |
-            Automated desktop release for Browser History Backup.
+            Automated desktop release for PathKeep.
 
             Download the installer or package for your platform from the assets below.
             A checksum manifest is attached after all matrix builds complete.

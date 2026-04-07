@@ -35,7 +35,7 @@ vault-worker
   ├── allowed: vault-core, vault-platform, browser-history-parser
   └── forbidden: tauri command macros, desktop-only product naming
 
-browser-history-backup-desktop (src-tauri/src)
+pathkeep-desktop (src-tauri/src)
   └── allowed: all workspace crates, but only as IPC facade
 ```
 

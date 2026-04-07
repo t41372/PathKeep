@@ -1,68 +1,31 @@
-import { useApp, type SettingsTab } from '../../lib/app-context'
-import { Glyph } from '../../components/ui'
-import { GeneralSettings } from './general'
-import { SourcesSettings } from './sources'
-import { ScheduleSettings } from './schedule'
-import { SecuritySettings } from './security'
-import { RemoteSettings } from './remote'
-import { AiProvidersSettings } from './ai-providers'
-
-interface SubNavItem {
-  id: SettingsTab
-  label: string
-  icon: string
-}
+import { LoadingState } from '../../components/primitives/loading-state'
 
 export function SettingsPage() {
-  const { t, activeSettingsTab, setActiveSettingsTab } = useApp()
-
-  const subNavItems: SubNavItem[] = [
-    { id: 'general', label: t('settingsGeneral'), icon: 'tune' },
-    { id: 'sources', label: t('settingsSources'), icon: 'source' },
-    { id: 'schedule', label: t('settingsSchedule'), icon: 'schedule' },
-    { id: 'security', label: t('settingsSecurity'), icon: 'shield' },
-    { id: 'remote', label: t('settingsRemote'), icon: 'cloud_upload' },
-    {
-      id: 'ai-providers',
-      label: t('settingsAiProviders'),
-      icon: 'smart_toy',
-    },
-  ]
-
-  const renderTab = () => {
-    switch (activeSettingsTab) {
-      case 'general':
-        return <GeneralSettings />
-      case 'sources':
-        return <SourcesSettings />
-      case 'schedule':
-        return <ScheduleSettings />
-      case 'security':
-        return <SecuritySettings />
-      case 'remote':
-        return <RemoteSettings />
-      case 'ai-providers':
-        return <AiProvidersSettings />
-    }
-  }
-
   return (
-    <div className="settingsLayout">
-      <nav className="settingsSubNav">
-        <h3 className="settingsSubNavTitle">{t('settingsNav')}</h3>
-        {subNavItems.map((item) => (
-          <button
-            key={item.id}
-            className={`settingsSubNavItem ${activeSettingsTab === item.id ? 'active' : ''}`}
-            type="button"
-            onClick={() => setActiveSettingsTab(item.id)}
-          >
-            <Glyph icon={item.icon} />
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
-      <div className="settingsContent">{renderTab()}</div>
-    </div>
+    <section className="page-shell">
+      <section className="shell-panel">
+        <div className="panel-header">
+          <span className="panel-title">SETTINGS SURFACE</span>
+          <span className="panel-action">
+            Profiles, paths, language, providers
+          </span>
+        </div>
+        <div className="panel-body stack-list">
+          <LoadingState label="Settings modules are being split out of the legacy context." />
+          <div className="list-item">
+            <strong>Data root</strong>
+            <span className="mono-support">
+              ~/Library/Application Support/PathKeep
+            </span>
+          </div>
+          <div className="list-item">
+            <strong>Language</strong>
+            <span className="mono-support">
+              System / English / 简体中文 / 繁體中文
+            </span>
+          </div>
+        </div>
+      </section>
+    </section>
   )
 }

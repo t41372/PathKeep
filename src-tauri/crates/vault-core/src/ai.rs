@@ -451,12 +451,12 @@ pub fn preview_ai_integrations(
     let executable = std::env::current_exe()
         .ok()
         .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "<path-to-browser-history-backup>".to_string());
+        .unwrap_or_else(|| "<path-to-pathkeep>".to_string());
     let mcp_command = format!("{executable} --worker mcp-server");
-    let codex_skill = "# Browser History Backup Search\n\nUse this skill when the user wants evidence from Browser History Backup.\n\n1. Make sure the local MCP server is configured in your Codex MCP settings.\n2. Use the `search_history` tool to find visits relevant to the question.\n3. Quote the visit date, URL, and profile when answering.\n\nIf the archive is encrypted, remind the user that the database key must be available in the system keyring before MCP queries can work.\n".to_string();
+    let codex_skill = "# PathKeep Search\n\nUse this skill when the user wants evidence from PathKeep.\n\n1. Make sure the local MCP server is configured in your Codex MCP settings.\n2. Use the `search_history` tool to find visits relevant to the question.\n3. Quote the visit date, URL, and profile when answering.\n\nIf the archive is encrypted, remind the user that the database key must be available in the system keyring before MCP queries can work.\n".to_string();
     let mcp_config = json!({
         "mcpServers": {
-            "browser-history-backup": {
+            "pathkeep": {
                 "command": executable,
                 "args": ["--worker", "mcp-server"]
             }
@@ -472,25 +472,25 @@ pub fn preview_ai_integrations(
         ],
         generated_files: vec![
             crate::models::GeneratedFile {
-                relative_path: "integrations/browser-history-backup-mcp.json".to_string(),
+                relative_path: "integrations/pathkeep-mcp.json".to_string(),
                 absolute_path: Some(
                     paths.app_root
-                        .join("integrations/browser-history-backup-mcp.json")
+                        .join("integrations/pathkeep-mcp.json")
                         .display()
                         .to_string(),
                 ),
-                purpose: "Local MCP client configuration snippet for Browser History Backup.".to_string(),
+                purpose: "Local MCP client configuration snippet for PathKeep.".to_string(),
                 contents: serde_json::to_string_pretty(&mcp_config)?,
             },
             crate::models::GeneratedFile {
-                relative_path: "integrations/codex-browser-history-skill/SKILL.md".to_string(),
+                relative_path: "integrations/codex-pathkeep-skill/SKILL.md".to_string(),
                 absolute_path: Some(
                     paths.app_root
-                        .join("integrations/codex-browser-history-skill/SKILL.md")
+                        .join("integrations/codex-pathkeep-skill/SKILL.md")
                         .display()
                         .to_string(),
                 ),
-                purpose: "Codex skill starter that teaches an external assistant how to query Browser History Backup through MCP.".to_string(),
+                purpose: "Codex skill starter that teaches an external assistant how to query PathKeep through MCP.".to_string(),
                 contents: codex_skill,
             },
         ],
@@ -550,7 +550,7 @@ fn build_assistant_preamble(config: &AppConfig, search_response: &AiSearchRespon
         .join("\n\n");
 
     format!(
-        "{system_prompt}\n\nYou are working inside Browser History Backup. Always ground answers in the history evidence below or by calling the search_history tool. Cite the visit date, profile, and URL you relied on. If the evidence is incomplete, say so.\n\nInitial evidence:\n{context}",
+        "{system_prompt}\n\nYou are working inside PathKeep. Always ground answers in the history evidence below or by calling the search_history tool. Cite the visit date, profile, and URL you relied on. If the evidence is incomplete, say so.\n\nInitial evidence:\n{context}",
         system_prompt = config.ai.assistant_system_prompt,
         context = if context.is_empty() {
             "No indexed evidence was found. Use the search_history tool or explain that the archive has no matching records.".to_string()
@@ -1052,7 +1052,7 @@ mod tests {
             .as_nanos();
         let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "browser-history-backup-ai-test-{}-{}-{}",
+            "pathkeep-ai-test-{}-{}-{}",
             std::process::id(),
             unique,
             sequence

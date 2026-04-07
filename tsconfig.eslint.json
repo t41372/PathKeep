@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.node.json",
+  "include": [
+    "vite.config.ts",
+    "eslint.config.js",
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "vitest.shell.config.ts"
+  ]
+}

@@ -19,7 +19,7 @@ use vault_core::{
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
 
-const PRODUCT_DISPLAY_NAME: &str = "Browser History Backup";
+const PRODUCT_DISPLAY_NAME: &str = "PathKeep";
 
 pub fn entrypoint() -> Result<()> {
     let arguments = std::env::args().collect::<Vec<_>>();

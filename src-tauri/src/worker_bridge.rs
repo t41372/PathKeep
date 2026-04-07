@@ -508,7 +508,7 @@ mod tests {
 
         let mut remote_config = config.clone();
         remote_config.remote_backup.enabled = true;
-        remote_config.remote_backup.bucket = "browser-history-backup-tests".to_string();
+        remote_config.remote_backup.bucket = "pathkeep-tests".to_string();
         remote_config.remote_backup.region = "us-west-2".to_string();
         remote_config.remote_backup.prefix = "archives".to_string();
         let saved_snapshot =
@@ -596,14 +596,14 @@ mod tests {
         reset_local_secret_vault_impl().expect("reset local secret vault");
         assert!(!dir.path().join("vault.hold").exists());
         let worker_payload = run_with_arguments(&[
-            "browser-history-backup".to_string(),
+            "pathkeep".to_string(),
             "--worker".to_string(),
             "doctor".to_string(),
         ])
         .expect("run worker doctor")
         .expect("worker payload");
         assert!(worker_payload.contains("checks"));
-        assert!(run_with_arguments(&["browser-history-backup".to_string()]).is_ok());
+        assert!(run_with_arguments(&["pathkeep".to_string()]).is_ok());
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

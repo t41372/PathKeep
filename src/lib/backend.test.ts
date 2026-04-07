@@ -30,7 +30,7 @@ const config: AppConfig = {
     bucket: '',
     region: 'us-east-1',
     endpoint: null,
-    prefix: 'browser-history-backup',
+    prefix: 'pathkeep',
     pathStyle: true,
     uploadAfterBackup: false,
     credentialsSaved: false,
@@ -57,8 +57,8 @@ const config: AppConfig = {
 
 const schedulePlan: SchedulePlan = {
   platform: 'macos',
-  label: 'dev.example.browser-history-backup.backup',
-  executablePath: '/Applications/Browser History Backup.app',
+  label: 'dev.example.pathkeep.backup',
+  executablePath: '/Applications/PathKeep.app',
   generatedFiles: [],
   manualSteps: [],
   applyCommands: [],
@@ -77,7 +77,7 @@ describe('backend facade', () => {
       config: expect.objectContaining({ archiveMode: 'Encrypted' }),
     })
     await expect(backend.getAppBuildInfo()).resolves.toMatchObject({
-      productName: 'Browser History Backup',
+      productName: 'PathKeep',
       gitCommitShort: 'preview',
     })
     await expect(backend.saveConfig(config)).resolves.toMatchObject({
@@ -112,7 +112,7 @@ describe('backend facade', () => {
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
     ).resolves.toMatchObject({ format: 'jsonl' })
     await expect(backend.previewRemoteBackup()).resolves.toMatchObject({
-      bundlePath: expect.stringContaining('browser-history-backup-remote.zip'),
+      bundlePath: expect.stringContaining('pathkeep-remote.zip'),
     })
     await expect(backend.runRemoteBackup()).resolves.toMatchObject({
       uploaded: false,
@@ -285,17 +285,17 @@ describe('backend facade', () => {
       mcpCommand: expect.stringContaining('--worker mcp-server'),
       generatedFiles: [
         expect.objectContaining({
-          relativePath: 'integrations/browser-history-backup-mcp.json',
+          relativePath: 'integrations/pathkeep-mcp.json',
         }),
       ],
     })
     await expect(backend.resetLocalSecretVault()).resolves.toBeUndefined()
-    await expect(
-      backend.openPathInFileManager('/tmp/browser-history-backup'),
-    ).resolves.toBe('/tmp/browser-history-backup')
+    await expect(backend.openPathInFileManager('/tmp/pathkeep')).resolves.toBe(
+      '/tmp/pathkeep',
+    )
     await expect(
       backendTestHarness.call('open_path_in_file_manager'),
-    ).resolves.toEqual(expect.stringContaining('Browser History Backup'))
+    ).resolves.toEqual(expect.stringContaining('PathKeep'))
   })
 
   test('delegates to Tauri invoke when running inside the desktop shell', async () => {

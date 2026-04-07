@@ -629,24 +629,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "browser-history-backup-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-stronghold",
- "tempfile",
- "vault-core",
- "vault-platform",
- "vault-worker",
-]
-
-[[package]]
 name = "browser-history-parser"
 version = "0.1.0"
 dependencies = [
@@ -4192,6 +4174,24 @@ name = "pastey"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b867cad97c0791bbd3aaa6472142568c6c9e8f71937e98379f584cfb0cf35bec"
+
+[[package]]
+name = "pathkeep-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-stronghold",
+ "tempfile",
+ "vault-core",
+ "vault-platform",
+ "vault-worker",
+]
 
 [[package]]
 name = "pbkdf2"

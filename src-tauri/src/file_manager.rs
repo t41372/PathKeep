@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn resolve_file_manager_target_rejects_missing_paths() {
-        let error = resolve_file_manager_target("/tmp/browser-history-backup-does-not-exist")
+        let error = resolve_file_manager_target("/tmp/pathkeep-does-not-exist")
             .expect_err("missing path should fail");
         assert!(error.contains("Path does not exist"));
     }

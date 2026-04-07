@@ -1046,12 +1046,12 @@ fn render_html_export(results: &HistoryQueryResponse) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Browser History Backup Export</title><style>body{{font-family:ui-sans-serif,system-ui;padding:32px;background:#f4efe6;color:#1e1b16}}ol{{display:grid;gap:16px}}li{{padding:16px;border-top:1px solid rgba(30,27,22,.15)}}a{{color:#0a6c74;text-decoration:none}}p{{margin:6px 0 0;color:#5d5548}}</style></head><body><h1>Browser History Backup Export</h1><ol>{rows}</ol></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>PathKeep Export</title><style>body{{font-family:ui-sans-serif,system-ui;padding:32px;background:#f4efe6;color:#1e1b16}}ol{{display:grid;gap:16px}}li{{padding:16px;border-top:1px solid rgba(30,27,22,.15)}}a{{color:#0a6c74;text-decoration:none}}p{{margin:6px 0 0;color:#5d5548}}</style></head><body><h1>PathKeep Export</h1><ol>{rows}</ol></body></html>"
     )
 }
 
 fn render_markdown_export(results: &HistoryQueryResponse) -> String {
-    let mut output = String::from("# Browser History Backup Export\n\n");
+    let mut output = String::from("# PathKeep Export\n\n");
     for item in &results.items {
         output.push_str(&format!(
             "- {} [{}]({})\n",
@@ -1362,7 +1362,7 @@ mod tests {
         .expect("export html");
         let html = fs::read_to_string(&html_export.path).expect("read html export");
         assert!(html.contains("&lt;item&gt;"));
-        assert!(html.contains("Browser History Backup Export"));
+        assert!(html.contains("PathKeep Export"));
 
         let due_report = run_backup(&paths, &config, None, true).expect("due backup");
         assert!(due_report.due_skipped);

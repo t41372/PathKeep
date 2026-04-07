@@ -102,7 +102,7 @@ impl BrowserHistoryMcpServer {
 }
 
 fn tokio_runtime() -> Result<Runtime> {
-    Runtime::new().context("creating tokio runtime for Browser History Backup worker")
+    Runtime::new().context("creating tokio runtime for PathKeep worker")
 }
 
 fn hydrate_provider_collection(providers: &mut [AiProviderConfig]) {
@@ -679,7 +679,7 @@ pub fn explain_insight_now(
 impl BrowserHistoryMcpServer {
     #[tool(
         name = "search-history",
-        description = "Search Browser History Backup for relevant visits, URLs, titles, profiles, or domains."
+        description = "Search PathKeep for relevant visits, URLs, titles, profiles, or domains."
     )]
     async fn search_history(
         &self,
@@ -692,7 +692,7 @@ impl BrowserHistoryMcpServer {
 
     #[tool(
         name = "archive-status",
-        description = "Report whether Browser History Backup is initialized, unlocked, and AI-ready."
+        description = "Report whether PathKeep is initialized, unlocked, and AI-ready."
     )]
     async fn archive_status(&self) -> Result<Json<McpArchiveStatus>, rmcp::ErrorData> {
         let snapshot = mcp_archive_status_result(self.database_key.as_deref())

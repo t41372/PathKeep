@@ -53,35 +53,35 @@
 
 ---
 
-## 2026-04-05 基線結論
+## 2026-04-06 基線結論
 
 根據這次掃描和驗證，目前可以先這樣理解 repo：
 
-- 前端入口 [`src/main.tsx`](../../src/main.tsx) 仍然直接載入 [`src/AppNew.tsx`](../../src/AppNew.tsx)，舊 shell 還是主入口。
-- 舊 UI 不是少量修補就能對齊新設計的狀態。至少 [`src/App.css`](../../src/App.css)、[`src/AppNew.test.tsx`](../../src/AppNew.test.tsx)、[`src/lib/i18n.ts`](../../src/lib/i18n.ts) 都已經到重寫優先的程度。
-- [`src/lib/backend.ts`](../../src/lib/backend.ts) 不只是 IPC 包裝，還混著 browser preview fixture、舊產品文案、舊 app 路徑和假資料模型。
-- Rust 端的大部分複雜度集中在幾個巨檔裡：[`src-tauri/crates/vault-core/src/archive.rs`](../../src-tauri/crates/vault-core/src/archive.rs)、[`src-tauri/crates/vault-core/src/chrome.rs`](../../src-tauri/crates/vault-core/src/chrome.rs)、[`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)、[`src-tauri/crates/vault-core/src/insights.rs`](../../src-tauri/crates/vault-core/src/insights.rs)、[`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs)。
-- canonical archive 目前仍然是 `archive-schema.sql` 加上啟動時補欄位的做法，還沒有正式 migration ledger。
-- 命名遷移沒有完成。`Browser History Backup`、`Chrome History Backup`、`Chrome History Vault` 仍殘留在 `package.json`、Tauri config、README、workflow、前端 mock、keyring / schedule 文案、export 文案、AI/MCP 文案等多處。
-- 設計師的 prototype 很清楚，但當前代碼庫並不是朝著那套 IA 在長，而是另一條舊路徑。
+- 前端入口 [`src/main.tsx`](../../src/main.tsx) 已切到 [`src/app/index.tsx`](../../src/app/index.tsx)；`AppNew` 與舊 `App.css` 已退場。
+- 新 shell / route tree / sidebar / topbar / page skeleton 已建立，入口資訊架構已對齊新 prototype，而不是舊 setup-first shell。
+- [`src/lib/backend.ts`](../../src/lib/backend.ts) 仍帶有 legacy / compatibility 成分，但正式 typed IPC wrapper 已移到 [`src/lib/ipc/bridge.ts`](../../src/lib/ipc/bridge.ts)，preview data 也已從主 bridge 分離。
+- Rust 端的大部分複雜度仍集中在幾個巨檔裡：[`src-tauri/crates/vault-core/src/archive/mod.rs`](../../src-tauri/crates/vault-core/src/archive/mod.rs)、[`src-tauri/crates/vault-core/src/chrome.rs`](../../src-tauri/crates/vault-core/src/chrome.rs)、[`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)、[`src-tauri/crates/vault-core/src/insights.rs`](../../src-tauri/crates/vault-core/src/insights.rs)、[`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs)。
+- canonical archive 已有正式 migration ledger 與 schema foundation；M1 的主題不再是「先把 schema 生出來」，而是接上可信 archive engine。
+- PathKeep 命名已完成 public / build metadata sweep；剩餘舊名字串只應存在於 explicit legacy alias 或 migration 註記。
+- 設計師的 prototype 現在已經落成 production shell 的 token、layout 與 smoke target，但 prototype gap list / deep-link / accessibility baseline 仍有剩餘研究要補。
 
 ---
 
 ## 已做過的基線驗證
 
-這一輪 plan 不是純主觀判斷。下面這些命令已在 2026-04-05 重新執行：
+這一輪 plan 不是純主觀判斷。下面這些命令已重新執行並回寫：
 
 - `bun run typecheck`：通過
-- `bun run test:unit`：通過，8 個 test files / 142 tests
+- `bun run test:unit`：通過
+- `bun run test:unit:shell`：通過
+- `bun run coverage:js:shell`：通過，shell slice 維持 100% coverage
+- `bun run mutation:js:shell`：通過，shell slice 維持 100% mutation score
 - `cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --quiet`：通過
-- `bun run test:e2e`：失敗，失敗點是 [`tests/e2e/shell.spec.ts`](../../tests/e2e/shell.spec.ts) 仍然要求舊的 `Setup` heading 和舊 setup shell 文案
-
-2026-04-06 補充：
-
+- `bun run test:e2e`：通過，驗證新 shell / onboarding / dashboard smoke
 - `bun run check`：通過，repo-wide Markdown / Prettier debt 與驗收途中浮出的 JS ESLint、Rust Clippy 基線問題已清理
 - `bun run build`：通過
 
-這個結果很重要，因為它說明 repo 現在不是「壞掉」，而是「還在穩定地保護舊目標」。所以第一性工作不是零碎修 bug，而是**先重設產品骨架、驗收目標和測試基線**。
+這個結果很重要，因為它說明 repo 現在已經不再保護舊 setup shell，而是開始保護新的產品骨架。接下來的主軸可以從「切換骨架」轉到 **把 archive engine 真正接上這個新骨架**。
 
 ---
 
@@ -119,7 +119,7 @@ M4  Full Intelligence & Polish
 | 里程碑 | 目標                                                                     | 狀態  | 入口                                                           |
 | ------ | ------------------------------------------------------------------------ | ----- | -------------------------------------------------------------- |
 | `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                         |
-| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[ ]` | [m0-foundation/README.md](m0-foundation/README.md)             |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[/]` | [m0-foundation/README.md](m0-foundation/README.md)             |
 | `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
 | `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
 | `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |

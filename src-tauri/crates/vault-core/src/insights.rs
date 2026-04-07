@@ -751,7 +751,7 @@ fn build_refetch_client() -> Result<Client> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::limited(5))
         .timeout(std::time::Duration::from_secs(10))
-        .user_agent("Browser History Backup Insights/0.1")
+        .user_agent("PathKeep Insights/0.1")
         .build()
         .context("building content refetch client")
 }

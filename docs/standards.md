@@ -33,6 +33,7 @@
 
 - M0 期間，**repo-wide** coverage 和 mutation 暫時不作為 blocking gate；它們仍然有價值，但不應反過來保護舊架構。
 - 所有**新建**或**整段重寫**的模組，仍必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
+- shell / route reset 這類大型前端重寫，允許用 targeted scripts 驗證；目前 shell slice 的基準是 `bun run test:unit:shell`、`bun run coverage:js:shell`、`bun run mutation:js:shell`。
 - 驗證舊產品假設的測試應直接刪除或重寫，不保留作長期 legacy harness。
 - 不接受把「目前 typecheck 會紅」「先關掉 coverage 再說」寫成完成狀態；重寫期只是調整 gate 的層級，不是放棄品質。
 
@@ -46,6 +47,7 @@
 
 - GitHub Actions：
   - M0 重寫期 blocking 檢查：lint + test + build。
+  - 與目前 work block 直接相關的 targeted verification（例如 shell smoke / targeted mutation）仍要在本地或對應 workflow 補跑。
   - repo-wide coverage / mutation 在新架構穩定前可改成 on-demand 或 scheduled deep check。
   - M1 之後再恢復「coverage 也是 blocking gate」。
   - Release pipeline：多平台構建 + 自動產出安裝檔。

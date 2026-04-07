@@ -88,7 +88,7 @@ bun run desktop:build:debug
 Build outputs:
 
 - Debug binary:
-  `src-tauri/target/debug/browser-history-backup-desktop`
+  `src-tauri/target/debug/pathkeep-desktop`
 - Release bundle directory:
   `src-tauri/target/release/bundle/`
 

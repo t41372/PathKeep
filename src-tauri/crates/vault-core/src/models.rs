@@ -44,7 +44,7 @@ impl Default for RemoteBackupConfig {
             bucket: String::new(),
             region: "us-east-1".to_string(),
             endpoint: None,
-            prefix: "browser-history-backup".to_string(),
+            prefix: "pathkeep".to_string(),
             path_style: true,
             upload_after_backup: false,
             credentials_saved: false,

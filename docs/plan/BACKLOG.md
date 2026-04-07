@@ -9,10 +9,6 @@
 
 ### M1 — Solid Archive
 
-- [ ] **WORK-M1-A** — Archive Engine Foundation `[!blocked: 需要 WORK-M0-B]`
-  - 讀先：`docs/features/archive.md`、`docs/architecture/data-model.md`、`docs/plan/m1-solid-archive/schema-backup-and-ledger.md`、`docs/plan/m1-solid-archive/schedule-security-and-storage.md`
-  - 目標：把 Chromium backup pipeline、manifest chain、snapshot safety net、schedule/security/storage foundation 做成第一批可信 archive engine
-
 - [ ] **WORK-M1-B** — Archive UX And Operations `[!blocked: 需要 WORK-M1-A]`
   - 讀先：`docs/design/screens-and-nav.md`、`docs/features/archive.md`、`docs/plan/m1-solid-archive/explorer-export-and-onboarding.md`
   - 目標：把 Explorer / Audit / Onboarding / Export / Security 等 day-one UX 做到可驗收，並補齊對應 smoke / acceptance

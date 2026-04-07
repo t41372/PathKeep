@@ -1,12 +1,12 @@
 [package]
-name = "browser-history-backup-desktop"
+name = "pathkeep-desktop"
 version = "0.1.0"
 edition = "2024"
 description = "Audit-first desktop archive for browser history"
 license = "GPL-3.0-only"
 
 [lib]
-name = "browser_history_backup_desktop"
+name = "pathkeep_desktop"
 path = "src/lib.rs"
 
 [workspace]

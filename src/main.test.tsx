@@ -9,7 +9,7 @@ vi.mock('react-dom/client', () => ({
   createRoot: createRootMock,
 }))
 
-vi.mock('./AppNew.tsx', () => ({
+vi.mock('./app', () => ({
   default: () => <div>App shell</div>,
 }))
 

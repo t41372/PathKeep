@@ -365,7 +365,7 @@ vault-worker
   ├── 可依賴：vault-core, vault-platform, browser-history-parser
   └── 禁止依賴：tauri command macros（worker 層不應直接暴露 Tauri commands）
 
-browser-history-backup-desktop (src-tauri/src/)
+pathkeep-desktop (src-tauri/src/)
   ├── 可依賴：所有上述 crate
   └── 責任：Tauri command facade，只做 IPC bridge，不含業務邏輯
 ```

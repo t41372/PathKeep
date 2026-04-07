@@ -154,7 +154,7 @@ fn validate_remote_backup_config(config: &AppConfig) -> Result<()> {
 fn planned_bundle_path(paths: &ProjectPaths, created_at: &str) -> PathBuf {
     let remote_dir = paths.exports_dir.join("remote-backups");
     let timestamp = created_at.replace(':', "-");
-    remote_dir.join(format!("browser-history-backup-{timestamp}.zip"))
+    remote_dir.join(format!("pathkeep-{timestamp}.zip"))
 }
 
 fn build_bundle(
@@ -390,7 +390,7 @@ mod tests {
                 bucket: "example-bucket".to_string(),
                 region: "us-east-1".to_string(),
                 endpoint: None,
-                prefix: "browser-history-backup".to_string(),
+                prefix: "pathkeep".to_string(),
                 path_style: true,
                 upload_after_backup: false,
                 credentials_saved: false,
@@ -428,7 +428,7 @@ mod tests {
         let expected_object_key = remote_object_key(&config, Path::new(&preview.bundle_path));
         assert!(preview.bundle_path.contains("remote-backups"));
         assert_eq!(preview.object_key, expected_object_key);
-        assert!(preview.object_key.starts_with("browser-history-backup/"));
+        assert!(preview.object_key.starts_with("pathkeep/"));
         assert!(preview.object_key.ends_with(".zip"));
         assert!(preview.upload_url.ends_with(&preview.object_key));
         assert!(preview.preview_command.contains("--aws-sigv4"));
@@ -439,35 +439,32 @@ mod tests {
     #[test]
     fn upload_url_supports_aws_and_custom_endpoint_layouts() {
         let mut config = sample_config();
-        let aws_path = upload_url(&config, "browser-history-backup/archive.zip").expect("aws");
+        let aws_path = upload_url(&config, "pathkeep/archive.zip").expect("aws");
         assert_eq!(
             aws_path,
-            "https://s3.us-east-1.amazonaws.com/example-bucket/browser-history-backup/archive.zip"
+            "https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/archive.zip"
         );
 
         config.remote_backup.path_style = false;
-        let aws_hosted =
-            upload_url(&config, "browser-history-backup/archive.zip").expect("aws hosted");
+        let aws_hosted = upload_url(&config, "pathkeep/archive.zip").expect("aws hosted");
         assert_eq!(
             aws_hosted,
-            "https://example-bucket.s3.us-east-1.amazonaws.com/browser-history-backup/archive.zip"
+            "https://example-bucket.s3.us-east-1.amazonaws.com/pathkeep/archive.zip"
         );
 
         config.remote_backup.endpoint = Some("storage.example.test/root/".to_string());
         config.remote_backup.path_style = true;
-        let custom_path =
-            upload_url(&config, "browser-history-backup/archive.zip").expect("custom path");
+        let custom_path = upload_url(&config, "pathkeep/archive.zip").expect("custom path");
         assert_eq!(
             custom_path,
-            "https://storage.example.test/root/example-bucket/browser-history-backup/archive.zip"
+            "https://storage.example.test/root/example-bucket/pathkeep/archive.zip"
         );
 
         config.remote_backup.path_style = false;
-        let custom_hosted =
-            upload_url(&config, "browser-history-backup/archive.zip").expect("custom hosted");
+        let custom_hosted = upload_url(&config, "pathkeep/archive.zip").expect("custom hosted");
         assert_eq!(
             custom_hosted,
-            "https://example-bucket.storage.example.test/root/browser-history-backup/archive.zip"
+            "https://example-bucket.storage.example.test/root/pathkeep/archive.zip"
         );
     }
 

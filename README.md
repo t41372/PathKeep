@@ -6,19 +6,16 @@
 
 # PathKeep
 
-Browser History Backup is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, Bun, React, and Vite, and is designed around one rule: every meaningful system action should stay inspectable.
+PathKeep is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, Bun, React, and Vite, and is designed around one rule: every meaningful system action should stay inspectable.
 
 The app keeps raw provenance, normalized query data, audit manifests, scheduler artifacts, import batches, and export outputs separate so the user can preview what is about to happen, inspect what already happened, and roll back dirty imports without erasing the audit trail.
 
 ## Current Status
 
-- The desktop app, worker mode, and local-first archive pipeline are implemented.
-- Browser discovery, incremental backup, Takeout import, export, S3 backup, and optional AI analysis all exist in the codebase today.
-- The GitHub release pipeline now builds platform installers for macOS, Windows, and Linux and publishes them as GitHub release assets.
-- The project is still in active development. Some areas are intentionally honest about their current state:
-  - Scheduler `Apply` is implemented on macOS. Windows and Linux currently ship `Preview` and `Manual` flows only.
-  - Installer signing and notarization are supported by the release workflow only if the relevant GitHub secrets are configured.
-  - Rust workspace coverage is not yet at the originally requested 100%; the latest `cargo llvm-cov` run reports 82.68% line coverage.
+- The project is in an M0 rewrite phase: the product shell, route tree, design tokens, and acceptance targets are being reset before feature work resumes.
+- The canonical data-plane foundations already exist in Rust, but the desktop surface is still being rebuilt page by page against the new PathKeep information architecture.
+- Blocking verification during the rewrite is `bun run check`, `bun run build`, and the targeted tests for the slice being rewritten.
+- Repo-wide coverage and mutation sweeps still exist, but they are treated as deep checks until the new architecture fully replaces legacy slices.
 
 ## Feature Inventory
 
@@ -155,7 +152,7 @@ bun run desktop:build
 Important local output locations:
 
 - Debug desktop binary:
-  `src-tauri/target/debug/browser-history-backup-desktop`
+  `src-tauri/target/debug/pathkeep-desktop`
 - Release bundle directory:
   `src-tauri/target/release/bundle/`
 
@@ -170,32 +167,29 @@ The exact installer files depend on the host OS:
 
 ## Quality Gates
 
-### JavaScript and TypeScript
+### Blocking in M0
 
-- Prettier formatting
-- ESLint
-- `tsc -b`
-- Vitest unit tests
-- React integration tests
-- Playwright e2e smoke coverage
-- Stryker mutation testing
+- `bun run check`
+- `bun run build`
+- Slice-specific verification for rewritten modules, such as:
+  - `bun run test:unit:shell`
+  - `bun run coverage:js:shell`
+  - `bun run mutation:js:shell`
+  - targeted Rust crate tests where applicable
 
-### Rust
+### Deep checks
 
-- `cargo fmt --all --check`
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- `cargo test --workspace --all-targets`
-- `cargo llvm-cov`
-- `cargo mutants`
-- `cargo audit`
-- `cargo deny`
+- `bun run coverage`
+- `bun run mutation:js`
+- `bun run mutation:rust`
+- `bun run verify`
 
 ## GitHub Actions and Release Pipeline
 
 The repository currently ships three GitHub Actions workflows:
 
 - [`ci.yml`](./.github/workflows/ci.yml)
-  Frontend checks, Playwright smoke coverage, Rust formatting/lint/test gates, Rust supply-chain checks (`cargo audit` and `cargo deny`), coverage artifact generation, and a macOS debug desktop build.
+  Frontend checks, Playwright smoke coverage, Rust formatting/lint/test gates, Rust supply-chain checks (`cargo audit` and `cargo deny`), and a macOS debug desktop build.
 - [`mutation.yml`](./.github/workflows/mutation.yml)
   Manual or scheduled JavaScript and Rust mutation-test sweeps.
 - [`release.yml`](./.github/workflows/release.yml)
