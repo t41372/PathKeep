@@ -35,6 +35,11 @@ WHERE EXISTS (
   FROM history_visits
   WHERE history_visits.history_item = history_items.id
 )
+  AND (
+    SELECT MAX(history_visits.visit_time)
+    FROM history_visits
+    WHERE history_visits.history_item = history_items.id
+  ) > ?1
 ORDER BY last_visit_time ASC
 "#;
 const VISITS_SQL: &str = r#"
@@ -79,12 +84,16 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     Ok(DatabaseInspection { table_names, warnings })
 }
 
-pub fn parse_history(path: &Path, after_visit_id: i64) -> Result<ParsedHistory, ParseError> {
+pub fn parse_history(
+    path: &Path,
+    after_visit_id: i64,
+    after_url_last_visit_ms: i64,
+) -> Result<ParsedHistory, ParseError> {
     let inspection = inspect_history(path)?;
     validate_required_tables(&inspection)?;
 
     let connection = open_readonly(path)?;
-    let urls = parse_urls(&connection)?;
+    let urls = parse_urls(&connection, after_url_last_visit_ms)?;
     let visits = parse_visits(&connection, after_visit_id)?;
 
     Ok(ParsedHistory {
@@ -102,6 +111,10 @@ pub fn safari_time_to_unix_ms(value: f64) -> i64 {
     (((value + SAFARI_UNIX_EPOCH_OFFSET_SECONDS) * 1_000.0).round() as i64).max(0)
 }
 
+pub fn unix_ms_to_safari_time(value: i64) -> f64 {
+    (value.max(0) as f64 / 1_000.0) - SAFARI_UNIX_EPOCH_OFFSET_SECONDS
+}
+
 pub fn safari_time_to_iso(value: f64) -> String {
     let milliseconds = safari_time_to_unix_ms(value);
     Utc.timestamp_millis_opt(milliseconds)
@@ -110,9 +123,13 @@ pub fn safari_time_to_iso(value: f64) -> String {
         .to_rfc3339()
 }
 
-fn parse_urls(connection: &Connection) -> Result<Vec<ParsedUrl>, ParseError> {
+fn parse_urls(
+    connection: &Connection,
+    after_url_last_visit_ms: i64,
+) -> Result<Vec<ParsedUrl>, ParseError> {
     let mut statement = connection.prepare(URLS_SQL)?;
-    let rows = statement.query_map([], parsed_url_from_row)?;
+    let rows = statement
+        .query_map(params![unix_ms_to_safari_time(after_url_last_visit_ms)], parsed_url_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -218,7 +235,7 @@ mod tests {
         let history_path = directory.path().join("History.db");
         write_history_fixture(&history_path);
 
-        let parsed = parse_history(&history_path, 0).expect("parse safari history");
+        let parsed = parse_history(&history_path, 0, 0).expect("parse safari history");
         assert_eq!(parsed.urls.len(), 1);
         assert_eq!(parsed.visits.len(), 1);
         assert_eq!(parsed.urls[0].title.as_deref(), Some("Safari Example"));
@@ -245,10 +262,23 @@ mod tests {
     #[test]
     fn safari_time_helpers_keep_dates_stable() {
         assert_eq!(safari_time_to_unix_ms(0.0), 978_307_200_000);
+        assert_eq!(unix_ms_to_safari_time(978_307_200_000), 0.0);
         assert_eq!(
             safari_time_to_iso(-SAFARI_UNIX_EPOCH_OFFSET_SECONDS),
             "1970-01-01T00:00:00+00:00"
         );
         assert!(safari_time_to_iso(765_838_800.0).starts_with("2025-04-"));
+    }
+
+    #[test]
+    fn parse_history_respects_visit_and_url_cursors() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History.db");
+        write_history_fixture(&history_path);
+
+        let parsed = parse_history(&history_path, 9, 1_744_146_000_000).expect("cursor parse");
+
+        assert!(parsed.urls.is_empty());
+        assert!(parsed.visits.is_empty());
     }
 }

@@ -1201,27 +1201,37 @@ fn parse_profile_snapshot(
             })
         }
         "firefox" => {
-            let history = firefox::parse_history(&snapshot.history_path, watermark.last_visit_id)?;
+            let history = firefox::parse_history(
+                &snapshot.history_path,
+                watermark.last_visit_id,
+                watermark.last_url_last_visit_time,
+            )?;
             let last_visit_id =
                 history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
+            let last_url_marker = history.urls.iter().map(|url| url.last_visit_ms).max();
             Ok(ParsedProfileSnapshot {
                 source_kind: "firefox-history",
                 history,
                 last_visit_id,
-                last_url_marker: None,
+                last_url_marker,
                 last_download_id: None,
                 last_favicon_marker: None,
             })
         }
         "safari" => {
-            let history = safari::parse_history(&snapshot.history_path, watermark.last_visit_id)?;
+            let history = safari::parse_history(
+                &snapshot.history_path,
+                watermark.last_visit_id,
+                watermark.last_url_last_visit_time,
+            )?;
             let last_visit_id =
                 history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
+            let last_url_marker = history.urls.iter().map(|url| url.last_visit_ms).max();
             Ok(ParsedProfileSnapshot {
                 source_kind: "safari-history",
                 history,
                 last_visit_id,
-                last_url_marker: None,
+                last_url_marker,
                 last_download_id: None,
                 last_favicon_marker: None,
             })
@@ -2739,6 +2749,10 @@ mod tests {
         assert_eq!(history.total, 2);
         assert!(history.items.iter().any(|entry| entry.profile_id.starts_with("firefox:")));
         assert!(history.items.iter().any(|entry| entry.profile_id.starts_with("safari:")));
+
+        let rerun = run_backup(&paths, &config, None, false).expect("rerun multi-browser backup");
+        assert_eq!(rerun.run.as_ref().expect("rerun").new_visits, 0);
+        assert_eq!(rerun.run.as_ref().expect("rerun").new_urls, 0);
 
         restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
         restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());

@@ -221,12 +221,15 @@ describe('App shell', () => {
 
     expect(await screen.findByText('BACKUP SCHEDULE')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'EXECUTE' }))
-    const removeButton = await screen.findByRole('button', {
+    await screen.findByRole('button', {
       name: 'Remove schedule',
     })
-
-    await waitFor(() => expect(removeButton).toBeEnabled())
-    await user.click(removeButton)
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Remove schedule' }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Remove schedule' }))
 
     await waitFor(() =>
       expect(removeSpy).toHaveBeenCalledWith(

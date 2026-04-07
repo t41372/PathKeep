@@ -142,9 +142,7 @@ pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Appl
     fs::create_dir_all(&launch_agents_dir)?;
 
     let uid = scheduler_uid()?;
-    let current_path = launch_agents_dir.join(
-        PathBuf::from(&plan.generated_files[0].relative_path).file_name().unwrap_or_default(),
-    );
+    let current_path = generated_plist_target_path(plan, &launch_agents_dir)?;
     let legacy_path = launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist"));
 
     let current_unload = bootout_launch_agent(&uid, MACOS_LABEL)?;
@@ -206,9 +204,7 @@ pub fn schedule_status(
     }
 
     let launch_agents_dir = launch_agents_dir()?;
-    let target_path = launch_agents_dir.join(
-        PathBuf::from(&plan.generated_files[0].relative_path).file_name().unwrap_or_default(),
-    );
+    let target_path = generated_plist_target_path(&plan, &launch_agents_dir)?;
     let legacy_path = launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist"));
 
     if target_path.exists() {
@@ -246,6 +242,13 @@ pub fn schedule_status(
     }
 
     Ok(status)
+}
+
+fn generated_plist_target_path(plan: &SchedulePlan, launch_agents_dir: &Path) -> Result<PathBuf> {
+    let generated =
+        plan.generated_files.first().context("missing plist file for macOS schedule plan")?;
+    Ok(launch_agents_dir
+        .join(PathBuf::from(&generated.relative_path).file_name().unwrap_or_default()))
 }
 
 fn write_schedule_apply_audit(
@@ -1182,6 +1185,27 @@ mod tests {
         assert_eq!(removed.files.len(), 1);
         assert!(!Path::new(&removed.files[0]).exists());
         assert!(Path::new(removed.audit_path.as_deref().expect("audit path")).exists());
+    }
+
+    #[test]
+    fn macos_remove_schedule_rejects_missing_generated_files() {
+        let dir = tempdir().expect("tempdir");
+        let result = remove_schedule(
+            &SchedulePlan {
+                platform: "macos".to_string(),
+                label: MACOS_LABEL.to_string(),
+                executable_path: "/tmp/pathkeep".to_string(),
+                generated_files: Vec::new(),
+                manual_steps: Vec::new(),
+                apply_commands: Vec::new(),
+                rollback_commands: Vec::new(),
+                apply_supported: true,
+            },
+            &sample_paths(dir.path()),
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing plist file"));
     }
 
     #[test]
