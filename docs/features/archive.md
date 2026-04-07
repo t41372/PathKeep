@@ -26,6 +26,7 @@
   3. 解析並寫入 archive 數據庫。
   4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
+- Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - 備份是**增量的**：只新增/更新有變化的記錄。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
 - 對於會變動的記錄（如 URL metadata），採用 row versioning，保留所有歷史版本。
@@ -77,7 +78,9 @@
 - 排程的設定走 Preview/Manual/Execute 流程：
   - 用戶能看到將要安裝的 plist / XML / service 文件的內容。
   - 用戶能選擇手動複製並安裝，或讓 app 代為安裝。
+  - 如果原生排程已安裝，Schedule 頁也必須提供明確的移除 / 解除安裝 CTA，而不是要求使用者自己回到系統資料夾手動刪檔。
   - 安裝結果記入審計日誌。
+  - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
 
 ### 平台注意事項

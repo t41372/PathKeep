@@ -78,6 +78,7 @@ fn run_app() -> Result<()> {
             restore_import_batch,
             preview_schedule,
             apply_schedule,
+            remove_schedule,
             schedule_status,
             doctor_report,
             repair_health,
@@ -284,6 +285,12 @@ fn preview_schedule(platform: Option<String>) -> Result<SchedulePlan, String> {
 #[tauri::command]
 fn apply_schedule(plan: SchedulePlan) -> Result<vault_core::ApplyResult, String> {
     worker_bridge::apply_schedule_impl(plan)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn remove_schedule(plan: SchedulePlan) -> Result<vault_core::ApplyResult, String> {
+    worker_bridge::remove_schedule_impl(plan)
 }
 
 #[cfg(not(test))]

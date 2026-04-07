@@ -1041,6 +1041,13 @@ async function call<T>(
         files: [],
         message: 'Apply is not available in browser preview mode.',
       } as T
+    case 'remove_schedule':
+      return {
+        applied: false,
+        platform: 'macos',
+        files: [],
+        message: 'Remove is not available in browser preview mode.',
+      } as T
     default:
       throw new Error(`Mock backend does not implement ${command}`)
   }
@@ -1095,6 +1102,8 @@ export const backend = {
     call<ScheduleStatus>('schedule_status', { platform }),
   applySchedule: (plan: SchedulePlan) =>
     call<ApplyResult>('apply_schedule', { plan }),
+  removeSchedule: (plan: SchedulePlan) =>
+    call<ApplyResult>('remove_schedule', { plan }),
   doctor: () => call<HealthReport>('doctor_report'),
   repairHealth: () => call<HealthRepairReport>('repair_health'),
   keyringStatus: () => call<KeyringStatusReport>('keyring_status'),

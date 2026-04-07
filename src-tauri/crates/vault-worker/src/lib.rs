@@ -36,7 +36,7 @@ use vault_platform::{
     keyring_clear_s3_credentials, keyring_get_database_key, keyring_get_provider_api_key,
     keyring_get_s3_credentials, keyring_set_database_key, keyring_set_provider_api_key,
     keyring_set_s3_credentials, keyring_status, preview_schedule, provider_api_key_saved,
-    s3_credentials_saved, schedule_status as detect_schedule_status,
+    remove_schedule, s3_credentials_saved, schedule_status as detect_schedule_status,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -533,6 +533,11 @@ pub fn preview_schedule_plan(
 pub fn apply_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
     let paths = project_paths()?;
     apply_schedule(plan, &paths)
+}
+
+pub fn remove_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
+    let paths = project_paths()?;
+    remove_schedule(plan, &paths)
 }
 
 pub fn schedule_status(
@@ -1390,6 +1395,8 @@ mod tests {
         assert_eq!(preview.platform, "windows");
         let applied = apply_schedule_plan(&preview).expect("apply schedule");
         assert!(!applied.applied);
+        let removed = remove_schedule_plan(&preview).expect("remove schedule");
+        assert!(!removed.applied);
         let schedule = schedule_status(None, Some("windows"), Some(PathBuf::from("/tmp/bhb")))
             .expect("schedule status");
         assert_eq!(schedule.install_state, "manual-review");

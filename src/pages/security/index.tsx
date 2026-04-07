@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { backend } from '../../lib/backend'
@@ -22,6 +23,16 @@ function securityModeLabel(status: SecurityStatus) {
   if (status.mode === 'locked') return 'ENCRYPTED / LOCKED'
   if (status.mode === 'encrypted') return 'ENCRYPTED'
   return 'PLAINTEXT'
+}
+
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve()
+      return
+    }
+    window.requestAnimationFrame(() => resolve())
+  })
 }
 
 export function SecurityPage() {
@@ -88,6 +99,7 @@ export function SecurityPage() {
     setNotice(null)
 
     try {
+      await waitForNextPaint()
       return await fn()
     } catch (nextError) {
       setActionError(
@@ -516,6 +528,7 @@ export function SecurityPage() {
           ) : null}
         </div>
       </div>
+      {busy ? <BusyOverlay label={busy} /> : null}
     </section>
   )
 }

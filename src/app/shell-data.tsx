@@ -8,6 +8,16 @@ import type {
 } from '../lib/types'
 import { ShellDataContext } from './shell-data-context'
 
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve()
+      return
+    }
+    window.requestAnimationFrame(() => resolve())
+  })
+}
+
 export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
@@ -21,6 +31,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   async function refreshAppData(showSpinner = true) {
     if (showSpinner) {
       setLoading(true)
+      await waitForNextPaint()
     }
     setError(null)
 
@@ -58,11 +69,14 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setError(null)
 
     try {
+      await waitForNextPaint()
       const nextSnapshot = await backend.saveConfig(config)
-      const nextDashboard = await backend.loadDashboardSnapshot()
       setSnapshot(nextSnapshot)
-      setDashboard(nextDashboard)
       setRefreshKey((value) => value + 1)
+      void backend
+        .loadDashboardSnapshot()
+        .then((nextDashboard) => setDashboard(nextDashboard))
+        .catch(() => undefined)
       return nextSnapshot
     } catch (nextError) {
       setError(
@@ -85,6 +99,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setError(null)
 
     try {
+      await waitForNextPaint()
       const nextSnapshot = await backend.initializeArchive(config, databaseKey)
       const nextDashboard = await backend.loadDashboardSnapshot()
       setSnapshot(nextSnapshot)
@@ -112,6 +127,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setError(null)
 
     try {
+      await waitForNextPaint()
       const report = await backend.runBackupNow(false)
       await refreshAppData(false)
       setNotice(

@@ -25,6 +25,7 @@
 ## 實作註記（2026-04-06 / WORK-M1-A, 2026-04-06 audit follow-up）
 
 - macOS scheduler 的 preview / manual / apply 流程已落地；Windows / Linux 也已有 preview / manual artifact，Linux timer contract 明確使用 `OnCalendar=` + `Persistent=true`。
+- Schedule execute surface 現在同時覆蓋 install / update 與 explicit remove：macOS 會移除 current / legacy LaunchAgent plist、嘗試 `launchctl bootout`，並寫出 remove audit artifact；browser preview mode 則保持 manual-first read-only 說明。
 - schedule status read model 已補上：macOS 會檢查 LaunchAgent 是否已安裝、內容是否 mismatch、是否殘留 legacy plist；Windows / Linux 目前明確回報 `manual-review`，不再假裝自動檢測已完成。
 - keyring status / get / set / clear、archive unlock session、security status read model、rekey preview 與 snapshot-backed rekey execute 基礎已經存在於 worker / platform surface；Security trust UI 與 Linux keyring UX 仍待後續 UX block。
 - storage layout、artifact naming 與 Dashboard / Audit 可消費的 storage summary / artifact metadata 已落地，retention policy 與清理 UX 仍未完成。

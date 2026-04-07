@@ -35,13 +35,36 @@ export function OnboardingPage() {
   const [rememberKey, setRememberKey] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [schedulePlan, setSchedulePlan] = useState<SchedulePlan | null>(null)
+  const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false)
+  const [schedulePreviewError, setSchedulePreviewError] = useState<
+    string | null
+  >(null)
 
   useEffect(() => {
     if (step === 4 && snapshot) {
       let cancelled = false
-      void backend.previewSchedule().then((plan) => {
-        if (!cancelled) setSchedulePlan(plan)
-      })
+      setSchedulePreviewLoading(true)
+      setSchedulePreviewError(null)
+      void backend
+        .previewSchedule()
+        .then((plan) => {
+          if (!cancelled) setSchedulePlan(plan)
+        })
+        .catch((nextError) => {
+          if (!cancelled) {
+            setSchedulePlan(null)
+            setSchedulePreviewError(
+              nextError instanceof Error
+                ? nextError.message
+                : 'PathKeep could not preview the native schedule yet.',
+            )
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setSchedulePreviewLoading(false)
+          }
+        })
       return () => {
         cancelled = true
       }
@@ -526,22 +549,35 @@ export function OnboardingPage() {
             </p>
           </div>
 
-          <div className="security-options">
+          <div
+            aria-label="Archive encryption mode"
+            className="security-options"
+            role="radiogroup"
+          >
             <div
               className={`security-option ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
-              onClick={() =>
-                void updateConfig((c) => ({ ...c, archiveMode: 'Encrypted' }))
-              }
             >
-              <div className="option-header">
-                <div
-                  className={`option-radio ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
-                />
-                <div className="option-title-row">
-                  <span className="option-title">🔒 Encrypted</span>
-                  <span className="tag tag-sm tag-backup">RECOMMENDED</span>
+              <button
+                aria-checked={currentConfig.archiveMode === 'Encrypted'}
+                aria-label="Select encrypted mode"
+                className="security-option-trigger"
+                disabled={busyAction !== null}
+                role="radio"
+                type="button"
+                onClick={() =>
+                  void updateConfig((c) => ({ ...c, archiveMode: 'Encrypted' }))
+                }
+              >
+                <div className="option-header">
+                  <div
+                    className={`option-radio ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
+                  />
+                  <div className="option-title-row">
+                    <span className="option-title">🔒 Encrypted</span>
+                    <span className="tag tag-sm tag-backup">RECOMMENDED</span>
+                  </div>
                 </div>
-              </div>
+              </button>
               <div className="option-body">
                 <p className="option-desc">
                   SQLCipher AES-256 encryption at rest. Requires a master
@@ -586,18 +622,27 @@ export function OnboardingPage() {
 
             <div
               className={`security-option ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
-              onClick={() =>
-                void updateConfig((c) => ({ ...c, archiveMode: 'Plaintext' }))
-              }
             >
-              <div className="option-header">
-                <div
-                  className={`option-radio ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
-                />
-                <div className="option-title-row">
-                  <span className="option-title">📄 Plaintext</span>
+              <button
+                aria-checked={currentConfig.archiveMode === 'Plaintext'}
+                aria-label="Select plaintext mode"
+                className="security-option-trigger"
+                disabled={busyAction !== null}
+                role="radio"
+                type="button"
+                onClick={() =>
+                  void updateConfig((c) => ({ ...c, archiveMode: 'Plaintext' }))
+                }
+              >
+                <div className="option-header">
+                  <div
+                    className={`option-radio ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
+                  />
+                  <div className="option-title-row">
+                    <span className="option-title">📄 Plaintext</span>
+                  </div>
                 </div>
-              </div>
+              </button>
               <div className="option-body">
                 <p className="option-desc">
                   No encryption. The database stays readable on disk. Choose
@@ -686,6 +731,16 @@ export function OnboardingPage() {
               </div>
             </div>
           </div>
+
+          {schedulePreviewLoading ? (
+            <LoadingState label="Previewing native schedule artifacts" />
+          ) : null}
+
+          {schedulePreviewError ? (
+            <p className="inline-error" role="alert">
+              {schedulePreviewError}
+            </p>
+          ) : null}
 
           {schedulePlan && (
             <div className="panel" style={{ marginTop: 'var(--space-4)' }}>

@@ -37,4 +37,6 @@
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
+- Onboarding shell header 必須有明確的 `Exit setup` 動作；離開後保留目前已選的 storage / profile / security 決策，避免把使用者困在 setup route。
 - Schedule / Security 在 M1 是 review surface：先顯示 preview、artifact 和 trust copy，不在導航層暗示背景自動執行。
+- Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態與 theme toggle 在不捲動主內容區的情況下也要可見。

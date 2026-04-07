@@ -169,6 +169,9 @@ describe('backend facade', () => {
     await expect(backend.applySchedule(schedulePlan)).resolves.toMatchObject({
       applied: false,
     })
+    await expect(backend.removeSchedule(schedulePlan)).resolves.toMatchObject({
+      applied: false,
+    })
     await expect(backend.doctor()).resolves.toMatchObject({
       checks: [],
     })

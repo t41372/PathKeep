@@ -180,6 +180,11 @@ pub(crate) fn apply_schedule_impl(plan: SchedulePlan) -> Result<vault_core::Appl
     worker_result(vault_worker::apply_schedule_plan(&plan))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn remove_schedule_impl(plan: SchedulePlan) -> Result<vault_core::ApplyResult, String> {
+    worker_result(vault_worker::remove_schedule_plan(&plan))
+}
+
 pub(crate) fn schedule_status_impl(
     platform: Option<String>,
     session_database_key: Option<&str>,
@@ -628,6 +633,11 @@ mod tests {
         assert_eq!(plan.platform, "linux");
         let applied = apply_schedule_impl(plan).expect("apply schedule");
         assert!(!applied.applied);
+        let removed = remove_schedule_impl(
+            preview_schedule_impl(Some("linux".to_string())).expect("schedule preview for remove"),
+        )
+        .expect("remove schedule");
+        assert!(!removed.applied);
         let schedule_status =
             schedule_status_impl(Some("linux".to_string()), session_key(&session).as_deref())
                 .expect("schedule status");

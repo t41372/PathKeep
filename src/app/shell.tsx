@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useMatches } from 'react-router-dom'
+import { BusyOverlay } from '../components/primitives/busy-overlay'
 import { Sidebar } from '../components/sidebar'
 import { Topbar } from '../components/topbar'
+import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
 
 export function AppShell() {
+  const { busyAction } = useShellData()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     typeof window !== 'undefined' && 'matchMedia' in window
       ? window.matchMedia('(max-width: 1200px)').matches
@@ -59,6 +62,7 @@ export function AppShell() {
           </main>
         </div>
       </div>
+      {busyAction ? <BusyOverlay label={busyAction} /> : null}
     </div>
   )
 }

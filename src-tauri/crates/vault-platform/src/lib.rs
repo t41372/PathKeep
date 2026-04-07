@@ -125,6 +125,56 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
     })
 }
 
+pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    if plan.platform != "macos" {
+        return Ok(ApplyResult {
+            applied: false,
+            platform: plan.platform.clone(),
+            files: Vec::new(),
+            audit_path: None,
+            message:
+                "Remove is only implemented on macOS in v1. Use the Manual rollback steps on other platforms."
+                    .to_string(),
+        });
+    }
+
+    let launch_agents_dir = launch_agents_dir()?;
+    fs::create_dir_all(&launch_agents_dir)?;
+
+    let uid = scheduler_uid()?;
+    let current_path = launch_agents_dir.join(
+        PathBuf::from(&plan.generated_files[0].relative_path).file_name().unwrap_or_default(),
+    );
+    let legacy_path = launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist"));
+
+    let current_unload = bootout_launch_agent(&uid, MACOS_LABEL)?;
+    let legacy_unload = bootout_launch_agent(&uid, LEGACY_MACOS_LABEL)?;
+
+    let mut removed_files = Vec::new();
+    for path in [&current_path, &legacy_path] {
+        if path.exists() {
+            fs::remove_file(path)?;
+            removed_files.push(path.display().to_string());
+        }
+    }
+
+    let audit_path =
+        write_schedule_remove_audit(paths, plan, &removed_files, &[current_unload, legacy_unload])?;
+    let applied = !removed_files.is_empty();
+
+    Ok(ApplyResult {
+        applied,
+        platform: plan.platform.clone(),
+        files: removed_files,
+        audit_path: Some(audit_path.display().to_string()),
+        message: if applied {
+            "Installed LaunchAgent files were removed.".to_string()
+        } else {
+            "No installed PathKeep LaunchAgent files were found to remove.".to_string()
+        },
+    })
+}
+
 pub fn schedule_status(
     platform: Option<&str>,
     executable_path: &Path,
@@ -214,6 +264,37 @@ fn write_schedule_apply_audit(
         ("platform".to_string(), plan.platform.clone()),
         ("plistPath".to_string(), plist_path.to_string()),
         ("status".to_string(), bootstrap.status_description.clone()),
+    ]))?;
+    fs::write(&audit_path, contents)?;
+    Ok(audit_path)
+}
+
+fn write_schedule_remove_audit(
+    paths: &ProjectPaths,
+    plan: &SchedulePlan,
+    removed_files: &[String],
+    unloads: &[LaunchctlOutcome],
+) -> Result<PathBuf> {
+    let audit_path = paths
+        .audit_repo_path
+        .join("scheduler")
+        .join(format!("remove-{}.json", Utc::now().to_rfc3339().replace(':', "-")));
+    ensure_parent_dir(&audit_path)?;
+
+    let contents = serde_json::to_string_pretty(&BTreeMap::from([
+        ("action".to_string(), "remove".to_string()),
+        ("platform".to_string(), plan.platform.clone()),
+        ("label".to_string(), plan.label.clone()),
+        ("removedFiles".to_string(), serde_json::to_string(removed_files)?),
+        (
+            "launchctl".to_string(),
+            serde_json::to_string(
+                &unloads
+                    .iter()
+                    .map(|outcome| outcome.status_description.clone())
+                    .collect::<Vec<_>>(),
+            )?,
+        ),
     ]))?;
     fs::write(&audit_path, contents)?;
     Ok(audit_path)
@@ -754,11 +835,8 @@ fn scheduler_uid() -> Result<String> {
 
 #[cfg(not(any(test, coverage)))]
 fn bootstrap_launch_agent(uid: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
-    let _ = Command::new("launchctl")
-        .args(["bootout", &format!("gui/{uid}"), LEGACY_MACOS_LABEL])
-        .status();
-    let _ =
-        Command::new("launchctl").args(["bootout", &format!("gui/{uid}"), MACOS_LABEL]).status();
+    let _ = bootout_launch_agent(uid, LEGACY_MACOS_LABEL);
+    let _ = bootout_launch_agent(uid, MACOS_LABEL);
     let status = Command::new("launchctl")
         .args(["bootstrap", &format!("gui/{uid}"), plist_path])
         .status()
@@ -774,6 +852,25 @@ fn bootstrap_launch_agent(uid: &str, plist_path: &str) -> Result<LaunchctlOutcom
         success,
         status_description: format!("stub bootstrap gui/{uid} {plist_path}"),
     })
+}
+
+#[cfg(not(any(test, coverage)))]
+fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
+    let status = Command::new("launchctl")
+        .args(["bootout", &format!("gui/{uid}"), label])
+        .status()
+        .context("unloading launch agent")?;
+    Ok(LaunchctlOutcome {
+        success: status.success(),
+        status_description: format!("bootout {label}: {status:?}"),
+    })
+}
+
+#[cfg(any(test, coverage))]
+fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
+    let success =
+        std::env::var("CHB_TEST_LAUNCHCTL_SUCCESS").unwrap_or_else(|_| "1".to_string()) != "0";
+    Ok(LaunchctlOutcome { success, status_description: format!("stub bootout gui/{uid} {label}") })
 }
 
 #[cfg(coverage)]
@@ -984,6 +1081,28 @@ mod tests {
     }
 
     #[test]
+    fn non_macos_remove_is_manual_only() {
+        let dir = tempdir().expect("tempdir");
+        let result = remove_schedule(
+            &SchedulePlan {
+                platform: "linux".to_string(),
+                label: "example".to_string(),
+                executable_path: "/usr/bin/chb".to_string(),
+                generated_files: Vec::new(),
+                manual_steps: Vec::new(),
+                apply_commands: Vec::new(),
+                rollback_commands: Vec::new(),
+                apply_supported: false,
+            },
+            &sample_paths(dir.path()),
+        )
+        .expect("remove");
+
+        assert!(!result.applied);
+        assert!(result.message.contains("Manual"));
+    }
+
+    #[test]
     fn macos_apply_schedule_writes_files_and_audit_report() {
         let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
@@ -1033,6 +1152,36 @@ mod tests {
 
         assert!(!result.applied);
         assert!(result.message.contains("did not report success"));
+    }
+
+    #[test]
+    fn macos_remove_schedule_removes_files_and_writes_audit_report() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os("CHB_TEST_LAUNCH_AGENTS_DIR");
+        let original_launchctl_success = std::env::var_os("CHB_TEST_LAUNCHCTL_SUCCESS");
+        unsafe {
+            std::env::set_var("CHB_TEST_LAUNCH_AGENTS_DIR", &launch_agents_dir);
+            std::env::set_var("CHB_TEST_LAUNCHCTL_SUCCESS", "1");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
+        let applied = apply_schedule(&plan, &paths).expect("apply macos plan");
+        assert!(applied.applied);
+
+        let removed = remove_schedule(&plan, &paths).expect("remove macos plan");
+
+        restore_env_var("CHB_TEST_LAUNCH_AGENTS_DIR", original_launch_agents.as_deref());
+        restore_env_var("CHB_TEST_LAUNCHCTL_SUCCESS", original_launchctl_success.as_deref());
+
+        assert!(removed.applied);
+        assert_eq!(removed.files.len(), 1);
+        assert!(!Path::new(&removed.files[0]).exists());
+        assert!(Path::new(removed.audit_path.as_deref().expect("audit path")).exists());
     }
 
     #[test]

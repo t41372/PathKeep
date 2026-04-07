@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useShellData } from '../../app/shell-data-context'
+import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { backend } from '../../lib/backend'
@@ -14,6 +15,21 @@ interface ScheduleLoadState {
 }
 
 type PmeTab = 'preview' | 'manual' | 'execute'
+
+interface ScheduleExecutionState {
+  mode: 'apply' | 'remove'
+  result: ApplyResult
+}
+
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve()
+      return
+    }
+    window.requestAnimationFrame(() => resolve())
+  })
+}
 
 function scheduleBadge(status: ScheduleStatus | null) {
   if (!status) return { className: 'status-pending', label: 'Loading' }
@@ -77,9 +93,10 @@ export function SchedulePage() {
   })
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
   const [pmeTab, setPmeTab] = useState<PmeTab>('preview')
-  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
+  const [executionResult, setExecutionResult] =
+    useState<ScheduleExecutionState | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -130,13 +147,14 @@ export function SchedulePage() {
   async function handleApply() {
     if (!plan) return
 
-    setBusy(true)
+    setBusy('Applying native schedule')
     setActionError(null)
-    setApplyResult(null)
+    setExecutionResult(null)
 
     try {
+      await waitForNextPaint()
       const result = await backend.applySchedule(plan)
-      setApplyResult(result)
+      setExecutionResult({ mode: 'apply', result })
       await refreshAppData()
     } catch (nextError) {
       setActionError(
@@ -145,7 +163,30 @@ export function SchedulePage() {
           : 'PathKeep could not apply the native schedule.',
       )
     } finally {
-      setBusy(false)
+      setBusy(null)
+    }
+  }
+
+  async function handleRemove() {
+    if (!plan) return
+
+    setBusy('Removing native schedule')
+    setActionError(null)
+    setExecutionResult(null)
+
+    try {
+      await waitForNextPaint()
+      const result = await backend.removeSchedule(plan)
+      setExecutionResult({ mode: 'remove', result })
+      await refreshAppData()
+    } catch (nextError) {
+      setActionError(
+        nextError instanceof Error
+          ? nextError.message
+          : 'PathKeep could not remove the native schedule.',
+      )
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -397,16 +438,20 @@ export function SchedulePage() {
                   {actionError}
                 </p>
               ) : null}
-              {applyResult ? (
+              {executionResult ? (
                 <div className="warning-box">
                   <div className="warning-icon">ℹ</div>
                   <div className="warning-text">
                     <strong>
-                      {applyResult.applied
-                        ? 'Schedule updated.'
-                        : 'Apply stayed read-only.'}
+                      {executionResult.mode === 'apply'
+                        ? executionResult.result.applied
+                          ? 'Schedule updated.'
+                          : 'Apply stayed read-only.'
+                        : executionResult.result.applied
+                          ? 'Schedule removed.'
+                          : 'Remove stayed read-only.'}
                     </strong>{' '}
-                    {applyResult.message}
+                    {executionResult.result.message}
                   </div>
                 </div>
               ) : null}
@@ -415,7 +460,7 @@ export function SchedulePage() {
                   className="btn-primary"
                   type="button"
                   disabled={
-                    busy ||
+                    busy !== null ||
                     !snapshot?.config.initialized ||
                     !plan.applySupported
                   }
@@ -423,19 +468,39 @@ export function SchedulePage() {
                     void handleApply()
                   }}
                 >
-                  {busy ? 'Applying schedule' : 'Apply schedule'}
+                  {busy === 'Applying native schedule'
+                    ? busy
+                    : 'Apply schedule'}
                 </button>
-                {applyResult?.auditPath ? (
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={
+                    busy !== null ||
+                    !snapshot?.config.initialized ||
+                    !plan.applySupported ||
+                    (status.installState === 'not-installed' &&
+                      status.detectedFiles.length === 0)
+                  }
+                  onClick={() => {
+                    void handleRemove()
+                  }}
+                >
+                  {busy === 'Removing native schedule'
+                    ? busy
+                    : 'Remove schedule'}
+                </button>
+                {executionResult?.result.auditPath ? (
                   <button
                     className="btn-secondary"
                     type="button"
                     onClick={() => {
                       void backend.openPathInFileManager(
-                        applyResult.auditPath ?? '',
+                        executionResult.result.auditPath ?? '',
                       )
                     }}
                   >
-                    Open apply audit
+                    Open scheduler audit
                   </button>
                 ) : null}
               </div>
@@ -449,6 +514,7 @@ export function SchedulePage() {
           )}
         </div>
       </div>
+      {busy ? <BusyOverlay label={busy} /> : null}
     </section>
   )
 }

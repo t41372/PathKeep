@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from './index'
@@ -62,6 +62,7 @@ async function seedArchiveRun() {
 
 describe('App shell', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
     backendTestHarness.reset()
   })
 
@@ -75,13 +76,17 @@ describe('App shell', () => {
 
     expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
     expect(
-      screen.getByText('The first archive run still needs review'),
+      await screen.findByRole('heading', {
+        name: 'The first archive run still needs review',
+      }),
     ).toBeVisible()
 
     await user.click(screen.getByRole('link', { name: 'Open onboarding flow' }))
 
     expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
-    expect(screen.getByText(/Begin Setup/)).toBeVisible()
+    expect(
+      await screen.findByRole('button', { name: /Begin Setup/ }),
+    ).toBeVisible()
   })
 
   test('initializes the archive from onboarding and returns to a populated dashboard', async () => {
@@ -96,7 +101,50 @@ describe('App shell', () => {
     // The new onboarding is a wizard — step through to the security step
     // Step 0 is Welcome, navigate to step 5 (Ready) directly
     // For the test, we verify the onboarding page renders and has the wizard
-    expect(screen.getByText(/Begin Setup/)).toBeVisible()
+    expect(
+      await screen.findByRole('button', { name: /Begin Setup/ }),
+    ).toBeVisible()
+  })
+
+  test('lets the user leave onboarding and resume later', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/onboarding'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: /Begin Setup/ }),
+    ).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Exit setup' }))
+
+    expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
+  })
+
+  test('switches archive mode from the onboarding security step', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/onboarding'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /Begin Setup/ }))
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    await user.click(
+      screen.getByRole('radio', { name: 'Select plaintext mode' }),
+    )
+    expect(await screen.findByText('✓ No password to remember')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('radio', { name: 'Select encrypted mode' }),
+    )
+    expect(await screen.findByText('MASTER PASSWORD')).toBeVisible()
   })
 
   test('renders explorer filters, detail, export, and audit run detail from live shell data', async () => {
@@ -131,6 +179,67 @@ describe('App shell', () => {
       expect(await screen.findByText(sentinel)).toBeVisible()
     },
   )
+
+  test('runs the schedule remove flow when the platform supports it', async () => {
+    await seedArchiveRun()
+    const user = userEvent.setup()
+    const previewSpy = vi.spyOn(backend, 'previewSchedule').mockResolvedValue({
+      platform: 'macos',
+      label: 'dev.codex.pathkeep.backup',
+      executablePath: '/Applications/PathKeep.app',
+      generatedFiles: [],
+      manualSteps: ['Review the LaunchAgent install.'],
+      applyCommands: [['launchctl', 'bootstrap']],
+      rollbackCommands: [['launchctl', 'bootout']],
+      applySupported: true,
+    })
+    const statusSpy = vi.spyOn(backend, 'scheduleStatus').mockResolvedValue({
+      platform: 'macos',
+      label: 'dev.codex.pathkeep.backup',
+      dueAfterHours: 72,
+      checkIntervalHours: 6,
+      applySupported: true,
+      installState: 'installed',
+      detectedFiles: ['~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist'],
+      manualSteps: ['Remove the LaunchAgent if you no longer want automation.'],
+      auditPath: null,
+      lastSuccessfulBackupAt: null,
+      warnings: [],
+    })
+    const removeSpy = vi.spyOn(backend, 'removeSchedule').mockResolvedValue({
+      applied: true,
+      platform: 'macos',
+      files: ['~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist'],
+      auditPath: '/tmp/pathkeep-remove-audit.json',
+      message: 'Installed LaunchAgent files were removed.',
+    })
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/schedule'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByText('BACKUP SCHEDULE')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'EXECUTE' }))
+    const removeButton = await screen.findByRole('button', {
+      name: 'Remove schedule',
+    })
+
+    await waitFor(() => expect(removeButton).toBeEnabled())
+    await user.click(removeButton)
+
+    await waitFor(() =>
+      expect(removeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          platform: 'macos',
+        }),
+      ),
+    )
+
+    previewSpy.mockRestore()
+    statusSpy.mockRestore()
+    removeSpy.mockRestore()
+  })
 
   test('keeps sidebar information architecture grouped by section', () => {
     expect(sidebarSections).toEqual([

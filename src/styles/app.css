@@ -49,6 +49,7 @@
 /* ═══ APP SHELL ═══ */
 .app-frame {
   position: relative;
+  height: 100dvh;
   min-height: 100vh;
   overflow: hidden;
   background: var(--bg);
@@ -60,7 +61,8 @@
   z-index: 2;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .app-frame[data-sidebar-collapsed='true'] .shell-grid {
@@ -71,6 +73,8 @@
 .sidebar {
   width: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
   border-right: 1px solid var(--border);
   display: flex;
@@ -133,6 +137,7 @@
 
 .nav-main {
   flex: 1;
+  min-height: 0;
   padding: var(--space-3) 0;
   overflow-y: auto;
 }
@@ -320,7 +325,9 @@
 
 /* ═══ MAIN CONTENT ═══ */
 .workspace-frame {
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -455,6 +462,54 @@
 .page-shell {
   display: grid;
   gap: var(--space-4);
+}
+
+.busy-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.busy-overlay__card {
+  min-width: min(420px, calc(100vw - 48px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.busy-overlay__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: busy-spin 720ms linear infinite;
+}
+
+.busy-overlay__label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-bright);
+}
+
+@keyframes busy-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ═══ STATS ROW ═══ */
@@ -2217,6 +2272,7 @@
 .onboarding-shell {
   display: flex;
   flex-direction: column;
+  height: 100dvh;
   min-height: 100vh;
   background: var(--bg);
   position: relative;
@@ -2670,13 +2726,32 @@
 .security-option {
   border: 1px solid var(--border);
   background: var(--bg-elevated);
-  cursor: pointer;
   transition: all var(--transition);
 }
 
 .security-option.selected {
   border-color: var(--accent);
   border-left: 3px solid var(--accent);
+}
+
+.security-option-trigger {
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.security-option-trigger:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.security-option-trigger:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .option-header {

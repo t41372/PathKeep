@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
+import { BusyOverlay } from './busy-overlay'
 import { EmptyState } from './empty-state'
 import { ErrorState } from './error-state'
 import { LoadingState } from './loading-state'
@@ -26,6 +27,7 @@ describe('Shell primitives', () => {
   test('renders loading and error state affordances', () => {
     render(
       <>
+        <BusyOverlay label="Applying native schedule changes" />
         <LoadingState label="Rebuilding the semantic index" />
         <ErrorState
           description="The app should pause here and show rollback instructions."
@@ -34,9 +36,10 @@ describe('Shell primitives', () => {
       </>,
     )
 
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Rebuilding the semantic index',
-    )
+    const statuses = screen.getAllByRole('status')
+
+    expect(statuses[0]).toHaveTextContent('Applying native schedule changes')
+    expect(statuses[1]).toHaveTextContent('Rebuilding the semantic index')
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Schedule preview unavailable',
     )
