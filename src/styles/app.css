@@ -856,6 +856,16 @@
   border-bottom: 1px solid var(--bg-elevated);
 }
 
+.dashboard-evidence-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dashboard-evidence-link:hover .otd-title,
+.dashboard-evidence-link:focus-visible .otd-title {
+  color: var(--accent);
+}
+
 .otd-favicon {
   font-size: 14px;
   line-height: 1.4;

@@ -15,8 +15,8 @@
 
 ## UX / 設計研究
 
-- [!] `PG-RD-UX-001` 逐頁比對 [screens-and-nav.md](../../design/screens-and-nav.md) 和 `reference/PathKeep — Desktop UI Design/`，列出 prototype 已覆蓋和未覆蓋的畫面。
-- [!] `PG-RD-UX-002` 補 onboarding、empty state、error state、long-running operation、rollback confirmation 等 prototype 缺口；缺口畫面先補設計決策，再開做。
+- [x] `PG-RD-UX-001` 逐頁比對 [screens-and-nav.md](../../design/screens-and-nav.md) 和 `reference/PathKeep — Desktop UI Design/`，列出 prototype 已覆蓋和未覆蓋的畫面。結論：目前 repo 內的 prototype export 主要覆蓋 shell chrome 與 Dashboard 視覺語言；Onboarding、Import / rollback PME、Audit / Schedule / Security 細部狀態，以及 AX / reduced-motion / i18n wrapping 仍需 doc-led 補齊。見 [screens-and-nav.md](../../design/screens-and-nav.md) 的 `Prototype Coverage Snapshot`。（2026-04-07，`WORK-QC-B`）
+- [x] `PG-RD-UX-002` 補 onboarding、empty state、error state、long-running operation、rollback confirmation 等 prototype 缺口。結論：這些 non-prototype states 現在已由 [screens-and-nav.md](../../design/screens-and-nav.md) 的 `Non-Prototype State Coverage`、[ux-principles.md](../../design/ux-principles.md) 的 PME / trust grammar，以及 route tests / e2e smoke 共同收斂；剩餘的全站 accessibility / release polish 留到 `M4-RL-PO-003`。（2026-04-07，`WORK-QC-B`）
 - [x] `PG-RD-UX-003` 從 prototype 的 `style.css` 抽取正式 design token 表，明確暗色主題、淺色主題、字體、間距、狀態色和資料密度規範。見 [design-tokens.md](../../design/design-tokens.md)。（2026-04-06）
 - [x] `PG-RD-UX-004` 定義 PME（Preview / Manual / Execute）在各類操作上的共用 interaction grammar：stepper、artifact viewer、copy command、verify result、rollback hint。見 [ux-principles.md](../../design/ux-principles.md) 與 [screens-and-nav.md](../../design/screens-and-nav.md)。（2026-04-06，WORK-M1-B）
 - [x] `PG-RD-UX-005` 決定 Dashboard / Explorer / Audit Ledger / Assistant 之間的導航策略與 deep-link 規則。見 [screens-and-nav.md](../../design/screens-and-nav.md)。（2026-04-06，WORK-M1-B）

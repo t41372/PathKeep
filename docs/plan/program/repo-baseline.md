@@ -26,18 +26,18 @@
 - [`src/components/sidebar/`](../../../src/components/sidebar/)、[`src/components/topbar/`](../../../src/components/topbar/)、[`src/components/primitives/`](../../../src/components/primitives/) 已建立新 shell primitives，涵蓋 empty / loading / error / permission gate 等共用狀態。
 - route-scoped skeleton 頁面已搬到 [`src/pages/dashboard/index.tsx`](../../../src/pages/dashboard/index.tsx) 等新結構；舊 flat page files 與舊 `AppNew.test.tsx` 已刪除。
 - [`src/lib/ipc/bridge.ts`](../../../src/lib/ipc/bridge.ts) 已把 typed IPC wrapper 從 UI preview data 中拆出；[`src/lib/backend.ts`](../../../src/lib/backend.ts) 仍是 legacy / compatibility surface，後續還要繼續瘦身。
-- prototype 已成功轉成 production shell 方向，但 route-level deep-link、visual gap list、a11y baseline 仍未全部定稿。
+- prototype 已成功轉成 production shell 方向；route-level deep-link、prototype gap list 與 non-prototype state coverage 現在都已有 source docs，剩餘的是全站 accessibility / release polish。
 
 ### 判斷
 
 - M0 前端骨架重置已完成，現在的 repo 足以承接 M1 archive UX，而不用再繞回舊 setup-first shell。
-- 新前端的主要剩餘風險不再是「入口還在舊結構」，而是 route state contract、preview data 替換成真實 IPC、以及 prototype 缺口補決策。
+- 新前端的主要剩餘風險不再是「入口還在舊結構」或 prototype gap 未定義，而是 route state contract、preview data 替換成真實 IPC，以及 release-level desktop truth / accessibility signoff。
 - `backend.ts` / `app-context.tsx` 已從主 shell critical path 移開，但仍是後續要清掉的 legacy debt，不應重新成為新頁面依賴中心。
 
 ### 待辦
 
 - [x] `PG-BL-FE-001` 盤點所有前端檔案，標記為 `delete` / `rewrite` / `reference only` / `keep with refactor`。
-- [ ] `PG-BL-FE-002` 產出「prototype 已覆蓋畫面」和「仍需補設計稿畫面」清單。
+- [x] `PG-BL-FE-002` 產出「prototype 已覆蓋畫面」和「仍需補設計稿畫面」清單。見 [screens-and-nav.md](../../design/screens-and-nav.md) 的 `Prototype Coverage Snapshot`。（2026-04-07，`WORK-QC-B`）
 - [x] `PG-BL-FE-003` 把 browser-preview mock data 從正式 IPC contract 中拆開，避免新前端繼續依賴假資料模型。
 - [x] `PG-BL-FE-004` 定義新的 route tree、sidebar IA、page title / breadcrumb 規範、global search entry 規範。
 - [x] `PG-BL-FE-005` 為新的 page / component / test 結構建立 naming convention，避免 `AppNew` 這種 legacy placeholder 命名長期留在主幹。
@@ -91,7 +91,7 @@
 
 - 現在的 gate 不再只剩 desktop contract slice 與 browser smoke；living M0-M3 quality surface 的 coverage 與 deep-check 分層已恢復到可兌現狀態。
 - repo 目前至少已回到「文檔怎麼寫，scripts / workflows 就怎麼擋」的程度，不再需要靠口頭補充來解釋哪些 gate 其實沒開。
-- 下一步真正還缺的是 product / design / doc parity 與 test taxonomy / ownership，而不是再繼續修正 gate 名稱和 scope。
+- QC-B 已把 product / design / doc parity 與 preview-vs-desktop 邊界收回 source docs；下一步真正還缺的是 test taxonomy / ownership、release-style desktop signoff，以及 M4 的 enrichment / remote 能力。
 
 ### 待辦
 

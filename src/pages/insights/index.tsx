@@ -6,7 +6,11 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
-import { formatDateTime, formatRelativeTime } from '../../lib/format'
+import {
+  calendarDayKey,
+  formatDateTime,
+  formatRelativeTime,
+} from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
   aiStatusMeta,
@@ -86,11 +90,11 @@ export function InsightsPage() {
     () => (insights ? flattenInsightEvidence(insights) : []),
     [insights],
   )
-  const todayKey = new Date().toISOString().slice(5, 10)
+  const todayKey = calendarDayKey(new Date())
   const onThisDay = useMemo(
     () =>
       allEvidence
-        .filter((item) => item.visitedAt.slice(5, 10) === todayKey)
+        .filter((item) => calendarDayKey(item.visitedAt) === todayKey)
         .slice(0, 6),
     [allEvidence, todayKey],
   )

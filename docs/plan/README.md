@@ -64,7 +64,7 @@
 - Rust 端的大部分複雜度仍集中在幾個巨檔裡：[`src-tauri/crates/vault-core/src/archive/mod.rs`](../../src-tauri/crates/vault-core/src/archive/mod.rs)、[`src-tauri/crates/vault-core/src/chrome.rs`](../../src-tauri/crates/vault-core/src/chrome.rs)、[`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)、[`src-tauri/crates/vault-core/src/insights.rs`](../../src-tauri/crates/vault-core/src/insights.rs)、[`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs)。
 - canonical archive 已有正式 migration ledger 與 schema foundation；M1 的主題不再是「先把 schema 生出來」，而是接上可信 archive engine。
 - PathKeep 命名已完成 public / build metadata sweep；剩餘舊名字串只應存在於 explicit legacy alias 或 migration 註記。
-- 設計師的 prototype 現在已經落成 production shell 的 token、layout 與 smoke target，但 prototype gap list / deep-link / accessibility baseline 仍有剩餘研究要補。
+- 設計師的 prototype 現在已經落成 production shell 的 token、layout 與 smoke target；prototype gap list、deep-link 與 non-prototype state coverage 也已回寫成 source docs，剩餘的全站 accessibility / release polish 留在 M4。
 
 ---
 
@@ -89,7 +89,7 @@
 
 - repo 現在有一份正式的 [quality matrix](program/quality-matrix.md)，把 mainline blocking path、scheduled / release deep checks，以及 desktop / preview 驗收邊界全部寫清楚。
 - desktop contract slice 仍然存在，但它現在是 `bun run check` 裡的一條 targeted sub-gate，不再冒充整個產品 UI 或所有 desktop flows 都已驗收。
-- M4 仍然要等 `WORK-QC-B` 收掉 prototype / doc parity 與剩餘產品債後再啟動；QC-A 只負責把「怎麼擋」恢復成誠實狀態。
+- 2026-04-07 closeout：`WORK-QC-B` 已把 prototype / doc parity、desktop-vs-preview 邊界、dashboard / onboarding trust copy 與 timezone-sensitive On This Day 行為重新對齊；M4 現在可從 `WORK-M4-A` 啟動。
 
 這個結果很重要，因為它代表 repo 現在不只保住 desktop entry + typed IPC contract，也重新把 living M0-M3 quality surface 的 coverage、build、e2e 與 deep-check 分層拉回可兌現狀態。
 
@@ -132,9 +132,9 @@ M4  Full Intelligence & Polish
 | ------ | ------------------------------------------------------------------------ | ----- | -------------------------------------------------------------- |
 | `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                         |
 | `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)             |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[/]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
 | `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
-| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[/]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |
 | `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md)           |
 
 ---

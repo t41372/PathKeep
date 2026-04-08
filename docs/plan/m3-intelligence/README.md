@@ -13,7 +13,7 @@
 - 無 AI 配置時，UI 和 backend 仍能正常退化。
 - MCP server 和 IDE skill 可以把個人 history 安全暴露給外部 AI 工具。
 
-> 2026-04-07 狀態註記：M3 這裡的勾選代表 intelligence v1 的功能 slice 已經落地，並且目前 `bun run check`、`bun run coverage:js`、`bun run coverage:rust`、`bun run build`、`bun run test:e2e` 都已通過。這**仍不等於** repo 已完成最終 release-readiness signoff；`mutation:js` / `mutation:rust` / `verify` 仍屬於 deep-check / release gate，而 prototype / doc parity closeout 則留在 `WORK-QC-B`。
+> 2026-04-07 狀態註記：M3 這裡的勾選代表 intelligence v1 的功能 slice 已經落地；`WORK-QC-B` 也已把 dashboard 的 On This Day / Periodic Summary、evidence deep-link、timezone-sensitive day matching 與 doc parity closeout 收斂回 source docs。這**仍不等於** repo 已完成最終 release-readiness signoff；`mutation:js` / `mutation:rust` / `verify` 仍屬於 deep-check / release gate，而更廣的 accessibility / platform polish 留在 M4。
 
 ---
 

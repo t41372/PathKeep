@@ -1,5 +1,38 @@
 import { localeTag, type ResolvedLanguage } from './i18n'
 
+function datePart(parts: Intl.DateTimeFormatPart[], type: 'day' | 'month') {
+  return parts.find((part) => part.type === type)?.value ?? null
+}
+
+export function calendarDayKey(
+  value: Date | string | null | undefined,
+  timeZone?: string,
+) {
+  if (!value) {
+    return null
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone,
+  })
+  const parts = formatter.formatToParts(date)
+  const month = datePart(parts, 'month')
+  const day = datePart(parts, 'day')
+
+  if (!month || !day) {
+    return null
+  }
+
+  return `${month}-${day}`
+}
+
 export function formatDateTime(
   value: string | null | undefined,
   language: ResolvedLanguage,

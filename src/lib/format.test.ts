@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
+  calendarDayKey,
   formatBytes,
   formatDateTime,
   formatDuration,
@@ -22,6 +23,20 @@ describe('format utilities', () => {
     expect(formatDateTime(iso, 'en')).toContain('2026')
     expect(formatDateTime(iso, 'zh-CN')).toContain('2026')
     expect(formatDateTime(iso, 'zh-TW')).toContain('2026')
+  })
+
+  test('calendarDayKey honors the requested timezone for day boundaries', () => {
+    const iso = '2026-04-07T00:30:00.000Z'
+
+    expect(calendarDayKey(iso, 'UTC')).toBe('04-07')
+    expect(calendarDayKey(iso, 'America/Phoenix')).toBe('04-06')
+    expect(calendarDayKey(iso, 'Asia/Tokyo')).toBe('04-07')
+  })
+
+  test('calendarDayKey returns null for missing or invalid values', () => {
+    expect(calendarDayKey(null)).toBeNull()
+    expect(calendarDayKey(undefined)).toBeNull()
+    expect(calendarDayKey('not-a-date')).toBeNull()
   })
 
   test('formatDuration handles edge cases', () => {

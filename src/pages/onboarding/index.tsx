@@ -281,7 +281,7 @@ export function OnboardingPage() {
             </div>
             <div className="trust-item">
               <span className="trust-icon">⊞</span>
-              <span>Open-source — MIT licensed, audit the code</span>
+              <span>Open-source — GPL v3 licensed, audit the code</span>
             </div>
             <div className="trust-item">
               <span className="trust-icon">⚙</span>

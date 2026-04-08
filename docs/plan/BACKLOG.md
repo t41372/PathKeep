@@ -17,10 +17,6 @@
 
 ### M4 — Full Polish
 
-- [ ] **WORK-M4-A** — Enrichment And Remote Backup `[!blocked: 需要 WORK-QC-B]`
-  - 讀先：`docs/features/intelligence.md`、`docs/features/archive.md`、`docs/plan/m4-full-polish/enrichment-advanced-intelligence-and-remote.md`
-  - 目標：在已完成 quality closeout 的 archive + intelligence v1 之上，補齊 enrichment plugin system、advanced intelligence 與 remote backup 的第一個可驗收 slice
-
 - [ ] **WORK-M4-B** — Release Readiness And Platform Polish `[!blocked: 需要 WORK-M4-A，且 WORK-QC-A / WORK-QC-B 不能回退]`
   - 讀先：`docs/standards.md`、`docs/plan/m4-full-polish/platform-release-and-polish.md`
   - 目標：完成 release engineering、多平台真機驗收、performance / accessibility / docs polish

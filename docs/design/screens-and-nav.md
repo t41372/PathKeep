@@ -1,8 +1,8 @@
 # 畫面與導航結構
 
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。  
-> **designer prototype 仍然是目標視覺語言，但目前 repo 內沒有同步帶上 `reference/PathKeep — Desktop UI Design/` 匯出檔。**
-> 在 prototype 重新補回 repo 之前，這份文檔與 [design-tokens.md](design-tokens.md) 視為現行 source of truth。
+> designer prototype 匯出檔目前已在 repo：`reference/PathKeep — Desktop UI Design/`。  
+> 這份 export 主要覆蓋 shell chrome 與 Dashboard 的視覺語言；對於 prototype 尚未畫出的畫面或狀態，這份文檔與 [design-tokens.md](design-tokens.md) 仍是現行 source of truth。
 > production token source of truth 是 [design-tokens.md](design-tokens.md)；新增 token 時要同步更新文檔與 `src/styles/tokens.css`。
 > 如果 prototype 缺少某個畫面或狀態，才用 Stitch / 補充設計決策補齊；補齊時仍需維持和 prototype 一致的視覺語言與導航結構。
 
@@ -22,6 +22,31 @@
 | **Security**           | 加密設定、keyring、rekey、密碼警告                                                    |
 | **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                               |
 | **Settings**           | 通用設定、語言、AI provider 管理、MCP 開關、數據目錄、版本信息                        |
+
+---
+
+## Prototype Coverage Snapshot
+
+### 目前 export 已覆蓋
+
+- shell chrome：sidebar 分區、brand / version、archive status footer、topbar 搜尋與主 CTA
+- Dashboard 視覺語言：stat cards、recent runs table、On This Day、storage breakdown、AI / queue summary 的資訊層級
+- Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Insights、Audit 等核心入口
+
+### 目前 export 尚未明確覆蓋
+
+- Onboarding wizard 的逐步狀態、empty / error / resume-later 細節
+- Import / rollback / doctor repair / rekey / remote backup 的 PME step-by-step 畫面
+- Audit run detail、Schedule verify / mismatch、Security recovery / warning 變體
+- Explorer / Assistant / Insights 的 loading / empty / disabled / failed / explainability 狀態
+- keyboard-only walkthrough、reduced-motion fallback、長字串 i18n wrapping 等非靜態視覺驗收
+
+## Non-Prototype State Coverage
+
+- Onboarding、shared empty / error / loading、locked / no-data、permission-denied 等 production state，現在以本頁、[ux-principles.md](ux-principles.md) 與對應 feature / milestone docs 為 source of truth；prototype 沒畫到不再代表 UX 未定義。
+- long-running operation、generated artifact review、rollback confirmation、manual fallback 與 verify / rollback hint，全都遵循 PME grammar，而不是各頁自己發明流程。
+- `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」。
+- keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
 
 ---
 

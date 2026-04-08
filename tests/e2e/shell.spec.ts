@@ -11,6 +11,9 @@ async function completePreviewOnboarding(page: Page) {
   await page.getByRole('link', { name: 'Open onboarding flow' }).click()
 
   await expect(page.getByTestId('onboarding-page')).toBeVisible()
+  await expect(
+    page.getByText('Open-source — GPL v3 licensed, audit the code'),
+  ).toBeVisible()
   await page.getByRole('button', { name: /Begin Setup/ }).click()
   await page.getByRole('button', { name: /Continue/ }).click()
   await page.getByRole('button', { name: /Continue/ }).click()
@@ -23,6 +26,10 @@ async function completePreviewOnboarding(page: Page) {
     .click()
 
   await expect(page.getByText('RECENT RUNS')).toBeVisible()
+  await expect(page.getByText('ON THIS DAY')).toBeVisible()
+  await expect(page.getByText('PERIODIC SUMMARY')).toBeVisible()
+  await expect(page.getByText('Disabled', { exact: true })).toBeVisible()
+  await expect(page.getByText('common.disabled')).toHaveCount(0)
 }
 
 test('walks through onboarding, first backup, explorer, and audit in browser preview', async ({
@@ -61,6 +68,11 @@ test('keeps schedule and security review surfaces inspectable in browser preview
   await expect(page.getByTestId('schedule-page')).toBeVisible()
   await expect(
     page.getByTestId('schedule-page').getByText('BACKUP SCHEDULE'),
+  ).toBeVisible()
+  await expect(
+    page.getByText(
+      'Browser preview mode keeps schedule verification read-only. Use the desktop app for the real platform status.',
+    ),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Execute' }).click()
   await expect(

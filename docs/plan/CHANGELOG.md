@@ -136,3 +136,10 @@
   - 補齊 JS / Rust quality surface 的測試缺口，包含 `src/app/shell-data.tsx`、`src/lib/backend.ts`、`src/lib/format.ts`、`src/lib/intelligence.ts`、`src/lib/platform-guidance.ts`、`src/lib/trust-review.ts`、`src/lib/i18n/*` 與對應的 worker / parser / vault-worker Rust tests
   - 同步回寫 `docs/standards.md`、`docs/plan/README.md`、`docs/plan/program/research-and-decisions.md`、`docs/plan/program/repo-baseline.md`、M0 / M1 / M3 / M4 README 與 `AGENTS.md`，移除「checker 已恢復但其實沒開」的失真敘事
   - 驗收：`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e`、`bun run check`、`bun run build`
+
+- [x] **WORK-QC-B** — Close Remaining M0-M3 Product And Doc Debt
+  - 2026-04-08：修正 [`src/pages/onboarding/index.tsx`](../../src/pages/onboarding/index.tsx) 的授權 trust copy，將 welcome 文案從錯誤的 MIT 改回 GPL v3，並補上對應的 onboarding acceptance 斷言
+  - 更新 [`src/pages/dashboard/index.tsx`](../../src/pages/dashboard/index.tsx)、[`src/pages/insights/index.tsx`](../../src/pages/insights/index.tsx)、[`src/lib/format.ts`](../../src/lib/format.ts) 與相關 tests，讓 Dashboard / Insights 正式顯示 On This Day、Periodic Summary、evidence deep-link，避免 raw `common.disabled` i18n key 洩漏，並把「今天」的判斷改成使用者本地 timezone 的日曆日
+  - 擴寫 [`tests/e2e/shell.spec.ts`](../../tests/e2e/shell.spec.ts)，把 onboarding GPL 文案、dashboard intelligence cards、以及 schedule 的 browser-preview vs desktop 邊界收進 smoke，避免未來再把 preview fixture 或局部 UI 誤寫成完整產品簽收
+  - 同步回寫 [`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/plan/README.md`](README.md)、`program/research-and-decisions.md`、`program/repo-baseline.md`、`program/quality-matrix.md` 與 M0 / M1 / M3 / M4 README，正式收斂 prototype gap、non-prototype states、timezone-sensitive On This Day 與 M4 解鎖敘事
+  - 驗收：`bun run check`、`bun run build`、`bun run test:e2e`

@@ -2,7 +2,7 @@
 
 > 目標：補齊 enrichment、advanced insights、remote backup、release polish 和多平台驗證，讓產品從可用走向可發布。
 >
-> **2026-04-07 規劃註記**：`WORK-QC-A` 已完成，quality gate / CI / docs truthfulness matrix 已恢復。M4 仍不是「下一個直接開做的 block」；在 `WORK-QC-B` 把 M0-M3 的 prototype / doc parity、desktop-vs-preview 驗收邊界與剩餘產品債收乾淨之前，不要啟動 enrichment / remote / advanced insights。
+> **2026-04-07 解鎖註記**：`WORK-QC-A` 與 `WORK-QC-B` 都已完成，quality gate / CI / docs truthfulness matrix、prototype / doc parity、desktop-vs-preview 邊界與剩餘 M0-M3 trust debt 都已收斂。M4 現在從 `WORK-M4-A` 正式啟動。
 
 ---
 

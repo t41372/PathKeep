@@ -45,7 +45,7 @@
 - `src/lib/i18n/hooks.ts`
 - `src/lib/i18n/provider.tsx`
 
-這代表我們不再只 mutate 3 個 helper，也不把已退場的舊 shell 當成 coverage 主體；但它仍然不是「整個前端所有 route / component 已被 100% gate 保護」的意思。QC-B 仍要處理 prototype / doc parity、product-flow signoff 與 trust-critical UI debt。
+這代表我們不再只 mutate 3 個 helper，也不把已退場的舊 shell 當成 coverage 主體；但它仍然不是「整個前端所有 route / component 已被 100% gate 保護」的意思。`WORK-QC-B` 已把 prototype / doc parity、product-flow signoff 與 trust-critical UI debt 收回 source docs；剩餘的全站 accessibility / release polish 留在 M4。
 
 ### Rust coverage quality surface
 
@@ -76,5 +76,5 @@
 
 - `bun run test:e2e` 是 browser preview smoke，不是 Tauri desktop、worker process、scheduler artifact、keyring 或 filesystem side effect 的最終驗收。
 - schedule / security / import / intelligence 這些高風險 surface 的 desktop truth，仍要靠 Rust tests、worker bridge tests、Tauri command tests 與對應的 PME / product docs 對齊。
-- `coverage:js` / `mutation:js` 的 quality surface 已恢復到 living M0-M3 modules，但還不是整個前端 UI 的 100% signoff。QC-B 會收掉剩餘的 prototype gap、doc parity 與 trust-critical flow debt。
+- `coverage:js` / `mutation:js` 的 quality surface 已恢復到 living M0-M3 modules，但還不是整個前端 UI 的 100% signoff。`WORK-QC-B` 已把剩餘的 prototype gap、doc parity 與 trust-critical flow debt 收斂回 docs / tests；更廣的 release-level AX 與 desktop validation 留在 M4。
 - `coverage:rust` 故意只保護 Tauri desktop command / bridge surface；如果未來要把 `vault-core` / parser / worker 納回同一條 100% coverage gate，必須先有明確的 surface 定義與成本說明，而不是重新回到失真的「全都算已驗」敘事。

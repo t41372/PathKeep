@@ -239,13 +239,38 @@ describe('intelligence surfaces', () => {
 
     expect(await screen.findByText('智慧')).toBeVisible()
     expect(screen.getByRole('link', { name: '語義搜尋' })).toBeVisible()
-    expect(screen.getByRole('link', { name: '檢查洞察' })).toBeVisible()
+    expect(screen.getAllByRole('link', { name: '檢查洞察' })).toHaveLength(2)
     expect(screen.getAllByRole('link', { name: '檢查安全狀態' })).toHaveLength(
       2,
     )
     expect(screen.getAllByRole('link', { name: '檢查匯入批次' })).toHaveLength(
       2,
     )
+    expect(screen.getAllByRole('link', { name: '檢查洞察' })).toHaveLength(2)
+  })
+
+  test('renders dashboard on-this-day and periodic summary cards without leaking raw i18n keys', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+
+    renderSurface(<DashboardPage />, {
+      dashboard,
+      language: 'en',
+      route: '/',
+      snapshot,
+    })
+
+    expect(await screen.findByText('ON THIS DAY')).toBeVisible()
+    expect(
+      await screen.findByText('SQLite inspection in browser developer tools'),
+    ).toBeVisible()
+    expect(await screen.findByText('PERIODIC SUMMARY')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Archive tooling is gaining momentum across docs, repo issues, and comparison pages.',
+      ),
+    ).toBeVisible()
+    expect(screen.getByText('Disabled')).toBeVisible()
+    expect(screen.queryByText('common.disabled')).not.toBeInTheDocument()
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {

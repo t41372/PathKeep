@@ -163,6 +163,8 @@ describe('App shell', () => {
     expect(
       await screen.findByRole('button', { name: /Begin Setup/ }),
     ).toBeVisible()
+    expect(screen.getByText(/GPL v3 licensed/i)).toBeVisible()
+    expect(screen.queryByText(/MIT licensed/i)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Exit setup' }))
 
     expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()

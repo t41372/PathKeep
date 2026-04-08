@@ -1,12 +1,24 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
-import { formatBytes, formatRelativeTime } from '../../lib/format'
+import { backend } from '../../lib/backend'
+import {
+  calendarDayKey,
+  formatBytes,
+  formatDateTime,
+  formatRelativeTime,
+} from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
-import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
+import {
+  aiStatusMeta,
+  dedupeEvidence,
+  evidenceHref,
+  selectedAiProvider,
+} from '../../lib/intelligence'
 import { hasSafariAccessIssue } from '../../lib/platform-guidance'
 import {
   archiveModeKey,
@@ -14,6 +26,7 @@ import {
   runTypeKey,
   sourceKindFromProfileScope,
 } from '../../lib/trust-review'
+import type { InsightSnapshot } from '../../lib/types'
 
 function isBackupReadyProfile(profile: {
   profileId: string
@@ -38,10 +51,54 @@ function browserIconLetter(profileId: string) {
   return '?'
 }
 
+function flattenInsightEvidence(snapshot: InsightSnapshot) {
+  return dedupeEvidence([
+    ...snapshot.cards.flatMap((card) => card.evidence),
+    ...snapshot.topics.flatMap((topic) => topic.evidence),
+    ...snapshot.threads.flatMap((thread) => thread.evidence),
+  ])
+}
+
 export function DashboardPage() {
-  const { dashboard, error, loading, snapshot } = useShellData()
+  const { dashboard, error, loading, refreshKey, snapshot } = useShellData()
   const { language, t, ns } = useI18n()
+  const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
+  const [insights, setInsights] = useState<InsightSnapshot | null>(null)
+  const [insightLoadError, setInsightLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!snapshot?.config.initialized) {
+      return
+    }
+
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const nextInsights = await backend.loadInsights({ fullRebuild: false })
+        if (!cancelled) {
+          setInsights(nextInsights)
+          setInsightLoadError(null)
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setInsights(null)
+          setInsightLoadError(
+            nextError instanceof Error
+              ? nextError.message
+              : insightsT('refreshAttentionTitle'),
+          )
+        }
+      }
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [insightsT, refreshKey, snapshot?.config.initialized])
 
   if (loading && !dashboard) {
     return (
@@ -92,6 +149,22 @@ export function DashboardPage() {
   const aiMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
   const llmProvider = selectedAiProvider(snapshot.config.ai, 'llm')
   const embeddingProvider = selectedAiProvider(snapshot.config.ai, 'embedding')
+  const activeInsights = snapshot.config.initialized ? insights : null
+  const activeInsightLoadError = snapshot.config.initialized
+    ? insightLoadError
+    : null
+  const allInsightEvidence = activeInsights
+    ? flattenInsightEvidence(activeInsights)
+    : []
+  const todayKey = calendarDayKey(new Date())
+  const onThisDay = allInsightEvidence
+    .filter((item) => calendarDayKey(item.visitedAt) === todayKey)
+    .slice(0, 3)
+  const periodicSummary = (() => {
+    if (!activeInsights) return []
+    const seeded = activeInsights.cards.slice(0, 2).map((card) => card.summary)
+    return seeded.length > 0 ? seeded : activeInsights.notes
+  })()
 
   function runSourceSummary(profileScope: string[] | undefined) {
     const sourceKinds = sourceKindFromProfileScope(profileScope ?? [])
@@ -363,7 +436,7 @@ export function DashboardPage() {
                 <div className="summary-stat">
                   <span className="dim">{t('dashboard.llmLabel')}</span>
                   <span className="mono">
-                    {llmProvider?.id ?? t('common.disabled')}
+                    {llmProvider?.id ?? t('settings.disabled')}
                   </span>
                 </div>
                 <div className="summary-stat">
@@ -391,6 +464,71 @@ export function DashboardPage() {
                   {t('dashboard.reviewInsightsAction')}
                 </Link>
               </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">{insightsT('onThisDay')}</span>
+              <Link className="panel-action" to="/insights">
+                {t('dashboard.reviewInsightsAction')}
+              </Link>
+            </div>
+            <div className="panel-body">
+              {onThisDay.length > 0 ? (
+                onThisDay.map((item) => (
+                  <Link
+                    key={`${item.historyId}-${item.url}`}
+                    className="otd-item dashboard-evidence-link"
+                    to={evidenceHref(item)}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div className="otd-title">{item.title ?? item.url}</div>
+                      <div className="otd-url">{item.url}</div>
+                      <div className="mono-support">
+                        {formatDateTime(item.visitedAt, language) ??
+                          item.visitedAt}
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              ) : (
+                <p className="dashboard-next-action">
+                  {activeInsightLoadError ??
+                    insightsT('nothingForDayDescription')}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">
+                {insightsT('periodicSummary')}
+              </span>
+              <span className="panel-action">
+                {activeInsights
+                  ? insightsT('snapshotLabel', {
+                      time: formatRelativeTime(
+                        activeInsights.generatedAt,
+                        language,
+                      ),
+                    })
+                  : t('common.pending')}
+              </span>
+            </div>
+            <div className="panel-body">
+              {periodicSummary.length > 0 ? (
+                <div className="otd-summary">
+                  {periodicSummary.slice(0, 2).map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="dashboard-next-action">
+                  {activeInsightLoadError ?? aiMeta.description}
+                </p>
+              )}
             </div>
           </div>
 
