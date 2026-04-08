@@ -12,6 +12,7 @@
 - [../../vision-and-requirements.md](../../vision-and-requirements.md)
 - [../program/research-and-decisions.md](../program/research-and-decisions.md)
 - [enrichment-advanced-intelligence-and-remote.md](enrichment-advanced-intelligence-and-remote.md)
+- [e2e-workflow-rehearsal.md](e2e-workflow-rehearsal.md)
 - [../m0-foundation/rename-quality-and-rewrite-discipline.md](../m0-foundation/rename-quality-and-rewrite-discipline.md)
 
 ---
@@ -63,7 +64,7 @@
 ### Final Acceptance
 
 - [ ] `M4-RL-QA-001` 執行完整 `bun run check`、`bun run build`、`bun run desktop:build:debug`、coverage、mutation、e2e sweep。
-- [ ] `M4-RL-QA-002` 執行一次從全新安裝到長期使用場景的 end-to-end rehearsal，覆蓋 backup、import、rollback、AI optional、remote backup。
+- [ ] `M4-RL-QA-002` 執行一次從全新安裝到長期使用場景的 end-to-end rehearsal，覆蓋 backup、import、rollback、AI optional、remote backup。browser-preview rehearsal inventory 見 [e2e-workflow-rehearsal.md](e2e-workflow-rehearsal.md)。
 - [ ] `M4-RL-QA-003` 執行 docs/plan 和 source docs 的最後一次 traceability 檢查，修正任何過期入口和錯誤鏈接。
 - [ ] `M4-RL-QA-004` 準備發版前決策清單：哪些 feature GA、哪些標 beta、哪些明確 deferred。
 - [ ] `M4-RL-QA-005` 在正式對外發版前，完成一輪 CTO review：產品定位、風險、相容性、資料安全、維運成本全部過關。

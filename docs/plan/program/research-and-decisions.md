@@ -54,6 +54,7 @@
 - [x] `PG-RD-PLAT-003` 研究 Linux keyring 不可用時的 UX：哪些功能可退化、哪些功能必須阻止、哪些警告要前置。見 [archive.md](../../features/archive.md) 的 security contract、[ux-principles.md](../../design/ux-principles.md) 的 trust warning grammar，以及 [trust-ux-i18n-and-platforms.md](../m2-recall-and-trust/trust-ux-i18n-and-platforms.md) 的平台 UX closeout。（2026-04-07，WORK-M2-B）
 - [x] `PG-RD-PLAT-004` 研究 remote backup bundle format：M4-A v1 bundle format 定案為 `pathkeep.remote-backup.v1` zip，至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`，manifest 記錄 `createdAt`、`appVersion`、`archiveMode`、`objectKey` 與逐檔 `sha256` / `sizeBytes`。Settings 以 Preview / Manual / Execute / Verify 落地完整 PME；Verify 會檢查 version、required entries、checksums 與本地 restore readiness，plaintext bundle 明確警告，retention / prune 保持 manual-first。見 [archive.md](../../features/archive.md)、[data-model.md](../../architecture/data-model.md)、[screens-and-nav.md](../../design/screens-and-nav.md) 與 [enrichment-advanced-intelligence-and-remote.md](../m4-full-polish/enrichment-advanced-intelligence-and-remote.md)。（2026-04-08，`WORK-M4-A`）
 - [ ] `PG-RD-PLAT-005` 研究多平台 installer / signing / notarization / secrets 需求，形成正式 release runbook。
+- [ ] `PG-RD-PLAT-006` 研究 app lock / biometric unlock / passcode fallback 的 security model：要明確回答 lock 保護的是 UI session、database key、還是兩者；macOS / Windows / Linux 各自可用的 biometric / key storage API、offline recovery、forgot-passcode、auto-lock timeout、以及 shared profile scope 是否應升級為真正的 partitioned view。未完成前，不允許 shipping 假安全的前端 stub。
 
 ---
 

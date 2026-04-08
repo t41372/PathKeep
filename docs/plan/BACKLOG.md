@@ -17,6 +17,19 @@
 
 ### M4 — Full Polish
 
+- [!] **WORK-M4-C** — Secure App Lock And Profile Partitions `[!blocked: 先完成 PG-RD-PLAT-006，釐清 biometric / passcode / session-key security model]`
+  - 讀先：
+    - `docs/vision-and-requirements.md`
+    - `docs/features/archive.md`
+    - `docs/features/recall.md`
+    - `docs/features/intelligence.md`
+    - `docs/design/screens-and-nav.md`
+    - `docs/plan/program/research-and-decisions.md`
+  - 範圍：
+    1. 定義 app lock 保護範圍：僅 UI session、資料庫解鎖、或兩者結合
+    2. 研究 macOS / Windows / Linux 的 biometric / passcode / keyring fallback 與 recovery story
+    3. 決定 shared profile scope 是否升級為真正的 per-profile partition，特別是 Insights / Dashboard 的 read model 邊界
+
 ---
 
 ## 依賴關係圖
