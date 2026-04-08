@@ -7,7 +7,7 @@ import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
 
 export function AppShell() {
-  const { busyAction } = useShellData()
+  const { busyAction, busyOverlay } = useShellData()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     typeof window !== 'undefined' && 'matchMedia' in window
       ? window.matchMedia('(max-width: 1200px)').matches
@@ -62,7 +62,14 @@ export function AppShell() {
           </main>
         </div>
       </div>
-      {busyAction ? <BusyOverlay label={busyAction} /> : null}
+      {busyAction ? (
+        <BusyOverlay
+          label={busyOverlay?.label ?? busyAction}
+          detail={busyOverlay?.detail}
+          steps={busyOverlay?.steps}
+          activeStep={busyOverlay?.activeStep}
+        />
+      ) : null}
     </div>
   )
 }

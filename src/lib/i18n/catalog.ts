@@ -535,8 +535,23 @@ const catalog: Record<
     },
     shell: {
       savingArchiveChoices: 'Saving archive choices',
+      savingArchiveChoicesDetail:
+        'Writing the updated archive configuration and refreshing the shell state.',
       preparingArchive: 'Preparing the archive',
+      preparingArchiveDetail:
+        'Creating the archive database, applying migrations, and locking in the current setup choices.',
       runningManualBackup: 'Running a manual backup',
+      runningManualBackupDetail:
+        'Inspecting the selected browser profiles before PathKeep writes the canonical archive run.',
+      backupWritingArchive: 'Writing archive facts',
+      backupWritingArchiveDetail:
+        'Normalizing visits, URLs, and audit artifacts. Large real-world profiles can take a while here.',
+      refreshingArchiveViews: 'Refreshing archive views',
+      refreshingArchiveViewsDetail:
+        'Reloading dashboard totals, recent runs, and other shell surfaces with the latest archive state.',
+      backupStepPrepare: 'Inspect selected browser profiles',
+      backupStepArchive: 'Write the canonical archive run',
+      backupStepRefresh: 'Refresh dashboard and shell state',
       loadingLatestArchiveState:
         'PathKeep could not load the latest archive state.',
       savingSettingsFailed:
@@ -1507,8 +1522,23 @@ const catalog: Record<
     },
     shell: {
       savingArchiveChoices: '正在保存归档选项',
+      savingArchiveChoicesDetail:
+        '正在写入更新后的归档配置，并刷新 shell 状态。',
       preparingArchive: '正在准备归档',
+      preparingArchiveDetail:
+        '正在创建归档数据库、应用迁移，并锁定当前的初始化选择。',
       runningManualBackup: '正在运行手动备份',
+      runningManualBackupDetail:
+        '正在检查所选浏览器配置文件，然后 PathKeep 才会写入 canonical archive run。',
+      backupWritingArchive: '正在写入归档事实',
+      backupWritingArchiveDetail:
+        '正在规范化 visits、URL 和审计工件。真实的大型配置文件在这一步可能会花一些时间。',
+      refreshingArchiveViews: '正在刷新归档视图',
+      refreshingArchiveViewsDetail:
+        '正在重新加载仪表盘统计、最近运行和其他 shell 视图。',
+      backupStepPrepare: '检查所选浏览器配置文件',
+      backupStepArchive: '写入 canonical archive run',
+      backupStepRefresh: '刷新仪表盘与 shell 状态',
       loadingLatestArchiveState: 'PathKeep 无法加载最新的归档状态。',
       savingSettingsFailed: 'PathKeep 无法保存更新后的设置。',
       initializeArchiveFailed: 'PathKeep 无法初始化归档。',
@@ -2221,8 +2251,23 @@ const catalog: Record<
     },
     shell: {
       savingArchiveChoices: '正在儲存歸檔選項',
+      savingArchiveChoicesDetail:
+        '正在寫入更新後的歸檔設定，並刷新 shell 狀態。',
       preparingArchive: '正在準備歸檔',
+      preparingArchiveDetail:
+        '正在建立歸檔資料庫、套用 migration，並鎖定目前的初始化選擇。',
       runningManualBackup: '正在執行手動備份',
+      runningManualBackupDetail:
+        '正在檢查所選的瀏覽器設定檔，接著 PathKeep 才會寫入 canonical archive run。',
+      backupWritingArchive: '正在寫入歸檔 facts',
+      backupWritingArchiveDetail:
+        '正在正規化 visits、URL 與審計工件。真實的大型設定檔在這一步可能會花一些時間。',
+      refreshingArchiveViews: '正在刷新歸檔視圖',
+      refreshingArchiveViewsDetail:
+        '正在重新載入儀表板統計、最近執行與其他 shell 畫面。',
+      backupStepPrepare: '檢查所選瀏覽器設定檔',
+      backupStepArchive: '寫入 canonical archive run',
+      backupStepRefresh: '刷新儀表板與 shell 狀態',
       loadingLatestArchiveState: 'PathKeep 無法載入最新的歸檔狀態。',
       savingSettingsFailed: 'PathKeep 無法儲存更新後的設定。',
       initializeArchiveFailed: 'PathKeep 無法初始化歸檔。',

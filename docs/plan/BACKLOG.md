@@ -19,6 +19,19 @@
 
 > 2026-04-08：release closeout 的 `mutation:rust` 預演已把 parser / AI deep-check 缺口升級為 `WORK-M4-D`，並直接 promoted 到 `STATUS.md` 當前 focus；此處只保留尚未 promoted 的後續 backlog 項目。
 
+- **WORK-M4-G** — Large Archive Performance & Profiling
+  - 設計規格：`docs/features/recall.md` §大數據量下的效能設計、`docs/features/archive.md` §Enrichment、`docs/design/ux-principles.md` §Loading States & Skeleton Screens
+  - 讀先：
+    - `docs/features/recall.md`
+    - `docs/features/archive.md`
+    - `docs/design/ux-principles.md`
+    - `docs/architecture/data-model.md`
+  - 範圍：
+    1. 建立 whole-app profiling runbook：webview runtime、Tauri command wall time、Rust CPU / allocation、SQLite query plan 與 archive-size regression fixture
+    2. 為大型 Chromium / Chrome profile backup 補 progress event / phase log contract，避免長任務只剩 opaque spinner
+    3. 把 Explorer day-one keyword recall 從 `LIKE` 收斂回 `FTS5` 契約，補 query benchmark 與 visibility / rollback correctness 驗證
+    4. 盤整 canonical ingest hot path，優先處理 parser 全量 materialization、row-by-row write amplification，以及 derived follow-up 對 UI responsiveness 的影響
+
 - [!] **WORK-M4-C** — Secure App Lock And Profile Partitions `[!blocked: 先完成 PG-RD-PLAT-006，釐清 biometric / passcode / session-key security model]`
   - 設計規格：`docs/features/archive.md` §8、`docs/design/screens-and-nav.md` §App Lock
   - 讀先：

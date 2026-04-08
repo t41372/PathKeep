@@ -5,7 +5,7 @@ import { useShellData } from './shell-data-context'
 
 export function OnboardingShell() {
   const navigate = useNavigate()
-  const { busyAction } = useShellData()
+  const { busyAction, busyOverlay } = useShellData()
 
   return (
     <div className="app-frame onboarding-frame" data-testid="onboarding-shell">
@@ -55,7 +55,14 @@ export function OnboardingShell() {
       >
         <Outlet />
       </div>
-      {busyAction ? <BusyOverlay label={busyAction} /> : null}
+      {busyAction ? (
+        <BusyOverlay
+          label={busyOverlay?.label ?? busyAction}
+          detail={busyOverlay?.detail}
+          steps={busyOverlay?.steps}
+          activeStep={busyOverlay?.activeStep}
+        />
+      ) : null}
     </div>
   )
 }

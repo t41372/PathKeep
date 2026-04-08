@@ -130,6 +130,14 @@ struct Watermark {
     updated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ArchiveVisibleTotals {
+    pub total_profiles: usize,
+    pub total_urls: usize,
+    pub total_visits: usize,
+    pub total_downloads: usize,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SnapshotArtifact {
@@ -175,6 +183,20 @@ struct RawRowInsert<'a> {
     schema_hash: &'a str,
     chrome_version: Option<&'a str>,
     import_batch_id: Option<i64>,
+}
+
+#[derive(Debug)]
+struct SerializedPayload {
+    json: String,
+    hash: String,
+}
+
+#[derive(Debug, Clone)]
+struct UrlVisitBounds {
+    first_visit_ms: i64,
+    first_visit_iso: String,
+    last_visit_ms: i64,
+    last_visit_iso: String,
 }
 
 #[derive(Debug)]
@@ -279,23 +301,8 @@ pub fn load_dashboard_snapshot(
 
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
-    let total_profiles: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM source_profiles WHERE enabled = 1",
-        [],
-        |row| row.get(0),
-    )?;
-    let total_urls: i64 =
-        connection.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))?;
-    let total_visits: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL",
-        [],
-        |row| row.get(0),
-    )?;
-    let total_downloads: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM downloads WHERE reverted_at IS NULL",
-        [],
-        |row| row.get(0),
-    )?;
+    let totals = load_cached_archive_totals(&connection)?
+        .unwrap_or(count_visible_archive_totals(&connection)?);
     let last_successful_backup_at = connection
         .query_row(
             "SELECT finished_at
@@ -317,10 +324,10 @@ pub fn load_dashboard_snapshot(
 
     Ok(DashboardSnapshot {
         generated_at: now_rfc3339(),
-        total_profiles: total_profiles.max(0) as usize,
-        total_urls: total_urls.max(0) as usize,
-        total_visits: total_visits.max(0) as usize,
-        total_downloads: total_downloads.max(0) as usize,
+        total_profiles: totals.total_profiles,
+        total_urls: totals.total_urls,
+        total_visits: totals.total_visits,
+        total_downloads: totals.total_downloads,
         last_successful_backup_at,
         recent_runs,
         storage: storage_summary(paths),
@@ -1161,8 +1168,9 @@ fn process_profile_snapshot(
 
     let mut url_id_map = HashMap::new();
     for url in &parsed_snapshot.history.urls {
+        let payload = serialize_payload(url)?;
         let canonical_url_id =
-            upsert_url(archive, run_id, source_profile_id, &snapshot.profile, url)?;
+            upsert_url(archive, run_id, source_profile_id, &snapshot.profile, url, &payload.hash)?;
         url_id_map.insert(url.source_url_id, canonical_url_id);
         insert_raw_row(
             archive,
@@ -1173,8 +1181,8 @@ fn process_profile_snapshot(
                 source_kind: parsed_snapshot.source_kind,
                 table_name: "urls",
                 source_pk: &url.source_url_id.to_string(),
-                payload_hash: &payload_hash(url)?,
-                payload_json: &serde_json::to_string(url)?,
+                payload_hash: &payload.hash,
+                payload_json: &payload.json,
                 schema_hash: &schema_hash,
                 chrome_version: snapshot.profile.browser_version.as_deref(),
                 import_batch_id: None,
@@ -1184,10 +1192,12 @@ fn process_profile_snapshot(
         summary.raw_rows += 1;
     }
 
+    let mut url_bounds = HashMap::<i64, UrlVisitBounds>::new();
     for visit in &parsed_snapshot.history.visits {
         let Some(&url_id) = url_id_map.get(&visit.source_url_id) else {
             continue;
         };
+        let payload = serialize_payload(visit)?;
         let inserted = insert_visit(
             archive,
             run_id,
@@ -1195,10 +1205,12 @@ fn process_profile_snapshot(
             &snapshot.profile.profile_id,
             url_id,
             visit,
+            &payload.hash,
         )?;
         if inserted > 0 {
             summary.new_visits += 1;
         }
+        track_url_visit_bounds(&mut url_bounds, url_id, visit);
         insert_raw_row(
             archive,
             RawRowInsert {
@@ -1208,19 +1220,24 @@ fn process_profile_snapshot(
                 source_kind: parsed_snapshot.source_kind,
                 table_name: "visits",
                 source_pk: &visit.source_visit_id.to_string(),
-                payload_hash: &payload_hash(visit)?,
-                payload_json: &serde_json::to_string(visit)?,
+                payload_hash: &payload.hash,
+                payload_json: &payload.json,
                 schema_hash: &schema_hash,
                 chrome_version: snapshot.profile.browser_version.as_deref(),
                 import_batch_id: None,
             },
         )?;
         summary.raw_rows += 1;
-        sync_url_bounds(archive, url_id, visit.visit_time_ms, &visit.visit_time_iso)?;
+    }
+
+    for (url_id, bounds) in url_bounds {
+        sync_url_bounds(archive, url_id, &bounds)?;
     }
 
     for download in &parsed_snapshot.history.downloads {
-        let inserted = insert_download(archive, run_id, source_profile_id, download)?;
+        let payload = serialize_payload(download)?;
+        let inserted =
+            insert_download(archive, run_id, source_profile_id, download, &payload.hash)?;
         if inserted > 0 {
             summary.new_downloads += 1;
         }
@@ -1233,8 +1250,8 @@ fn process_profile_snapshot(
                 source_kind: parsed_snapshot.source_kind,
                 table_name: "downloads",
                 source_pk: &download.source_download_id.to_string(),
-                payload_hash: &payload_hash(download)?,
-                payload_json: &serde_json::to_string(download)?,
+                payload_hash: &payload.hash,
+                payload_json: &payload.json,
                 schema_hash: &schema_hash,
                 chrome_version: snapshot.profile.browser_version.as_deref(),
                 import_batch_id: None,
@@ -1265,7 +1282,8 @@ fn process_profile_snapshot(
     }
 
     for favicon in &parsed_snapshot.history.favicons {
-        insert_favicon(archive, run_id, source_profile_id, favicon)?;
+        let payload = serialize_payload(favicon)?;
+        insert_favicon(archive, run_id, source_profile_id, favicon, &payload.hash)?;
     }
 
     if should_checkpoint(&watermark, &schema_hash, config.checkpoint_days) {
@@ -1452,9 +1470,9 @@ fn upsert_url(
     source_profile_id: i64,
     profile: &crate::models::BrowserProfile,
     url: &ParsedUrl,
+    payload_hash: &str,
 ) -> Result<i64> {
     let recorded_at = now_rfc3339();
-    let payload_hash = payload_hash(url)?;
     archive.execute(
         "INSERT INTO urls (
            url,
@@ -1523,6 +1541,7 @@ fn insert_visit(
     profile_id: &str,
     url_id: i64,
     visit: &ParsedVisit,
+    payload_hash: &str,
 ) -> Result<usize> {
     archive
         .execute(
@@ -1568,7 +1587,7 @@ fn insert_visit(
                     visit.transition,
                     visit.app_id.as_deref(),
                 ),
-                payload_hash(visit)?,
+                payload_hash,
                 now_rfc3339(),
             ],
         )
@@ -1580,6 +1599,7 @@ fn insert_download(
     run_id: i64,
     source_profile_id: i64,
     download: &ParsedDownload,
+    payload_hash: &str,
 ) -> Result<usize> {
     archive
         .execute(
@@ -1615,7 +1635,7 @@ fn insert_download(
                 download.original_mime_type,
                 source_profile_id,
                 run_id,
-                payload_hash(download)?,
+                payload_hash,
                 now_rfc3339(),
             ],
         )
@@ -1662,6 +1682,7 @@ fn insert_favicon(
     run_id: i64,
     source_profile_id: i64,
     favicon: &ParsedFavicon,
+    payload_hash: &str,
 ) -> Result<usize> {
     archive
         .execute(
@@ -1691,7 +1712,7 @@ fn insert_favicon(
                 favicon.image_data,
                 source_profile_id,
                 run_id,
-                payload_hash(favicon)?,
+                payload_hash,
                 now_rfc3339(),
             ],
         )
@@ -1738,34 +1759,64 @@ fn insert_raw_row(archive: &Transaction<'_>, row: RawRowInsert<'_>) -> Result<us
         .map_err(Into::into)
 }
 
-fn sync_url_bounds(
-    archive: &Transaction<'_>,
-    url_id: i64,
-    visit_time_ms: i64,
-    visit_time_iso: &str,
-) -> Result<()> {
+fn sync_url_bounds(archive: &Transaction<'_>, url_id: i64, bounds: &UrlVisitBounds) -> Result<()> {
     archive.execute(
         "UPDATE urls
          SET first_visit_ms = CASE
                WHEN ?2 < first_visit_ms THEN ?2
                ELSE first_visit_ms
              END,
-             first_visit_iso = CASE
+         first_visit_iso = CASE
                WHEN ?2 < first_visit_ms THEN ?3
                ELSE first_visit_iso
              END,
-             last_visit_ms = CASE
-               WHEN ?2 > last_visit_ms THEN ?2
+         last_visit_ms = CASE
+               WHEN ?4 > last_visit_ms THEN ?4
                ELSE last_visit_ms
              END,
-             last_visit_iso = CASE
-               WHEN ?2 > last_visit_ms THEN ?3
+         last_visit_iso = CASE
+               WHEN ?4 > last_visit_ms THEN ?5
                ELSE last_visit_iso
              END
          WHERE id = ?1",
-        params![url_id, visit_time_ms, visit_time_iso],
+        params![
+            url_id,
+            bounds.first_visit_ms,
+            bounds.first_visit_iso,
+            bounds.last_visit_ms,
+            bounds.last_visit_iso
+        ],
     )?;
     Ok(())
+}
+
+pub(crate) fn count_visible_archive_totals(
+    connection: &Connection,
+) -> Result<ArchiveVisibleTotals> {
+    let total_profiles: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM source_profiles WHERE enabled = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    let total_urls: i64 =
+        connection.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))?;
+    let total_visits: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    let total_downloads: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM downloads WHERE reverted_at IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+
+    Ok(ArchiveVisibleTotals {
+        total_profiles: total_profiles.max(0) as usize,
+        total_urls: total_urls.max(0) as usize,
+        total_visits: total_visits.max(0) as usize,
+        total_downloads: total_downloads.max(0) as usize,
+    })
 }
 
 fn load_watermark(archive: &Transaction<'_>, profile_id: &str) -> Result<Watermark> {
@@ -1947,6 +1998,16 @@ fn finalize_successful_run(
     warnings: &[String],
     manifest_hash: &str,
 ) -> Result<()> {
+    let stats = stats_with_archive_totals(
+        connection,
+        json!({
+            "profilesProcessed": summary.profiles_processed,
+            "newVisits": summary.new_visits,
+            "newUrls": summary.new_urls,
+            "newDownloads": summary.new_downloads,
+            "manifestHash": manifest_hash,
+        }),
+    )?;
     connection.execute(
         "UPDATE runs
          SET finished_at = ?1,
@@ -1957,13 +2018,7 @@ fn finalize_successful_run(
          WHERE id = ?4",
         params![
             finished_at,
-            serde_json::to_string(&json!({
-                "profilesProcessed": summary.profiles_processed,
-                "newVisits": summary.new_visits,
-                "newUrls": summary.new_urls,
-                "newDownloads": summary.new_downloads,
-                "manifestHash": manifest_hash,
-            }))?,
+            serde_json::to_string(&stats)?,
             serde_json::to_string(warnings)?,
             run_id,
         ],
@@ -2211,8 +2266,78 @@ fn open_readonly_source(path: &Path) -> Result<Connection> {
     .with_context(|| format!("opening source {}", path.display()))
 }
 
-fn payload_hash<T: Serialize>(value: &T) -> Result<String> {
-    Ok(sha256_hex(serde_json::to_string(value)?.as_bytes()))
+fn serialize_payload<T: Serialize>(value: &T) -> Result<SerializedPayload> {
+    let json = serde_json::to_string(value)?;
+    let hash = sha256_hex(json.as_bytes());
+    Ok(SerializedPayload { json, hash })
+}
+
+pub(crate) fn stats_with_archive_totals(connection: &Connection, stats: Value) -> Result<Value> {
+    let totals = count_visible_archive_totals(connection)?;
+    let mut object = match stats {
+        Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    object.insert("totalProfiles".to_string(), json!(totals.total_profiles));
+    object.insert("totalUrls".to_string(), json!(totals.total_urls));
+    object.insert("totalVisits".to_string(), json!(totals.total_visits));
+    object.insert("totalDownloads".to_string(), json!(totals.total_downloads));
+    Ok(Value::Object(object))
+}
+
+fn load_cached_archive_totals(connection: &Connection) -> Result<Option<ArchiveVisibleTotals>> {
+    let mut statement = connection.prepare(
+        "SELECT stats_json
+         FROM runs
+         WHERE status = 'success'
+         ORDER BY id DESC
+         LIMIT 24",
+    )?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    for row in rows {
+        let stats_json = row?;
+        let Ok(stats) = serde_json::from_str::<Value>(&stats_json) else {
+            continue;
+        };
+        if let Some(totals) = archive_totals_from_stats(&stats) {
+            return Ok(Some(totals));
+        }
+    }
+    Ok(None)
+}
+
+fn archive_totals_from_stats(stats: &Value) -> Option<ArchiveVisibleTotals> {
+    Some(ArchiveVisibleTotals {
+        total_profiles: stats.get("totalProfiles")?.as_u64()? as usize,
+        total_urls: stats.get("totalUrls")?.as_u64()? as usize,
+        total_visits: stats.get("totalVisits")?.as_u64()? as usize,
+        total_downloads: stats.get("totalDownloads")?.as_u64()? as usize,
+    })
+}
+
+fn track_url_visit_bounds(
+    url_bounds: &mut HashMap<i64, UrlVisitBounds>,
+    url_id: i64,
+    visit: &ParsedVisit,
+) {
+    url_bounds
+        .entry(url_id)
+        .and_modify(|bounds| {
+            if visit.visit_time_ms < bounds.first_visit_ms {
+                bounds.first_visit_ms = visit.visit_time_ms;
+                bounds.first_visit_iso = visit.visit_time_iso.clone();
+            }
+            if visit.visit_time_ms > bounds.last_visit_ms {
+                bounds.last_visit_ms = visit.visit_time_ms;
+                bounds.last_visit_iso = visit.visit_time_iso.clone();
+            }
+        })
+        .or_insert_with(|| UrlVisitBounds {
+            first_visit_ms: visit.visit_time_ms,
+            first_visit_iso: visit.visit_time_iso.clone(),
+            last_visit_ms: visit.visit_time_ms,
+            last_visit_iso: visit.visit_time_iso.clone(),
+        });
 }
 
 fn snapshot_source_hashes(snapshot: &ProfileSnapshot) -> BTreeMap<String, String> {
@@ -3108,6 +3233,73 @@ mod tests {
 
         let repaired_report = doctor(&paths, &config, None).expect("doctor after repair");
         assert!(repaired_report.checks.iter().all(|check| check.ok));
+    }
+
+    #[test]
+    fn dashboard_snapshot_tracks_cached_totals_across_import_visibility_changes() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = AppConfig { initialized: true, ..AppConfig::default() };
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let takeout_source = seed_takeout_fixture(dir.path());
+        let inspection = crate::takeout::import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
+        )
+        .expect("import takeout");
+        let batch_id = inspection.import_batch.expect("batch").id;
+
+        let dashboard_after_import =
+            load_dashboard_snapshot(&paths, &config, None).expect("dashboard after import");
+        assert_eq!(dashboard_after_import.total_visits, 1);
+        assert_eq!(dashboard_after_import.total_urls, 1);
+
+        let after_import_stats: Value = Connection::open(&paths.archive_database_path)
+            .expect("open archive")
+            .query_row(
+                "SELECT stats_json
+                 FROM runs
+                 WHERE run_type = 'import'
+                 ORDER BY id DESC
+                 LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|value| serde_json::from_str(&value).expect("parse import stats"))
+            .expect("load import stats");
+        assert_eq!(after_import_stats["totalVisits"], 1);
+
+        crate::takeout::revert_import_batch(&paths, &config, None, batch_id)
+            .expect("revert import batch");
+        let dashboard_after_revert =
+            load_dashboard_snapshot(&paths, &config, None).expect("dashboard after revert");
+        assert_eq!(dashboard_after_revert.total_visits, 0);
+        assert_eq!(dashboard_after_revert.total_urls, 1);
+
+        let after_revert_stats: Value = Connection::open(&paths.archive_database_path)
+            .expect("open archive")
+            .query_row(
+                "SELECT stats_json
+                 FROM runs
+                 WHERE run_type = 'rollback'
+                 ORDER BY id DESC
+                 LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|value| serde_json::from_str(&value).expect("parse revert stats"))
+            .expect("load revert stats");
+        assert_eq!(after_revert_stats["totalVisits"], 0);
+
+        crate::takeout::restore_import_batch(&paths, &config, None, batch_id)
+            .expect("restore import batch");
+        let dashboard_after_restore =
+            load_dashboard_snapshot(&paths, &config, None).expect("dashboard after restore");
+        assert_eq!(dashboard_after_restore.total_visits, 1);
+        assert_eq!(dashboard_after_restore.total_urls, 1);
     }
 
     #[test]

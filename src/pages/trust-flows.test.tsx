@@ -109,6 +109,7 @@ function createShellValue(
     dashboard,
     loading: false,
     busyAction: null,
+    busyOverlay: null,
     error: null,
     notice: null,
     refreshKey: 0,

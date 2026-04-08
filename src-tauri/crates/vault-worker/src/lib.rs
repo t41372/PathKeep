@@ -680,18 +680,6 @@ pub fn run_backup_now(
             )),
         }
     }
-    if !report.due_skipped {
-        let embedding_provider = selected_optional_embedding_runtime(&config).ok().flatten();
-        if let Err(error) = run_insights(
-            &paths,
-            &config,
-            session_database_key,
-            embedding_provider.as_ref(),
-            &RunInsightsRequest::default(),
-        ) {
-            report.warnings.push(format!("Insight refresh after backup failed: {error}"));
-        }
-    }
     Ok(report)
 }
 
@@ -1879,6 +1867,38 @@ mod tests {
         assert_eq!(loaded.state, "paused");
         assert_eq!(loaded.provider_id, "llm-primary");
         assert_eq!(loaded.embedding_provider_id, "embed-primary");
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn manual_backup_leaves_insight_rebuild_as_an_explicit_follow_up() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let config = configured_ai_config();
+        initialize_archive_database(&config, None).expect("initialize archive");
+
+        let backup = run_backup_now(None, false).expect("backup");
+        assert_eq!(backup.run.expect("backup run").new_visits, 1);
+
+        let insights =
+            load_insights_snapshot(None, &RunInsightsRequest::default()).expect("load insights");
+        assert_eq!(insights.status.runs, 0);
+        assert!(insights.cards.is_empty());
+        assert!(insights.notes.is_empty());
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

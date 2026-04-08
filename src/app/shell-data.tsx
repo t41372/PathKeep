@@ -7,7 +7,7 @@ import type {
   AppSnapshot,
   DashboardSnapshot,
 } from '../lib/types'
-import { ShellDataContext } from './shell-data-context'
+import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
 
 function waitForNextPaint() {
   return new Promise<void>((resolve) => {
@@ -38,10 +38,21 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
+
+  function showBusyOverlay(next: BusyOverlayState) {
+    setBusyAction(next.label)
+    setBusyOverlay(next)
+  }
+
+  function clearBusyOverlay() {
+    setBusyAction(null)
+    setBusyOverlay(null)
+  }
 
   const refreshAppData = useCallback(
     async (showSpinner = true) => {
@@ -85,7 +96,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   }, [refreshAppData])
 
   async function saveConfig(config: AppConfig) {
-    setBusyAction(t('shell.savingArchiveChoices'))
+    showBusyOverlay({
+      label: t('shell.savingArchiveChoices'),
+      detail: t('shell.savingArchiveChoicesDetail'),
+    })
     setNotice(null)
     setError(null)
 
@@ -108,7 +122,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       )
       throw nextError
     } finally {
-      setBusyAction(null)
+      clearBusyOverlay()
     }
   }
 
@@ -116,7 +130,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     config: AppConfig,
     databaseKey?: string | null,
   ) {
-    setBusyAction(t('shell.preparingArchive'))
+    showBusyOverlay({
+      label: t('shell.preparingArchive'),
+      detail: t('shell.preparingArchiveDetail'),
+    })
     setNotice(null)
     setError(null)
 
@@ -138,18 +155,41 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       )
       throw nextError
     } finally {
-      setBusyAction(null)
+      clearBusyOverlay()
     }
   }
 
   async function runBackup() {
-    setBusyAction(t('shell.runningManualBackup'))
+    const backupSteps = [
+      t('shell.backupStepPrepare'),
+      t('shell.backupStepArchive'),
+      t('shell.backupStepRefresh'),
+    ]
+
+    showBusyOverlay({
+      label: t('shell.runningManualBackup'),
+      detail: t('shell.runningManualBackupDetail'),
+      steps: backupSteps,
+      activeStep: 0,
+    })
     setNotice(null)
     setError(null)
 
     try {
       await waitForNextPaint()
+      showBusyOverlay({
+        label: t('shell.backupWritingArchive'),
+        detail: t('shell.backupWritingArchiveDetail'),
+        steps: backupSteps,
+        activeStep: 1,
+      })
       const report = await backend.runBackupNow(false)
+      showBusyOverlay({
+        label: t('shell.refreshingArchiveViews'),
+        detail: t('shell.refreshingArchiveViewsDetail'),
+        steps: backupSteps,
+        activeStep: 2,
+      })
       await refreshAppData(false)
       setNotice(
         report.dueSkipped
@@ -167,7 +207,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       )
       throw nextError
     } finally {
-      setBusyAction(null)
+      clearBusyOverlay()
     }
   }
 
@@ -179,6 +219,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         dashboard,
         loading,
         busyAction,
+        busyOverlay,
         error,
         notice,
         refreshKey,

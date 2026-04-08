@@ -426,7 +426,14 @@ export function ImportPage() {
 
             {step === 'scan' && (
               <div style={{ position: 'relative', minHeight: '120px' }}>
-                <BusyOverlay label={t('import.scanningTitle')} />
+                <BusyOverlay
+                  label={t('import.scanningTitle')}
+                  detail={t('import.workflowPreviewReason')}
+                  steps={wizardSteps
+                    .slice(0, 3)
+                    .map((wizardStep) => wizardStep.label)}
+                  activeStep={1}
+                />
               </div>
             )}
 
@@ -562,7 +569,14 @@ export function ImportPage() {
 
             {step === 'confirm' && importing && (
               <div style={{ position: 'relative', minHeight: '120px' }}>
-                <BusyOverlay label={t('import.importingTitle')} />
+                <BusyOverlay
+                  label={t('import.importingTitle')}
+                  detail={t('import.workflowExecuteReason')}
+                  steps={wizardSteps
+                    .slice(2)
+                    .map((wizardStep) => wizardStep.label)}
+                  activeStep={1}
+                />
               </div>
             )}
 

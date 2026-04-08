@@ -7,12 +7,20 @@ import type {
   DashboardSnapshot,
 } from '../lib/types'
 
+export interface BusyOverlayState {
+  label: string
+  detail?: string | null
+  steps?: string[]
+  activeStep?: number
+}
+
 export interface ShellDataContextValue {
   buildInfo: AppBuildInfo | null
   snapshot: AppSnapshot | null
   dashboard: DashboardSnapshot | null
   loading: boolean
   busyAction: string | null
+  busyOverlay: BusyOverlayState | null
   error: string | null
   notice: string | null
   refreshKey: number

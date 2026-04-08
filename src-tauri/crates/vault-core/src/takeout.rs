@@ -1,5 +1,7 @@
 use crate::{
-    archive::{create_schema, open_archive_connection, visit_event_fingerprint},
+    archive::{
+        create_schema, open_archive_connection, stats_with_archive_totals, visit_event_fingerprint,
+    },
     config::{ProjectPaths, ensure_paths},
     git_audit,
     models::{
@@ -331,7 +333,6 @@ pub fn revert_import_batch(
         &transaction,
         existing.overview.profile_id.as_str(),
         batch_id,
-        removed,
         &reverted_at,
     )?;
     transaction.execute(
@@ -349,6 +350,14 @@ pub fn revert_import_batch(
     ));
     #[rustfmt::skip]
     update_batch_summary(&transaction, BatchSummaryUpdate { batch_id, status: "reverted", imported_items: existing.overview.imported_items, duplicate_items: existing.overview.duplicate_items, candidate_items: existing.overview.candidate_items, recognized_files: &existing.recognized_files, quarantined_files: &existing.quarantined_files, notes: &notes, reverted_at: Some(reverted_at) })?;
+    refresh_completed_run_stats(
+        &transaction,
+        rollback_run_id,
+        json!({
+            "importBatchId": batch_id,
+            "softHiddenVisits": removed.max(0),
+        }),
+    )?;
     transaction.commit()?;
 
     let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "reverted")?;
@@ -384,7 +393,6 @@ pub fn restore_import_batch(
         &transaction,
         existing.overview.profile_id.as_str(),
         batch_id,
-        restored,
         &restored_at,
     )?;
     transaction.execute(
@@ -404,6 +412,15 @@ pub fn restore_import_batch(
     update_batch_summary(&transaction, BatchSummaryUpdate { batch_id, status: "imported", imported_items: existing.overview.imported_items, duplicate_items: existing.overview.duplicate_items, candidate_items: existing.overview.candidate_items, recognized_files: &existing.recognized_files, quarantined_files: &existing.quarantined_files, notes: &notes, reverted_at: None })?;
     transaction
         .execute("UPDATE import_batches SET reverted_at = NULL WHERE id = ?1", [batch_id])?;
+    refresh_completed_run_stats(
+        &transaction,
+        restore_run_id,
+        json!({
+            "importBatchId": batch_id,
+            "restoredVisits": restored.max(0),
+            "action": "restore",
+        }),
+    )?;
     transaction.commit()?;
 
     let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "restored")?;
@@ -584,6 +601,19 @@ fn finalize_successful_import_run(
     inspection: &TakeoutInspection,
     stats: &ImportStats,
 ) -> Result<()> {
+    let stats_json = stats_with_archive_totals(
+        archive,
+        json!({
+            "profilesProcessed": 1,
+            "newVisits": stats.imported_items,
+            "newUrls": 0,
+            "newDownloads": 0,
+            "candidateItems": inspection.candidate_items,
+            "importedItems": stats.imported_items,
+            "duplicateItems": stats.duplicate_items,
+            "importBatchId": batch_id,
+        }),
+    )?;
     archive.execute(
         "UPDATE runs
          SET finished_at = ?1,
@@ -594,16 +624,7 @@ fn finalize_successful_import_run(
          WHERE id = ?4",
         params![
             now_rfc3339(),
-            serde_json::to_string(&json!({
-                "profilesProcessed": 1,
-                "newVisits": stats.imported_items,
-                "newUrls": 0,
-                "newDownloads": 0,
-                "candidateItems": inspection.candidate_items,
-                "importedItems": stats.imported_items,
-                "duplicateItems": stats.duplicate_items,
-                "importBatchId": batch_id,
-            }))?,
+            serde_json::to_string(&stats_json)?,
             serde_json::to_string(&inspection.notes)?,
             run_id,
         ],
@@ -647,7 +668,6 @@ fn create_import_revert_run(
     archive: &Transaction<'_>,
     profile_id: &str,
     batch_id: i64,
-    removed: i64,
     started_at: &str,
 ) -> Result<i64> {
     archive.execute(
@@ -680,10 +700,7 @@ fn create_import_revert_run(
         params![
             started_at,
             serde_json::to_string(&vec![profile_id])?,
-            serde_json::to_string(&json!({
-                "importBatchId": batch_id,
-                "softHiddenVisits": removed.max(0),
-            }))?,
+            serde_json::to_string(&json!({ "importBatchId": batch_id }))?,
         ],
     )?;
     Ok(archive.last_insert_rowid())
@@ -693,7 +710,6 @@ fn create_import_restore_run(
     archive: &Transaction<'_>,
     profile_id: &str,
     batch_id: i64,
-    restored: i64,
     started_at: &str,
 ) -> Result<i64> {
     archive.execute(
@@ -726,14 +742,21 @@ fn create_import_restore_run(
         params![
             started_at,
             serde_json::to_string(&vec![profile_id])?,
-            serde_json::to_string(&json!({
-                "importBatchId": batch_id,
-                "restoredVisits": restored.max(0),
-                "action": "restore",
-            }))?,
+            serde_json::to_string(&json!({ "importBatchId": batch_id, "action": "restore" }))?,
         ],
     )?;
     Ok(archive.last_insert_rowid())
+}
+
+fn refresh_completed_run_stats(archive: &Connection, run_id: i64, stats: Value) -> Result<()> {
+    let stats_json = stats_with_archive_totals(archive, stats)?;
+    archive.execute(
+        "UPDATE runs
+         SET stats_json = ?1
+         WHERE id = ?2",
+        params![serde_json::to_string(&stats_json)?, run_id],
+    )?;
+    Ok(())
 }
 
 fn create_import_batch(
