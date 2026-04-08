@@ -33,7 +33,7 @@
   - JS/TS 側：100% statement/branch/function/line coverage + mutation test。
 - E2E：Playwright spec 覆蓋關鍵用戶流程。
 
-### 目前的 blocking / release gate（2026-04-07，Pre-M4）
+### 目前的 blocking / release gate（2026-04-08，M4 closeout baseline）
 
 - 現行 gate 以 [docs/plan/program/quality-matrix.md](plan/program/quality-matrix.md) 為準。
 - mainline blocking path 是：
@@ -44,6 +44,8 @@
   - `bun run test:e2e`
 - `bun run mutation:js` 已恢復成 living M0-M3 JS surface 的 repo-level mutation gate，但目前放在 scheduled / manual deep check，而不是每次 PR 都同步阻擋。
 - `bun run mutation:rust`、`bun run check:full`、`bun run verify` 屬於高成本 deep checks / release checks；它們必須可執行、可追蹤，但不強迫每次小變更都付同樣成本。
+- 2026-04-08 的 release closeout 已確認 `bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 通過；`bun run mutation:rust` 第一輪實跑暴露出的 parser / AI misses 已升級成 `WORK-M4-D`，在修完前不應再口頭宣稱 Rust workspace mutation 已綠。
+- release / platform / support 變更除了跑命令，還必須同步維護 `README.md`、`RELEASE.md`、`TESTING.md`、`TROUBLESHOOTING.md`、`SUPPORT.md` 與對應的 `docs/` source docs，不能把 operator contract 留在聊天記錄裡。
 - 所有**新建**或**整段重寫**的模組，仍必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
 - `bun run check` 內含 `bun run check:desktop-contract`；這條 targeted JS sub-gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`。
 - 前端 shell / route / sidebar / primitives 與 page-scoped data provider 仍不能被誤報成「因為 desktop contract gate 通過，所以整個 UI 已簽收」。
@@ -64,8 +66,17 @@
   - mainline CI 直接執行 `check:js`、`check:desktop-contract`、`coverage:js`、`check:rust`、`coverage:rust`、`check:supply-chain`、`build`、`test:e2e`。
   - `mutation:js` 與 `mutation:rust` 由 scheduled / manual `Mutation` workflow 執行，作為 deep check 與 pre-release gate。
   - `check:full`、`verify` 是本地 closeout / release rehearsal 指令，不要求每個 PR 都全跑。
-  - Release pipeline：多平台構建 + 自動產出安裝檔。
+- Release pipeline：多平台構建 + 自動產出安裝檔。
+- Release pipeline 要做 version-sync preflight，並產出 checksum 與 release manifest，避免 tag / artifact / repo version 漂移。
 - README badges 顯示 CI 狀態、coverage。
+
+## 支援與診斷
+
+- 使用者回報 bug 時，至少要能從 UI 取得 app version、git commit short SHA、資料目錄、archive DB path、audit repo path、scheduler state、keyring backend。
+- troubleshooting / support 文檔必須和真實 UI 一起演進；不接受文檔要求使用者提供畫面上根本沒有的資訊。
+- 預設支援診斷是 metadata-first：優先收集 run id、audit path、checksum / verify 結果、sanitized screenshot，而不是直接要求 archive DB、raw history export 或秘密值。
+- 不可要求使用者分享 master password、API key、S3 secret、完整 archive DB；除非是最小化 repro fixture，而且使用者明確同意。
+- support bundle strategy 在當前版本仍是 manual-first，不做自動上傳、不做隱形 telemetry。
 
 ---
 

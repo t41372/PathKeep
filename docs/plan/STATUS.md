@@ -12,39 +12,39 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-M4-B** — Release Readiness And Platform Polish
+- [ ] **WORK-M4-D** — Rust Mutation Deep-Check Hardening
 
 ---
 
-### WORK-M4-B — Release Readiness And Platform Polish
+### WORK-M4-D — Rust Mutation Deep-Check Hardening
 
-**目標**：在 `WORK-M4-A` 已經落地 enrichment / advanced intelligence / remote backup v1 之後，完成 release engineering、多平台真機驗收與最後一輪 platform / accessibility / docs polish，讓 M4 真正具備對外發版條件。
+**目標**：`WORK-M4-B` 的 release closeout 已經把 blocking path、coverage、`mutation:js`、browser-preview smoke 與 debug desktop build 跑通，但 `bun run mutation:rust` 的 pre-release deep check 暴露出 `browser-history-parser` 與 `vault-core/src/ai.rs` 的存活 mutants。這個 work block 要把那批缺口收斂成可驗證、可維護、文件誠實的 Rust mutation baseline，而不是讓 repo 繼續停在「知道有洞但沒有下一步」的狀態。
 
 **包含範圍**：
 
-1. 完成 macOS / Windows / Linux 的發版前 runbook、真機驗收矩陣與 known limitations，特別補齊 encrypted archive、remote restore、scheduler、keyring fallback、upgrade / reinstall story
-2. 收斂 signing / notarization / installer / packaging / release workflow，使 artifact matrix、rollback plan、versioning 與 CI secrets 能支撐內部到外部發版
-3. 完成 README / CONTRIBUTING / DEVELOPMENT / TESTING / troubleshooting / support 診斷資訊的最終對齊，讓 docs 與真實 UI / capability 不再脫節
-4. 做完整 performance / accessibility / observability / final QA 收尾；若途中發現新的 post-GA 大工作，先回寫 `BACKLOG.md`，不要在 `WORK-M4-B` 內無限擴張
+1. 盤點 `cargo mutants` 第一輪暴露的 parser / AI misses，區分真正缺測、誤導性的 helper 邊界，以及應該明確 deferred 的高成本案例
+2. 補齊 `browser-history-parser` 與 `vault-core` AI status / helper 周邊的 targeted Rust tests，優先消掉 trivial boolean / equality / field-removal mutants
+3. 如果 full-workspace `mutation:rust` 仍然過於昂貴或噪音過高，收斂出誠實的 scoped mutation contract、workflow 註解與 deferred rationale，避免 release docs 繼續假裝 cargo-mutants 已經 pass
+4. 同步回寫 `quality-matrix.md`、`standards.md`、M4 planning docs 與相關 runbook，讓下一次 release closeout 對 deep check 狀態有單一可信 source of truth
 
 **讀先**：
 
 - `docs/standards.md`
+- `docs/plan/program/quality-matrix.md`
 - `docs/plan/m4-full-polish/platform-release-and-polish.md`
 
 **完成訊號**：
 
-- 多平台驗收 / installer / signing / release runbook、README / troubleshooting、performance / accessibility / observability 收尾都已落地，且文檔與產品行為一致
-- M4 遺留的 release-critical risk 都已被明確收斂成「已解決」或「明確 deferred with rationale」，不再停留在模糊 TODO
-- `docs/plan/m4-full-polish/`、`docs/plan/README.md`、`docs/standards.md`、必要的 feature / architecture / design docs、以及 release workflow / support docs 都已同步
-- `bun run check && bun run build`，以及 `platform-release-and-polish.md` 中列出的 final QA / debug build / e2e / traceability sweep 都通過
+- `bun run mutation:rust` 通過，或至少已有明確 scoped contract / deferred rationale，讓 repo 不再誤報成「整個 Rust workspace mutation 已簽收」
+- `browser-history-parser` 與 `vault-core` AI 這輪暴露出的高訊號 mutants 都已有對應測試、重構、或文件化的 deferred explanation
+- `docs/plan/program/quality-matrix.md`、`docs/standards.md`、`docs/plan/README.md` 與 M4 planning docs 已同步
+- `bun run check`、`bun run coverage:rust`，以及任何被本 block 觸及的 targeted mutation / regression sweeps 都通過
 
 **預期 commit 類型**：
 
-- `build(release): ...`
-- `docs(release): ...`
-- `feat(platform): ...`
-- `test(release): ...`
+- `test(rust): ...`
+- `docs(quality): ...`
+- `ci(mutation): ...`
 
 ---
 

@@ -5,6 +5,8 @@
 > **2026-04-07 解鎖註記**：`WORK-QC-A` 與 `WORK-QC-B` 都已完成，quality gate / CI / docs truthfulness matrix、prototype / doc parity、desktop-vs-preview 邊界與剩餘 M0-M3 trust debt 都已收斂。M4 現在從 `WORK-M4-A` 正式啟動。
 >
 > **2026-04-08 closeout 註記**：`WORK-M4-A` 已完成，正式交付 enrichment / derived-state v1、storage analytics / growth insight，以及 remote backup 的 Preview / Manual / Execute / Verify 閉環。M4 剩餘主線收斂到 `WORK-M4-B` 的 release readiness 和 platform polish。
+>
+> **2026-04-08 closeout 註記（晚）**：`WORK-M4-B` 已完成，正式交付 release / support 文檔、platform validation runbook、release workflow preflight、以及 Settings 的 build / path diagnostics。release-ready 主線驗收已收斂，但 pre-release `mutation:rust` 深檢另外暴露出 parser / AI hardening follow-up，已提升成 `WORK-M4-D`；`WORK-M4-C` 仍明確 blocked 在 `PG-RD-PLAT-006`。
 
 ---
 
@@ -28,5 +30,5 @@
 
 - [x] `M4-001` enrichment 和 remote backup 完成基本可用版本。
 - [x] `M4-002` advanced insights 和 storage analytics 完成。
-- [ ] `M4-003` macOS / Windows / Linux 都完成至少一輪真正的發版前驗證。
-- [ ] `M4-004` README、CONTRIBUTING、release pipeline 和 docs 皆對齊最終產品。
+- [x] `M4-003` macOS / Windows / Linux 都完成至少一輪真正的發版前驗證。
+- [x] `M4-004` README、CONTRIBUTING、release pipeline 和 docs 皆對齊最終產品。

@@ -70,6 +70,8 @@
 | Full local sweep                 | `bun run check:full`                                                     | 本地一次跑 `check` + coverage + mutation + e2e                 | 適合大 closeout 或 merge 前自我驗收。                                                                    |
 | Release-style local verification | `bun run verify`                                                         | `check:full` + `build` + `desktop:build:debug`                 | 作為 release / milestone closeout 的本地預演。                                                           |
 
+> 2026-04-08 release closeout 註記：`bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 均已通過；`bun run mutation:rust` 的 pre-release rehearsal 則暴露出 `browser-history-parser` / `vault-core` AI 的存活 mutants，現已提升為 `WORK-M4-D`，所以不要把這條 deep check 誤寫成已完成。
+
 ---
 
 ## Honest Boundaries
