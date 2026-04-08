@@ -2,6 +2,8 @@
 
 > 讀這份文檔的時機：當你要在 M0 期間清掉舊產品命名、刪掉舊驗收目標、重設重寫期品質規則時。  
 > 這份文檔的核心是「怎麼直接把錯的骨架換掉，同時維持重寫紀律」。
+>
+> 2026-04-07 補記：這份文檔保留的是 **M0 當時** 的重寫期品質政策與歷史脈絡。`WORK-QC-A` 已把當時暫時拿掉的 global coverage / mutation gate 收斂成正式的 [quality matrix](../program/quality-matrix.md)；現行 blocking / release gate 以那份文檔為準。
 
 ---
 
@@ -17,7 +19,7 @@
 
 ---
 
-## Rewrite-Phase Quality Policy
+## M0 Rewrite-Phase Quality Policy（歷史）
 
 ### Day-one blocking gates
 

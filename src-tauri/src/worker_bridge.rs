@@ -362,6 +362,7 @@ pub(crate) fn reset_local_secret_vault_impl() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::MutexGuard;
 
     const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
     const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
@@ -370,6 +371,10 @@ mod tests {
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn initialized_config() -> AppConfig {
@@ -512,7 +517,7 @@ mod tests {
 
     #[test]
     fn command_helpers_cover_local_desktop_flows() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let chrome_root = chrome_user_data_fixture(dir.path());
         let keyring_root = dir.path().join("test-keyring");
@@ -733,6 +738,110 @@ mod tests {
         .expect("worker payload");
         assert!(worker_payload.contains("checks"));
         assert!(run_with_arguments(&["pathkeep".to_string()]).is_ok());
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn worker_bridge_covers_dashboard_audit_and_ai_wrapper_edges() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let session = SessionState::default();
+        let config = initialized_config();
+        initialize_archive_impl(config.clone(), Some("vault-passphrase".to_string()), &session)
+            .expect("initialize archive");
+        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        let report =
+            run_backup_now_impl(false, session_key(&session).as_deref()).expect("run backup");
+        let run_id = report.run.expect("backup run").id;
+
+        let dashboard =
+            dashboard_snapshot_impl(session_key(&session).as_deref()).expect("dashboard snapshot");
+        assert_eq!(dashboard.total_visits, 1);
+        assert!(!dashboard.recent_runs.is_empty());
+
+        let detail = audit_run_detail_impl(run_id, session_key(&session).as_deref())
+            .expect("audit run detail");
+        assert_eq!(detail.run.id, run_id);
+
+        let repair =
+            repair_health_impl(session_key(&session).as_deref()).expect("repair health report");
+        assert!(repair.run_id.is_none() || repair.run_id > Some(run_id));
+
+        let connection_probe = test_ai_provider_connection_impl(
+            AiProviderConnectionTestRequest {
+                provider_id: "embed-primary".to_string(),
+                purpose: AiProviderPurpose::Embedding,
+            },
+            session_key(&session).as_deref(),
+        )
+        .expect("missing provider key should surface in the report");
+        assert!(!connection_probe.ok);
+        assert_eq!(connection_probe.error_code.as_deref(), Some("secret-missing"));
+
+        let queue = load_ai_queue_status_impl(session_key(&session).as_deref())
+            .expect("load ai queue status");
+        assert!(queue.recent_jobs.is_empty());
+        let drained = run_ai_queue_jobs_impl(None, session_key(&session).as_deref())
+            .expect("run empty ai queue");
+        assert!(drained.recent_jobs.is_empty());
+
+        let replay = replay_ai_job_impl(999, session_key(&session).as_deref())
+            .expect_err("missing ai job should not replay");
+        assert!(replay.contains("999"));
+        let cancel = cancel_ai_job_impl(999, session_key(&session).as_deref())
+            .expect_err("missing ai job should not cancel");
+        assert!(cancel.contains("999"));
+        let assistant_job = load_ai_assistant_job_impl(999, session_key(&session).as_deref())
+            .expect_err("missing assistant job should not load");
+        assert!(assistant_job.contains("999"));
+
+        let insights_run =
+            run_insights_now_impl(RunInsightsRequest::default(), session_key(&session).as_deref())
+                .expect("insights run should fall back when no embedding provider secret is ready");
+        assert!(!insights_run.last_run_at.is_empty());
+        assert!(insights_run.notes.iter().any(|note| note.contains("fell back to lexical")));
+        let insights_snapshot =
+            load_insights_impl(RunInsightsRequest::default(), session_key(&session).as_deref())
+                .expect("insight snapshot should load after the fallback run");
+        assert!(insights_snapshot.status.runs >= 1);
+        assert!(!insights_snapshot.cards.is_empty());
+        assert!(insights_snapshot.notes.iter().any(|note| note.contains("fell back to lexical")));
+        let thread_detail =
+            load_thread_detail_impl("thread-001".to_string(), session_key(&session).as_deref())
+                .expect_err("thread detail should not load without insight data");
+        assert!(!thread_detail.is_empty());
+        let insight_id = insights_snapshot
+            .cards
+            .first()
+            .expect("fallback run should persist at least one insight card")
+            .card_id
+            .clone();
+        let explanation = explain_insight_impl(
+            ExplainInsightRequest {
+                insight_id,
+                insight_kind: "card".to_string(),
+                profile_id: None,
+                window_days: Some(30),
+            },
+            session_key(&session).as_deref(),
+        )
+        .expect("insight explain should work from the persisted card");
+        assert!(!explanation.explanation.is_empty());
+        assert!(!explanation.used_llm);
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

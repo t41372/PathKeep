@@ -82,14 +82,16 @@
 - `typecheck`、Vitest 和 Rust 測試都通過，說明 repo 目前有穩定的可執行基線。
 - [`tests/e2e/shell.spec.ts`](../../../tests/e2e/shell.spec.ts) 已改成驗證新 shell、Review onboarding 入口與 dashboard preview，Playwright smoke 可通過。
 - `vitest.desktop-contract.config.ts` 與 `stryker.desktop-contract.config.json` 已建立 desktop contract verification，讓 `src/main.tsx` / `src/lib/ipc/bridge.ts` 這條非前端 contract slice 可獨立做到 100% coverage + mutation。
+- `vitest.quality.config.ts` 已把 `coverage:js` 收斂到 living M0-M3 JS quality surface；`coverage:rust` 也已有明確的 Tauri desktop command / bridge quality scope，而不是再用失真的 repo-wide 敘事。
+- `mutation:js` 已恢復為 living M0-M3 JS surface 的 repo-level mutation sweep，`Mutation` workflow 則把 JS / Rust mutation 都收回到 scheduled / manual deep check。
 - README、release workflow、Tauri metadata、app-facing strings 已切到 PathKeep。
-- [standards.md](../../standards.md)、[AGENTS.md](../../../AGENTS.md)、M0 planning docs 現在都明確區分：repo-wide deep checks 暫不擋主線，但新碼 / 重寫 slice 仍要求 100% coverage + mutation verification。
+- [quality-matrix.md](quality-matrix.md)、[standards.md](../../standards.md)、[AGENTS.md](../../../AGENTS.md)、CI workflows 現在已對齊同一套 blocking / release gate 說法。
 
 ### 判斷
 
-- 現在的 smoke 與 targeted verification 已開始保護新產品骨架，而不是再被舊 setup shell 反向綁住。
-- M0 的品質規則已從「一刀切 repo-wide coverage gate」調整成「新碼 slice 必須完整驗證」；這比較符合重寫期現實。
-- 下一步真正還缺的是更完整的 test taxonomy / ownership，而不是繼續修正舊 smoke 目標。
+- 現在的 gate 不再只剩 desktop contract slice 與 browser smoke；living M0-M3 quality surface 的 coverage 與 deep-check 分層已恢復到可兌現狀態。
+- repo 目前至少已回到「文檔怎麼寫，scripts / workflows 就怎麼擋」的程度，不再需要靠口頭補充來解釋哪些 gate 其實沒開。
+- 下一步真正還缺的是 product / design / doc parity 與 test taxonomy / ownership，而不是再繼續修正 gate 名稱和 scope。
 
 ### 待辦
 
@@ -98,6 +100,7 @@
 - [x] `PG-BL-QA-003` 定義重寫期 quality policy：repo-wide coverage / mutation 暫時不擋主線，但新碼與整段重寫模組仍必須達到 100% coverage + mutation verification。
 - [x] `PG-BL-QA-004` 盤點 mutation test 現況和成本，先支持 targeted verification，再決定何時恢復整倉 sweep。
 - [x] `PG-BL-QA-005` 重寫 README / release workflow 文案，使其描述和新產品定位一致。
+- [x] `PG-BL-QA-006` 回收 pre-M4 quality matrix：恢復 `coverage:js`、`coverage:rust`、`mutation:js` 的 honest scope，並把 blocking path / deep checks 對齊 docs、scripts 與 CI。（2026-04-07，`WORK-QC-A`）
 
 ---
 

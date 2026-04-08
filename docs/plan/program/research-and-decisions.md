@@ -62,3 +62,4 @@
 - [ ] `PG-RD-OUT-001` 每個高風險決策至少產出一份 docs 內部文檔或 ADR，而不是只留在 commit message 或聊天記錄裡。
 - [ ] `PG-RD-OUT-002` 每個 benchmark 類研究至少保留輸入資料、命令、環境和結論，確保之後能重跑。
 - [ ] `PG-RD-OUT-003` 每個設計研究結論都要回鏈到對應的 `features/`、`design/` 或 `architecture/` 文檔。
+- [x] `PG-RD-OUT-004` 定義 repo 的 quality matrix、blocking path、scheduled / release deep checks 與 CI 對應關係。見 [quality-matrix.md](quality-matrix.md)、[../../standards.md](../../standards.md)、[../README.md](../README.md) 與 `.github/workflows/ci.yml` / `.github/workflows/mutation.yml`。（2026-04-07，`WORK-QC-A`）

@@ -126,3 +126,13 @@
   - 收斂上一輪 review findings：`ai_index_status` 改為只看 index jobs 與 provider readiness、assistant 在沒有可保留 citation 時回傳 `insufficient-evidence`、assistant / index jobs 凍結 enqueue-time provider snapshot、`ai_assistant_runs` 連回 `runs.id`、queue reconcile / sidecar sync 不再靜默吞錯，long-running AI jobs 會寫 heartbeat 以支撐 stale reclaim
   - 回寫 `intelligence.md`、`screens-and-nav.md`、`data-model.md`、`research-and-decisions.md`、M3 README / WBS、`STATUS.md`、`BACKLOG.md`
   - 驗收：`bun run check`、`bun run build`
+
+## PG — Quality Closeout Before M4
+
+- [x] **WORK-QC-A** — Restore Global Quality Gates Before M4
+  - 2026-04-07：新增 [quality-matrix.md](program/quality-matrix.md)，正式寫下 pre-M4 的 blocking path、deep checks、coverage / mutation surface 與 desktop-vs-preview 驗收邊界
+  - 新增 [`vitest.quality.config.ts`](../../vitest.quality.config.ts)，把 `coverage:js` 收斂到 living M0-M3 JS quality surface；同步更新 [`stryker.config.json`](../../stryker.config.json) 與 [`package.json`](../../package.json)，讓 `mutation:js` / `coverage:js` 不再只保護少數 helper 或 desktop contract slice
+  - 更新 [`scripts/verify-rust-coverage.mjs`](../../scripts/verify-rust-coverage.mjs) 與 [CI workflow](../../.github/workflows/ci.yml)，把 `coverage:rust` 定義成誠實的 Tauri desktop command / bridge quality gate，並讓 mainline CI 直接執行 `coverage:js`、`coverage:rust`、`check:desktop-contract`、`build`、`test:e2e`
+  - 補齊 JS / Rust quality surface 的測試缺口，包含 `src/app/shell-data.tsx`、`src/lib/backend.ts`、`src/lib/format.ts`、`src/lib/intelligence.ts`、`src/lib/platform-guidance.ts`、`src/lib/trust-review.ts`、`src/lib/i18n/*` 與對應的 worker / parser / vault-worker Rust tests
+  - 同步回寫 `docs/standards.md`、`docs/plan/README.md`、`docs/plan/program/research-and-decisions.md`、`docs/plan/program/repo-baseline.md`、M0 / M1 / M3 / M4 README 與 `AGENTS.md`，移除「checker 已恢復但其實沒開」的失真敘事
+  - 驗收：`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e`、`bun run check`、`bun run build`

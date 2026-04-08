@@ -20,6 +20,10 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Frontend checks
         run: bun run check:js
+      - name: Desktop contract checks
+        run: bun run check:desktop-contract
+      - name: JS coverage
+        run: bun run coverage:js
       - name: Frontend build
         run: bun run build
       - name: Frontend e2e
@@ -27,9 +31,6 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src-tauri
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux desktop dependencies
@@ -43,16 +44,22 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
           components: clippy,rustfmt,llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
       - name: Rust checks
-        run: |
-          cargo fmt --all --check
-          cargo clippy --workspace --all-targets --all-features -- -D warnings
-          cargo test --workspace --all-targets
+        run: bun run check:rust
+      - name: Rust coverage
+        run: bun run coverage:rust
 
   rust-security:
     runs-on: ubuntu-latest

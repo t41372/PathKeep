@@ -237,11 +237,129 @@ describe('ShellDataProvider', () => {
     )
   })
 
+  test('uses the paint fallback and surfaces refresh errors without breaking follow-up saves', async () => {
+    const user = userEvent.setup()
+    const translator = createTranslator('en')
+    const { dashboard, snapshot } = await seedSnapshot()
+    const savedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: { ...snapshot.config, preferredLanguage: 'zh-CN' },
+    }
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    })
+
+    const getAppSnapshotSpy = vi
+      .spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadDashboardSnapshot')
+      .mockResolvedValueOnce(dashboard)
+      .mockRejectedValueOnce(new Error('follow-up dashboard refresh failed'))
+      .mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'saveConfig').mockResolvedValue(savedSnapshot)
+
+    try {
+      render(
+        <I18nContext.Provider value={createI18nValue('en')}>
+          <ShellDataProvider>
+            <ShellProbe />
+          </ShellDataProvider>
+        </I18nContext.Provider>,
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+      )
+
+      await user.click(screen.getByRole('button', { name: 'save' }))
+      await waitFor(() =>
+        expect(screen.getByTestId('snapshot-language')).toHaveTextContent(
+          'zh-CN',
+        ),
+      )
+      expect(screen.getByTestId('error')).toHaveTextContent('none')
+
+      getAppSnapshotSpy.mockRejectedValueOnce('not-an-error')
+      await user.click(screen.getByRole('button', { name: 'refresh' }))
+      await waitFor(() =>
+        expect(screen.getByTestId('error')).toHaveTextContent(
+          translator('shell.loadingLatestArchiveState'),
+        ),
+      )
+
+      getAppSnapshotSpy.mockRejectedValueOnce(new Error('refresh failed'))
+      await user.click(screen.getByRole('button', { name: 'refresh' }))
+      await waitFor(() =>
+        expect(screen.getByTestId('error')).toHaveTextContent('refresh failed'),
+      )
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: originalRequestAnimationFrame,
+      })
+    }
+  })
+
+  test('ignores follow-up dashboard refresh failures after saving config', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const savedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: { ...snapshot.config, preferredLanguage: 'zh-CN' },
+    }
+    const loadDashboardSnapshotSpy = vi
+      .spyOn(backend, 'loadDashboardSnapshot')
+      .mockResolvedValueOnce(dashboard)
+      .mockRejectedValueOnce(new Error('follow-up dashboard refresh failed'))
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'saveConfig').mockResolvedValue(savedSnapshot)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'save' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('snapshot-language')).toHaveTextContent(
+        'zh-CN',
+      ),
+    )
+    await waitFor(() =>
+      expect(loadDashboardSnapshotSpy).toHaveBeenCalledTimes(2),
+    )
+    expect(screen.getByTestId('error')).toHaveTextContent('none')
+  })
+
   test('surfaces provider errors and context misuse clearly', async () => {
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined)
     const user = userEvent.setup()
+    const translator = createTranslator('en')
     const { dashboard, snapshot } = await seedSnapshot()
 
     vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
@@ -253,7 +371,15 @@ describe('ShellDataProvider', () => {
       gitDirty: false,
     })
     vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
-    vi.spyOn(backend, 'saveConfig').mockRejectedValue(new Error('save failed'))
+    vi.spyOn(backend, 'saveConfig')
+      .mockRejectedValueOnce(new Error('save failed'))
+      .mockRejectedValueOnce('not-an-error')
+    vi.spyOn(backend, 'initializeArchive')
+      .mockRejectedValueOnce(new Error('initialize failed'))
+      .mockRejectedValueOnce('not-an-error')
+    vi.spyOn(backend, 'runBackupNow')
+      .mockRejectedValueOnce(new Error('backup failed'))
+      .mockRejectedValueOnce('not-an-error')
 
     render(
       <I18nContext.Provider value={createI18nValue('en')}>
@@ -271,10 +397,116 @@ describe('ShellDataProvider', () => {
       expect(screen.getByTestId('error')).toHaveTextContent('save failed'),
     )
 
+    await user.click(screen.getByRole('button', { name: 'save' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.savingSettingsFailed'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'initialize' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'initialize failed',
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'initialize' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.initializeArchiveFailed'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('backup failed'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.manualBackupFailed'),
+      ),
+    )
+
     expect(() => render(<ShellProbe />)).toThrow(
       'useShellData must be used inside ShellDataProvider',
     )
 
     consoleError.mockRestore()
+  })
+
+  test('surfaces due-window and generic completion notices for manual backups', async () => {
+    const user = userEvent.setup()
+    const translator = createTranslator('en')
+    const { dashboard, snapshot } = await seedSnapshot()
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'runBackupNow')
+      .mockResolvedValueOnce({
+        dueSkipped: true,
+        reason: 'Backup is still within the due window.',
+        run: null,
+        profiles: [],
+        warnings: [],
+        remoteBackup: null,
+      })
+      .mockResolvedValueOnce({
+        dueSkipped: true,
+        reason: null,
+        run: null,
+        profiles: [],
+        warnings: [],
+        remoteBackup: null,
+      })
+      .mockResolvedValueOnce({
+        dueSkipped: false,
+        run: null,
+        profiles: [],
+        warnings: [],
+        remoteBackup: null,
+      })
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        'Backup is still within the due window.',
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        translator('shell.manualBackupDueWindow'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        translator('common.complete'),
+      ),
+    )
   })
 })

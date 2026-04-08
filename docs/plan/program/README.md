@@ -11,6 +11,8 @@
   這次掃 repo 後得到的現況盤點。哪些地方還能保留，哪些地方其實該果斷重寫，都在這裡。
 - [research-and-decisions.md](research-and-decisions.md)  
   目前還沒真正落地，但會直接影響實作順序的研究和技術決策待辦。
+- [quality-matrix.md](quality-matrix.md)  
+  當前 repo 的 blocking path、deep checks、CI/workflow 對應關係與驗收邊界。
 - [traceability-map.md](traceability-map.md)  
   把 `vision / features / architecture / design` 文檔，直接映射到對應的 plan 文檔，讓讀者知道下一跳在哪裡。
 

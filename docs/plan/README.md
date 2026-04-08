@@ -24,18 +24,19 @@
 
 ## 先看哪裡
 
-| 如果你關心                            | 先看這份                                                               |
-| ------------------------------------- | ---------------------------------------------------------------------- |
-| 整體節奏、里程碑順序、依賴關係        | [program/README.md](program/README.md)                                 |
-| 現在這個 repo 和新 vision 的距離      | [program/repo-baseline.md](program/repo-baseline.md)                   |
-| 哪些技術決策還沒落地、哪些研究要先做  | [program/research-and-decisions.md](program/research-and-decisions.md) |
-| 某份需求/設計文檔應該對應哪份實作計劃 | [program/traceability-map.md](program/traceability-map.md)             |
-| M0 重構基礎                           | [m0-foundation/README.md](m0-foundation/README.md)                     |
-| M1 Solid Archive                      | [m1-solid-archive/README.md](m1-solid-archive/README.md)               |
-| M2 Recall & Trust                     | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)         |
-| M3 Intelligence                       | [m3-intelligence/README.md](m3-intelligence/README.md)                 |
-| M4 Full Intelligence & Polish         | [m4-full-polish/README.md](m4-full-polish/README.md)                   |
-| 產品願景、需求、畫面結構              | [../vision-and-requirements.md](../vision-and-requirements.md)         |
+| 如果你關心                                    | 先看這份                                                               |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| 整體節奏、里程碑順序、依賴關係                | [program/README.md](program/README.md)                                 |
+| 現在這個 repo 和新 vision 的距離              | [program/repo-baseline.md](program/repo-baseline.md)                   |
+| 哪些技術決策還沒落地、哪些研究要先做          | [program/research-and-decisions.md](program/research-and-decisions.md) |
+| 現行 quality gate、blocking path、deep checks | [program/quality-matrix.md](program/quality-matrix.md)                 |
+| 某份需求/設計文檔應該對應哪份實作計劃         | [program/traceability-map.md](program/traceability-map.md)             |
+| M0 重構基礎                                   | [m0-foundation/README.md](m0-foundation/README.md)                     |
+| M1 Solid Archive                              | [m1-solid-archive/README.md](m1-solid-archive/README.md)               |
+| M2 Recall & Trust                             | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)         |
+| M3 Intelligence                               | [m3-intelligence/README.md](m3-intelligence/README.md)                 |
+| M4 Full Intelligence & Polish                 | [m4-full-polish/README.md](m4-full-polish/README.md)                   |
+| 產品願景、需求、畫面結構                      | [../vision-and-requirements.md](../vision-and-requirements.md)         |
 
 ---
 
@@ -80,8 +81,17 @@
 - `bun run test:e2e`：通過，驗證新 shell / onboarding / dashboard smoke
 - `bun run check`：通過，repo-wide Markdown / Prettier debt 與驗收途中浮出的 JS ESLint、Rust Clippy 基線問題已清理
 - `bun run build`：通過
+- `bun run coverage:js`：通過，living M0-M3 JS quality surface 維持 100% coverage
+- `bun run coverage:rust`：通過，Tauri desktop command / bridge quality surface 維持 100% coverage
+- `bun run mutation:js`：通過，living M0-M3 JS quality surface 的 mutation score 恢復到 blocking threshold 之上
 
-這個結果很重要，因為它說明 repo 現在至少對 desktop entry + typed IPC contract 有一條可以兌現的硬 gate，而不是只靠口頭宣稱 shell slice 已經驗完。
+2026-04-07 品質 closeout：
+
+- repo 現在有一份正式的 [quality matrix](program/quality-matrix.md)，把 mainline blocking path、scheduled / release deep checks，以及 desktop / preview 驗收邊界全部寫清楚。
+- desktop contract slice 仍然存在，但它現在是 `bun run check` 裡的一條 targeted sub-gate，不再冒充整個產品 UI 或所有 desktop flows 都已驗收。
+- M4 仍然要等 `WORK-QC-B` 收掉 prototype / doc parity 與剩餘產品債後再啟動；QC-A 只負責把「怎麼擋」恢復成誠實狀態。
+
+這個結果很重要，因為它代表 repo 現在不只保住 desktop entry + typed IPC contract，也重新把 living M0-M3 quality surface 的 coverage、build、e2e 與 deep-check 分層拉回可兌現狀態。
 
 2026-04-06 審查修正：M1 的 archive feature baseline 已經落地，但 milestone 本身仍有 closeout 要完成。非前端剩餘重點已收斂到 `M1-DB` / `M1-OPS` 的 acceptance matrix、security mode taxonomy、retention / audit summary；前端 shell / route / sidebar 的驗收也不能再借用舊的 shell slice 敘事，必須由前端 owner 補上獨立驗收。
 

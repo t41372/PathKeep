@@ -31,6 +31,7 @@ describe('trust review helpers', () => {
     expect(importBatchStatusKey('reverted')).toBe('common.statusReverted')
     expect(importBatchStatusKey('preview')).toBe('common.statusPreview')
     expect(importBatchStatusKey('quarantined')).toBe('common.statusQuarantined')
+    expect(importBatchStatusKey('warning')).toBe('common.statusNeedsAttention')
     expect(importBatchStatusTone('imported')).toBe('success')
     expect(importBatchStatusTone('preview')).toBe('neutral')
     expect(importBatchStatusTone('reverted')).toBe('danger')
@@ -40,6 +41,7 @@ describe('trust review helpers', () => {
     expect(healthCheckStatusKey('info')).toBe('common.statusInfo')
     expect(healthCheckStatusKey('warning')).toBe('common.statusNeedsAttention')
     expect(healthCheckStatusKey('error')).toBe('common.statusBlocked')
+    expect(healthCheckStatusKey('pending')).toBe('common.statusPending')
     expect(healthCheckStatusTone('ok')).toBe('success')
     expect(healthCheckStatusTone('info')).toBe('info')
     expect(healthCheckStatusTone('warning')).toBe('warning')
@@ -62,6 +64,9 @@ describe('trust review helpers', () => {
       sourceKindFromProfileScope(['chrome:Default', 'firefox:Default']),
     ).toEqual(['chrome', 'firefox'])
     expect(sourceKindFromProfileScope([])).toEqual(['archive-wide'])
+    expect(sourceKindFromProfileScope([':Imported profile'])).toEqual([
+      'archive-wide',
+    ])
 
     expect(
       auditSeverity({

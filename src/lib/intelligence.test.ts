@@ -120,6 +120,63 @@ describe('intelligence helpers', () => {
     )
     expect(degraded.tone).toBe('blocked')
     expect(degraded.description).toBe('store a key')
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'degraded', warning: null }, t),
+    ).toEqual({
+      label: t('statusDegradedLabel'),
+      tone: 'blocked',
+      description: t('statusDegradedDescription'),
+    })
+
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'rebuilding', warning: null }, t),
+    ).toEqual({
+      label: t('statusRebuildingLabel'),
+      tone: 'warning',
+      description: t('statusRebuildingDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'queued', warning: null }, t),
+    ).toEqual({
+      label: t('statusQueuedLabel'),
+      tone: 'warning',
+      description: t('statusQueuedDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'paused', warning: null }, t),
+    ).toEqual({
+      label: t('statusPausedLabel'),
+      tone: 'warning',
+      description: t('statusPausedDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'failed', warning: null }, t),
+    ).toEqual({
+      label: t('statusFailedLabel'),
+      tone: 'blocked',
+      description: t('statusFailedDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'blocked', warning: null }, t),
+    ).toEqual({
+      label: t('statusBlockedLabel'),
+      tone: 'blocked',
+      description: t('statusBlockedDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'disabled', warning: null }, t),
+    ).toEqual({
+      label: t('statusDisabledLabel'),
+      tone: 'info',
+      description: t('statusDisabledDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'empty', warning: null }, t),
+    ).toEqual({
+      label: t('statusEmptyLabel'),
+      tone: 'info',
+      description: t('statusEmptyDescription'),
+    })
   })
 
   test('assigns evidence score bands', () => {
@@ -145,6 +202,12 @@ describe('intelligence helpers', () => {
     expect(assistantHref('What did I read about SQLite?')).toBe(
       '/assistant?question=What+did+I+read+about+SQLite%3F',
     )
+    expect(
+      evidenceHref({
+        title: 'SQLite history',
+      }),
+    ).toBe('/explorer?q=SQLite+history')
+    expect(evidenceHref({})).toBe('/explorer')
   })
 
   test('dedupes evidence by history id and url', () => {
@@ -185,5 +248,34 @@ describe('intelligence helpers', () => {
       label: 'Queued',
       tone: 'warning',
     })
+
+    expect(
+      assistantResponseMeta({ ...response, state: 'completed' }, t),
+    ).toEqual({
+      label: t('answerReady'),
+      tone: 'success',
+    })
+    expect(
+      assistantResponseMeta({ ...response, state: 'insufficient-evidence' }, t),
+    ).toEqual({
+      label: t('evidenceMissing'),
+      tone: 'blocked',
+    })
+    expect(assistantResponseMeta({ ...response, state: 'failed' }, t)).toEqual({
+      label: t('assistantFailed'),
+      tone: 'blocked',
+    })
+    expect(
+      assistantResponseMeta({ ...response, state: 'cancelled' }, t),
+    ).toEqual({
+      label: t('cancelled'),
+      tone: 'info',
+    })
+    expect(assistantResponseMeta({ ...response, state: 'running' }, t)).toEqual(
+      {
+        label: t('inProgress'),
+        tone: 'info',
+      },
+    )
   })
 })

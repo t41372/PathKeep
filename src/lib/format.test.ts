@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   formatBytes,
   formatDateTime,
@@ -7,6 +7,10 @@ import {
 } from './format'
 
 describe('format utilities', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   test('formatDateTime returns null for falsy input', () => {
     expect(formatDateTime(null, 'en')).toBeNull()
     expect(formatDateTime(undefined, 'en')).toBeNull()
@@ -41,6 +45,8 @@ describe('format utilities', () => {
   test('formatRelativeTime handles missing and recent values', () => {
     expect(formatRelativeTime(null)).toBe('Not yet')
     expect(formatRelativeTime(undefined)).toBe('Not yet')
+    expect(formatRelativeTime(null, 'zh-CN')).toBe('尚未发生')
+    expect(formatRelativeTime(undefined, 'zh-TW')).toBe('尚未發生')
     expect(formatRelativeTime('not-a-date')).toBe('not-a-date')
     expect(
       formatRelativeTime(new Date(Date.now() - 10 * 60_000).toISOString()),
@@ -48,5 +54,17 @@ describe('format utilities', () => {
     expect(
       formatRelativeTime(new Date(Date.now() + 3 * 60 * 60_000).toISOString()),
     ).toMatch(/3/)
+    expect(
+      formatRelativeTime(new Date(Date.now() + 10 * 60_000).toISOString()),
+    ).toMatch(/10/)
+  })
+
+  test('formatRelativeTime handles day-scale timestamps', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(
+      new Date('2026-04-07T12:00:00.000Z').getTime(),
+    )
+
+    expect(formatRelativeTime('2026-04-10T12:00:00.000Z')).toMatch(/3/)
+    expect(formatRelativeTime('2026-04-04T12:00:00.000Z')).toMatch(/3/)
   })
 })

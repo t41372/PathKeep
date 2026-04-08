@@ -453,6 +453,672 @@ describe('backend facade', () => {
     ).resolves.toEqual(expect.stringContaining('PathKeep'))
   })
 
+  test('enforces preview archive prerequisites and keeps lock state aligned with archive mode', async () => {
+    await expect(backend.runBackupNow()).rejects.toThrow(
+      'Initialize the archive before running a backup.',
+    )
+    await expect(backend.initializeArchive(config)).rejects.toThrow(
+      'Mock encrypted archive initialization requires a database key.',
+    )
+
+    const plaintextSnapshot = await backend.initializeArchive(
+      {
+        ...config,
+        archiveMode: 'Plaintext',
+      },
+      null,
+    )
+    expect(plaintextSnapshot.archiveStatus).toMatchObject({
+      encrypted: false,
+      initialized: true,
+      unlocked: true,
+    })
+
+    await backend.clearSessionDatabaseKey()
+    expect((await backend.getAppSnapshot()).archiveStatus.unlocked).toBe(true)
+
+    const encryptedSnapshot = await backend.rekeyArchive({
+      newMode: 'Encrypted',
+      newKey: 'vault-passphrase',
+    })
+    expect(encryptedSnapshot.archiveStatus).toMatchObject({
+      encrypted: true,
+      unlocked: true,
+    })
+
+    await backend.clearSessionDatabaseKey()
+    expect((await backend.getAppSnapshot()).archiveStatus.unlocked).toBe(false)
+
+    await backend.setSessionDatabaseKey('vault-passphrase')
+    expect((await backend.getAppSnapshot()).archiveStatus.unlocked).toBe(true)
+
+    await backend.saveConfig({
+      ...encryptedSnapshot.config,
+      selectedProfileIds: [],
+    })
+    await expect(backend.runBackupNow()).rejects.toThrow(
+      'Select at least one profile before running a backup.',
+    )
+  })
+
+  test('tracks preview queue, provider secrets, remote preview, and doctor repair state transitions', async () => {
+    const aiEnabledConfig: AppConfig = {
+      ...config,
+      ai: {
+        ...config.ai,
+        enabled: true,
+        assistantEnabled: true,
+        semanticIndexEnabled: true,
+        llmProviderId: 'llm-primary',
+        embeddingProviderId: 'embed-primary',
+        llmProviders: [
+          {
+            id: 'llm-primary',
+            name: 'Primary LLM',
+            purpose: 'llm',
+            requestFormat: 'openai',
+            enabled: true,
+            baseUrl: 'http://localhost:11434',
+            apiKeySaved: false,
+            defaultModel: 'qwen3:8b',
+            modelCatalog: [],
+            temperature: 0.2,
+            maxTokens: 1200,
+            dimensions: null,
+            notes: null,
+          },
+        ],
+        embeddingProviders: [
+          {
+            id: 'embed-primary',
+            name: 'Primary Embedding',
+            purpose: 'embedding',
+            requestFormat: 'openai',
+            enabled: true,
+            baseUrl: 'http://localhost:11434',
+            apiKeySaved: false,
+            defaultModel: 'nomic-embed-text',
+            modelCatalog: [],
+            temperature: null,
+            maxTokens: null,
+            dimensions: 768,
+            notes: null,
+          },
+        ],
+      },
+    }
+
+    await backend.initializeArchive(aiEnabledConfig, 'vault-passphrase')
+    const storedProviders = await backend.storeAiProviderApiKey({
+      providerId: 'llm-primary',
+      apiKey: 'preview-secret',
+    })
+    expect(storedProviders.config.ai.llmProviders[0].apiKeySaved).toBe(true)
+    const clearedProviders = await backend.clearAiProviderApiKey('llm-primary')
+    expect(clearedProviders.config.ai.llmProviders[0].apiKeySaved).toBe(false)
+
+    const preview = await backend.previewRemoteBackup()
+    expect(preview).toMatchObject({
+      bundlePath: '/tmp/pathkeep-remote.zip',
+      objectKey: 'pathkeep/pathkeep-remote.zip',
+    })
+    expect(preview.uploadUrl).toContain('example-bucket')
+    expect(preview.manualSteps).toEqual([
+      'Browser preview mode cannot generate the real bundle.',
+    ])
+
+    const imported = await backend.importTakeout({
+      sourcePath: '/tmp/takeout',
+      dryRun: false,
+    })
+    await backend.revertImportBatch(imported.importBatch!.id)
+    const repair = await backend.repairHealth()
+    expect(repair.repairedImportAudits).toBe(1)
+    expect(repair.repairedVisibilityRows).toBe(1)
+    expect(repair.clearedDerivedRows).toBe(2)
+    expect(repair.runId).toBeTruthy()
+    expect((await backend.loadAuditRunDetail(repair.runId!)).run.runType).toBe(
+      'doctor',
+    )
+
+    const build = await backend.buildAiIndex({
+      providerId: 'mock-embedding',
+      fullRebuild: false,
+      clearOnly: false,
+      limit: 20,
+    })
+    expect(build.jobId).toBeGreaterThan(0)
+
+    const assistant = await backend.askAiAssistant({
+      question: 'What did I read?',
+      profileId: null,
+      domain: null,
+    })
+    expect(assistant.jobId).toBeGreaterThan(0)
+    expect((await backend.loadAiAssistantJob(assistant.jobId!)).jobId).toBe(
+      assistant.jobId,
+    )
+
+    const beforeDrain = await backend.loadAiQueueStatus()
+    expect(
+      beforeDrain.recentJobs.some(
+        (job) => job.jobType === 'assistant' || job.jobType === 'index-build',
+      ),
+    ).toBe(true)
+
+    const drained = await backend.runAiQueueJobs()
+    expect(
+      drained.recentJobs.some(
+        (job) => job.summary === 'Preview queue drained this job.',
+      ),
+    ).toBe(true)
+
+    const replayed = await backend.replayAiJob(assistant.jobId!)
+    expect(['queued', 'paused']).toContain(replayed.state)
+    const cancelled = await backend.cancelAiJob(replayed.id)
+    expect(cancelled.state).toBe('cancelled')
+  })
+
+  test('covers preview dashboard, history, schedule, and export edge cases through the mock harness', async () => {
+    const initializedConfig: AppConfig = {
+      ...config,
+      archiveMode: 'Plaintext',
+      initialized: true,
+      selectedProfileIds: ['chrome:Default', 'arc:Personal', 'firefox:Default'],
+    }
+
+    await backend.initializeArchive(initializedConfig, null)
+
+    await expect(backend.loadDashboardSnapshot()).resolves.toMatchObject({
+      totalProfiles: 2,
+      totalDownloads: 1,
+      nextAction: expect.stringContaining('Run the first manual backup'),
+    })
+
+    const oldestPage = await backend.queryHistory({
+      q: null,
+      domain: null,
+      profileId: null,
+      browserKind: 'chrome',
+      startTimeMs: null,
+      endTimeMs: null,
+      sort: 'oldest',
+      limit: 1,
+      cursor: null,
+    })
+    expect(oldestPage.items).toHaveLength(1)
+    expect(oldestPage.nextCursor).toBeTruthy()
+    await expect(
+      backend.queryHistory({
+        q: null,
+        domain: null,
+        profileId: null,
+        browserKind: 'chrome',
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'oldest',
+        limit: 1,
+        cursor: oldestPage.nextCursor,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [expect.objectContaining({ profileId: 'chrome:Default' })],
+      nextCursor: null,
+    })
+
+    await expect(
+      backend.queryHistory({
+        q: null,
+        domain: null,
+        profileId: null,
+        browserKind: 'chrome',
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        cursor: 'invalid-cursor',
+      }),
+    ).resolves.toSatisfy((page) => {
+      expect(page.total).toBe(2)
+      expect(page.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ profileId: 'chrome:Default' }),
+        ]),
+      )
+      return true
+    })
+
+    await expect(backend.previewSchedule('linux')).resolves.toMatchObject({
+      platform: 'linux',
+      generatedFiles: [
+        expect.objectContaining({
+          relativePath: 'schedule/pathkeep-backup.service',
+        }),
+        expect.objectContaining({
+          relativePath: 'schedule/pathkeep-backup.timer',
+        }),
+      ],
+    })
+
+    backendTestHarness.seedSchedule({
+      platform: 'linux',
+      label: 'dev.example.preview',
+      executablePath: '/usr/bin/pathkeep',
+      generatedFiles: [
+        {
+          relativePath: 'schedule/pathkeep-backup.timer',
+          absolutePath: undefined,
+          purpose: 'Timer',
+          contents: '[Timer]',
+        },
+      ],
+      manualSteps: [],
+      applyCommands: [],
+      rollbackCommands: [],
+      applySupported: true,
+    })
+    await expect(backend.scheduleStatus('linux')).resolves.toMatchObject({
+      platform: 'linux',
+      label: 'dev.example.preview',
+      installState: 'installed',
+      detectedFiles: ['schedule/pathkeep-backup.timer'],
+    })
+
+    backendTestHarness.seedSchedule(
+      {
+        platform: 'windows',
+        label: 'dev.example.override',
+        executablePath: 'C:/PathKeep/pathkeep.exe',
+        generatedFiles: [],
+        manualSteps: [],
+        applyCommands: [],
+        rollbackCommands: [],
+        applySupported: false,
+      },
+      {
+        platform: 'windows',
+        label: 'dev.example.override',
+        dueAfterHours: 6,
+        checkIntervalHours: 1,
+        applySupported: false,
+        installState: 'permission-warning',
+        detectedFiles: ['C:/PathKeep/pathkeep.exe'],
+        manualSteps: ['Inspect Task Scheduler manually.'],
+        auditPath: 'C:/PathKeep/audit.json',
+        lastSuccessfulBackupAt: null,
+        warnings: ['Needs administrator review.'],
+      },
+    )
+    await expect(backend.scheduleStatus('windows')).resolves.toMatchObject({
+      platform: 'windows',
+      installState: 'permission-warning',
+      warnings: ['Needs administrator review.'],
+    })
+
+    await expect(
+      backendTestHarness.call('export_history', {
+        request: { query: { q: 'sqlite' } },
+      }),
+    ).resolves.toMatchObject({
+      format: 'jsonl',
+      count: 1,
+    })
+  })
+
+  test('covers preview security, rekey, import, and provider helper edge cases through the mock harness', async () => {
+    await expect(
+      backend.previewRekeyArchive({ newMode: 'Encrypted', newKey: null }),
+    ).rejects.toThrow(
+      'Initialize the archive before previewing a rekey operation.',
+    )
+
+    await backend.initializeArchive(
+      {
+        ...config,
+        initialized: true,
+        rememberDatabaseKeyInKeyring: true,
+      },
+      'vault-passphrase',
+    )
+    await backend.clearSessionDatabaseKey()
+
+    await expect(backend.securityStatus()).resolves.toMatchObject({
+      mode: 'locked',
+      warnings: [
+        'Archive is encrypted, but the database key is not currently stored in the system keyring.',
+      ],
+    })
+
+    await expect(
+      backend.previewRekeyArchive({
+        newMode: 'Encrypted',
+        newKey: '   ',
+      }),
+    ).resolves.toMatchObject({
+      currentMode: 'Encrypted',
+      nextMode: 'Encrypted',
+      warnings: [
+        expect.stringContaining('currently locked'),
+        expect.stringContaining('requires a new database key'),
+        expect.stringContaining('target mode matches the current mode'),
+      ],
+    })
+
+    await backend.setSessionDatabaseKey('vault-passphrase')
+    await expect(backend.securityStatus()).resolves.toMatchObject({
+      mode: 'encrypted',
+      warnings: [
+        'Archive is encrypted, but the database key is not currently stored in the system keyring.',
+      ],
+    })
+
+    await expect(
+      backendTestHarness.call('keyring_store_database_key'),
+    ).resolves.toMatchObject({
+      storedSecret: false,
+    })
+    await expect(
+      backend.keyringStoreDatabaseKey('secret'),
+    ).resolves.toMatchObject({
+      storedSecret: true,
+    })
+    await expect(
+      backendTestHarness.call('keyring_store_database_key'),
+    ).resolves.toMatchObject({
+      storedSecret: true,
+    })
+
+    const aiEnabledConfig: AppConfig = {
+      ...config,
+      ai: {
+        ...config.ai,
+        enabled: true,
+        assistantEnabled: true,
+        semanticIndexEnabled: true,
+        llmProviderId: 'llm-primary',
+        embeddingProviderId: 'embed-primary',
+        llmProviders: [
+          {
+            id: 'llm-primary',
+            name: 'Primary LLM',
+            purpose: 'llm',
+            requestFormat: 'openai',
+            enabled: true,
+            baseUrl: null,
+            apiKeySaved: false,
+            defaultModel: 'gpt-4.1-mini',
+            modelCatalog: [],
+            temperature: 0.2,
+            maxTokens: 800,
+            dimensions: null,
+            notes: null,
+          },
+        ],
+        embeddingProviders: [
+          {
+            id: 'embed-primary',
+            name: 'Primary Embedding',
+            purpose: 'embedding',
+            requestFormat: 'openai',
+            enabled: true,
+            baseUrl: null,
+            apiKeySaved: false,
+            defaultModel: 'text-embedding-3-large',
+            modelCatalog: [],
+            temperature: null,
+            maxTokens: null,
+            dimensions: 1536,
+            notes: null,
+          },
+        ],
+      },
+    }
+
+    await backend.saveConfig(aiEnabledConfig)
+    expect(
+      (
+        await backend.storeAiProviderApiKey({
+          providerId: 'embed-primary',
+          apiKey: 'embedding-secret',
+        })
+      ).config.ai.embeddingProviders[0].apiKeySaved,
+    ).toBe(true)
+    expect(
+      (await backend.clearAiProviderApiKey('embed-primary')).config.ai
+        .embeddingProviders[0].apiKeySaved,
+    ).toBe(false)
+
+    await expect(backend.previewImportBatch(42)).resolves.toMatchObject({
+      batch: expect.objectContaining({ id: 1, status: 'imported' }),
+    })
+    await expect(backend.revertImportBatch(42)).rejects.toThrow(
+      'Mock backend does not know import batch 42',
+    )
+    await expect(backend.loadAuditRunDetail(9999)).rejects.toThrow(
+      'Mock backend does not know audit run 9999',
+    )
+
+    await expect(
+      backendTestHarness.call('test_ai_provider_connection'),
+    ).resolves.toMatchObject({
+      providerId: 'preview-provider',
+      purpose: 'embedding',
+      ok: true,
+    })
+    await expect(
+      backendTestHarness.call('open_path_in_file_manager'),
+    ).resolves.toEqual(expect.stringContaining('PathKeep'))
+  })
+
+  test('covers remaining preview fallback branches through seeded mock state', async () => {
+    await expect(backend.securityStatus()).resolves.toMatchObject({
+      mode: 'uninitialized',
+    })
+    await expect(backend.doctor()).resolves.toMatchObject({
+      checks: [
+        expect.objectContaining({
+          name: 'import-artifacts',
+          status: 'info',
+        }),
+        expect.objectContaining({
+          name: 'visibility-state',
+          status: 'ok',
+        }),
+      ],
+    })
+    await expect(backend.repairHealth()).resolves.toSatisfy((report) => {
+      expect(report.runId).toBeGreaterThan(0)
+      expect(report.repairedImportAudits).toBe(0)
+      expect(report.repairedVisibilityRows).toBe(0)
+      expect(report.clearedDerivedRows).toBe(0)
+      return true
+    })
+
+    await backend.initializeArchive(
+      {
+        ...config,
+        archiveMode: 'Plaintext',
+        initialized: true,
+      },
+      null,
+    )
+    await expect(backend.securityStatus()).resolves.toMatchObject({
+      mode: 'plaintext',
+    })
+
+    await expect(backend.scheduleStatus('windows')).resolves.toMatchObject({
+      platform: 'windows',
+      manualSteps: [
+        expect.stringContaining('Task Scheduler'),
+        expect.stringContaining('XML'),
+      ],
+      warnings: [expect.stringContaining('Task Scheduler')],
+    })
+
+    backendTestHarness.seedSchedule({
+      platform: 'windows',
+      label: 'dev.example.windows',
+      executablePath: 'C:/PathKeep/pathkeep.exe',
+      generatedFiles: [],
+      manualSteps: ['Use the documented Task Scheduler import flow.'],
+      applyCommands: [],
+      rollbackCommands: [],
+      applySupported: false,
+    })
+    await expect(backend.scheduleStatus('windows')).resolves.toMatchObject({
+      installState: 'manual-review',
+      manualSteps: ['Use the documented Task Scheduler import flow.'],
+    })
+
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.archiveStatus.warning = 'Preview archive warning.'
+      state.snapshot.recentRuns = [
+        {
+          id: 900,
+          startedAt: '2026-04-07T00:00:00Z',
+          finishedAt: null,
+          status: 'success',
+          runType: 'backup',
+          trigger: undefined,
+          profileScope: undefined,
+          manifestHash: null,
+          profilesProcessed: 0,
+          newVisits: 0,
+          newUrls: 0,
+          newDownloads: 0,
+        },
+      ]
+      state.history.items = [
+        ...state.history.items,
+        {
+          ...state.history.items[0],
+          id: 99,
+          profileId: 'standalone',
+          url: 'https://example.test/unrelated-url',
+          title: 'SQLite title match only',
+          domain: 'example.test',
+          visitTime: state.history.items[0].visitTime - 5000,
+          visitedAt: new Date(
+            state.history.items[0].visitTime - 5000,
+          ).toISOString(),
+        },
+        {
+          ...state.history.items[0],
+          id: 100,
+          profileId: 'chrome:NoTitle',
+          url: 'https://example.test/no-title-row',
+          title: null,
+          domain: 'example.test',
+          visitTime: state.history.items[0].visitTime - 10_000,
+          visitedAt: new Date(
+            state.history.items[0].visitTime - 10_000,
+          ).toISOString(),
+        },
+      ]
+      state.snapshot.config.ai.jobQueuePaused = true
+    })
+
+    await expect(backend.securityStatus()).resolves.toMatchObject({
+      warnings: ['Preview archive warning.'],
+    })
+
+    await expect(backend.loadAuditRunDetail(900)).resolves.toMatchObject({
+      trigger: 'manual',
+      profileScope: ['chrome:Default'],
+      artifacts: [
+        expect.objectContaining({
+          createdAt: '2026-04-07T00:00:00Z',
+        }),
+      ],
+    })
+    await expect(
+      backendTestHarness.call('load_audit_run_detail'),
+    ).resolves.toMatchObject({
+      run: expect.objectContaining({ id: 900 }),
+    })
+
+    await expect(
+      backend.queryHistory({
+        q: 'title match only',
+        domain: 'example.test',
+        profileId: 'standalone',
+        browserKind: 'standalone',
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        cursor: null,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 99 })],
+    })
+    await expect(
+      backend.queryHistory({
+        q: 'title-does-not-exist',
+        domain: 'example.test',
+        profileId: 'chrome:NoTitle',
+        browserKind: 'chrome',
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        cursor: null,
+      }),
+    ).resolves.toMatchObject({
+      total: 0,
+      items: [],
+    })
+
+    await expect(
+      backend.searchAiHistory({
+        query: 'history',
+        profileId: null,
+        domain: null,
+      }),
+    ).resolves.toMatchObject({
+      total: expect.any(Number),
+      nextCursor: null,
+    })
+
+    await expect(
+      backendTestHarness.call('import_takeout'),
+    ).resolves.toMatchObject({
+      sourcePath: '/tmp/takeout.zip',
+      dryRun: false,
+    })
+    await expect(
+      backendTestHarness.call('preview_import_batch'),
+    ).resolves.toMatchObject({
+      batch: expect.objectContaining({ id: 1 }),
+    })
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.recentRuns = []
+    })
+    await expect(
+      backendTestHarness.call('revert_import_batch'),
+    ).resolves.toMatchObject({
+      batch: expect.objectContaining({ id: 1, status: 'reverted' }),
+    })
+    await expect(
+      backendTestHarness.call('restore_import_batch'),
+    ).resolves.toMatchObject({
+      batch: expect.objectContaining({ id: 1, status: 'imported' }),
+    })
+
+    await expect(backend.replayAiJob(2)).resolves.toMatchObject({
+      id: 2,
+      state: 'paused',
+    })
+
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.recentRuns = []
+    })
+    await expect(
+      backendTestHarness.call('load_audit_run_detail'),
+    ).rejects.toThrow('1848')
+  })
+
   test('delegates to Tauri invoke when running inside the desktop shell', async () => {
     isTauri.mockReturnValue(true)
     invoke.mockResolvedValue({ ok: true })

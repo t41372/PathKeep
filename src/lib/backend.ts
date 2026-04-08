@@ -476,7 +476,8 @@ interface MockBackendState {
 }
 
 function browserKindFromProfileId(profileId: string) {
-  return profileId.split(':')[0] ?? profileId
+  const separatorIndex = profileId.indexOf(':')
+  return separatorIndex === -1 ? profileId : profileId.slice(0, separatorIndex)
 }
 
 function uniqueUrlCount(items: HistoryQueryResponse['items']) {
@@ -923,13 +924,14 @@ function buildMockTakeoutInspection(
   const batchId = state.nextImportBatchId
   state.nextImportBatchId += 1
 
+  const importedAt = new Date().toISOString()
   const importBatch: ImportBatchOverview = {
     id: batchId,
     sourceKind: 'takeout',
     sourcePath,
     profileId: 'takeout::browser-history',
     createdAt: new Date().toISOString(),
-    importedAt: new Date().toISOString(),
+    importedAt,
     revertedAt: null,
     status: 'imported',
     candidateItems: 2,
@@ -946,8 +948,8 @@ function buildMockTakeoutInspection(
   ]
   prependMockRun(state, {
     id: (state.snapshot.recentRuns[0]?.id ?? batchId) + 1,
-    startedAt: importBatch.importedAt ?? importBatch.createdAt,
-    finishedAt: importBatch.importedAt ?? importBatch.createdAt,
+    startedAt: importedAt,
+    finishedAt: importedAt,
     status: 'success',
     runType: 'import',
     trigger: 'manual',
@@ -1410,8 +1412,8 @@ async function call<T>(
           },
         ],
       } as T
-    case 'repair_health':
-      prependMockRun(mockState, {
+    case 'repair_health': {
+      const repairRun = prependMockRun(mockState, {
         id: (mockState.snapshot.recentRuns[0]?.id ?? 1) + 1,
         startedAt: new Date().toISOString(),
         finishedAt: new Date().toISOString(),
@@ -1430,7 +1432,7 @@ async function call<T>(
         newDownloads: 0,
       })
       return {
-        runId: mockState.snapshot.recentRuns[0]?.id ?? 1,
+        runId: repairRun.id,
         repairedImportAudits: mockState.snapshot.recentImportBatches.length
           ? 1
           : 0,
@@ -1444,6 +1446,7 @@ async function call<T>(
           : 0,
         notes: ['Browser preview mode simulates a targeted doctor repair run.'],
       } as T
+    }
     case 'preview_remote_backup':
       return {
         bundlePath: '/tmp/pathkeep-remote.zip',
@@ -1760,6 +1763,10 @@ export const backendTestHarness = {
   call,
   reset: () => {
     mockState = createMockState()
+  },
+  mutateState: (mutator: (state: MockBackendState) => void) => {
+    mutator(mockState)
+    syncMockAiStatus(mockState)
   },
   seedSchedule: (plan: SchedulePlan, status?: ScheduleStatus) => {
     overrideMockSchedule(mockState, plan, status)

@@ -4,6 +4,8 @@
 > M1 不追求 Intelligence；M1 追求的是 migration、backup、audit、schedule、security、Explorer v1 都站得住。
 >
 > **狀態修正（2026-04-06）**：archive backup / explorer / audit 的 feature baseline 已落地，但 M1 仍未完成最終簽收。非前端殘項現在主要集中在 `M1-DB` / `M1-OPS` 的 acceptance matrix、security mode taxonomy 與 audit summary / retention policy；schedule status 與 rekey preview 的 command surface 已補上，但 UI trust closeout 仍未完成。
+>
+> **品質註記（2026-04-07）**：`WORK-QC-A` 已恢復 mainline `coverage:js` / `coverage:rust` / `build` / `test:e2e`，並把 `mutation:js` / `mutation:rust` 收斂成可追蹤的 deep checks。這代表 M1 baseline 現在有 honest gate 保護，但 prototype / product-flow / doc parity closeout 仍在 `WORK-QC-B`。
 
 ---
 

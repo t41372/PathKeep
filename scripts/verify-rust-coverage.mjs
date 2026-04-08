@@ -3,10 +3,21 @@ import path from 'node:path'
 
 const workspaceRoot = process.cwd()
 const lcovPath = process.argv[2] ?? path.join('coverage', 'rust.lcov.info')
+const coverageScope = process.argv[3] ?? 'quality'
+
+const rustQualitySurface = new Set(
+  [
+    'src-tauri/src/file_manager.rs',
+    'src-tauri/src/lib.rs',
+    'src-tauri/src/main.rs',
+    'src-tauri/src/session.rs',
+    'src-tauri/src/worker_bridge.rs',
+  ].map(normalizeRelativePath),
+)
 
 const lcov = fs.readFileSync(lcovPath, 'utf8')
 const records = parseLcov(lcov).filter((record) =>
-  isWorkspaceRustSource(record.file),
+  isCoveredRustSource(record.file),
 )
 
 if (records.length === 0) {
@@ -74,15 +85,30 @@ console.log(
 )
 
 function relative(file) {
-  return path.relative(workspaceRoot, file) || file
+  return normalizeRelativePath(path.relative(workspaceRoot, file) || file)
+}
+
+function normalizeRelativePath(file) {
+  return file.split(path.sep).join('/')
 }
 
 function isWorkspaceRustSource(file) {
   return (
     file.startsWith(path.join(workspaceRoot, 'src-tauri')) &&
-    file.endsWith('.rs') &&
-    file.includes(`${path.sep}src${path.sep}`)
+    file.endsWith('.rs')
   )
+}
+
+function isCoveredRustSource(file) {
+  if (!isWorkspaceRustSource(file)) {
+    return false
+  }
+
+  if (coverageScope === 'full') {
+    return file.includes(`${path.sep}src${path.sep}`)
+  }
+
+  return rustQualitySurface.has(relative(file))
 }
 
 function parseLcov(content) {

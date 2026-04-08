@@ -16,8 +16,15 @@
   },
   "mutate": [
     "src/lib/backend.ts",
-    "src/lib/i18n.ts",
+    "src/lib/i18n/context.ts",
+    "src/lib/i18n/hooks.ts",
+    "src/lib/i18n/provider.tsx",
+    "src/lib/format.ts",
+    "src/lib/intelligence.ts",
+    "src/lib/platform-guidance.ts",
     "src/lib/stronghold.ts",
+    "src/lib/trust-review.ts",
+    "src/app/shell-data.tsx",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx"
   ],

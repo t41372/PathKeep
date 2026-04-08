@@ -2281,4 +2281,101 @@ mod tests {
             std::env::remove_var("BHB_TEST_CURL_BIN");
         }
     }
+
+    #[cfg(coverage)]
+    #[test]
+    fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let config = configured_ai_config();
+        initialize_archive_database(&config, Some("vault-passphrase")).expect("initialize archive");
+        save_user_config(&config, Some("vault-passphrase")).expect("save config");
+        let backup = run_backup_now(Some("vault-passphrase"), false).expect("backup");
+        let run_id = backup.run.expect("backup run").id;
+
+        let dashboard =
+            dashboard_snapshot(Some("vault-passphrase")).expect("load dashboard snapshot");
+        assert_eq!(dashboard.total_visits, 1);
+        let detail = audit_run_detail(Some("vault-passphrase"), run_id).expect("load audit detail");
+        assert_eq!(detail.run.id, run_id);
+
+        let doctor = doctor_report(Some("vault-passphrase")).expect("doctor report");
+        assert!(!doctor.checks.is_empty());
+        let repair = repair_health(Some("vault-passphrase")).expect("repair health");
+        assert!(repair.run_id.is_none() || repair.run_id >= Some(run_id));
+
+        let provider_error = test_ai_provider_connection_report(
+            Some("vault-passphrase"),
+            &AiProviderConnectionTestRequest {
+                provider_id: "embed-primary".to_string(),
+                purpose: AiProviderPurpose::Embedding,
+            },
+        )
+        .expect("provider connection should surface missing secrets in the report");
+        assert!(!provider_error.ok);
+        assert_eq!(provider_error.error_code.as_deref(), Some("secret-missing"));
+
+        let queue = load_ai_queue(Some("vault-passphrase")).expect("load ai queue");
+        assert_eq!(queue.queued, 0);
+        let drained =
+            run_ai_queue_jobs(Some("vault-passphrase"), None).expect("run empty ai queue");
+        assert_eq!(drained.queued, 0);
+
+        let replay = replay_ai_job(Some("vault-passphrase"), 999)
+            .expect_err("replay should fail for a missing job");
+        assert!(replay.to_string().contains("999"));
+        let cancel = cancel_ai_job(Some("vault-passphrase"), 999)
+            .expect_err("cancel should fail for a missing job");
+        assert!(cancel.to_string().contains("999"));
+        let assistant_job = load_ai_assistant_job(Some("vault-passphrase"), 999)
+            .expect_err("assistant job should not exist");
+        assert!(assistant_job.to_string().contains("999"));
+
+        let run_report = run_insights_now(Some("vault-passphrase"), &RunInsightsRequest::default())
+            .expect("insights run should fall back when no embedding secret is ready");
+        assert!(!run_report.last_run_at.is_empty());
+        assert!(run_report.notes.iter().any(|note| note.contains("fell back to lexical")));
+        let snapshot =
+            load_insights_snapshot(Some("vault-passphrase"), &RunInsightsRequest::default())
+                .expect("insight snapshot should load after the fallback run");
+        assert!(snapshot.status.runs >= 1);
+        assert!(!snapshot.cards.is_empty());
+        assert!(snapshot.notes.iter().any(|note| note.contains("fell back to lexical")));
+        let thread_error = load_insight_thread(Some("vault-passphrase"), "thread-001")
+            .expect_err("thread detail should still fail for a missing thread id");
+        assert!(!thread_error.to_string().is_empty());
+        let explain_card = snapshot
+            .cards
+            .first()
+            .expect("fallback run should persist at least one insight card")
+            .card_id
+            .clone();
+        let explain_report = explain_insight_now(
+            Some("vault-passphrase"),
+            &ExplainInsightRequest {
+                insight_id: explain_card,
+                insight_kind: "card".to_string(),
+                profile_id: None,
+                window_days: Some(30),
+            },
+        )
+        .expect("explain insight should work from the persisted card summary");
+        assert!(!explain_report.explanation.is_empty());
+        assert!(!explain_report.used_llm);
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
 }
