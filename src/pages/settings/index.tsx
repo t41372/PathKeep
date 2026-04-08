@@ -18,6 +18,9 @@ import {
   platformSummaryKey,
 } from '../../lib/platform-guidance'
 import type {
+  AiProviderConfig,
+  AiRequestFormat,
+  AiSettings,
   ClearDerivedIntelligenceReport,
   RemoteBackupConfig,
   RemoteBackupPreview,
@@ -28,6 +31,7 @@ import type {
   SecurityStatus,
 } from '../../lib/types'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { AiProviderEditorList } from '../../components/ai-provider-editor'
 
 interface SupportState {
   scheduleStatus: ScheduleStatus | null
@@ -65,6 +69,7 @@ export function SettingsPage() {
     scheduleStatus: null,
     securityStatus: null,
   })
+  const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -331,6 +336,184 @@ export function SettingsPage() {
     } finally {
       setDerivedAction(null)
     }
+  }
+
+  async function handleAiToggle() {
+    if (!snapshot) return
+    setSaving(true)
+    try {
+      await saveConfig({
+        ...snapshot.config,
+        ai: { ...snapshot.config.ai, enabled: !snapshot.config.ai.enabled },
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function makeDefaultProvider(
+    purpose: 'llm' | 'embedding',
+    format: AiRequestFormat,
+  ): AiProviderConfig {
+    const presets: Record<
+      AiRequestFormat,
+      { name: string; baseUrl: string; model: string; embModel: string }
+    > = {
+      ollama: {
+        name: 'Ollama',
+        baseUrl: 'http://localhost:11434',
+        model: 'llama3.2:8b',
+        embModel: 'nomic-embed-text',
+      },
+      'lm-studio': {
+        name: 'LM Studio',
+        baseUrl: 'http://localhost:1234/v1',
+        model: 'local-model',
+        embModel: 'local-embed',
+      },
+      openai: {
+        name: 'OpenAI',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+        embModel: 'text-embedding-3-small',
+      },
+      anthropic: {
+        name: 'Anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-6',
+        embModel: 'voyage-3',
+      },
+      google: {
+        name: 'Google',
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        model: 'gemini-2.0-flash',
+        embModel: 'text-embedding-004',
+      },
+    }
+    const p = presets[format]
+    return {
+      id: `${format}-${purpose}-${Date.now()}`,
+      name: p.name,
+      purpose,
+      requestFormat: format,
+      enabled: true,
+      baseUrl: p.baseUrl,
+      apiKeySaved: false,
+      defaultModel: purpose === 'llm' ? p.model : p.embModel,
+      modelCatalog: [],
+      temperature: purpose === 'llm' ? 0.7 : null,
+      maxTokens: purpose === 'llm' ? 1200 : null,
+      dimensions: purpose === 'embedding' ? 1536 : null,
+      notes: null,
+    }
+  }
+
+  async function handleAiConfigSave(patch: Partial<AiSettings>) {
+    if (!snapshot) return
+    setSaving(true)
+    try {
+      await saveConfig({
+        ...snapshot.config,
+        ai: { ...snapshot.config.ai, ...patch },
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleAddProvider(purpose: 'llm' | 'embedding') {
+    if (!snapshot) return
+    const newProvider = makeDefaultProvider(purpose, 'ollama')
+    const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
+    void handleAiConfigSave({
+      [key]: [...snapshot.config.ai[key], newProvider],
+    })
+  }
+
+  function handleUpdateProvider(
+    purpose: 'llm' | 'embedding',
+    providerId: string,
+    patch: Partial<AiProviderConfig>,
+  ) {
+    if (!snapshot) return
+    const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
+    void handleAiConfigSave({
+      [key]: snapshot.config.ai[key].map((p) =>
+        p.id === providerId ? { ...p, ...patch } : p,
+      ),
+    })
+  }
+
+  function handleRemoveProvider(
+    purpose: 'llm' | 'embedding',
+    providerId: string,
+  ) {
+    if (!snapshot) return
+    const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
+    const idKey = purpose === 'llm' ? 'llmProviderId' : 'embeddingProviderId'
+    const nextProviders = snapshot.config.ai[key].filter(
+      (p) => p.id !== providerId,
+    )
+    const nextIdPatch =
+      snapshot.config.ai[idKey] === providerId ? { [idKey]: null } : {}
+    void handleAiConfigSave({
+      [key]: nextProviders,
+      ...nextIdPatch,
+    })
+  }
+
+  function handleSelectProvider(
+    purpose: 'llm' | 'embedding',
+    providerId: string,
+  ) {
+    const idKey = purpose === 'llm' ? 'llmProviderId' : 'embeddingProviderId'
+    void handleAiConfigSave({ [idKey]: providerId })
+  }
+
+  async function handleSaveAiApiKey(providerId: string) {
+    const key = aiApiKeys[providerId]
+    if (!key?.trim()) return
+    setSaving(true)
+    try {
+      await backend.storeAiProviderApiKey({
+        providerId,
+        apiKey: key.trim(),
+      })
+      setAiApiKeys((prev) => ({ ...prev, [providerId]: '' }))
+      await refreshAppData()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleClearAiApiKey(providerId: string) {
+    setSaving(true)
+    try {
+      await backend.clearAiProviderApiKey(providerId)
+      await refreshAppData()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const aiProviderTranslations = {
+    providerName: t('settings.aiProviderName'),
+    providerId: t('settings.aiProviderId'),
+    requestFormat: t('settings.aiRequestFormat'),
+    baseUrl: t('settings.aiBaseUrl'),
+    defaultModel: t('settings.aiDefaultModel'),
+    modelCatalog: t('settings.aiModelCatalog'),
+    modelCatalogHint: t('settings.aiModelCatalogHint'),
+    enabled: t('settings.aiEnabled'),
+    temperature: t('settings.aiTemperature'),
+    maxTokens: t('settings.aiMaxTokens'),
+    dimensions: t('settings.aiDimensions'),
+    notes: t('settings.aiNotes'),
+    apiKey: t('settings.aiApiKey'),
+    keyStored: t('settings.aiKeyStored'),
+    saveKey: t('settings.aiSaveKey'),
+    clearKey: t('settings.aiClearKey'),
+    remove: t('settings.aiRemoveProvider'),
   }
 
   return (
@@ -1021,75 +1204,86 @@ export function SettingsPage() {
           <span className="panel-badge">{t('settings.optional')}</span>
         </div>
         <div className="panel-body">
-          <div className="provider-cards">
-            <div
-              className={`provider-card ${snapshot.config.ai.enabled ? 'active-provider' : ''}`}
-            >
-              <div className="provider-header">
-                <span className="provider-name">Ollama (Local)</span>
-                <span
-                  className={`status-badge ${snapshot.config.ai.enabled ? 'status-completed' : ''}`}
-                  style={
-                    !snapshot.config.ai.enabled
-                      ? {
-                          color: 'var(--text-faint)',
-                          borderColor: 'var(--border)',
-                        }
-                      : undefined
-                  }
-                >
-                  {snapshot.config.ai.enabled
-                    ? t('settings.enabled')
-                    : t('settings.disabled')}
-                </span>
-              </div>
-              <div className="provider-config">
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.baseUrlLabel')}
-                  </span>
-                  <span className="config-value mono">
-                    http://localhost:11434
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.embeddingModelLabel')}
-                  </span>
-                  <span className="config-value mono">nomic-embed-text</span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.llmModelLabel')}
-                  </span>
-                  <span className="config-value mono">llama3.2:8b</span>
-                </div>
-              </div>
-            </div>
-            <div className="provider-card">
-              <div className="provider-header">
-                <span className="provider-name">OpenAI</span>
-                <span
-                  className="status-badge"
-                  style={{
-                    color: 'var(--text-faint)',
-                    borderColor: 'var(--border)',
-                  }}
-                >
-                  {t('settings.disabled')}
-                </span>
-              </div>
-              <div className="provider-config dim">
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.apiKeyLabel')}
-                  </span>
-                  <span className="config-value mono">
-                    {t('common.notAvailable')}
-                  </span>
-                </div>
-              </div>
-            </div>
+          <label className="checkbox-row">
+            <input
+              aria-label={t('settings.aiMasterToggle')}
+              checked={snapshot.config.ai.enabled}
+              type="checkbox"
+              disabled={saving}
+              onChange={() => {
+                void handleAiToggle()
+              }}
+            />
+            <span>{t('settings.aiMasterToggle')}</span>
+          </label>
+
+          <AiProviderEditorList
+            addLabel={t('settings.aiAddLlmProvider')}
+            apiKeys={aiApiKeys}
+            onAdd={() => handleAddProvider('llm')}
+            onApiKeyChange={(id, value) =>
+              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
+            }
+            onClearKey={(id) => {
+              void handleClearAiApiKey(id)
+            }}
+            onRemove={(id) => handleRemoveProvider('llm', id)}
+            onSaveKey={(id) => {
+              void handleSaveAiApiKey(id)
+            }}
+            onSelect={(id) => handleSelectProvider('llm', id)}
+            onUpdate={(id, patch) => handleUpdateProvider('llm', id, patch)}
+            providers={snapshot.config.ai.llmProviders}
+            purpose="llm"
+            selectedProviderId={snapshot.config.ai.llmProviderId ?? null}
+            title={t('settings.aiLlmProviders')}
+            translations={aiProviderTranslations}
+          />
+
+          <AiProviderEditorList
+            addLabel={t('settings.aiAddEmbeddingProvider')}
+            apiKeys={aiApiKeys}
+            onAdd={() => handleAddProvider('embedding')}
+            onApiKeyChange={(id, value) =>
+              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
+            }
+            onClearKey={(id) => {
+              void handleClearAiApiKey(id)
+            }}
+            onRemove={(id) => handleRemoveProvider('embedding', id)}
+            onSaveKey={(id) => {
+              void handleSaveAiApiKey(id)
+            }}
+            onSelect={(id) => handleSelectProvider('embedding', id)}
+            onUpdate={(id, patch) =>
+              handleUpdateProvider('embedding', id, patch)
+            }
+            providers={snapshot.config.ai.embeddingProviders}
+            purpose="embedding"
+            selectedProviderId={snapshot.config.ai.embeddingProviderId ?? null}
+            title={t('settings.aiEmbeddingProviders')}
+            translations={aiProviderTranslations}
+          />
+
+          <div className="config-row" style={{ marginTop: 'var(--space-4)' }}>
+            <span className="config-label">
+              {t('settings.aiActiveLlmProvider')}
+            </span>
+            <span className="config-value mono">
+              {snapshot.config.ai.llmProviders.find(
+                (p) => p.id === snapshot.config.ai.llmProviderId,
+              )?.name ?? t('settings.aiNoneSelected')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.aiActiveEmbeddingProvider')}
+            </span>
+            <span className="config-value mono">
+              {snapshot.config.ai.embeddingProviders.find(
+                (p) => p.id === snapshot.config.ai.embeddingProviderId,
+              )?.name ?? t('settings.aiNoneSelected')}
+            </span>
           </div>
         </div>
       </div>

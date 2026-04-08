@@ -104,3 +104,76 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
     </div>
   )
 }
+
+export function SkeletonExplorer() {
+  return (
+    <div className="page-shell" aria-busy="true" aria-label="Loading explorer">
+      <div
+        className="skeleton-block"
+        style={{ height: '44px', marginBottom: 'var(--space-4)' }}
+      />
+      <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+        <div style={{ flex: 1 }}>
+          <Skeleton variant="block" height="32px" />
+          {Array.from({ length: 6 }, (_, i) => (
+            <div
+              key={i}
+              className="skeleton-block"
+              style={{ height: '48px', marginBottom: 'var(--space-2)' }}
+            />
+          ))}
+        </div>
+        <div style={{ width: '320px' }}>
+          <Skeleton variant="block" height="200px" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function SkeletonInsights() {
+  return (
+    <div className="page-shell" aria-busy="true" aria-label="Loading insights">
+      <div className="stats-row">
+        <Skeleton variant="stat-card" count={3} />
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          gap: 'var(--space-4)',
+          marginTop: 'var(--space-4)',
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <Skeleton variant="block" height="220px" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <Skeleton variant="block" height="220px" />
+        </div>
+      </div>
+      <div style={{ marginTop: 'var(--space-4)' }}>
+        <Skeleton variant="block" height="160px" />
+      </div>
+    </div>
+  )
+}
+
+export function SkeletonSettings() {
+  return (
+    <div className="page-shell" aria-busy="true" aria-label="Loading settings">
+      {Array.from({ length: 3 }, (_, i) => (
+        <div key={i} style={{ marginBottom: 'var(--space-4)' }}>
+          <div
+            className="skeleton-block"
+            style={{
+              height: '20px',
+              width: '30%',
+              marginBottom: 'var(--space-3)',
+            }}
+          />
+          <Skeleton variant="block" height="120px" />
+        </div>
+      ))}
+    </div>
+  )
+}

@@ -17,6 +17,7 @@ import type {
   TakeoutInspection,
 } from '../../lib/types'
 import { OperationWorkflow, PreviewEntryList } from '../../components/ui'
+import { BusyOverlay } from '../../components/primitives/busy-overlay'
 
 type ImportMethod = 'takeout' | 'browser'
 type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
@@ -424,12 +425,9 @@ export function ImportPage() {
             )}
 
             {step === 'scan' && (
-              <>
-                <div className="wizard-title">{t('import.scanningTitle')}</div>
-                <div className="wizard-description dim">
-                  {t('import.scanningBody')}
-                </div>
-              </>
+              <div style={{ position: 'relative', minHeight: '120px' }}>
+                <BusyOverlay label={t('import.scanningTitle')} />
+              </div>
             )}
 
             {step === 'preview' && inspection && (
@@ -563,12 +561,9 @@ export function ImportPage() {
             )}
 
             {step === 'confirm' && importing && (
-              <>
-                <div className="wizard-title">{t('import.importingTitle')}</div>
-                <div className="wizard-description dim">
-                  {t('import.importingBody')}
-                </div>
-              </>
+              <div style={{ position: 'relative', minHeight: '120px' }}>
+                <BusyOverlay label={t('import.importingTitle')} />
+              </div>
             )}
 
             {step === 'done' && importResult && (

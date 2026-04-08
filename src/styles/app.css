@@ -2532,6 +2532,177 @@
   gap: var(--space-3);
 }
 
+.surfaceInset {
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+}
+
+.toolbarLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.toolbarLine h3 {
+  margin: 0;
+}
+
+.fieldGrid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.fieldGrid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldBlock {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fieldBlock input,
+.fieldBlock select,
+.fieldBlock textarea {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.multilineInput {
+  resize: vertical;
+}
+
+.readOnlyField {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+  color: var(--text-muted);
+}
+
+.secondaryButton,
+.ghostButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.secondaryButton {
+  background: var(--bg);
+}
+
+.secondaryButton:hover,
+.ghostButton:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toggleList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.compactToggleList {
+  margin-top: var(--space-3);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+}
+
+.providerPanel + .providerPanel {
+  margin-top: var(--space-4);
+}
+
+.providerList {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.providerCard {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.providerCard.selected {
+  border-color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.providerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.providerSelect {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.providerSelect input {
+  margin: 0;
+}
+
+.providerMono {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.providerSecretRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .artifactCard.compactCard,
 .codeArtifact {
   border: 1px solid var(--border);
@@ -3812,6 +3983,22 @@
   }
 }
 
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.skeleton-block {
+  background: var(--border);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
 .regex-input-row {
   display: flex;
   align-items: stretch;
@@ -3933,6 +4120,10 @@
     grid-template-columns: 1fr;
   }
   .onboarding-workflow-grid {
+    grid-template-columns: 1fr;
+  }
+  .fieldGrid.two,
+  .providerSecretRow {
     grid-template-columns: 1fr;
   }
 }

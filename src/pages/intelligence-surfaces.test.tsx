@@ -370,8 +370,8 @@ describe('intelligence surfaces', () => {
     expect(await screen.findByText('运行上下文')).toBeVisible()
     expect(await screen.findByText('助手 · #77')).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: '测试提供方' }))
-    expect(await screen.findByText('提供方可达')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '测试服务商' }))
+    expect(await screen.findByText('服务商可达')).toBeVisible()
 
     const input =
       await screen.findByPlaceholderText('问一些关于你的浏览历史的问题…')

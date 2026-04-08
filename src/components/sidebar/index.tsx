@@ -41,7 +41,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   function toggleTheme() {
     const html = document.documentElement
     const current = html.getAttribute('data-theme')
-    html.setAttribute('data-theme', current === 'light' ? 'dark' : 'light')
+    const next = current === 'light' ? 'dark' : 'light'
+    html.setAttribute('data-theme', next)
+    try {
+      window.localStorage.setItem('pathkeep.theme', next)
+    } catch {
+      // localStorage may be unavailable
+    }
   }
 
   return (

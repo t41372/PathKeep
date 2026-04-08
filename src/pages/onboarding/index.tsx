@@ -5,17 +5,18 @@ import { BrandMark } from '../../components/brand-mark'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { useI18n } from '../../lib/i18n'
 import { backend } from '../../lib/backend'
 import type { SchedulePlan } from '../../lib/types'
 
-const stepLabels = [
-  'Welcome',
-  'Browsers',
-  'Storage',
-  'Security',
-  'Schedule',
-  'Ready',
-]
+const stepKeys = [
+  'stepWelcome',
+  'stepBrowsers',
+  'stepStorage',
+  'stepSecurity',
+  'stepSchedule',
+  'stepReady',
+] as const
 const dueAfterOptions = [6, 12, 24, 72]
 
 export function OnboardingPage() {
@@ -30,6 +31,7 @@ export function OnboardingPage() {
     runBackup,
     snapshot,
   } = useShellData()
+  const { t } = useI18n('onboarding')
   const [step, setStep] = useState(0)
   const [masterPassword, setMasterPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -57,7 +59,7 @@ export function OnboardingPage() {
             setSchedulePreviewError(
               nextError instanceof Error
                 ? nextError.message
-                : 'PathKeep could not preview the native schedule yet.',
+                : t('schedulePreviewFallbackError'),
             )
           }
         })
@@ -79,7 +81,7 @@ export function OnboardingPage() {
         className="page-shell onboarding-page"
         data-testid="onboarding-page"
       >
-        <LoadingState label="Loading onboarding decisions" />
+        <LoadingState label={t('loadingDecisions')} />
       </section>
     )
   }
@@ -90,10 +92,7 @@ export function OnboardingPage() {
         className="page-shell onboarding-page"
         data-testid="onboarding-page"
       >
-        <ErrorState
-          title="Onboarding data is unavailable"
-          description={error}
-        />
+        <ErrorState title={t('errorTitle')} description={error} />
       </section>
     )
   }
@@ -105,9 +104,9 @@ export function OnboardingPage() {
         data-testid="onboarding-page"
       >
         <EmptyState
-          description="PathKeep needs a local app snapshot before it can preview storage, profiles, and security choices."
-          eyebrow="ONBOARDING"
-          title="Archive decisions are not ready yet"
+          description={t('emptyDescription')}
+          eyebrow={t('emptyEyebrow')}
+          title={t('emptyTitle')}
         />
       </section>
     )
@@ -136,23 +135,17 @@ export function OnboardingPage() {
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
-      setLocalError(
-        'Select at least one readable browser profile before the first backup.',
-      )
+      setLocalError(t('errorSelectProfile'))
       return
     }
     const encrypted = currentConfig.archiveMode === 'Encrypted'
     if (encrypted) {
       if (!masterPassword.trim()) {
-        setLocalError(
-          'Encrypted mode needs a master password before initialization.',
-        )
+        setLocalError(t('errorNeedPassword'))
         return
       }
       if (masterPassword !== confirmPassword) {
-        setLocalError(
-          'The confirmation password does not match the master password.',
-        )
+        setLocalError(t('errorPasswordMismatch'))
         return
       }
     }
@@ -169,11 +162,7 @@ export function OnboardingPage() {
       await runBackup()
       void navigate('/')
     } catch (e) {
-      setLocalError(
-        e instanceof Error
-          ? e.message
-          : 'PathKeep could not finish the first backup flow.',
-      )
+      setLocalError(e instanceof Error ? e.message : t('errorFinishFailed'))
     }
   }
 
@@ -199,8 +188,8 @@ export function OnboardingPage() {
       {step > 0 && (
         <div className="onboarding-stepper">
           <div className="stepper-track">
-            {stepLabels.map((label, i) => (
-              <div key={label} style={{ display: 'contents' }}>
+            {stepKeys.map((key, i) => (
+              <div key={key} style={{ display: 'contents' }}>
                 <div
                   className={`stepper-step ${i < step ? 'completed' : ''} ${i === step ? 'active' : ''} ${i < step ? 'clickable' : ''}`}
                   onClick={() => {
@@ -211,9 +200,9 @@ export function OnboardingPage() {
                     <span className="stepper-check">✓</span>
                     <span className="stepper-num">{i}</span>
                   </div>
-                  <span className="stepper-label">{label}</span>
+                  <span className="stepper-label">{t(key)}</span>
                 </div>
-                {i < stepLabels.length - 1 && (
+                {i < stepKeys.length - 1 && (
                   <div
                     className={`stepper-line ${i < step ? 'completed' : ''} ${i === step - 1 ? 'active' : ''}`}
                   />
@@ -235,42 +224,31 @@ export function OnboardingPage() {
             v{buildInfo?.version ?? 'preview'} · Tauri desktop app
           </p>
           <p className="welcome-tagline">
-            Your browsing history is yours.
+            {t('welcomeTagline1')}
             <br />
-            Archive it, search it, understand it.
+            {t('welcomeTagline2')}
           </p>
 
           <div className="welcome-features">
             <div className="welcome-feature">
               <div className="feature-icon">↓</div>
               <div className="feature-text">
-                <div className="feature-title">AUTOMATIC BACKUP</div>
-                <div className="feature-desc">
-                  Incrementally back up Chromium, Firefox, and Safari history
-                  into a local SQLite archive. Safari may still require Full
-                  Disk Access before PathKeep can stage `History.db`.
-                </div>
+                <div className="feature-title">{t('featureBackupTitle')}</div>
+                <div className="feature-desc">{t('featureBackupDesc')}</div>
               </div>
             </div>
             <div className="welcome-feature">
               <div className="feature-icon">◎</div>
               <div className="feature-text">
-                <div className="feature-title">FULL-TEXT SEARCH</div>
-                <div className="feature-desc">
-                  FTS5-powered search across millions of records. Find any page
-                  you ever visited, even years later.
-                </div>
+                <div className="feature-title">{t('featureSearchTitle')}</div>
+                <div className="feature-desc">{t('featureSearchDesc')}</div>
               </div>
             </div>
             <div className="welcome-feature">
               <div className="feature-icon">◈</div>
               <div className="feature-text">
-                <div className="feature-title">INTELLIGENT INSIGHTS</div>
-                <div className="feature-desc">
-                  Intelligence is optional and comes after the archive
-                  foundation. M1 focuses on backup, audit, search, export, and
-                  trustworthy local operation.
-                </div>
+                <div className="feature-title">{t('featureInsightsTitle')}</div>
+                <div className="feature-desc">{t('featureInsightsDesc')}</div>
               </div>
             </div>
           </div>
@@ -278,15 +256,15 @@ export function OnboardingPage() {
           <div className="welcome-trust">
             <div className="trust-item">
               <span className="trust-icon">⊘</span>
-              <span>Local-first — data never leaves your machine</span>
+              <span>{t('trustLocalFirst')}</span>
             </div>
             <div className="trust-item">
               <span className="trust-icon">⊞</span>
-              <span>Open-source — GPL v3 licensed, audit the code</span>
+              <span>{t('trustOpenSource')}</span>
             </div>
             <div className="trust-item">
               <span className="trust-icon">⚙</span>
-              <span>Built with Tauri + Rust + SQLite</span>
+              <span>{t('trustBuiltWith')}</span>
             </div>
           </div>
 
@@ -295,7 +273,7 @@ export function OnboardingPage() {
             type="button"
             onClick={() => setStep(1)}
           >
-            Begin Setup →
+            {t('beginSetup')}
           </button>
         </div>
       )}
@@ -305,26 +283,27 @@ export function OnboardingPage() {
         <div className="ob-panel-container">
           <div className="ob-header">
             <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">Browser Detection</h2>
-            <p className="ob-desc">
-              We scanned your system and found the following browser profiles.
-              Select which ones to include in automatic backups.
-            </p>
+            <h2 className="ob-title">{t('browserDetectionTitle')}</h2>
+            <p className="ob-desc">{t('browserDetectionDesc')}</p>
           </div>
 
           <div className="ob-scan-status">
             <div className="status-dot status-ok" />
             <span className="mono">
-              Scan complete · {snapshot.browserProfiles.length} profiles
-              detected · {selectedCount} selected for backup
+              {t('scanStatus')
+                .replace('{count}', String(snapshot.browserProfiles.length))
+                .replace('{selected}', String(selectedCount))}
             </span>
           </div>
 
           <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
             <div className="panel-header">
-              <span className="panel-title">DETECTED PROFILES</span>
+              <span className="panel-title">{t('detectedProfiles')}</span>
               <span className="panel-action">
-                {snapshot.browserProfiles.length} found
+                {t('found').replace(
+                  '{count}',
+                  String(snapshot.browserProfiles.length),
+                )}
               </span>
             </div>
             <div className="panel-body" style={{ padding: 0 }}>
@@ -378,8 +357,8 @@ export function OnboardingPage() {
                           }`}
                         >
                           {profile.historyExists
-                            ? 'HISTORY FOUND'
-                            : 'ACTION REQUIRED'}
+                            ? t('historyFound')
+                            : t('actionRequired')}
                         </span>
                         <span
                           className="mono dim"
@@ -390,10 +369,13 @@ export function OnboardingPage() {
                           }}
                         >
                           {profile.historyExists
-                            ? `${profile.browserVersion ?? 'Version unknown'} · ${profile.browserFamily} engine`
+                            ? `${profile.browserVersion ?? t('versionUnknown')} · ${profile.browserFamily} engine`
                             : profile.browserFamily === 'safari'
-                              ? 'Grant Full Disk Access so PathKeep can read Safari History.db.'
-                              : `PathKeep could not read ${profile.historyFileName} at this location yet.`}
+                              ? t('safariAccessHint')
+                              : t('cannotReadHint').replace(
+                                  '{fileName}',
+                                  profile.historyFileName,
+                                )}
                         </span>
                       </div>
                     </div>
@@ -408,12 +390,7 @@ export function OnboardingPage() {
           ) && (
             <div className="ob-info-box">
               <span className="info-icon">ℹ</span>
-              <span className="info-text">
-                <strong>Firefox</strong> now lands in the same backup flow as
-                Chromium. <strong>Safari</strong> supports baseline history
-                ingest, but the file may stay unreadable until Full Disk Access
-                is granted on macOS.
-              </span>
+              <span className="info-text">{t('firefoxSafariInfo')}</span>
             </div>
           )}
 
@@ -423,14 +400,14 @@ export function OnboardingPage() {
               type="button"
               onClick={() => setStep(0)}
             >
-              ← Back
+              {t('backButton')}
             </button>
             <button
               className="btn-primary"
               type="button"
               onClick={() => setStep(2)}
             >
-              Continue →
+              {t('continueButton')}
             </button>
           </div>
         </div>
@@ -441,17 +418,14 @@ export function OnboardingPage() {
         <div className="ob-panel-container">
           <div className="ob-header">
             <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">Storage Location</h2>
-            <p className="ob-desc">
-              PathKeep stores everything locally. Here&apos;s the directory
-              layout the archive will use.
-            </p>
+            <h2 className="ob-title">{t('storageTitle')}</h2>
+            <p className="ob-desc">{t('storageDesc')}</p>
           </div>
 
           <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
             <div className="panel-header">
-              <span className="panel-title">ARCHIVE ROOT</span>
-              <span className="panel-action">Local-first</span>
+              <span className="panel-title">{t('archiveRoot')}</span>
+              <span className="panel-action">{t('localFirst')}</span>
             </div>
             <div className="panel-body">
               <div
@@ -494,25 +468,31 @@ export function OnboardingPage() {
 
           <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
             <div className="panel-header">
-              <span className="panel-title">SIZE ESTIMATES</span>
-              <span className="panel-action">Projected</span>
+              <span className="panel-title">{t('sizeEstimates')}</span>
+              <span className="panel-action">{t('projected')}</span>
             </div>
             <div className="panel-body">
               <div className="estimate-grid">
                 <div className="estimate-item">
-                  <span className="estimate-label">Archive database</span>
+                  <span className="estimate-label">
+                    {t('estimateArchiveDb')}
+                  </span>
                   <span className="estimate-value">~140 MB</span>
                 </div>
                 <div className="estimate-item">
-                  <span className="estimate-label">Manifest ledger</span>
+                  <span className="estimate-label">
+                    {t('estimateManifest')}
+                  </span>
                   <span className="estimate-value">~375 KB</span>
                 </div>
                 <div className="estimate-item">
-                  <span className="estimate-label">Raw snapshots</span>
+                  <span className="estimate-label">
+                    {t('estimateSnapshots')}
+                  </span>
                   <span className="estimate-value">~1.2 MB</span>
                 </div>
                 <div className="estimate-item highlight">
-                  <span className="estimate-label">Total estimated</span>
+                  <span className="estimate-label">{t('estimateTotal')}</span>
                   <span className="estimate-value">~142 MB</span>
                 </div>
               </div>
@@ -525,14 +505,14 @@ export function OnboardingPage() {
               type="button"
               onClick={() => setStep(1)}
             >
-              ← Back
+              {t('backButton')}
             </button>
             <button
               className="btn-primary"
               type="button"
               onClick={() => setStep(3)}
             >
-              Continue →
+              {t('continueButton')}
             </button>
           </div>
         </div>
@@ -543,15 +523,12 @@ export function OnboardingPage() {
         <div className="ob-panel-container">
           <div className="ob-header">
             <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">Security</h2>
-            <p className="ob-desc">
-              Choose whether to encrypt the archive at rest. This decision is
-              visible before PathKeep writes any data.
-            </p>
+            <h2 className="ob-title">{t('securityTitle')}</h2>
+            <p className="ob-desc">{t('securityDesc')}</p>
           </div>
 
           <div
-            aria-label="Archive encryption mode"
+            aria-label={t('encryptionModeLabel')}
             className="security-options"
             role="radiogroup"
           >
@@ -560,7 +537,7 @@ export function OnboardingPage() {
             >
               <button
                 aria-checked={currentConfig.archiveMode === 'Encrypted'}
-                aria-label="Select encrypted mode"
+                aria-label={t('encryptedSelectLabel')}
                 className="security-option-trigger"
                 disabled={busyAction !== null}
                 role="radio"
@@ -574,38 +551,43 @@ export function OnboardingPage() {
                     className={`option-radio ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
                   />
                   <div className="option-title-row">
-                    <span className="option-title">🔒 Encrypted</span>
-                    <span className="tag tag-sm tag-backup">RECOMMENDED</span>
+                    <span className="option-title">
+                      🔒 {t('encryptedOption')}
+                    </span>
+                    <span className="tag tag-sm tag-backup">
+                      {t('recommended')}
+                    </span>
                   </div>
                 </div>
               </button>
               <div className="option-body">
-                <p className="option-desc">
-                  SQLCipher AES-256 encryption at rest. Requires a master
-                  password on each unlock.
-                </p>
+                <p className="option-desc">{t('encryptedDesc')}</p>
                 {currentConfig.archiveMode === 'Encrypted' && (
                   <div className="security-form">
                     <div className="form-field">
-                      <label className="field-label">MASTER PASSWORD</label>
+                      <label className="field-label">
+                        {t('masterPasswordLabel')}
+                      </label>
                       <input
                         className="form-input"
                         type="password"
                         autoComplete="new-password"
                         value={masterPassword}
                         onChange={(e) => setMasterPassword(e.target.value)}
-                        placeholder="Enter master password"
+                        placeholder={t('masterPasswordPlaceholder')}
                       />
                     </div>
                     <div className="form-field">
-                      <label className="field-label">CONFIRM PASSWORD</label>
+                      <label className="field-label">
+                        {t('confirmPasswordLabel')}
+                      </label>
                       <input
                         className="form-input"
                         type="password"
                         autoComplete="new-password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Confirm password"
+                        placeholder={t('confirmPasswordPlaceholder')}
                       />
                     </div>
                     <label className="form-checkbox-row">
@@ -614,7 +596,7 @@ export function OnboardingPage() {
                         checked={rememberKey}
                         onChange={(e) => setRememberKey(e.target.checked)}
                       />
-                      <span>Store in native keyring for auto-unlock</span>
+                      <span>{t('storeInKeyring')}</span>
                     </label>
                   </div>
                 )}
@@ -626,7 +608,7 @@ export function OnboardingPage() {
             >
               <button
                 aria-checked={currentConfig.archiveMode === 'Plaintext'}
-                aria-label="Select plaintext mode"
+                aria-label={t('plaintextSelectLabel')}
                 className="security-option-trigger"
                 disabled={busyAction !== null}
                 role="radio"
@@ -640,28 +622,27 @@ export function OnboardingPage() {
                     className={`option-radio ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
                   />
                   <div className="option-title-row">
-                    <span className="option-title">📄 Plaintext</span>
+                    <span className="option-title">
+                      📄 {t('plaintextOption')}
+                    </span>
                   </div>
                 </div>
               </button>
               <div className="option-body">
-                <p className="option-desc">
-                  No encryption. The database stays readable on disk. Choose
-                  only if your system storage is already protected.
-                </p>
+                <p className="option-desc">{t('plaintextDesc')}</p>
                 {currentConfig.archiveMode === 'Plaintext' && (
                   <div className="plaintext-tradeoffs">
                     <div className="tradeoff-row tradeoff-pro">
-                      ✓ No password to remember
+                      ✓ {t('tradeoffNoPassword')}
                     </div>
                     <div className="tradeoff-row tradeoff-pro">
-                      ✓ Easier to inspect with external tools
+                      ✓ {t('tradeoffEasyInspect')}
                     </div>
                     <div className="tradeoff-row tradeoff-con">
-                      ✗ Browsing history visible to anyone with file access
+                      ✗ {t('tradeoffVisible')}
                     </div>
                     <div className="tradeoff-row tradeoff-con">
-                      ✗ Cannot upgrade to encrypted later without rekey
+                      ✗ {t('tradeoffNoUpgrade')}
                     </div>
                   </div>
                 )}
@@ -672,10 +653,8 @@ export function OnboardingPage() {
           <div className="warning-box">
             <span className="warning-icon">⚠</span>
             <span className="warning-text">
-              <strong>Password recovery is not possible.</strong> If you choose
-              encrypted mode and forget the master password, the archive data
-              cannot be recovered. PathKeep does not store passwords or have any
-              backdoor.
+              <strong>{t('passwordWarningTitle')}</strong>{' '}
+              {t('passwordWarningBody')}
             </span>
           </div>
 
@@ -685,14 +664,14 @@ export function OnboardingPage() {
               type="button"
               onClick={() => setStep(2)}
             >
-              ← Back
+              {t('backButton')}
             </button>
             <button
               className="btn-primary"
               type="button"
               onClick={() => setStep(4)}
             >
-              Continue →
+              {t('continueButton')}
             </button>
           </div>
         </div>
@@ -703,17 +682,14 @@ export function OnboardingPage() {
         <div className="ob-panel-container">
           <div className="ob-header">
             <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">Backup Schedule</h2>
-            <p className="ob-desc">
-              How often should PathKeep check for new browsing history? This
-              controls the due-after interval.
-            </p>
+            <h2 className="ob-title">{t('scheduleTitle')}</h2>
+            <p className="ob-desc">{t('scheduleDesc')}</p>
           </div>
 
           <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
             <div className="panel-header">
-              <span className="panel-title">BACKUP INTERVAL</span>
-              <span className="panel-action">Select hours between checks</span>
+              <span className="panel-title">{t('backupInterval')}</span>
+              <span className="panel-action">{t('selectHours')}</span>
             </div>
             <div className="panel-body">
               <div className="interval-chips">
@@ -734,7 +710,7 @@ export function OnboardingPage() {
           </div>
 
           {schedulePreviewLoading ? (
-            <LoadingState label="Previewing native schedule artifacts" />
+            <LoadingState label={t('previewingSchedule')} />
           ) : null}
 
           {schedulePreviewError ? (
@@ -746,7 +722,7 @@ export function OnboardingPage() {
           {schedulePlan && (
             <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
               <div className="panel-header">
-                <span className="panel-title">SCHEDULE PREVIEW</span>
+                <span className="panel-title">{t('schedulePreview')}</span>
                 <span className="panel-action">{schedulePlan.platform}</span>
               </div>
               <div className="panel-body">
@@ -768,14 +744,14 @@ export function OnboardingPage() {
               type="button"
               onClick={() => setStep(3)}
             >
-              ← Back
+              {t('backButton')}
             </button>
             <button
               className="btn-primary"
               type="button"
               onClick={() => setStep(5)}
             >
-              Continue →
+              {t('continueButton')}
             </button>
           </div>
         </div>
@@ -786,42 +762,45 @@ export function OnboardingPage() {
         <div className="ob-panel-container">
           <div className="ob-header">
             <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">Ready to Initialize</h2>
-            <p className="ob-desc">
-              Review your configuration below. When ready, initialize the
-              archive and run the first backup.
-            </p>
+            <h2 className="ob-title">{t('readyTitle')}</h2>
+            <p className="ob-desc">{t('readyDesc')}</p>
           </div>
 
           <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
             <div className="panel-header">
-              <span className="panel-title">CONFIGURATION SUMMARY</span>
-              <span className="panel-action">Review before init</span>
+              <span className="panel-title">{t('configSummary')}</span>
+              <span className="panel-action">{t('reviewBeforeInit')}</span>
             </div>
             <div className="panel-body">
               <div className="summary-config">
                 <div className="config-row">
-                  <span className="config-label">Profiles</span>
+                  <span className="config-label">{t('configProfiles')}</span>
                   <span className="config-value">
-                    {selectedCount} readable profiles selected
+                    {t('configProfilesValue').replace(
+                      '{count}',
+                      String(selectedCount),
+                    )}
                   </span>
                 </div>
                 <div className="config-row">
-                  <span className="config-label">Storage</span>
+                  <span className="config-label">{t('configStorage')}</span>
                   <span className="config-value">
                     {snapshot.directories.appRoot}
                   </span>
                 </div>
                 <div className="config-row">
-                  <span className="config-label">Encryption</span>
+                  <span className="config-label">{t('configEncryption')}</span>
                   <span className="config-value">
                     {currentConfig.archiveMode}
                   </span>
                 </div>
                 <div className="config-row">
-                  <span className="config-label">Schedule</span>
+                  <span className="config-label">{t('configSchedule')}</span>
                   <span className="config-value">
-                    Every {currentConfig.dueAfterHours}h
+                    {t('configScheduleValue').replace(
+                      '{hours}',
+                      String(currentConfig.dueAfterHours),
+                    )}
                   </span>
                 </div>
               </div>
@@ -830,43 +809,37 @@ export function OnboardingPage() {
 
           <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
             <div className="panel-header">
-              <span className="panel-title">INITIALIZATION STEPS</span>
-              <span className="panel-action">What happens next</span>
+              <span className="panel-title">{t('initSteps')}</span>
+              <span className="panel-action">{t('whatHappensNext')}</span>
             </div>
             <div className="panel-body">
               <div className="init-steps">
                 <div className="init-step">
                   <span className="init-num">1.</span>
                   <div className="init-info">
-                    <span className="init-action">
-                      Create the archive database
-                    </span>
+                    <span className="init-action">{t('initStep1Action')}</span>
                     <span className="init-detail">
-                      SQLite +{' '}
                       {currentConfig.archiveMode === 'Encrypted'
-                        ? 'SQLCipher encryption'
-                        : 'plaintext mode'}
+                        ? t('initStep1DetailEncrypted')
+                        : t('initStep1DetailPlaintext')}
                     </span>
                   </div>
                 </div>
                 <div className="init-step">
                   <span className="init-num">2.</span>
                   <div className="init-info">
-                    <span className="init-action">
-                      Write the config and audit manifests
-                    </span>
-                    <span className="init-detail">
-                      First manifest starts the hash chain
-                    </span>
+                    <span className="init-action">{t('initStep2Action')}</span>
+                    <span className="init-detail">{t('initStep2Detail')}</span>
                   </div>
                 </div>
                 <div className="init-step">
                   <span className="init-num">3.</span>
                   <div className="init-info">
-                    <span className="init-action">Run the first backup</span>
+                    <span className="init-action">{t('initStep3Action')}</span>
                     <span className="init-detail">
-                      Ingest history from {selectedCount} selected profile
-                      {selectedCount !== 1 ? 's' : ''}
+                      {t('initStep3Detail')
+                        .replace('{count}', String(selectedCount))
+                        .replace('{plural}', selectedCount !== 1 ? 's' : '')}
                     </span>
                   </div>
                 </div>
@@ -886,7 +859,7 @@ export function OnboardingPage() {
               type="button"
               onClick={() => setStep(4)}
             >
-              ← Back
+              {t('backButton')}
             </button>
             <button
               className="btn-primary btn-lg"
@@ -896,7 +869,7 @@ export function OnboardingPage() {
                 void handleFinish()
               }}
             >
-              {busyAction ?? 'Initialize + First Backup →'}
+              {busyAction ?? t('initButton')}
             </button>
           </div>
         </div>

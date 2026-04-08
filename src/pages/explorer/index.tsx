@@ -4,6 +4,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { SkeletonExplorer } from '../../components/primitives/skeleton'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
@@ -710,12 +711,7 @@ export function ExplorerPage() {
     }
   }
 
-  if (shellLoading && !snapshot)
-    return (
-      <section className="page-shell">
-        <LoadingState label="Loading explorer workspace" />
-      </section>
-    )
+  if (shellLoading && !snapshot) return <SkeletonExplorer />
   if (shellError && !snapshot)
     return (
       <section className="page-shell">

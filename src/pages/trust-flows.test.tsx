@@ -336,7 +336,7 @@ describe('trust flows', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('封存目前為 加密')).toBeVisible()
+    expect(await screen.findByText('歸檔目前為 加密')).toBeVisible()
 
     await user.selectOptions(
       screen.getByLabelText('目標模式'),

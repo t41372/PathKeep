@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
-import { LoadingState } from '../../components/primitives/loading-state'
+import { SkeletonInsights } from '../../components/primitives/skeleton'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
 import {
@@ -201,11 +201,7 @@ export function InsightsPage() {
   }
 
   if (loading && !insights) {
-    return (
-      <section className="page-shell">
-        <LoadingState label={insightsT('loadingLabel')} />
-      </section>
-    )
+    return <SkeletonInsights />
   }
 
   if (loadError && !insights) {

@@ -39,13 +39,6 @@ button {
   cursor: pointer;
 }
 
-button,
-input,
-select,
-textarea {
-  outline: none;
-}
-
 ::selection {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
   color: var(--text-bright);
@@ -53,4 +46,9 @@ textarea {
 
 a {
   color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
