@@ -55,3 +55,27 @@
   - 錯誤有明確的錯誤信息和修復建議。
 - 空狀態友好：沒有數據時告訴用戶該怎麼開始。
 - 降級狀態友好：AI 未配置時明確提示，但不阻礙核心備份功能。
+
+---
+
+## 4. Loading States & Skeleton Screens
+
+所有頁面必須提供有意義的載入狀態 — 永遠不允許出現純系統轉圈或空白畫面。
+
+### 各頁面 Loading 規範
+
+| 頁面          | Loading 表現                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Dashboard** | Skeleton stat cards 匹配最終卡片佈局，加上 skeleton recent runs table 與 On This Day placeholder                          |
+| **Explorer**  | Skeleton timeline rail + skeleton list items（約 5–8 行），保持列表區域寬度與排版一致                                     |
+| **Insights**  | Skeleton KPI cards + insight panel placeholders，配合 badge 顯示 "Loading insights..."                                    |
+| **Import**    | 導入 scan / import 過程中以 progress overlay 顯示：包含已處理筆數、預估剩余、可取消按鈕                                   |
+| **AI 操作**   | AI assistant / insights refresh 使用 pulsing status indicator + 描述文字（例如 "正在檢索相關記錄..."、"正在生成洞察..."） |
+
+### 視覺規範
+
+- Skeleton block 使用 `var(--border)` 色彩，搭配 1.5s ease-in-out 的 pulse 動畫。
+- Skeleton 區塊必須匹配最終內容的佈局尺寸，避免載入完成後 layout shift。
+- `prefers-reduced-motion`：skeleton pulse 應變為靜態或極微微的透明度變化，不得使用持續循環動畫。
+- Progress overlay 必須包含進度數字（百分比或筆數）和可讀的狀態說明，不能只有轉圈。
+- AI 操作的 pulsing indicator 必須同時顯示目前階段說明文字，讓用戶知道系統在做什麼。

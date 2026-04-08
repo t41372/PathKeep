@@ -260,3 +260,40 @@
 - v1 的 freshness window 是 7 天；refetch client 採 10 秒 timeout、最多 5 次 redirect，`fetch-error`、`decode-error`、`unsupported-content`、`empty` 都視為 non-blocking derived failure，會留在 run notes / rebuild report，而不會讓核心 archive run 失敗。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
 - 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。
+
+---
+
+## 8. App Lock（應用程式鎖定）
+
+**作為**用戶，**我想要**在啟動和閒置後要求解鎖才能存取 PathKeep，**以便**即使電腦未鎖定，別人也無法瀏覽我的歷史紀錄。
+
+### 需求要點
+
+- App 級鎖定畫面：啟動時以及可配置的閒置逾時（idle timeout）後出現。
+- 支援生物辨識解鎖（macOS Touch ID / Windows Hello），以密碼作為 fallback。
+- 可選：PIN code 作為輕量替代方案。
+- Lock screen 顯示 PathKeep branding、unlock prompt、以及 "Forgot password?" 連結（導向 recovery docs）。
+- 鎖定時所有資料存取完全阻斷 — 不僅是 UI 隱藏，後端 query 也必須被攔截。MCP server 在鎖定狀態下不應回應任何資料請求。
+- Settings 中的配置項：enable / disable toggle、idle timeout duration（預設 5 分鐘，可調 1–60 分鐘）、biometric toggle、PIN code toggle。
+
+### 與 Archive Encryption 的區別
+
+| 層級           | 保護對象              | 啟用條件             | 密碼遺失後果                      |
+| -------------- | --------------------- | -------------------- | --------------------------------- |
+| **App Lock**   | UI session            | 用戶在 Settings 啟用 | 重置 App Lock 不影響 archive 資料 |
+| **Encryption** | 資料庫檔案（at-rest） | 用戶在 Security 啟用 | 密碼遺失 = 資料丟失               |
+
+- 兩者可獨立啟用、也可同時啟用。
+- App Lock 的密碼可以和 encryption 主密碼不同，但 UI 必須清楚提示用戶此區別。
+
+### 平台考量
+
+- **macOS**：透過 LocalAuthentication framework 支援 Touch ID。
+- **Windows**：透過 Windows Hello API 支援指紋 / 臉部辨識 / PIN。
+- **Linux**：生物辨識支援有限，預設以密碼為主。如有可用的 PAM 或 polkit 介面，可研究整合。
+- 需要先完成 `PG-RD-PLAT-006` 的安全研究，釐清 biometric / passcode / session-key security model。
+
+### 導航規則
+
+- 畫面與導航結構 → `docs/design/screens-and-nav.md` §App Lock
+- BACKLOG → `WORK-M4-C`

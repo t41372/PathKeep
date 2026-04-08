@@ -20,6 +20,7 @@
 | **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                                                    |
 | **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                                                          |
 | **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                            |
+| **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；支援生物辨識與密碼解鎖；鎖定時所有資料存取完全阻斷                                                    |
 | **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                       |
 | **Settings**           | 通用設定、語言、AI provider 管理、remote backup PME、derived-state controls、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息 |
 
@@ -82,3 +83,21 @@
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Insights；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Insights 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Settings 是 M4-A 起的 remote backup 與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
+
+### App Lock 畫面與導航規則
+
+- App Lock 是獨立的 utility route（`/lock`），不常駐 sidebar。
+- 啟動時若 App Lock 已啟用，PathKeep 先顯示 lock screen，通過驗證後才載入主 shell。
+- 閒置逾時（idle timeout）觸發時，自動導向 `/lock`，主 shell chrome 完全不渲染。
+- Lock screen 顯示 PathKeep branding、unlock prompt（biometric / password input）、以及 "Forgot password?" 連結（導向 recovery docs）。
+- 鎖定狀態下不僅 UI 隱藏，後端 query 也必須被阻擋 — 避免透過 dev tools / MCP 繞過。
+- Settings 的 App Lock panel：enable / disable toggle、idle timeout duration 選擇、biometric toggle（macOS Touch ID / Windows Hello）、PIN code 作為輕量替代選項。
+- App Lock 與 archive encryption 是**獨立的兩層保護**：App Lock 保護 UI session，encryption 保護資料庫檔案。兩者可獨立啟用。
+- 設計規格 → `docs/features/archive.md` §8
+
+### Profile-Scoped Insights 導航規則
+
+- Insights 頁面支援透過 shell chrome 的共享 profile scope 篩選 insight 資料。
+- 當使用者在 topbar 選擇特定 profile 時，Insights 的 cards、topic timeline、threads 等 surface 都切換為該 profile 的 scoped view。
+- Dashboard 的 aggregate KPIs 仍維持 archive-wide；Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view」。
+- scoped vs all-profile 切換不得產生新的 route；以 query string `profileId` 或沿用 shared scope 處理，保持與 Explorer 的 scope 語法一致。

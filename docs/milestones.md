@@ -28,7 +28,7 @@
 - 基本加密/不加密選擇
 - 審計 manifest + hash chain
 - Archive 快照 safety net（含 retention 上限）
-- 歷史紀錄瀏覽和搜尋（FTS5）
+- 歷史紀錄瀏覽和搜尋（FTS5 + Regex toggle）
 - HTML/JSONL 匯出
 
 📋 詳細待辦 → [plan/m1-solid-archive/README.md](plan/m1-solid-archive/README.md)
@@ -63,5 +63,11 @@
 - S3 遠端備份
 - 地理位置記錄（實驗性）
 - 多平台完整驗證
+- Loading States & Skeleton Screens：全頁面 loading 狀態規範，參見 `docs/design/ux-principles.md` §4
+- Profile-Scoped Insights：洞察系統支援 profile 級別篩選，參見 `docs/features/intelligence.md` §Profile-Scoped Insights
+
+### Post-M4 / Blocked
+
+- [!blocked] App Lock（Biometric / Password）：應用程式鎖定功能，阻於 `PG-RD-PLAT-006` 安全研究。參見 `WORK-M4-C`、`docs/features/archive.md` §8
 
 📋 詳細待辦 → [plan/m4-full-polish/README.md](plan/m4-full-polish/README.md)

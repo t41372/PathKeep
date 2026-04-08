@@ -36,7 +36,11 @@
 ### 搜尋與篩選
 
 - **全文搜尋**（基於 FTS5）：搜尋 URL、標題、搜尋關鍵詞。
-- **Regex 搜尋**：Explorer 提供顯式的正則模式，用於 URL / title 的手動進階檢索。這個模式必須清楚標示自己不是 day-one 快速路徑；UI 先驗證 pattern，再執行 scoped query，invalid regex 時直接阻止查詢並保留目前可見結果。
+- **Regex 搜尋**：Explorer 提供顯式的正則模式，用於 URL / title 的手動進階檢索。
+  - **切換按鈕**：搜尋列旁有 toggle button，讓用戶在 FTS5 keyword 模式和 regex 模式之間切換。切換時保留目前輸入的搜尋字串，但清楚更新 placeholder 提示（如 "Search keywords…" ↔ "Regex pattern…"）。
+  - **Client-side regex 驗證**：每次輸入變更時即時驗證 pattern 合法性。Invalid regex 直接在 UI 阻止查詢並顯示錯誤訊息（如 "Invalid regex: unterminated group"），同時保留目前可見的搜尋結果不被清空。
+  - **URL 參數**：regex 模式透過 `?regex=1` query string 持久化，讓搜尋結果可分享、可書籤、可重新載入。與其他 Explorer filter 參數（`q`、`profileId`、`domain` 等）正交組合。
+  - 這個模式必須清楚標示自己不是 day-one 快速路徑；UI 先驗證 pattern，再執行 scoped query。
 - **複合篩選**，可疊加使用：
   - 按瀏覽器 / Profile
   - 按 Domain（支援子域名匹配）
@@ -51,8 +55,15 @@
 ### Regex 搜尋的效能邊界
 
 - FTS5 仍是 day-one keyword recall 的正式快速路徑；regex 不是它的替代品。
-- regex mode 在 canonical filter（profile / browser / domain / date range / visibility）之後做手動 post-filter，目的是提供精準檢索，而不是宣稱它能在巨量 archive 上取代 FTS。
+- regex mode 在 canonical filter（profile / browser / domain / date range / visibility）之後做 post-filter：先由後端以 canonical filter 縮小結果集，再對縮小後的結果執行 regex 匹配。這確保 regex 永遠只跑在受限的 working set 上，不觸發全表掃描。
+- 對用戶的 UX 含義：regex 搜尋在已縮窄的結果集上通常足夠快，但在無任何 canonical filter 的情況下對大型 archive 可能較慢。UI 應在這種情境下顯示適當的載入指示。
 - 若未來要把 regex 升級成大數據量下也可接受的正式 fast path，必須先新增獨立 research / benchmark，再改文檔與實作。
+
+### Regex 搜尋的已實現狀態
+
+- M1 已交付：Explorer 的 regex toggle、client-side validation、`?regex=1` URL 參數、post-filter 執行路徑。
+- 目前 regex 支援 URL 和 title 欄位的匹配；不支援 page content 或 enrichment 欄位。
+- regex 搜尋結果與 FTS5 搜尋結果共用相同的 list / detail / export 介面，切換模式不改變下游 UX。
 
 ### 單條記錄顯示
 

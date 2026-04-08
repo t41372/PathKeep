@@ -192,6 +192,17 @@
 - full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 
+### Profile-Scoped Insights（Profile 級別洞察篩選）
+
+洞察系統支援以特定瀏覽器 profile 為範圍查看洞察資料，增強現有的 shared profile scope 功能。
+
+- 透過 topbar 的共享 profile scope 選擇特定 profile 後，Insights 頁面的可篩選 surface 自動切換為 scoped view。
+- **可篩選的 surface**：insight cards、topic timeline、threads、query ladders、periodic summaries。
+- **仍維持 archive-wide 的資料**：Dashboard KPIs、storage analytics、growth signal。
+- Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view，部分統計仍為 archive-wide」，避免用戶誤解。
+- 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致。
+- 導航規則 → `docs/design/screens-and-nav.md` §Profile-Scoped Insights
+
 ### V1.5+ 洞察功能
 
 以下功能放在 V1 之後迭代，但架構上第一天就預留位置。
