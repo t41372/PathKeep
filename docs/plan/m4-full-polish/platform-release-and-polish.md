@@ -5,6 +5,8 @@
 
 **2026-04-08 closeout (`WORK-M4-B`)**：這一輪已把多平台發版前 runbook、artifact matrix、release workflow preflight、README / CONTRIBUTING / DEVELOPMENT / TESTING / RELEASE / TROUBLESHOOTING / SUPPORT 文檔、bug report template、以及 Settings 的 build / path diagnostics 全部補齊。blocking path、coverage、`mutation:js`、browser-preview `test:e2e` 與 `desktop:build:debug` 都已通過；`mutation:rust` 作為 pre-release deep check 也已實跑，但暴露出 `browser-history-parser` / `vault-core` AI 的存活 mutants，因此被誠實切出成後續 `WORK-M4-D`，而不是留在模糊 TODO。
 
+**2026-04-08 performance follow-up**：release closeout 後再用真實大型 Chromium profile 做 manual backup，發現匯入雖能完成，但完成後整個 shell 仍明顯不流暢。這代表 M4 的「Performance, Accessibility, And Observability」並沒有因為 release gate 全綠就真的完成，因此另外切出 `WORK-M4-G`。它的 focus problem 不是一般 route 切換 polish，而是 large-archive baseline：whole-app profiling artifact、parser / ingest hot path、Explorer FTS5 recall 契約，以及大型 backup 的 progress / observability。
+
 ---
 
 ## Source Inputs
