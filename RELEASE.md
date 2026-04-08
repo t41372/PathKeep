@@ -47,6 +47,12 @@ bun run mutation:js
 bun run mutation:rust
 ```
 
+If you are explicitly triaging broader Rust workspace debt rather than validating the signed-off contract, also run:
+
+```bash
+bun run mutation:rust:full
+```
+
 Then perform the platform and traceability review from:
 
 - [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md)

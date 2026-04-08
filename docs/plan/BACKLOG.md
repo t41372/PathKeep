@@ -17,7 +17,7 @@
 
 ### M4 — Full Polish
 
-> 2026-04-08：release closeout 的 `mutation:rust` 預演已把 parser / AI deep-check 缺口升級為 `WORK-M4-D`，並直接 promoted 到 `STATUS.md` 當前 focus；`WORK-M4-G` 也已完成並移入 `CHANGELOG.md`。此處只保留尚未 promoted 的後續 backlog 項目。
+> 2026-04-08：`WORK-M4-D` 已完成並移入 `CHANGELOG.md`；`WORK-M4-E` 與 `WORK-M4-F` 已 promoted 到 `STATUS.md` 當前 focus。此處目前只保留尚未 promoted 的後續 backlog 項目。
 
 - [!] **WORK-M4-C** — Secure App Lock And Profile Partitions `[!blocked: 先完成 PG-RD-PLAT-006，釐清 biometric / passcode / session-key security model]`
   - 設計規格：`docs/features/archive.md` §8、`docs/design/screens-and-nav.md` §App Lock
@@ -32,20 +32,6 @@
     1. 定義 app lock 保護範圍：僅 UI session、資料庫解鎖、或兩者結合
     2. 研究 macOS / Windows / Linux 的 biometric / passcode / keyring fallback 與 recovery story
     3. 決定 shared profile scope 是否升級為真正的 per-profile partition，特別是 Insights / Dashboard 的 read model 邊界
-
-- **WORK-M4-E** — Loading States & Skeleton Screens
-  - 設計規格：`docs/design/ux-principles.md` §4
-  - 範圍：
-    1. Dashboard / Explorer / Insights / Import / AI 操作的 skeleton screen 實作
-    2. `var(--border)` pulse animation + `prefers-reduced-motion` fallback
-    3. Progress overlay 包含進度數字與可讀狀態說明
-
-- **WORK-M4-F** — Profile-Scoped Insights
-  - 設計規格：`docs/features/intelligence.md` §Profile-Scoped Insights、`docs/design/screens-and-nav.md` §Profile-Scoped Insights
-  - 範圍：
-    1. Insights 頁面接入 shared profile scope，可篩選 surface 切換為 scoped view
-    2. Scoped vs archive-wide callout 顯示
-    3. 與 Explorer / Assistant 的 scope 語法一致性驗證
 
 ---
 

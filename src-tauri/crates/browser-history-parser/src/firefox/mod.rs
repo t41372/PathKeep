@@ -233,6 +233,7 @@ mod tests {
         assert_eq!(parsed.urls.len(), 1);
         assert_eq!(parsed.visits.len(), 1);
         assert_eq!(parsed.urls[0].url, "https://example.com/firefox");
+        assert!(!parsed.urls[0].hidden);
         assert_eq!(parsed.visits[0].source_visit_id, 11);
         assert_eq!(parsed.visits[0].app_id.as_deref(), Some("firefox"));
         assert!(parsed.warnings.iter().any(|warning| warning.code == "baseline-support"));
@@ -251,6 +252,29 @@ mod tests {
         assert!(inspection.warnings.iter().any(|warning| {
             warning.message.contains("required Firefox table `moz_historyvisits` is missing")
         }));
+    }
+
+    #[test]
+    fn parse_history_requires_firefox_required_tables() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "CREATE TABLE moz_places (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER,
+                   hidden INTEGER,
+                   last_visit_date INTEGER
+                 )",
+                [],
+            )
+            .expect("create places table");
+
+        let error = parse_history(&history_path, 0, 0).expect_err("missing visits should fail");
+        assert!(matches!(error, ParseError::MissingTable { table: "moz_historyvisits" }));
     }
 
     #[test]

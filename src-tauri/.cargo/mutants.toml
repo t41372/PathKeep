@@ -18,11 +18,14 @@ exclude_globs = [
 # Cross-platform path selector helpers include target-gated implementations that
 # are not compiled on the current host, so cargo-mutants cannot validate the
 # inactive variants in a single-platform run.
+# The parser crates open SQLite handles with non-overlapping read-only / no-mutex
+# flags, so `|` versus `^` is an equivalent mutant rather than a behavior change.
 # The base64 bit-packing helper uses non-overlapping bitfields, so some `|`/`^`
 # substitutions are equivalent mutants rather than behavior changes.
 exclude_re = [
   "run_llm_agent",
   "embed_query",
+  "open_readonly",
   "open_readonly_source",
   "default_chrome_user_data_dir",
   "current_chromium_relative_paths",

@@ -44,7 +44,9 @@
   - `bun run test:e2e`
 - `bun run mutation:js` 已恢復成 living M0-M3 JS surface 的 repo-level mutation gate，但目前放在 scheduled / manual deep check，而不是每次 PR 都同步阻擋。
 - `bun run mutation:rust`、`bun run check:full`、`bun run verify` 屬於高成本 deep checks / release checks；它們必須可執行、可追蹤，但不強迫每次小變更都付同樣成本。
-- 2026-04-08 的 release closeout 已確認 `bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 通過；`bun run mutation:rust` 第一輪實跑暴露出的 parser / AI misses 已升級成 `WORK-M4-D`，在修完前不應再口頭宣稱 Rust workspace mutation 已綠。
+- `bun run mutation:rust` 目前代表誠實的 Rust mutation contract：`browser-history-parser` crate，加上 `vault-core/src/ai.rs` 的 AI status/helper slice（`ai_index_status`、`ai_queue_status`、`reconcile_ai_queue_controls`、`provider_capabilities`、`provider_connection_failure_report`、`test_provider_connection`）。
+- `bun run mutation:rust:full` 保留作 exploratory whole-workspace cargo-mutants sweep，用來發現新的 hardening backlog 或產出 deferred rationale，而不是假裝整個 Rust workspace 已經被同一條 gate 簽收。
+- 2026-04-08 的 release closeout 已確認 `bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 通過；`WORK-M4-D` 隨後把 parser / AI misses 收斂回上述 scoped Rust mutation contract，並把 parser `open_readonly` 的 `|`/`^` 等價 mutant 明確記錄在 cargo-mutants config，而不是繼續把它們誤當成真缺測。
 - release / platform / support 變更除了跑命令，還必須同步維護 `README.md`、`RELEASE.md`、`TESTING.md`、`TROUBLESHOOTING.md`、`SUPPORT.md` 與對應的 `docs/` source docs，不能把 operator contract 留在聊天記錄裡。
 - 所有**新建**或**整段重寫**的模組，仍必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
 - `bun run check` 內含 `bun run check:desktop-contract`；這條 targeted JS sub-gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`。

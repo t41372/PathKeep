@@ -432,6 +432,39 @@ mod tests {
             .expect("insert bitmap");
     }
 
+    fn write_partial_favicons_fixture(path: &Path) {
+        let connection = Connection::open(path).expect("open partial favicons fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE favicons (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   icon_type INTEGER
+                 );
+                 CREATE TABLE favicon_bitmaps (
+                   icon_id INTEGER NOT NULL,
+                   width INTEGER,
+                   height INTEGER,
+                   last_updated INTEGER,
+                   image_data BLOB
+                 );",
+            )
+            .expect("create partial favicons schema");
+        connection
+            .execute(
+                "INSERT INTO favicons (id, url, icon_type) VALUES (?1, ?2, ?3)",
+                params![3_i64, "https://example.com/favicon.ico", 1_i64],
+            )
+            .expect("insert partial favicon");
+        connection
+            .execute(
+                "INSERT INTO favicon_bitmaps (icon_id, width, height, last_updated, image_data)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![3_i64, 32_i64, 32_i64, 13_000_000_002_000_000_i64, vec![1_u8, 2, 3]],
+            )
+            .expect("insert partial bitmap");
+    }
+
     #[test]
     fn parse_history_returns_incremental_rows_from_provided_paths() {
         let directory = tempdir().expect("tempdir");
@@ -452,7 +485,9 @@ mod tests {
         assert_eq!(parsed.search_terms.len(), 1);
         assert_eq!(parsed.favicons.len(), 1);
         assert_eq!(parsed.urls[0].url, "https://example.com/article");
+        assert!(!parsed.urls[0].hidden);
         assert_eq!(parsed.search_terms[0].normalized_term, "pathkeep");
+        assert!(parsed.visits[0].is_known_to_sync);
         assert_eq!(parsed.favicons[0].width, 32);
     }
 
@@ -471,6 +506,53 @@ mod tests {
         assert!(inspection.warnings.iter().any(|warning| {
             warning.message.contains("required Chromium table `urls` is missing")
         }));
+    }
+
+    #[test]
+    fn parse_history_requires_urls_and_visits_tables() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "CREATE TABLE urls (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER NOT NULL,
+                   typed_count INTEGER NOT NULL,
+                   last_visit_time INTEGER NOT NULL,
+                   hidden INTEGER NOT NULL
+                 )",
+                [],
+            )
+            .expect("create urls table");
+
+        let error = parse_history(
+            &HistoryDatabaseSet { history_path, favicons_path: None },
+            ChromiumReadCursor::default(),
+        )
+        .expect_err("missing visits should fail");
+        assert!(matches!(error, ParseError::MissingTable { table: "visits" }));
+    }
+
+    #[test]
+    fn parse_history_skips_favicons_when_support_tables_are_missing() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        let favicons_path = directory.path().join("Favicons");
+        write_history_fixture(&history_path);
+        write_partial_favicons_fixture(&favicons_path);
+
+        let parsed = parse_history(
+            &HistoryDatabaseSet { history_path, favicons_path: Some(favicons_path) },
+            ChromiumReadCursor::default(),
+        )
+        .expect("parse history");
+
+        assert!(parsed.favicons.is_empty());
+        assert_eq!(parsed.urls.len(), 1);
+        assert_eq!(parsed.visits.len(), 1);
     }
 
     #[test]

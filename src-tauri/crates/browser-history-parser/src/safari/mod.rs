@@ -260,6 +260,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_history_requires_safari_required_tables() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History.db");
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "CREATE TABLE history_items (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL
+                 )",
+                [],
+            )
+            .expect("create history items table");
+
+        let error = parse_history(&history_path, 0, 0).expect_err("missing visits should fail");
+        assert!(matches!(error, ParseError::MissingTable { table: "history_visits" }));
+    }
+
+    #[test]
     fn safari_time_helpers_keep_dates_stable() {
         assert_eq!(safari_time_to_unix_ms(0.0), 978_307_200_000);
         assert_eq!(unix_ms_to_safari_time(978_307_200_000), 0.0);

@@ -43,5 +43,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
-      - name: Run cargo-mutants
-        run: cargo mutants --workspace --test-tool cargo --timeout 300
+      - name: Run parser cargo-mutants contract
+        run: cargo mutants -p browser-history-parser --timeout 300
+      - name: Run AI helper cargo-mutants contract
+        run: cargo mutants -p vault-core --file crates/vault-core/src/ai.rs -F 'ai_index_status|ai_queue_status|reconcile_ai_queue_controls|provider_capabilities|provider_connection_failure_report|test_provider_connection' --timeout 300

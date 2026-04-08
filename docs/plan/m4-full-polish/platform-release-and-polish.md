@@ -9,6 +9,8 @@
 
 **2026-04-08 performance closeout (`WORK-M4-G`)**：Explorer keyword recall 現在走 `history_search` FTS5 projection，不再用 `LIKE` 假裝 large-archive fast path；backup flow 也新增了 profile-scoped phase progress event，讓 shell overlay 可明確顯示目前正在處理哪個 profile / phase。配合 [large-archive-performance-runbook.md](large-archive-performance-runbook.md) 的 artifact bundle，下一輪 profiling 已有固定的 webview trace、Rust sample 與 SQLite query-plan 收集語法。
 
+**2026-04-08 mutation closeout (`WORK-M4-D`)**：parser / AI 的 first-round cargo-mutants misses 已收斂成可兌現的 signed-off contract：`browser-history-parser` crate，加上 `vault-core/src/ai.rs` 的 status/helper slice（`ai_index_status`、`ai_queue_status`、`reconcile_ai_queue_controls`、`provider_capabilities`、`provider_connection_failure_report`、`test_provider_connection`）。`bun run mutation:rust` 與 GitHub `rust-mutation` workflow 現在對這個 contract 負責；`bun run mutation:rust:full` 則退回 exploratory whole-workspace sweep，用來產出後續 backlog 或 deferred rationale。parser `open_readonly` 的 `|` / `^` 等價 mutant 也已在 cargo-mutants config 中明確註記。
+
 ---
 
 ## Source Inputs

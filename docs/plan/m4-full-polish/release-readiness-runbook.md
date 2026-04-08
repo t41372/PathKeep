@@ -106,6 +106,12 @@ bun run build
 bun run desktop:build:debug
 ```
 
+If you are explicitly doing broader Rust mutation triage beyond the signed-off parser + AI helper contract, also run:
+
+```bash
+bun run mutation:rust:full
+```
+
 Then perform a traceability sweep:
 
 - root docs point to the right commands and support stance

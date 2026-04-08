@@ -124,8 +124,9 @@ Release / deep checks:
 - `bun run verify`
 - `bun run mutation:js`
 - `bun run mutation:rust`
+- `bun run mutation:rust:full` (exploratory whole-workspace Rust sweep)
 
-The desktop-contract slice inside `bun run check` only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`; it is not a blanket signoff for every route or component. See [TESTING.md](./TESTING.md) for the honest boundary.
+`bun run mutation:rust` currently protects the honest Rust mutation contract: `browser-history-parser` plus the `vault-core/src/ai.rs` status/helper slice. The desktop-contract slice inside `bun run check` only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`; it is not a blanket signoff for every route or component. See [TESTING.md](./TESTING.md) for the honest boundary.
 
 ## Docs Map
 

@@ -59,6 +59,21 @@
 
 這條 gate 的目的是誠實保護桌面命令邊界，而不是假裝 `vault-core` / `vault-worker` / parser 巨型模組都已達到 repo-wide 100% coverage。那些 deeper crates 目前由 workspace Rust tests、targeted Rust acceptance tests，以及下方的 deep checks 補強。
 
+### Rust mutation quality surface
+
+`bun run mutation:rust` 與 GitHub `Mutation` workflow 的 `rust-mutation` job 目前對齊以下 Rust mutation contract：
+
+- `browser-history-parser` crate
+- `src-tauri/crates/vault-core/src/ai.rs` 的 status/helper slice：
+  - `ai_index_status`
+  - `ai_queue_status`
+  - `reconcile_ai_queue_controls`
+  - `provider_capabilities`
+  - `provider_connection_failure_report`
+  - `test_provider_connection`
+
+這條 contract 的目標是先把 parser 與 AI control-plane/status surface 收回可驗證狀態。`bun run mutation:rust:full` 保留作 exploratory whole-workspace sweep，用來挖出後續 backlog 或 deferred rationale；它不是目前的 signed-off mutation gate。
+
 ---
 
 ## Scheduled / Release Gates
@@ -66,11 +81,12 @@
 | Gate                             | Command / Workflow                                                       | 用途                                                           | 備註                                                                                                     |
 | -------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | JS mutation sweep                | `bun run mutation:js` / GitHub `Mutation` workflow `javascript-mutation` | 對 living M0-M3 JS quality surface 做 repo-level mutation gate | 目前 break threshold 是 80。屬於 scheduled / manual deep check；進 M4 與 release closeout 前必須能跑通。 |
-| Rust mutation sweep              | `bun run mutation:rust` / GitHub `Mutation` workflow `rust-mutation`     | 對 Rust workspace 做高成本 mutation deep check                 | 不在每次 PR blocking path；屬於 scheduled / manual / pre-release gate。                                  |
+| Rust mutation contract           | `bun run mutation:rust` / GitHub `Mutation` workflow `rust-mutation`     | `browser-history-parser` + `vault-core` AI status/helper slice | 不在每次 PR blocking path；屬於 scheduled / manual / pre-release gate。                                  |
+| Exploratory Rust mutation sweep  | `bun run mutation:rust:full`                                             | whole-workspace cargo-mutants discovery run                    | 用於 backlog / deferred rationale，不是目前的 signed-off gate。                                          |
 | Full local sweep                 | `bun run check:full`                                                     | 本地一次跑 `check` + coverage + mutation + e2e                 | 適合大 closeout 或 merge 前自我驗收。                                                                    |
 | Release-style local verification | `bun run verify`                                                         | `check:full` + `build` + `desktop:build:debug`                 | 作為 release / milestone closeout 的本地預演。                                                           |
 
-> 2026-04-08 release closeout 註記：`bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 均已通過；`bun run mutation:rust` 的 pre-release rehearsal 則暴露出 `browser-history-parser` / `vault-core` AI 的存活 mutants，現已提升為 `WORK-M4-D`，所以不要把這條 deep check 誤寫成已完成。
+> 2026-04-08 closeout 註記：`bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 均已通過；隨後 `WORK-M4-D` 把 Rust mutation baseline 收斂成誠實的 signed-off contract：parser crate + AI status/helper slice。更廣的 `bun run mutation:rust:full` 仍保留給 exploratory whole-workspace triage，不再被誤報成已簽收 gate。
 
 ---
 

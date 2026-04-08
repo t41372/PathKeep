@@ -286,10 +286,6 @@ pub fn ai_index_status(
             embedding_provider_id: config.ai.embedding_provider_id.clone(),
             queue_paused: default_queue_status.paused,
             queue_concurrency: default_queue_status.concurrency,
-            queued_jobs: default_queue_status.queued,
-            running_jobs: default_queue_status.running,
-            failed_jobs: default_queue_status.failed,
-            recent_jobs: default_queue_status.recent_jobs,
             warning: if config.ai.enabled {
                 Some("Initialize the archive before using AI analysis features.".to_string())
             } else {
@@ -529,7 +525,7 @@ pub async fn test_provider_connection(
         .await
         .map(|_| "Provider completed a short chat probe successfully.".to_string()),
     };
-    let latency_ms = started.elapsed().as_millis() as u64;
+    let latency_ms = (started.elapsed().as_millis() as u64).max(1);
     match probe_result {
         Ok(message) => Ok(AiProviderConnectionTestReport {
             provider_id: provider.config.id.clone(),
@@ -2172,6 +2168,39 @@ mod tests {
         (paths, config, connection)
     }
 
+    fn seed_failed_index_ledger(
+        connection: &Connection,
+        provider: &AiProviderRuntime,
+        failure_reason: &str,
+    ) {
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO ai_index_ledger (
+                   provider_id,
+                   model,
+                   sidecar_table,
+                   index_version,
+                   state,
+                   source_watermark,
+                   last_run_id,
+                   build_started_at,
+                   build_finished_at,
+                   last_indexed_at,
+                   last_cleared_at,
+                   last_failure_at,
+                   failure_reason
+                 )
+                 VALUES (?1, ?2, 'ai_embeddings', 'test-v1', 'failed', NULL, NULL, NULL, NULL, NULL, NULL, ?3, ?4)",
+                params![
+                    provider.config.id,
+                    provider.config.default_model,
+                    now_rfc3339(),
+                    failure_reason,
+                ],
+            )
+            .expect("insert failed ledger");
+    }
+
     #[test]
     fn cosine_similarity_handles_empty_vectors() {
         assert_eq!(cosine_similarity(&[], &[]), 0.0);
@@ -2280,14 +2309,23 @@ mod tests {
         let mut config = base_config();
         config.ai.mcp_enabled = true;
         config.ai.skill_enabled = true;
+        config.ai.job_queue_paused = true;
+        config.ai.job_queue_concurrency = 7;
 
         let status = ai_index_status(&paths, &config, None).expect("status");
         assert!(status.enabled);
         assert!(status.assistant_enabled);
         assert!(status.mcp_enabled);
         assert!(status.skill_enabled);
+        assert_eq!(status.state, "blocked");
         assert_eq!(status.llm_provider_id.as_deref(), Some("llm"));
         assert_eq!(status.embedding_provider_id.as_deref(), Some("embed"));
+        assert!(status.queue_paused);
+        assert_eq!(status.queue_concurrency, 7);
+        assert_eq!(status.queued_jobs, 0);
+        assert_eq!(status.running_jobs, 0);
+        assert_eq!(status.failed_jobs, 0);
+        assert!(status.recent_jobs.is_empty());
         assert_eq!(
             status.warning.as_deref(),
             Some("Initialize the archive before using AI analysis features.")
@@ -2306,6 +2344,7 @@ mod tests {
 
         let status = ai_index_status(&paths, &config, None).expect("status");
         assert!(status.ready);
+        assert_eq!(status.state, "ready");
         assert_eq!(status.indexed_items, 1);
         assert!(status.last_indexed_at.is_some());
     }
@@ -2334,6 +2373,7 @@ mod tests {
 
         let status = ai_index_status(&paths, &config, None).expect("status");
         assert!(!status.ready);
+        assert_eq!(status.state, "empty");
         assert_eq!(status.indexed_items, 0);
         assert!(status.last_indexed_at.is_none());
         assert_eq!(
@@ -2347,7 +2387,219 @@ mod tests {
         disabled.ai.enabled = false;
         let disabled_status = ai_index_status(&paths, &disabled, None).expect("disabled status");
         assert!(!disabled_status.ready);
+        assert_eq!(disabled_status.state, "disabled");
         assert_eq!(disabled_status.warning, None);
+    }
+
+    #[test]
+    fn ai_index_status_covers_degraded_queued_paused_rebuilding_and_failed_states() {
+        let provider = embedding_provider();
+
+        let (paths, mut degraded_config, _connection) = prepared_archive();
+        degraded_config.ai.embedding_provider_id = None;
+        let degraded = ai_index_status(&paths, &degraded_config, None).expect("degraded status");
+        assert_eq!(degraded.state, "degraded");
+        assert!(!degraded.ready);
+        assert_eq!(degraded.indexed_items, 0);
+        assert!(degraded.warning.is_some());
+
+        let (paths, config, connection) = prepared_archive();
+        ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+            .expect("enqueue queued job");
+        let queued = ai_index_status(&paths, &config, None).expect("queued status");
+        assert_eq!(queued.state, "queued");
+        assert_eq!(queued.queued_jobs, 1);
+        assert_eq!(queued.running_jobs, 0);
+        assert_eq!(queued.failed_jobs, 0);
+        assert_eq!(queued.recent_jobs.len(), 1);
+
+        let (paths, mut paused_config, connection) = prepared_archive();
+        paused_config.ai.job_queue_paused = true;
+        ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), true)
+            .expect("enqueue paused job");
+        let paused = ai_index_status(&paths, &paused_config, None).expect("paused status");
+        assert_eq!(paused.state, "paused");
+        assert!(paused.queue_paused);
+        assert_eq!(paused.queued_jobs, 1);
+
+        let (paths, mut paused_empty_config, _connection) = prepared_archive();
+        paused_empty_config.ai.job_queue_paused = true;
+        let paused_empty =
+            ai_index_status(&paths, &paused_empty_config, None).expect("paused empty status");
+        assert_eq!(paused_empty.state, "empty");
+
+        let (paths, config, connection) = prepared_archive();
+        let queued_job =
+            ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+                .expect("enqueue job for rebuild");
+        let running_job = ai_queue::claim_ai_job_by_id(&connection, queued_job.id, 300)
+            .expect("claim job")
+            .expect("running job");
+        let rebuilding = ai_index_status(&paths, &config, None).expect("rebuilding status");
+        assert_eq!(rebuilding.state, "rebuilding");
+        assert_eq!(rebuilding.running_jobs, 1);
+        assert!(rebuilding.recent_jobs.iter().any(|job| job.id == running_job.id));
+
+        let (paths, config, connection) = prepared_archive();
+        seed_failed_index_ledger(&connection, &provider, "embedding run failed");
+        let failed = ai_index_status(&paths, &config, None).expect("failed status");
+        assert_eq!(failed.state, "failed");
+        assert_eq!(failed.warning.as_deref(), Some("embedding run failed"));
+    }
+
+    #[test]
+    fn ai_queue_status_reflects_config_and_recent_jobs() {
+        let paths = test_paths();
+        let mut config = base_config();
+        config.ai.job_queue_paused = true;
+        config.ai.job_queue_concurrency = 3;
+        let missing_status = ai_queue_status(&paths, &config, None).expect("missing queue status");
+        assert!(missing_status.paused);
+        assert_eq!(missing_status.concurrency, 3);
+        assert_eq!(missing_status.queued, 0);
+        assert!(missing_status.recent_jobs.is_empty());
+
+        let (paths, mut config, connection) = prepared_archive();
+        config.ai.job_queue_paused = false;
+        config.ai.job_queue_concurrency = 2;
+        ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+            .expect("enqueue queued job");
+        ai_queue::enqueue_assistant_job(
+            &connection,
+            &AiAssistantRequest {
+                question: "What changed?".to_string(),
+                profile_id: None,
+                domain: None,
+            },
+            "llm",
+            Some("embed"),
+            true,
+        )
+        .expect("enqueue paused assistant job");
+        let status = ai_queue_status(&paths, &config, None).expect("queue status");
+        assert!(!status.paused);
+        assert_eq!(status.concurrency, 2);
+        assert_eq!(status.queued, 2);
+        assert_eq!(status.running, 0);
+        assert_eq!(status.failed, 0);
+        assert_eq!(status.recent_jobs.len(), 2);
+        assert!(status.recent_jobs.iter().any(|job| job.state == "queued"));
+        assert!(status.recent_jobs.iter().any(|job| job.state == "paused"));
+
+        let (paths, mut uninitialized, connection) = prepared_archive();
+        uninitialized.initialized = false;
+        uninitialized.ai.job_queue_paused = true;
+        ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+            .expect("enqueue job for uninitialized queue");
+        let still_default =
+            ai_queue_status(&paths, &uninitialized, None).expect("uninitialized queue status");
+        assert!(still_default.paused);
+        assert_eq!(still_default.queued, 0);
+        assert!(still_default.recent_jobs.is_empty());
+    }
+
+    #[test]
+    fn reconcile_ai_queue_controls_pauses_resumes_and_noops() {
+        let (paths, config, connection) = prepared_archive();
+        let queued_job =
+            ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+                .expect("enqueue queued job");
+
+        let mut paused = config.clone();
+        paused.ai.job_queue_paused = true;
+        reconcile_ai_queue_controls(&paths, &paused, &paused, None).expect("no-op reconcile");
+        let unchanged =
+            ai_queue::load_ai_queue_status(&connection, false, 1, 5).expect("load jobs");
+        assert!(
+            unchanged
+                .recent_jobs
+                .iter()
+                .any(|job| job.id == queued_job.id && job.state == "queued")
+        );
+
+        reconcile_ai_queue_controls(&paths, &config, &paused, None).expect("pause reconcile");
+        let paused_status =
+            ai_queue::load_ai_queue_status(&connection, true, 1, 5).expect("load paused jobs");
+        assert!(
+            paused_status
+                .recent_jobs
+                .iter()
+                .any(|job| job.id == queued_job.id && job.state == "paused")
+        );
+
+        reconcile_ai_queue_controls(&paths, &paused, &config, None).expect("resume reconcile");
+        let resumed =
+            ai_queue::load_ai_queue_status(&connection, false, 1, 5).expect("load resumed jobs");
+        assert!(
+            resumed.recent_jobs.iter().any(|job| job.id == queued_job.id && job.state == "queued")
+        );
+
+        let (paths, config, connection) = prepared_archive();
+        let queued_job =
+            ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+                .expect("enqueue queued job");
+        let mut not_initialized = config.clone();
+        not_initialized.initialized = false;
+        let mut paused_next = config.clone();
+        paused_next.initialized = false;
+        paused_next.ai.job_queue_paused = true;
+        reconcile_ai_queue_controls(&paths, &not_initialized, &paused_next, None)
+            .expect("skip reconcile for uninitialized archive");
+        let skipped =
+            ai_queue::load_ai_queue_status(&connection, false, 1, 5).expect("load skipped jobs");
+        assert!(
+            skipped.recent_jobs.iter().any(|job| job.id == queued_job.id && job.state == "queued")
+        );
+    }
+
+    #[test]
+    fn provider_helpers_report_capabilities_and_failure_metadata() {
+        let embedding_config = embedding_provider().config;
+        let capabilities = provider_capabilities(&embedding_config);
+        assert!(capabilities.supports_embeddings);
+        assert!(!capabilities.supports_chat);
+        assert!(!capabilities.supports_streaming);
+        assert!(!capabilities.supports_tool_use);
+        assert!(!capabilities.supports_structured_output);
+
+        let failure = provider_connection_failure_report(&embedding_config, "unauthorized");
+        assert_eq!(failure.provider_id, "embed");
+        assert_eq!(failure.purpose, "embedding");
+        assert_eq!(failure.model, "text-embedding-3-small");
+        assert!(!failure.ok);
+        assert_eq!(failure.latency_ms, 0);
+        assert!(failure.capabilities.supports_embeddings);
+        assert_eq!(failure.error_code.as_deref(), Some("secret-missing"));
+        assert!(failure.action_hint.is_some());
+        assert!(failure.retry_hint.is_some());
+        assert!(failure.warnings.is_empty());
+        assert_eq!(failure.message, "unauthorized");
+    }
+
+    #[test]
+    fn test_provider_connection_reports_success_fields_and_anthropic_warning() {
+        let runtime = Runtime::new().expect("runtime");
+        let report = runtime
+            .block_on(test_provider_connection(&llm_provider_with_format(
+                AiRequestFormat::Anthropic,
+            )))
+            .expect("connection report");
+        assert_eq!(report.provider_id, "llm");
+        assert_eq!(report.purpose, "llm");
+        assert_eq!(report.model, "gpt-4.1-mini");
+        assert!(report.ok);
+        assert!(report.latency_ms >= 1);
+        assert!(report.capabilities.supports_chat);
+        assert!(!report.capabilities.supports_embeddings);
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("chat-only"));
+        assert!(report.message.contains("successfully"));
+
+        let openai = runtime
+            .block_on(test_provider_connection(&llm_provider_with_format(AiRequestFormat::OpenAi)))
+            .expect("openai connection report");
+        assert!(openai.ok);
+        assert!(openai.warnings.is_empty());
     }
 
     #[test]

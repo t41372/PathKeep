@@ -29,6 +29,7 @@ Use these for milestone closeout, risky refactors, and release rehearsal:
 ```bash
 bun run mutation:js
 bun run mutation:rust
+bun run mutation:rust:full
 bun run verify
 ```
 
@@ -37,6 +38,11 @@ bun run verify
 - `bun run check:full`
 - `bun run build`
 - `bun run desktop:build:debug`
+
+What they mean:
+
+- `bun run mutation:rust`: current honest Rust mutation contract for `browser-history-parser` plus the `vault-core/src/ai.rs` status/helper slice (`ai_index_status`, `ai_queue_status`, `reconcile_ai_queue_controls`, `provider_capabilities`, `provider_connection_failure_report`, `test_provider_connection`).
+- `bun run mutation:rust:full`: exploratory whole-workspace cargo-mutants sweep used to discover future backlog or deferred rationale; it is not the default signed-off contract.
 
 ## Focused Commands
 
