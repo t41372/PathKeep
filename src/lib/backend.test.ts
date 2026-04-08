@@ -148,6 +148,19 @@ describe('backend facade', () => {
         limit: 10,
       }),
     ).resolves.toMatchObject({ total: 1 })
+    await expect(
+      backend.queryHistory({
+        q: '^https://developer\\.chrome\\.com/.+sqlite$',
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        regexMode: true,
+      }),
+    ).resolves.toMatchObject({ total: 1 })
     const firstHistoryPage = await backend.queryHistory({
       q: null,
       domain: null,
@@ -179,6 +192,15 @@ describe('backend facade', () => {
       items: [expect.objectContaining({ id: 2 })],
       nextCursor: null,
     })
+    await expect(
+      backend.exportHistory({
+        query: {
+          q: 'chromium.+history',
+          regexMode: true,
+        },
+        format: 'jsonl',
+      }),
+    ).resolves.toMatchObject({ format: 'jsonl', count: 1 })
     await expect(
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
     ).resolves.toMatchObject({ format: 'jsonl', count: 1 })

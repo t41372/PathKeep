@@ -516,6 +516,7 @@ pub struct HistoryQuery {
     pub sort: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    pub regex_mode: Option<bool>,
 }
 
 impl Default for HistoryQuery {
@@ -530,6 +531,7 @@ impl Default for HistoryQuery {
             sort: Some("newest".to_string()),
             limit: Some(150),
             cursor: None,
+            regex_mode: Some(false),
         }
     }
 }

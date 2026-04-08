@@ -14,6 +14,10 @@ import {
   evidenceHref,
   selectedAiProvider,
 } from '../../lib/intelligence'
+import {
+  profileIdLabel,
+  useProfileScope,
+} from '../../lib/profile-scope-context'
 import type {
   AiAssistantResponse,
   AiProviderConnectionTestReport,
@@ -52,6 +56,7 @@ function renderParagraphs(content: string) {
 export function AssistantPage() {
   const { language, ns, t } = useI18n()
   const { refreshAppData, refreshKey, snapshot } = useShellData()
+  const { activeProfileId } = useProfileScope()
   const [searchParams, setSearchParams] = useSearchParams()
   const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [input, setInput] = useState(searchParams.get('question') ?? '')
@@ -274,6 +279,7 @@ export function AssistantPage() {
     try {
       const response = await backend.askAiAssistant({
         question,
+        profileId: activeProfileId,
       })
       upsertAssistantMessage(response.jobId, response)
       await refreshQueue()
@@ -403,6 +409,14 @@ export function AssistantPage() {
             </div>
             <div className="panel-body intelligence-stack">
               <div className="intelligence-stat-row">
+                <div className="summary-stat">
+                  <span className="dim">{t('common.profileScope')}</span>
+                  <span className="mono">
+                    {activeProfileId
+                      ? profileIdLabel(activeProfileId)
+                      : t('common.profileAllProfiles')}
+                  </span>
+                </div>
                 <div className="summary-stat">
                   <span className="dim">{assistantT('llm')}</span>
                   <span className="mono">

@@ -10063,6 +10063,7 @@ dependencies = [
  "lancedb",
  "mockito",
  "plist",
+ "regex",
  "reqwest 0.12.28",
  "rig-core",
  "rusqlite",

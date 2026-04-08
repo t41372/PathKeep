@@ -4,26 +4,29 @@ import { describe, expect, test } from 'vitest'
 import { onboardingScreen } from '../../app/router'
 import { ShellDataProvider } from '../../app/shell-data'
 import { I18nProvider } from '../../lib/i18n'
+import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { Topbar } from './index'
 
 describe('Topbar', () => {
   test('renders the active screen metadata and shell actions', async () => {
     render(
       <I18nProvider>
-        <ShellDataProvider>
-          <MemoryRouter>
-            <Topbar
-              screen={{
-                ...onboardingScreen,
-                title: 'Dashboard',
-                subtitle: 'Archive overview & system status',
-                labelKey: undefined,
-                titleKey: undefined,
-                subtitleKey: undefined,
-              }}
-            />
-          </MemoryRouter>
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  title: 'Dashboard',
+                  subtitle: 'Archive overview & system status',
+                  labelKey: undefined,
+                  titleKey: undefined,
+                  subtitleKey: undefined,
+                }}
+              />
+            </MemoryRouter>
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nProvider>,
     )
 
@@ -31,6 +34,10 @@ describe('Topbar', () => {
     expect(
       screen.getByRole('searchbox', { name: 'Search history' }),
     ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Switch profile scope' }),
+    ).toBeVisible()
+    expect(screen.getByText('All profiles')).toBeVisible()
     expect(
       await screen.findByRole('button', { name: /Initialize first/ }),
     ).toBeVisible()

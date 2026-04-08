@@ -20,6 +20,10 @@ import {
   evidenceHref,
 } from '../../lib/intelligence'
 import {
+  profileIdLabel,
+  useProfileScope,
+} from '../../lib/profile-scope-context'
+import {
   storageAnalyticsSlices,
   storageGrowthEvidence,
 } from '../../lib/storage-analytics'
@@ -51,6 +55,7 @@ function flattenInsightEvidence(snapshot: InsightSnapshot) {
 export function InsightsPage() {
   const { language, ns } = useI18n()
   const { dashboard, refreshAppData, refreshKey, snapshot } = useShellData()
+  const { activeProfileId } = useProfileScope()
   const [insights, setInsights] = useState<InsightSnapshot | null>(null)
   const [explanation, setExplanation] = useState<InsightExplanation | null>(
     null,
@@ -62,12 +67,16 @@ export function InsightsPage() {
 
   const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
+  const commonT = ns('common')
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     const load = async () => {
       try {
-        const result = await backend.loadInsights({ fullRebuild: false })
+        const result = await backend.loadInsights({
+          fullRebuild: false,
+          profileId: activeProfileId,
+        })
         if (!cancelled) {
           setInsights(result)
           setLoadError(null)
@@ -86,7 +95,7 @@ export function InsightsPage() {
     return () => {
       cancelled = true
     }
-  }, [insightsT, refreshKey])
+  }, [activeProfileId, insightsT, refreshKey])
 
   const aiMeta = snapshot
     ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
@@ -137,8 +146,14 @@ export function InsightsPage() {
     setAction(insightsT('refreshingAction'))
     setLoadError(null)
     try {
-      await backend.runInsightsNow({ fullRebuild: false })
-      const nextInsights = await backend.loadInsights({ fullRebuild: false })
+      await backend.runInsightsNow({
+        fullRebuild: false,
+        profileId: activeProfileId,
+      })
+      const nextInsights = await backend.loadInsights({
+        fullRebuild: false,
+        profileId: activeProfileId,
+      })
       setInsights(nextInsights)
       await refreshAppData()
     } catch (error) {
@@ -160,7 +175,7 @@ export function InsightsPage() {
       const nextExplanation = await backend.explainInsight({
         insightId: card.cardId,
         insightKind: card.kind,
-        profileId: card.profileId ?? null,
+        profileId: card.profileId ?? activeProfileId,
         windowDays: card.windowDays,
       })
       setExplanation(nextExplanation)
@@ -247,6 +262,12 @@ export function InsightsPage() {
           }
         />
       )}
+
+      {activeProfileId ? (
+        <p className="mono-support">
+          {commonT('profileScope')}: {profileIdLabel(activeProfileId)}
+        </p>
+      ) : null}
 
       {loadError ? (
         <ErrorState

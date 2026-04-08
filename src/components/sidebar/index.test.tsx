@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { ShellDataProvider } from '../../app/shell-data'
 import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
+import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { Sidebar } from './index'
 
 describe('Sidebar', () => {
@@ -24,9 +25,11 @@ describe('Sidebar', () => {
 
     render(
       <I18nProvider>
-        <ShellDataProvider>
-          <RouterProvider router={router} />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <RouterProvider router={router} />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nProvider>,
     )
 
@@ -41,6 +44,7 @@ describe('Sidebar', () => {
     expect(await screen.findByText('Archive not initialized')).toBeVisible()
     expect(await screen.findByText('Encrypted archive')).toBeVisible()
     expect(screen.getByText('0 B')).toBeVisible()
+    expect(screen.getByText('Profile scope: All profiles')).toBeVisible()
   })
 
   test('renders the optional assistant badge', () => {
@@ -56,9 +60,11 @@ describe('Sidebar', () => {
 
     render(
       <I18nProvider>
-        <ShellDataProvider>
-          <RouterProvider router={router} />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <RouterProvider router={router} />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nProvider>,
     )
 
@@ -78,9 +84,11 @@ describe('Sidebar', () => {
 
     render(
       <I18nProvider>
-        <ShellDataProvider>
-          <RouterProvider router={router} />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <RouterProvider router={router} />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nProvider>,
     )
 
@@ -105,9 +113,11 @@ describe('Sidebar', () => {
 
     render(
       <I18nProvider>
-        <ShellDataProvider>
-          <RouterProvider router={router} />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <RouterProvider router={router} />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nProvider>,
     )
 

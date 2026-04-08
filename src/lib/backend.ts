@@ -1323,7 +1323,8 @@ function filterMockHistory(
   state: MockBackendState,
   query: HistoryQuery | undefined,
 ): HistoryQueryResponse {
-  const q = query?.q?.trim().toLowerCase() ?? ''
+  const rawQuery = query?.q?.trim() ?? ''
+  const q = rawQuery.toLowerCase()
   const domain = query?.domain?.trim().toLowerCase() ?? ''
   const profileId = query?.profileId ?? null
   const browserKind = query?.browserKind ?? null
@@ -1332,6 +1333,7 @@ function filterMockHistory(
   const sort = query?.sort ?? 'newest'
   const limit = Math.max(1, Math.min(query?.limit ?? 150, 1000))
   const cursor = parseMockHistoryCursor(query?.cursor)
+  const regex = query?.regexMode && rawQuery ? new RegExp(rawQuery, 'i') : null
 
   const filteredItems = [...state.history.items]
     .filter((item) => !profileId || item.profileId === profileId)
@@ -1343,8 +1345,10 @@ function filterMockHistory(
     .filter(
       (item) =>
         !q ||
-        item.url.toLowerCase().includes(q) ||
-        (item.title ?? '').toLowerCase().includes(q),
+        (regex
+          ? regex.test(item.url) || regex.test(item.title ?? '')
+          : item.url.toLowerCase().includes(q) ||
+            (item.title ?? '').toLowerCase().includes(q)),
     )
     .filter((item) => !domain || item.domain.toLowerCase().includes(domain))
     .filter((item) => !startTimeMs || item.visitTime >= startTimeMs)

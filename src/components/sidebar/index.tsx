@@ -2,6 +2,10 @@ import { sidebarSections } from '../../app/router'
 import { useShellData } from '../../app/shell-data-context'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import {
+  profileIdLabel,
+  useProfileScope,
+} from '../../lib/profile-scope-context'
 import { BrandMark } from '../brand-mark'
 import { SidebarNavItem } from './nav-item'
 
@@ -13,6 +17,7 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { language, t } = useI18n()
   const { buildInfo, dashboard, snapshot } = useShellData()
+  const { activeProfileId } = useProfileScope()
 
   const archiveLabel = snapshot?.archiveStatus.warning
     ? t('navigation.archiveAttentionNeeded')
@@ -26,6 +31,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     dashboard?.storage.archiveDatabaseBytes,
     language,
   )
+  const activeProfile = snapshot?.browserProfiles.find(
+    (profile) => profile.profileId === activeProfileId,
+  )
+  const profileScopeLabel = activeProfileId
+    ? (activeProfile?.profileName ?? profileIdLabel(activeProfileId))
+    : t('common.profileAllProfiles')
 
   function toggleTheme() {
     const html = document.documentElement
@@ -100,6 +111,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <span>{runtimeLabel}</span>
           <span className="sep">·</span>
           <span>{archiveSize}</span>
+        </div>
+        <div className="sidebar-profile-scope">
+          <span className="mono-support">
+            {t('common.profileScope')}: {profileScopeLabel}
+          </span>
         </div>
         <button
           className="theme-toggle"

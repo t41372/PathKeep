@@ -116,6 +116,11 @@ const zhCnM3Namespaces = {
     noResultEyebrow: '详情',
     noResultTitle: '尚未选择结果',
     noResultDescription: '选择一条结果以查看访问详情。',
+    toggleRegex: '切换正则模式',
+    regexValid: '正则表达式有效',
+    regexInvalid: '正则表达式无效',
+    regexInvalidDetail: '请先修正正则表达式，再执行当前范围内的 regex 搜索。',
+    scopeInherited: '当前沿用共享的 profile 范围；如需覆盖，请在本页单独选择。',
   },
   assistant: {
     archiveNotInitializedTitle: '归档尚未初始化',
@@ -329,6 +334,11 @@ const zhTwM3Namespaces = {
     noResultEyebrow: '詳情',
     noResultTitle: '尚未選擇結果',
     noResultDescription: '選擇一筆結果以檢查造訪詳情。',
+    toggleRegex: '切換正則模式',
+    regexValid: '正則表達式有效',
+    regexInvalid: '正則表達式無效',
+    regexInvalidDetail: '請先修正正則表達式，再執行目前範圍內的 regex 搜尋。',
+    scopeInherited: '目前沿用共享的 profile 範圍；若要覆蓋，請在本頁另選。',
   },
   assistant: {
     archiveNotInitializedTitle: '封存尚未初始化',
@@ -483,6 +493,9 @@ const catalog: Record<
       loading: 'Loading',
       unavailable: 'Unavailable',
       notAvailable: 'Not available',
+      profileAllProfiles: 'All profiles',
+      profileScope: 'Profile scope',
+      profileSwitchLabel: 'Switch profile scope',
       pending: 'Pending',
       current: 'Current',
       complete: 'Complete',
@@ -639,6 +652,8 @@ const catalog: Record<
       manifests: 'Manifests',
       snapshots: 'Snapshots',
       exports: 'Exports',
+      scopeNotice:
+        'Scoped insights and recall links follow the selected profile, while archive health and storage KPIs remain archive-wide.',
     },
     audit: {
       loadingLedger: 'Loading audit ledger',
@@ -1138,6 +1153,13 @@ const catalog: Record<
       noResultEyebrow: 'DETAIL',
       noResultTitle: 'No result selected',
       noResultDescription: 'Pick a result to inspect visit detail.',
+      toggleRegex: 'Toggle regular expression mode',
+      regexValid: 'Valid regular expression',
+      regexInvalid: 'Invalid regular expression',
+      regexInvalidDetail:
+        'Fix the regular expression before PathKeep can run a scoped regex search.',
+      scopeInherited:
+        'Using the shared profile scope until you choose a page-specific filter.',
     },
     assistant: {
       archiveNotInitializedTitle: 'Archive not initialized',
@@ -1288,6 +1310,9 @@ const catalog: Record<
       loading: '加载中',
       unavailable: '不可用',
       notAvailable: '不可用',
+      profileAllProfiles: '所有 profile',
+      profileScope: 'Profile 范围',
+      profileSwitchLabel: '切换 profile 范围',
       pending: '待处理',
       current: '当前',
       complete: '已完成',
@@ -1437,6 +1462,8 @@ const catalog: Record<
       manifests: 'Manifest',
       snapshots: '快照',
       exports: '导出',
+      scopeNotice:
+        '当前所选 profile 会影响洞察和召回入口，但归档健康状态与存储 KPI 仍然按整个归档显示。',
     },
     audit: {
       loadingLedger: '正在加载审计账本',
@@ -1851,6 +1878,9 @@ const catalog: Record<
       loading: '載入中',
       unavailable: '不可用',
       notAvailable: '不可用',
+      profileAllProfiles: '所有 profile',
+      profileScope: 'Profile 範圍',
+      profileSwitchLabel: '切換 profile 範圍',
       pending: '待處理',
       current: '目前',
       complete: '已完成',
@@ -2000,6 +2030,8 @@ const catalog: Record<
       manifests: 'Manifest',
       snapshots: '快照',
       exports: '匯出',
+      scopeNotice:
+        '目前所選的 profile 會影響洞察和召回入口，但封存健康狀態與儲存 KPI 仍以整個資料庫顯示。',
     },
     audit: {
       loadingLedger: '正在載入審計帳本',

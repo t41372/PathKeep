@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { AppScreen } from '../../app/router'
 import { useI18n } from '../../lib/i18n'
+import { ProfileSwitcher } from '../profile-switcher'
 import { useShellData } from '../../app/shell-data-context'
 
 interface TopbarProps {
@@ -58,6 +59,7 @@ export function Topbar({ screen }: TopbarProps) {
             type="search"
           />
         </form>
+        <ProfileSwitcher />
         <button
           className="btn-backup"
           type="button"

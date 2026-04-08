@@ -5,6 +5,7 @@ import { AppShell } from './shell'
 import { ShellDataProvider } from './shell-data'
 import { I18nProvider } from '../lib/i18n'
 import { backendTestHarness } from '../lib/backend'
+import { ProfileScopeProvider } from '../lib/profile-scope'
 
 describe('AppShell', () => {
   beforeEach(() => {
@@ -26,9 +27,11 @@ describe('AppShell', () => {
 
     render(
       <I18nProvider>
-        <ShellDataProvider>
-          <RouterProvider router={router} />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <RouterProvider router={router} />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nProvider>,
     )
 

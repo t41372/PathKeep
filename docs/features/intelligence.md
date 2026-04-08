@@ -37,6 +37,7 @@
 - assistant response state 必須誠實可見：`queued`、`completed`、`insufficient-evidence`、`failed`、`cancelled`，並保留 `jobId` / `runId` / provider snapshot 供 audit trace 與 queue reload。
 - citation contract 至少包含 `historyId`、`profileId`、URL / title、visited time、score；若 citation ranking 後沒有可保留 evidence，assistant 必須拒答，而不是補一個看似合理的答案。
 - queued assistant request 可在執行前 replay / cancel；目前 running job 仍不支援 mid-flight cancel，UI 必須清楚說明這個邊界。
+- Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 
 ---
 
@@ -179,6 +180,7 @@
 - On This Day、Site Analytics、Periodic Summary、Topic Timeline 都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
 - explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
 - zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
+- Insights page 必須顯示目前是否套用了共享 profile scope；若有套用，UI 要明講這是 scoped view，而不是假裝所有 KPI 都已 per-profile 重算。
 
 ### M4-A 進階 intelligence slice
 
@@ -188,6 +190,7 @@
 - `readable-content-refetch` 是目前唯一正式落地的 enrichment plugin，預設啟用、freshness window 7 天。停用後，insight rebuild 必須誠實說明已回退到 canonical archive + lexical / structural signals，而不是假裝仍有 readable content coverage。
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
+- Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 
 ### V1.5+ 洞察功能
 

@@ -36,6 +36,7 @@
 ### 搜尋與篩選
 
 - **全文搜尋**（基於 FTS5）：搜尋 URL、標題、搜尋關鍵詞。
+- **Regex 搜尋**：Explorer 提供顯式的正則模式，用於 URL / title 的手動進階檢索。這個模式必須清楚標示自己不是 day-one 快速路徑；UI 先驗證 pattern，再執行 scoped query，invalid regex 時直接阻止查詢並保留目前可見結果。
 - **複合篩選**，可疊加使用：
   - 按瀏覽器 / Profile
   - 按 Domain（支援子域名匹配）
@@ -45,6 +46,13 @@
   - 按 run ID / 導入批次
 - Explorer、Export、Dashboard、AI search、Insights 等 read models 都只能讀取**當前可見** facts；已 rollback 的 visits / downloads / search terms 不能漏出，restore 後則要重新可見。
 - 篩選狀態在 UI 上有清晰的標籤式展示，可逐個移除或一鍵清除。
+- shell chrome 提供共享的 profile viewing scope。Explorer 預設繼承這個 scope，但 route 上若有明確 `profileId` filter，頁面級 filter 必須優先。
+
+### Regex 搜尋的效能邊界
+
+- FTS5 仍是 day-one keyword recall 的正式快速路徑；regex 不是它的替代品。
+- regex mode 在 canonical filter（profile / browser / domain / date range / visibility）之後做手動 post-filter，目的是提供精準檢索，而不是宣稱它能在巨量 archive 上取代 FTS。
+- 若未來要把 regex 升級成大數據量下也可接受的正式 fast path，必須先新增獨立 research / benchmark，再改文檔與實作。
 
 ### 單條記錄顯示
 

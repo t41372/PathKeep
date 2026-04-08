@@ -4,9 +4,13 @@ interface LoadingStateProps {
 
 export function LoadingState({ label }: LoadingStateProps) {
   return (
-    <div className="status-panel" role="status">
-      <span aria-hidden className="status-dot status-dot--accent" />
-      <span>{label}</span>
+    <div className="loading-state" role="status">
+      <div className="loading-state__spinner" aria-hidden="true">
+        <span className="loading-state__block" />
+        <span className="loading-state__block" />
+        <span className="loading-state__block" />
+      </div>
+      <span className="loading-state__label">{label}</span>
     </div>
   )
 }

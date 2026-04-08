@@ -5,6 +5,7 @@ import { EmptyState } from './empty-state'
 import { ErrorState } from './error-state'
 import { LoadingState } from './loading-state'
 import { PermissionGate } from './permission-gate'
+import { DashboardSkeleton, TableSkeleton } from './skeleton'
 import { StatusCallout } from './status-callout'
 
 describe('Shell primitives', () => {
@@ -98,5 +99,24 @@ describe('Shell primitives', () => {
     expect(
       screen.getByRole('heading', { name: 'Scheduler needs review' }),
     ).toBeVisible()
+  })
+
+  test('renders dashboard and table skeletons for long-running loads', () => {
+    render(
+      <>
+        <DashboardSkeleton />
+        <TableSkeleton rows={3} />
+      </>,
+    )
+
+    expect(screen.getByLabelText('Loading dashboard')).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+    expect(screen.getByLabelText('Loading table')).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+    expect(document.querySelectorAll('.skeleton--table-row')).toHaveLength(3)
   })
 })

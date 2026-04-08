@@ -462,6 +462,7 @@ export interface HistoryQuery {
   sort?: 'newest' | 'oldest' | null
   limit?: number | null
   cursor?: string | null
+  regexMode?: boolean
 }
 
 export interface HistoryEntry {

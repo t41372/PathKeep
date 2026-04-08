@@ -23,6 +23,7 @@ use browser_history_parser::{
 };
 use chrono::{DateTime, Duration, Utc};
 use iana_time_zone::get_timezone;
+use regex::RegexBuilder;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, named_params, params};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -610,6 +611,18 @@ pub fn list_history(
     let start_time_ms = query.start_time_ms;
     let end_time_ms = query.end_time_ms;
     let q = query.q.clone().filter(|value| !value.trim().is_empty());
+    let regex = if query.regex_mode.unwrap_or(false) {
+        q.as_ref()
+            .map(|value| {
+                RegexBuilder::new(value)
+                    .case_insensitive(true)
+                    .build()
+                    .with_context(|| format!("invalid regex pattern `{value}`"))
+            })
+            .transpose()?
+    } else {
+        None
+    };
     let domain_pattern = query
         .domain
         .clone()
@@ -618,6 +631,63 @@ pub fn list_history(
     let sort = query.sort.clone().unwrap_or_else(|| "newest".to_string());
     let (cursor_visit_time, cursor_id) =
         parse_history_cursor(query.cursor.as_deref()).unwrap_or((0, 0));
+
+    if let Some(regex) = regex {
+        // Regex search is a manual, post-filtered mode that keeps the canonical
+        // archive filters intact without pretending it is the fast default path.
+        let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
+        let rows = statement.query_map(
+            named_params! {
+                ":profileId": profile_id,
+                ":browserKind": browser_kind,
+                ":query": Option::<String>::None,
+                ":domainPattern": domain_pattern,
+                ":startTimeMs": start_time_ms,
+                ":endTimeMs": end_time_ms,
+                ":sort": sort,
+                ":cursorVisitTime": Option::<i64>::None,
+                ":cursorId": Option::<i64>::None,
+                ":pageLimit": -1i64,
+            },
+            history_entry_from_row,
+        )?;
+        let filtered_items = rows
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|entry| {
+                regex.is_match(&entry.url)
+                    || entry.title.as_ref().is_some_and(|title| regex.is_match(title))
+            })
+            .collect::<Vec<_>>();
+        let total = filtered_items.len();
+        let mut items = filtered_items
+            .into_iter()
+            .filter(|entry| {
+                if query.cursor.is_none() {
+                    return true;
+                }
+                if sort == "oldest" {
+                    return entry.visit_time > cursor_visit_time
+                        || (entry.visit_time == cursor_visit_time && entry.id > cursor_id);
+                }
+                entry.visit_time < cursor_visit_time
+                    || (entry.visit_time == cursor_visit_time && entry.id < cursor_id)
+            })
+            .take(limit as usize + 1)
+            .collect::<Vec<_>>();
+        let has_more = items.len() > limit as usize;
+        if has_more {
+            items.truncate(limit as usize);
+        }
+
+        return Ok(HistoryQueryResponse {
+            total,
+            next_cursor: has_more
+                .then(|| encode_history_cursor(items.last().expect("paginated item"))),
+            items,
+        });
+    }
+
     let total: usize = connection
         .query_row(
             COUNT_HISTORY_SQL,
@@ -2836,6 +2906,35 @@ mod tests {
         )
         .expect("list history");
         assert_eq!(history.total, 2);
+
+        let regex_history = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery {
+                q: Some("archive\\sdocs".to_string()),
+                regex_mode: Some(true),
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("regex history");
+        assert_eq!(regex_history.total, 2);
+
+        let invalid_regex = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery {
+                q: Some("archive(".to_string()),
+                regex_mode: Some(true),
+                ..HistoryQuery::default()
+            },
+        )
+        .expect_err("invalid regex");
+        assert!(
+            format!("{invalid_regex:#}").contains("invalid regex pattern"),
+            "unexpected error: {invalid_regex:#}"
+        );
 
         let first_page = list_history(
             &paths,

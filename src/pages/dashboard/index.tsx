@@ -4,7 +4,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
-import { LoadingState } from '../../components/primitives/loading-state'
+import { DashboardSkeleton } from '../../components/primitives/skeleton'
 import { backend } from '../../lib/backend'
 import {
   calendarDayKey,
@@ -19,6 +19,10 @@ import {
   evidenceHref,
   selectedAiProvider,
 } from '../../lib/intelligence'
+import {
+  profileIdLabel,
+  useProfileScope,
+} from '../../lib/profile-scope-context'
 import { hasSafariAccessIssue } from '../../lib/platform-guidance'
 import {
   archiveModeKey,
@@ -62,6 +66,7 @@ function flattenInsightEvidence(snapshot: InsightSnapshot) {
 export function DashboardPage() {
   const { dashboard, error, loading, refreshKey, snapshot } = useShellData()
   const { language, t, ns } = useI18n()
+  const { activeProfileId } = useProfileScope()
   const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
   const [insights, setInsights] = useState<InsightSnapshot | null>(null)
@@ -76,7 +81,10 @@ export function DashboardPage() {
 
     const load = async () => {
       try {
-        const nextInsights = await backend.loadInsights({ fullRebuild: false })
+        const nextInsights = await backend.loadInsights({
+          fullRebuild: false,
+          profileId: activeProfileId,
+        })
         if (!cancelled) {
           setInsights(nextInsights)
           setInsightLoadError(null)
@@ -98,12 +106,12 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [insightsT, refreshKey, snapshot?.config.initialized])
+  }, [activeProfileId, insightsT, refreshKey, snapshot?.config.initialized])
 
   if (loading && !dashboard) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
-        <LoadingState label={t('dashboard.loadingOverview')} />
+        <DashboardSkeleton />
       </section>
     )
   }
@@ -133,6 +141,9 @@ export function DashboardPage() {
   const selectedProfiles = snapshot.browserProfiles.filter((profile) =>
     snapshot.config.selectedProfileIds.includes(profile.profileId),
   )
+  const activeScopeLabel = activeProfileId
+    ? profileIdLabel(activeProfileId)
+    : t('common.profileAllProfiles')
   const backupReadyProfiles = selectedProfiles.filter((profile) =>
     isBackupReadyProfile(profile),
   )
@@ -245,6 +256,14 @@ export function DashboardPage() {
   if (!snapshot.config.initialized || dashboard.recentRuns.length === 0) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
+        {activeProfileId ? (
+          <StatusCallout
+            tone="info"
+            eyebrow={t('common.profileScope')}
+            title={activeScopeLabel}
+            body={t('dashboard.scopeNotice')}
+          />
+        ) : null}
         <div className="stats-row">
           {stats.map((stat) => (
             <article
@@ -280,6 +299,14 @@ export function DashboardPage() {
 
   return (
     <section className="page-shell" data-testid="dashboard-page">
+      {activeProfileId ? (
+        <StatusCallout
+          tone="info"
+          eyebrow={t('common.profileScope')}
+          title={activeScopeLabel}
+          body={t('dashboard.scopeNotice')}
+        />
+      ) : null}
       <div className="stats-row">
         {stats.map((stat) => (
           <article key={stat.label} className="stat-card" data-tone={stat.tone}>

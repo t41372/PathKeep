@@ -20,6 +20,10 @@ import {
   scoreBand,
   selectedAiProvider,
 } from '../../lib/intelligence'
+import {
+  profileIdLabel,
+  useProfileScope,
+} from '../../lib/profile-scope-context'
 import type {
   AiProviderConnectionTestReport,
   AiQueueStatus,
@@ -55,6 +59,7 @@ interface RecentSearchEntry {
     browserKind?: string | null
     start?: string | null
     end?: string | null
+    regex?: '1' | null
     sort?: 'newest' | 'oldest'
   }
 }
@@ -78,6 +83,7 @@ function toLocalDateString(value: Date) {
 function buildRecentSearchLabel(params: RecentSearchEntry['params']) {
   const labelParts = [
     params.mode && params.mode !== 'keyword' ? `mode:${params.mode}` : null,
+    params.regex === '1' ? 'regex' : null,
     params.q?.trim() ? `q:${params.q.trim()}` : null,
     params.domain?.trim() ? `domain:${params.domain.trim()}` : null,
     params.profileId ? `profile:${params.profileId}` : null,
@@ -168,6 +174,7 @@ export function ExplorerPage() {
     snapshot,
   } = useShellData()
   const { language, ns } = useI18n()
+  const { activeProfileId } = useProfileScope()
   const explorerT = ns('explorer')
   const intelligenceT = ns('intelligence')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -196,10 +203,22 @@ export function ExplorerPage() {
   )
 
   const deferredQuery = useDeferredValue(searchParams.get('q') ?? '')
+  const regexMode = searchParams.get('regex') === '1'
+  const regexValid = useMemo(() => {
+    if (!regexMode || !deferredQuery.trim()) return true
+
+    try {
+      new RegExp(deferredQuery)
+      return true
+    } catch {
+      return false
+    }
+  }, [deferredQuery, regexMode])
   const mode =
     (searchParams.get('mode') as 'keyword' | 'semantic' | 'hybrid' | null) ??
     'keyword'
-  const profileId = searchParams.get('profileId')
+  const explicitProfileId = searchParams.get('profileId')
+  const profileId = explicitProfileId ?? activeProfileId
   const browserKind = searchParams.get('browserKind')
   const domain = searchParams.get('domain')
   const start = searchParams.get('start')
@@ -226,8 +245,19 @@ export function ExplorerPage() {
       sort,
       limit: keywordPageSize,
       cursor,
+      regexMode,
     }),
-    [browserKind, cursor, deferredQuery, domain, end, profileId, sort, start],
+    [
+      browserKind,
+      cursor,
+      deferredQuery,
+      domain,
+      end,
+      profileId,
+      regexMode,
+      sort,
+      start,
+    ],
   )
   const semanticQuery = useMemo(
     () => ({
@@ -249,8 +279,18 @@ export function ExplorerPage() {
         start,
         end,
         sort,
+        regexMode,
       }),
-    [browserKind, deferredQuery, domain, end, profileId, sort, start],
+    [
+      browserKind,
+      deferredQuery,
+      domain,
+      end,
+      profileId,
+      regexMode,
+      sort,
+      start,
+    ],
   )
   const semanticQuerySignature = useMemo(
     () =>
@@ -283,8 +323,11 @@ export function ExplorerPage() {
     [mode, refreshKey, semanticQuery],
   )
 
+  const historyBlockedByInvalidRegex =
+    archiveReady && regexMode && Boolean(deferredQuery.trim()) && !regexValid
+
   useEffect(() => {
-    if (!archiveReady) return
+    if (!archiveReady || historyBlockedByInvalidRegex) return
     let cancelled = false
     const loadResults = async () => {
       try {
@@ -299,6 +342,7 @@ export function ExplorerPage() {
         persistRecentSearch({
           q: currentQuery.q,
           mode,
+          regex: currentQuery.regexMode ? '1' : null,
           domain: currentQuery.domain,
           profileId: currentQuery.profileId,
           browserKind: currentQuery.browserKind,
@@ -321,7 +365,15 @@ export function ExplorerPage() {
     return () => {
       cancelled = true
     }
-  }, [archiveReady, currentQuery, end, mode, requestKey, start])
+  }, [
+    archiveReady,
+    currentQuery,
+    end,
+    historyBlockedByInvalidRegex,
+    mode,
+    requestKey,
+    start,
+  ])
 
   useEffect(() => {
     if (!archiveReady) return
@@ -382,7 +434,8 @@ export function ExplorerPage() {
   }, [archiveReady, mode, semanticQuery, semanticRequestKey])
 
   const results =
-    archiveReady && queryState.requestKey === requestKey
+    archiveReady &&
+    (historyBlockedByInvalidRegex || queryState.requestKey === requestKey)
       ? queryState.results
       : null
   const semanticResults =
@@ -399,10 +452,14 @@ export function ExplorerPage() {
     Boolean(semanticQuery.query) &&
     semanticState.requestKey !== semanticRequestKey
   const error =
-    archiveReady && queryState.requestKey === requestKey
+    archiveReady &&
+    (historyBlockedByInvalidRegex || queryState.requestKey === requestKey)
       ? queryState.error
       : null
-  const loading = archiveReady && queryState.requestKey !== requestKey
+  const loading =
+    archiveReady &&
+    !historyBlockedByInvalidRegex &&
+    queryState.requestKey !== requestKey
   const selectedEntry =
     results?.items.find((item) => item.id === selectedId) ??
     results?.items[0] ??
@@ -417,6 +474,7 @@ export function ExplorerPage() {
   const activeFilters = [
     searchParams.get('q') ? `keyword: ${searchParams.get('q')}` : null,
     mode !== 'keyword' ? `mode: ${mode}` : null,
+    regexMode ? 'regex' : null,
     searchParams.get('domain') ? `domain: ${searchParams.get('domain')}` : null,
     searchParams.get('profileId')
       ? `profile: ${searchParams.get('profileId')}`
@@ -749,6 +807,7 @@ export function ExplorerPage() {
                     const key = filter.split(':')[0].trim()
                     if (key === 'mode') updateParam('mode', null)
                     else if (key === 'keyword') updateParam('q', null)
+                    else if (key === 'regex') updateParam('regex', null)
                     else if (key === 'domain') updateParam('domain', null)
                     else if (key === 'profile') updateParam('profileId', null)
                     else if (key === 'browser') updateParam('browserKind', null)
@@ -773,7 +832,225 @@ export function ExplorerPage() {
         </div>
       )}
 
-      {snapshot && aiMeta && (
+      {intelligenceError ? (
+        <ErrorState
+          title={explorerT('semanticRecallDegradedTitle')}
+          description={intelligenceError}
+        />
+      ) : null}
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">QUERY + FILTERS</span>
+          <span className="panel-action">
+            {results ? `${results.total} visible records` : 'Waiting for query'}
+          </span>
+        </div>
+        <div className="panel-body">
+          <div
+            className="segmented-row"
+            style={{ marginBottom: 'var(--space-4)' }}
+          >
+            {(['keyword', 'semantic', 'hybrid'] as const).map((option) => (
+              <button
+                key={option}
+                className={`chip-button ${
+                  mode === option ? 'chip-button--active' : ''
+                }`}
+                type="button"
+                onClick={() =>
+                  updateParam('mode', option === 'keyword' ? null : option)
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          <div className="explorer-filters">
+            <div
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">
+                KEYWORD
+                {regexMode ? <span className="regex-badge">[.*]</span> : null}
+              </span>
+              <div className="regex-input-row">
+                <input
+                  aria-label="Explorer keyword"
+                  className={regexMode && !regexValid ? 'input-invalid' : ''}
+                  type="search"
+                  value={searchParams.get('q') ?? ''}
+                  onChange={(event) =>
+                    updateParam('q', event.target.value || null)
+                  }
+                />
+                <button
+                  aria-label={explorerT('toggleRegex')}
+                  aria-pressed={regexMode}
+                  className={`regex-toggle ${
+                    regexMode ? 'regex-toggle--active' : ''
+                  }`}
+                  title={explorerT('toggleRegex')}
+                  type="button"
+                  onClick={() => updateParam('regex', regexMode ? null : '1')}
+                >
+                  .*
+                </button>
+              </div>
+              {regexMode && deferredQuery.trim() ? (
+                <span
+                  className={regexValid ? 'regex-valid' : 'regex-error'}
+                  role={regexValid ? undefined : 'alert'}
+                >
+                  {regexValid
+                    ? explorerT('regexValid')
+                    : explorerT('regexInvalid')}
+                </span>
+              ) : null}
+            </div>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">DOMAIN</span>
+              <input
+                aria-label="Explorer domain"
+                type="search"
+                value={searchParams.get('domain') ?? ''}
+                onChange={(event) =>
+                  updateParam('domain', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">PROFILE</span>
+              <select
+                aria-label="Explorer profile"
+                value={profileId ?? ''}
+                onChange={(event) =>
+                  updateParam('profileId', event.target.value || null)
+                }
+              >
+                <option value="">All profiles</option>
+                {snapshot.config.selectedProfileIds.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+              {!explicitProfileId && activeProfileId ? (
+                <span className="mono-support">
+                  {explorerT('scopeInherited', {
+                    profile: profileIdLabel(activeProfileId),
+                  })}
+                </span>
+              ) : null}
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">BROWSER</span>
+              <select
+                aria-label="Explorer browser"
+                value={searchParams.get('browserKind') ?? ''}
+                onChange={(event) =>
+                  updateParam('browserKind', event.target.value || null)
+                }
+              >
+                <option value="">All browsers</option>
+                {browserKinds.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {browserLabel(kind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">START</span>
+              <input
+                aria-label="Explorer start date"
+                type="date"
+                value={start ?? ''}
+                onChange={(event) =>
+                  updateParam('start', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">END</span>
+              <input
+                aria-label="Explorer end date"
+                type="date"
+                value={end ?? ''}
+                onChange={(event) =>
+                  updateParam('end', event.target.value || null)
+                }
+              />
+            </label>
+            <label
+              className="field-stack"
+              style={{ border: 'none', background: 'transparent', padding: 0 }}
+            >
+              <span className="mono-kicker">SORT</span>
+              <select
+                aria-label="Explorer sort"
+                value={searchParams.get('sort') ?? 'newest'}
+                onChange={(event) => updateParam('sort', event.target.value)}
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div
+          className="panel-body"
+          style={{
+            borderTop: '1px solid var(--border)',
+            paddingTop: 'var(--space-2)',
+          }}
+        >
+          <div className="recent-search-bar">
+            {recentSearches.length > 0 ? (
+              recentSearches.map((entry) => (
+                <button
+                  key={entry.label}
+                  className="chip-button"
+                  type="button"
+                  onClick={() =>
+                    setSearchParams(
+                      new URLSearchParams(
+                        Object.entries(entry.params).flatMap(([key, value]) =>
+                          value ? [[key, value]] : [],
+                        ),
+                      ),
+                    )
+                  }
+                >
+                  {entry.label}
+                </button>
+              ))
+            ) : (
+              <span className="mono-support">
+                Recent filters appear here after the first successful query.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {snapshot && aiMeta && mode !== 'keyword' && (
         <div className="intelligence-grid intelligence-grid--explorer">
           <StatusCallout
             tone={aiMeta.tone}
@@ -986,189 +1263,6 @@ export function ExplorerPage() {
         </div>
       )}
 
-      {intelligenceError ? (
-        <ErrorState
-          title={explorerT('semanticRecallDegradedTitle')}
-          description={intelligenceError}
-        />
-      ) : null}
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">QUERY + FILTERS</span>
-          <span className="panel-action">
-            {results ? `${results.total} visible records` : 'Waiting for query'}
-          </span>
-        </div>
-        <div className="panel-body">
-          <div
-            className="segmented-row"
-            style={{ marginBottom: 'var(--space-4)' }}
-          >
-            {(['keyword', 'semantic', 'hybrid'] as const).map((option) => (
-              <button
-                key={option}
-                className={`chip-button ${
-                  mode === option ? 'chip-button--active' : ''
-                }`}
-                type="button"
-                onClick={() =>
-                  updateParam('mode', option === 'keyword' ? null : option)
-                }
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-          <div className="explorer-filters">
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">KEYWORD</span>
-              <input
-                aria-label="Explorer keyword"
-                type="search"
-                value={searchParams.get('q') ?? ''}
-                onChange={(event) =>
-                  updateParam('q', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">DOMAIN</span>
-              <input
-                aria-label="Explorer domain"
-                type="search"
-                value={searchParams.get('domain') ?? ''}
-                onChange={(event) =>
-                  updateParam('domain', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">PROFILE</span>
-              <select
-                aria-label="Explorer profile"
-                value={searchParams.get('profileId') ?? ''}
-                onChange={(event) =>
-                  updateParam('profileId', event.target.value || null)
-                }
-              >
-                <option value="">All profiles</option>
-                {snapshot.config.selectedProfileIds.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">BROWSER</span>
-              <select
-                aria-label="Explorer browser"
-                value={searchParams.get('browserKind') ?? ''}
-                onChange={(event) =>
-                  updateParam('browserKind', event.target.value || null)
-                }
-              >
-                <option value="">All browsers</option>
-                {browserKinds.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {browserLabel(kind)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">START</span>
-              <input
-                aria-label="Explorer start date"
-                type="date"
-                value={start ?? ''}
-                onChange={(event) =>
-                  updateParam('start', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">END</span>
-              <input
-                aria-label="Explorer end date"
-                type="date"
-                value={end ?? ''}
-                onChange={(event) =>
-                  updateParam('end', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">SORT</span>
-              <select
-                aria-label="Explorer sort"
-                value={searchParams.get('sort') ?? 'newest'}
-                onChange={(event) => updateParam('sort', event.target.value)}
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        <div
-          className="panel-body"
-          style={{
-            borderTop: '1px solid var(--border)',
-            paddingTop: 'var(--space-2)',
-          }}
-        >
-          <div className="recent-search-bar">
-            {recentSearches.length > 0 ? (
-              recentSearches.map((entry) => (
-                <button
-                  key={entry.label}
-                  className="chip-button"
-                  type="button"
-                  onClick={() =>
-                    setSearchParams(
-                      new URLSearchParams(
-                        Object.entries(entry.params).flatMap(([key, value]) =>
-                          value ? [[key, value]] : [],
-                        ),
-                      ),
-                    )
-                  }
-                >
-                  {entry.label}
-                </button>
-              ))
-            ) : (
-              <span className="mono-support">
-                Recent filters appear here after the first successful query.
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
       {mode !== 'keyword' && (
         <div className="panel intelligence-panel">
           <div className="panel-header">
@@ -1284,6 +1378,13 @@ export function ExplorerPage() {
 
       {loading ? (
         <LoadingState label={explorerT('loadingArchive')} />
+      ) : historyBlockedByInvalidRegex ? (
+        <StatusCallout
+          tone="blocked"
+          eyebrow="REGEX"
+          title={explorerT('regexInvalid')}
+          body={explorerT('regexInvalidDetail')}
+        />
       ) : error ? (
         <ErrorState title={explorerT('queryFailedTitle')} description={error} />
       ) : results && results.total === 0 ? (
@@ -1430,6 +1531,7 @@ export function ExplorerPage() {
                     <button
                       key={format}
                       className="btn-tiny"
+                      disabled={historyBlockedByInvalidRegex}
                       type="button"
                       onClick={() => {
                         void handleExport(format)
