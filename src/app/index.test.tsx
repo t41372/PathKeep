@@ -71,6 +71,36 @@ async function seedArchiveRun() {
   await backend.runBackupNow(false)
 }
 
+async function seedAiProviders() {
+  const snapshot = await backend.getAppSnapshot()
+  await backend.saveConfig({
+    ...snapshot.config,
+    ai: {
+      ...snapshot.config.ai,
+      enabled: true,
+      llmProviderId: 'llm-local',
+      llmProviders: [
+        {
+          id: 'llm-local',
+          name: 'Local LLM',
+          purpose: 'llm',
+          requestFormat: 'openai',
+          enabled: true,
+          baseUrl: 'http://localhost:11434',
+          apiKeySaved: false,
+          defaultModel: 'qwen3:8b',
+          modelCatalog: [],
+          temperature: 0.2,
+          maxTokens: 1200,
+          dimensions: null,
+          notes: null,
+        },
+      ],
+      embeddingProviders: [],
+    },
+  })
+}
+
 function seedInteractiveSchedule() {
   backendTestHarness.seedSchedule(
     {
@@ -381,6 +411,40 @@ describe('App shell', () => {
       expect(
         within(settingsPage).getByText('Derived state rebuilt'),
       ).toBeVisible()
+    })
+  })
+
+  test('keeps AI provider field edits local until save is confirmed', async () => {
+    await seedArchiveRun()
+    await seedAiProviders()
+    const user = userEvent.setup()
+    const saveConfigSpy = vi.spyOn(backend, 'saveConfig')
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/settings'],
+    })
+
+    render(<App router={router} />)
+
+    const settingsPage = await screen.findByTestId('settings-page')
+    const providerNameInput =
+      within(settingsPage).getByDisplayValue('Local LLM')
+
+    await user.clear(providerNameInput)
+    await user.type(providerNameInput, 'Local LLM Draft')
+
+    expect(saveConfigSpy).not.toHaveBeenCalled()
+    expect(
+      within(settingsPage).getByText('AI configuration changes need review'),
+    ).toBeVisible()
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Save AI settings',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(saveConfigSpy).toHaveBeenCalledTimes(1)
     })
   })
 

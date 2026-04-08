@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -38,6 +38,25 @@ interface SupportState {
   securityStatus: SecurityStatus | null
 }
 
+function cloneAiProviderConfig(provider: AiProviderConfig): AiProviderConfig {
+  return {
+    ...provider,
+    modelCatalog: [...provider.modelCatalog],
+  }
+}
+
+function cloneAiSettings(settings: AiSettings): AiSettings {
+  return {
+    ...settings,
+    llmProviders: settings.llmProviders.map(cloneAiProviderConfig),
+    embeddingProviders: settings.embeddingProviders.map(cloneAiProviderConfig),
+  }
+}
+
+function serializeAiSettings(settings: AiSettings | null | undefined) {
+  return settings ? JSON.stringify(settings) : null
+}
+
 export function SettingsPage() {
   const { buildInfo, dashboard, refreshAppData, saveConfig, snapshot } =
     useShellData()
@@ -69,7 +88,9 @@ export function SettingsPage() {
     scheduleStatus: null,
     securityStatus: null,
   })
+  const [aiDraft, setAiDraft] = useState<AiSettings | null>(null)
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
+  const lastSyncedAiSignatureRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -103,6 +124,32 @@ export function SettingsPage() {
 
     setRemoteDraft(snapshot.config.remoteBackup)
   }, [snapshot])
+
+  const snapshotAiSignature = useMemo(
+    () => serializeAiSettings(snapshot?.config.ai),
+    [snapshot?.config.ai],
+  )
+
+  useEffect(() => {
+    if (!snapshot || snapshotAiSignature === null) {
+      return
+    }
+
+    const draftSignature = serializeAiSettings(aiDraft)
+    const draftMatchesSnapshot = draftSignature === snapshotAiSignature
+    const shouldSync =
+      aiDraft === null ||
+      draftMatchesSnapshot ||
+      draftSignature === lastSyncedAiSignatureRef.current
+
+    if (shouldSync && !draftMatchesSnapshot) {
+      setAiDraft(cloneAiSettings(snapshot.config.ai))
+    }
+
+    if (shouldSync) {
+      lastSyncedAiSignatureRef.current = snapshotAiSignature
+    }
+  }, [aiDraft, snapshot, snapshotAiSignature])
 
   const enrichmentSettings = useMemo(
     () => resolveEnrichmentSettings(snapshot?.config.enrichment),
@@ -138,6 +185,46 @@ export function SettingsPage() {
     remoteDraft?.bucket.trim() && remoteDraft.region.trim(),
   )
   const latestRemoteBundlePath = remoteResult?.bundlePath ?? null
+  const currentAiSettings = aiDraft ?? snapshot.config.ai
+  const aiConfigDirty =
+    snapshotAiSignature !== null &&
+    serializeAiSettings(currentAiSettings) !== snapshotAiSignature
+  const persistedProviderIds = new Set(
+    [
+      ...snapshot.config.ai.llmProviders,
+      ...snapshot.config.ai.embeddingProviders,
+    ].map((provider) => provider.id),
+  )
+
+  function updateAiDraft(updater: (current: AiSettings) => AiSettings) {
+    setAiDraft((current) =>
+      updater(current ?? cloneAiSettings(snapshot!.config.ai)),
+    )
+  }
+
+  function syncAiDraft(settings: AiSettings) {
+    const nextDraft = cloneAiSettings(settings)
+    setAiDraft(nextDraft)
+    lastSyncedAiSignatureRef.current = serializeAiSettings(nextDraft)
+  }
+
+  function updateAiProviderSecretState(
+    providerId: string,
+    apiKeySaved: boolean,
+  ) {
+    updateAiDraft((current) => {
+      const updateProviders = (providers: AiProviderConfig[]) =>
+        providers.map((provider) =>
+          provider.id === providerId ? { ...provider, apiKeySaved } : provider,
+        )
+
+      return {
+        ...current,
+        llmProviders: updateProviders(current.llmProviders),
+        embeddingProviders: updateProviders(current.embeddingProviders),
+      }
+    })
+  }
 
   async function persistRemoteConfig() {
     if (!snapshot || !remoteDraft) {
@@ -338,17 +425,11 @@ export function SettingsPage() {
     }
   }
 
-  async function handleAiToggle() {
-    if (!snapshot) return
-    setSaving(true)
-    try {
-      await saveConfig({
-        ...snapshot.config,
-        ai: { ...snapshot.config.ai, enabled: !snapshot.config.ai.enabled },
-      })
-    } finally {
-      setSaving(false)
-    }
+  function handleAiToggle() {
+    updateAiDraft((current) => ({
+      ...current,
+      enabled: !current.enabled,
+    }))
   }
 
   function makeDefaultProvider(
@@ -408,26 +489,31 @@ export function SettingsPage() {
     }
   }
 
-  async function handleAiConfigSave(patch: Partial<AiSettings>) {
-    if (!snapshot) return
+  async function handleSaveAiConfig() {
+    if (!snapshot || !aiDraft) return
     setSaving(true)
     try {
-      await saveConfig({
+      const nextSnapshot = await saveConfig({
         ...snapshot.config,
-        ai: { ...snapshot.config.ai, ...patch },
+        ai: aiDraft,
       })
+      syncAiDraft(nextSnapshot.config.ai)
     } finally {
       setSaving(false)
     }
   }
 
+  function handleResetAiConfig() {
+    syncAiDraft(snapshot!.config.ai)
+  }
+
   function handleAddProvider(purpose: 'llm' | 'embedding') {
-    if (!snapshot) return
     const newProvider = makeDefaultProvider(purpose, 'ollama')
     const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
-    void handleAiConfigSave({
-      [key]: [...snapshot.config.ai[key], newProvider],
-    })
+    updateAiDraft((current) => ({
+      ...current,
+      [key]: [...current[key], newProvider],
+    }))
   }
 
   function handleUpdateProvider(
@@ -435,30 +521,28 @@ export function SettingsPage() {
     providerId: string,
     patch: Partial<AiProviderConfig>,
   ) {
-    if (!snapshot) return
     const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
-    void handleAiConfigSave({
-      [key]: snapshot.config.ai[key].map((p) =>
-        p.id === providerId ? { ...p, ...patch } : p,
+    updateAiDraft((current) => ({
+      ...current,
+      [key]: current[key].map((provider) =>
+        provider.id === providerId ? { ...provider, ...patch } : provider,
       ),
-    })
+    }))
   }
 
   function handleRemoveProvider(
     purpose: 'llm' | 'embedding',
     providerId: string,
   ) {
-    if (!snapshot) return
     const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
     const idKey = purpose === 'llm' ? 'llmProviderId' : 'embeddingProviderId'
-    const nextProviders = snapshot.config.ai[key].filter(
-      (p) => p.id !== providerId,
-    )
-    const nextIdPatch =
-      snapshot.config.ai[idKey] === providerId ? { [idKey]: null } : {}
-    void handleAiConfigSave({
-      [key]: nextProviders,
-      ...nextIdPatch,
+    updateAiDraft((current) => {
+      const nextProviders = current[key].filter((p) => p.id !== providerId)
+      return {
+        ...current,
+        [key]: nextProviders,
+        [idKey]: current[idKey] === providerId ? null : current[idKey],
+      }
     })
   }
 
@@ -467,7 +551,10 @@ export function SettingsPage() {
     providerId: string,
   ) {
     const idKey = purpose === 'llm' ? 'llmProviderId' : 'embeddingProviderId'
-    void handleAiConfigSave({ [idKey]: providerId })
+    updateAiDraft((current) => ({
+      ...current,
+      [idKey]: providerId,
+    }))
   }
 
   async function handleSaveAiApiKey(providerId: string) {
@@ -480,6 +567,7 @@ export function SettingsPage() {
         apiKey: key.trim(),
       })
       setAiApiKeys((prev) => ({ ...prev, [providerId]: '' }))
+      updateAiProviderSecretState(providerId, true)
       await refreshAppData()
     } finally {
       setSaving(false)
@@ -490,6 +578,7 @@ export function SettingsPage() {
     setSaving(true)
     try {
       await backend.clearAiProviderApiKey(providerId)
+      updateAiProviderSecretState(providerId, false)
       await refreshAppData()
     } finally {
       setSaving(false)
@@ -1204,10 +1293,44 @@ export function SettingsPage() {
           <span className="panel-badge">{t('settings.optional')}</span>
         </div>
         <div className="panel-body">
+          <StatusCallout
+            tone={aiConfigDirty ? 'warning' : 'info'}
+            title={
+              aiConfigDirty
+                ? t('settings.aiUnsavedChanges')
+                : t('settings.aiDraftSaved')
+            }
+            body={t('settings.aiDraftBoundaryBody')}
+            actions={
+              <div className="settings-action-row">
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={saving || !aiConfigDirty}
+                  onClick={() => {
+                    void handleSaveAiConfig()
+                  }}
+                >
+                  {saving
+                    ? t('settings.aiSavingConfig')
+                    : t('settings.aiSaveConfig')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={saving || !aiConfigDirty}
+                  onClick={handleResetAiConfig}
+                >
+                  {t('settings.aiResetDraft')}
+                </button>
+              </div>
+            }
+          />
+
           <label className="checkbox-row">
             <input
               aria-label={t('settings.aiMasterToggle')}
-              checked={snapshot.config.ai.enabled}
+              checked={currentAiSettings.enabled}
               type="checkbox"
               disabled={saving}
               onChange={() => {
@@ -1220,6 +1343,7 @@ export function SettingsPage() {
           <AiProviderEditorList
             addLabel={t('settings.aiAddLlmProvider')}
             apiKeys={aiApiKeys}
+            disabled={saving}
             onAdd={() => handleAddProvider('llm')}
             onApiKeyChange={(id, value) =>
               setAiApiKeys((prev) => ({ ...prev, [id]: value }))
@@ -1227,15 +1351,23 @@ export function SettingsPage() {
             onClearKey={(id) => {
               void handleClearAiApiKey(id)
             }}
+            onClearKeyDisabled={(providerId) =>
+              saving || !persistedProviderIds.has(providerId)
+            }
             onRemove={(id) => handleRemoveProvider('llm', id)}
             onSaveKey={(id) => {
               void handleSaveAiApiKey(id)
             }}
+            onSaveKeyDisabled={(providerId) =>
+              saving ||
+              !persistedProviderIds.has(providerId) ||
+              !aiApiKeys[providerId]?.trim()
+            }
             onSelect={(id) => handleSelectProvider('llm', id)}
             onUpdate={(id, patch) => handleUpdateProvider('llm', id, patch)}
-            providers={snapshot.config.ai.llmProviders}
+            providers={currentAiSettings.llmProviders}
             purpose="llm"
-            selectedProviderId={snapshot.config.ai.llmProviderId ?? null}
+            selectedProviderId={currentAiSettings.llmProviderId ?? null}
             title={t('settings.aiLlmProviders')}
             translations={aiProviderTranslations}
           />
@@ -1243,6 +1375,7 @@ export function SettingsPage() {
           <AiProviderEditorList
             addLabel={t('settings.aiAddEmbeddingProvider')}
             apiKeys={aiApiKeys}
+            disabled={saving}
             onAdd={() => handleAddProvider('embedding')}
             onApiKeyChange={(id, value) =>
               setAiApiKeys((prev) => ({ ...prev, [id]: value }))
@@ -1250,17 +1383,25 @@ export function SettingsPage() {
             onClearKey={(id) => {
               void handleClearAiApiKey(id)
             }}
+            onClearKeyDisabled={(providerId) =>
+              saving || !persistedProviderIds.has(providerId)
+            }
             onRemove={(id) => handleRemoveProvider('embedding', id)}
             onSaveKey={(id) => {
               void handleSaveAiApiKey(id)
             }}
+            onSaveKeyDisabled={(providerId) =>
+              saving ||
+              !persistedProviderIds.has(providerId) ||
+              !aiApiKeys[providerId]?.trim()
+            }
             onSelect={(id) => handleSelectProvider('embedding', id)}
             onUpdate={(id, patch) =>
               handleUpdateProvider('embedding', id, patch)
             }
-            providers={snapshot.config.ai.embeddingProviders}
+            providers={currentAiSettings.embeddingProviders}
             purpose="embedding"
-            selectedProviderId={snapshot.config.ai.embeddingProviderId ?? null}
+            selectedProviderId={currentAiSettings.embeddingProviderId ?? null}
             title={t('settings.aiEmbeddingProviders')}
             translations={aiProviderTranslations}
           />
@@ -1270,8 +1411,8 @@ export function SettingsPage() {
               {t('settings.aiActiveLlmProvider')}
             </span>
             <span className="config-value mono">
-              {snapshot.config.ai.llmProviders.find(
-                (p) => p.id === snapshot.config.ai.llmProviderId,
+              {currentAiSettings.llmProviders.find(
+                (p) => p.id === currentAiSettings.llmProviderId,
               )?.name ?? t('settings.aiNoneSelected')}
             </span>
           </div>
@@ -1280,8 +1421,8 @@ export function SettingsPage() {
               {t('settings.aiActiveEmbeddingProvider')}
             </span>
             <span className="config-value mono">
-              {snapshot.config.ai.embeddingProviders.find(
-                (p) => p.id === snapshot.config.ai.embeddingProviderId,
+              {currentAiSettings.embeddingProviders.find(
+                (p) => p.id === currentAiSettings.embeddingProviderId,
               )?.name ?? t('settings.aiNoneSelected')}
             </span>
           </div>

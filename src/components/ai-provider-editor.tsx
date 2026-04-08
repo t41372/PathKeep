@@ -14,11 +14,14 @@ export type AiProviderPurpose = 'llm' | 'embedding'
 export function AiProviderEditorList({
   addLabel,
   apiKeys,
+  disabled = false,
   onAdd,
   onApiKeyChange,
   onClearKey,
+  onClearKeyDisabled,
   onRemove,
   onSaveKey,
+  onSaveKeyDisabled,
   onSelect,
   onUpdate,
   providers,
@@ -29,11 +32,14 @@ export function AiProviderEditorList({
 }: {
   addLabel: string
   apiKeys: Record<string, string>
+  disabled?: boolean
   onAdd: () => void
   onApiKeyChange: (providerId: string, value: string) => void
   onClearKey: (providerId: string) => void
+  onClearKeyDisabled?: (providerId: string) => boolean
   onRemove: (providerId: string) => void
   onSaveKey: (providerId: string) => void
+  onSaveKeyDisabled?: (providerId: string) => boolean
   onSelect: (providerId: string) => void
   onUpdate: (providerId: string, patch: Partial<AiProviderConfig>) => void
   providers: AiProviderConfig[]
@@ -64,7 +70,12 @@ export function AiProviderEditorList({
     <div className="surfaceInset providerPanel">
       <div className="toolbarLine">
         <h3>{title}</h3>
-        <button className="secondaryButton" type="button" onClick={onAdd}>
+        <button
+          className="secondaryButton"
+          type="button"
+          disabled={disabled}
+          onClick={onAdd}
+        >
           {addLabel}
         </button>
       </div>
@@ -79,6 +90,7 @@ export function AiProviderEditorList({
                 <label className="providerSelect">
                   <input
                     checked={selectedProviderId === provider.id}
+                    disabled={disabled}
                     name={`${purpose}-provider`}
                     type="radio"
                     onChange={() => onSelect(provider.id)}
@@ -88,6 +100,7 @@ export function AiProviderEditorList({
                 <button
                   className="ghostButton"
                   type="button"
+                  disabled={disabled}
                   onClick={() => onRemove(provider.id)}
                 >
                   {translations.remove}
@@ -99,6 +112,7 @@ export function AiProviderEditorList({
                   label={translations.providerName}
                   control={
                     <input
+                      disabled={disabled}
                       value={provider.name}
                       onChange={(event) =>
                         onUpdate(provider.id, { name: event.target.value })
@@ -118,6 +132,7 @@ export function AiProviderEditorList({
                   label={translations.requestFormat}
                   control={
                     <select
+                      disabled={disabled}
                       value={provider.requestFormat}
                       onChange={(event) =>
                         onUpdate(provider.id, {
@@ -137,6 +152,7 @@ export function AiProviderEditorList({
                   label={translations.baseUrl}
                   control={
                     <input
+                      disabled={disabled}
                       placeholder="https://api.example.com/v1"
                       value={provider.baseUrl ?? ''}
                       onChange={(event) =>
@@ -151,6 +167,7 @@ export function AiProviderEditorList({
                   label={translations.defaultModel}
                   control={
                     <input
+                      disabled={disabled}
                       value={provider.defaultModel}
                       onChange={(event) =>
                         onUpdate(provider.id, {
@@ -164,6 +181,7 @@ export function AiProviderEditorList({
                   label={translations.modelCatalog}
                   control={
                     <input
+                      disabled={disabled}
                       placeholder={translations.modelCatalogHint}
                       value={provider.modelCatalog.join(', ')}
                       onChange={(event) =>
@@ -183,6 +201,7 @@ export function AiProviderEditorList({
                       label={translations.temperature}
                       control={
                         <input
+                          disabled={disabled}
                           max={2}
                           min={0}
                           step={0.1}
@@ -200,6 +219,7 @@ export function AiProviderEditorList({
                       label={translations.maxTokens}
                       control={
                         <input
+                          disabled={disabled}
                           min={1}
                           step={1}
                           type="number"
@@ -218,6 +238,7 @@ export function AiProviderEditorList({
                     label={translations.dimensions}
                     control={
                       <input
+                        disabled={disabled}
                         min={1}
                         step={1}
                         type="number"
@@ -238,6 +259,7 @@ export function AiProviderEditorList({
                 control={
                   <textarea
                     className="multilineInput"
+                    disabled={disabled}
                     rows={3}
                     value={provider.notes ?? ''}
                     onChange={(event) =>
@@ -252,6 +274,7 @@ export function AiProviderEditorList({
               <div className="toggleList compactToggleList">
                 <ToggleRow
                   checked={provider.enabled}
+                  disabled={disabled}
                   label={translations.enabled}
                   onChange={(checked) =>
                     onUpdate(provider.id, { enabled: checked })
@@ -265,6 +288,7 @@ export function AiProviderEditorList({
                   control={
                     <input
                       autoComplete="off"
+                      disabled={disabled}
                       placeholder="sk-..."
                       type="password"
                       value={apiKeys[provider.id] ?? ''}
@@ -278,6 +302,7 @@ export function AiProviderEditorList({
                   <button
                     className="secondaryButton"
                     type="button"
+                    disabled={onSaveKeyDisabled?.(provider.id) ?? false}
                     onClick={() => onSaveKey(provider.id)}
                   >
                     {translations.saveKey}
@@ -285,6 +310,7 @@ export function AiProviderEditorList({
                   <button
                     className="ghostButton"
                     type="button"
+                    disabled={onClearKeyDisabled?.(provider.id) ?? false}
                     onClick={() => onClearKey(provider.id)}
                   >
                     {translations.clearKey}

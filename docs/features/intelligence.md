@@ -238,6 +238,7 @@
 - 所有 preset 都支援自定義 Base URL
 - Embedding 和 LLM 分別配置：兩者可以用不同的 Provider 和模型。
 - **底層使用 rig.rs** 作為統一的 AI 框架，處理所有 provider 的請求格式和通信。
+- Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
 - day-one provider matrix：
   - chat / assistant：OpenAI-compatible、Anthropic、Google、Ollama、LM Studio
   - embeddings：OpenAI-compatible、Google、Ollama、LM Studio

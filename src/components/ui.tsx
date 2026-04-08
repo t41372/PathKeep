@@ -86,10 +86,12 @@ export function FieldBlock({
 
 export function ToggleRow({
   checked,
+  disabled = false,
   label,
   onChange,
 }: {
   checked: boolean
+  disabled?: boolean
   label: string
   onChange: (checked: boolean) => void
 }) {
@@ -98,6 +100,7 @@ export function ToggleRow({
       <span>{label}</span>
       <input
         checked={checked}
+        disabled={disabled}
         type="checkbox"
         onChange={(event) => onChange(event.target.checked)}
       />
