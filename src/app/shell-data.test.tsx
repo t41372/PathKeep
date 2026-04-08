@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend, backendTestHarness } from '../lib/backend'
+import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
 import { I18nContext, type I18nContextValue } from '../lib/i18n/context'
 import {
   createNamespaceTranslator,
@@ -12,6 +13,10 @@ import {
 import type { AppConfig, AppSnapshot } from '../lib/types'
 import { ShellDataProvider } from './shell-data'
 import { useShellData } from './shell-data-context'
+
+vi.mock('../lib/ipc/backup-progress', () => ({
+  subscribeToBackupProgress: vi.fn(() => Promise.resolve(vi.fn())),
+}))
 
 const baseConfig: AppConfig = {
   initialized: false,
@@ -156,11 +161,13 @@ describe('ShellDataProvider', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     backendTestHarness.reset()
+    vi.mocked(subscribeToBackupProgress).mockResolvedValue(vi.fn())
   })
 
   test('loads and mutates shell data through provider actions', async () => {
     const user = userEvent.setup()
     const languageSpy = vi.fn()
+    const unsubscribe = vi.fn()
     const { dashboard, snapshot } = await seedSnapshot()
     const savedSnapshot: AppSnapshot = {
       ...snapshot,
@@ -187,6 +194,7 @@ describe('ShellDataProvider', () => {
     vi.spyOn(backend, 'initializeArchive').mockResolvedValue(
       initializedSnapshot,
     )
+    vi.mocked(subscribeToBackupProgress).mockResolvedValueOnce(unsubscribe)
     vi.spyOn(backend, 'runBackupNow').mockResolvedValue({
       dueSkipped: false,
       run: {
@@ -236,6 +244,8 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('notice')).toHaveTextContent(/run #42/i),
     )
+    expect(subscribeToBackupProgress).toHaveBeenCalledTimes(1)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
 
     await user.click(screen.getByRole('button', { name: 'clear' }))
     expect(screen.getByTestId('notice')).toHaveTextContent('none')

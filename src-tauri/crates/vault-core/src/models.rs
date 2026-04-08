@@ -439,6 +439,19 @@ pub struct BackupReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct BackupProgressEvent {
+    pub phase: String,
+    pub label: String,
+    pub detail: String,
+    pub step: usize,
+    pub total_steps: usize,
+    pub completed_profiles: usize,
+    pub total_profiles: usize,
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageSummary {
     pub archive_database_bytes: u64,
     pub manifest_bytes: u64,

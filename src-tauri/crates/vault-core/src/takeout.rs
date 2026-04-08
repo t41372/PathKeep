@@ -461,7 +461,7 @@ fn import_supported_payload(
                 batch_id
             ],
         )?;
-        archive.execute(
+        let url_id = archive.query_row(
             "INSERT INTO urls (
                url,
                title,
@@ -491,7 +491,8 @@ fn import_supported_payload(
                  ELSE urls.last_visit_iso
                END,
                payload_hash = excluded.payload_hash,
-               recorded_at = excluded.recorded_at",
+               recorded_at = excluded.recorded_at
+             RETURNING id",
             params![
                 record.url,
                 record.title,
@@ -503,13 +504,6 @@ fn import_supported_payload(
                 record.payload_hash,
                 now_rfc3339(),
             ],
-        )?;
-        let url_id = archive.query_row(
-            "SELECT id
-             FROM urls
-             WHERE source_profile_id = ?1
-               AND source_url_id = ?2",
-            params![source_profile_id, record.source_visit_id],
             |row| row.get::<_, i64>(0),
         )?;
         let inserted = archive.execute(

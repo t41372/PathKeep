@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { backend } from '../lib/backend'
+import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
 import { useI18nContext } from '../lib/i18n'
 import type {
   AppBuildInfo,
   AppConfig,
   AppSnapshot,
+  BackupProgressEvent,
   DashboardSnapshot,
 } from '../lib/types'
 import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
@@ -52,6 +54,61 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   function clearBusyOverlay() {
     setBusyAction(null)
     setBusyOverlay(null)
+  }
+
+  function backupOverlay(progress: BackupProgressEvent): BusyOverlayState {
+    const backupSteps = [
+      t('shell.backupStepPrepare'),
+      t('shell.backupStepArchive'),
+      t('shell.backupStepRefresh'),
+    ]
+    const profileDetail =
+      progress.profileId && progress.totalProfiles > 0
+        ? t('shell.backupProfileProgress', {
+            profileId: progress.profileId,
+            current:
+              progress.phase === 'stage-profile' ||
+              progress.phase === 'ingest-profile'
+                ? progress.completedProfiles + 1
+                : progress.completedProfiles,
+            total: progress.totalProfiles,
+          })
+        : null
+
+    switch (progress.phase) {
+      case 'prepare':
+        return {
+          label: t('shell.runningManualBackup'),
+          detail: t('shell.runningManualBackupDetail'),
+          steps: backupSteps,
+          activeStep: 0,
+        }
+      case 'stage-profile':
+      case 'ingest-profile':
+        return {
+          label: t('shell.backupWritingArchive'),
+          detail: profileDetail ?? t('shell.backupWritingArchiveDetail'),
+          steps: backupSteps,
+          activeStep: 1,
+        }
+      case 'finalize':
+        return {
+          label: t('shell.refreshingArchiveViews'),
+          detail: t('shell.backupFinalizeProgress', {
+            current: progress.completedProfiles,
+            total: progress.totalProfiles,
+          }),
+          steps: backupSteps,
+          activeStep: 2,
+        }
+      default:
+        return {
+          label: t('shell.runningManualBackup'),
+          detail: t('shell.runningManualBackupDetail'),
+          steps: backupSteps,
+          activeStep: 0,
+        }
+    }
   }
 
   const refreshAppData = useCallback(
@@ -165,6 +222,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       t('shell.backupStepArchive'),
       t('shell.backupStepRefresh'),
     ]
+    let unsubscribe = () => {}
 
     showBusyOverlay({
       label: t('shell.runningManualBackup'),
@@ -176,6 +234,9 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setError(null)
 
     try {
+      unsubscribe = await subscribeToBackupProgress((progress) => {
+        showBusyOverlay(backupOverlay(progress))
+      })
       await waitForNextPaint()
       showBusyOverlay({
         label: t('shell.backupWritingArchive'),
@@ -207,6 +268,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       )
       throw nextError
     } finally {
+      unsubscribe()
       clearBusyOverlay()
     }
   }

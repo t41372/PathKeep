@@ -94,8 +94,13 @@ pub(crate) fn clear_session_database_key_impl(state: &SessionState) -> Result<()
 pub(crate) fn run_backup_now_impl(
     due_only: bool,
     session_database_key: Option<&str>,
+    report_progress: impl FnMut(vault_core::BackupProgressEvent),
 ) -> Result<vault_core::BackupReport, String> {
-    worker_result(vault_worker::run_backup_now(session_database_key, due_only))
+    worker_result(vault_worker::run_backup_now_with_progress(
+        session_database_key,
+        due_only,
+        report_progress,
+    ))
 }
 
 pub(crate) fn query_history_impl(
@@ -564,7 +569,8 @@ mod tests {
             config.selected_profile_ids
         );
 
-        let backup = run_backup_now_impl(false, session_key(&session).as_deref()).expect("backup");
+        let backup =
+            run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
         assert_eq!(backup.run.expect("run").new_visits, 1);
 
         let history = query_history_impl(
@@ -791,8 +797,8 @@ mod tests {
         initialize_archive_impl(config.clone(), Some("vault-passphrase".to_string()), &session)
             .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
-        let report =
-            run_backup_now_impl(false, session_key(&session).as_deref()).expect("run backup");
+        let report = run_backup_now_impl(false, session_key(&session).as_deref(), |_| {})
+            .expect("run backup");
         let run_id = report.run.expect("backup run").id;
 
         let dashboard =

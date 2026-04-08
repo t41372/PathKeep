@@ -12,6 +12,8 @@ use std::{collections::BTreeMap, fs, path::Path, time::Duration as StdDuration};
 const MIGRATION_001_INITIAL_SQL: &str = include_str!("../migrations/001_initial.sql");
 const MIGRATION_002_RUNTIME_SQL: &str =
     include_str!("../migrations/002_archive_runtime_foundation.sql");
+const MIGRATION_003_HISTORY_SEARCH_FTS_SQL: &str =
+    include_str!("../migrations/003_history_search_fts.sql");
 
 const IMPORT_BATCH_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS import_batches (
@@ -251,6 +253,7 @@ struct MigrationSpec<'a> {
 const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 1, sql: MIGRATION_001_INITIAL_SQL },
     MigrationSpec { version: 2, sql: MIGRATION_002_RUNTIME_SQL },
+    MigrationSpec { version: 3, sql: MIGRATION_003_HISTORY_SEARCH_FTS_SQL },
 ];
 
 pub fn open_archive_connection(
@@ -493,12 +496,13 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 2);
+        assert_eq!(current_version(&connection).expect("schema version"), 3);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "raw_row_versions"));
         assert!(has_table(&connection, "profile_watermarks"));
         assert!(has_table(&connection, "import_batches"));
+        assert!(has_table(&connection, "history_search"));
         assert_eq!(
             object_type(&connection, "visit_events").expect("view type"),
             Some("view".to_string())
@@ -515,7 +519,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 2);
+        assert_eq!(count, 3);
     }
 
     #[test]
@@ -543,6 +547,6 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 2);
+        assert_eq!(current_version(&connection).expect("migrated version"), 3);
     }
 }

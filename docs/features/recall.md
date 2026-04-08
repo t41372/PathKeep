@@ -32,6 +32,7 @@
 - **分頁加載**：列表和搜尋結果走 cursor-based pagination，永遠只加載一頁。
 - **時間軸不觸發全表掃描**：拖動時的密度可視化來自聚合表，點擊展開某一天才查詢該天的具體記錄。
 - **搜尋走 FTS5 索引**：全文搜尋不走 `LIKE`，走 FTS5 倒排索引，查詢速度不隨數據量線性增長。
+- `WORK-M4-G` 已將 Explorer day-one keyword recall 收斂到 canonical `history_search` FTS5 projection，索引欄位為 URL、title 與 normalized search term；regex mode 仍維持 post-filter 邊界。
 
 ### 搜尋與篩選
 

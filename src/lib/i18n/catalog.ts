@@ -546,6 +546,9 @@ const catalog: Record<
       backupWritingArchive: 'Writing archive facts',
       backupWritingArchiveDetail:
         'Normalizing visits, URLs, and audit artifacts. Large real-world profiles can take a while here.',
+      backupProfileProgress: '{profileId} ({current}/{total})',
+      backupFinalizeProgress:
+        'Processed {current} of {total} selected profiles. Preparing the manifest and cached totals.',
       refreshingArchiveViews: 'Refreshing archive views',
       refreshingArchiveViewsDetail:
         'Reloading dashboard totals, recent runs, and other shell surfaces with the latest archive state.',
@@ -1533,6 +1536,9 @@ const catalog: Record<
       backupWritingArchive: '正在写入归档事实',
       backupWritingArchiveDetail:
         '正在规范化 visits、URL 和审计工件。真实的大型配置文件在这一步可能会花一些时间。',
+      backupProfileProgress: '{profileId}（{current}/{total}）',
+      backupFinalizeProgress:
+        '已处理 {current}/{total} 个选定配置文件，正在准备 manifest 与缓存总计。',
       refreshingArchiveViews: '正在刷新归档视图',
       refreshingArchiveViewsDetail:
         '正在重新加载仪表盘统计、最近运行和其他 shell 视图。',
@@ -2262,6 +2268,9 @@ const catalog: Record<
       backupWritingArchive: '正在寫入歸檔 facts',
       backupWritingArchiveDetail:
         '正在正規化 visits、URL 與審計工件。真實的大型設定檔在這一步可能會花一些時間。',
+      backupProfileProgress: '{profileId}（{current}/{total}）',
+      backupFinalizeProgress:
+        '已處理 {current}/{total} 個選定設定檔，正在準備 manifest 與快取總計。',
       refreshingArchiveViews: '正在刷新歸檔視圖',
       refreshingArchiveViewsDetail:
         '正在重新載入儀表板統計、最近執行與其他 shell 畫面。',

@@ -396,6 +396,17 @@ export interface BackupReport {
   remoteBackup?: RemoteBackupResult | null
 }
 
+export interface BackupProgressEvent {
+  phase: string
+  label: string
+  detail: string
+  step: number
+  totalSteps: number
+  completedProfiles: number
+  totalProfiles: number
+  profileId?: string | null
+}
+
 export interface StorageSummary {
   archiveDatabaseBytes: number
   manifestBytes: number

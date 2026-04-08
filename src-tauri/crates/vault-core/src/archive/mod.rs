@@ -10,9 +10,9 @@ use crate::{
     git_audit,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
-        BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat, ExportRequest,
-        ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry, HistoryQuery,
-        HistoryQueryResponse, StorageSummary,
+        BackupProgressEvent, BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat,
+        ExportRequest, ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry,
+        HistoryQuery, HistoryQueryResponse, StorageSummary,
     },
     utils::{now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain},
 };
@@ -92,6 +92,74 @@ WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:query IS NULL OR urls.url LIKE '%' || :query || '%' OR IFNULL(urls.title, '') LIKE '%' || :query || '%')
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
+"#;
+
+const LIST_HISTORY_FTS_SQL: &str = r#"
+SELECT
+  visits.id,
+  source_profiles.profile_key,
+  urls.url,
+  urls.title,
+  visits.visit_time_ms,
+  visits.visit_duration_ms,
+  visits.transition_type,
+  visits.source_visit_id,
+  visits.app_id
+FROM visits
+JOIN urls
+  ON urls.id = visits.url_id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+JOIN history_search
+  ON history_search.rowid = urls.id
+WHERE visits.reverted_at IS NULL
+  AND history_search MATCH :ftsQuery
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
+  AND (
+    :cursorVisitTime IS NULL
+    OR (
+      :sort = 'oldest'
+      AND (
+        visits.visit_time_ms > :cursorVisitTime
+        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id > :cursorId)
+      )
+    )
+    OR (
+      :sort != 'oldest'
+      AND (
+        visits.visit_time_ms < :cursorVisitTime
+        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id < :cursorId)
+      )
+    )
+  )
+ORDER BY
+  CASE WHEN :sort = 'oldest' THEN visits.visit_time_ms END ASC,
+  CASE WHEN :sort = 'oldest' THEN visits.id END ASC,
+  CASE WHEN :sort != 'oldest' THEN visits.visit_time_ms END DESC,
+  CASE WHEN :sort != 'oldest' THEN visits.id END DESC
+LIMIT :pageLimit
+"#;
+
+const COUNT_HISTORY_FTS_SQL: &str = r#"
+SELECT COUNT(*)
+FROM visits
+JOIN urls
+  ON urls.id = visits.url_id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+JOIN history_search
+  ON history_search.rowid = urls.id
+WHERE visits.reverted_at IS NULL
+  AND history_search MATCH :ftsQuery
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
@@ -448,6 +516,19 @@ pub fn run_backup(
     key: Option<&str>,
     due_only: bool,
 ) -> Result<BackupReport> {
+    run_backup_with_progress(paths, config, key, due_only, |_| {})
+}
+
+pub fn run_backup_with_progress<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    due_only: bool,
+    mut report_progress: F,
+) -> Result<BackupReport>
+where
+    F: FnMut(BackupProgressEvent),
+{
     ensure_paths(paths)?;
     if !config.initialized {
         anyhow::bail!("archive has not been initialized");
@@ -478,6 +559,20 @@ pub fn run_backup(
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
     let trigger = if due_only { "schedule" } else { "manual" };
+    let total_profiles = selected_profiles.len();
+
+    report_progress(BackupProgressEvent {
+        phase: "prepare".to_string(),
+        label: "Inspect selected browser profiles".to_string(),
+        detail: format!(
+            "Queued {total_profiles} readable profile(s) for the canonical backup run."
+        ),
+        step: 0,
+        total_steps: 3,
+        completed_profiles: 0,
+        total_profiles,
+        profile_id: None,
+    });
 
     connection.execute(
         "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
@@ -505,8 +600,36 @@ pub fn run_backup(
 
     let backup_result = (|| -> Result<()> {
         let transaction = connection.transaction()?;
-        for profile in &selected_profiles {
+        for (index, profile) in selected_profiles.iter().enumerate() {
+            report_progress(BackupProgressEvent {
+                phase: "stage-profile".to_string(),
+                label: "Stage source profile".to_string(),
+                detail: format!(
+                    "Copying {} into the staging area ({}/{total_profiles}).",
+                    profile.profile_id,
+                    index + 1,
+                ),
+                step: 1,
+                total_steps: 3,
+                completed_profiles: index,
+                total_profiles,
+                profile_id: Some(profile.profile_id.clone()),
+            });
             let snapshot = stage_profile_snapshot(paths, profile)?;
+            report_progress(BackupProgressEvent {
+                phase: "ingest-profile".to_string(),
+                label: "Write canonical archive facts".to_string(),
+                detail: format!(
+                    "Processing {} and writing archive rows ({}/{total_profiles}).",
+                    profile.profile_id,
+                    index + 1,
+                ),
+                step: 1,
+                total_steps: 3,
+                completed_profiles: index,
+                total_profiles,
+                profile_id: Some(profile.profile_id.clone()),
+            });
             let profile_summary = process_profile_snapshot(
                 &transaction,
                 run_id,
@@ -520,6 +643,18 @@ pub fn run_backup(
             warnings.extend(profile_summary.notes.clone());
             profile_summaries.push(profile_summary);
         }
+        report_progress(BackupProgressEvent {
+            phase: "finalize".to_string(),
+            label: "Finalize manifest and cached totals".to_string(),
+            detail: format!(
+                "Committing run artifacts after {total_profiles} processed profile(s)."
+            ),
+            step: 2,
+            total_steps: 3,
+            completed_profiles: total_profiles,
+            total_profiles,
+            profile_id: None,
+        });
         transaction.commit()?;
         Ok(())
     })();
@@ -610,6 +745,16 @@ pub fn list_history(
         format!("{}|{}", entry.visit_time, entry.id)
     }
 
+    fn build_fts_query(raw: &str) -> Option<String> {
+        let tokens = raw
+            .split_whitespace()
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
+            .collect::<Vec<_>>();
+        if tokens.is_empty() { None } else { Some(tokens.join(" AND ")) }
+    }
+
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
@@ -618,6 +763,7 @@ pub fn list_history(
     let start_time_ms = query.start_time_ms;
     let end_time_ms = query.end_time_ms;
     let q = query.q.clone().filter(|value| !value.trim().is_empty());
+    let fts_query = q.as_deref().and_then(build_fts_query);
     let regex = if query.regex_mode.unwrap_or(false) {
         q.as_ref()
             .map(|value| {
@@ -682,6 +828,57 @@ pub fn list_history(
             })
             .take(limit as usize + 1)
             .collect::<Vec<_>>();
+        let has_more = items.len() > limit as usize;
+        if has_more {
+            items.truncate(limit as usize);
+        }
+
+        return Ok(HistoryQueryResponse {
+            total,
+            next_cursor: has_more
+                .then(|| encode_history_cursor(items.last().expect("paginated item"))),
+            items,
+        });
+    }
+
+    if q.is_some() && fts_query.is_none() {
+        return Ok(HistoryQueryResponse::default());
+    }
+
+    if let Some(fts_query) = fts_query {
+        let total: usize = connection
+            .query_row(
+                COUNT_HISTORY_FTS_SQL,
+                named_params! {
+                    ":ftsQuery": fts_query.clone(),
+                    ":profileId": profile_id.clone(),
+                    ":browserKind": browser_kind.clone(),
+                    ":domainPattern": domain_pattern.clone(),
+                    ":startTimeMs": start_time_ms,
+                    ":endTimeMs": end_time_ms,
+                },
+                |row| row.get::<_, i64>(0),
+            )?
+            .try_into()
+            .expect("history count fits in usize");
+
+        let mut statement = connection.prepare(LIST_HISTORY_FTS_SQL)?;
+        let rows = statement.query_map(
+            named_params! {
+                ":ftsQuery": fts_query,
+                ":profileId": profile_id,
+                ":browserKind": browser_kind,
+                ":domainPattern": domain_pattern,
+                ":startTimeMs": start_time_ms,
+                ":endTimeMs": end_time_ms,
+                ":sort": sort,
+                ":cursorVisitTime": query.cursor.as_ref().map(|_| cursor_visit_time),
+                ":cursorId": query.cursor.as_ref().map(|_| cursor_id),
+                ":pageLimit": limit + 1,
+            },
+            history_entry_from_row,
+        )?;
+        let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         let has_more = items.len() > limit as usize;
         if has_more {
             items.truncate(limit as usize);
@@ -1421,8 +1618,9 @@ fn upsert_source_profile(
     profile: &crate::models::BrowserProfile,
 ) -> Result<i64> {
     let browser_kind = profile.profile_id.split(':').next().unwrap_or(&profile.browser_family);
-    archive.execute(
-        "INSERT INTO source_profiles (
+    archive
+        .query_row(
+            "INSERT INTO source_profiles (
            browser_kind,
            browser_version,
            profile_name,
@@ -1441,24 +1639,18 @@ fn upsert_source_profile(
            profile_path = excluded.profile_path,
            user_name = excluded.user_name,
            updated_at = excluded.updated_at,
-           enabled = 1",
-        params![
-            browser_kind,
-            profile.browser_version,
-            profile.profile_name,
-            profile.profile_path,
-            now_rfc3339(),
-            profile.profile_id,
-            profile.user_name,
-            now_rfc3339(),
-        ],
-    )?;
-    archive
-        .query_row(
-            "SELECT id
-             FROM source_profiles
-             WHERE profile_key = ?1",
-            [profile.profile_id.as_str()],
+           enabled = 1
+         RETURNING id",
+            params![
+                browser_kind,
+                profile.browser_version,
+                profile.profile_name,
+                profile.profile_path,
+                now_rfc3339(),
+                profile.profile_id,
+                profile.user_name,
+                now_rfc3339(),
+            ],
             |row| row.get(0),
         )
         .map_err(Into::into)
@@ -1473,8 +1665,9 @@ fn upsert_url(
     payload_hash: &str,
 ) -> Result<i64> {
     let recorded_at = now_rfc3339();
-    archive.execute(
-        "INSERT INTO urls (
+    archive
+        .query_row(
+            "INSERT INTO urls (
            url,
            title,
            visit_count,
@@ -1506,29 +1699,22 @@ fn upsert_url(
            last_visit_iso = CASE
              WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
              ELSE urls.last_visit_iso
-           END",
-        params![
-            url.url,
-            url.title,
-            url.visit_count,
-            url.typed_count,
-            url.last_visit_ms,
-            url.last_visit_iso,
-            source_profile_id,
-            run_id,
-            url.source_url_id,
-            url.hidden as i64,
-            payload_hash,
-            recorded_at,
-        ],
-    )?;
-    archive
-        .query_row(
-            "SELECT id
-             FROM urls
-             WHERE source_profile_id = ?1
-               AND source_url_id = ?2",
-            params![source_profile_id, url.source_url_id],
+           END
+         RETURNING id",
+            params![
+                url.url,
+                url.title,
+                url.visit_count,
+                url.typed_count,
+                url.last_visit_ms,
+                url.last_visit_iso,
+                source_profile_id,
+                run_id,
+                url.source_url_id,
+                url.hidden as i64,
+                payload_hash,
+                recorded_at,
+            ],
             |row| row.get(0),
         )
         .with_context(|| format!("loading canonical url id for {}", profile.profile_id))
@@ -2864,7 +3050,7 @@ mod tests {
         history
             .execute(
                 "INSERT INTO keyword_search_terms (keyword_id, url_id, term, normalized_term)
-                 VALUES (1, 1, 'archive docs', 'archive docs')",
+                 VALUES (1, 1, 'deep recall token', 'deep recall token')",
                 [],
             )
             .expect("insert search term");
@@ -3012,12 +3198,20 @@ mod tests {
         };
 
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let report = run_backup(&paths, &config, None, false).expect("run backup");
+        let mut progress_events = Vec::new();
+        let report = run_backup_with_progress(&paths, &config, None, false, |event| {
+            progress_events.push(event);
+        })
+        .expect("run backup");
         assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
         assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
         assert_eq!(report.run.as_ref().expect("run").new_downloads, 1);
         assert!(report.manifest_path.as_ref().is_some_and(|path| Path::new(path).exists()));
         assert!(report.profiles[0].checkpoint_created);
+        assert!(progress_events.iter().any(|event| event.phase == "prepare"));
+        assert!(progress_events.iter().any(|event| event.phase == "stage-profile"));
+        assert!(progress_events.iter().any(|event| event.phase == "ingest-profile"));
+        assert!(progress_events.iter().any(|event| event.phase == "finalize"));
 
         let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
         assert!(!recent_runs.is_empty());
@@ -3031,6 +3225,15 @@ mod tests {
         )
         .expect("list history");
         assert_eq!(history.total, 2);
+
+        let search_term_history = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { q: Some("deep recall".to_string()), ..HistoryQuery::default() },
+        )
+        .expect("list search term history");
+        assert_eq!(search_term_history.total, 2);
 
         let regex_history = list_history(
             &paths,
@@ -3089,6 +3292,29 @@ mod tests {
 
         let report_again = run_backup(&paths, &config, None, false).expect("rerun backup");
         assert_eq!(report_again.run.as_ref().expect("run").new_visits, 0);
+
+        let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+        let mut statement = connection
+            .prepare(
+                "EXPLAIN QUERY PLAN
+                 SELECT visits.id
+                 FROM visits
+                 JOIN urls ON urls.id = visits.url_id
+                 JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+                 JOIN history_search ON history_search.rowid = urls.id
+                 WHERE visits.reverted_at IS NULL
+                   AND history_search MATCH ?1",
+            )
+            .expect("prepare query plan");
+        let plan = statement
+            .query_map(["\"deep\"*"], |row| row.get::<_, String>(3))
+            .expect("query plan rows")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect query plan");
+        assert!(
+            plan.iter().any(|detail| detail.contains("VIRTUAL TABLE INDEX")),
+            "unexpected query plan: {plan:?}"
+        );
 
         restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
     }
@@ -3256,6 +3482,14 @@ mod tests {
             load_dashboard_snapshot(&paths, &config, None).expect("dashboard after import");
         assert_eq!(dashboard_after_import.total_visits, 1);
         assert_eq!(dashboard_after_import.total_urls, 1);
+        let visible_after_import = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { q: Some("imported".to_string()), ..HistoryQuery::default() },
+        )
+        .expect("query after import");
+        assert_eq!(visible_after_import.total, 1);
 
         let after_import_stats: Value = Connection::open(&paths.archive_database_path)
             .expect("open archive")
@@ -3278,6 +3512,14 @@ mod tests {
             load_dashboard_snapshot(&paths, &config, None).expect("dashboard after revert");
         assert_eq!(dashboard_after_revert.total_visits, 0);
         assert_eq!(dashboard_after_revert.total_urls, 1);
+        let hidden_after_revert = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { q: Some("imported".to_string()), ..HistoryQuery::default() },
+        )
+        .expect("query after revert");
+        assert_eq!(hidden_after_revert.total, 0);
 
         let after_revert_stats: Value = Connection::open(&paths.archive_database_path)
             .expect("open archive")
@@ -3300,6 +3542,14 @@ mod tests {
             load_dashboard_snapshot(&paths, &config, None).expect("dashboard after restore");
         assert_eq!(dashboard_after_restore.total_visits, 1);
         assert_eq!(dashboard_after_restore.total_urls, 1);
+        let visible_after_restore = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { q: Some("imported".to_string()), ..HistoryQuery::default() },
+        )
+        .expect("query after restore");
+        assert_eq!(visible_after_restore.total, 1);
     }
 
     #[test]

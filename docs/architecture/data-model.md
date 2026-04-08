@@ -111,6 +111,7 @@
 ### FTS projection 範圍
 
 - canonical v1 的 FTS 只索引 **URL、title、search term**，以及後續明確挑選的 enrichment projection 欄位。
+- `WORK-M4-G` 目前落地的投影是 `history_search` FTS5 virtual table：一筆 canonical `urls.id` 對應一份 URL / title / aggregated normalized search terms，Explorer keyword recall 透過 `MATCH` 命中後再 join 可見 `visits`，避免 rollback hidden rows 洩漏回主查詢。
 - 完整 refetch 文本、readable content、AI 生成摘要不直接塞進 FTS 主索引。
 - 若某個 enrichment 需要被全文搜尋，先經 projection / truncation / field whitelist 進入獨立 projection table，再由 FTS 索引。
 

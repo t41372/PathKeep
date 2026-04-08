@@ -7,7 +7,7 @@ use anyhow::Result;
 use session::SessionState;
 use std::io::Write;
 #[cfg(not(test))]
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 #[cfg(not(test))]
 use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(test))]
@@ -187,10 +187,13 @@ fn clear_session_database_key(state: State<'_, SessionState>) -> Result<(), Stri
 #[cfg(not(test))]
 #[tauri::command]
 fn run_backup_now(
+    app: AppHandle,
     due_only: bool,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::BackupReport, String> {
-    worker_bridge::run_backup_now_impl(due_only, state.get_key().as_deref())
+    worker_bridge::run_backup_now_impl(due_only, state.get_key().as_deref(), |event| {
+        let _ = app.emit("pathkeep://backup-progress", &event);
+    })
 }
 
 #[cfg(not(test))]

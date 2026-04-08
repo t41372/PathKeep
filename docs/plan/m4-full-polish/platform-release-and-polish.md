@@ -7,6 +7,8 @@
 
 **2026-04-08 performance follow-up**：release closeout 後再用真實大型 Chromium profile 做 manual backup，發現匯入雖能完成，但完成後整個 shell 仍明顯不流暢。這代表 M4 的「Performance, Accessibility, And Observability」並沒有因為 release gate 全綠就真的完成，因此另外切出 `WORK-M4-G`。它的 focus problem 不是一般 route 切換 polish，而是 large-archive baseline：whole-app profiling artifact、parser / ingest hot path、Explorer FTS5 recall 契約，以及大型 backup 的 progress / observability。
 
+**2026-04-08 performance closeout (`WORK-M4-G`)**：Explorer keyword recall 現在走 `history_search` FTS5 projection，不再用 `LIKE` 假裝 large-archive fast path；backup flow 也新增了 profile-scoped phase progress event，讓 shell overlay 可明確顯示目前正在處理哪個 profile / phase。配合 [large-archive-performance-runbook.md](large-archive-performance-runbook.md) 的 artifact bundle，下一輪 profiling 已有固定的 webview trace、Rust sample 與 SQLite query-plan 收集語法。
+
 ---
 
 ## Source Inputs
@@ -17,6 +19,7 @@
 - [../program/research-and-decisions.md](../program/research-and-decisions.md)
 - [enrichment-advanced-intelligence-and-remote.md](enrichment-advanced-intelligence-and-remote.md)
 - [e2e-workflow-rehearsal.md](e2e-workflow-rehearsal.md)
+- [large-archive-performance-runbook.md](large-archive-performance-runbook.md)
 - [../m0-foundation/rename-quality-and-rewrite-discipline.md](../m0-foundation/rename-quality-and-rewrite-discipline.md)
 
 ---

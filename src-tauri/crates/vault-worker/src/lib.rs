@@ -19,22 +19,22 @@ use vault_core::{
     AiIntegrationPreview, AiProviderConfig, AiProviderConnectionTestReport,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderRuntime, AiProviderSecretInput,
     AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot,
-    ArchiveMode, AuditRunDetail, ClearDerivedIntelligenceReport, DashboardSnapshot,
-    ExplainInsightRequest, ExportRequest, HealthRepairReport, HealthReport, HistoryQuery,
-    HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot, InsightStatus,
-    InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult,
-    RemoteBackupVerification, RunInsightsReport, RunInsightsRequest, S3CredentialInput,
-    SchedulePlan, TakeoutInspection, TakeoutRequest, ai_index_status, ai_queue, ai_queue_status,
-    answer_history_question, archive, archive_status, build_ai_index,
+    ArchiveMode, AuditRunDetail, BackupProgressEvent, ClearDerivedIntelligenceReport,
+    DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthRepairReport, HealthReport,
+    HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot,
+    InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
+    RemoteBackupResult, RemoteBackupVerification, RunInsightsReport, RunInsightsRequest,
+    S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest, ai_index_status, ai_queue,
+    ai_queue_status, answer_history_question, archive, archive_status, build_ai_index,
     clear_derived_intelligence_state, doctor, ensure_archive_initialized, explain_insight,
     export_history, import_takeout, insight_status, inspect_takeout, list_history,
     load_assistant_run_response, load_audit_run_detail, load_config, load_dashboard_snapshot,
     load_import_batches, load_insight_thread_detail, load_insights, load_recent_runs,
     preview_ai_integrations, preview_import_batch, preview_remote_backup, project_paths,
     provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
-    repair_health_issues, restore_import_batch, revert_import_batch, run_backup, run_insights,
-    run_remote_backup, save_config, semantic_search_history, test_provider_connection,
-    verify_remote_backup,
+    repair_health_issues, restore_import_batch, revert_import_batch, run_backup_with_progress,
+    run_insights, run_remote_backup, save_config, semantic_search_history,
+    test_provider_connection, verify_remote_backup,
 };
 use vault_platform::{
     ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
@@ -609,9 +609,23 @@ pub fn run_backup_now(
     session_database_key: Option<&str>,
     due_only: bool,
 ) -> Result<vault_core::BackupReport> {
+    run_backup_now_with_progress(session_database_key, due_only, |_| {})
+}
+
+pub fn run_backup_now_with_progress<F>(
+    session_database_key: Option<&str>,
+    due_only: bool,
+    mut report_progress: F,
+) -> Result<vault_core::BackupReport>
+where
+    F: FnMut(BackupProgressEvent),
+{
     let paths = project_paths()?;
     let config = load_config(&paths)?;
-    let mut report = run_backup(&paths, &config, session_database_key, due_only)?;
+    let mut report =
+        run_backup_with_progress(&paths, &config, session_database_key, due_only, |event| {
+            report_progress(event);
+        })?;
     if !report.due_skipped
         && config.remote_backup.enabled
         && config.remote_backup.upload_after_backup

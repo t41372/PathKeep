@@ -20,7 +20,7 @@ pub use ai::{
 pub use archive::{
     archive_status, doctor, ensure_archive_initialized, export_history, list_history,
     load_audit_run_detail, load_dashboard_snapshot, load_recent_runs, rekey_archive,
-    repair_health_issues, run_backup,
+    repair_health_issues, run_backup, run_backup_with_progress,
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};
