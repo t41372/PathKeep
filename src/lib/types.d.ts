@@ -47,6 +47,8 @@ export interface AiSettings {
   mcpEnabled: boolean
   skillEnabled: boolean
   autoIndexAfterBackup: boolean
+  jobQueuePaused: boolean
+  jobQueueConcurrency: number
   llmProviderId?: string | null
   embeddingProviderId?: string | null
   retrievalTopK: number
@@ -115,12 +117,73 @@ export interface AiIndexStatus {
   assistantEnabled: boolean
   mcpEnabled: boolean
   skillEnabled: boolean
+  state: string
   ready: boolean
   indexedItems: number
   lastIndexedAt?: string | null
   llmProviderId?: string | null
   embeddingProviderId?: string | null
+  queuePaused: boolean
+  queueConcurrency: number
+  queuedJobs: number
+  runningJobs: number
+  failedJobs: number
+  recentJobs: AiQueueJob[]
   warning?: string | null
+}
+
+export interface AiProviderCapabilityReport {
+  supportsChat: boolean
+  supportsEmbeddings: boolean
+  supportsStreaming: boolean
+  supportsToolUse: boolean
+  supportsStructuredOutput: boolean
+}
+
+export interface AiProviderConnectionTestRequest {
+  providerId: string
+  purpose: AiProviderPurpose
+}
+
+export interface AiProviderConnectionTestReport {
+  providerId: string
+  purpose: string
+  model: string
+  ok: boolean
+  latencyMs: number
+  capabilities: AiProviderCapabilityReport
+  errorCode?: string | null
+  actionHint?: string | null
+  retryHint?: string | null
+  warnings: string[]
+  message: string
+}
+
+export interface AiQueueJob {
+  id: number
+  jobType: string
+  state: string
+  priority: number
+  attempt: number
+  maxAttempts: number
+  runId?: number | null
+  summary?: string | null
+  queuedAt: string
+  availableAt: string
+  startedAt?: string | null
+  finishedAt?: string | null
+  heartbeatAt?: string | null
+  errorCode?: string | null
+  errorMessage?: string | null
+}
+
+export interface AiQueueStatus {
+  paused: boolean
+  concurrency: number
+  queued: number
+  running: number
+  failed: number
+  recentJobs: AiQueueJob[]
 }
 
 export interface InsightStatus {
@@ -387,6 +450,7 @@ export interface HistoryQuery {
   endTimeMs?: number | null
   sort?: 'newest' | 'oldest' | null
   limit?: number | null
+  cursor?: string | null
 }
 
 export interface HistoryEntry {
@@ -406,6 +470,7 @@ export interface HistoryEntry {
 export interface HistoryQueryResponse {
   total: number
   items: HistoryEntry[]
+  nextCursor?: string | null
 }
 
 export type ExportFormat = 'html' | 'markdown' | 'text' | 'jsonl'
@@ -597,10 +662,13 @@ export interface AiProviderSecretInput {
 export interface AiIndexRequest {
   providerId?: string | null
   fullRebuild: boolean
+  clearOnly: boolean
   limit?: number | null
 }
 
 export interface AiIndexReport {
+  jobId?: number | null
+  runId?: number | null
   providerId: string
   model: string
   indexedItems: number
@@ -616,6 +684,7 @@ export interface AiSearchRequest {
   profileId?: string | null
   domain?: string | null
   limit?: number | null
+  cursor?: string | null
 }
 
 export interface AiSearchResultItem {
@@ -635,6 +704,7 @@ export interface AiSearchResponse {
   model: string
   items: AiSearchResultItem[]
   notes: string[]
+  nextCursor?: string | null
 }
 
 export interface AiAssistantRequest {
@@ -653,7 +723,10 @@ export interface AiAssistantCitation {
 }
 
 export interface AiAssistantResponse {
+  state: string
   answer: string
+  jobId?: number | null
+  runId?: number | null
   providerId: string
   embeddingProviderId: string
   citations: AiAssistantCitation[]

@@ -3,9 +3,9 @@ use crate::{
     session::{SessionState, session_key, update_session_key},
 };
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderSecretInput, AiSearchRequest, AppConfig,
-    ExplainInsightRequest, ExportRequest, HistoryQuery, RunInsightsRequest, S3CredentialInput,
-    SchedulePlan, TakeoutRequest,
+    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
+    AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, HistoryQuery,
+    RunInsightsRequest, S3CredentialInput, SchedulePlan, TakeoutRequest,
 };
 use vault_worker::{self, RekeyRequest};
 
@@ -249,6 +249,53 @@ pub(crate) fn clear_ai_provider_api_key_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot, String> {
     worker_result(vault_worker::clear_ai_provider_api_key(&provider_id, session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn test_ai_provider_connection_impl(
+    request: AiProviderConnectionTestRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiProviderConnectionTestReport, String> {
+    worker_result(vault_worker::test_ai_provider_connection_report(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn load_ai_queue_status_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiQueueStatus, String> {
+    worker_result(vault_worker::load_ai_queue(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn run_ai_queue_jobs_impl(
+    max_jobs: Option<u32>,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiQueueStatus, String> {
+    worker_result(vault_worker::run_ai_queue_jobs(session_database_key, max_jobs))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn replay_ai_job_impl(
+    job_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiQueueJob, String> {
+    worker_result(vault_worker::replay_ai_job(session_database_key, job_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn cancel_ai_job_impl(
+    job_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiQueueJob, String> {
+    worker_result(vault_worker::cancel_ai_job(session_database_key, job_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn load_ai_assistant_job_impl(
+    job_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiAssistantResponse, String> {
+    worker_result(vault_worker::load_ai_assistant_job(session_database_key, job_id))
 }
 
 pub(crate) fn build_ai_index_impl(
@@ -597,7 +644,12 @@ mod tests {
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
         let ai_index_error = build_ai_index_impl(
-            AiIndexRequest { provider_id: None, full_rebuild: false, limit: Some(5) },
+            AiIndexRequest {
+                provider_id: None,
+                full_rebuild: false,
+                clear_only: false,
+                limit: Some(5),
+            },
             session_key(&session).as_deref(),
         )
         .expect_err("index build should require saved embedding provider key");
@@ -609,6 +661,7 @@ mod tests {
                 profile_id: None,
                 domain: None,
                 limit: Some(5),
+                cursor: None,
             },
             session_key(&session).as_deref(),
         )

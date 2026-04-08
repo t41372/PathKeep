@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M3 — Intelligence**
+**當前 Milestone：M4 — Full Polish**
 
 ---
 
@@ -12,39 +12,40 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-M3-A** — Providers, Queue, And Indexing
+- [ ] **WORK-M4-A** — Enrichment And Remote Backup
 
 ---
 
-### WORK-M3-A — Providers, Queue, And Indexing
+### WORK-M4-A — Enrichment And Remote Backup
 
-**目標**：在不破壞 Archive 可信基礎的前提下，完成 AI provider 設定、job queue、embedding / semantic index foundation，讓 optional intelligence 開始可重跑、可清空、可重建。
+**目標**：在已穩定的 archive + intelligence v1 之上，補齊 enrichment plugin system、advanced intelligence 與 remote backup 的第一個可驗收 slice，同時維持 optional、evidence-first、recoverable 原則。
 
 **包含範圍**：
 
-1. 補齊 AI provider 管理、secret storage / clear、connection test 和 model selection 的 command + UI contract
-2. 建立 job queue persistence、worker orchestration 與 retry / replay 邊界
-3. 完成 embedding / semantic index 的 build、clear、rebuild foundation，並保留無 AI 配置時的安全降級
-4. 把 provider / queue / index 的驗收、文檔與決策同步回寫到 M3 source docs
+1. 定義 enrichment plugin contract、queue integration、derived-state boundary 和至少一組高價值 core plugins
+2. 擴展 intelligence 到更長時間窗口、storage / revisit 類 insight，且每個 advanced insight 都保留 evidence 與 disable / rebuild controls
+3. 完成 remote backup bundle 的 preview / execute / validation / restore story，對齊 PME grammar
+4. 把 storage / operations / remote docs、驗收樣本與 M4 source docs 同步回寫
 
 **讀先**：
 
 - `docs/features/intelligence.md`
-- `docs/plan/m3-intelligence/providers-indexing-and-jobs.md`
+- `docs/features/archive.md`
+- `docs/plan/m4-full-polish/enrichment-advanced-intelligence-and-remote.md`
 
 **完成訊號**：
 
-- provider 管理、secret storage / clear、connection test 與 model selection 都有可驗證結果
-- semantic index build / clear / rebuild 與 job queue persistence 已落地，且沒有 AI 配置時仍能正常降級
-- M3 provider / queue / indexing docs 與 research backlog 已同步
+- enrichment plugin framework、advanced intelligence、remote backup bundle 都有第一版可驗收實作，且不破壞 archive / intelligence v1 的可信邊界
+- remote backup / enrichment / advanced insight 的 evidence、cost / storage guardrail、clear / rebuild / restore 路徑都可驗證
+- M4 enrichment / remote / advanced intelligence docs、驗收樣本與 research backlog 已同步
 - `bun run check && bun run build`
 
 **預期 commit 類型**：
 
-- `feat(ai): ...`
-- `feat(queue): ...`
-- `feat(index): ...`
-- `test(ai): ...`
+- `feat(enrichment): ...`
+- `feat(remote): ...`
+- `feat(insights): ...`
+- `test(remote): ...`
 
 ---
 

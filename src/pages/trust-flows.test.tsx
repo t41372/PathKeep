@@ -68,6 +68,8 @@ const config: AppConfig = {
     mcpEnabled: false,
     skillEnabled: false,
     autoIndexAfterBackup: false,
+    jobQueuePaused: false,
+    jobQueueConcurrency: 1,
     llmProviderId: null,
     embeddingProviderId: null,
     retrievalTopK: 8,

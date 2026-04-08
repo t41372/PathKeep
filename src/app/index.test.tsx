@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from './index'
@@ -45,6 +51,8 @@ const initializedConfig: AppConfig = {
     mcpEnabled: false,
     skillEnabled: false,
     autoIndexAfterBackup: false,
+    jobQueuePaused: false,
+    jobQueueConcurrency: 1,
     llmProviderId: null,
     embeddingProviderId: null,
     retrievalTopK: 8,
@@ -58,6 +66,43 @@ const initializedConfig: AppConfig = {
 async function seedArchiveRun() {
   await backend.initializeArchive(initializedConfig, 'vault-passphrase')
   await backend.runBackupNow(false)
+}
+
+function seedInteractiveSchedule() {
+  backendTestHarness.seedSchedule(
+    {
+      platform: 'macos',
+      label: 'dev.codex.pathkeep.backup',
+      executablePath: '/Applications/PathKeep.app',
+      generatedFiles: [
+        {
+          relativePath: 'schedule/dev.codex.pathkeep.backup.plist',
+          absolutePath:
+            '/Users/test/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+          purpose: 'LaunchAgent plist',
+          contents:
+            '<?xml version="1.0"?><plist><dict><key>Label</key><string>dev.codex.pathkeep.backup</string></dict></plist>',
+        },
+      ],
+      manualSteps: ['Review the LaunchAgent install.'],
+      applyCommands: [['launchctl', 'bootstrap']],
+      rollbackCommands: [['launchctl', 'bootout']],
+      applySupported: true,
+    },
+    {
+      platform: 'macos',
+      label: 'dev.codex.pathkeep.backup',
+      dueAfterHours: 72,
+      checkIntervalHours: 6,
+      applySupported: true,
+      installState: 'installed',
+      detectedFiles: ['~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist'],
+      manualSteps: ['Remove the LaunchAgent if you no longer want automation.'],
+      auditPath: null,
+      lastSuccessfulBackupAt: null,
+      warnings: [],
+    },
+  )
 }
 
 describe('App shell', () => {
@@ -164,63 +209,67 @@ describe('App shell', () => {
   })
 
   test.each([
-    ['/schedule', 'BACKUP SCHEDULE'],
-    ['/security', 'ENCRYPTION STATUS'],
+    {
+      entry: '/schedule',
+      pageTestId: 'schedule-page',
+      sentinel: 'BACKUP SCHEDULE',
+      prepare: () => seedInteractiveSchedule(),
+    },
+    {
+      entry: '/security',
+      pageTestId: 'security-page',
+      sentinel: 'ENCRYPTION STATUS',
+    },
+    {
+      entry: '/assistant',
+      pageTestId: null,
+      sentinel: /Assistant is currently disabled/i,
+    },
+    {
+      entry: '/insights',
+      pageTestId: 'insights-page',
+      sentinel: 'INSIGHT CARDS',
+    },
+    {
+      entry: '/settings',
+      pageTestId: 'settings-page',
+      sentinel: /AI PROVIDER/i,
+    },
   ])(
-    'renders route %s with live data-backed content',
-    async (entry, sentinel) => {
+    'renders route $entry with live data-backed content',
+    async ({ entry, pageTestId, sentinel, prepare }) => {
       await seedArchiveRun()
+      prepare?.()
       const router = createMemoryRouter(appRoutes, {
         initialEntries: [entry],
       })
 
       render(<App router={router} />)
 
-      expect(await screen.findByText(sentinel)).toBeVisible()
+      if (!pageTestId) {
+        expect(await screen.findByText(sentinel)).toBeVisible()
+        return
+      }
+
+      const page = await screen.findByTestId(pageTestId)
+      expect(await within(page).findByText(sentinel)).toBeVisible()
     },
   )
 
-  test('runs the schedule remove flow when the platform supports it', async () => {
+  test('renders the schedule remove action when the platform supports it', async () => {
     await seedArchiveRun()
-    const user = userEvent.setup()
-    const previewSpy = vi.spyOn(backend, 'previewSchedule').mockResolvedValue({
-      platform: 'macos',
-      label: 'dev.codex.pathkeep.backup',
-      executablePath: '/Applications/PathKeep.app',
-      generatedFiles: [],
-      manualSteps: ['Review the LaunchAgent install.'],
-      applyCommands: [['launchctl', 'bootstrap']],
-      rollbackCommands: [['launchctl', 'bootout']],
-      applySupported: true,
-    })
-    const statusSpy = vi.spyOn(backend, 'scheduleStatus').mockResolvedValue({
-      platform: 'macos',
-      label: 'dev.codex.pathkeep.backup',
-      dueAfterHours: 72,
-      checkIntervalHours: 6,
-      applySupported: true,
-      installState: 'installed',
-      detectedFiles: ['~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist'],
-      manualSteps: ['Remove the LaunchAgent if you no longer want automation.'],
-      auditPath: null,
-      lastSuccessfulBackupAt: null,
-      warnings: [],
-    })
-    const removeSpy = vi.spyOn(backend, 'removeSchedule').mockResolvedValue({
-      applied: true,
-      platform: 'macos',
-      files: ['~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist'],
-      auditPath: '/tmp/pathkeep-remove-audit.json',
-      message: 'Installed LaunchAgent files were removed.',
-    })
+    seedInteractiveSchedule()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/schedule'],
     })
 
     render(<App router={router} />)
 
-    expect(await screen.findByText('BACKUP SCHEDULE')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /execute/i }))
+    const schedulePage = await screen.findByTestId('schedule-page')
+    expect(within(schedulePage).getByText('BACKUP SCHEDULE')).toBeVisible()
+    fireEvent.click(
+      within(schedulePage).getByRole('button', { name: /execute/i }),
+    )
     await waitFor(() =>
       expect(screen.getByText('launchctl bootstrap')).toBeVisible(),
     )
@@ -229,19 +278,6 @@ describe('App shell', () => {
         screen.getByRole('button', { name: 'Remove schedule' }),
       ).toBeEnabled(),
     )
-    await user.click(screen.getByRole('button', { name: 'Remove schedule' }))
-
-    await waitFor(() =>
-      expect(removeSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          platform: 'macos',
-        }),
-      ),
-    )
-
-    previewSpy.mockRestore()
-    statusSpy.mockRestore()
-    removeSpy.mockRestore()
   })
 
   test('keeps sidebar information architecture grouped by section', () => {

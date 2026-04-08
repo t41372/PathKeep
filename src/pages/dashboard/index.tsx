@@ -6,6 +6,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
 import { hasSafariAccessIssue } from '../../lib/platform-guidance'
 import {
   archiveModeKey,
@@ -39,7 +40,8 @@ function browserIconLetter(profileId: string) {
 
 export function DashboardPage() {
   const { dashboard, error, loading, snapshot } = useShellData()
-  const { language, t } = useI18n()
+  const { language, t, ns } = useI18n()
+  const intelligenceT = ns('intelligence')
 
   if (loading && !dashboard) {
     return (
@@ -87,6 +89,9 @@ export function DashboardPage() {
     dashboard.storage.exportBytes
   const latestManifestHash =
     dashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ?? null
+  const aiMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
+  const llmProvider = selectedAiProvider(snapshot.config.ai, 'llm')
+  const embeddingProvider = selectedAiProvider(snapshot.config.ai, 'embedding')
 
   function runSourceSummary(profileScope: string[] | undefined) {
     const sourceKinds = sourceKindFromProfileScope(profileScope ?? [])
@@ -345,6 +350,50 @@ export function DashboardPage() {
         </div>
 
         <div className="dashboard-right">
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">
+                {t('dashboard.intelligenceTitle')}
+              </span>
+              <span className="panel-action">{aiMeta.label}</span>
+            </div>
+            <div className="panel-body intelligence-stack">
+              <p className="dashboard-next-action">{aiMeta.description}</p>
+              <div className="summary-stats">
+                <div className="summary-stat">
+                  <span className="dim">{t('dashboard.llmLabel')}</span>
+                  <span className="mono">
+                    {llmProvider?.id ?? t('common.disabled')}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">{t('dashboard.embeddingLabel')}</span>
+                  <span className="mono">
+                    {embeddingProvider?.id ?? t('dashboard.embeddingFallback')}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">{t('dashboard.queueLabel')}</span>
+                  <span className="mono">
+                    {snapshot.aiStatus.queuedJobs +
+                      snapshot.aiStatus.runningJobs}
+                  </span>
+                </div>
+              </div>
+              <div className="quick-actions-grid">
+                <Link className="btn-secondary" to="/explorer?mode=hybrid">
+                  {t('dashboard.semanticSearchAction')}
+                </Link>
+                <Link className="btn-secondary" to="/assistant">
+                  {t('dashboard.openAssistantAction')}
+                </Link>
+                <Link className="btn-secondary" to="/insights">
+                  {t('dashboard.reviewInsightsAction')}
+                </Link>
+              </div>
+            </div>
+          </div>
+
           <div className="panel">
             <div className="panel-header">
               <span className="panel-title">{t('dashboard.trustActions')}</span>

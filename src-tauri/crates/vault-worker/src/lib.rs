@@ -12,24 +12,26 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::mpsc, thread, time::Duration};
 use tokio::runtime::Runtime;
 use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIndexStatus,
-    AiIntegrationPreview, AiProviderConfig, AiProviderPurpose, AiProviderRuntime,
-    AiProviderSecretInput, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot, ArchiveMode,
-    AuditRunDetail, DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthRepairReport,
-    HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation,
-    InsightSnapshot, InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
-    RemoteBackupResult, RunInsightsReport, RunInsightsRequest, S3CredentialInput, SchedulePlan,
-    TakeoutInspection, TakeoutRequest, ai_index_status, answer_history_question, archive_status,
-    build_ai_index, doctor, ensure_archive_initialized, explain_insight, export_history,
-    import_takeout, insight_status, inspect_takeout, list_history, load_audit_run_detail,
-    load_config, load_dashboard_snapshot, load_import_batches, load_insight_thread_detail,
-    load_insights, load_recent_runs, preview_ai_integrations, preview_import_batch,
-    preview_remote_backup, project_paths, rekey_archive, repair_health_issues,
-    restore_import_batch, revert_import_batch, run_backup, run_insights, run_remote_backup,
-    save_config, semantic_search_history,
+    AiIntegrationPreview, AiProviderConfig, AiProviderConnectionTestReport,
+    AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderRuntime, AiProviderSecretInput,
+    AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot,
+    ArchiveMode, AuditRunDetail, DashboardSnapshot, ExplainInsightRequest, ExportRequest,
+    HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail,
+    InsightExplanation, InsightSnapshot, InsightStatus, InsightThreadDetail, KeyringStatusReport,
+    RemoteBackupPreview, RemoteBackupResult, RunInsightsReport, RunInsightsRequest,
+    S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest, ai_index_status, ai_queue,
+    ai_queue_status, answer_history_question, archive, archive_status, build_ai_index, doctor,
+    ensure_archive_initialized, explain_insight, export_history, import_takeout, insight_status,
+    inspect_takeout, list_history, load_assistant_run_response, load_audit_run_detail, load_config,
+    load_dashboard_snapshot, load_import_batches, load_insight_thread_detail, load_insights,
+    load_recent_runs, preview_ai_integrations, preview_import_batch, preview_remote_backup,
+    project_paths, provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
+    repair_health_issues, restore_import_batch, revert_import_batch, run_backup, run_insights,
+    run_remote_backup, save_config, semantic_search_history, test_provider_connection,
 };
 use vault_platform::{
     ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
@@ -224,6 +226,250 @@ fn search_response_with_resolution_note(
     response
 }
 
+fn ai_archive_connection(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+) -> Result<rusqlite::Connection> {
+    let connection = archive::open_archive_connection(paths, config, session_database_key)?;
+    archive::create_schema(&connection)?;
+    vault_core::ai::ensure_ai_schema(&connection)?;
+    ai_queue::ensure_ai_queue_schema(&connection)?;
+    Ok(connection)
+}
+
+fn provider_config_for_request(
+    config: &AppConfig,
+    provider_id: Option<&str>,
+    purpose: AiProviderPurpose,
+) -> Result<AiProviderConfig> {
+    let (provider_id, providers, empty_message) = match purpose {
+        AiProviderPurpose::Embedding => (
+            provider_id.or(config.ai.embedding_provider_id.as_deref()),
+            &config.ai.embedding_providers,
+            "select an embedding provider in Settings before building the semantic index",
+        ),
+        AiProviderPurpose::Llm => (
+            provider_id.or(config.ai.llm_provider_id.as_deref()),
+            &config.ai.llm_providers,
+            "select an LLM provider in Settings before using the assistant",
+        ),
+    };
+    let provider_id = provider_id.context(empty_message)?;
+    providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .cloned()
+        .with_context(|| format!("provider {provider_id} was not found in Settings"))
+}
+
+fn queue_failure_from_error(error: &anyhow::Error) -> ai_queue::AiJobFailure {
+    let message = error.to_string();
+    let lower = message.to_lowercase();
+    if lower.contains("rate limit") || lower.contains("quota") || lower.contains("429") {
+        return ai_queue::AiJobFailure {
+            error_code: Some("rate-limited".to_string()),
+            error_message: message,
+            retryable: true,
+            retry_after_seconds: 300,
+            summary: Some("Provider quota window has not reset yet.".to_string()),
+        };
+    }
+    if lower.contains("timed out")
+        || lower.contains("dns")
+        || lower.contains("network")
+        || lower.contains("refused")
+    {
+        return ai_queue::AiJobFailure {
+            error_code: Some("network-error".to_string()),
+            error_message: message,
+            retryable: true,
+            retry_after_seconds: 30,
+            summary: Some("Retrying the AI job after a transient network failure.".to_string()),
+        };
+    }
+    let error_code = if lower.contains("api key") || lower.contains("store an api key") {
+        Some("secret-missing".to_string())
+    } else if lower.contains("model") && lower.contains("not found") {
+        Some("bad-model".to_string())
+    } else if lower.contains("enable provider") {
+        Some("provider-disabled".to_string())
+    } else if lower.contains("not configured for") || lower.contains("does not support") {
+        Some("unsupported-capability".to_string())
+    } else {
+        Some("provider-error".to_string())
+    };
+    ai_queue::AiJobFailure {
+        error_code,
+        error_message: message,
+        retryable: false,
+        retry_after_seconds: 0,
+        summary: Some("This AI job needs manual review before it can be replayed.".to_string()),
+    }
+}
+
+fn start_ai_job_heartbeat(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> mpsc::Sender<()> {
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let paths = paths.clone();
+    let config = config.clone();
+    let session_database_key = session_database_key.map(ToOwned::to_owned);
+    thread::spawn(move || {
+        loop {
+            match stop_rx.recv_timeout(Duration::from_secs(30)) {
+                Ok(_) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if let Ok(connection) =
+                        ai_archive_connection(&paths, &config, session_database_key.as_deref())
+                    {
+                        let _ = ai_queue::heartbeat_ai_job(&connection, job_id);
+                    }
+                }
+            }
+        }
+    });
+    stop_tx
+}
+
+fn complete_claimed_index_job(
+    connection: &rusqlite::Connection,
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    claimed: ai_queue::StoredAiJob,
+    request: &AiIndexRequest,
+) -> Result<AiIndexReport> {
+    let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
+    let heartbeat = start_ai_job_heartbeat(paths, config, session_database_key, claimed.id);
+    let result = tokio_runtime()?.block_on(build_ai_index(
+        paths,
+        config,
+        session_database_key,
+        &provider,
+        request,
+    ));
+    let _ = heartbeat.send(());
+
+    match result {
+        Ok(mut report) => {
+            report.job_id = Some(claimed.id);
+            let summary = format!(
+                "Indexed {} new / {} updated row(s).",
+                report.indexed_items, report.updated_items
+            );
+            ai_queue::mark_ai_job_succeeded(
+                connection,
+                claimed.id,
+                report.run_id,
+                Some(summary.as_str()),
+            )?;
+            Ok(report)
+        }
+        Err(error) => {
+            let failure = queue_failure_from_error(&error);
+            ai_queue::mark_ai_job_failed(
+                connection,
+                claimed.id,
+                None,
+                &failure,
+                config.ai.job_queue_paused,
+            )?;
+            Err(error)
+        }
+    }
+}
+
+fn execute_index_job(
+    connection: &rusqlite::Connection,
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    job_id: i64,
+    request: &AiIndexRequest,
+) -> Result<AiIndexReport> {
+    let claimed = ai_queue::claim_ai_job_by_id(connection, job_id, 300)?
+        .with_context(|| format!("AI index job {job_id} is not ready to run"))?;
+    complete_claimed_index_job(connection, paths, config, session_database_key, claimed, request)
+}
+
+fn complete_claimed_assistant_job(
+    connection: &rusqlite::Connection,
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    claimed: ai_queue::StoredAiJob,
+    _request: &AiAssistantRequest,
+) -> Result<AiAssistantResponse> {
+    let ai_queue::AiJobPayload::Assistant { payload } = claimed.payload.clone() else {
+        anyhow::bail!("AI job {} did not contain an assistant payload.", claimed.id);
+    };
+    let llm_provider = selected_llm_provider_runtime(config, Some(&payload.llm_provider_id))?;
+    let embedding_provider = payload
+        .embedding_provider_id
+        .as_deref()
+        .map(|provider_id| selected_embedding_provider_runtime(config, Some(provider_id)))
+        .transpose()?;
+    let heartbeat = start_ai_job_heartbeat(paths, config, session_database_key, claimed.id);
+    let result = tokio_runtime()?.block_on(answer_history_question(
+        paths,
+        config,
+        session_database_key,
+        &llm_provider,
+        embedding_provider.as_ref(),
+        &payload.request,
+    ));
+    let _ = heartbeat.send(());
+
+    match result {
+        Ok(mut response) => {
+            response.job_id = Some(claimed.id);
+            let summary = format!("Answered with {} citation(s).", response.citations.len());
+            ai_queue::mark_ai_job_succeeded(
+                connection,
+                claimed.id,
+                response.run_id,
+                Some(summary.as_str()),
+            )?;
+            Ok(response)
+        }
+        Err(error) => {
+            let failure = queue_failure_from_error(&error);
+            ai_queue::mark_ai_job_failed(
+                connection,
+                claimed.id,
+                None,
+                &failure,
+                config.ai.job_queue_paused,
+            )?;
+            Err(error)
+        }
+    }
+}
+
+fn execute_assistant_job(
+    connection: &rusqlite::Connection,
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    job_id: i64,
+    request: &AiAssistantRequest,
+) -> Result<AiAssistantResponse> {
+    let claimed = ai_queue::claim_ai_job_by_id(connection, job_id, 300)?
+        .with_context(|| format!("AI assistant job {job_id} is not ready to run"))?;
+    complete_claimed_assistant_job(
+        connection,
+        paths,
+        config,
+        session_database_key,
+        claimed,
+        request,
+    )
+}
+
 pub(crate) fn mcp_search_result(
     database_key: Option<&str>,
     request: McpSearchRequest,
@@ -233,6 +479,7 @@ pub(crate) fn mcp_search_result(
         profile_id: request.profile_id,
         domain: request.domain,
         limit: request.limit,
+        cursor: None,
     };
     let response = search_ai_history(database_key, &search_request)?;
     Ok(McpSearchResult {
@@ -314,9 +561,18 @@ pub fn save_user_config(
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
     let paths = project_paths()?;
+    let previous_config = load_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
     save_config(&paths, &next_config)?;
+    if let Err(error) =
+        reconcile_ai_queue_controls(&paths, &previous_config, &next_config, session_database_key)
+    {
+        save_config(&paths, &previous_config).with_context(
+            || "restoring the previous config after AI queue control reconciliation failed",
+        )?;
+        return Err(error.context("syncing AI queue controls with the updated Settings"));
+    }
     app_snapshot(session_database_key)
 }
 
@@ -377,16 +633,43 @@ pub fn run_backup_now(
         && config.ai.semantic_index_enabled
         && config.ai.auto_index_after_backup
     {
-        match selected_embedding_provider_runtime(&config, None) {
-            Ok(provider) => {
-                if let Err(error) = tokio_runtime()?.block_on(build_ai_index(
-                    &paths,
-                    &config,
-                    session_database_key,
-                    &provider,
-                    &AiIndexRequest::default(),
-                )) {
-                    report.warnings.push(format!("AI index refresh after backup failed: {error}"));
+        let auto_index_request = config
+            .ai
+            .embedding_provider_id
+            .as_ref()
+            .map(|provider_id| AiIndexRequest {
+                provider_id: Some(provider_id.clone()),
+                ..AiIndexRequest::default()
+            })
+            .unwrap_or_default();
+        match ai_archive_connection(&paths, &config, session_database_key) {
+            Ok(connection) => {
+                match ai_queue::enqueue_index_job(
+                    &connection,
+                    &auto_index_request,
+                    config.ai.job_queue_paused,
+                ) {
+                    Ok(job) if config.ai.job_queue_paused => report.warnings.push(format!(
+                        "AI auto-index queued job {} while the AI queue is paused.",
+                        job.id
+                    )),
+                    Ok(job) => {
+                        if let Err(error) = execute_index_job(
+                            &connection,
+                            &paths,
+                            &config,
+                            session_database_key,
+                            job.id,
+                            &auto_index_request,
+                        ) {
+                            report
+                                .warnings
+                                .push(format!("AI index refresh after backup failed: {error}"));
+                        }
+                    }
+                    Err(error) => report
+                        .warnings
+                        .push(format!("AI auto-index could not enqueue a follow-up job: {error}")),
                 }
             }
             Err(error) => report.warnings.push(format!(
@@ -718,6 +1001,96 @@ pub fn clear_ai_provider_api_key(
     app_snapshot(session_database_key)
 }
 
+pub fn test_ai_provider_connection_report(
+    _session_database_key: Option<&str>,
+    request: &AiProviderConnectionTestRequest,
+) -> Result<AiProviderConnectionTestReport> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    let provider_config =
+        provider_config_for_request(&config, Some(&request.provider_id), request.purpose.clone())?;
+
+    match resolve_provider_runtime(
+        match request.purpose {
+            AiProviderPurpose::Embedding => &config.ai.embedding_providers,
+            AiProviderPurpose::Llm => &config.ai.llm_providers,
+        },
+        &request.provider_id,
+        request.purpose.clone(),
+    ) {
+        Ok(provider) => tokio_runtime()?.block_on(test_provider_connection(&provider)),
+        Err(error) => Ok(provider_connection_failure_report(&provider_config, &error.to_string())),
+    }
+}
+
+pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    ai_queue_status(&paths, &config, session_database_key)
+}
+
+pub fn run_ai_queue_jobs(
+    session_database_key: Option<&str>,
+    max_jobs: Option<u32>,
+) -> Result<AiQueueStatus> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    if config.ai.job_queue_paused {
+        return ai_queue_status(&paths, &config, session_database_key);
+    }
+
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    let limit = max_jobs.unwrap_or(config.ai.job_queue_concurrency.max(1));
+    for _ in 0..limit {
+        let Some(job) = ai_queue::claim_next_ai_job(&connection, 300)? else {
+            break;
+        };
+        match job.payload.clone() {
+            ai_queue::AiJobPayload::Index { request } => {
+                let _ = complete_claimed_index_job(
+                    &connection,
+                    &paths,
+                    &config,
+                    session_database_key,
+                    job,
+                    &request,
+                );
+            }
+            ai_queue::AiJobPayload::Assistant { payload } => {
+                let _ = complete_claimed_assistant_job(
+                    &connection,
+                    &paths,
+                    &config,
+                    session_database_key,
+                    job,
+                    &payload.request,
+                );
+            }
+        }
+    }
+
+    ai_queue_status(&paths, &config, session_database_key)
+}
+
+pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)
+}
+
+pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    ai_queue::cancel_ai_job(&connection, job_id)
+}
+
 pub fn build_ai_index_now(
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
@@ -725,14 +1098,43 @@ pub fn build_ai_index_now(
     let paths = project_paths()?;
     let mut config = load_config(&paths)?;
     hydrate_derived_config_state(&mut config);
-    let provider = selected_embedding_provider_runtime(&config, request.provider_id.as_deref())?;
-    tokio_runtime()?.block_on(build_ai_index(
+    let provider_config = provider_config_for_request(
+        &config,
+        request.provider_id.as_deref(),
+        AiProviderPurpose::Embedding,
+    )?;
+    let queued_request =
+        AiIndexRequest { provider_id: Some(provider_config.id.clone()), ..request.clone() };
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    let queued =
+        ai_queue::enqueue_index_job(&connection, &queued_request, config.ai.job_queue_paused)?;
+
+    if config.ai.job_queue_paused {
+        return Ok(AiIndexReport {
+            job_id: Some(queued.id),
+            run_id: None,
+            provider_id: provider_config.id,
+            model: provider_config.default_model,
+            indexed_items: 0,
+            updated_items: 0,
+            skipped_items: 0,
+            removed_items: 0,
+            last_indexed_at: chrono::Utc::now().to_rfc3339(),
+            notes: vec![format!(
+                "Queued AI index job {}. Resume the AI queue to process it.",
+                queued.id
+            )],
+        });
+    }
+
+    execute_index_job(
+        &connection,
         &paths,
         &config,
         session_database_key,
-        &provider,
-        request,
-    ))
+        queued.id,
+        &queued_request,
+    )
 }
 
 pub fn search_ai_history(
@@ -776,16 +1178,80 @@ pub fn ask_ai_assistant(
     let paths = project_paths()?;
     let mut config = load_config(&paths)?;
     hydrate_derived_config_state(&mut config);
-    let llm_provider = selected_llm_provider_runtime(&config, None)?;
-    let embedding_provider = selected_optional_embedding_runtime(&config).ok().flatten();
-    tokio_runtime()?.block_on(answer_history_question(
-        &paths,
-        &config,
-        session_database_key,
-        &llm_provider,
-        embedding_provider.as_ref(),
+    let llm_provider = provider_config_for_request(&config, None, AiProviderPurpose::Llm)?;
+    let embedding_provider = config.ai.embedding_provider_id.clone();
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    let queued = ai_queue::enqueue_assistant_job(
+        &connection,
         request,
-    ))
+        &llm_provider.id,
+        embedding_provider.as_deref(),
+        config.ai.job_queue_paused,
+    )?;
+
+    if config.ai.job_queue_paused {
+        return Ok(AiAssistantResponse {
+            state: "queued".to_string(),
+            answer: String::new(),
+            job_id: Some(queued.id),
+            run_id: None,
+            provider_id: llm_provider.id,
+            embedding_provider_id: embedding_provider
+                .unwrap_or_else(|| "lexical-fallback".to_string()),
+            citations: Vec::new(),
+            notes: vec![format!(
+                "The AI queue is paused. Assistant request queued as job {}. Resume or drain the queue to finish it.",
+                queued.id
+            )],
+        });
+    }
+
+    execute_assistant_job(&connection, &paths, &config, session_database_key, queued.id, request)
+}
+
+pub fn load_ai_assistant_job(
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<AiAssistantResponse> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    let job = ai_queue::load_ai_job(&connection, job_id)?;
+    let Some(run_id) = job.run_id else {
+        let (provider_id, embedding_provider_id) =
+            match ai_queue::load_ai_job_payload(&connection, job_id)? {
+                ai_queue::AiJobPayload::Assistant { payload } => (
+                    payload.llm_provider_id,
+                    payload.embedding_provider_id.unwrap_or_else(|| "lexical-fallback".to_string()),
+                ),
+                _ => (
+                    config.ai.llm_provider_id.clone().unwrap_or_default(),
+                    config
+                        .ai
+                        .embedding_provider_id
+                        .clone()
+                        .unwrap_or_else(|| "lexical-fallback".to_string()),
+                ),
+            };
+        return Ok(AiAssistantResponse {
+            state: job.state,
+            answer: String::new(),
+            job_id: Some(job.id),
+            run_id: None,
+            provider_id,
+            embedding_provider_id,
+            citations: Vec::new(),
+            notes: job
+                .summary
+                .map(|summary| vec![summary])
+                .unwrap_or_else(|| vec!["Assistant job has not finished yet.".to_string()]),
+        });
+    };
+    let mut response = load_assistant_run_response(&paths, &config, session_database_key, run_id)?;
+    response.job_id = Some(job.id);
+    response.state = job.state;
+    Ok(response)
 }
 
 pub fn preview_ai_integration_files() -> Result<AiIntegrationPreview> {
@@ -955,6 +1421,11 @@ pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
             let key = read_database_key_from_keyring()?;
             let report = build_ai_index_now(key.as_deref(), &AiIndexRequest::default())?;
             Ok(serde_json::to_string_pretty(&report)?)
+        }
+        "ai-queue" => {
+            let key = read_database_key_from_keyring()?;
+            let status = run_ai_queue_jobs(key.as_deref(), None)?;
+            Ok(serde_json::to_string_pretty(&status)?)
         }
         "mcp-server" => {
             run_mcp_stdio_server()?;
@@ -1320,6 +1791,7 @@ mod tests {
                 profile_id: None,
                 domain: None,
                 limit: Some(5),
+                cursor: None,
             },
         )
         .expect("search history");
@@ -1341,6 +1813,54 @@ mod tests {
         )
         .expect_err("assistant should require a saved key");
         assert!(assistant_error.to_string().contains("API key"));
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn queued_assistant_jobs_keep_their_enqueued_provider_snapshot() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let mut config = configured_ai_config();
+        config.ai.job_queue_paused = true;
+        initialize_archive_database(&config, None).expect("initialize archive");
+        save_user_config(&config, None).expect("save initial config");
+
+        let queued = ask_ai_assistant(
+            None,
+            &AiAssistantRequest {
+                question: "What changed?".to_string(),
+                profile_id: None,
+                domain: None,
+            },
+        )
+        .expect("queue assistant request");
+        assert_eq!(queued.provider_id, "llm-primary");
+        assert_eq!(queued.embedding_provider_id, "embed-primary");
+
+        let mut changed = config.clone();
+        changed.ai.llm_provider_id = Some("llm-secondary".to_string());
+        changed.ai.embedding_provider_id = Some("embed-secondary".to_string());
+        save_user_config(&changed, None).expect("save changed config");
+
+        let loaded =
+            load_ai_assistant_job(None, queued.job_id.expect("queued job id")).expect("load job");
+        assert_eq!(loaded.state, "paused");
+        assert_eq!(loaded.provider_id, "llm-primary");
+        assert_eq!(loaded.embedding_provider_id, "embed-primary");
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1607,6 +2127,7 @@ mod tests {
                 profile_id: None,
                 domain: None,
                 limit: Some(5),
+                cursor: None,
             },
         )
         .expect("semantic search");

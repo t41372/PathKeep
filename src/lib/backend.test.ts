@@ -45,6 +45,8 @@ const config: AppConfig = {
     mcpEnabled: false,
     skillEnabled: false,
     autoIndexAfterBackup: false,
+    jobQueuePaused: false,
+    jobQueueConcurrency: 1,
     llmProviderId: null,
     embeddingProviderId: null,
     retrievalTopK: 8,
@@ -132,6 +134,37 @@ describe('backend facade', () => {
         limit: 10,
       }),
     ).resolves.toMatchObject({ total: 1 })
+    const firstHistoryPage = await backend.queryHistory({
+      q: null,
+      domain: null,
+      profileId: null,
+      browserKind: null,
+      startTimeMs: null,
+      endTimeMs: null,
+      sort: 'newest',
+      limit: 1,
+      cursor: null,
+    })
+    expect(firstHistoryPage.total).toBe(2)
+    expect(firstHistoryPage.items).toHaveLength(1)
+    expect(firstHistoryPage.nextCursor).toBeTruthy()
+    await expect(
+      backend.queryHistory({
+        q: null,
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 1,
+        cursor: firstHistoryPage.nextCursor,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [expect.objectContaining({ id: 2 })],
+      nextCursor: null,
+    })
     await expect(
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
     ).resolves.toMatchObject({ format: 'jsonl', count: 1 })
@@ -275,11 +308,32 @@ describe('backend facade', () => {
       backend.buildAiIndex({
         providerId: 'mock-embedding',
         fullRebuild: false,
+        clearOnly: false,
         limit: 20,
       }),
     ).resolves.toMatchObject({
       providerId: 'mock-embedding',
       indexedItems: 2,
+    })
+    await expect(
+      backend.testAiProviderConnection({
+        providerId: 'mock-embedding',
+        purpose: 'embedding',
+      }),
+    ).resolves.toMatchObject({
+      providerId: 'mock-embedding',
+      ok: true,
+    })
+    await expect(backend.loadAiQueueStatus()).resolves.toMatchObject({
+      recentJobs: expect.any(Array),
+    })
+    await expect(backend.replayAiJob(2)).resolves.toMatchObject({
+      id: 2,
+      state: expect.stringMatching(/queued|paused/),
+    })
+    await expect(backend.cancelAiJob(1)).resolves.toMatchObject({
+      id: 1,
+      state: 'cancelled',
     })
     await expect(
       backend.searchAiHistory({
@@ -301,6 +355,28 @@ describe('backend facade', () => {
           score: expect.closeTo(0.7, 5),
         }),
       ],
+    })
+    const firstSemanticPage = await backend.searchAiHistory({
+      query: 'history',
+      profileId: null,
+      domain: null,
+      limit: 1,
+      cursor: null,
+    })
+    expect(firstSemanticPage.items).toHaveLength(1)
+    expect(firstSemanticPage.nextCursor).toBe('1')
+    await expect(
+      backend.searchAiHistory({
+        query: 'history',
+        profileId: null,
+        domain: null,
+        limit: 1,
+        cursor: firstSemanticPage.nextCursor,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [expect.objectContaining({ historyId: 2 })],
+      nextCursor: null,
     })
     await expect(
       backend.askAiAssistant({
@@ -392,7 +468,12 @@ describe('backend facade', () => {
     const buildRequest = {
       providerId: 'embed-primary',
       fullRebuild: true,
+      clearOnly: false,
       limit: 10,
+    }
+    const providerRequest = {
+      providerId: 'embed-primary',
+      purpose: 'embedding' as const,
     }
     const searchRequest = {
       query: 'browser history backup',
@@ -414,6 +495,23 @@ describe('backend facade', () => {
     await expect(backend.buildAiIndex(buildRequest)).resolves.toEqual({
       ok: true,
     })
+    await expect(
+      backend.testAiProviderConnection(providerRequest),
+    ).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.loadAiQueueStatus()).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.runAiQueueJobs(2)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.replayAiJob(12)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.cancelAiJob(12)).resolves.toEqual({
+      ok: true,
+    })
     await expect(backend.searchAiHistory(searchRequest)).resolves.toEqual({
       ok: true,
     })
@@ -427,11 +525,128 @@ describe('backend facade', () => {
     expect(invoke).toHaveBeenNthCalledWith(2, 'build_ai_index', {
       request: buildRequest,
     })
-    expect(invoke).toHaveBeenNthCalledWith(3, 'search_ai_history', {
+    expect(invoke).toHaveBeenNthCalledWith(3, 'test_ai_provider_connection', {
+      request: providerRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'load_ai_queue_status', undefined)
+    expect(invoke).toHaveBeenNthCalledWith(5, 'run_ai_queue_jobs', {
+      maxJobs: 2,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(6, 'replay_ai_job', {
+      jobId: 12,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(7, 'cancel_ai_job', {
+      jobId: 12,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(8, 'search_ai_history', {
       request: searchRequest,
     })
-    expect(invoke).toHaveBeenNthCalledWith(4, 'ask_ai_assistant', {
+    expect(invoke).toHaveBeenNthCalledWith(9, 'ask_ai_assistant', {
       request: assistantRequest,
+    })
+  })
+
+  test('passes schedule, security, remote, and insights payloads through to Tauri invoke', async () => {
+    isTauri.mockReturnValue(true)
+    invoke.mockResolvedValue({ ok: true })
+
+    const insightRequest = {
+      profileId: 'chrome:Default',
+      windowDays: 30,
+      fullRebuild: false,
+      limit: null,
+    }
+    const explainRequest = {
+      insightId: 'card-rising-topic-1',
+      insightKind: 'card' as const,
+      profileId: 'chrome:Default',
+      windowDays: 30,
+    }
+
+    await expect(backend.previewSchedule('linux')).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.scheduleStatus('macos')).resolves.toEqual({ ok: true })
+    await expect(
+      backend.applySchedule({ ...schedulePlan, applySupported: true }),
+    ).resolves.toEqual({ ok: true })
+    await expect(
+      backend.removeSchedule({ ...schedulePlan, applySupported: true }),
+    ).resolves.toEqual({ ok: true })
+    await expect(backend.keyringStatus()).resolves.toEqual({ ok: true })
+    await expect(backend.securityStatus()).resolves.toEqual({ ok: true })
+    await expect(backend.previewRemoteBackup()).resolves.toEqual({ ok: true })
+    await expect(backend.runRemoteBackup()).resolves.toEqual({ ok: true })
+    await expect(backend.previewImportBatch(7)).resolves.toEqual({ ok: true })
+    await expect(backend.revertImportBatch(7)).resolves.toEqual({ ok: true })
+    await expect(backend.restoreImportBatch(7)).resolves.toEqual({ ok: true })
+    await expect(backend.runInsightsNow(insightRequest)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.loadInsights(insightRequest)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.loadThreadDetail('thread-001')).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.explainInsight(explainRequest)).resolves.toEqual({
+      ok: true,
+    })
+    await expect(backend.previewAiIntegrations()).resolves.toEqual({ ok: true })
+    await expect(
+      backend.openPathInFileManager('/tmp/pathkeep'),
+    ).resolves.toEqual({
+      ok: true,
+    })
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'preview_schedule', {
+      platform: 'linux',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'schedule_status', {
+      platform: 'macos',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'apply_schedule', {
+      plan: { ...schedulePlan, applySupported: true },
+    })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'remove_schedule', {
+      plan: { ...schedulePlan, applySupported: true },
+    })
+    expect(invoke).toHaveBeenNthCalledWith(5, 'keyring_status', undefined)
+    expect(invoke).toHaveBeenNthCalledWith(6, 'security_status', undefined)
+    expect(invoke).toHaveBeenNthCalledWith(
+      7,
+      'preview_remote_backup',
+      undefined,
+    )
+    expect(invoke).toHaveBeenNthCalledWith(8, 'run_remote_backup', undefined)
+    expect(invoke).toHaveBeenNthCalledWith(9, 'preview_import_batch', {
+      batchId: 7,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(10, 'revert_import_batch', {
+      batchId: 7,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(11, 'restore_import_batch', {
+      batchId: 7,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(12, 'run_insights_now', {
+      request: insightRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(13, 'load_insights', {
+      request: insightRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(14, 'load_thread_detail', {
+      threadId: 'thread-001',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(15, 'explain_insight', {
+      request: explainRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(
+      16,
+      'preview_ai_integrations',
+      undefined,
+    )
+    expect(invoke).toHaveBeenNthCalledWith(17, 'open_path_in_file_manager', {
+      path: '/tmp/pathkeep',
     })
   })
 

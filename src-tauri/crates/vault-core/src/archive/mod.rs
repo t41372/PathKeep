@@ -1,6 +1,7 @@
 mod schema;
 
-pub(crate) use self::schema::{create_schema, export_archive_database, open_archive_connection};
+pub(crate) use self::schema::export_archive_database;
+pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, run_migrations};
 use crate::{
     chrome::{ProfileSnapshot, discover_profiles, stage_profile_snapshot},
@@ -21,7 +22,7 @@ use browser_history_parser::{
 };
 use chrono::{DateTime, Duration, Utc};
 use iana_time_zone::get_timezone;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, named_params, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
@@ -47,16 +48,51 @@ JOIN urls
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
 WHERE visits.reverted_at IS NULL
-  AND (?1 IS NULL OR source_profiles.profile_key = ?1)
-  AND (?2 IS NULL OR source_profiles.browser_kind = ?2)
-  AND (?3 IS NULL OR urls.url LIKE '%' || ?3 || '%' OR IFNULL(urls.title, '') LIKE '%' || ?3 || '%')
-  AND (?4 IS NULL OR urls.url LIKE ?4)
-  AND (?5 IS NULL OR visits.visit_time_ms >= ?5)
-  AND (?6 IS NULL OR visits.visit_time_ms <= ?6)
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
+  AND (:query IS NULL OR urls.url LIKE '%' || :query || '%' OR IFNULL(urls.title, '') LIKE '%' || :query || '%')
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
+  AND (
+    :cursorVisitTime IS NULL
+    OR (
+      :sort = 'oldest'
+      AND (
+        visits.visit_time_ms > :cursorVisitTime
+        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id > :cursorId)
+      )
+    )
+    OR (
+      :sort != 'oldest'
+      AND (
+        visits.visit_time_ms < :cursorVisitTime
+        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id < :cursorId)
+      )
+    )
+  )
 ORDER BY
-  CASE WHEN ?7 = 'oldest' THEN visits.visit_time_ms END ASC,
-  CASE WHEN ?7 != 'oldest' THEN visits.visit_time_ms END DESC
-LIMIT ?8
+  CASE WHEN :sort = 'oldest' THEN visits.visit_time_ms END ASC,
+  CASE WHEN :sort = 'oldest' THEN visits.id END ASC,
+  CASE WHEN :sort != 'oldest' THEN visits.visit_time_ms END DESC,
+  CASE WHEN :sort != 'oldest' THEN visits.id END DESC
+LIMIT :pageLimit
+"#;
+
+const COUNT_HISTORY_SQL: &str = r#"
+SELECT COUNT(*)
+FROM visits
+JOIN urls
+  ON urls.id = visits.url_id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+WHERE visits.reverted_at IS NULL
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
+  AND (:query IS NULL OR urls.url LIKE '%' || :query || '%' OR IFNULL(urls.title, '') LIKE '%' || :query || '%')
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
 "#;
 
 const RECENT_RUNS_SQL: &str = r#"
@@ -555,9 +591,23 @@ pub fn list_history(
     key: Option<&str>,
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
+    fn parse_history_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
+        let raw = cursor?;
+        let (visit_time, id) = raw.split_once('|')?;
+        Some((visit_time.parse().ok()?, id.parse().ok()?))
+    }
+
+    fn encode_history_cursor(entry: &HistoryEntry) -> String {
+        format!("{}|{}", entry.visit_time, entry.id)
+    }
+
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
+    let profile_id = query.profile_id.clone();
+    let browser_kind = query.browser_kind.clone();
+    let start_time_ms = query.start_time_ms;
+    let end_time_ms = query.end_time_ms;
     let q = query.q.clone().filter(|value| !value.trim().is_empty());
     let domain_pattern = query
         .domain
@@ -565,23 +615,51 @@ pub fn list_history(
         .filter(|value| !value.trim().is_empty())
         .map(|value| format!("%{value}%"));
     let sort = query.sort.clone().unwrap_or_else(|| "newest".to_string());
+    let (cursor_visit_time, cursor_id) =
+        parse_history_cursor(query.cursor.as_deref()).unwrap_or((0, 0));
+    let total: usize = connection
+        .query_row(
+            COUNT_HISTORY_SQL,
+            named_params! {
+                ":profileId": profile_id.clone(),
+                ":browserKind": browser_kind.clone(),
+                ":query": q.clone(),
+                ":domainPattern": domain_pattern.clone(),
+                ":startTimeMs": start_time_ms,
+                ":endTimeMs": end_time_ms,
+            },
+            |row| row.get::<_, i64>(0),
+        )?
+        .try_into()
+        .expect("history count fits in usize");
 
     let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
     let rows = statement.query_map(
-        params![
-            query.profile_id,
-            query.browser_kind,
-            q,
-            domain_pattern,
-            query.start_time_ms,
-            query.end_time_ms,
-            sort,
-            limit,
-        ],
+        named_params! {
+            ":profileId": profile_id,
+            ":browserKind": browser_kind,
+            ":query": q,
+            ":domainPattern": domain_pattern,
+            ":startTimeMs": start_time_ms,
+            ":endTimeMs": end_time_ms,
+            ":sort": sort,
+            ":cursorVisitTime": query.cursor.as_ref().map(|_| cursor_visit_time),
+            ":cursorId": query.cursor.as_ref().map(|_| cursor_id),
+            ":pageLimit": limit + 1,
+        },
         history_entry_from_row,
     )?;
-    let items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(HistoryQueryResponse { total: items.len(), items })
+    let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = items.len() > limit as usize;
+    if has_more {
+        items.truncate(limit as usize);
+    }
+
+    Ok(HistoryQueryResponse {
+        total,
+        next_cursor: has_more.then(|| encode_history_cursor(items.last().expect("paginated item"))),
+        items,
+    })
 }
 
 pub fn export_history(
@@ -2757,6 +2835,32 @@ mod tests {
         )
         .expect("list history");
         assert_eq!(history.total, 2);
+
+        let first_page = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { limit: Some(1), ..HistoryQuery::default() },
+        )
+        .expect("first history page");
+        assert_eq!(first_page.total, 2);
+        assert_eq!(first_page.items.len(), 1);
+        assert!(first_page.next_cursor.is_some());
+
+        let second_page = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery {
+                limit: Some(1),
+                cursor: first_page.next_cursor.clone(),
+                ..HistoryQuery::default()
+            },
+        )
+        .expect("second history page");
+        assert_eq!(second_page.total, 2);
+        assert_eq!(second_page.items.len(), 1);
+        assert!(second_page.next_cursor.is_none());
 
         let report_again = run_backup(&paths, &config, None, false).expect("rerun backup");
         assert_eq!(report_again.run.as_ref().expect("run").new_visits, 0);

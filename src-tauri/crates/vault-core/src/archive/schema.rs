@@ -253,7 +253,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 2, sql: MIGRATION_002_RUNTIME_SQL },
 ];
 
-pub(crate) fn open_archive_connection(
+pub fn open_archive_connection(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -299,7 +299,7 @@ pub(crate) fn export_archive_database(
     Ok(())
 }
 
-pub(crate) fn create_schema(connection: &Connection) -> Result<()> {
+pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
     ensure_import_batch_schema(connection)?;
     backfill_runtime_columns(connection)?;

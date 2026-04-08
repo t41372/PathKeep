@@ -12,9 +12,10 @@ use tauri::State;
 use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(test))]
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderSecretInput, AiSearchRequest, AppConfig,
-    ExplainInsightRequest, ExportRequest, HistoryQuery, RunInsightsRequest, S3CredentialInput,
-    SchedulePlan, ScheduleStatus, SecurityStatus, TakeoutRequest,
+    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
+    AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, HistoryQuery,
+    RunInsightsRequest, S3CredentialInput, SchedulePlan, ScheduleStatus, SecurityStatus,
+    TakeoutRequest,
 };
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
@@ -91,6 +92,12 @@ fn run_app() -> Result<()> {
             clear_s3_credentials,
             store_ai_provider_api_key,
             clear_ai_provider_api_key,
+            test_ai_provider_connection,
+            load_ai_queue_status,
+            run_ai_queue_jobs,
+            replay_ai_job,
+            cancel_ai_job,
+            load_ai_assistant_job,
             build_ai_index,
             search_ai_history,
             ask_ai_assistant,
@@ -372,6 +379,59 @@ fn clear_ai_provider_api_key(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
     worker_bridge::clear_ai_provider_api_key_impl(provider_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn test_ai_provider_connection(
+    request: AiProviderConnectionTestRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiProviderConnectionTestReport, String> {
+    worker_bridge::test_ai_provider_connection_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_ai_queue_status(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiQueueStatus, String> {
+    worker_bridge::load_ai_queue_status_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn run_ai_queue_jobs(
+    max_jobs: Option<u32>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiQueueStatus, String> {
+    worker_bridge::run_ai_queue_jobs_impl(max_jobs, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn replay_ai_job(
+    job_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiQueueJob, String> {
+    worker_bridge::replay_ai_job_impl(job_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn cancel_ai_job(
+    job_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiQueueJob, String> {
+    worker_bridge::cancel_ai_job_impl(job_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_ai_assistant_job(
+    job_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiAssistantResponse, String> {
+    worker_bridge::load_ai_assistant_job_impl(job_id, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

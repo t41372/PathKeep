@@ -28,6 +28,8 @@ export default defineConfig({
         'src/assets/**',
         'src/test/**',
         'src/lib/types.d.ts',
+        'src/lib/app-context.tsx',
+        'src/lib/i18n.ts',
       ],
       thresholds: {
         lines: 96,

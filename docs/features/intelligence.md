@@ -15,6 +15,8 @@
 - 基於 embedding 的向量相似度搜尋，使用 rig.rs 驅動 embedding pipeline，LanceDB 作為向量存儲和 ANN 索引。
 - Embedding 增量計算、本地索引、避免重算。
 - 搜尋不只找頁面，還要支持找 session、task 和 topic level 的語義匹配。
+- day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
+- v1 semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 
 ---
 
@@ -32,6 +34,9 @@
 - Agentic search：LLM 可以多步檢索、比較、歸納。
 - 回答必須附帶 evidence（哪些歷史紀錄支持了這個結論）。
 - 這是**顯式觸發**的功能，不是背景常駐。
+- assistant response state 必須誠實可見：`queued`、`completed`、`insufficient-evidence`、`failed`、`cancelled`，並保留 `jobId` / `runId` / provider snapshot 供 audit trace 與 queue reload。
+- citation contract 至少包含 `historyId`、`profileId`、URL / title、visited time、score；若 citation ranking 後沒有可保留 evidence，assistant 必須拒答，而不是補一個看似合理的答案。
+- queued assistant request 可在執行前 replay / cancel；目前 running job 仍不支援 mid-flight cancel，UI 必須清楚說明這個邊界。
 
 ---
 
@@ -167,6 +172,13 @@
 
 「這週 vs 上週，你的研究重心變了什麼？」把結構化差異交給 LLM 寫成人話。
 
+### V1 洞察顯示契約
+
+- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。
+- On This Day、Site Analytics、Periodic Summary、Topic Timeline 都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
+- explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
+- zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
+
 ### V1.5+ 洞察功能
 
 以下功能放在 V1 之後迭代，但架構上第一天就預留位置。
@@ -202,6 +214,12 @@
 - 所有 preset 都支援自定義 Base URL
 - Embedding 和 LLM 分別配置：兩者可以用不同的 Provider 和模型。
 - **底層使用 rig.rs** 作為統一的 AI 框架，處理所有 provider 的請求格式和通信。
+- day-one provider matrix：
+  - chat / assistant：OpenAI-compatible、Anthropic、Google、Ollama、LM Studio
+  - embeddings：OpenAI-compatible、Google、Ollama、LM Studio
+  - Anthropic 在 day one 只作 chat provider，不作 embedding provider
+- provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。
+- secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
 
 ---
 
@@ -217,6 +235,9 @@
 - **成功**：結果寫入對應的表，標記任務完成。
 - **失敗**：記錄錯誤原因，按可配置的策略自動重試（最多 N 次，指數退避）。
 - **暫停**：用戶可以隨時暫停所有計算任務，之後恢復。
+- queue persistence 存在 canonical archive 的 SQLite `ai_jobs` 表；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
+- queue state 精確包含 `queued`、`running`、`succeeded`、`failed`、`paused`、`cancelled`、`stale`。
+- manual replay 只允許 `failed` / `cancelled` / `paused` / `stale` job；`running` job 在當前 worker 不支援 mid-flight cancel。
 
 ### 任務類型
 
@@ -241,3 +262,5 @@
 - 計算任務系統完全獨立於核心備份流程 — 備份不等待 AI 計算完成。
 - 計算結果存入獨立的表 / sidecar — 即使清空所有計算結果，重跑一遍就能恢復。
 - 沒有配置 AI provider 的用戶完全看不到這個系統。
+- semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
+- queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。

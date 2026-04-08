@@ -120,6 +120,14 @@
 - M1 先以 on-demand query + bounded bucket strategy 支撐 UI；如果之後需要 materialized tables，它們也只能是 **可重建的 derived state**。
 - 任何 materialized aggregation table 都必須能從 canonical facts 重新產生，rollback 後靠 rebuild / invalidate 修正，不在 aggregation table 內複製 rollback metadata。
 
+### AI derived-state ledger / queue
+
+- `ai_jobs` 留在 canonical archive SQLite，保存 job type、state、priority、attempt、payload、heartbeat、error、`run_id` 等 queue lifecycle metadata。這些資料是 sidecar 的 orchestration trace，不是向量內容本身。
+- `ai_index_ledger` 以 `(provider_id, model)` 為 key，記錄 `sidecar_table`、`index_version`、`state`、`source_watermark`、`last_run_id`、build started / finished、clear time 與 failure reason。
+- `ai_embeddings` 是 compatibility / audit-friendly projection：保留 provider / model / content hash 對應的 embedding row，方便 semantic recall、debug 與 stale cleanup；真正的 ANN index 仍在 LanceDB sidecar。
+- `ai_assistant_runs` 保存 run-linked assistant trace：`run_id`、question / answer、LLM provider、retrieval provider、citations JSON 與 notes JSON。queued assistant job 完成後要能回到同一筆 trace，而不是只剩暫時性的 UI state。
+- sidecar 可以整個刪除後再依 `ai_jobs` / `ai_index_ledger` / canonical archive facts 重建；刪 sidecar 不應修改任何 `visits` / `downloads` / `search_terms` / `raw_row_versions`。
+
 ---
 
 ## 3. 長期容量設計原則

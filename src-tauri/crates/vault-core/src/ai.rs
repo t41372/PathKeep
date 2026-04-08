@@ -1,15 +1,20 @@
 use crate::{
+    ai_queue::{self},
+    ai_sidecar::{self, SidecarEmbeddingRow},
     archive::{create_schema, list_history, open_archive_connection},
     config::ProjectPaths,
     insights::preferred_embedding_content,
     models::{
         AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
-        AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSearchEntry,
-        AiSearchRequest, AiSearchResponse, AppConfig, HistoryEntry, HistoryQuery,
+        AiIndexStatus, AiProviderCapabilityReport, AiProviderConfig,
+        AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
+        AiRequestFormat, AiSearchEntry, AiSearchRequest, AiSearchResponse, AppConfig, HistoryEntry,
+        HistoryQuery,
     },
     utils::{now_rfc3339, sha256_hex, url_domain},
 };
 use anyhow::{Context, Result};
+use iana_time_zone::get_timezone;
 #[cfg(not(any(test, coverage)))]
 use rig::{
     client::{CompletionClient, EmbeddingsClient},
@@ -24,7 +29,7 @@ use rig::{
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{cmp::Ordering, collections::HashMap, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap, sync::Arc, time::Instant};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -68,6 +73,21 @@ struct StoredEmbedding {
 
 type SemanticRow = (i64, String, String, Option<String>, String, String, String);
 
+#[derive(Debug, Clone, Default)]
+struct AiIndexLedgerRow {
+    state: String,
+    last_indexed_at: Option<String>,
+    last_failure_at: Option<String>,
+    failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProviderReadiness {
+    available: bool,
+    warning: Option<String>,
+    selected_model: Option<String>,
+}
+
 const AI_SCHEMA_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS ai_embeddings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +108,7 @@ const AI_SCHEMA_SQL: &str = r#"
     );
     CREATE TABLE IF NOT EXISTS ai_assistant_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER REFERENCES runs(id),
       question TEXT NOT NULL,
       answer TEXT NOT NULL,
       provider_id TEXT NOT NULL,
@@ -95,6 +116,22 @@ const AI_SCHEMA_SQL: &str = r#"
       citations_json TEXT NOT NULL,
       notes_json TEXT NOT NULL,
       created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ai_index_ledger (
+      provider_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      sidecar_table TEXT NOT NULL,
+      index_version TEXT NOT NULL,
+      state TEXT NOT NULL,
+      source_watermark INTEGER,
+      last_run_id INTEGER REFERENCES runs(id),
+      build_started_at TEXT,
+      build_finished_at TEXT,
+      last_indexed_at TEXT,
+      last_cleared_at TEXT,
+      last_failure_at TEXT,
+      failure_reason TEXT,
+      PRIMARY KEY(provider_id, model)
     );
     CREATE INDEX IF NOT EXISTS idx_ai_embeddings_provider_model
       ON ai_embeddings(provider_id, model);
@@ -115,7 +152,9 @@ const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
     "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
 const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM visit_events)";
 const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
-const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+const AI_QUEUE_RECENT_LIMIT: usize = 8;
+const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 
 #[derive(Debug, Clone)]
 struct SearchContext {
@@ -192,6 +231,7 @@ impl Tool for SearchHistoryTool {
             profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
             domain: args.domain.or_else(|| self.context.default_domain.clone()),
             limit: args.limit.or(Some(self.context.default_limit)),
+            cursor: None,
         };
         let response = search_history_internal(
             &self.context.paths,
@@ -221,6 +261,7 @@ impl Tool for SearchHistoryTool {
 
 pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(AI_SCHEMA_SQL)?;
+    ensure_ai_assistant_run_columns(connection)?;
     Ok(())
 }
 
@@ -229,14 +270,26 @@ pub fn ai_index_status(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<AiIndexStatus> {
+    let default_queue_status = AiQueueStatus {
+        paused: config.ai.job_queue_paused,
+        concurrency: config.ai.job_queue_concurrency,
+        ..AiQueueStatus::default()
+    };
     if !config.initialized || !paths.archive_database_path.exists() {
         return Ok(AiIndexStatus {
             enabled: config.ai.enabled,
             assistant_enabled: config.ai.assistant_enabled,
             mcp_enabled: config.ai.mcp_enabled,
             skill_enabled: config.ai.skill_enabled,
+            state: if config.ai.enabled { "blocked".to_string() } else { "disabled".to_string() },
             llm_provider_id: config.ai.llm_provider_id.clone(),
             embedding_provider_id: config.ai.embedding_provider_id.clone(),
+            queue_paused: default_queue_status.paused,
+            queue_concurrency: default_queue_status.concurrency,
+            queued_jobs: default_queue_status.queued,
+            running_jobs: default_queue_status.running,
+            failed_jobs: default_queue_status.failed,
+            recent_jobs: default_queue_status.recent_jobs,
             warning: if config.ai.enabled {
                 Some("Initialize the archive before using AI analysis features.".to_string())
             } else {
@@ -249,45 +302,275 @@ pub fn ai_index_status(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
+    let queue_status = ai_queue::load_ai_queue_status(
+        &connection,
+        config.ai.job_queue_paused,
+        config.ai.job_queue_concurrency,
+        AI_QUEUE_RECENT_LIMIT,
+    )?;
+    let index_queue_counts = ai_queue::load_queue_job_counts(
+        &connection,
+        &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
+    )?;
 
     let provider_id = config.ai.embedding_provider_id.clone();
+    let provider_readiness = embedding_provider_readiness(config);
+    let ledger = if let Some(provider_id) = provider_id.as_deref() {
+        provider_readiness
+            .selected_model
+            .as_deref()
+            .map(|model| load_index_ledger(&connection, provider_id, model))
+            .transpose()?
+            .unwrap_or_default()
+    } else {
+        AiIndexLedgerRow::default()
+    };
     let indexed_items = if let Some(provider_id) = provider_id.as_deref() {
         provider_embedding_count(&connection, provider_id)?
     } else {
         0
     };
-    let last_indexed_at = if let Some(provider_id) = provider_id.as_deref() {
-        connection
-            .query_row(
-                "SELECT indexed_at
-                 FROM ai_embeddings
-                 WHERE provider_id = ?1
-                 ORDER BY indexed_at DESC
-                 LIMIT 1",
-                [provider_id],
-                |row: &Row<'_>| row.get(0),
-            )
-            .optional()?
+    let last_indexed_at = ledger.last_indexed_at.clone().or_else(|| {
+        provider_id.as_deref().and_then(|provider_id| {
+            connection
+                .query_row(
+                    "SELECT indexed_at
+                     FROM ai_embeddings
+                     WHERE provider_id = ?1
+                     ORDER BY indexed_at DESC
+                     LIMIT 1",
+                    [provider_id],
+                    |row: &Row<'_>| row.get(0),
+                )
+                .optional()
+                .ok()
+                .flatten()
+        })
+    });
+    let ready = indexed_items > 0 && provider_readiness.available;
+    let state = if !config.ai.enabled {
+        "disabled".to_string()
+    } else if !provider_readiness.available {
+        "degraded".to_string()
+    } else if index_queue_counts.running > 0 {
+        "rebuilding".to_string()
+    } else if queue_status.paused && index_queue_counts.queued > 0 {
+        "paused".to_string()
+    } else if ledger.state == "failed" {
+        "failed".to_string()
+    } else if ready {
+        "ready".to_string()
+    } else if index_queue_counts.queued > 0 {
+        "queued".to_string()
     } else {
-        None
+        "empty".to_string()
     };
-    let ready = indexed_items > 0 && config.ai.embedding_provider_id.is_some();
     Ok(AiIndexStatus {
         enabled: config.ai.enabled,
         assistant_enabled: config.ai.assistant_enabled,
         mcp_enabled: config.ai.mcp_enabled,
         skill_enabled: config.ai.skill_enabled,
+        state,
         ready,
         indexed_items: indexed_items as usize,
         last_indexed_at,
         llm_provider_id: config.ai.llm_provider_id.clone(),
         embedding_provider_id: config.ai.embedding_provider_id.clone(),
-        warning: if config.ai.enabled && !ready {
+        queue_paused: queue_status.paused,
+        queue_concurrency: queue_status.concurrency,
+        queued_jobs: queue_status.queued,
+        running_jobs: queue_status.running,
+        failed_jobs: queue_status.failed,
+        recent_jobs: queue_status.recent_jobs,
+        warning: if ledger.state == "failed" {
+            ledger.failure_reason.or(ledger.last_failure_at)
+        } else if !provider_readiness.available {
+            provider_readiness.warning
+        } else if config.ai.enabled && !ready {
             Some("Run Build index after configuring an embedding provider to enable semantic search.".to_string())
         } else {
             None
         },
     })
+}
+
+pub fn ai_queue_status(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<AiQueueStatus> {
+    if !config.initialized || !paths.archive_database_path.exists() {
+        return Ok(AiQueueStatus {
+            paused: config.ai.job_queue_paused,
+            concurrency: config.ai.job_queue_concurrency,
+            ..AiQueueStatus::default()
+        });
+    }
+
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_ai_schema(&connection)?;
+    ai_queue::load_ai_queue_status(
+        &connection,
+        config.ai.job_queue_paused,
+        config.ai.job_queue_concurrency,
+        AI_QUEUE_RECENT_LIMIT,
+    )
+}
+
+pub fn reconcile_ai_queue_controls(
+    paths: &ProjectPaths,
+    previous_config: &AppConfig,
+    next_config: &AppConfig,
+    key: Option<&str>,
+) -> Result<()> {
+    if !next_config.initialized || !paths.archive_database_path.exists() {
+        return Ok(());
+    }
+    if previous_config.ai.job_queue_paused == next_config.ai.job_queue_paused {
+        return Ok(());
+    }
+
+    let connection = open_archive_connection(paths, next_config, key)?;
+    create_schema(&connection)?;
+    ensure_ai_schema(&connection)?;
+    ai_queue::ensure_ai_queue_schema(&connection)?;
+
+    if next_config.ai.job_queue_paused {
+        ai_queue::pause_queued_jobs(&connection)?;
+    } else {
+        ai_queue::resume_paused_jobs(&connection)?;
+    }
+
+    Ok(())
+}
+
+pub fn provider_capabilities(config: &AiProviderConfig) -> AiProviderCapabilityReport {
+    let supports_embeddings = matches!(
+        (config.purpose.clone(), config.request_format.clone()),
+        (
+            AiProviderPurpose::Embedding,
+            AiRequestFormat::OpenAi
+                | AiRequestFormat::Google
+                | AiRequestFormat::Ollama
+                | AiRequestFormat::LmStudio
+        )
+    );
+    let supports_chat = matches!(config.purpose, AiProviderPurpose::Llm);
+    let supports_streaming = supports_chat;
+    let supports_tool_use = supports_chat
+        && matches!(
+            config.request_format,
+            AiRequestFormat::OpenAi
+                | AiRequestFormat::Anthropic
+                | AiRequestFormat::Google
+                | AiRequestFormat::Ollama
+                | AiRequestFormat::LmStudio
+        );
+    let supports_structured_output = supports_chat
+        && matches!(
+            config.request_format,
+            AiRequestFormat::OpenAi
+                | AiRequestFormat::Anthropic
+                | AiRequestFormat::Google
+                | AiRequestFormat::Ollama
+                | AiRequestFormat::LmStudio
+        );
+    AiProviderCapabilityReport {
+        supports_chat,
+        supports_embeddings,
+        supports_streaming,
+        supports_tool_use,
+        supports_structured_output,
+    }
+}
+
+pub fn provider_connection_failure_report(
+    config: &AiProviderConfig,
+    message: &str,
+) -> AiProviderConnectionTestReport {
+    let (error_code, action_hint, retry_hint) = classify_provider_error(message);
+    AiProviderConnectionTestReport {
+        provider_id: config.id.clone(),
+        purpose: match config.purpose {
+            AiProviderPurpose::Embedding => "embedding".to_string(),
+            AiProviderPurpose::Llm => "llm".to_string(),
+        },
+        model: config.default_model.clone(),
+        ok: false,
+        latency_ms: 0,
+        capabilities: provider_capabilities(config),
+        error_code,
+        action_hint,
+        retry_hint,
+        warnings: Vec::new(),
+        message: message.to_string(),
+    }
+}
+
+pub async fn test_provider_connection(
+    provider: &AiProviderRuntime,
+) -> Result<AiProviderConnectionTestReport> {
+    validate_provider(provider, provider.config.purpose.clone())?;
+    let capabilities = provider_capabilities(&provider.config);
+    let started = Instant::now();
+    let probe_result = match provider.config.purpose {
+        AiProviderPurpose::Embedding => {
+            embed_query(provider, "PathKeep provider health check").await.map(|vector| {
+                format!("Generated a {}-dimension probe embedding successfully.", vector.len())
+            })
+        }
+        AiProviderPurpose::Llm => run_llm_agent(
+            provider,
+            "You are a PathKeep connection test. Reply with a short OK message.",
+            Vec::new(),
+            "Reply with OK.",
+        )
+        .await
+        .map(|_| "Provider completed a short chat probe successfully.".to_string()),
+    };
+    let latency_ms = started.elapsed().as_millis() as u64;
+    match probe_result {
+        Ok(message) => Ok(AiProviderConnectionTestReport {
+            provider_id: provider.config.id.clone(),
+            purpose: match provider.config.purpose {
+                AiProviderPurpose::Embedding => "embedding".to_string(),
+                AiProviderPurpose::Llm => "llm".to_string(),
+            },
+            model: provider.config.default_model.clone(),
+            ok: true,
+            latency_ms,
+            capabilities,
+            warnings: if provider.config.request_format == AiRequestFormat::Anthropic
+                && provider.config.purpose == AiProviderPurpose::Llm
+            {
+                vec!["Anthropic remains day-one chat-only in the current rig.rs integration; embedding selection should use a separate provider.".to_string()]
+            } else {
+                Vec::new()
+            },
+            message,
+            ..AiProviderConnectionTestReport::default()
+        }),
+        Err(error) => {
+            let (error_code, action_hint, retry_hint) = classify_provider_error(&error.to_string());
+            Ok(AiProviderConnectionTestReport {
+                provider_id: provider.config.id.clone(),
+                purpose: match provider.config.purpose {
+                    AiProviderPurpose::Embedding => "embedding".to_string(),
+                    AiProviderPurpose::Llm => "llm".to_string(),
+                },
+                model: provider.config.default_model.clone(),
+                ok: false,
+                latency_ms,
+                capabilities,
+                error_code,
+                action_hint,
+                retry_hint,
+                warnings: Vec::new(),
+                message: error.to_string(),
+            })
+        }
+    }
 }
 
 pub async fn build_ai_index(
@@ -301,67 +584,215 @@ pub async fn build_ai_index(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
+    let started_at = now_rfc3339();
+    let source_watermark = current_source_watermark(&connection)?;
+    let sidecar_table =
+        ai_sidecar::provider_table_name(&provider.config.id, &provider.config.default_model);
+    let run_id = begin_ai_run(
+        &connection,
+        "ai_index",
+        "manual",
+        json!({
+            "providerId": provider.config.id,
+            "model": provider.config.default_model,
+            "fullRebuild": request.full_rebuild,
+            "clearOnly": request.clear_only,
+            "limit": request.limit,
+        }),
+    )?;
+    record_index_ledger_start(
+        &connection,
+        provider,
+        run_id,
+        &started_at,
+        source_watermark,
+        &sidecar_table,
+        request,
+    )?;
 
-    if request.full_rebuild {
-        clear_provider_embeddings(&connection, provider)?;
-    }
+    let result: Result<AiIndexReport> = async {
+        let stale_history_ids = collect_stale_history_ids(&connection, provider)?;
 
-    let removed_items = cleanup_stale_embeddings(&connection, provider)?;
-    let candidates = collect_visits_to_index(&connection, provider, request.limit)?;
-    if candidates.is_empty() {
-        return Ok(AiIndexReport {
+        if request.full_rebuild || request.clear_only {
+            clear_provider_embeddings(&connection, provider)?;
+        }
+
+        let removed_items = cleanup_stale_embeddings(&connection, provider)?;
+        let sidecar_removed = if request.full_rebuild || request.clear_only {
+            ai_sidecar::clear_provider_embeddings(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+            )
+            .await?
+        } else {
+            0
+        };
+
+        if request.clear_only {
+            return Ok(AiIndexReport {
+                job_id: None,
+                run_id: Some(run_id),
+                provider_id: provider.config.id.clone(),
+                model: provider.config.default_model.clone(),
+                indexed_items: 0,
+                updated_items: 0,
+                skipped_items: 0,
+                removed_items: removed_items + sidecar_removed,
+                last_indexed_at: now_rfc3339(),
+                notes: vec![
+                    "Cleared the semantic index compatibility rows and the LanceDB sidecar."
+                        .to_string(),
+                ],
+            });
+        }
+
+        let candidates = collect_visits_to_index(&connection, provider, request.limit)?;
+        if candidates.is_empty() {
+            ai_sidecar::sync_provider_embeddings(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+                &[],
+                request.full_rebuild,
+                false,
+                &stale_history_ids,
+            )
+            .await?;
+            return Ok(AiIndexReport {
+                job_id: None,
+                run_id: Some(run_id),
+                provider_id: provider.config.id.clone(),
+                model: provider.config.default_model.clone(),
+                indexed_items: 0,
+                updated_items: 0,
+                skipped_items: 0,
+                removed_items: removed_items + sidecar_removed,
+                last_indexed_at: now_rfc3339(),
+                notes: vec!["No new or changed history rows required indexing.".to_string()],
+            });
+        }
+
+        let timestamp = now_rfc3339();
+        let mut indexed_items = 0usize;
+        let mut updated_items = 0usize;
+        let mut sidecar_rows = Vec::with_capacity(candidates.len());
+
+        for visit in &candidates {
+            let had_prior_index = connection
+                .query_row(
+                    "SELECT id
+                     FROM ai_embeddings
+                     WHERE history_id = ?1
+                       AND provider_id = ?2
+                       AND model = ?3
+                     LIMIT 1",
+                    params![visit.history_id, provider.config.id, provider.config.default_model],
+                    |row: &Row<'_>| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .is_some();
+            let vector = embed_query(provider, &visit.content).await?;
+            upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
+            sidecar_rows.push(SidecarEmbeddingRow {
+                history_id: visit.history_id,
+                profile_id: visit.profile_id.clone(),
+                url: visit.url.clone(),
+                title: visit.title.clone(),
+                domain: visit.domain.clone(),
+                visited_at: visit.visited_at.clone(),
+                provider_id: provider.config.id.clone(),
+                model: provider.config.default_model.clone(),
+                content_hash: visit.content_hash.clone(),
+                indexed_at: timestamp.clone(),
+                vector,
+            });
+            if had_prior_index {
+                updated_items += 1;
+            } else {
+                indexed_items += 1;
+            }
+        }
+        let sidecar_synced = ai_sidecar::sync_provider_embeddings(
+            paths,
+            &provider.config.id,
+            &provider.config.default_model,
+            &sidecar_rows,
+            request.full_rebuild,
+            false,
+            &stale_history_ids,
+        )
+        .await?;
+
+        Ok(AiIndexReport {
+            job_id: None,
+            run_id: Some(run_id),
             provider_id: provider.config.id.clone(),
             model: provider.config.default_model.clone(),
-            indexed_items: 0,
-            updated_items: 0,
+            indexed_items,
+            updated_items,
             skipped_items: 0,
-            removed_items,
-            last_indexed_at: now_rfc3339(),
-            notes: vec!["No new or changed history rows required indexing.".to_string()],
-        });
+            removed_items: removed_items + sidecar_removed,
+            last_indexed_at: timestamp,
+            notes: vec![
+                format!("Indexed {} history rows with {}.", candidates.len(), provider.config.name),
+                format!(
+                    "Synced {} row(s) into the LanceDB semantic sidecar. Search still keeps a temporary SQLite compatibility mirror until the M3 query-surface closeout lands.",
+                    sidecar_synced
+                ),
+            ],
+        })
     }
+    .await;
 
-    let timestamp = now_rfc3339();
-    let mut indexed_items = 0usize;
-    let mut updated_items = 0usize;
-
-    for visit in &candidates {
-        let had_prior_index = connection
-            .query_row(
-                "SELECT id
-                 FROM ai_embeddings
-                 WHERE history_id = ?1
-                   AND provider_id = ?2
-                   AND model = ?3
-                 LIMIT 1",
-                params![visit.history_id, provider.config.id, provider.config.default_model],
-                |row: &Row<'_>| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .is_some();
-        let vector = embed_query(provider, &visit.content).await?;
-        upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
-        if had_prior_index {
-            updated_items += 1;
-        } else {
-            indexed_items += 1;
+    match result {
+        Ok(report) => {
+            finalize_ai_run_success(
+                &connection,
+                run_id,
+                json!({
+                    "providerId": report.provider_id,
+                    "model": report.model,
+                    "indexedItems": report.indexed_items,
+                    "updatedItems": report.updated_items,
+                    "removedItems": report.removed_items,
+                }),
+            )?;
+            record_index_ledger_success(
+                &connection,
+                provider,
+                run_id,
+                &report.last_indexed_at,
+                source_watermark,
+                &sidecar_table,
+                request,
+            )?;
+            Ok(report)
+        }
+        Err(error) => {
+            finalize_ai_run_failure(
+                &connection,
+                run_id,
+                &error.to_string(),
+                json!({
+                    "providerId": provider.config.id,
+                    "model": provider.config.default_model,
+                    "fullRebuild": request.full_rebuild,
+                    "clearOnly": request.clear_only,
+                }),
+            )?;
+            record_index_ledger_failure(
+                &connection,
+                provider,
+                run_id,
+                source_watermark,
+                &sidecar_table,
+                request,
+                &error.to_string(),
+            )?;
+            Err(error)
         }
     }
-
-    Ok(AiIndexReport {
-        provider_id: provider.config.id.clone(),
-        model: provider.config.default_model.clone(),
-        indexed_items,
-        updated_items,
-        skipped_items: 0,
-        removed_items,
-        last_indexed_at: timestamp,
-        notes: vec![format!(
-            "Indexed {} history rows with {}.",
-            candidates.len(),
-            provider.config.name
-        )],
-    })
 }
 
 pub async fn semantic_search_history(
@@ -386,62 +817,173 @@ pub async fn answer_history_question(
     if !config.ai.enabled || !config.ai.assistant_enabled {
         anyhow::bail!("Enable AI analysis and the assistant in Settings before asking questions.")
     }
-
-    let retrieval_request = AiSearchRequest {
-        query: request.question.clone(),
-        profile_id: request.profile_id.clone(),
-        domain: request.domain.clone(),
-        limit: Some(config.ai.retrieval_top_k.max(1)),
-    };
-    let search_response =
-        search_history_internal(paths, config, key, embedding_provider, &retrieval_request).await?;
-    let seeded_citations = search_response
-        .items
-        .iter()
-        .map(|item| AiCitation {
-            history_id: item.history_id,
-            profile_id: item.profile_id.clone(),
-            url: item.url.clone(),
-            title: item.title.clone(),
-            visited_at: item.visited_at.clone(),
-            score: Some(item.score),
-        })
-        .collect::<Vec<_>>();
-    let citations = Arc::new(Mutex::new(seeded_citations.clone()));
-    let tool_context = SearchContext {
-        paths: paths.clone(),
-        config: config.clone(),
-        database_key: key.map(ToOwned::to_owned),
-        embedding_provider: embedding_provider.cloned(),
-        default_profile_id: request.profile_id.clone(),
-        default_domain: request.domain.clone(),
-        default_limit: config.ai.retrieval_top_k.max(1),
-        citations: Arc::clone(&citations),
-    };
-    let tools: Vec<Box<dyn ToolDyn>> = vec![Box::new(SearchHistoryTool { context: tool_context })];
-    let preamble = build_assistant_preamble(config, &search_response);
-    let answer = run_llm_agent(llm_provider, &preamble, tools, &request.question).await?;
-
-    let mut final_citations = citations.lock().await.clone();
-    final_citations.sort_by_key(|item| item.history_id);
-    final_citations.dedup_by_key(|item| item.history_id);
-
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
-    let embedding_provider_id = embedding_provider
-        .map(|provider| provider.config.id.clone())
-        .unwrap_or_else(|| "lexical-fallback".to_string());
-    #[rustfmt::skip]
-    record_assistant_run(&connection, request, &answer, &llm_provider.config.id, &embedding_provider_id, &final_citations, &search_response.notes)?;
+    let run_id = begin_ai_run(
+        &connection,
+        "assistant",
+        "manual",
+        json!({
+            "providerId": llm_provider.config.id,
+            "embeddingProviderId": embedding_provider
+                .map(|provider| provider.config.id.clone())
+                .unwrap_or_else(|| "lexical-fallback".to_string()),
+            "questionLength": request.question.len(),
+        }),
+    )?;
 
-    Ok(AiAssistantResponse {
-        answer,
-        provider_id: llm_provider.config.id.clone(),
-        embedding_provider_id,
-        citations: final_citations,
-        notes: search_response.notes,
-    })
+    let result: Result<AiAssistantResponse> = async {
+        let retrieval_request = AiSearchRequest {
+            query: request.question.clone(),
+            profile_id: request.profile_id.clone(),
+            domain: request.domain.clone(),
+            limit: Some(config.ai.retrieval_top_k.max(1)),
+            cursor: None,
+        };
+        let search_response =
+            search_history_internal(paths, config, key, embedding_provider, &retrieval_request)
+                .await?;
+        let seeded_citations = search_response
+            .items
+            .iter()
+            .map(|item| AiCitation {
+                history_id: item.history_id,
+                profile_id: item.profile_id.clone(),
+                url: item.url.clone(),
+                title: item.title.clone(),
+                visited_at: item.visited_at.clone(),
+                score: Some(item.score),
+            })
+            .collect::<Vec<_>>();
+        let citations = Arc::new(Mutex::new(seeded_citations.clone()));
+        let tool_context = SearchContext {
+            paths: paths.clone(),
+            config: config.clone(),
+            database_key: key.map(ToOwned::to_owned),
+            embedding_provider: embedding_provider.cloned(),
+            default_profile_id: request.profile_id.clone(),
+            default_domain: request.domain.clone(),
+            default_limit: config.ai.retrieval_top_k.max(1),
+            citations: Arc::clone(&citations),
+        };
+        let tools: Vec<Box<dyn ToolDyn>> =
+            vec![Box::new(SearchHistoryTool { context: tool_context })];
+        let preamble = build_assistant_preamble(config, &search_response);
+        let answer = run_llm_agent(llm_provider, &preamble, tools, &request.question).await?;
+
+        let mut final_citations = citations.lock().await.clone();
+        final_citations.sort_by_key(|item| item.history_id);
+        final_citations.dedup_by_key(|item| item.history_id);
+
+        let embedding_provider_id = embedding_provider
+            .map(|provider| provider.config.id.clone())
+            .unwrap_or_else(|| "lexical-fallback".to_string());
+        let final_answer = if final_citations.is_empty() {
+            "I couldn't find enough matching history evidence to answer that confidently yet. Try narrowing the profile or domain, or rebuild the semantic index and ask again.".to_string()
+        } else {
+            answer
+        };
+        #[rustfmt::skip]
+        record_assistant_run(&connection, run_id, request, &final_answer, &llm_provider.config.id, &embedding_provider_id, &final_citations, &search_response.notes)?;
+
+        Ok(AiAssistantResponse {
+            state: if final_citations.is_empty() {
+                "insufficient-evidence".to_string()
+            } else {
+                "completed".to_string()
+            },
+            answer: final_answer,
+            job_id: None,
+            run_id: Some(run_id),
+            provider_id: llm_provider.config.id.clone(),
+            embedding_provider_id,
+            citations: final_citations,
+            notes: search_response.notes,
+        })
+    }
+    .await;
+
+    match result {
+        Ok(response) => {
+            finalize_ai_run_success(
+                &connection,
+                run_id,
+                json!({
+                    "providerId": response.provider_id,
+                    "embeddingProviderId": response.embedding_provider_id,
+                    "citations": response.citations.len(),
+                }),
+            )?;
+            Ok(response)
+        }
+        Err(error) => {
+            finalize_ai_run_failure(
+                &connection,
+                run_id,
+                &error.to_string(),
+                json!({
+                    "providerId": llm_provider.config.id,
+                    "embeddingProviderId": embedding_provider
+                        .map(|provider| provider.config.id.clone())
+                        .unwrap_or_else(|| "lexical-fallback".to_string()),
+                }),
+            )?;
+            Err(error)
+        }
+    }
+}
+
+pub fn load_assistant_run_response(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    run_id: i64,
+) -> Result<AiAssistantResponse> {
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_ai_schema(&connection)?;
+    connection
+        .query_row(
+            "SELECT answer, provider_id, embedding_provider_id, citations_json, notes_json
+             FROM ai_assistant_runs
+             WHERE run_id = ?1",
+            [run_id],
+            |row| {
+                let citations_json: String = row.get(3)?;
+                let notes_json: String = row.get(4)?;
+                let citations =
+                    serde_json::from_str::<Vec<AiCitation>>(&citations_json).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                let notes = serde_json::from_str::<Vec<String>>(&notes_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(AiAssistantResponse {
+                    state: if citations.is_empty() {
+                        "insufficient-evidence".to_string()
+                    } else {
+                        "completed".to_string()
+                    },
+                    answer: row.get(0)?,
+                    job_id: None,
+                    run_id: Some(run_id),
+                    provider_id: row.get(1)?,
+                    embedding_provider_id: row.get(2)?,
+                    citations,
+                    notes,
+                })
+            },
+        )
+        .with_context(|| format!("loading AI assistant run {run_id}"))
 }
 
 pub fn preview_ai_integrations(
@@ -526,6 +1068,376 @@ fn validate_provider(
     ) {
         anyhow::bail!("Anthropic request format is not available for embeddings in rig.rs.")
     }
+    Ok(())
+}
+
+fn classify_provider_error(message: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let normalized = message.to_lowercase();
+    if normalized.contains("enable provider") {
+        return (
+            Some("provider-disabled".to_string()),
+            Some("Enable the provider in Settings before testing it again.".to_string()),
+            None,
+        );
+    }
+    if normalized.contains("api key")
+        || normalized.contains("store an api key")
+        || normalized.contains("unauthorized")
+        || normalized.contains("forbidden")
+    {
+        return (
+            Some("secret-missing".to_string()),
+            Some("Store a valid API key in the native keyring for this provider.".to_string()),
+            Some("After updating the key, run Test connection again.".to_string()),
+        );
+    }
+    if normalized.contains("rate limit")
+        || normalized.contains("quota")
+        || normalized.contains("429")
+    {
+        return (
+            Some("rate-limited".to_string()),
+            Some(
+                "Wait for the provider quota window to reset or reduce this model's usage."
+                    .to_string(),
+            ),
+            Some("Retry after the provider cooldown ends.".to_string()),
+        );
+    }
+    if normalized.contains("does not support embeddings")
+        || normalized.contains("not configured for")
+    {
+        return (
+            Some("unsupported-capability".to_string()),
+            Some("Pick a provider whose day-one capabilities match this purpose.".to_string()),
+            None,
+        );
+    }
+    if normalized.contains("model") && normalized.contains("not found") {
+        return (
+            Some("bad-model".to_string()),
+            Some("Select a valid default model for this provider.".to_string()),
+            Some("Save the model selection and test again.".to_string()),
+        );
+    }
+    if normalized.contains("timed out")
+        || normalized.contains("dns")
+        || normalized.contains("refused")
+        || normalized.contains("network")
+    {
+        return (
+            Some("network-error".to_string()),
+            Some(
+                "Check the base URL, local daemon, or network path for this provider.".to_string(),
+            ),
+            Some("Retry after the endpoint is reachable.".to_string()),
+        );
+    }
+    (
+        Some("provider-error".to_string()),
+        None,
+        Some("Review the provider error and retry after fixing it.".to_string()),
+    )
+}
+
+fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadiness {
+    let Some(provider_id) = config.ai.embedding_provider_id.as_deref() else {
+        return ProviderReadiness {
+            available: false,
+            warning: Some(
+                "Select an embedding provider in Settings before enabling semantic retrieval."
+                    .to_string(),
+            ),
+            selected_model: None,
+        };
+    };
+    let Some(provider) =
+        config.ai.embedding_providers.iter().find(|provider| provider.id == provider_id)
+    else {
+        return ProviderReadiness {
+            available: false,
+            warning: Some(format!(
+                "Embedding provider {provider_id} is no longer available in Settings."
+            )),
+            selected_model: None,
+        };
+    };
+    if !provider.enabled {
+        return ProviderReadiness {
+            available: false,
+            warning: Some(format!(
+                "Enable provider {} before using semantic retrieval.",
+                provider.name
+            )),
+            selected_model: Some(provider.default_model.clone()),
+        };
+    }
+    if !provider.api_key_saved {
+        return ProviderReadiness {
+            available: false,
+            warning: Some(format!(
+                "Store an API key for provider {} before using semantic retrieval.",
+                provider.name
+            )),
+            selected_model: Some(provider.default_model.clone()),
+        };
+    }
+    if provider.default_model.trim().is_empty() {
+        return ProviderReadiness {
+            available: false,
+            warning: Some(format!(
+                "Choose a default model for provider {} before using semantic retrieval.",
+                provider.name
+            )),
+            selected_model: None,
+        };
+    }
+    ProviderReadiness {
+        available: true,
+        warning: None,
+        selected_model: Some(provider.default_model.clone()),
+    }
+}
+
+fn ensure_ai_assistant_run_columns(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(ai_assistant_runs)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "run_id") {
+        connection.execute(
+            "ALTER TABLE ai_assistant_runs ADD COLUMN run_id INTEGER REFERENCES runs(id)",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn load_index_ledger(
+    connection: &Connection,
+    provider_id: &str,
+    model: &str,
+) -> Result<AiIndexLedgerRow> {
+    connection
+        .query_row(
+            "SELECT state, last_indexed_at, last_failure_at, failure_reason
+             FROM ai_index_ledger
+             WHERE provider_id = ?1 AND model = ?2",
+            params![provider_id, model],
+            |row| {
+                Ok(AiIndexLedgerRow {
+                    state: row.get(0)?,
+                    last_indexed_at: row.get(1)?,
+                    last_failure_at: row.get(2)?,
+                    failure_reason: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map(|row| row.unwrap_or_default())
+        .context("loading AI index ledger")
+}
+
+fn current_source_watermark(connection: &Connection) -> Result<i64> {
+    connection
+        .query_row("SELECT COALESCE(MAX(id), 0) FROM visit_events", [], |row| row.get(0))
+        .context("loading latest visit watermark for AI indexing")
+}
+
+fn current_timezone_name() -> String {
+    get_timezone().unwrap_or_else(|_| "UTC".to_string())
+}
+
+fn begin_ai_run(
+    connection: &Connection,
+    run_type: &str,
+    trigger: &str,
+    stats_json: serde_json::Value,
+) -> Result<i64> {
+    let started_at = now_rfc3339();
+    connection.execute(
+        "INSERT INTO runs (
+           run_type,
+           trigger,
+           started_at,
+           timezone,
+           status,
+           profile_scope_json,
+           warnings_json,
+           stats_json,
+           due_only
+         )
+         VALUES (?1, ?2, ?3, ?4, 'running', '[]', '[]', ?5, 0)",
+        params![
+            run_type,
+            trigger,
+            started_at,
+            current_timezone_name(),
+            serde_json::to_string(&stats_json)?,
+        ],
+    )?;
+    Ok(connection.last_insert_rowid())
+}
+
+fn finalize_ai_run_success(
+    connection: &Connection,
+    run_id: i64,
+    stats_json: serde_json::Value,
+) -> Result<()> {
+    let finished_at = now_rfc3339();
+    connection.execute(
+        "UPDATE runs
+         SET finished_at = ?1,
+             status = 'success',
+             error_message = NULL,
+             warnings_json = '[]',
+             stats_json = ?2
+         WHERE id = ?3",
+        params![finished_at, serde_json::to_string(&stats_json)?, run_id],
+    )?;
+    Ok(())
+}
+
+fn finalize_ai_run_failure(
+    connection: &Connection,
+    run_id: i64,
+    error_message: &str,
+    stats_json: serde_json::Value,
+) -> Result<()> {
+    let finished_at = now_rfc3339();
+    connection.execute(
+        "UPDATE runs
+         SET finished_at = ?1,
+             status = 'failed',
+             error_message = ?2,
+             stats_json = ?3
+         WHERE id = ?4",
+        params![finished_at, error_message, serde_json::to_string(&stats_json)?, run_id,],
+    )?;
+    Ok(())
+}
+
+fn record_index_ledger_start(
+    connection: &Connection,
+    provider: &AiProviderRuntime,
+    run_id: i64,
+    started_at: &str,
+    source_watermark: i64,
+    sidecar_table: &str,
+    request: &AiIndexRequest,
+) -> Result<()> {
+    let state = if request.clear_only { "clearing" } else { "building" };
+    connection.execute(
+        "INSERT INTO ai_index_ledger (
+           provider_id,
+           model,
+           sidecar_table,
+           index_version,
+           state,
+           source_watermark,
+           last_run_id,
+           build_started_at,
+           build_finished_at,
+           last_indexed_at,
+           last_cleared_at,
+           last_failure_at,
+           failure_reason
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, NULL, NULL)
+         ON CONFLICT(provider_id, model) DO UPDATE SET
+           sidecar_table = excluded.sidecar_table,
+           index_version = excluded.index_version,
+           state = excluded.state,
+           source_watermark = excluded.source_watermark,
+           last_run_id = excluded.last_run_id,
+           build_started_at = excluded.build_started_at,
+           build_finished_at = NULL,
+           last_failure_at = NULL,
+           failure_reason = NULL",
+        params![
+            provider.config.id,
+            provider.config.default_model,
+            sidecar_table,
+            AI_INDEX_LEDGER_VERSION,
+            state,
+            source_watermark,
+            run_id,
+            started_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn record_index_ledger_success(
+    connection: &Connection,
+    provider: &AiProviderRuntime,
+    run_id: i64,
+    finished_at: &str,
+    source_watermark: i64,
+    sidecar_table: &str,
+    request: &AiIndexRequest,
+) -> Result<()> {
+    connection.execute(
+        "UPDATE ai_index_ledger
+         SET state = ?1,
+             sidecar_table = ?2,
+             index_version = ?3,
+             source_watermark = ?4,
+             last_run_id = ?5,
+             build_finished_at = ?6,
+             last_indexed_at = ?7,
+             last_cleared_at = CASE WHEN ?8 = 1 THEN ?7 ELSE last_cleared_at END,
+             last_failure_at = NULL,
+             failure_reason = NULL
+         WHERE provider_id = ?9 AND model = ?10",
+        params![
+            if request.clear_only { "cleared" } else { "ready" },
+            sidecar_table,
+            AI_INDEX_LEDGER_VERSION,
+            source_watermark,
+            run_id,
+            finished_at,
+            finished_at,
+            request.clear_only as i64,
+            provider.config.id,
+            provider.config.default_model,
+        ],
+    )?;
+    Ok(())
+}
+
+fn record_index_ledger_failure(
+    connection: &Connection,
+    provider: &AiProviderRuntime,
+    run_id: i64,
+    source_watermark: i64,
+    sidecar_table: &str,
+    _request: &AiIndexRequest,
+    error_message: &str,
+) -> Result<()> {
+    let failed_at = now_rfc3339();
+    connection.execute(
+        "UPDATE ai_index_ledger
+         SET state = 'failed',
+             sidecar_table = ?1,
+             index_version = ?2,
+             source_watermark = ?3,
+             last_run_id = ?4,
+             build_finished_at = ?5,
+             last_failure_at = ?5,
+             failure_reason = ?6
+         WHERE provider_id = ?7 AND model = ?8",
+        params![
+            sidecar_table,
+            AI_INDEX_LEDGER_VERSION,
+            source_watermark,
+            run_id,
+            failed_at,
+            error_message,
+            provider.config.id,
+            provider.config.default_model,
+        ],
+    )?;
     Ok(())
 }
 
@@ -651,6 +1563,10 @@ async fn search_history_internal(
         anyhow::bail!("Enter a question or search query first.")
     }
 
+    fn parse_search_cursor(cursor: Option<&str>) -> usize {
+        cursor.and_then(|value| value.parse::<usize>().ok()).unwrap_or(0)
+    }
+
     let lexical = lexical_history_results(paths, config, key, request, query)?;
     let mut merged = HashMap::<i64, AiSearchEntry>::new();
     let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
@@ -708,9 +1624,13 @@ async fn search_history_internal(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(left.visited_at.cmp(&right.visited_at))
     });
-    items.truncate(limit);
+    let total = items.len();
+    let offset = parse_search_cursor(request.cursor.as_deref()).min(total);
+    let next_offset = (offset + limit).min(total);
+    let next_cursor = (next_offset < total).then(|| next_offset.to_string());
+    let items = items.into_iter().skip(offset).take(limit).collect();
 
-    Ok(AiSearchResponse { total: items.len(), provider_id, model, items, notes })
+    Ok(AiSearchResponse { total, provider_id, model, items, notes, next_cursor })
 }
 
 async fn semantic_matches(
@@ -831,6 +1751,23 @@ fn cleanup_stale_embeddings(
     Ok(removed)
 }
 
+fn collect_stale_history_ids(
+    connection: &Connection,
+    provider: &AiProviderRuntime,
+) -> Result<Vec<i64>> {
+    let mut statement = connection.prepare(
+        "SELECT history_id
+         FROM ai_embeddings
+         WHERE provider_id = ?1
+           AND model = ?2
+           AND history_id NOT IN (SELECT id FROM visit_events)",
+    )?;
+    statement
+        .query_map(params![provider.config.id, provider.config.default_model], |row| row.get(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collecting stale AI embedding ids")
+}
+
 fn provider_embedding_count(connection: &Connection, provider_id: &str) -> Result<i64> {
     #[rustfmt::skip]
     let count = connection.query_row(
@@ -861,6 +1798,7 @@ fn upsert_embedding(
 
 fn record_assistant_run(
     connection: &Connection,
+    run_id: i64,
     request: &AiAssistantRequest,
     answer: &str,
     llm_provider_id: &str,
@@ -869,7 +1807,7 @@ fn record_assistant_run(
     notes: &[String],
 ) -> Result<()> {
     #[rustfmt::skip]
-    connection.execute(INSERT_ASSISTANT_RUN_SQL, params![request.question, answer, llm_provider_id, embedding_provider_id, serde_json::to_string(citations)?, serde_json::to_string(notes)?, now_rfc3339()])?;
+    connection.execute(INSERT_ASSISTANT_RUN_SQL, params![run_id, request.question, answer, llm_provider_id, embedding_provider_id, serde_json::to_string(citations)?, serde_json::to_string(notes)?, now_rfc3339()])?;
     Ok(())
 }
 
@@ -893,6 +1831,7 @@ fn lexical_history_results(
             end_time_ms: None,
             sort: Some("newest".to_string()),
             limit: Some(request.limit.unwrap_or(12).max(1)),
+            cursor: None,
         },
     )
 }
@@ -1079,6 +2018,10 @@ mod tests {
     }
 
     fn base_config() -> AppConfig {
+        let mut llm_config = llm_provider().config;
+        llm_config.api_key_saved = true;
+        let mut embedding_config = embedding_provider().config;
+        embedding_config.api_key_saved = true;
         AppConfig {
             initialized: true,
             archive_mode: ArchiveMode::Plaintext,
@@ -1089,6 +2032,8 @@ mod tests {
                 semantic_index_enabled: true,
                 llm_provider_id: Some("llm".to_string()),
                 embedding_provider_id: Some("embed".to_string()),
+                llm_providers: vec![llm_config],
+                embedding_providers: vec![embedding_config],
                 ..AiSettings::default()
             },
             ..AppConfig::default()
@@ -1444,6 +2389,7 @@ mod tests {
                     match_reason: "Semantic match".to_string(),
                 }],
                 notes: Vec::new(),
+                next_cursor: None,
             },
         );
         assert!(with_context.contains("Semantic match"));
@@ -1505,6 +2451,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect_err("empty query should fail");
@@ -1521,6 +2468,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect("lexical search");
@@ -1547,6 +2495,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect("public search wrapper");
@@ -1566,7 +2515,12 @@ mod tests {
                 &config,
                 None,
                 &embedding_provider(),
-                &AiIndexRequest { provider_id: None, full_rebuild: true, limit: Some(5) },
+                &AiIndexRequest {
+                    provider_id: None,
+                    full_rebuild: true,
+                    clear_only: false,
+                    limit: Some(5),
+                },
             ))
             .expect("empty build");
         assert_eq!(report.indexed_items, 0);
@@ -1676,6 +2630,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect("semantic empty fallback");
@@ -1711,7 +2666,12 @@ mod tests {
                 &config,
                 None,
                 &embedding,
-                &AiIndexRequest { provider_id: None, full_rebuild: true, limit: Some(1) },
+                &AiIndexRequest {
+                    provider_id: None,
+                    full_rebuild: true,
+                    clear_only: false,
+                    limit: Some(1),
+                },
             ))
             .expect("full rebuild");
         assert_eq!(rebuilt.indexed_items, 1);
@@ -1727,6 +2687,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect("semantic search");
@@ -1780,6 +2741,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect("semantic matches");
@@ -1808,6 +2770,7 @@ mod tests {
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
+                    cursor: None,
                 },
             ))
             .expect("semantic + lexical search");

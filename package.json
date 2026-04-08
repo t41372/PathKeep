@@ -29,6 +29,7 @@
     "mutation:rust": "cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --test-tool cargo --timeout 300",
     "mutation:js": "stryker run",
     "mutation:js:desktop-contract": "stryker run stryker.desktop-contract.config.json",
+    "mutation": "bun run mutation:js && bun run mutation:rust",
     "audit:rust": "bun scripts/check-rust-security.mjs",
     "deny:rust": "cd src-tauri && cargo deny check bans licenses sources",
     "check:supply-chain": "bun run audit:rust && bun run deny:rust",
@@ -36,11 +37,12 @@
     "check:js": "bun run format:check && bun run lint && bun run typecheck && bun run test:unit",
     "check:rust": "bun run fmt:rust && bun run lint:rust && bun run test:rust",
     "check": "bun run check:js && bun run check:desktop-contract && bun run check:rust && bun run check:supply-chain",
+    "check:full": "bun run check && bun run coverage && bun run mutation && bun run test:e2e",
     "coverage": "bun run check:coverage",
     "ci:local": "bun run check && bun run coverage && bun run build && bun run test:e2e && bun run desktop:build:debug",
     "docs:llm": "bun scripts/build-llm-txt.mjs",
     "preview": "vite preview",
-    "verify": "bun run ci:local"
+    "verify": "bun run check:full && bun run build && bun run desktop:build:debug"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

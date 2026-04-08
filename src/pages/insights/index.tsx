@@ -1,133 +1,58 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
-import type { InsightSnapshot } from '../../lib/types'
+import { formatDateTime, formatRelativeTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
+import {
+  aiStatusMeta,
+  assistantHref,
+  dedupeEvidence,
+  evidenceHref,
+} from '../../lib/intelligence'
+import type {
+  InsightCard,
+  InsightEvidenceItem,
+  InsightExplanation,
+  InsightSnapshot,
+} from '../../lib/types'
 
-const topicColors = [
-  '#FF7832',
-  '#4ECDC4',
-  '#FFE66D',
-  '#FF6B6B',
-  '#C792EA',
-  '#89CFF0',
-  '#98D8C8',
-]
+const topicColors = ['#FF7832', '#4ECDC4', '#FFE66D', '#FF6B6B', '#89CFF0']
 
-const mockKpis = [
-  { label: 'THIS WEEK', value: '1,247', sublabel: 'pages visited' },
-  {
-    label: 'TOP DOMAIN',
-    value: 'github.com',
-    sublabel: '342 visits · 27.4%',
-    mono: true,
-  },
-  {
-    label: 'EXPLORE / EXPLOIT',
-    value: '38% / 62%',
-    sublabel: 'Focused mode this week',
-  },
-  { label: 'ACTIVE THREADS', value: '7', sublabel: '3 new this week' },
-]
+function domainFromUrl(url: string) {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
 
-const mockTopics = [
-  {
-    name: 'Rust async runtime',
-    color: '#FF7832',
-    count: 89,
-    trend: '↑',
-    bars: [
-      { left: 0, width: 20, opacity: 0.3 },
-      { left: 25, width: 10, opacity: 0.5 },
-      { left: 60, width: 15, opacity: 0.7 },
-      { left: 85, width: 15, opacity: 1 },
-    ],
-  },
-  {
-    name: 'LLM fine-tuning',
-    color: '#4ECDC4',
-    count: 54,
-    trend: '↓',
-    bars: [
-      { left: 0, width: 30, opacity: 0.8 },
-      { left: 35, width: 20, opacity: 0.6 },
-      { left: 70, width: 10, opacity: 0.3 },
-    ],
-  },
-  {
-    name: 'SQLite internals',
-    color: '#FFE66D',
-    count: 41,
-    trend: '↑',
-    bars: [
-      { left: 50, width: 10, opacity: 0.4 },
-      { left: 65, width: 15, opacity: 0.7 },
-      { left: 85, width: 15, opacity: 1 },
-    ],
-  },
-  {
-    name: 'Tauri 2 development',
-    color: '#FF6B6B',
-    count: 73,
-    trend: '↑',
-    bars: [
-      { left: 10, width: 25, opacity: 0.6 },
-      { left: 40, width: 20, opacity: 0.8 },
-      { left: 75, width: 25, opacity: 1 },
-    ],
-  },
-  {
-    name: 'Music production / DAW',
-    color: '#C792EA',
-    count: 28,
-    trend: '—',
-    bars: [
-      { left: 0, width: 15, opacity: 0.5 },
-      { left: 20, width: 8, opacity: 0.3 },
-      { left: 55, width: 12, opacity: 0.4 },
-      { left: 90, width: 10, opacity: 0.6 },
-    ],
-  },
-]
-
-const mockThreads = [
-  {
-    name: 'Building PathKeep — browser history parser',
-    meta: '5 days active · 89 pages · reopened 3x',
-    status: 'hot',
-  },
-  {
-    name: 'Tokio scheduler deep dive',
-    meta: '2 days active · 34 pages',
-    status: 'hot',
-  },
-  {
-    name: 'SQLite FTS5 vs Tantivy comparison',
-    meta: '3 days active · 21 pages',
-    status: 'warm',
-  },
-  {
-    name: 'Elden Ring DLC strategy guides',
-    meta: '1 day · 12 pages · idle 2d',
-    status: 'cool',
-  },
-]
-
-const mockDomains = [
-  { name: 'github.com', count: 342, pct: 100 },
-  { name: 'docs.rs', count: 178, pct: 52 },
-  { name: 'stackoverflow.com', count: 131, pct: 38 },
-  { name: 'google.com', count: 102, pct: 30 },
-  { name: 'arxiv.org', count: 68, pct: 20 },
-]
+function flattenInsightEvidence(snapshot: InsightSnapshot) {
+  return dedupeEvidence([
+    ...snapshot.cards.flatMap((card) => card.evidence),
+    ...snapshot.topics.flatMap((topic) => topic.evidence),
+    ...snapshot.threads.flatMap((thread) => thread.evidence),
+  ])
+}
 
 export function InsightsPage() {
-  const { refreshKey } = useShellData()
+  const { language, ns } = useI18n()
+  const { refreshAppData, refreshKey, snapshot } = useShellData()
   const [insights, setInsights] = useState<InsightSnapshot | null>(null)
+  const [explanation, setExplanation] = useState<InsightExplanation | null>(
+    null,
+  )
+  const [selectedCard, setSelectedCard] = useState<InsightCard | null>(null)
+  const [action, setAction] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const insightsT = ns('insights')
+  const intelligenceT = ns('intelligence')
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -138,11 +63,12 @@ export function InsightsPage() {
           setInsights(result)
           setLoadError(null)
         }
-      } catch (e) {
-        if (!cancelled)
+      } catch (error) {
+        if (!cancelled) {
           setLoadError(
-            e instanceof Error ? e.message : 'Failed to load insights',
+            error instanceof Error ? error.message : insightsT('loadingLabel'),
           )
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -151,200 +77,463 @@ export function InsightsPage() {
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [insightsT, refreshKey])
 
-  const hasRealData = Boolean(insights && insights.topics.length > 0)
-
-  // Use real data for topics if available, fallback to mock
-  const topics = useMemo(() => {
-    if (!hasRealData || !insights) return mockTopics
-    return insights.topics.map((t, i) => ({
-      name: t.label,
-      color: topicColors[i % topicColors.length],
-      count: t.visitCount,
-      trend: t.trendSlope > 0.1 ? '↑' : t.trendSlope < -0.1 ? '↓' : '—',
-      bars: [{ left: 20, width: Math.min(80, t.visitCount * 5), opacity: 0.8 }],
+  const aiMeta = snapshot
+    ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
+    : null
+  const allEvidence = useMemo(
+    () => (insights ? flattenInsightEvidence(insights) : []),
+    [insights],
+  )
+  const todayKey = new Date().toISOString().slice(5, 10)
+  const onThisDay = useMemo(
+    () =>
+      allEvidence
+        .filter((item) => item.visitedAt.slice(5, 10) === todayKey)
+        .slice(0, 6),
+    [allEvidence, todayKey],
+  )
+  const siteAnalytics = useMemo(() => {
+    const counts = new Map<string, number>()
+    allEvidence.forEach((item) => {
+      const domain = domainFromUrl(item.url)
+      counts.set(domain, (counts.get(domain) ?? 0) + 1)
+    })
+    const top = [...counts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+    const maxCount = top[0]?.[1] ?? 1
+    return top.map(([domain, count]) => ({
+      domain,
+      count,
+      pct: Math.round((count / maxCount) * 100),
     }))
-  }, [hasRealData, insights])
+  }, [allEvidence])
+  const periodicSummary = useMemo(() => {
+    if (!insights) return []
+    const seeded = insights.cards.slice(0, 2).map((card) => card.summary)
+    return seeded.length > 0 ? seeded : insights.notes
+  }, [insights])
 
-  const threads = useMemo(() => {
-    if (!hasRealData || !insights) return mockThreads
-    return insights.threads.map((t) => ({
-      name: t.title,
-      meta: `${t.visitCount} pages · reopened ${t.reopenCount}x`,
-      status:
-        t.openLoopScore > 1.5 ? 'hot' : t.openLoopScore > 0.5 ? 'warm' : 'cool',
-    }))
-  }, [hasRealData, insights])
+  async function handleRefreshInsights() {
+    setAction(insightsT('refreshingAction'))
+    setLoadError(null)
+    try {
+      await backend.runInsightsNow({ fullRebuild: false })
+      const nextInsights = await backend.loadInsights({ fullRebuild: false })
+      setInsights(nextInsights)
+      await refreshAppData()
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : insightsT('refreshAttentionTitle'),
+      )
+    } finally {
+      setAction(null)
+    }
+  }
 
-  if (loading && !insights)
+  async function handleExplain(card: InsightCard) {
+    setAction(insightsT('explainingAction'))
+    setLoadError(null)
+    setSelectedCard(card)
+    try {
+      const nextExplanation = await backend.explainInsight({
+        insightId: card.cardId,
+        insightKind: card.kind,
+        profileId: card.profileId ?? null,
+        windowDays: card.windowDays,
+      })
+      setExplanation(nextExplanation)
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : insightsT('explainability'),
+      )
+    } finally {
+      setAction(null)
+    }
+  }
+
+  if (!snapshot?.config.initialized) {
     return (
       <section className="page-shell">
-        <LoadingState label="Loading insights" />
+        <EmptyState
+          description={insightsT('archiveNotInitializedDescription')}
+          eyebrow={insightsT('intelligenceEyebrow')}
+          title={insightsT('archiveNotInitializedTitle')}
+        />
       </section>
     )
-  if (loadError && !insights)
+  }
+
+  if (loading && !insights) {
     return (
       <section className="page-shell">
-        <ErrorState title="Insights unavailable" description={loadError} />
+        <LoadingState label={insightsT('loadingLabel')} />
       </section>
     )
+  }
+
+  if (loadError && !insights) {
+    return (
+      <section className="page-shell">
+        <ErrorState
+          title={insightsT('unavailableTitle')}
+          description={loadError}
+        />
+      </section>
+    )
+  }
+
+  if (!insights) {
+    return (
+      <section className="page-shell">
+        <EmptyState
+          description={insightsT('emptyDescription')}
+          eyebrow={insightsT('intelligenceEyebrow')}
+          title={insightsT('emptyTitle')}
+        />
+      </section>
+    )
+  }
 
   return (
     <section className="page-shell insights-page" data-testid="insights-page">
-      {/* KPI Row */}
-      <div className="insights-summary">
-        {mockKpis.map((kpi) => (
-          <div key={kpi.label} className="insight-kpi">
-            <div className="kpi-label">{kpi.label}</div>
-            <div className={`kpi-value ${kpi.mono ? 'mono' : ''}`}>
-              {kpi.value}
+      {aiMeta && (
+        <StatusCallout
+          tone={aiMeta.tone}
+          eyebrow={insightsT('intelligenceEyebrow')}
+          title={aiMeta.label}
+          body={aiMeta.description}
+          actions={
+            <div className="intelligence-actions">
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => void handleRefreshInsights()}
+                disabled={Boolean(action)}
+              >
+                {insightsT('refreshInsights')}
+              </button>
+              <Link className="btn-secondary" to="/explorer?mode=hybrid">
+                {insightsT('openExplorer')}
+              </Link>
+              <Link
+                className="btn-secondary"
+                to={assistantHref(insightsT('assistantSummaryPrompt'))}
+              >
+                {insightsT('askAssistant')}
+              </Link>
             </div>
-            <div className="kpi-sublabel">{kpi.sublabel}</div>
+          }
+        />
+      )}
+
+      {loadError ? (
+        <ErrorState
+          title={insightsT('refreshAttentionTitle')}
+          description={loadError}
+        />
+      ) : null}
+
+      <div className="insights-summary">
+        <div className="insight-kpi">
+          <div className="kpi-label">{insightsT('window')}</div>
+          <div className="kpi-value">
+            {insightsT('windowDaysCompact', { days: insights.windowDays })}
           </div>
-        ))}
+          <div className="kpi-sublabel">
+            {insightsT('generatedAt', {
+              time: formatRelativeTime(insights.generatedAt, language),
+            })}
+          </div>
+        </div>
+        <div className="insight-kpi">
+          <div className="kpi-label">{insightsT('cards')}</div>
+          <div className="kpi-value">{insights.cards.length}</div>
+          <div className="kpi-sublabel">{insightsT('cardsDescription')}</div>
+        </div>
+        <div className="insight-kpi">
+          <div className="kpi-label">{insightsT('topics')}</div>
+          <div className="kpi-value">{insights.topics.length}</div>
+          <div className="kpi-sublabel">{insightsT('topicsDescription')}</div>
+        </div>
+        <div className="insight-kpi">
+          <div className="kpi-label">{insightsT('coverage')}</div>
+          <div className="kpi-value">
+            {Math.round(insights.status.contentCoverage * 100)}%
+          </div>
+          <div className="kpi-sublabel">{insightsT('coverageDescription')}</div>
+        </div>
       </div>
 
       <div className="insights-grid">
-        {/* Topic Timeline */}
+        <div className="panel">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('onThisDay')}</span>
+            <span className="panel-action">{todayKey}</span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {onThisDay.length > 0 ? (
+              onThisDay.map((item) => (
+                <Link
+                  key={`${item.historyId}-${item.url}`}
+                  className="result-row"
+                  to={evidenceHref(item)}
+                >
+                  <div className="result-row__header">
+                    <strong>{item.title ?? item.url}</strong>
+                    <span className="mono-support">
+                      {formatDateTime(item.visitedAt, language) ??
+                        item.visitedAt}
+                    </span>
+                  </div>
+                  <p>{item.note ?? insightsT('nothingForDayDescription')}</p>
+                </Link>
+              ))
+            ) : (
+              <EmptyState
+                description={insightsT('nothingForDayDescription')}
+                eyebrow={insightsT('nothingForDayEyebrow')}
+                title={insightsT('nothingForDayTitle')}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('siteAnalytics')}</span>
+            <span className="panel-action">
+              {insightsT('currentEvidenceSample')}
+            </span>
+          </div>
+          <div className="panel-body">
+            {siteAnalytics.length > 0 ? (
+              <div className="domain-list">
+                {siteAnalytics.map((item, index) => (
+                  <Link
+                    key={item.domain}
+                    className="domain-item"
+                    to={evidenceHref({ domain: item.domain })}
+                  >
+                    <span className="domain-rank mono dim">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="domain-name mono">{item.domain}</span>
+                    <div className="domain-bar-container">
+                      <div
+                        className="domain-bar"
+                        style={{ width: `${item.pct}%` }}
+                      />
+                    </div>
+                    <span className="domain-count mono">{item.count}</span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                description={insightsT('noSiteAnalyticsDescription')}
+                eyebrow={insightsT('noSiteAnalyticsEyebrow')}
+                title={insightsT('noSiteAnalyticsTitle')}
+              />
+            )}
+          </div>
+        </div>
+
         <div className="panel panel-wide">
           <div className="panel-header">
-            <span className="panel-title">TOPIC TIMELINE · LAST 30 DAYS</span>
-            <div className="panel-controls">
-              <button className="ctrl-btn active" type="button">
-                30D
-              </button>
-              <button className="ctrl-btn" type="button">
-                90D
-              </button>
-              <button className="ctrl-btn" type="button">
-                1Y
-              </button>
+            <span className="panel-title">{insightsT('periodicSummary')}</span>
+            <span className="panel-action">
+              {insightsT('snapshotLabel', {
+                time:
+                  formatDateTime(insights.generatedAt, language) ??
+                  insights.generatedAt,
+              })}
+            </span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {periodicSummary.map((paragraph) => (
+              <p key={paragraph} className="summary-text">
+                {paragraph}
+              </p>
+            ))}
+            {insights.notes.length > 0 && (
+              <div className="intelligence-note-list">
+                {insights.notes.map((note) => (
+                  <p key={note} className="mono-support">
+                    {note}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="summary-stats">
+              <div className="summary-stat">
+                <span className="dim">{insightsT('threads')}</span>
+                <span className="mono">{insights.threads.length}</span>
+              </div>
+              <div className="summary-stat">
+                <span className="dim">{insightsT('cardsStat')}</span>
+                <span className="mono">{insights.cards.length}</span>
+              </div>
+              <div className="summary-stat">
+                <span className="dim">{insightsT('topicsStat')}</span>
+                <span className="mono">{insights.topics.length}</span>
+              </div>
             </div>
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('topicTimeline')}</span>
+            <span className="panel-action">
+              {insightsT('lastDays', { days: insights.windowDays })}
+            </span>
           </div>
           <div className="panel-body">
             <div className="topic-timeline">
-              {topics.map((topic) => (
-                <div key={topic.name} className="topic-row">
+              {insights.topics.map((topic, index) => (
+                <div key={topic.topicId} className="topic-row">
                   <div className="topic-name">
                     <div
                       className="topic-dot"
-                      style={{ background: topic.color }}
+                      style={{
+                        background: topicColors[index % topicColors.length],
+                      }}
                     />
-                    <span>{topic.name}</span>
+                    <span>{topic.label}</span>
                   </div>
                   <div className="topic-bars">
                     <div className="topic-bar-track">
-                      {topic.bars.map((bar, j) => (
-                        <div
-                          key={j}
-                          className="topic-bar"
-                          style={{
-                            left: `${bar.left}%`,
-                            width: `${bar.width}%`,
-                            opacity: bar.opacity,
-                            background: topic.color,
-                          }}
-                        />
-                      ))}
+                      <div
+                        className="topic-bar"
+                        style={{
+                          width: `${Math.min(100, Math.max(12, topic.visitCount * 6))}%`,
+                          background: topicColors[index % topicColors.length],
+                          opacity: 0.8,
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="topic-count mono">
-                    {topic.trend} {topic.count}
-                  </div>
+                  <Link
+                    className="topic-count mono"
+                    to={evidenceHref({ title: topic.label })}
+                  >
+                    {topic.visitCount}
+                  </Link>
                 </div>
               ))}
             </div>
             <div className="topic-axis">
-              <span>Mar 6</span>
-              <span>Mar 13</span>
-              <span>Mar 20</span>
-              <span>Mar 27</span>
-              <span>Apr 5</span>
+              <span>
+                {insightsT('windowAxis', { days: insights.windowDays })}
+              </span>
+              <span>{insights.generatedAt.slice(0, 10)}</span>
             </div>
           </div>
         </div>
 
-        {/* Weekly Summary */}
-        <div className="panel">
+        <div className="panel panel-wide">
           <div className="panel-header">
-            <span className="panel-title">WEEKLY SUMMARY</span>
+            <span className="panel-title">{insightsT('insightCards')}</span>
+            <span className="panel-action">{insightsT('explainable')}</span>
           </div>
-          <div className="panel-body">
-            <div className="summary-text">
-              <p>
-                This week&apos;s primary focus shifted to{' '}
-                <strong>Rust async runtime architecture</strong> and{' '}
-                <strong>Tauri 2 desktop development</strong>. Significant time
-                was spent reading tokio source code and documentation.
-              </p>
-              <p style={{ marginTop: 'var(--space-3)' }}>
-                Compared to last week, <strong>LLM fine-tuning</strong> interest
-                dropped significantly, while <strong>SQLite internals</strong>{' '}
-                is a new emerging topic.
-              </p>
-            </div>
-            <div className="summary-stats">
-              <div className="summary-stat">
-                <span className="dim">New domains</span>
-                <span className="mono">14</span>
-              </div>
-              <div className="summary-stat">
-                <span className="dim">Revisited domains</span>
-                <span className="mono">47</span>
-              </div>
-              <div className="summary-stat">
-                <span className="dim">Search queries</span>
-                <span className="mono">83</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Active Threads */}
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">ACTIVE THREADS</span>
-          </div>
-          <div className="panel-body">
-            {threads.map((thread) => (
-              <div key={thread.name} className="thread-item">
-                <div className={`thread-status ${thread.status}`} />
-                <div className="thread-info">
-                  <div className="thread-name">{thread.name}</div>
-                  <div className="thread-meta dim mono">{thread.meta}</div>
+          <div className="panel-body intelligence-result-list">
+            {insights.cards.map((card) => (
+              <div key={card.cardId} className="result-row">
+                <div className="result-row__header">
+                  <strong>{card.title}</strong>
+                  <span className="mono-support">
+                    {card.kind === 'open-loop'
+                      ? insightsT('openLoopSignal')
+                      : card.kind === 'revisit'
+                        ? insightsT('revisitSignal')
+                        : card.kind === 'focus-balance'
+                          ? insightsT('focusBalanceSignal')
+                          : insightsT('genericCard')}
+                  </span>
+                </div>
+                <p>{card.summary}</p>
+                <div className="result-row__meta">
+                  <span className="mono-support">
+                    {insightsT('evidenceItems', {
+                      count: card.evidence.length,
+                      days: card.windowDays,
+                    })}
+                  </span>
+                  <span className="mono-support">
+                    {card.chromiumEnhanced
+                      ? insightsT('chromiumEnhanced')
+                      : insightsT('crossBrowserSafe')}
+                  </span>
+                </div>
+                <div className="intelligence-actions">
+                  <button
+                    className="btn-tiny"
+                    type="button"
+                    onClick={() => void handleExplain(card)}
+                    disabled={Boolean(action)}
+                  >
+                    {insightsT('explain')}
+                  </button>
+                  <Link
+                    className="btn-tiny"
+                    to={assistantHref(
+                      insightsT('explainCardPrompt', { title: card.title }),
+                    )}
+                  >
+                    {insightsT('askAssistant')}
+                  </Link>
                 </div>
               </div>
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Top Domains */}
-        <div className="panel">
+      {selectedCard && explanation ? (
+        <div className="panel intelligence-panel">
           <div className="panel-header">
-            <span className="panel-title">TOP DOMAINS · THIS WEEK</span>
+            <span className="panel-title">{insightsT('explainability')}</span>
+            <span className="panel-action">{selectedCard.title}</span>
           </div>
-          <div className="panel-body">
-            <div className="domain-list">
-              {mockDomains.map((d, i) => (
-                <div key={d.name} className="domain-item">
-                  <span className="domain-rank mono dim">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <span className="domain-name mono">{d.name}</span>
-                  <div className="domain-bar-container">
-                    <div
-                      className="domain-bar"
-                      style={{ width: `${d.pct}%` }}
-                    />
+          <div className="panel-body intelligence-stack">
+            <p className="summary-text">{explanation.explanation}</p>
+            {explanation.notes.length > 0 && (
+              <div className="intelligence-note-list">
+                {explanation.notes.map((note) => (
+                  <p key={note} className="mono-support">
+                    {note}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="intelligence-result-list">
+              {explanation.citations.map((item: InsightEvidenceItem) => (
+                <Link
+                  key={`${item.historyId}-${item.url}`}
+                  className="result-row"
+                  to={evidenceHref(item)}
+                >
+                  <div className="result-row__header">
+                    <strong>{item.title ?? item.url}</strong>
+                    <span className="mono-support">
+                      {formatDateTime(item.visitedAt, language) ??
+                        item.visitedAt}
+                    </span>
                   </div>
-                  <span className="domain-count mono">{d.count}</span>
-                </div>
+                  <p>{item.note ?? insightsT('usedToExplain')}</p>
+                </Link>
               ))}
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
+
+      {action ? <p className="mono-support">{action}…</p> : null}
     </section>
   )
 }

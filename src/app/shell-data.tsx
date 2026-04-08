@@ -11,11 +11,23 @@ import { ShellDataContext } from './shell-data-context'
 
 function waitForNextPaint() {
   return new Promise<void>((resolve) => {
-    if (typeof window === 'undefined') {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.requestAnimationFrame !== 'function'
+    ) {
       resolve()
       return
     }
-    window.requestAnimationFrame(() => resolve())
+
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+
+    window.requestAnimationFrame(() => finish())
+    window.setTimeout(finish, 16)
   })
 }
 
@@ -29,6 +41,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
 
   const refreshAppData = useCallback(
     async (showSpinner = true) => {
@@ -55,7 +68,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         setError(
           nextError instanceof Error
             ? nextError.message
-            : t('shell.loadingLatestArchiveState'),
+            : loadingLatestArchiveState,
         )
         throw nextError
       } finally {
@@ -64,7 +77,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [setLanguagePreference, t],
+    [loadingLatestArchiveState, setLanguagePreference],
   )
 
   useEffect(() => {

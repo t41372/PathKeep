@@ -30,11 +30,23 @@ interface ScheduleExecutionState {
 
 function waitForNextPaint() {
   return new Promise<void>((resolve) => {
-    if (typeof window === 'undefined') {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.requestAnimationFrame !== 'function'
+    ) {
       resolve()
       return
     }
-    window.requestAnimationFrame(() => resolve())
+
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+
+    window.requestAnimationFrame(() => finish())
+    window.setTimeout(finish, 16)
   })
 }
 
@@ -59,6 +71,7 @@ export function SchedulePage() {
     useState<ScheduleExecutionState | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const unavailableBody = t('schedule.unavailableBody')
 
   useEffect(() => {
     let cancelled = false
@@ -84,9 +97,7 @@ export function SchedulePage() {
             plan: null,
             status: null,
             error:
-              nextError instanceof Error
-                ? nextError.message
-                : t('schedule.unavailableBody'),
+              nextError instanceof Error ? nextError.message : unavailableBody,
           })
       }
     }
@@ -94,7 +105,7 @@ export function SchedulePage() {
     return () => {
       cancelled = true
     }
-  }, [refreshKey, t])
+  }, [refreshKey, unavailableBody])
 
   const plan = loadState.requestKey === refreshKey ? loadState.plan : null
   const status = loadState.requestKey === refreshKey ? loadState.status : null

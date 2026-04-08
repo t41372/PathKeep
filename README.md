@@ -12,10 +12,10 @@ The app keeps raw provenance, normalized query data, audit manifests, scheduler 
 
 ## Current Status
 
-- The project is in an M0 rewrite phase: the product shell, route tree, design tokens, and acceptance targets are being reset before feature work resumes.
-- The canonical data-plane foundations already exist in Rust, but the desktop surface is still being rebuilt page by page against the new PathKeep information architecture.
-- Blocking verification during the rewrite is `bun run check`, `bun run build`, and the targeted tests for the slice being rewritten.
-- Repo-wide coverage and mutation sweeps still exist, but they are treated as deep checks until the new architecture fully replaces legacy slices.
+- The project is in `M4 — Full Polish`: archive, recall, trust, and intelligence v1 are implemented in source, while enrichment, remote backup hardening, and release-readiness closeout are still in progress.
+- The desktop shell, route tree, preview UX, and typed desktop bridge are live; browser-preview mocks still exist for fast frontend iteration, but the repo now also carries targeted desktop-contract and backend invoke-contract tests.
+- As of 2026-04-07, `bun run check`, `bun run build`, and `bun run test:e2e` are green on the current branch.
+- Repo-wide `bun run coverage:js`, `bun run coverage:rust`, and full mutation sweeps now have explicit entrypoints (`bun run coverage`, `bun run mutation`, `bun run check:full`, `bun run verify`), but they are still below the final release standard and should be treated as active release-readiness debt.
 
 ## Feature Inventory
 
@@ -167,21 +167,21 @@ The exact installer files depend on the host OS:
 
 ## Quality Gates
 
-### Blocking in M0
+### Current Branch Gates
 
 - `bun run check`
 - `bun run build`
-- Slice-specific verification for rewritten modules, such as:
-  - `bun run test:unit:shell`
-  - `bun run coverage:js:shell`
-  - `bun run mutation:js:shell`
-  - targeted Rust crate tests where applicable
+- `bun run test:e2e`
+- targeted 100% desktop-contract verification:
+  - `bun run test:unit:desktop-contract`
+  - `bun run coverage:js:desktop-contract`
+  - `bun run mutation:js:desktop-contract`
 
 ### Deep checks
 
 - `bun run coverage`
-- `bun run mutation:js`
-- `bun run mutation:rust`
+- `bun run mutation`
+- `bun run check:full`
 - `bun run verify`
 
 ## GitHub Actions and Release Pipeline

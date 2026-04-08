@@ -5,19 +5,33 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
 import {
   formatDateTime,
   formatDuration,
   formatRelativeTime,
 } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
+import {
+  aiStatusMeta,
+  assistantHref,
+  evidenceHref,
+  scoreBand,
+  selectedAiProvider,
+} from '../../lib/intelligence'
 import type {
+  AiProviderConnectionTestReport,
+  AiQueueStatus,
+  AiSearchResponse,
   ExportFormat,
   ExportResult,
   HistoryQueryResponse,
 } from '../../lib/types'
 
 const recentSearchesStorageKey = 'pathkeep.explorer.recent-searches'
+const keywordPageSize = 50
+const semanticPageSize = 8
 
 interface ExplorerQueryState {
   requestKey: string | null
@@ -25,10 +39,17 @@ interface ExplorerQueryState {
   error: string | null
 }
 
+interface SemanticQueryState {
+  requestKey: string | null
+  results: AiSearchResponse | null
+  error: string | null
+}
+
 interface RecentSearchEntry {
   label: string
   params: {
     q?: string | null
+    mode?: 'keyword' | 'semantic' | 'hybrid' | null
     domain?: string | null
     profileId?: string | null
     browserKind?: string | null
@@ -56,6 +77,7 @@ function toLocalDateString(value: Date) {
 
 function buildRecentSearchLabel(params: RecentSearchEntry['params']) {
   const labelParts = [
+    params.mode && params.mode !== 'keyword' ? `mode:${params.mode}` : null,
     params.q?.trim() ? `q:${params.q.trim()}` : null,
     params.domain?.trim() ? `domain:${params.domain.trim()}` : null,
     params.profileId ? `profile:${params.profileId}` : null,
@@ -142,10 +164,19 @@ export function ExplorerPage() {
     error: shellError,
     loading: shellLoading,
     refreshKey,
+    refreshAppData,
     snapshot,
   } = useShellData()
+  const { language, ns } = useI18n()
+  const explorerT = ns('explorer')
+  const intelligenceT = ns('intelligence')
   const [searchParams, setSearchParams] = useSearchParams()
   const [queryState, setQueryState] = useState<ExplorerQueryState>({
+    requestKey: null,
+    results: null,
+    error: null,
+  })
+  const [semanticState, setSemanticState] = useState<SemanticQueryState>({
     requestKey: null,
     results: null,
     error: null,
@@ -155,8 +186,19 @@ export function ExplorerPage() {
   const [recentSearches, setRecentSearches] =
     useState<RecentSearchEntry[]>(loadRecentSearches)
   const [copiedExportPath, setCopiedExportPath] = useState<string | null>(null)
+  const [queueStatus, setQueueStatus] = useState<AiQueueStatus | null>(null)
+  const [providerProbe, setProviderProbe] =
+    useState<AiProviderConnectionTestReport | null>(null)
+  const [indexAction, setIndexAction] = useState<string | null>(null)
+  const [queueAction, setQueueAction] = useState<string | null>(null)
+  const [intelligenceError, setIntelligenceError] = useState<string | null>(
+    null,
+  )
 
   const deferredQuery = useDeferredValue(searchParams.get('q') ?? '')
+  const mode =
+    (searchParams.get('mode') as 'keyword' | 'semantic' | 'hybrid' | null) ??
+    'keyword'
   const profileId = searchParams.get('profileId')
   const browserKind = searchParams.get('browserKind')
   const domain = searchParams.get('domain')
@@ -164,6 +206,14 @@ export function ExplorerPage() {
   const end = searchParams.get('end')
   const sort =
     (searchParams.get('sort') as 'newest' | 'oldest' | null) ?? 'newest'
+  const cursor = searchParams.get('cursor')
+  const semanticCursor = searchParams.get('semanticCursor')
+  const [historyCursorTrail, setHistoryCursorTrail] = useState<
+    Record<string, string[]>
+  >({})
+  const [semanticCursorTrail, setSemanticCursorTrail] = useState<
+    Record<string, string[]>
+  >({})
 
   const currentQuery = useMemo(
     () => ({
@@ -174,17 +224,63 @@ export function ExplorerPage() {
       startTimeMs: start ? new Date(`${start}T00:00:00.000`).getTime() : null,
       endTimeMs: end ? endOfDayMs(end) : null,
       sort,
-      limit: 150,
+      limit: keywordPageSize,
+      cursor,
     }),
+    [browserKind, cursor, deferredQuery, domain, end, profileId, sort, start],
+  )
+  const semanticQuery = useMemo(
+    () => ({
+      query: deferredQuery.trim(),
+      profileId,
+      domain,
+      limit: semanticPageSize,
+      cursor: semanticCursor,
+    }),
+    [deferredQuery, domain, profileId, semanticCursor],
+  )
+  const historyQuerySignature = useMemo(
+    () =>
+      JSON.stringify({
+        q: deferredQuery || null,
+        profileId,
+        browserKind,
+        domain,
+        start,
+        end,
+        sort,
+      }),
     [browserKind, deferredQuery, domain, end, profileId, sort, start],
   )
+  const semanticQuerySignature = useMemo(
+    () =>
+      JSON.stringify({
+        query: deferredQuery.trim(),
+        profileId,
+        domain,
+        mode,
+      }),
+    [deferredQuery, domain, mode, profileId],
+  )
+  const historyTrail = historyCursorTrail[historyQuerySignature] ?? []
+  const semanticTrail = semanticCursorTrail[semanticQuerySignature] ?? []
 
   const archiveReady = Boolean(
     snapshot?.config.initialized && snapshot.archiveStatus.unlocked,
   )
+  const aiMeta = snapshot
+    ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
+    : null
+  const embeddingProvider = snapshot
+    ? selectedAiProvider(snapshot.config.ai, 'embedding')
+    : null
   const requestKey = useMemo(
     () => JSON.stringify({ currentQuery, refreshKey }),
     [currentQuery, refreshKey],
+  )
+  const semanticRequestKey = useMemo(
+    () => JSON.stringify({ semanticQuery, mode, refreshKey }),
+    [mode, refreshKey, semanticQuery],
   )
 
   useEffect(() => {
@@ -202,6 +298,7 @@ export function ExplorerPage() {
         )
         persistRecentSearch({
           q: currentQuery.q,
+          mode,
           domain: currentQuery.domain,
           profileId: currentQuery.profileId,
           browserKind: currentQuery.browserKind,
@@ -224,12 +321,83 @@ export function ExplorerPage() {
     return () => {
       cancelled = true
     }
-  }, [archiveReady, currentQuery, end, requestKey, start])
+  }, [archiveReady, currentQuery, end, mode, requestKey, start])
+
+  useEffect(() => {
+    if (!archiveReady) return
+    let cancelled = false
+    void backend
+      .loadAiQueueStatus()
+      .then((status) => {
+        if (!cancelled) setQueueStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setQueueStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [archiveReady, refreshKey])
+
+  useEffect(() => {
+    if (!archiveReady || mode === 'keyword' || !semanticQuery.query) {
+      setSemanticState({
+        requestKey: semanticRequestKey,
+        results: null,
+        error: null,
+      })
+      return
+    }
+    let cancelled = false
+    const loadSemanticResults = async () => {
+      try {
+        const response = await backend.searchAiHistory(semanticQuery)
+        if (!cancelled) {
+          setSemanticState({
+            requestKey: semanticRequestKey,
+            results: response,
+            error: null,
+          })
+          setSelectedId(
+            (current) => current ?? response.items[0]?.historyId ?? null,
+          )
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setSemanticState({
+            requestKey: semanticRequestKey,
+            results: null,
+            error:
+              nextError instanceof Error
+                ? nextError.message
+                : 'Semantic search failed.',
+          })
+        }
+      }
+    }
+    void loadSemanticResults()
+    return () => {
+      cancelled = true
+    }
+  }, [archiveReady, mode, semanticQuery, semanticRequestKey])
 
   const results =
     archiveReady && queryState.requestKey === requestKey
       ? queryState.results
       : null
+  const semanticResults =
+    archiveReady && semanticState.requestKey === semanticRequestKey
+      ? semanticState.results
+      : null
+  const semanticError =
+    archiveReady && semanticState.requestKey === semanticRequestKey
+      ? semanticState.error
+      : null
+  const semanticLoading =
+    archiveReady &&
+    mode !== 'keyword' &&
+    Boolean(semanticQuery.query) &&
+    semanticState.requestKey !== semanticRequestKey
   const error =
     archiveReady && queryState.requestKey === requestKey
       ? queryState.error
@@ -248,6 +416,7 @@ export function ExplorerPage() {
   )
   const activeFilters = [
     searchParams.get('q') ? `keyword: ${searchParams.get('q')}` : null,
+    mode !== 'keyword' ? `mode: ${mode}` : null,
     searchParams.get('domain') ? `domain: ${searchParams.get('domain')}` : null,
     searchParams.get('profileId')
       ? `profile: ${searchParams.get('profileId')}`
@@ -259,19 +428,193 @@ export function ExplorerPage() {
     end ? `end: ${end}` : null,
   ].filter(Boolean) as string[]
 
-  function updateParam(key: string, value: string | null) {
+  function updateParam(
+    key: string,
+    value: string | null,
+    options?: { resetPagination?: boolean },
+  ) {
+    const resetPagination = options?.resetPagination ?? true
     const next = new URLSearchParams(searchParams)
     if (!value) next.delete(key)
     else next.set(key, value)
+    if (resetPagination) {
+      next.delete('cursor')
+      next.delete('semanticCursor')
+      setHistoryCursorTrail((current) => ({
+        ...current,
+        [historyQuerySignature]: [],
+      }))
+      setSemanticCursorTrail((current) => ({
+        ...current,
+        [semanticQuerySignature]: [],
+      }))
+    }
     setSearchParams(next)
+  }
+
+  function goToHistoryPage(nextCursor: string | null) {
+    updateParam('cursor', nextCursor, { resetPagination: false })
+  }
+
+  function goToSemanticPage(nextCursor: string | null) {
+    updateParam('semanticCursor', nextCursor, { resetPagination: false })
+  }
+
+  function handleNextHistoryPage() {
+    if (!results?.nextCursor) return
+    setHistoryCursorTrail((current) => ({
+      ...current,
+      [historyQuerySignature]: [
+        ...(current[historyQuerySignature] ?? []),
+        cursor ?? '',
+      ],
+    }))
+    goToHistoryPage(results.nextCursor)
+  }
+
+  function handlePreviousHistoryPage() {
+    const previousCursor = historyTrail[historyTrail.length - 1] || null
+    setHistoryCursorTrail((current) => ({
+      ...current,
+      [historyQuerySignature]: (current[historyQuerySignature] ?? []).slice(
+        0,
+        -1,
+      ),
+    }))
+    goToHistoryPage(previousCursor)
+  }
+
+  function handleNextSemanticPage() {
+    if (!semanticResults?.nextCursor) return
+    setSemanticCursorTrail((current) => ({
+      ...current,
+      [semanticQuerySignature]: [
+        ...(current[semanticQuerySignature] ?? []),
+        semanticCursor ?? '',
+      ],
+    }))
+    goToSemanticPage(semanticResults.nextCursor)
+  }
+
+  function handlePreviousSemanticPage() {
+    const previousCursor = semanticTrail[semanticTrail.length - 1] || null
+    setSemanticCursorTrail((current) => ({
+      ...current,
+      [semanticQuerySignature]: (current[semanticQuerySignature] ?? []).slice(
+        0,
+        -1,
+      ),
+    }))
+    goToSemanticPage(previousCursor)
+  }
+
+  async function refreshQueueStatus() {
+    const nextQueue = await backend.loadAiQueueStatus()
+    setQueueStatus(nextQueue)
+  }
+
+  async function handleQueueAction(
+    label: string,
+    action: () => Promise<unknown>,
+  ) {
+    setQueueAction(label)
+    setIntelligenceError(null)
+    try {
+      await action()
+      await Promise.all([refreshAppData(), refreshQueueStatus()])
+    } catch (error) {
+      setIntelligenceError(
+        error instanceof Error ? error.message : explorerT('loadingArchive'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  async function handleIndexAction(
+    label: string,
+    request: { fullRebuild: boolean; clearOnly: boolean },
+  ) {
+    setIndexAction(label)
+    setIntelligenceError(null)
+    try {
+      await backend.buildAiIndex({
+        providerId: embeddingProvider?.id ?? null,
+        fullRebuild: request.fullRebuild,
+        clearOnly: request.clearOnly,
+        limit: null,
+      })
+      await Promise.all([refreshAppData(), refreshQueueStatus()])
+    } catch (error) {
+      setIntelligenceError(
+        error instanceof Error
+          ? error.message
+          : explorerT('semanticRecallDegradedTitle'),
+      )
+    } finally {
+      setIndexAction(null)
+    }
+  }
+
+  async function handleProviderProbe() {
+    if (!embeddingProvider) return
+    setQueueAction('Testing provider')
+    setIntelligenceError(null)
+    setProviderProbe(null)
+    try {
+      const probe = await backend.testAiProviderConnection({
+        providerId: embeddingProvider.id,
+        purpose: 'embedding',
+      })
+      setProviderProbe(probe)
+    } catch (error) {
+      setIntelligenceError(
+        error instanceof Error
+          ? error.message
+          : explorerT('semanticRecallDegradedTitle'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  function clearDateRange() {
+    setHistoryCursorTrail((current) => ({
+      ...current,
+      [historyQuerySignature]: [],
+    }))
+    setSemanticCursorTrail((current) => ({
+      ...current,
+      [semanticQuerySignature]: [],
+    }))
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('start')
+      next.delete('end')
+      next.delete('cursor')
+      next.delete('semanticCursor')
+      return next
+    })
   }
 
   function applyDateShortcut(days: number) {
     const endDate = new Date()
     const startDate = new Date(endDate)
     startDate.setDate(endDate.getDate() - (days - 1))
-    updateParam('start', toLocalDateString(startDate))
-    updateParam('end', toLocalDateString(endDate))
+    const next = new URLSearchParams(searchParams)
+    next.set('start', toLocalDateString(startDate))
+    next.set('end', toLocalDateString(endDate))
+    next.delete('cursor')
+    next.delete('semanticCursor')
+    setHistoryCursorTrail((current) => ({
+      ...current,
+      [historyQuerySignature]: [],
+    }))
+    setSemanticCursorTrail((current) => ({
+      ...current,
+      [semanticQuerySignature]: [],
+    }))
+    setSearchParams(next)
   }
 
   function activeDateShortcut() {
@@ -372,23 +715,22 @@ export function ExplorerPage() {
         </div>
         <div className="timeline-track">
           <span className="timeline-label">
-            {results ? `${results.total} visible records` : 'Waiting for query'}
+            {results
+              ? explorerT('historyPageSummary', {
+                  page: historyTrail.length + 1,
+                  loaded: results.items.length,
+                  total: results.total,
+                })
+              : explorerT('waitingForQuery')}
           </span>
           <span className="timeline-label">
             {start || end
               ? `${start ?? '…'} → ${end ?? '…'}`
-              : 'All recorded time'}
+              : explorerT('allRecordedTime')}
           </span>
           {(start || end) && (
-            <button
-              className="tl-today"
-              type="button"
-              onClick={() => {
-                updateParam('start', null)
-                updateParam('end', null)
-              }}
-            >
-              Clear range
+            <button className="tl-today" type="button" onClick={clearDateRange}>
+              {explorerT('clearRange')}
             </button>
           )}
         </div>
@@ -405,7 +747,8 @@ export function ExplorerPage() {
                   type="button"
                   onClick={() => {
                     const key = filter.split(':')[0].trim()
-                    if (key === 'keyword') updateParam('q', null)
+                    if (key === 'mode') updateParam('mode', null)
+                    else if (key === 'keyword') updateParam('q', null)
                     else if (key === 'domain') updateParam('domain', null)
                     else if (key === 'profile') updateParam('profileId', null)
                     else if (key === 'browser') updateParam('browserKind', null)
@@ -430,6 +773,226 @@ export function ExplorerPage() {
         </div>
       )}
 
+      {snapshot && aiMeta && (
+        <div className="intelligence-grid intelligence-grid--explorer">
+          <StatusCallout
+            tone={aiMeta.tone}
+            eyebrow="SEMANTIC STATUS"
+            title={aiMeta.label}
+            body={aiMeta.description}
+            actions={
+              <div className="intelligence-actions">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() =>
+                    void handleIndexAction('Building index', {
+                      fullRebuild: false,
+                      clearOnly: false,
+                    })
+                  }
+                  disabled={Boolean(indexAction) || !embeddingProvider}
+                >
+                  Build index
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() =>
+                    void handleIndexAction('Rebuilding index', {
+                      fullRebuild: true,
+                      clearOnly: false,
+                    })
+                  }
+                  disabled={Boolean(indexAction) || !embeddingProvider}
+                >
+                  Full rebuild
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() =>
+                    void handleIndexAction('Clearing index', {
+                      fullRebuild: false,
+                      clearOnly: true,
+                    })
+                  }
+                  disabled={Boolean(indexAction) || !embeddingProvider}
+                >
+                  Clear index
+                </button>
+                <Link className="btn-secondary" to="/settings">
+                  Open settings
+                </Link>
+              </div>
+            }
+          />
+
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">PROVIDER + QUEUE</span>
+              <span className="panel-action">
+                {embeddingProvider
+                  ? `${embeddingProvider.name} / ${embeddingProvider.defaultModel}`
+                  : 'No embedding provider selected'}
+              </span>
+            </div>
+            <div className="panel-body intelligence-stack">
+              <div className="intelligence-stat-row">
+                <div className="summary-stat">
+                  <span className="dim">Queued</span>
+                  <span className="mono">
+                    {queueStatus?.queued ?? snapshot.aiStatus.queuedJobs}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">Running</span>
+                  <span className="mono">
+                    {queueStatus?.running ?? snapshot.aiStatus.runningJobs}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">Failed</span>
+                  <span className="mono">
+                    {queueStatus?.failed ?? snapshot.aiStatus.failedJobs}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">Queue</span>
+                  <span className="mono">
+                    {(queueStatus?.paused ?? snapshot.aiStatus.queuePaused)
+                      ? 'paused'
+                      : 'live'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="intelligence-actions">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() =>
+                    void handleQueueAction(
+                      'Refreshing queue',
+                      refreshQueueStatus,
+                    )
+                  }
+                  disabled={Boolean(queueAction)}
+                >
+                  Refresh queue
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() =>
+                    void handleQueueAction('Running queued jobs', () =>
+                      backend.runAiQueueJobs(2),
+                    )
+                  }
+                  disabled={Boolean(queueAction)}
+                >
+                  Drain queue
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => void handleProviderProbe()}
+                  disabled={Boolean(queueAction) || !embeddingProvider}
+                >
+                  Test provider
+                </button>
+              </div>
+
+              {(indexAction || queueAction) && (
+                <p className="mono-support">{indexAction ?? queueAction}…</p>
+              )}
+
+              {providerProbe && (
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>
+                      {providerProbe.ok
+                        ? 'Provider reachable'
+                        : 'Provider needs attention'}
+                    </strong>
+                    <span className="mono-support">
+                      {providerProbe.model} · {providerProbe.latencyMs} ms
+                    </span>
+                  </div>
+                  <p>{providerProbe.message}</p>
+                  {providerProbe.actionHint ? (
+                    <p className="mono-support">{providerProbe.actionHint}</p>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="intelligence-job-list">
+                {(queueStatus?.recentJobs ?? snapshot.aiStatus.recentJobs).map(
+                  (job) => (
+                    <div key={job.id} className="result-row">
+                      <div className="result-row__header">
+                        <strong>
+                          {job.jobType} · #{job.id}
+                        </strong>
+                        <span className="mono-support">{job.state}</span>
+                      </div>
+                      <p>
+                        {job.summary ??
+                          job.errorMessage ??
+                          'No summary recorded yet.'}
+                      </p>
+                      <div className="intelligence-actions">
+                        <button
+                          className="btn-tiny"
+                          type="button"
+                          onClick={() =>
+                            void handleQueueAction('Replaying AI job', () =>
+                              backend.replayAiJob(job.id),
+                            )
+                          }
+                          disabled={
+                            Boolean(queueAction) ||
+                            ![
+                              'failed',
+                              'cancelled',
+                              'stale',
+                              'paused',
+                            ].includes(job.state)
+                          }
+                        >
+                          Replay
+                        </button>
+                        <button
+                          className="btn-tiny"
+                          type="button"
+                          onClick={() =>
+                            void handleQueueAction('Cancelling AI job', () =>
+                              backend.cancelAiJob(job.id),
+                            )
+                          }
+                          disabled={
+                            Boolean(queueAction) || job.state === 'running'
+                          }
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {intelligenceError ? (
+        <ErrorState
+          title={explorerT('semanticRecallDegradedTitle')}
+          description={intelligenceError}
+        />
+      ) : null}
+
       <div className="panel">
         <div className="panel-header">
           <span className="panel-title">QUERY + FILTERS</span>
@@ -438,6 +1001,25 @@ export function ExplorerPage() {
           </span>
         </div>
         <div className="panel-body">
+          <div
+            className="segmented-row"
+            style={{ marginBottom: 'var(--space-4)' }}
+          >
+            {(['keyword', 'semantic', 'hybrid'] as const).map((option) => (
+              <button
+                key={option}
+                className={`chip-button ${
+                  mode === option ? 'chip-button--active' : ''
+                }`}
+                type="button"
+                onClick={() =>
+                  updateParam('mode', option === 'keyword' ? null : option)
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </div>
           <div className="explorer-filters">
             <label
               className="field-stack"
@@ -587,10 +1169,123 @@ export function ExplorerPage() {
         </div>
       </div>
 
+      {mode !== 'keyword' && (
+        <div className="panel intelligence-panel">
+          <div className="panel-header">
+            <span className="panel-title">SEMANTIC RECALL</span>
+            <span className="panel-action">
+              {semanticResults
+                ? explorerT('semanticPageSummary', {
+                    page: semanticTrail.length + 1,
+                    loaded: semanticResults.items.length,
+                    total: semanticResults.total,
+                  })
+                : semanticQuery.query
+                  ? explorerT('preparingRecall')
+                  : explorerT('enterQueryToRank')}
+            </span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {!semanticQuery.query ? (
+              <p className="dashboard-next-action">
+                {explorerT('semanticPrompt')}
+              </p>
+            ) : semanticLoading ? (
+              <LoadingState label={explorerT('rankingSemanticEvidence')} />
+            ) : semanticError ? (
+              <ErrorState
+                title={explorerT('semanticRecallDegradedTitle')}
+                description={semanticError}
+              />
+            ) : semanticResults && semanticResults.total > 0 ? (
+              <>
+                {semanticResults.notes.length > 0 && (
+                  <div className="intelligence-note-list">
+                    {semanticResults.notes.map((note) => (
+                      <p key={note} className="mono-support">
+                        {note}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                <div className="intelligence-result-list">
+                  {semanticResults.items.map((item) => {
+                    const band = scoreBand(item.score, intelligenceT)
+                    return (
+                      <div key={item.historyId} className="result-row">
+                        <div className="result-row__header">
+                          <strong>{item.title ?? item.url}</strong>
+                          <span className={`status-badge status-${band.tone}`}>
+                            {band.label}
+                          </span>
+                        </div>
+                        <p>{item.matchReason}</p>
+                        <div className="result-row__meta">
+                          <span className="mono-support">
+                            {item.profileId} ·{' '}
+                            {formatDateTime(item.visitedAt, language) ??
+                              item.visitedAt}
+                          </span>
+                          <span className="mono-support">{item.url}</span>
+                        </div>
+                        <div className="intelligence-actions">
+                          <button
+                            className="btn-tiny"
+                            type="button"
+                            onClick={() => setSelectedId(item.historyId)}
+                          >
+                            Jump to record
+                          </button>
+                          <Link className="btn-tiny" to={evidenceHref(item)}>
+                            Open evidence
+                          </Link>
+                          <Link
+                            className="btn-tiny"
+                            to={assistantHref(
+                              `Use history evidence to explain why ${item.title ?? item.url} matched "${semanticQuery.query}".`,
+                            )}
+                          >
+                            Ask assistant
+                          </Link>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="intelligence-actions">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={handlePreviousSemanticPage}
+                    disabled={semanticTrail.length === 0}
+                  >
+                    {explorerT('previousEvidencePage')}
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={handleNextSemanticPage}
+                    disabled={!semanticResults.nextCursor}
+                  >
+                    {explorerT('nextEvidencePage')}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <EmptyState
+                description={explorerT('noSemanticDescription')}
+                eyebrow={explorerT('noSemanticEyebrow')}
+                title={explorerT('noSemanticTitle')}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
-        <LoadingState label="Searching the canonical archive" />
+        <LoadingState label={explorerT('loadingArchive')} />
       ) : error ? (
-        <ErrorState title="Explorer query failed" description={error} />
+        <ErrorState title={explorerT('queryFailedTitle')} description={error} />
       ) : results && results.total === 0 ? (
         <EmptyState
           action={
@@ -599,19 +1294,23 @@ export function ExplorerPage() {
               type="button"
               onClick={() => setSearchParams(new URLSearchParams())}
             >
-              Clear filters
+              {explorerT('clearFilters')}
             </button>
           }
-          description="No visible visit matched the current filters."
-          eyebrow="NO MATCHES"
-          title="Explorer did not find any visible history"
+          description={explorerT('noMatchesDescription')}
+          eyebrow={explorerT('noMatchesEyebrow')}
+          title={explorerT('noMatchesTitle')}
         />
       ) : (
         <div className="explorer-grid">
           <div className="record-list">
             <div className="record-group">
               <div className="record-group-header">
-                Visible archive rows · {results?.total ?? 0} records
+                {explorerT('resultsSummary', {
+                  page: historyTrail.length + 1,
+                  loaded: results?.items.length ?? 0,
+                  total: results?.total ?? 0,
+                })}
               </div>
               {(results?.items ?? []).map((item) => (
                 <button
@@ -635,13 +1334,34 @@ export function ExplorerPage() {
                   </div>
                 </button>
               ))}
+              <div
+                className="intelligence-actions"
+                style={{ padding: 'var(--space-3) 0 0' }}
+              >
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handlePreviousHistoryPage}
+                  disabled={historyTrail.length === 0}
+                >
+                  {explorerT('previousPage')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handleNextHistoryPage}
+                  disabled={!results?.nextCursor}
+                >
+                  {explorerT('nextPage')}
+                </button>
+              </div>
             </div>
           </div>
 
           <div className="detail-panel">
             <div className="detail-header">
               <span className="crosshair-mark small">+</span>
-              <span className="detail-label">RECORD DETAIL</span>
+              <span className="detail-label">{explorerT('recordDetail')}</span>
             </div>
             {selectedEntry ? (
               <div className="detail-body">
@@ -665,14 +1385,16 @@ export function ExplorerPage() {
                 <div className="detail-divider" />
                 <div className="detail-row">
                   <div className="detail-field half">
-                    <span className="field-label">VISITED AT</span>
+                    <span className="field-label">
+                      {explorerT('visitedAt')}
+                    </span>
                     <span className="field-value">
-                      {formatDateTime(selectedEntry.visitedAt, 'en') ??
+                      {formatDateTime(selectedEntry.visitedAt, language) ??
                         selectedEntry.visitedAt}
                     </span>
                   </div>
                   <div className="detail-field half">
-                    <span className="field-label">DURATION</span>
+                    <span className="field-label">{explorerT('duration')}</span>
                     <span className="field-value">
                       {formatDuration(selectedEntry.durationMs)}
                     </span>
@@ -686,17 +1408,20 @@ export function ExplorerPage() {
                     </span>
                   </div>
                   <div className="detail-field half">
-                    <span className="field-label">TRANSITION</span>
+                    <span className="field-label">
+                      {explorerT('transition')}
+                    </span>
                     <span className="field-value">
                       {selectedEntry.transition ?? 'N/A'}
                     </span>
                   </div>
                 </div>
                 <div className="detail-divider" />
-                <div className="summary-label">EXPORT VISIBLE QUERY</div>
+                <div className="summary-label">
+                  {explorerT('exportVisibleQuery')}
+                </div>
                 <p className="dashboard-next-action">
-                  Export uses the current visible archive scope only. M1 ships
-                  visit exports; richer content-type evidence lands later.
+                  {explorerT('exportDescription')}
                 </p>
                 <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                   {(
@@ -747,7 +1472,7 @@ export function ExplorerPage() {
                     </div>
                     {copiedExportPath === exportResult.path && (
                       <span className="dim mono" style={{ fontSize: '10px' }}>
-                        Copied
+                        {explorerT('copied')}
                       </span>
                     )}
                   </div>
@@ -756,9 +1481,9 @@ export function ExplorerPage() {
             ) : (
               <div className="detail-body">
                 <EmptyState
-                  description="Pick a result to inspect visit detail."
-                  eyebrow="DETAIL"
-                  title="No result selected"
+                  description={explorerT('noResultDescription')}
+                  eyebrow={explorerT('noResultEyebrow')}
+                  title={explorerT('noResultTitle')}
                 />
               </div>
             )}

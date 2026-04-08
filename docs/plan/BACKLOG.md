@@ -13,15 +13,7 @@
 
 ### M3 — Intelligence
 
-- [ ] **WORK-M3-B** — Search, Assistant, And Insights `[!blocked: 需要 WORK-M3-A]`
-  - 讀先：`docs/features/intelligence.md`、`docs/design/screens-and-nav.md`、`docs/plan/m3-intelligence/search-assistant-and-insights.md`
-  - 目標：完成 semantic search、assistant、insights v1 與 evidence UX
-
 ### M4 — Full Polish
-
-- [ ] **WORK-M4-A** — Enrichment And Remote Backup `[!blocked: 需要 WORK-M3-B]`
-  - 讀先：`docs/features/intelligence.md`、`docs/features/archive.md`、`docs/plan/m4-full-polish/enrichment-advanced-intelligence-and-remote.md`
-  - 目標：完成 enrichment plugin story、進階 intelligence、remote backup
 
 - [ ] **WORK-M4-B** — Release Readiness And Platform Polish `[!blocked: 需要 WORK-M4-A]`
   - 讀先：`docs/standards.md`、`docs/plan/m4-full-polish/platform-release-and-polish.md`

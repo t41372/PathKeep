@@ -110,3 +110,19 @@
   - 擴寫 [`src/lib/backend.ts`](../../src/lib/backend.ts) browser preview mock，讓 import batch preview / revert / restore、doctor / repair、schedule / security support state 與 Windows / Linux schedule variants 都能支撐 trust-critical UI；同步補齊相關 unit tests 與 trust flow acceptance tests，並做一輪 keyboard / locale smoke review（含 `zh-CN` / `zh-TW`）
   - 同步回寫 `ux-principles.md`、`screens-and-nav.md`、`archive.md`、`recall.md`、`standards.md`、`research-and-decisions.md`、M2 README / WBS、`plan/README.md`、`STATUS.md`、`BACKLOG.md`
   - 驗收：`bun run check`、`bun run build`
+
+## M3 — Intelligence (Work Blocks)
+
+- [x] **WORK-M3-A** — Providers, Queue, And Indexing
+  - 2026-04-07：把 [`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs) 接成 provider capability / connection-test surface、`ai_index_ledger`、run-linked build / clear / rebuild foundation，並新增 [`src-tauri/crates/vault-core/src/ai_queue.rs`](../../src-tauri/crates/vault-core/src/ai_queue.rs) 與 [`src-tauri/crates/vault-core/src/ai_sidecar.rs`](../../src-tauri/crates/vault-core/src/ai_sidecar.rs)，正式落地 SQLite queue + LanceDB sidecar orchestration
+  - 擴寫 [`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs)、[`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) 與 [`src-tauri/src/worker_bridge.rs`](../../src-tauri/src/worker_bridge.rs)，新增 provider connection test、queue status / drain / replay / cancel、queue-backed build index / assistant worker commands 與 CLI `ai-queue`
+  - 同步更新 [`src/lib/types.d.ts`](../../src/lib/types.d.ts)、[`src/lib/backend.ts`](../../src/lib/backend.ts) 與相關 unit tests，讓前端 contract 能表達 provider capability、queue status、recent jobs、job-backed index / assistant run ids，並保留無 AI 配置時的安全降級
+  - 回寫 `intelligence.md`、`tech-stack.md`、`data-model.md`、`research-and-decisions.md`、M3 README / WBS、`STATUS.md`、`BACKLOG.md`；同時把 LanceDB 依賴鏈帶來的 RustSec `RUSTSEC-2026-0002` 與 `0BSD` / `BSL-1.0` 授權需求同步記錄到 supply-chain gate 設定
+  - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M3-B** — Search, Assistant, And Insights
+  - 2026-04-07：重寫 [`src/pages/explorer/index.tsx`](../../src/pages/explorer/index.tsx)、[`src/pages/assistant/index.tsx`](../../src/pages/assistant/index.tsx)、[`src/pages/insights/index.tsx`](../../src/pages/insights/index.tsx) 與 [`src/pages/dashboard/index.tsx`](../../src/pages/dashboard/index.tsx) 的 intelligence surface，正式落地 `keyword` / `semantic` / `hybrid` recall、assistant citation thread、On This Day / Site Analytics / Periodic Summary / Topic Timeline，以及跨頁 deep-link / explainability / queue controls
+  - 新增 [`src/lib/intelligence.ts`](../../src/lib/intelligence.ts) 與 [`src/lib/intelligence.test.ts`](../../src/lib/intelligence.test.ts)，把 AI status、score band、evidence href、assistant response state 等前端 contract 收斂成可測的 helper；同步更新 [`src/lib/backend.ts`](../../src/lib/backend.ts)、[`src/lib/types.d.ts`](../../src/lib/types.d.ts)、[`src/styles/app.css`](../../src/styles/app.css) 與相關 UI tests
+  - 收斂上一輪 review findings：`ai_index_status` 改為只看 index jobs 與 provider readiness、assistant 在沒有可保留 citation 時回傳 `insufficient-evidence`、assistant / index jobs 凍結 enqueue-time provider snapshot、`ai_assistant_runs` 連回 `runs.id`、queue reconcile / sidecar sync 不再靜默吞錯，long-running AI jobs 會寫 heartbeat 以支撐 stale reclaim
+  - 回寫 `intelligence.md`、`screens-and-nav.md`、`data-model.md`、`research-and-decisions.md`、M3 README / WBS、`STATUS.md`、`BACKLOG.md`
+  - 驗收：`bun run check`、`bun run build`

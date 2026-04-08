@@ -792,6 +792,22 @@
   color: var(--warning);
   border-color: var(--warning);
 }
+.status-success {
+  color: var(--success);
+  border-color: var(--success);
+}
+.status-warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.status-blocked {
+  color: var(--error);
+  border-color: var(--error);
+}
+.status-info {
+  color: var(--info);
+  border-color: var(--info);
+}
 .state-chip--running {
   color: var(--accent);
   border-color: var(--accent);
@@ -1586,6 +1602,8 @@
   font-size: 11px;
   padding: var(--space-1) 0;
   border-bottom: 1px solid var(--bg-elevated);
+  color: var(--text);
+  text-decoration: none;
 }
 
 .assistant-input-area {
@@ -3437,6 +3455,67 @@
   color: var(--text-muted);
 }
 
+.intelligence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.intelligence-grid--assistant {
+  margin-bottom: var(--space-5);
+}
+
+.intelligence-stack,
+.intelligence-result-list,
+.intelligence-note-list,
+.intelligence-job-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.intelligence-actions,
+.assistant-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.assistant-inline-actions {
+  margin-top: var(--space-2);
+}
+
+.intelligence-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.intelligence-panel {
+  margin-bottom: var(--space-4);
+}
+
+.assistant-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.assistant-sidebar {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.assistant-message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
 .onboarding-final-panel {
   display: flex;
   align-items: flex-end;
@@ -3486,6 +3565,10 @@
   .explorer-grid {
     grid-template-columns: 1fr;
   }
+  .assistant-layout,
+  .intelligence-grid {
+    grid-template-columns: 1fr;
+  }
   .insights-grid {
     grid-template-columns: 1fr;
   }
@@ -3497,6 +3580,9 @@
   }
   .preview-stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .intelligence-stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .explorer-filters {
     grid-template-columns: repeat(2, 1fr);

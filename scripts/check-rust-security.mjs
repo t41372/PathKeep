@@ -90,6 +90,10 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2025-0141',
     'bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration.',
   ],
+  [
+    'RUSTSEC-2026-0002',
+    "lru 0.12.x is transitively pinned by LanceDB's tantivy stack; PathKeep only reaches tantivy's StoreReader cache methods (get/put/len/peek_lru), not the affected IterMut API.",
+  ],
 ])
 
 function fail(message, details = []) {

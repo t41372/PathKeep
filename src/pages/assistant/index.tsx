@@ -1,88 +1,309 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
+import { ErrorState } from '../../components/primitives/error-state'
+import { PermissionGate } from '../../components/primitives/permission-gate'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
-import type { AiAssistantCitation, AiAssistantResponse } from '../../lib/types'
+import { formatDateTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
+import {
+  aiStatusMeta,
+  assistantResponseMeta,
+  evidenceHref,
+  selectedAiProvider,
+} from '../../lib/intelligence'
+import type {
+  AiAssistantResponse,
+  AiProviderConnectionTestReport,
+  AiQueueStatus,
+} from '../../lib/types'
 
-interface Message {
-  role: 'user' | 'ai'
+interface ConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
   content: string
-  citations?: AiAssistantCitation[]
+  response?: AiAssistantResponse
 }
 
-const exampleConversation: Message[] = [
-  {
-    role: 'user',
-    content:
-      'When did I first start researching Tauri? What was the earliest thing I looked at?',
-  },
-  {
-    role: 'ai',
-    content:
-      "Based on your browsing history, you first encountered Tauri on 2025-04-05, when you visited the Tauri GitHub repository.\n\nIn the following two weeks, you intensively read:\n- Tauri's official Getting Started and Architecture pages (14 visits total)\n- Multiple Tauri vs Electron comparison articles\n- Rust WebView2 binding related issues\n\nFrom May 2025, Tauri-related browsing frequency gradually increased, peaking in March 2026, which coincides with when you started developing PathKeep.",
-    citations: [
-      {
-        historyId: 1,
-        profileId: 'chrome:Default',
-        url: 'https://github.com/tauri-apps/tauri',
-        title: 'tauri-apps/tauri: Build desktop apps',
-        visitedAt: '2025-04-05T00:00:00Z',
-        score: 0.95,
-      },
-      {
-        historyId: 2,
-        profileId: 'chrome:Default',
-        url: 'https://v2.tauri.app/start/',
-        title: 'Getting Started | Tauri',
-        visitedAt: '2025-04-06T00:00:00Z',
-        score: 0.9,
-      },
-      {
-        historyId: 3,
-        profileId: 'chrome:Default',
-        url: 'https://blog.example.com/tauri-vs-electron',
-        title: 'Tauri vs Electron: Real-world Comparison',
-        visitedAt: '2025-04-08T00:00:00Z',
-        score: 0.85,
-      },
-      {
-        historyId: 4,
-        profileId: 'chrome:Default',
-        url: 'https://v2.tauri.app/concepts/architecture/',
-        title: 'Architecture | Tauri',
-        visitedAt: '2025-04-12T00:00:00Z',
-        score: 0.8,
-      },
-    ],
-  },
-]
+function messageId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function renderParagraphs(content: string) {
+  return content
+    .split('\n')
+    .filter(Boolean)
+    .map((line, index) => (
+      <p key={`${line}-${index}`}>
+        {line.startsWith('- ') ? (
+          <span>
+            {'• '}
+            {line.slice(2)}
+          </span>
+        ) : (
+          line
+        )}
+      </p>
+    ))
+}
 
 export function AssistantPage() {
-  const { snapshot } = useShellData()
-  const [messages, setMessages] = useState<Message[]>(exampleConversation)
-  const [input, setInput] = useState('')
+  const { language, ns, t } = useI18n()
+  const { refreshAppData, refreshKey, snapshot } = useShellData()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [messages, setMessages] = useState<ConversationMessage[]>([])
+  const [input, setInput] = useState(searchParams.get('question') ?? '')
   const [sending, setSending] = useState(false)
+  const [queueStatus, setQueueStatus] = useState<AiQueueStatus | null>(null)
+  const [providerProbe, setProviderProbe] =
+    useState<AiProviderConnectionTestReport | null>(null)
+  const [queueAction, setQueueAction] = useState<string | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null)
+
+  const assistantT = ns('assistant')
+  const intelligenceT = ns('intelligence')
+  const aiMeta = snapshot
+    ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
+    : null
+  const llmProvider = snapshot
+    ? selectedAiProvider(snapshot.config.ai, 'llm')
+    : null
+  const embeddingProvider = snapshot
+    ? selectedAiProvider(snapshot.config.ai, 'embedding')
+    : null
+
+  useEffect(() => {
+    const seededQuestion = searchParams.get('question')
+    if (seededQuestion) setInput(seededQuestion)
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked)
+      return
+    let cancelled = false
+    void backend
+      .loadAiQueueStatus()
+      .then((status) => {
+        if (!cancelled) setQueueStatus(status)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setQueueStatus(null)
+          setPageError(
+            error instanceof Error
+              ? error.message
+              : assistantT('loadingQueueAction'),
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    assistantT,
+    refreshKey,
+    snapshot?.archiveStatus.unlocked,
+    snapshot?.config.initialized,
+  ])
+
+  const queuedAssistantJobs = useMemo(
+    () =>
+      (queueStatus?.recentJobs ?? []).filter(
+        (job) => job.jobType === 'assistant',
+      ),
+    [queueStatus],
+  )
+
+  function upsertAssistantMessage(
+    jobId: number | undefined | null,
+    response: AiAssistantResponse,
+  ) {
+    if (!jobId) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: messageId('assistant'),
+          role: 'assistant',
+          content: response.answer,
+          response,
+        },
+      ])
+      return
+    }
+    setMessages((current) => {
+      const next = [...current]
+      const index = next.findIndex(
+        (message) => message.response?.jobId === jobId,
+      )
+      if (index === -1) {
+        next.push({
+          id: messageId('assistant'),
+          role: 'assistant',
+          content: response.answer,
+          response,
+        })
+      } else {
+        next[index] = {
+          ...next[index],
+          content: response.answer,
+          response,
+        }
+      }
+      return next
+    })
+  }
+
+  async function refreshQueue() {
+    const status = await backend.loadAiQueueStatus()
+    setQueueStatus(status)
+  }
+
+  async function handleRefreshQueue() {
+    setQueueAction(assistantT('loadingQueueAction'))
+    setPageError(null)
+    try {
+      await refreshQueue()
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : assistantT('loadingQueueAction'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  async function handleProviderProbe() {
+    if (!llmProvider) return
+    setQueueAction(assistantT('testingProviderAction'))
+    setPageError(null)
+    try {
+      const probe = await backend.testAiProviderConnection({
+        providerId: llmProvider.id,
+        purpose: 'llm',
+      })
+      setProviderProbe(probe)
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : assistantT('testingProviderAction'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  async function handleLoadQueuedJob(jobId: number) {
+    setQueueAction(assistantT('loadingQueuedAnswerAction'))
+    setPageError(null)
+    try {
+      const response = await backend.loadAiAssistantJob(jobId)
+      upsertAssistantMessage(jobId, response)
+      await Promise.all([refreshQueue(), refreshAppData()])
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : assistantT('loadingQueuedAnswerAction'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  async function handleDrainQueue(jobId?: number | null) {
+    setQueueAction(assistantT('runningQueuedJobsAction'))
+    setPageError(null)
+    try {
+      await backend.runAiQueueJobs(1)
+      await refreshQueue()
+      if (jobId) {
+        await handleLoadQueuedJob(jobId)
+      } else {
+        await refreshAppData()
+      }
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : assistantT('runningQueuedJobsAction'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
+
+  async function handleCancelJob(jobId: number) {
+    setQueueAction(assistantT('cancellingAssistantJobAction'))
+    setPageError(null)
+    try {
+      await backend.cancelAiJob(jobId)
+      const response = await backend.loadAiAssistantJob(jobId)
+      upsertAssistantMessage(jobId, response)
+      await refreshQueue()
+    } catch (error) {
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : assistantT('cancellingAssistantJobAction'),
+      )
+    } finally {
+      setQueueAction(null)
+    }
+  }
 
   async function handleSend() {
     const question = input.trim()
     if (!question || sending) return
+    setPageError(null)
     setInput('')
-    setMessages((prev) => [...prev, { role: 'user', content: question }])
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('question')
+      return next
+    })
+    setMessages((current) => [
+      ...current,
+      { id: messageId('user'), role: 'user', content: question },
+    ])
     setSending(true)
     try {
-      const response: AiAssistantResponse = await backend.askAiAssistant({
+      const response = await backend.askAiAssistant({
         question,
       })
-      setMessages((prev) => [
-        ...prev,
-        { role: 'ai', content: response.answer, citations: response.citations },
-      ])
-    } catch (e) {
-      setMessages((prev) => [
-        ...prev,
+      upsertAssistantMessage(response.jobId, response)
+      await refreshQueue()
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : assistantT('failedResponse'),
+      )
+      setMessages((current) => [
+        ...current,
         {
-          role: 'ai',
-          content: `Error: ${e instanceof Error ? e.message : 'Failed to get response'}`,
+          id: messageId('assistant'),
+          role: 'assistant',
+          content:
+            error instanceof Error
+              ? error.message
+              : assistantT('failedResponse'),
+          response: {
+            state: 'failed',
+            answer:
+              error instanceof Error
+                ? error.message
+                : assistantT('failedResponse'),
+            jobId: null,
+            runId: null,
+            providerId: llmProvider?.id ?? '',
+            embeddingProviderId:
+              embeddingProvider?.id ?? assistantT('lexicalFallback'),
+            citations: [],
+            notes: [],
+          },
         },
       ])
     } finally {
@@ -94,9 +315,43 @@ export function AssistantPage() {
     return (
       <section className="page-shell">
         <EmptyState
-          description="AI Assistant needs an initialized archive to search your browsing history."
-          eyebrow="ASSISTANT"
-          title="Archive not initialized"
+          description={assistantT('archiveNotInitializedDescription')}
+          eyebrow={assistantT('statusEyebrow')}
+          title={assistantT('archiveNotInitializedTitle')}
+        />
+      </section>
+    )
+  }
+
+  if (!snapshot.archiveStatus.unlocked) {
+    return (
+      <section className="page-shell">
+        <PermissionGate
+          detail={assistantT('lockedDetail')}
+          eyebrow={assistantT('lockedEyebrow')}
+          title={assistantT('lockedTitle')}
+        >
+          <Link className="btn-primary" to="/security">
+            {assistantT('reviewSecurity')}
+          </Link>
+        </PermissionGate>
+      </section>
+    )
+  }
+
+  if (!snapshot.config.ai.enabled || !snapshot.config.ai.assistantEnabled) {
+    return (
+      <section className="page-shell">
+        <StatusCallout
+          tone="info"
+          eyebrow={assistantT('statusEyebrow')}
+          title={assistantT('disabledTitle')}
+          body={assistantT('disabledBody')}
+          actions={
+            <Link className="btn-secondary" to="/settings">
+              {assistantT('openSettings')}
+            </Link>
+          }
         />
       </section>
     )
@@ -104,85 +359,302 @@ export function AssistantPage() {
 
   return (
     <section className="page-shell assistant-page" data-testid="assistant-page">
-      <div className="assistant-container">
-        <div className="assistant-messages">
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`msg ${msg.role === 'user' ? 'msg-user' : 'msg-ai'}`}
-            >
-              <div className="msg-content">
-                {msg.content.split('\n').map((line, j) => (
-                  <p
-                    key={j}
-                    style={j > 0 ? { marginTop: 'var(--space-2)' } : undefined}
-                  >
-                    {line.startsWith('- ') ? (
-                      <span>
-                        {'• '}
-                        {line.slice(2)}
-                      </span>
-                    ) : (
-                      line
-                    )}
-                  </p>
-                ))}
+      {aiMeta && (
+        <div className="intelligence-grid intelligence-grid--assistant">
+          <StatusCallout
+            tone={aiMeta.tone}
+            eyebrow={assistantT('statusEyebrow')}
+            title={aiMeta.label}
+            body={aiMeta.description}
+            actions={
+              <div className="intelligence-actions">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => void handleProviderProbe()}
+                  disabled={Boolean(queueAction) || !llmProvider}
+                >
+                  {assistantT('testProvider')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => void handleRefreshQueue()}
+                  disabled={Boolean(queueAction)}
+                >
+                  {assistantT('refreshQueue')}
+                </button>
+                <Link className="btn-secondary" to="/settings">
+                  {assistantT('openSettings')}
+                </Link>
               </div>
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="msg-evidence">
-                  <div className="evidence-label">
-                    EVIDENCE · {msg.citations.length} records
+            }
+          />
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">
+                {assistantT('runningContext')}
+              </span>
+              <span className="panel-action">
+                {llmProvider
+                  ? `${llmProvider.name} / ${llmProvider.defaultModel}`
+                  : assistantT('noLlmProviderSelected')}
+              </span>
+            </div>
+            <div className="panel-body intelligence-stack">
+              <div className="intelligence-stat-row">
+                <div className="summary-stat">
+                  <span className="dim">{assistantT('llm')}</span>
+                  <span className="mono">
+                    {llmProvider?.id ?? assistantT('unset')}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">{assistantT('retrieval')}</span>
+                  <span className="mono">
+                    {embeddingProvider?.id ?? assistantT('lexicalFallback')}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">{assistantT('queuedLabel')}</span>
+                  <span className="mono">
+                    {queueStatus?.queued ?? snapshot.aiStatus.queuedJobs}
+                  </span>
+                </div>
+                <div className="summary-stat">
+                  <span className="dim">{assistantT('runningLabel')}</span>
+                  <span className="mono">
+                    {queueStatus?.running ?? snapshot.aiStatus.runningJobs}
+                  </span>
+                </div>
+              </div>
+
+              {providerProbe && (
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>
+                      {providerProbe.ok
+                        ? assistantT('providerReachable')
+                        : assistantT('providerNeedsAttention')}
+                    </strong>
+                    <span className="mono-support">
+                      {providerProbe.model} · {providerProbe.latencyMs} ms
+                    </span>
                   </div>
-                  {msg.citations.map((c) => (
-                    <div key={c.historyId} className="evidence-item">
-                      <span className="mono dim">
-                        {c.visitedAt.slice(0, 10)}
-                      </span>
-                      <span>{c.title ?? c.url}</span>
+                  <p>{providerProbe.message}</p>
+                  {providerProbe.actionHint ? (
+                    <p className="mono-support">{providerProbe.actionHint}</p>
+                  ) : null}
+                </div>
+              )}
+
+              {queuedAssistantJobs.length > 0 && (
+                <div className="intelligence-job-list">
+                  {queuedAssistantJobs.map((job) => (
+                    <div key={job.id} className="result-row">
+                      <div className="result-row__header">
+                        <strong>
+                          {assistantT('queuedJobLabel', { id: job.id })}
+                        </strong>
+                        <span className="mono-support">{job.state}</span>
+                      </div>
+                      <p>
+                        {job.summary ??
+                          job.errorMessage ??
+                          assistantT('queuedAssistantRequest')}
+                      </p>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-          ))}
-          {sending && (
-            <div className="msg msg-ai">
-              <div className="msg-content">
-                <p className="dim">Thinking...</p>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-        <div className="assistant-input-area">
-          <div className="assistant-input-wrapper">
-            <input
-              type="text"
-              className="assistant-input"
-              placeholder="Ask about your browsing history..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  void handleSend()
+      )}
+
+      {pageError && (
+        <ErrorState
+          title={assistantT('attentionTitle')}
+          description={pageError}
+        />
+      )}
+
+      <div className="assistant-layout">
+        <div className="assistant-container">
+          <div className="assistant-messages">
+            {messages.length === 0 && !sending ? (
+              <EmptyState
+                action={
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => setInput(assistantT('examplePrompt'))}
+                  >
+                    {assistantT('loadExamplePrompt')}
+                  </button>
                 }
-              }}
-              disabled={sending}
-            />
-            <button
-              className="assistant-send"
-              type="button"
-              onClick={() => {
-                void handleSend()
-              }}
-              disabled={sending}
-            >
-              <span>↵</span>
-            </button>
+                description={assistantT('emptyDescription')}
+                eyebrow={assistantT('emptyEyebrow')}
+                title={assistantT('emptyTitle')}
+              />
+            ) : null}
+
+            {messages.map((message) => {
+              const response = message.response
+              const responseMeta = response
+                ? assistantResponseMeta(response, intelligenceT)
+                : null
+              return (
+                <div
+                  key={message.id}
+                  className={`msg ${message.role === 'user' ? 'msg-user' : 'msg-ai'}`}
+                >
+                  <div className="msg-content">
+                    {responseMeta && response ? (
+                      <div className="assistant-message-head">
+                        <span
+                          className={`status-badge status-${responseMeta.tone}`}
+                        >
+                          {responseMeta.label}
+                        </span>
+                        <span className="mono-support">
+                          Job #{response.jobId ?? '—'} · Run #
+                          {response.runId ?? '—'} ·{' '}
+                          {response.providerId || t('common.pending')}
+                        </span>
+                      </div>
+                    ) : null}
+                    {message.content ? renderParagraphs(message.content) : null}
+                    {response?.notes?.length ? (
+                      <div className="intelligence-note-list">
+                        {response.notes.map((note) => (
+                          <p key={note} className="mono-support">
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {response?.citations?.length ? (
+                    <div className="msg-evidence">
+                      <div className="evidence-label">
+                        {assistantT('evidenceLabel', {
+                          count: response.citations.length,
+                        })}
+                      </div>
+                      {response.citations.map((citation) => (
+                        <Link
+                          key={`${citation.historyId}-${citation.url}`}
+                          className="evidence-item"
+                          to={evidenceHref(citation)}
+                        >
+                          <span className="mono dim">
+                            {formatDateTime(citation.visitedAt, language) ??
+                              citation.visitedAt}
+                          </span>
+                          <span>{citation.title ?? citation.url}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {response?.state === 'queued' && response.jobId ? (
+                    <div className="assistant-inline-actions">
+                      <button
+                        className="btn-tiny"
+                        type="button"
+                        onClick={() =>
+                          void handleLoadQueuedJob(response.jobId!)
+                        }
+                        disabled={Boolean(queueAction)}
+                      >
+                        {assistantT('checkStatus')}
+                      </button>
+                      <button
+                        className="btn-tiny"
+                        type="button"
+                        onClick={() => void handleDrainQueue(response.jobId)}
+                        disabled={Boolean(queueAction)}
+                      >
+                        {assistantT('runQueuedJob')}
+                      </button>
+                      <button
+                        className="btn-tiny"
+                        type="button"
+                        onClick={() => void handleCancelJob(response.jobId!)}
+                        disabled={Boolean(queueAction)}
+                      >
+                        {assistantT('cancel')}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+
+            {sending && (
+              <div className="msg msg-ai">
+                <div className="msg-content">
+                  <div className="assistant-message-head">
+                    <span className="status-badge status-info">
+                      {assistantT('working')}
+                    </span>
+                    <span className="mono-support">
+                      {assistantT('preparingAnswer')}
+                    </span>
+                  </div>
+                  <p>{assistantT('searchingArchive')}</p>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="assistant-hint dim">
-            Powered by local LLM · Data never leaves your machine
+
+          <div className="assistant-input-area">
+            <div className="assistant-input-wrapper">
+              <input
+                type="text"
+                className="assistant-input"
+                placeholder={assistantT('inputPlaceholder')}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void handleSend()
+                }}
+                disabled={sending}
+              />
+              <button
+                className="assistant-send"
+                type="button"
+                onClick={() => {
+                  void handleSend()
+                }}
+                disabled={sending}
+              >
+                <span>↵</span>
+              </button>
+            </div>
+            <div className="assistant-hint dim">
+              {assistantT('auditTraceHint')}
+            </div>
           </div>
         </div>
+
+        <aside className="assistant-sidebar">
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">{assistantT('queueBoundary')}</span>
+            </div>
+            <div className="panel-body intelligence-stack">
+              <p className="dashboard-next-action">
+                {assistantT('queueBoundaryBody')}
+              </p>
+              {queueAction ? (
+                <p className="mono-support">{queueAction}…</p>
+              ) : null}
+            </div>
+          </div>
+        </aside>
       </div>
     </section>
   )

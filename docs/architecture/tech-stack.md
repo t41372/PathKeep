@@ -40,6 +40,12 @@
 | LLM           | 同上，用於摘要生成、topic 命名、問答等 Intelligence 功能                                 |
 | 向量存儲      | rig.rs 產生的 embedding 存入 LanceDB sidecar                                             |
 
+2026-04-07 implementation note：
+
+- day-one provider matrix 採 request-format aware contract：OpenAI-compatible、Google、Ollama、LM Studio 同時支援 chat / embedding preset；Anthropic 目前只作 chat preset。
+- semantic index 的 operational metadata 不放在 sidecar 內，而是回寫 canonical archive 的 SQLite：`ai_jobs` 保存 queue lifecycle，`ai_index_ledger` 保存 sidecar version / provider / model / source watermark / last run。
+- 目前的 LanceDB 依賴鏈會經由 `tantivy 0.24.2` transitively 拉入 `lru 0.12.x`。RustSec `RUSTSEC-2026-0002` 影響的是 `IterMut`; PathKeep 目前只經由 tantivy `StoreReader` 使用 cache 的 `get` / `put` / `len` / `peek_lru` 路徑，因此暫時保留 allowlist，待上游提供兼容升級。
+
 ## 目標平台
 
 - macOS（主要開發和測試平台）

@@ -1,4 +1,6 @@
 pub mod ai;
+pub mod ai_queue;
+pub mod ai_sidecar;
 pub mod archive;
 pub mod chrome;
 pub mod config;
@@ -10,8 +12,10 @@ pub mod takeout;
 pub mod utils;
 
 pub use ai::{
-    AiIntegrationPreview, AiProviderRuntime, ai_index_status, answer_history_question,
-    build_ai_index, preview_ai_integrations, semantic_search_history,
+    AiIntegrationPreview, AiProviderRuntime, ai_index_status, ai_queue_status,
+    answer_history_question, build_ai_index, load_assistant_run_response, preview_ai_integrations,
+    provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
+    semantic_search_history, test_provider_connection,
 };
 pub use archive::{
     archive_status, doctor, ensure_archive_initialized, export_history, list_history,

@@ -127,6 +127,8 @@ pub struct AiSettings {
     pub mcp_enabled: bool,
     pub skill_enabled: bool,
     pub auto_index_after_backup: bool,
+    pub job_queue_paused: bool,
+    pub job_queue_concurrency: u32,
     pub llm_provider_id: Option<String>,
     pub embedding_provider_id: Option<String>,
     pub retrieval_top_k: u32,
@@ -144,6 +146,8 @@ impl Default for AiSettings {
             mcp_enabled: false,
             skill_enabled: false,
             auto_index_after_backup: false,
+            job_queue_paused: false,
+            job_queue_concurrency: 1,
             llm_provider_id: None,
             embedding_provider_id: None,
             retrieval_top_k: 8,
@@ -246,12 +250,105 @@ pub struct AiIndexStatus {
     pub assistant_enabled: bool,
     pub mcp_enabled: bool,
     pub skill_enabled: bool,
+    pub state: String,
     pub ready: bool,
     pub indexed_items: usize,
     pub last_indexed_at: Option<String>,
     pub llm_provider_id: Option<String>,
     pub embedding_provider_id: Option<String>,
+    pub queue_paused: bool,
+    pub queue_concurrency: u32,
+    pub queued_jobs: u32,
+    pub running_jobs: u32,
+    pub failed_jobs: u32,
+    pub recent_jobs: Vec<AiQueueJob>,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderCapabilityReport {
+    pub supports_chat: bool,
+    pub supports_embeddings: bool,
+    pub supports_streaming: bool,
+    pub supports_tool_use: bool,
+    pub supports_structured_output: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderConnectionTestRequest {
+    pub provider_id: String,
+    pub purpose: AiProviderPurpose,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderConnectionTestReport {
+    pub provider_id: String,
+    pub purpose: String,
+    pub model: String,
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub capabilities: AiProviderCapabilityReport,
+    pub error_code: Option<String>,
+    pub action_hint: Option<String>,
+    pub retry_hint: Option<String>,
+    pub warnings: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AiQueueJobState {
+    #[default]
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    Paused,
+    Cancelled,
+    Stale,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AiQueueJobType {
+    #[default]
+    IndexBuild,
+    IndexClear,
+    Assistant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiQueueJob {
+    pub id: i64,
+    pub job_type: String,
+    pub state: String,
+    pub priority: i64,
+    pub attempt: u32,
+    pub max_attempts: u32,
+    pub run_id: Option<i64>,
+    pub summary: Option<String>,
+    pub queued_at: String,
+    pub available_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub heartbeat_at: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiQueueStatus {
+    pub paused: bool,
+    pub concurrency: u32,
+    pub queued: u32,
+    pub running: u32,
+    pub failed: u32,
+    pub recent_jobs: Vec<AiQueueJob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,6 +487,7 @@ pub struct HistoryQuery {
     pub end_time_ms: Option<i64>,
     pub sort: Option<String>,
     pub limit: Option<u32>,
+    pub cursor: Option<String>,
 }
 
 impl Default for HistoryQuery {
@@ -403,6 +501,7 @@ impl Default for HistoryQuery {
             end_time_ms: None,
             sort: Some("newest".to_string()),
             limit: Some(150),
+            cursor: None,
         }
     }
 }
@@ -428,6 +527,7 @@ pub struct HistoryEntry {
 pub struct HistoryQueryResponse {
     pub total: usize,
     pub items: Vec<HistoryEntry>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -665,12 +765,15 @@ pub struct AiProviderSecretInput {
 pub struct AiIndexRequest {
     pub provider_id: Option<String>,
     pub full_rebuild: bool,
+    pub clear_only: bool,
     pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AiIndexReport {
+    pub job_id: Option<i64>,
+    pub run_id: Option<i64>,
     pub provider_id: String,
     pub model: String,
     pub indexed_items: usize,
@@ -688,11 +791,12 @@ pub struct AiSearchRequest {
     pub profile_id: Option<String>,
     pub domain: Option<String>,
     pub limit: Option<u32>,
+    pub cursor: Option<String>,
 }
 
 impl Default for AiSearchRequest {
     fn default() -> Self {
-        Self { query: String::new(), profile_id: None, domain: None, limit: Some(8) }
+        Self { query: String::new(), profile_id: None, domain: None, limit: Some(8), cursor: None }
     }
 }
 
@@ -717,6 +821,7 @@ pub struct AiSearchResponse {
     pub model: String,
     pub items: Vec<AiSearchEntry>,
     pub notes: Vec<String>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -741,7 +846,10 @@ pub struct AiCitation {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AiAssistantResponse {
+    pub state: String,
     pub answer: String,
+    pub job_id: Option<i64>,
+    pub run_id: Option<i64>,
     pub provider_id: String,
     pub embedding_provider_id: String,
     pub citations: Vec<AiCitation>,

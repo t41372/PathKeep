@@ -90,6 +90,10 @@ describe('i18n helpers', () => {
       'schedule',
       'security',
       'settings',
+      'explorer',
+      'assistant',
+      'insights',
+      'intelligence',
       'platform',
     ])
   })

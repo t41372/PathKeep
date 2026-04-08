@@ -5,7 +5,11 @@ import type {
   AiIndexReport,
   AiIndexRequest,
   AiIntegrationPreview,
+  AiProviderConnectionTestReport,
+  AiProviderConnectionTestRequest,
   AiProviderSecretInput,
+  AiQueueJob,
+  AiQueueStatus,
   AiSearchRequest,
   AiSearchResponse,
   AppBuildInfo,
@@ -105,6 +109,8 @@ const mockSnapshot: AppSnapshot = {
       mcpEnabled: false,
       skillEnabled: false,
       autoIndexAfterBackup: false,
+      jobQueuePaused: false,
+      jobQueueConcurrency: 1,
       llmProviderId: null,
       embeddingProviderId: null,
       retrievalTopK: 8,
@@ -131,11 +137,18 @@ const mockSnapshot: AppSnapshot = {
     assistantEnabled: false,
     mcpEnabled: false,
     skillEnabled: false,
+    state: 'disabled',
     ready: false,
     indexedItems: 0,
     lastIndexedAt: null,
     llmProviderId: null,
     embeddingProviderId: null,
+    queuePaused: false,
+    queueConcurrency: 1,
+    queuedJobs: 0,
+    runningJobs: 0,
+    failedJobs: 0,
+    recentJobs: [],
     warning: null,
   },
   insightStatus: {
@@ -451,6 +464,14 @@ interface MockBackendState {
   history: HistoryQueryResponse
   keyringSecret: string | null
   importBatchDetails: Record<number, ImportBatchDetail>
+  schedulePlanOverrides: Partial<
+    Record<'macos' | 'windows' | 'linux', SchedulePlan>
+  >
+  scheduleStatusOverrides: Partial<
+    Record<'macos' | 'windows' | 'linux', ScheduleStatus>
+  >
+  queueJobs: AiQueueJob[]
+  nextAiJobId: number
   nextImportBatchId: number
 }
 
@@ -460,6 +481,29 @@ function browserKindFromProfileId(profileId: string) {
 
 function uniqueUrlCount(items: HistoryQueryResponse['items']) {
   return new Set(items.map((item) => item.url)).size
+}
+
+function buildMockQueueStatus(state: MockBackendState): AiQueueStatus {
+  return {
+    paused: state.snapshot.config.ai.jobQueuePaused,
+    concurrency: state.snapshot.config.ai.jobQueueConcurrency,
+    queued: state.queueJobs.filter(
+      (job) => job.state === 'queued' || job.state === 'paused',
+    ).length,
+    running: state.queueJobs.filter((job) => job.state === 'running').length,
+    failed: state.queueJobs.filter((job) => job.state === 'failed').length,
+    recentJobs: state.queueJobs.slice(0, 8).map((job) => structuredClone(job)),
+  }
+}
+
+function syncMockAiStatus(state: MockBackendState) {
+  const queue = buildMockQueueStatus(state)
+  state.snapshot.aiStatus.queuePaused = queue.paused
+  state.snapshot.aiStatus.queueConcurrency = queue.concurrency
+  state.snapshot.aiStatus.queuedJobs = queue.queued
+  state.snapshot.aiStatus.runningJobs = queue.running
+  state.snapshot.aiStatus.failedJobs = queue.failed
+  state.snapshot.aiStatus.recentJobs = structuredClone(queue.recentJobs)
 }
 
 function buildMockDashboardSnapshot(
@@ -559,7 +603,9 @@ function prependMockRun(
   return run
 }
 
-function normalizeMockPlatform(platform?: unknown) {
+function normalizeMockPlatform(
+  platform?: unknown,
+): 'macos' | 'windows' | 'linux' {
   if (platform === 'windows') return 'windows'
   if (platform === 'linux') return 'linux'
   return 'macos'
@@ -695,6 +741,38 @@ function buildMockScheduleStatus(
           : 'Browser preview mode keeps schedule verification read-only. Use the desktop app for the real platform status.',
     ],
   }
+}
+
+function overrideMockSchedule(
+  state: MockBackendState,
+  plan: SchedulePlan,
+  status?: ScheduleStatus,
+) {
+  const resolvedPlanPlatform = normalizeMockPlatform(plan.platform)
+  state.schedulePlanOverrides[resolvedPlanPlatform] = structuredClone(plan)
+  if (status) {
+    const resolvedStatusPlatform = normalizeMockPlatform(status.platform)
+    state.scheduleStatusOverrides[resolvedStatusPlatform] =
+      structuredClone(status)
+    return
+  }
+
+  const resolvedStatus: ScheduleStatus = {
+    ...buildMockScheduleStatus(state, plan.platform),
+    platform: plan.platform,
+    label: plan.label,
+    applySupported: plan.applySupported,
+    detectedFiles: plan.generatedFiles
+      .map((file) => file.absolutePath ?? file.relativePath)
+      .filter((value): value is string => Boolean(value)),
+    manualSteps:
+      plan.manualSteps.length > 0
+        ? structuredClone(plan.manualSteps)
+        : buildMockScheduleStatus(state, plan.platform).manualSteps,
+    installState: plan.applySupported ? 'installed' : 'manual-review',
+    warnings: [],
+  }
+  state.scheduleStatusOverrides[resolvedPlanPlatform] = resolvedStatus
 }
 
 function buildMockSecurityStatus(state: MockBackendState): SecurityStatus {
@@ -966,8 +1044,9 @@ function filterMockHistory(
   const endTimeMs = query?.endTimeMs ?? null
   const sort = query?.sort ?? 'newest'
   const limit = Math.max(1, Math.min(query?.limit ?? 150, 1000))
+  const cursor = parseMockHistoryCursor(query?.cursor)
 
-  const items = [...state.history.items]
+  const filteredItems = [...state.history.items]
     .filter((item) => !profileId || item.profileId === profileId)
     .filter(
       (item) =>
@@ -988,22 +1067,131 @@ function filterMockHistory(
         ? left.visitTime - right.visitTime
         : right.visitTime - left.visitTime,
     )
-    .slice(0, limit)
+
+  const pagedItems = filteredItems
+    .filter((item) => {
+      if (!cursor) return true
+      if (sort === 'oldest') {
+        return (
+          item.visitTime > cursor.visitTime ||
+          (item.visitTime === cursor.visitTime && item.id > cursor.id)
+        )
+      }
+      return (
+        item.visitTime < cursor.visitTime ||
+        (item.visitTime === cursor.visitTime && item.id < cursor.id)
+      )
+    })
+    .slice(0, limit + 1)
+
+  const hasMore = pagedItems.length > limit
+  const items = hasMore ? pagedItems.slice(0, limit) : pagedItems
+
+  return {
+    total: filteredItems.length,
+    items,
+    nextCursor: hasMore
+      ? encodeMockHistoryCursor(items[items.length - 1])
+      : null,
+  }
+}
+
+function parseMockHistoryCursor(cursor?: string | null) {
+  if (!cursor) return null
+  const [visitTime, id] = cursor.split('|')
+  const parsedVisitTime = Number(visitTime)
+  const parsedId = Number(id)
+  if (!Number.isFinite(parsedVisitTime) || !Number.isFinite(parsedId)) {
+    return null
+  }
+  return {
+    visitTime: parsedVisitTime,
+    id: parsedId,
+  }
+}
+
+function encodeMockHistoryCursor(item: HistoryQueryResponse['items'][number]) {
+  return `${item.visitTime}|${item.id}`
+}
+
+function paginateMockAiSearch(
+  state: MockBackendState,
+  request?: AiSearchRequest,
+): AiSearchResponse {
+  const limit = Math.max(1, Math.min(request?.limit ?? 24, 50))
+  const offset = Math.max(0, Number.parseInt(request?.cursor ?? '0', 10) || 0)
+  const items = state.history.items.map((item, index) => ({
+    historyId: item.id,
+    profileId: item.profileId,
+    url: item.url,
+    title: item.title,
+    domain: item.domain,
+    visitedAt: item.visitedAt,
+    score: 0.8 - index * 0.1,
+    matchReason: 'Browser preview lexical fixture',
+  }))
+  const pagedItems = items.slice(offset, offset + limit)
+  const nextOffset = offset + pagedItems.length
 
   return {
     total: items.length,
-    items,
+    providerId: 'lexical-fallback',
+    model: 'none',
+    items: pagedItems,
+    notes: ['Semantic retrieval is unavailable in browser preview mode.'],
+    nextCursor: nextOffset < items.length ? String(nextOffset) : null,
   }
 }
 
 function createMockState(): MockBackendState {
-  return {
+  const state: MockBackendState = {
     snapshot: structuredClone(mockSnapshot),
     history: structuredClone(mockHistory),
     keyringSecret: null,
     importBatchDetails: {},
+    schedulePlanOverrides: {},
+    scheduleStatusOverrides: {},
+    queueJobs: [
+      {
+        id: 2,
+        jobType: 'index-build',
+        state: 'failed',
+        priority: 70,
+        attempt: 1,
+        maxAttempts: 3,
+        runId: null,
+        summary: 'Preview queue fixture needs a replay.',
+        queuedAt: new Date(Date.now() - 120_000).toISOString(),
+        availableAt: new Date(Date.now() - 60_000).toISOString(),
+        startedAt: new Date(Date.now() - 110_000).toISOString(),
+        finishedAt: new Date(Date.now() - 100_000).toISOString(),
+        heartbeatAt: new Date(Date.now() - 105_000).toISOString(),
+        errorCode: 'network-error',
+        errorMessage: 'Preview transport timed out.',
+      },
+      {
+        id: 1,
+        jobType: 'assistant',
+        state: 'queued',
+        priority: 100,
+        attempt: 0,
+        maxAttempts: 1,
+        runId: null,
+        summary: 'What did I read about LanceDB?',
+        queuedAt: new Date(Date.now() - 30_000).toISOString(),
+        availableAt: new Date(Date.now() - 30_000).toISOString(),
+        startedAt: null,
+        finishedAt: null,
+        heartbeatAt: null,
+        errorCode: null,
+        errorMessage: null,
+      },
+    ],
+    nextAiJobId: 3,
     nextImportBatchId: 1,
   }
+  syncMockAiStatus(state)
+  return state
 }
 
 let mockState = createMockState()
@@ -1021,12 +1209,14 @@ async function call<T>(
     case 'app_build_info':
       return mockBuildInfo as T
     case 'app_snapshot':
+      syncMockAiStatus(mockState)
       return structuredClone(mockState.snapshot) as T
     case 'save_config': {
       const nextConfig = structuredClone(args?.config as AppConfig)
       mockState.snapshot.config = nextConfig
       mockState.snapshot.archiveStatus.encrypted =
         nextConfig.archiveMode === 'Encrypted'
+      syncMockAiStatus(mockState)
       return structuredClone(mockState.snapshot) as T
     }
     case 'initialize_archive': {
@@ -1185,9 +1375,13 @@ async function call<T>(
         'restore',
       ) as T
     case 'preview_schedule':
-      return buildMockSchedulePlan(args?.platform) as T
+      return (mockState.schedulePlanOverrides[
+        normalizeMockPlatform(args?.platform)
+      ] ?? buildMockSchedulePlan(args?.platform)) as T
     case 'schedule_status':
-      return buildMockScheduleStatus(mockState, args?.platform) as T
+      return (mockState.scheduleStatusOverrides[
+        normalizeMockPlatform(args?.platform)
+      ] ?? buildMockScheduleStatus(mockState, args?.platform)) as T
     case 'doctor_report':
       return {
         generatedAt: new Date().toISOString(),
@@ -1294,11 +1488,144 @@ async function call<T>(
         backend: 'Mock keyring',
         storedSecret: false,
       } as T
-    case 'store_ai_provider_api_key':
-    case 'clear_ai_provider_api_key':
+    case 'store_ai_provider_api_key': {
+      const providerId = (args?.input as AiProviderSecretInput | undefined)
+        ?.providerId
+      mockState.snapshot.config.ai.llmProviders =
+        mockState.snapshot.config.ai.llmProviders.map((provider) =>
+          provider.id === providerId
+            ? { ...provider, apiKeySaved: true }
+            : provider,
+        )
+      mockState.snapshot.config.ai.embeddingProviders =
+        mockState.snapshot.config.ai.embeddingProviders.map((provider) =>
+          provider.id === providerId
+            ? { ...provider, apiKeySaved: true }
+            : provider,
+        )
       return structuredClone(mockState.snapshot) as T
-    case 'build_ai_index':
+    }
+    case 'clear_ai_provider_api_key': {
+      const providerId = args?.providerId as string | undefined
+      mockState.snapshot.config.ai.llmProviders =
+        mockState.snapshot.config.ai.llmProviders.map((provider) =>
+          provider.id === providerId
+            ? { ...provider, apiKeySaved: false }
+            : provider,
+        )
+      mockState.snapshot.config.ai.embeddingProviders =
+        mockState.snapshot.config.ai.embeddingProviders.map((provider) =>
+          provider.id === providerId
+            ? { ...provider, apiKeySaved: false }
+            : provider,
+        )
+      return structuredClone(mockState.snapshot) as T
+    }
+    case 'test_ai_provider_connection':
       return {
+        providerId:
+          (args?.request as AiProviderConnectionTestRequest | undefined)
+            ?.providerId ?? 'preview-provider',
+        purpose:
+          (args?.request as AiProviderConnectionTestRequest | undefined)
+            ?.purpose ?? 'embedding',
+        model: 'preview-model',
+        ok: true,
+        latencyMs: 24,
+        capabilities: {
+          supportsChat: true,
+          supportsEmbeddings: true,
+          supportsStreaming: true,
+          supportsToolUse: true,
+          supportsStructuredOutput: true,
+        },
+        warnings: [],
+        message: 'Browser preview mode fakes a successful provider probe.',
+      } as T
+    case 'load_ai_queue_status':
+      syncMockAiStatus(mockState)
+      return buildMockQueueStatus(mockState) as T
+    case 'run_ai_queue_jobs':
+      mockState.queueJobs = mockState.queueJobs.map((job) =>
+        job.state === 'queued'
+          ? {
+              ...job,
+              state: 'succeeded',
+              attempt: job.attempt + 1,
+              runId: 42,
+              finishedAt: new Date().toISOString(),
+              summary: 'Preview queue drained this job.',
+            }
+          : job,
+      )
+      syncMockAiStatus(mockState)
+      return buildMockQueueStatus(mockState) as T
+    case 'replay_ai_job': {
+      const jobId = args?.jobId as number
+      mockState.queueJobs = mockState.queueJobs.map((job) =>
+        job.id === jobId
+          ? {
+              ...job,
+              state: mockState.snapshot.config.ai.jobQueuePaused
+                ? 'paused'
+                : 'queued',
+              attempt: 0,
+              runId: null,
+              startedAt: null,
+              finishedAt: null,
+              heartbeatAt: null,
+              errorCode: null,
+              errorMessage: null,
+            }
+          : job,
+      )
+      syncMockAiStatus(mockState)
+      return structuredClone(
+        mockState.queueJobs.find((job) => job.id === jobId),
+      ) as T
+    }
+    case 'cancel_ai_job': {
+      const jobId = args?.jobId as number
+      mockState.queueJobs = mockState.queueJobs.map((job) =>
+        job.id === jobId
+          ? {
+              ...job,
+              state: 'cancelled',
+              finishedAt: new Date().toISOString(),
+            }
+          : job,
+      )
+      syncMockAiStatus(mockState)
+      return structuredClone(
+        mockState.queueJobs.find((job) => job.id === jobId),
+      ) as T
+    }
+    case 'build_ai_index': {
+      const buildJobId = mockState.nextAiJobId++
+      mockState.queueJobs = [
+        {
+          id: buildJobId,
+          jobType: 'index-build',
+          state: 'succeeded',
+          priority: 70,
+          attempt: 1,
+          maxAttempts: 3,
+          runId: 31,
+          summary: 'Browser preview finished a static index build.',
+          queuedAt: new Date().toISOString(),
+          availableAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          heartbeatAt: new Date().toISOString(),
+          errorCode: null,
+          errorMessage: null,
+        },
+        ...mockState.queueJobs,
+      ]
+      syncMockAiStatus(mockState)
+      return {
+        jobId: buildJobId,
+        runId: 31,
         providerId: 'mock-embedding',
         model: 'text-embedding-3-large',
         indexedItems: 2,
@@ -1308,27 +1635,41 @@ async function call<T>(
         lastIndexedAt: new Date().toISOString(),
         notes: ['Browser preview mode uses a static AI index fixture.'],
       } as T
+    }
     case 'search_ai_history':
+      return paginateMockAiSearch(
+        mockState,
+        args?.request as AiSearchRequest | undefined,
+      ) as T
+    case 'ask_ai_assistant': {
+      const assistantJobId = mockState.nextAiJobId++
+      mockState.queueJobs = [
+        {
+          id: assistantJobId,
+          jobType: 'assistant',
+          state: 'succeeded',
+          priority: 100,
+          attempt: 1,
+          maxAttempts: 1,
+          runId: 32,
+          summary: 'Browser preview answered a static assistant request.',
+          queuedAt: new Date().toISOString(),
+          availableAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          heartbeatAt: new Date().toISOString(),
+          errorCode: null,
+          errorMessage: null,
+        },
+        ...mockState.queueJobs,
+      ]
+      syncMockAiStatus(mockState)
       return {
-        total: mockState.history.items.length,
-        providerId: 'lexical-fallback',
-        model: 'none',
-        items: mockState.history.items.map((item, index) => ({
-          historyId: item.id,
-          profileId: item.profileId,
-          url: item.url,
-          title: item.title,
-          domain: item.domain,
-          visitedAt: item.visitedAt,
-          score: 0.8 - index * 0.1,
-          matchReason: 'Browser preview lexical fixture',
-        })),
-        notes: ['Semantic retrieval is unavailable in browser preview mode.'],
-      } as T
-    case 'ask_ai_assistant':
-      return {
+        state: 'completed',
         answer:
           'Browser preview mode can show the assistant layout, but real LLM answers only run in the desktop app.',
+        jobId: assistantJobId,
+        runId: 32,
         providerId: 'preview-llm',
         embeddingProviderId: 'lexical-fallback',
         citations: mockState.history.items.map((item) => ({
@@ -1340,6 +1681,28 @@ async function call<T>(
           score: 0.8,
         })),
         notes: ['Open the desktop build to run real agentic history analysis.'],
+      } as T
+    }
+    case 'load_ai_assistant_job':
+      return {
+        state: 'completed',
+        answer:
+          'Browser preview mode loads a deterministic queued assistant reply.',
+        jobId: args?.jobId as number,
+        runId: 32,
+        providerId: 'preview-llm',
+        embeddingProviderId: 'lexical-fallback',
+        citations: mockState.history.items.map((item) => ({
+          historyId: item.id,
+          profileId: item.profileId,
+          url: item.url,
+          title: item.title,
+          visitedAt: item.visitedAt,
+          score: 0.78,
+        })),
+        notes: [
+          'Queued assistant replies use preview fixtures in browser mode.',
+        ],
       } as T
     case 'preview_ai_integrations':
       return {
@@ -1397,6 +1760,9 @@ export const backendTestHarness = {
   call,
   reset: () => {
     mockState = createMockState()
+  },
+  seedSchedule: (plan: SchedulePlan, status?: ScheduleStatus) => {
+    overrideMockSchedule(mockState, plan, status)
   },
 }
 
@@ -1460,12 +1826,23 @@ export const backend = {
     call<AppSnapshot>('store_ai_provider_api_key', { input }),
   clearAiProviderApiKey: (providerId: string) =>
     call<AppSnapshot>('clear_ai_provider_api_key', { providerId }),
+  testAiProviderConnection: (request: AiProviderConnectionTestRequest) =>
+    call<AiProviderConnectionTestReport>('test_ai_provider_connection', {
+      request,
+    }),
+  loadAiQueueStatus: () => call<AiQueueStatus>('load_ai_queue_status'),
+  runAiQueueJobs: (maxJobs?: number) =>
+    call<AiQueueStatus>('run_ai_queue_jobs', { maxJobs }),
+  replayAiJob: (jobId: number) => call<AiQueueJob>('replay_ai_job', { jobId }),
+  cancelAiJob: (jobId: number) => call<AiQueueJob>('cancel_ai_job', { jobId }),
   buildAiIndex: (request: AiIndexRequest) =>
     call<AiIndexReport>('build_ai_index', { request }),
   searchAiHistory: (request: AiSearchRequest) =>
     call<AiSearchResponse>('search_ai_history', { request }),
   askAiAssistant: (request: AiAssistantRequest) =>
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
+  loadAiAssistantJob: (jobId: number) =>
+    call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
   runInsightsNow: (request: RunInsightsRequest) =>
     call<RunInsightsReport>('run_insights_now', { request }),
   loadInsights: (request: RunInsightsRequest) =>
