@@ -7,6 +7,12 @@
 
 ## 工作塊佇列（按順序）
 
+### Program — Quality Closeout Before M4
+
+- [ ] **WORK-QC-B** — Close Remaining M0-M3 Product And Doc Debt `[!blocked: 需要 WORK-QC-A]`
+  - 讀先：`docs/vision-and-requirements.md`、`docs/design/ux-principles.md`、`docs/design/screens-and-nav.md`、`docs/plan/m0-foundation/README.md`、`docs/plan/m1-solid-archive/README.md`、`docs/plan/m3-intelligence/README.md`
+  - 目標：把 M0-M3 還沒真正簽收的產品與文檔債收乾淨，包含 prototype / design gap、trust-critical i18n、desktop-vs-preview 驗收邊界、On This Day / evidence / timezone 等與設計或需求不一致的實作
+
 ### M1 — Solid Archive
 
 ### M2 — Recall & Trust
@@ -15,7 +21,11 @@
 
 ### M4 — Full Polish
 
-- [ ] **WORK-M4-B** — Release Readiness And Platform Polish `[!blocked: 需要 WORK-M4-A]`
+- [ ] **WORK-M4-A** — Enrichment And Remote Backup `[!blocked: 需要 WORK-QC-A、WORK-QC-B]`
+  - 讀先：`docs/features/intelligence.md`、`docs/features/archive.md`、`docs/plan/m4-full-polish/enrichment-advanced-intelligence-and-remote.md`
+  - 目標：在已完成 quality closeout 的 archive + intelligence v1 之上，補齊 enrichment plugin system、advanced intelligence 與 remote backup 的第一個可驗收 slice
+
+- [ ] **WORK-M4-B** — Release Readiness And Platform Polish `[!blocked: 需要 WORK-M4-A，且 WORK-QC-A / WORK-QC-B 不能回退]`
   - 讀先：`docs/standards.md`、`docs/plan/m4-full-polish/platform-release-and-polish.md`
   - 目標：完成 release engineering、多平台真機驗收、performance / accessibility / docs polish
 
@@ -25,7 +35,7 @@
 
 ```
 WORK-M0-A ──┐
-WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-M4-A → WORK-M4-B
+WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B
 ```
 
 ---

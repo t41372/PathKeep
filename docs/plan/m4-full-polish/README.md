@@ -1,6 +1,8 @@
 # M4 — Full Intelligence & Polish
 
 > 目標：補齊 enrichment、advanced insights、remote backup、release polish 和多平台驗證，讓產品從可用走向可發布。
+>
+> **2026-04-07 規劃註記**：M4 不再是「下一個直接開做的 block」。在 `WORK-QC-A` / `WORK-QC-B` 把 M0-M3 的 quality gate、desktop 驗收、prototype / doc parity 與 truthfulness debt 關掉之前，不要啟動 enrichment / remote / advanced insights。
 
 ---
 
