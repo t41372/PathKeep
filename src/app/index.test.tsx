@@ -275,6 +275,10 @@ describe('App shell', () => {
     expect(
       within(settingsPage).getByText('ENRICHMENT + DERIVED STATE'),
     ).toBeVisible()
+    expect(within(settingsPage).getByText('Archive database')).toBeVisible()
+    expect(within(settingsPage).getByText('Audit repository')).toBeVisible()
+    expect(within(settingsPage).getByText('Git commit')).toBeVisible()
+    expect(within(settingsPage).getByText('preview')).toBeVisible()
 
     await user.clear(within(settingsPage).getByLabelText('Bucket'))
     await user.type(

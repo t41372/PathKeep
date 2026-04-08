@@ -158,6 +158,7 @@
 - v1 bundle format 是 `pathkeep.remote-backup.v1` zip，至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`；如果本地已有 audit manifests / scheduler artifacts，也應一併打包。manifest 需記錄 `createdAt`、`appVersion`、`archiveMode`、`objectKey`，以及每個 entry 的 `sha256` / `sizeBytes`。
 - Verify 對 plaintext archive bundle 必須提出明確 warning；encrypted archive 的 verify / restore 則必須要求使用者先用相同資料庫金鑰解鎖 PathKeep。
 - v1 的 retention / prune / retry 仍是 manual-first：PathKeep 提供 guidance 與 upload / verify trace，但不在使用者尚未信任 bundle format 與 restore workflow 前自動清理遠端物件。
+- remote backup 的 support / diagnostics 預設只收集 metadata：bundle path、object key、bundle version、checksum / restore-readiness 結果、app version、run id。不得把 credentials、secret values 或 bundle 內容默認視為 support payload。
 
 ---
 
@@ -199,6 +200,7 @@
 - Doctor / 健康檢查命令：重算 archive table hash 並出報告。
 - doctor / repair baseline 至少要涵蓋 missing import audit artifact、broken visibility references、stale derived state，並把 repair 本身寫回 unified `runs` ledger。
 - 如果用戶已配置 GPG 簽名 commit，就沿用。
+- support / release 診斷預設只導出 metadata-first 事實：run id、audit path、manifest path、platform state、build info、checksum 結果；不自動包含 canonical archive facts、raw snapshots、API keys 或 master password。
 
 ---
 

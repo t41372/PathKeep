@@ -35,7 +35,8 @@ interface SupportState {
 }
 
 export function SettingsPage() {
-  const { dashboard, refreshAppData, saveConfig, snapshot } = useShellData()
+  const { buildInfo, dashboard, refreshAppData, saveConfig, snapshot } =
+    useShellData()
   const { language, setLanguagePreference, t } = useI18n()
   const [saving, setSaving] = useState(false)
   const [remoteTab, setRemoteTab] = useState<
@@ -1143,6 +1144,44 @@ export function SettingsPage() {
             </button>
           </div>
           <div className="config-row">
+            <span className="config-label">
+              {t('settings.archiveDatabase')}
+            </span>
+            <span className="config-value mono">
+              {snapshot.directories.archiveDatabasePath}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(
+                  snapshot.directories.archiveDatabasePath,
+                )
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.auditRepository')}
+            </span>
+            <span className="config-value mono">
+              {snapshot.directories.auditRepoPath}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(
+                  snapshot.directories.auditRepoPath,
+                )
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          <div className="config-row">
             <span className="config-label">{t('settings.mcpServer')}</span>
             <span className="config-value">
               {snapshot.config.ai.mcpEnabled
@@ -1153,7 +1192,13 @@ export function SettingsPage() {
           <div className="config-row">
             <span className="config-label">{t('settings.version')}</span>
             <span className="config-value mono">
-              {snapshot.config.initialized ? '0.1.0-alpha' : '0.1.0-preview'}
+              {buildInfo?.version ?? t('common.notAvailable')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.gitCommit')}</span>
+            <span className="config-value mono">
+              {buildInfo?.gitCommitShort ?? t('common.notAvailable')}
             </span>
           </div>
         </div>

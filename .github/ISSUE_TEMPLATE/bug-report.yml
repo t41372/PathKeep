@@ -1,0 +1,129 @@
+name: Bug report
+description: Report a reproducible PathKeep bug with the diagnostics maintainers need.
+title: '[Bug]: '
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read `TROUBLESHOOTING.md` and `SUPPORT.md` first.
+        Do not attach archive databases, API keys, passwords, or raw history exports unless a maintainer explicitly asks for a minimal repro.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: From Settings > General
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: git_sha
+    attributes:
+      label: Git short SHA
+      description: From Settings > General
+      placeholder: abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: dropdown
+    id: install_type
+    attributes:
+      label: Install type
+      options:
+        - Desktop dev (`bun run desktop:dev`)
+        - Debug build (`bun run desktop:build:debug`)
+        - Packaged release installer
+        - Browser preview (`bun run dev`)
+    validations:
+      required: true
+  - type: dropdown
+    id: archive_mode
+    attributes:
+      label: Archive mode
+      options:
+        - Encrypted
+        - Plaintext
+        - Not initialized yet
+    validations:
+      required: true
+  - type: dropdown
+    id: scheduler_state
+    attributes:
+      label: Scheduler state
+      description: Use the state shown in Schedule or Settings if relevant.
+      options:
+        - Not relevant
+        - not-installed
+        - installed
+        - manual-review
+        - mismatch
+        - permission-warning
+        - legacy-install-detected
+    validations:
+      required: true
+  - type: input
+    id: keyring_backend
+    attributes:
+      label: Keyring backend
+      description: From Security or Settings if relevant
+      placeholder: macOS Keychain / Windows Credential Manager / Secret Service / unavailable
+  - type: input
+    id: run_id
+    attributes:
+      label: Latest related run ID or audit path
+      description: Include a run ID, audit artifact path, or remote bundle path when the issue involves backup, import, rebuild, or remote backup.
+      placeholder: 'Run #42 or ~/Library/Application Support/PathKeep/audit/...'
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Please list the exact steps in order.
+      placeholder: |
+        1. Open Settings
+        2. Save remote backup config
+        3. Click Verify bundle
+        4. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Error text, warnings, or checks that failed
+      description: Paste sanitized error text or summarize which validation failed.
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Attachments
+      description: Mention screenshots or sanitized audit/report artifacts you attached.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy checklist
+      options:
+        - label: I did not attach archive databases, raw history exports, API keys, passwords, or remote secret values.
+          required: true
+        - label: I captured the version and git short SHA from Settings.
+          required: true

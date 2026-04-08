@@ -6,89 +6,65 @@
 
 # PathKeep
 
-PathKeep is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, Bun, React, and Vite, and is designed around one rule: every meaningful system action should stay inspectable.
+PathKeep is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun, and it treats every high-risk action as a reviewable flow instead of a background black box.
 
-The app keeps raw provenance, normalized query data, audit manifests, scheduler artifacts, import batches, and export outputs separate so the user can preview what is about to happen, inspect what already happened, and roll back dirty imports without erasing the audit trail.
+The app keeps canonical history facts, rollback state, audit artifacts, scheduler previews, remote backup bundles, and optional AI-derived state separate. That separation is what makes Preview / Manual / Execute possible across backup, import, scheduling, security, and remote backup.
 
-## Current Status
+## Product Boundaries
 
-- The project is in `M4 — Full Polish`: archive, recall, trust, and intelligence v1 are implemented in source, while enrichment, remote backup hardening, and release-readiness closeout are still in progress.
-- The desktop shell, route tree, preview UX, and typed desktop bridge are live; browser-preview mocks still exist for fast frontend iteration, but the repo now also carries targeted desktop-contract and backend invoke-contract tests.
-- As of 2026-04-07, `bun run check`, `bun run build`, and `bun run test:e2e` are green on the current branch.
-- Repo-wide `bun run coverage:js`, `bun run coverage:rust`, and full mutation sweeps now have explicit entrypoints (`bun run coverage`, `bun run mutation`, `bun run check:full`, `bun run verify`), but they are still below the final release standard and should be treated as active release-readiness debt.
+- Local-first by default. Archive data stays on the machine unless the user explicitly configures remote backup.
+- Intelligence is optional. Search, backup, import, rollback, export, audit, and recovery still work without any AI provider.
+- Recoverability beats convenience. Remote backup, re-key, rollback, and derived-state rebuild all keep the user-facing boundary honest.
+- Telemetry is a non-goal. Support diagnostics stay metadata-first and must not collect archive contents or secrets by default.
 
-## Feature Inventory
+## Release Status
 
-### Archive and Provenance
+- `WORK-M4-B` release-readiness closeout is complete: release docs, troubleshooting docs, platform validation runbooks, support diagnostics guidance, and release workflow preflight are now in repo.
+- macOS is the primary release target and has a documented signing / notarization path in CI.
+- Windows and Linux release artifacts are built in CI and covered by the validation runbook, but both remain explicit preview channels until maintainers wire platform signing choices for their own credentials and distribution policy.
+- App lock / biometric / profile partition work is intentionally deferred behind `PG-RD-PLAT-006`; PathKeep does not ship a fake security layer in the meantime.
 
-- Incremental history backup using staged copies of browser history databases instead of live reads.
-- Raw row retention plus normalized archive tables for visits, URLs, downloads, search terms, and favicons.
-- Append-only backup manifests with chained hashes.
-- Local git-backed audit artifacts for manifests, imports, scheduler changes, and related reports.
-- Plaintext and encrypted archive modes.
-- Session unlock flow plus system keyring support for unattended operations.
+## What Ships Today
 
-### Browser and OS Support
+### Archive, Audit, And Trust
 
-- Chromium-family support:
-  Google Chrome, Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, and Opera GX.
-- Firefox-family support:
-  Firefox, LibreWolf, Floorp, and Waterfox.
-- Safari support on macOS.
-- Scheduler preview artifacts for macOS `launchd`, Windows Task Scheduler XML, and Linux `systemd --user`.
-- Platform keyring adapters for macOS, Windows, Linux, and a file-backed test keyring.
+- Incremental browser-history backup through staged database copies rather than live reads.
+- Append-only archive ledger with rollback-aware visibility and audit artifacts kept outside the archive DB.
+- Google Takeout preview, import, revert, restore, and doctor / repair flows.
+- Plaintext and encrypted archive modes, plus re-key preview / execute review surfaces.
+- Native scheduler preview for macOS `launchd`, Windows Task Scheduler XML, and Linux `systemd --user`.
 
-### Import and Export
+### Recall And Intelligence
 
-- Google Takeout dry-run inspection before import.
-- Recognized-file reporting, quarantine reporting, preview rows, duplicate counting, and notes.
-- Batch-level import review and revert controls.
-- Structured exports to HTML, Markdown, plain text, and JSONL.
-- S3-compatible remote backup bundle preview and upload.
+- Keyword, regex, semantic, and hybrid recall surfaces with honest fallback when AI is disabled or unavailable.
+- Optional provider configuration for LLM and embedding backends.
+- Insight cards, topic / thread views, storage analytics, and evidence deep-links back into Explorer.
+- Remote backup PME with bundle preview, upload, and checksum / restore-readiness verification.
 
-### Desktop UX
+### Platform And Support Surfaces
 
-- Tauri desktop shell with React audit-first UI.
-- English, Simplified Chinese, and Traditional Chinese UI with system-language detection and user override.
-- Setup flow for source selection, archive creation, scheduler preview, and review.
-- Settings UI for language, security, key management, remote backup, AI provider configuration, app build metadata, and local data paths.
-- In-app display of the running app version and short git commit SHA.
-- Buttons in the UI to open the app data root, archive database location, and audit repository in the system file manager.
+- Settings page exposes the app data root, archive database path, audit repository path, app version, and git short SHA.
+- Platform troubleshooting callouts exist for Safari Full Disk Access, scheduler mismatch / manual review, and keyring degradation.
+- User-facing support docs, troubleshooting guidance, and issue templates are bundled in-repo instead of living only in chat or tribal knowledge.
 
-### Optional AI and Integration Features
+## Platform Support
 
-- Optional LLM and embedding provider configuration, disabled by default.
-- Multiple providers per request format, each with configurable base URL, models, and keyring-backed API key storage.
-- Semantic indexing, semantic search, and grounded assistant Q&A using `rig-core`.
-- MCP server preview artifacts and worker-mode MCP server support.
-- Skill integration preview artifacts.
+| Platform | Channel | Notes                                                                                                                           |
+| -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| macOS    | Primary | Signed / notarized path is documented for release CI; Safari baseline support still depends on Full Disk Access.                |
+| Windows  | Preview | MSI / NSIS artifacts build in CI; SmartScreen reputation and code signing remain maintainer-operated.                           |
+| Linux    | Preview | AppImage / `.deb` / `.rpm` build when packaging dependencies are present; keyring behavior still varies by desktop environment. |
 
-## Architecture
-
-- [`src`](./src)
-  React + TypeScript desktop UI, browser-preview mocks, and frontend tests.
-- [`src-tauri`](./src-tauri)
-  Tauri shell plus the Rust workspace.
-- [`src-tauri/crates/vault-core`](./src-tauri/crates/vault-core)
-  Archive schema, migrations, browser snapshotting, exports, Takeout ingestion, AI indexing, audit manifests, and health checks.
-- [`src-tauri/crates/vault-worker`](./src-tauri/crates/vault-worker)
-  Shared orchestration used by the GUI, worker CLI, MCP server entrypoint, and tests.
-- [`src-tauri/crates/vault-platform`](./src-tauri/crates/vault-platform)
-  Scheduler artifact generation plus platform keyring integration.
-- [`docs/reference-review.md`](./docs/reference-review.md)
-  Notes from comparing support coverage against `1History` and `browserexport`.
-
-## Build and Run From Source
+## Build From Source
 
 ### Prerequisites
 
 - Bun
-- Rust 1.94.1 with `clippy`, `rustfmt`, and `llvm-tools-preview`
+- Rust `1.94.1` with `clippy`, `rustfmt`, and `llvm-tools-preview`
 - Git
-- Platform prerequisites for Tauri 2:
-  [Tauri distribute docs](https://v2.tauri.app/distribute/)
+- Tauri 2 platform prerequisites: [Tauri distribute docs](https://v2.tauri.app/distribute/)
 
-For Linux development on Debian or Ubuntu, the current repo and CI use:
+Linux development on Debian or Ubuntu currently uses:
 
 ```bash
 sudo apt-get update
@@ -103,142 +79,78 @@ sudo apt-get install -y \
   rpm
 ```
 
-### Install Dependencies
+Install dependencies:
 
 ```bash
 bun install
 ```
 
-### Run the Web Preview Shell
-
-This is useful for quick frontend iteration with mock data.
+Run the browser preview shell:
 
 ```bash
 bun run dev
 ```
 
-### Run the Full Desktop App From Source
+Run the full desktop app:
 
 ```bash
 bun run desktop:dev
 ```
 
-### Run Checks
-
-```bash
-bun run check
-```
-
-### Run the Full Verification Sweep
-
-```bash
-bun run verify
-```
-
-### Build the Desktop App Locally
-
-Debug desktop binary:
-
-```bash
-bun run desktop:build:debug
-```
-
-Release bundle for the current host OS:
+Build the current host bundle:
 
 ```bash
 bun run desktop:build
 ```
 
-Important local output locations:
+Build the debug desktop binary:
 
-- Debug desktop binary:
-  `src-tauri/target/debug/pathkeep-desktop`
-- Release bundle directory:
-  `src-tauri/target/release/bundle/`
-
-The exact installer files depend on the host OS:
-
-- macOS:
-  `.app` and `.dmg`
-- Windows:
-  installer assets such as `.msi` and/or NSIS `.exe`
-- Linux:
-  `.AppImage`, `.deb`, and `.rpm` when the required packaging tools are present
+```bash
+bun run desktop:build:debug
+```
 
 ## Quality Gates
 
-### Current Branch Gates
+Mainline checks:
 
 - `bun run check`
+- `bun run coverage:js`
+- `bun run coverage:rust`
 - `bun run build`
 - `bun run test:e2e`
-- targeted 100% desktop-contract verification:
-  - `bun run test:unit:desktop-contract`
-  - `bun run coverage:js:desktop-contract`
-  - `bun run mutation:js:desktop-contract`
 
-### Deep checks
+Release / deep checks:
 
-- `bun run coverage`
-- `bun run mutation`
-- `bun run check:full`
 - `bun run verify`
+- `bun run mutation:js`
+- `bun run mutation:rust`
 
-## GitHub Actions and Release Pipeline
+The desktop-contract slice inside `bun run check` only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`; it is not a blanket signoff for every route or component. See [TESTING.md](./TESTING.md) for the honest boundary.
 
-The repository currently ships three GitHub Actions workflows:
+## Docs Map
 
-- [`ci.yml`](./.github/workflows/ci.yml)
-  Frontend checks, Playwright smoke coverage, Rust formatting/lint/test gates, Rust supply-chain checks (`cargo audit` and `cargo deny`), and a macOS debug desktop build.
-- [`mutation.yml`](./.github/workflows/mutation.yml)
-  Manual or scheduled JavaScript and Rust mutation-test sweeps.
-- [`release.yml`](./.github/workflows/release.yml)
-  Cross-platform desktop release workflow.
+| Need                                        | Read                                       |
+| ------------------------------------------- | ------------------------------------------ |
+| Contributor workflow                        | [CONTRIBUTING.md](./CONTRIBUTING.md)       |
+| Local environment and repo layout           | [DEVELOPMENT.md](./DEVELOPMENT.md)         |
+| Test surfaces and command matrix            | [TESTING.md](./TESTING.md)                 |
+| Release runbook and artifact matrix         | [RELEASE.md](./RELEASE.md)                 |
+| User troubleshooting and diagnostics        | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
+| Support and bug-report expectations         | [SUPPORT.md](./SUPPORT.md)                 |
+| Product, feature, and milestone source docs | [docs/](./docs/)                           |
 
-### Release Workflow Behavior
+## Repository Layout
 
-- Trigger automatically by pushing a tag like `v0.1.0`.
-- Or run manually from the GitHub Actions UI with the `Release` workflow.
-- Manual runs resolve the release tag from the current app version in `package.json` and `src-tauri/Cargo.toml`, so bump the version first if you intend to publish a new release instead of updating an existing one.
-- The workflow builds:
-  - macOS Apple Silicon bundles
-  - macOS Intel bundles
-  - Windows bundles
-  - Linux bundles
-- Release assets are uploaded directly to the GitHub Release using the official Tauri action.
-- After all matrix builds finish, the workflow downloads the release assets again, generates `SHA256SUMS.txt`, and uploads that checksum manifest back to the same release.
-
-If you want signed or notarized installers, configure the signing secrets referenced in [`release.yml`](./.github/workflows/release.yml). Without those secrets, the workflow still builds unsigned installers.
-
-## Security Model
-
-- The archive can run in `Encrypted` or `Plaintext` mode.
-- Encrypted mode is built around a user-managed master password and local secret storage.
-- If the user forgets the archive password and has no other valid unlock path, the encrypted archive should be treated as unrecoverable.
-- Archive contents and raw snapshots do not live inside the local audit git repository.
-- Remote backups package the archive plus audit material and upload to S3-compatible storage using credentials stored in the native keyring.
-
-## Development Notes
-
-- The repo uses [`prek`](https://prek.j178.dev/) with `.pre-commit-config.yaml`.
-- Install hooks with:
-
-```bash
-cargo install prek --locked
-prek install
-prek install --hook-type pre-push
-```
-
-- Run all configured hooks locally with:
-
-```bash
-prek run --all-files
-prek run --hook-stage pre-push --all-files
-```
+- [`src`](./src): React + TypeScript desktop UI, preview fixtures, and UI tests.
+- [`src-tauri`](./src-tauri): Tauri shell plus the Rust workspace.
+- [`src-tauri/crates/vault-core`](./src-tauri/crates/vault-core): archive engine, remote backup, indexing, insights, and audit behavior.
+- [`src-tauri/crates/vault-platform`](./src-tauri/crates/vault-platform): scheduler artifacts and platform adapters.
+- [`src-tauri/crates/vault-worker`](./src-tauri/crates/vault-worker): shared orchestration for GUI, worker CLI, and MCP mode.
+- [`docs/plan/m4-full-polish/release-readiness-runbook.md`](./docs/plan/m4-full-polish/release-readiness-runbook.md): internal release-readiness and platform validation source of truth.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, release workflow usage, quality gates, and contribution expectations.
+PathKeep uses Conventional Commits, colocated tests, and doc-first updates for product or platform changes. Start with [CONTRIBUTING.md](./CONTRIBUTING.md); release and support changes must also keep [RELEASE.md](./RELEASE.md), [TROUBLESHOOTING.md](./TROUBLESHOOTING.md), and the matching `docs/` source docs in sync.
 
 ## License
 

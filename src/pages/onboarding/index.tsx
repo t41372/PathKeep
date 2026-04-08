@@ -21,6 +21,7 @@ const dueAfterOptions = [6, 12, 24, 72]
 export function OnboardingPage() {
   const navigate = useNavigate()
   const {
+    buildInfo,
     busyAction,
     error,
     loading,
@@ -231,7 +232,7 @@ export function OnboardingPage() {
           </div>
           <h1 className="welcome-title">PATHKEEP</h1>
           <p className="welcome-version mono">
-            v0.1.0-alpha · Tauri desktop app
+            v{buildInfo?.version ?? 'preview'} · Tauri desktop app
           </p>
           <p className="welcome-tagline">
             Your browsing history is yours.

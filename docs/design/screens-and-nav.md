@@ -10,18 +10,18 @@
 
 ## 畫面清單
 
-| 畫面                   | 核心職責                                                                                                  |
-| ---------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                |
-| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                     |
-| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                    |
-| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                       |
-| **AI Assistant**       | 自然語言問答介面                                                                                          |
-| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                |
-| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                      |
-| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                        |
-| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                   |
-| **Settings**           | 通用設定、語言、AI provider 管理、remote backup PME、derived-state controls、MCP 開關、數據目錄、版本信息 |
+| 畫面                   | 核心職責                                                                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                    |
+| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                         |
+| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                        |
+| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                                                           |
+| **AI Assistant**       | 自然語言問答介面                                                                                                                              |
+| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                                                    |
+| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                                                          |
+| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                            |
+| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                       |
+| **Settings**           | 通用設定、語言、AI provider 管理、remote backup PME、derived-state controls、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息 |
 
 ---
 
@@ -49,6 +49,7 @@
 - keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
 - Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
 - Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 plugin version、queue、freshness、derived tables、storage impact，以及 rebuild / clear controls。
+- Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Insights 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Insights 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
 

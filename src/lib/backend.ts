@@ -517,7 +517,7 @@ function remoteBundlePath() {
 
 function remoteObjectKey(config: AppConfig, bundlePath: string) {
   const prefix = config.remoteBackup.prefix.trim().replace(/^\/+|\/+$/g, '')
-  const fileName = bundlePath.split('/').pop() ?? 'pathkeep-remote.zip'
+  const fileName = bundlePath.split('/').pop()!
   return prefix ? `${prefix}/${fileName}` : fileName
 }
 

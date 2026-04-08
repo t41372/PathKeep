@@ -161,6 +161,19 @@ describe('backend facade', () => {
         regexMode: true,
       }),
     ).resolves.toMatchObject({ total: 1 })
+    await expect(
+      backend.queryHistory({
+        q: '^SQLite inspection in browser developer tools$',
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        regexMode: true,
+      }),
+    ).resolves.toMatchObject({ total: 1 })
     const firstHistoryPage = await backend.queryHistory({
       q: null,
       domain: null,
@@ -702,6 +715,130 @@ describe('backend facade', () => {
     expect(['queued', 'paused']).toContain(replayed.state)
     const cancelled = await backend.cancelAiJob(replayed.id)
     expect(cancelled.state).toBe('cancelled')
+  })
+
+  test('builds remote backup preview URLs for custom endpoints and AWS host styles', async () => {
+    await backend.initializeArchive(
+      {
+        ...config,
+        archiveMode: 'Plaintext',
+        remoteBackup: {
+          ...config.remoteBackup,
+          bucket: 'example-bucket',
+          region: 'us-west-2',
+          endpoint: 'minio.example.test/',
+          pathStyle: false,
+        },
+      },
+      null,
+    )
+
+    const customVirtualHost = await backend.previewRemoteBackup()
+    expect(customVirtualHost.uploadUrl).toMatch(
+      /^https:\/\/example-bucket\.minio\.example\.test\/pathkeep\/pathkeep-remote-.*\.zip$/,
+    )
+    expect(customVirtualHost.warnings).toContain(
+      'A custom S3-compatible endpoint is configured. Verify TLS, bucket policy, and path-style compatibility before trusting automatic upload.',
+    )
+
+    await backend.saveConfig({
+      ...(await backend.getAppSnapshot()).config,
+      remoteBackup: {
+        ...(await backend.getAppSnapshot()).config.remoteBackup,
+        endpoint: 'https://storage.example.test/',
+        pathStyle: true,
+      },
+    })
+
+    const customPathStyle = await backend.previewRemoteBackup()
+    expect(customPathStyle.uploadUrl).toMatch(
+      /^https:\/\/storage\.example\.test\/example-bucket\/pathkeep\/pathkeep-remote-.*\.zip$/,
+    )
+
+    await backend.saveConfig({
+      ...(await backend.getAppSnapshot()).config,
+      remoteBackup: {
+        ...(await backend.getAppSnapshot()).config.remoteBackup,
+        endpoint: null,
+        pathStyle: false,
+      },
+    })
+
+    const awsVirtualHost = await backend.previewRemoteBackup()
+    expect(awsVirtualHost.uploadUrl).toMatch(
+      /^https:\/\/example-bucket\.s3\.us-west-2\.amazonaws\.com\/pathkeep\/pathkeep-remote-.*\.zip$/,
+    )
+
+    await backend.saveConfig({
+      ...(await backend.getAppSnapshot()).config,
+      remoteBackup: {
+        ...(await backend.getAppSnapshot()).config.remoteBackup,
+        prefix: '   ',
+      },
+    })
+
+    const awsWithoutPrefix = await backend.previewRemoteBackup()
+    expect(awsWithoutPrefix.objectKey).toMatch(/^pathkeep-remote-.*\.zip$/)
+    expect(awsWithoutPrefix.uploadUrl).toMatch(
+      /^https:\/\/example-bucket\.s3\.us-west-2\.amazonaws\.com\/pathkeep-remote-.*\.zip$/,
+    )
+  })
+
+  test('reflects disabled readable-content refetch notes and falls back when verify bundle path is missing', async () => {
+    await backend.initializeArchive(
+      {
+        ...config,
+        archiveMode: 'Plaintext',
+      },
+      null,
+    )
+
+    const currentSnapshot = await backend.getAppSnapshot()
+    await backend.saveConfig({
+      ...currentSnapshot.config,
+      enrichment: {
+        plugins: [
+          {
+            id: 'readable-content-refetch',
+            enabled: false,
+            version: 'm4-v1',
+          },
+        ],
+      },
+    })
+    backendTestHarness.mutateState((state) => {
+      state.history.items[0].title = null
+    })
+
+    const insights = await backend.loadInsights({
+      profileId: 'chrome:Default',
+      windowDays: 30,
+      fullRebuild: false,
+      limit: null,
+    })
+    expect(insights.notes).toContain(
+      'Readable content refetch is disabled, so this snapshot only reflects lexical and structural evidence.',
+    )
+    await expect(
+      backend.queryHistory({
+        q: '^missing-title-branch$',
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        regexMode: true,
+      }),
+    ).resolves.toMatchObject({ total: 0 })
+
+    await expect(
+      backendTestHarness.call('verify_remote_backup', { bundlePath: 42 }),
+    ).resolves.toMatchObject({
+      bundlePath: expect.stringMatching(/^\/tmp\/pathkeep-remote-.*\.zip$/),
+      restoreReady: true,
+    })
   })
 
   test('covers preview dashboard, history, schedule, and export edge cases through the mock harness', async () => {

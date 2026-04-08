@@ -39,6 +39,16 @@ describe('format utilities', () => {
     expect(calendarDayKey('not-a-date')).toBeNull()
   })
 
+  test('calendarDayKey returns null when the formatter omits month or day parts', () => {
+    const formatToParts = vi.spyOn(
+      Intl.DateTimeFormat.prototype,
+      'formatToParts',
+    )
+    formatToParts.mockReturnValue([{ type: 'literal', value: '/' }])
+
+    expect(calendarDayKey('2026-04-07T00:30:00.000Z')).toBeNull()
+  })
+
   test('formatDuration handles edge cases', () => {
     expect(formatDuration(null)).toBe('0s')
     expect(formatDuration(undefined)).toBe('0s')

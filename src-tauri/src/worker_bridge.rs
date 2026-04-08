@@ -643,6 +643,15 @@ mod tests {
 
         let remote_preview = preview_remote_backup_impl().expect("preview remote backup");
         assert!(remote_preview.preview_command.contains("curl"));
+        let remote_verify_error = verify_remote_backup_impl(
+            "/tmp/pathkeep-missing-bundle.zip".to_string(),
+            session_key(&session).as_deref(),
+        )
+        .expect_err("missing bundle should fail verification");
+        assert!(
+            remote_verify_error.contains("opening")
+                && remote_verify_error.contains("pathkeep-missing-bundle.zip")
+        );
         clear_s3_credentials_impl().expect("clear s3 credentials");
         let remote_error = run_remote_backup_impl(session_key(&session).as_deref())
             .expect_err("remote backup should require stored credentials");
@@ -733,6 +742,9 @@ mod tests {
         )
         .expect("rekey archive");
         assert!(rekeyed_snapshot.archive_status.encrypted);
+        let cleared_derived = clear_derived_intelligence_impl(session_key(&session).as_deref())
+            .expect("clear derived intelligence");
+        assert!(!cleared_derived.notes.is_empty());
 
         let snapshot_again =
             app_snapshot_impl(session_key(&session).as_deref()).expect("app snapshot");
