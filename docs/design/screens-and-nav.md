@@ -10,18 +10,18 @@
 
 ## 畫面清單
 
-| 畫面                   | 核心職責                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------- |
-| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                            |
-| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口 |
-| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                |
-| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets                      |
-| **AI Assistant**       | 自然語言問答介面                                                                      |
-| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                            |
-| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                  |
-| **Security**           | 加密設定、keyring、rekey、密碼警告                                                    |
-| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                               |
-| **Settings**           | 通用設定、語言、AI provider 管理、MCP 開關、數據目錄、版本信息                        |
+| 畫面                   | 核心職責                                                                                                  |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                |
+| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                     |
+| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                    |
+| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                       |
+| **AI Assistant**       | 自然語言問答介面                                                                                          |
+| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                |
+| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                      |
+| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                        |
+| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                   |
+| **Settings**           | 通用設定、語言、AI provider 管理、remote backup PME、derived-state controls、MCP 開關、數據目錄、版本信息 |
 
 ---
 
@@ -47,6 +47,9 @@
 - long-running operation、generated artifact review、rollback confirmation、manual fallback 與 verify / rollback hint，全都遵循 PME grammar，而不是各頁自己發明流程。
 - `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」。
 - keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
+- Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
+- Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 plugin version、queue、freshness、derived tables、storage impact，以及 rebuild / clear controls。
+- Insights 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 
 ---
 
@@ -75,3 +78,4 @@
 - Assistant 的 seeded follow-up 使用 `/assistant?question=...`；Explorer、Insights、Dashboard 都可以透過這個 deep-link 把 scoped 問題帶進 assistant composer。
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Insights；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
 - Explorer、Assistant、Insights 的 AI status panel 都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls。
+- Settings 是 M4-A 起的 remote backup 與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。

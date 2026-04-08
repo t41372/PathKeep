@@ -180,6 +180,15 @@
 - explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
 - zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
 
+### M4-A 進階 intelligence slice
+
+- Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant slice，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
+- storage analytics 目前用四個 slice 呈現磁碟分佈：`core`、`audit`、`exports`、`rebuildable`。`rebuildable` 代表 staging / quarantine 一類可重建或可清理資產，不能和 canonical archive facts 混為一談。
+- Settings 頁必須提供 enrichment / derived-state panel，顯示 `readable-content-refetch` 的 version、queue、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。
+- `readable-content-refetch` 是目前唯一正式落地的 enrichment plugin，預設啟用、freshness window 7 天。停用後，insight rebuild 必須誠實說明已回退到 canonical archive + lexical / structural signals，而不是假裝仍有 readable content coverage。
+- clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
+- full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
+
 ### V1.5+ 洞察功能
 
 以下功能放在 V1 之後迭代，但架構上第一天就預留位置。
@@ -265,3 +274,4 @@
 - 沒有配置 AI provider 的用戶完全看不到這個系統。
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
 - queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。
+- M4-A 目前把 `readable-content-refetch` 掛在 `insights` flow，而不是獨立 queue family；per-plugin retry / cancel / concurrency surface 仍屬後續工作，v1 不應假裝已有完整的 enrichment queue UX。

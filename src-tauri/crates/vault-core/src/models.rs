@@ -56,6 +56,32 @@ impl Default for RemoteBackupConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EnrichmentPluginState {
+    pub id: String,
+    pub enabled: bool,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EnrichmentSettings {
+    pub plugins: Vec<EnrichmentPluginState>,
+}
+
+impl Default for EnrichmentSettings {
+    fn default() -> Self {
+        Self {
+            plugins: vec![EnrichmentPluginState {
+                id: "readable-content-refetch".to_string(),
+                enabled: true,
+                version: "m4-v1".to_string(),
+            }],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum AiRequestFormat {
     #[serde(rename = "openai")]
@@ -173,6 +199,7 @@ pub struct AppConfig {
     pub remember_database_key_in_keyring: bool,
     pub app_autostart: bool,
     pub remote_backup: RemoteBackupConfig,
+    pub enrichment: EnrichmentSettings,
     pub ai: AiSettings,
 }
 
@@ -191,6 +218,7 @@ impl Default for AppConfig {
             remember_database_key_in_keyring: false,
             app_autostart: false,
             remote_backup: RemoteBackupConfig::default(),
+            enrichment: EnrichmentSettings::default(),
             ai: AiSettings::default(),
         }
     }
@@ -580,6 +608,50 @@ pub struct RemoteBackupResult {
     pub object_key: String,
     pub upload_url: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteBackupVerificationCheck {
+    pub name: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteBackupVerificationFile {
+    pub relative_path: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteBackupVerification {
+    pub bundle_path: String,
+    pub bundle_version: String,
+    pub app_version: String,
+    pub created_at: String,
+    pub archive_mode: String,
+    pub object_key: String,
+    pub restore_ready: bool,
+    pub checks: Vec<RemoteBackupVerificationCheck>,
+    pub warnings: Vec<String>,
+    pub restore_steps: Vec<String>,
+    pub manifest_files: Vec<RemoteBackupVerificationFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearDerivedIntelligenceReport {
+    pub cleared_enrichment_rows: usize,
+    pub cleared_feature_rows: usize,
+    pub cleared_topic_rows: usize,
+    pub cleared_thread_rows: usize,
+    pub cleared_card_rows: usize,
+    pub cleared_run_rows: usize,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

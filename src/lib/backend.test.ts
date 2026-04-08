@@ -38,6 +38,15 @@ const config: AppConfig = {
     lastUploadedObjectKey: null,
     lastError: null,
   },
+  enrichment: {
+    plugins: [
+      {
+        id: 'readable-content-refetch',
+        enabled: true,
+        version: 'm4-v1',
+      },
+    ],
+  },
   ai: {
     enabled: false,
     assistantEnabled: false,
@@ -80,6 +89,11 @@ describe('backend facade', () => {
       config: expect.objectContaining({
         archiveMode: 'Encrypted',
         initialized: false,
+        enrichment: {
+          plugins: [
+            expect.objectContaining({ id: 'readable-content-refetch' }),
+          ],
+        },
       }),
     })
     await expect(backend.getAppBuildInfo()).resolves.toMatchObject({
@@ -168,8 +182,17 @@ describe('backend facade', () => {
     await expect(
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
     ).resolves.toMatchObject({ format: 'jsonl', count: 1 })
-    await expect(backend.previewRemoteBackup()).resolves.toMatchObject({
-      bundlePath: expect.stringContaining('pathkeep-remote.zip'),
+    const remotePreview = await backend.previewRemoteBackup()
+    expect(remotePreview).toMatchObject({
+      bundlePath: expect.stringMatching(/pathkeep-remote-.*\.zip$/),
+    })
+    await expect(
+      backend.verifyRemoteBackup(remotePreview.bundlePath),
+    ).resolves.toMatchObject({
+      bundlePath: remotePreview.bundlePath,
+      objectKey: remotePreview.objectKey,
+      bundleVersion: 'pathkeep.remote-backup.v1',
+      restoreReady: true,
     })
     await expect(backend.runRemoteBackup()).resolves.toMatchObject({
       uploaded: false,
@@ -275,11 +298,16 @@ describe('backend facade', () => {
         accessKeyId: 'key',
         secretAccessKey: 'secret',
       }),
-    ).resolves.toMatchObject({
-      storedSecret: false,
+    ).resolves.toBeUndefined()
+    expect((await backend.getAppSnapshot()).config.remoteBackup).toMatchObject({
+      credentialsSaved: true,
     })
-    await expect(backend.clearS3Credentials()).resolves.toMatchObject({
-      storedSecret: false,
+    await expect(backend.runRemoteBackup()).resolves.toMatchObject({
+      uploaded: true,
+    })
+    await expect(backend.clearS3Credentials()).resolves.toBeUndefined()
+    expect((await backend.getAppSnapshot()).config.remoteBackup).toMatchObject({
+      credentialsSaved: false,
     })
     await expect(
       backend.storeAiProviderApiKey({
@@ -416,6 +444,35 @@ describe('backend facade', () => {
       ]),
       workflowMap: expect.objectContaining({ chromiumEnhanced: true }),
     })
+    await expect(backend.clearDerivedIntelligence()).resolves.toMatchObject({
+      clearedEnrichmentRows: 8,
+      clearedFeatureRows: 8,
+      clearedCardRows: 2,
+    })
+    await expect(
+      backend.loadInsights({
+        profileId: 'chrome:Default',
+        windowDays: 30,
+        fullRebuild: false,
+        limit: null,
+      }),
+    ).resolves.toMatchObject({
+      cards: [],
+      topics: [],
+      threads: [],
+      status: expect.objectContaining({ ready: false }),
+    })
+    await expect(
+      backend.runInsightsNow({
+        profileId: 'chrome:Default',
+        windowDays: 30,
+        fullRebuild: true,
+        limit: null,
+      }),
+    ).resolves.toMatchObject({
+      processedVisits: 24,
+      cardCount: expect.any(Number),
+    })
     await expect(backend.loadThreadDetail('thread-001')).resolves.toMatchObject(
       {
         summary: expect.objectContaining({ threadId: 'thread-001' }),
@@ -504,6 +561,10 @@ describe('backend facade', () => {
   test('tracks preview queue, provider secrets, remote preview, and doctor repair state transitions', async () => {
     const aiEnabledConfig: AppConfig = {
       ...config,
+      remoteBackup: {
+        ...config.remoteBackup,
+        bucket: 'example-bucket',
+      },
       ai: {
         ...config.ai,
         enabled: true,
@@ -559,12 +620,14 @@ describe('backend facade', () => {
 
     const preview = await backend.previewRemoteBackup()
     expect(preview).toMatchObject({
-      bundlePath: '/tmp/pathkeep-remote.zip',
-      objectKey: 'pathkeep/pathkeep-remote.zip',
+      bundlePath: expect.stringMatching(/^\/tmp\/pathkeep-remote-.*\.zip$/),
+      objectKey: expect.stringMatching(/^pathkeep\/pathkeep-remote-.*\.zip$/),
     })
     expect(preview.uploadUrl).toContain('example-bucket')
     expect(preview.manualSteps).toEqual([
-      'Browser preview mode cannot generate the real bundle.',
+      'Review the bundle path, object key, and upload URL before you trust the destination.',
+      'Store S3 credentials in Settings or copy the preview command into your own terminal session.',
+      'After execute finishes, run Verify to confirm checksums and restore readiness on the generated bundle.',
     ])
 
     const imported = await backend.importTakeout({

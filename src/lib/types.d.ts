@@ -15,6 +15,16 @@ export interface RemoteBackupConfig {
   lastError?: string | null
 }
 
+export interface EnrichmentPluginState {
+  id: string
+  enabled: boolean
+  version: string
+}
+
+export interface EnrichmentSettings {
+  plugins: EnrichmentPluginState[]
+}
+
 export type AiRequestFormat =
   | 'openai'
   | 'anthropic'
@@ -70,6 +80,7 @@ export interface AppConfig {
   rememberDatabaseKeyInKeyring: boolean
   appAutostart: boolean
   remoteBackup: RemoteBackupConfig
+  enrichment: EnrichmentSettings
   ai: AiSettings
 }
 
@@ -506,6 +517,42 @@ export interface RemoteBackupResult {
   objectKey: string
   uploadUrl: string
   message: string
+}
+
+export interface RemoteBackupVerificationCheck {
+  name: string
+  status: string
+  message: string
+}
+
+export interface RemoteBackupVerificationFile {
+  relativePath: string
+  sha256: string
+  sizeBytes: number
+}
+
+export interface RemoteBackupVerification {
+  bundlePath: string
+  bundleVersion: string
+  appVersion: string
+  createdAt: string
+  archiveMode: string
+  objectKey: string
+  restoreReady: boolean
+  checks: RemoteBackupVerificationCheck[]
+  warnings: string[]
+  restoreSteps: string[]
+  manifestFiles: RemoteBackupVerificationFile[]
+}
+
+export interface ClearDerivedIntelligenceReport {
+  clearedEnrichmentRows: number
+  clearedFeatureRows: number
+  clearedTopicRows: number
+  clearedThreadRows: number
+  clearedCardRows: number
+  clearedRunRows: number
+  notes: string[]
 }
 
 export interface TakeoutRequest {

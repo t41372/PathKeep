@@ -3,10 +3,11 @@ use crate::{
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
     models::{
-        AppConfig, ExplainInsightRequest, InsightCard, InsightEvidenceItem, InsightExplanation,
-        InsightProfileFacet, InsightQueryLadder, InsightSnapshot, InsightStatus,
-        InsightThreadDetail, InsightThreadSummary, InsightTopicSummary, InsightWorkflowEdge,
-        InsightWorkflowMap, InsightWorkflowRole, RunInsightsReport, RunInsightsRequest,
+        AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCard,
+        InsightEvidenceItem, InsightExplanation, InsightProfileFacet, InsightQueryLadder,
+        InsightSnapshot, InsightStatus, InsightThreadDetail, InsightThreadSummary,
+        InsightTopicSummary, InsightWorkflowEdge, InsightWorkflowMap, InsightWorkflowRole,
+        RunInsightsReport, RunInsightsRequest,
     },
     utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, url_domain},
 };
@@ -26,6 +27,7 @@ const DEFAULT_ANALYSIS_LIMIT: usize = 600;
 const SESSION_GAP_MINUTES: i64 = 30;
 const THREAD_GAP_DAYS: i64 = 14;
 const REOPEN_GAP_HOURS: i64 = 24;
+const READABLE_CONTENT_REFETCH_PLUGIN_ID: &str = "readable-content-refetch";
 
 const INSIGHT_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS visit_content_enrichments (
@@ -341,6 +343,7 @@ pub fn run_insights(
         load_visits(&connection, request.profile_id.as_deref(), window_days, analysis_limit)?;
     let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
     hydrate_query_terms(&mut visits, &query_terms);
+    let refetch_enabled = enrichment_plugin_enabled(config, READABLE_CONTENT_REFETCH_PLUGIN_ID);
 
     let eligible_ids = visits
         .iter()
@@ -349,20 +352,22 @@ pub fn run_insights(
         .collect::<HashSet<_>>();
     let mut enriched_visits = 0usize;
     let mut failed_enrichments = 0usize;
-    let client = build_refetch_client()?;
-    for visit in &visits {
-        if !eligible_ids.contains(&visit.history_id) {
-            continue;
-        }
-        if enrichment_is_fresh(&connection, visit.history_id)? {
-            continue;
-        }
-        let enrichment = refetch_visit_content(&client, &visit.url);
-        store_enrichment(&connection, visit.history_id, "refetch", &enrichment)?;
-        if enrichment.status == "success" {
-            enriched_visits += 1;
-        } else {
-            failed_enrichments += 1;
+    if refetch_enabled {
+        let client = build_refetch_client()?;
+        for visit in &visits {
+            if !eligible_ids.contains(&visit.history_id) {
+                continue;
+            }
+            if enrichment_is_fresh(&connection, visit.history_id)? {
+                continue;
+            }
+            let enrichment = refetch_visit_content(&client, &visit.url);
+            store_enrichment(&connection, visit.history_id, "refetch", &enrichment)?;
+            if enrichment.status == "success" {
+                enriched_visits += 1;
+            } else {
+                failed_enrichments += 1;
+            }
         }
     }
 
@@ -394,7 +399,12 @@ pub fn run_insights(
             .count() as f32
             / visits.len() as f32
     };
-    let notes = build_run_notes(embedding_provider.is_some(), enriched_visits, failed_enrichments);
+    let notes = build_run_notes(
+        embedding_provider.is_some(),
+        refetch_enabled,
+        enriched_visits,
+        failed_enrichments,
+    );
     connection.execute(
         "UPDATE insight_runs
          SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
@@ -522,6 +532,33 @@ pub fn load_insight_thread_detail(
     Ok(InsightThreadDetail { summary, visits })
 }
 
+pub fn clear_derived_intelligence_state(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<ClearDerivedIntelligenceReport> {
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_insight_schema(&connection)?;
+
+    let report = ClearDerivedIntelligenceReport {
+        cleared_enrichment_rows: table_row_count(&connection, "visit_content_enrichments")?,
+        cleared_feature_rows: table_row_count(&connection, "visit_insight_features")?,
+        cleared_topic_rows: table_row_count(&connection, "insight_topics")?,
+        cleared_thread_rows: table_row_count(&connection, "insight_threads")?,
+        cleared_card_rows: table_row_count(&connection, "insight_cards")?,
+        cleared_run_rows: table_row_count(&connection, "insight_runs")?,
+        notes: vec![
+            "Only derived enrichment and insight tables were cleared.".to_string(),
+            "Canonical archive visits, manifests, and rollback state were left untouched."
+                .to_string(),
+        ],
+    };
+
+    clear_derived_insight_state(&connection)?;
+    Ok(report)
+}
+
 pub fn explain_insight(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -604,12 +641,19 @@ pub fn explain_insight(
 }
 
 fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
+    connection.execute("DELETE FROM visit_content_enrichments", [])?;
     connection.execute("DELETE FROM visit_insight_features", [])?;
     connection.execute("DELETE FROM insight_topics", [])?;
     connection.execute("DELETE FROM insight_threads", [])?;
     connection.execute("DELETE FROM insight_thread_members", [])?;
     connection.execute("DELETE FROM insight_cards", [])?;
+    connection.execute("DELETE FROM insight_runs", [])?;
     Ok(())
+}
+
+fn table_row_count(connection: &Connection, table_name: &str) -> Result<usize> {
+    let sql = format!("SELECT COUNT(*) FROM {table_name}");
+    Ok(connection.query_row(&sql, [], |row: &Row<'_>| row.get::<_, i64>(0))?.max(0) as usize)
 }
 
 fn load_visits(
@@ -722,6 +766,16 @@ fn hydrate_query_terms(visits: &mut [VisitRecord], query_terms: &HashMap<(String
             .cloned()
             .or_else(|| query_term_from_url(&visit.url));
     }
+}
+
+fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> bool {
+    config
+        .enrichment
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == plugin_id)
+        .map(|plugin| plugin.enabled)
+        .unwrap_or(true)
 }
 
 fn is_refetch_eligible(visit: &VisitRecord) -> bool {
@@ -1865,6 +1919,7 @@ fn revisited_pages(visits: &[VisitRecord]) -> Vec<&VisitRecord> {
 
 fn build_run_notes(
     embeddings_available: bool,
+    refetch_enabled: bool,
     enriched_visits: usize,
     failed_enrichments: usize,
 ) -> Vec<String> {
@@ -1874,7 +1929,11 @@ fn build_run_notes(
     } else {
         "Insight run fell back to lexical and structural signals because no embedding provider was ready.".to_string()
     });
-    notes.push(format!("Enriched {enriched_visits} visits with readable content."));
+    notes.push(if refetch_enabled {
+        format!("Enriched {enriched_visits} visits with readable content.")
+    } else {
+        "Readable content refetch was disabled, so the run only used canonical archive and previously retained derived fields.".to_string()
+    });
     if failed_enrichments > 0 {
         notes.push(format!(
             "{failed_enrichments} visit refetch attempts failed or returned unsupported content."
@@ -2465,6 +2524,54 @@ mod tests {
         assert!(!snapshot.cards.is_empty());
         assert!(!snapshot.threads.is_empty());
         assert!(snapshot.workflow_map.chromium_enhanced);
+    }
+
+    #[test]
+    fn readable_content_plugin_can_be_disabled_and_cleared() {
+        let paths = test_paths();
+        let mut config = test_config();
+        config.enrichment.plugins[0].enabled = false;
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        seed_visits(&connection);
+
+        let report = run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: Some(20),
+            },
+        )
+        .expect("run insights with plugin disabled");
+        assert_eq!(report.enriched_visits, 0);
+        assert!(
+            report.notes.iter().any(|note| note.contains("Readable content refetch was disabled"))
+        );
+
+        let cleared =
+            clear_derived_intelligence_state(&paths, &config, None).expect("clear derived state");
+        assert!(cleared.cleared_card_rows > 0);
+        let snapshot = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load cleared snapshot");
+        assert!(snapshot.cards.is_empty());
+        assert!(snapshot.threads.is_empty());
     }
 
     #[test]

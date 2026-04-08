@@ -53,6 +53,15 @@ const baseConfig: AppConfig = {
     lastUploadedObjectKey: null,
     lastError: null,
   },
+  enrichment: {
+    plugins: [
+      {
+        id: 'readable-content-refetch',
+        enabled: true,
+        version: 'm4-v1',
+      },
+    ],
+  },
   ai: {
     enabled: false,
     assistantEnabled: false,
@@ -524,5 +533,29 @@ describe('intelligence surfaces', () => {
         'This card stayed visible because the same evidence cluster reopened several times.',
       ),
     ).toBeVisible()
+  })
+
+  test('renders storage analytics linked back to the latest audit run', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+
+    renderSurface(<InsightsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/insights',
+      snapshot,
+    })
+
+    expect(await screen.findByText('STORAGE ANALYTICS')).toBeVisible()
+    expect(screen.getByText('Tracked storage')).toBeVisible()
+    expect(screen.getByText('Reclaimable')).toBeVisible()
+    expect(screen.getAllByText('Core archive').length).toBeGreaterThan(0)
+
+    const growthLink = screen.getByRole('link', {
+      name: /Latest audit-linked growth/i,
+    })
+    expect(growthLink).toHaveAttribute(
+      'href',
+      expect.stringContaining('/audit?run='),
+    )
   })
 })

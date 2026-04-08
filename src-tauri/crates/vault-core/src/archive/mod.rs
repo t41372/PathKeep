@@ -1,5 +1,6 @@
 mod schema;
 
+pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;
 pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, run_migrations};

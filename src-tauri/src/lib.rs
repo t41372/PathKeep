@@ -72,6 +72,7 @@ fn run_app() -> Result<()> {
             export_history,
             preview_remote_backup,
             run_remote_backup,
+            verify_remote_backup,
             inspect_takeout,
             import_takeout,
             preview_import_batch,
@@ -83,6 +84,7 @@ fn run_app() -> Result<()> {
             schedule_status,
             doctor_report,
             repair_health,
+            clear_derived_intelligence,
             keyring_status,
             security_status,
             keyring_get_database_key,
@@ -242,6 +244,15 @@ fn run_remote_backup(
 
 #[cfg(not(test))]
 #[tauri::command]
+fn verify_remote_backup(
+    bundle_path: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RemoteBackupVerification, String> {
+    worker_bridge::verify_remote_backup_impl(bundle_path, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 fn inspect_takeout(request: TakeoutRequest) -> Result<vault_core::TakeoutInspection, String> {
     worker_bridge::inspect_takeout_impl(request)
 }
@@ -319,6 +330,14 @@ fn doctor_report(state: State<'_, SessionState>) -> Result<vault_core::HealthRep
 #[tauri::command]
 fn repair_health(state: State<'_, SessionState>) -> Result<vault_core::HealthRepairReport, String> {
     worker_bridge::repair_health_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn clear_derived_intelligence(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ClearDerivedIntelligenceReport, String> {
+    worker_bridge::clear_derived_intelligence_impl(state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

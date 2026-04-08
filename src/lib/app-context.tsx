@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
 import { backend } from './backend'
+import { defaultEnrichmentSettings } from './enrichment'
 import {
   createTranslator,
   resolveLanguage,
@@ -77,6 +78,7 @@ const EMPTY_CONFIG: AppConfig = {
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
   remoteBackup: EMPTY_REMOTE_BACKUP,
+  enrichment: defaultEnrichmentSettings(),
   ai: EMPTY_AI_SETTINGS,
 }
 

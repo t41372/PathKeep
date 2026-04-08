@@ -1,26 +1,35 @@
 use crate::{
-    archive::{export_archive_database, open_archive_connection},
+    archive::{apply_cipher_key, export_archive_database, open_archive_connection},
     config::{ProjectPaths, ensure_paths, save_config},
-    models::{AppConfig, ArchiveMode, RemoteBackupPreview, RemoteBackupResult, S3CredentialInput},
+    models::{
+        AppConfig, ArchiveMode, RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification,
+        RemoteBackupVerificationCheck, RemoteBackupVerificationFile, S3CredentialInput,
+    },
     utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
-use serde::Serialize;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
 };
 use tempfile::tempdir;
 use walkdir::WalkDir;
-use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 const TEST_CURL_BIN_ENV: &str = "BHB_TEST_CURL_BIN";
+const REMOTE_BUNDLE_VERSION: &str = "pathkeep.remote-backup.v1";
+const REQUIRED_BUNDLE_ENTRIES: &[&str] =
+    &["archive/history-vault.sqlite", "config/config.json", "metadata/bundle-manifest.json"];
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BundleManifest {
+    bundle_version: String,
+    app_version: String,
     created_at: String,
     archive_mode: String,
     bucket: String,
@@ -28,7 +37,7 @@ struct BundleManifest {
     files: Vec<BundleManifestFile>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BundleManifestFile {
     relative_path: String,
@@ -141,6 +150,95 @@ pub fn run_remote_backup(
     })
 }
 
+pub fn verify_remote_backup(
+    bundle_path: &Path,
+    key: Option<&str>,
+) -> Result<RemoteBackupVerification> {
+    let file =
+        File::open(bundle_path).with_context(|| format!("opening {}", bundle_path.display()))?;
+    let mut archive = ZipArchive::new(file).context("opening remote backup bundle")?;
+    let manifest = read_bundle_manifest(&mut archive)?;
+
+    let version_supported = manifest.bundle_version == REMOTE_BUNDLE_VERSION;
+    let required_entries_ready = required_bundle_entries_present(&mut archive);
+    let (checksum_ok, checksum_message) = verify_bundle_checksums(&mut archive, &manifest.files)?;
+    let (restore_ready, restore_message, mut warnings) =
+        match validate_restore_readiness(&mut archive, &manifest, key) {
+            Ok(result) => result,
+            Err(error) => (false, format!("Restore validation failed: {error:#}"), Vec::new()),
+        };
+
+    if manifest.archive_mode == "plaintext" {
+        warnings.push(
+            "The archive inside this bundle is plaintext at rest. Restore only onto a trusted local disk."
+                .to_string(),
+        );
+    }
+
+    Ok(RemoteBackupVerification {
+        bundle_path: bundle_path.display().to_string(),
+        bundle_version: manifest.bundle_version.clone(),
+        app_version: manifest.app_version.clone(),
+        created_at: manifest.created_at.clone(),
+        archive_mode: manifest.archive_mode.clone(),
+        object_key: manifest.object_key.clone(),
+        restore_ready: version_supported && required_entries_ready && checksum_ok && restore_ready,
+        checks: vec![
+            RemoteBackupVerificationCheck {
+                name: "bundle-version".to_string(),
+                status: if version_supported { "ok" } else { "error" }.to_string(),
+                message: if version_supported {
+                    format!("Bundle version {} is supported by this PathKeep build.", manifest.bundle_version)
+                } else {
+                    format!(
+                        "Bundle version {} is not supported by this PathKeep build (expected {}).",
+                        manifest.bundle_version, REMOTE_BUNDLE_VERSION
+                    )
+                },
+            },
+            RemoteBackupVerificationCheck {
+                name: "required-entries".to_string(),
+                status: if required_entries_ready { "ok" } else { "error" }.to_string(),
+                message: if required_entries_ready {
+                    "Archive, config, and manifest entries are all present in the bundle."
+                        .to_string()
+                } else {
+                    "One or more required restore entries are missing from the bundle."
+                        .to_string()
+                },
+            },
+            RemoteBackupVerificationCheck {
+                name: "checksums".to_string(),
+                status: if checksum_ok { "ok" } else { "error" }.to_string(),
+                message: checksum_message,
+            },
+            RemoteBackupVerificationCheck {
+                name: "restore-validation".to_string(),
+                status: if restore_ready { "ok" } else { "warning" }.to_string(),
+                message: restore_message,
+            },
+        ],
+        warnings,
+        restore_steps: vec![
+            "Download the bundle to a local disk before attempting restore.".to_string(),
+            "Verify the manifest, checksums, and required entries before replacing a live archive."
+                .to_string(),
+            "If the archive is encrypted, unlock PathKeep with the matching database key before restore."
+                .to_string(),
+        ],
+        manifest_files: manifest
+            .files
+            .iter()
+            .cloned()
+            .map(|file| RemoteBackupVerificationFile {
+                relative_path: file.relative_path,
+                sha256: file.sha256,
+                size_bytes: file.size_bytes,
+            })
+            .collect(),
+    })
+}
+
 fn validate_remote_backup_config(config: &AppConfig) -> Result<()> {
     if config.remote_backup.bucket.trim().is_empty() {
         anyhow::bail!("remote backup bucket is required")
@@ -187,6 +285,8 @@ fn build_bundle(
     }
 
     let manifest = BundleManifest {
+        bundle_version: REMOTE_BUNDLE_VERSION.to_string(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
         created_at: created_at.to_string(),
         archive_mode: match config.archive_mode {
             ArchiveMode::Encrypted => "encrypted".to_string(),
@@ -270,6 +370,97 @@ fn add_file_to_zip(
         size_bytes: bytes.len() as u64,
     });
     Ok(())
+}
+
+fn read_bundle_manifest(archive: &mut ZipArchive<File>) -> Result<BundleManifest> {
+    let bytes = read_zip_entry(archive, "metadata/bundle-manifest.json")?;
+    serde_json::from_slice::<BundleManifest>(&bytes).context("parsing bundle manifest json")
+}
+
+fn read_zip_entry(archive: &mut ZipArchive<File>, entry_name: &str) -> Result<Vec<u8>> {
+    let mut entry = archive
+        .by_name(entry_name)
+        .with_context(|| format!("reading {entry_name} from remote backup bundle"))?;
+    let mut bytes = Vec::new();
+    entry.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn required_bundle_entries_present(archive: &mut ZipArchive<File>) -> bool {
+    REQUIRED_BUNDLE_ENTRIES.iter().all(|entry_name| archive.by_name(entry_name).is_ok())
+}
+
+fn verify_bundle_checksums(
+    archive: &mut ZipArchive<File>,
+    files: &[BundleManifestFile],
+) -> Result<(bool, String)> {
+    let mut mismatches = Vec::new();
+    for file in files {
+        let bytes = match read_zip_entry(archive, &file.relative_path) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                mismatches.push(format!("{} is missing from the zip payload", file.relative_path));
+                continue;
+            }
+        };
+        let actual_sha256 = sha256_hex(&bytes);
+        let actual_size = bytes.len() as u64;
+        if actual_sha256 != file.sha256 || actual_size != file.size_bytes {
+            mismatches.push(format!(
+                "{} checksum or size drifted (expected {} / {}, saw {} / {})",
+                file.relative_path, file.sha256, file.size_bytes, actual_sha256, actual_size
+            ));
+        }
+    }
+
+    if mismatches.is_empty() {
+        Ok((true, format!("Verified {} manifest-tracked bundle entries.", files.len())))
+    } else {
+        Ok((false, mismatches.join(" | ")))
+    }
+}
+
+fn validate_restore_readiness(
+    archive: &mut ZipArchive<File>,
+    manifest: &BundleManifest,
+    key: Option<&str>,
+) -> Result<(bool, String, Vec<String>)> {
+    let config_bytes = read_zip_entry(archive, "config/config.json")?;
+    let _config: AppConfig =
+        serde_json::from_slice(&config_bytes).context("parsing bundled config.json")?;
+
+    let archive_bytes = read_zip_entry(archive, "archive/history-vault.sqlite")?;
+    let tempdir = tempdir().context("creating remote restore verification dir")?;
+    let extracted_archive_path = tempdir.path().join("history-vault.sqlite");
+    fs::write(&extracted_archive_path, archive_bytes)
+        .with_context(|| format!("writing {}", extracted_archive_path.display()))?;
+
+    let connection = Connection::open(&extracted_archive_path)
+        .with_context(|| format!("opening {}", extracted_archive_path.display()))?;
+    if manifest.archive_mode == "encrypted" {
+        let key =
+            key.context("unlock the archive before verifying an encrypted remote backup bundle")?;
+        apply_cipher_key(&connection, key)?;
+    }
+
+    connection
+        .query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
+        .context("validating the bundled archive sqlite payload")?;
+
+    let warnings = if manifest.archive_mode == "encrypted" {
+        vec![
+            "Encrypted bundle validation succeeded with the current session database key."
+                .to_string(),
+        ]
+    } else {
+        Vec::new()
+    };
+
+    Ok((
+        true,
+        "Archive payload opened successfully and the bundled config is readable.".to_string(),
+        warnings,
+    ))
 }
 
 fn remote_object_key(config: &AppConfig, bundle_path: &Path) -> String {
@@ -358,6 +549,7 @@ mod tests {
         os::unix::fs::PermissionsExt,
         sync::{Mutex, OnceLock},
     };
+    use zip::write::SimpleFileOptions;
 
     fn remote_test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -416,6 +608,34 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&script_path, permissions).expect("chmod");
         script_path
+    }
+
+    fn rewrite_bundle_entry(bundle_path: &Path, entry_name: &str, replacement: &[u8]) -> PathBuf {
+        let file = File::open(bundle_path).expect("open existing bundle");
+        let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+        let rewritten_path = bundle_path.with_file_name(format!(
+            "tampered-{}",
+            bundle_path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        let rewritten_file = File::create(&rewritten_path).expect("create rewritten bundle");
+        let mut writer = ZipWriter::new(rewritten_file);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("bundle entry");
+            let name = entry.name().to_string();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read bundle entry");
+            writer.start_file(name.clone(), options).expect("start zip entry");
+            if name == entry_name {
+                writer.write_all(replacement).expect("write replacement entry");
+            } else {
+                writer.write_all(&bytes).expect("write copied entry");
+            }
+        }
+
+        writer.finish().expect("finish rewritten bundle");
+        rewritten_path
     }
 
     #[test]
@@ -675,7 +895,62 @@ mod tests {
             .expect("manifest entry")
             .read_to_string(&mut manifest)
             .expect("read manifest");
+        assert!(manifest.contains("\"bundleVersion\": \"pathkeep.remote-backup.v1\""));
         assert!(manifest.contains("\"archiveMode\": \"encrypted\""));
+    }
+
+    #[test]
+    fn verify_remote_backup_reports_restore_ready_for_plaintext_bundle() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+
+        let bundle_path =
+            build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+        let verification = verify_remote_backup(&bundle_path, None).expect("verify bundle");
+
+        assert!(verification.restore_ready);
+        assert_eq!(verification.bundle_version, REMOTE_BUNDLE_VERSION);
+        assert_eq!(verification.archive_mode, "plaintext");
+        assert_eq!(verification.checks.len(), 4);
+        assert!(
+            verification
+                .checks
+                .iter()
+                .all(|check| check.status == "ok" || check.status == "warning")
+        );
+        assert!(
+            verification
+                .manifest_files
+                .iter()
+                .any(|file| file.relative_path == "archive/history-vault.sqlite")
+        );
+    }
+
+    #[test]
+    fn verify_remote_backup_detects_checksum_drift() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+
+        let bundle_path =
+            build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+        let tampered_path =
+            rewrite_bundle_entry(&bundle_path, "archive/history-vault.sqlite", b"tampered");
+        let verification = verify_remote_backup(&tampered_path, None).expect("verify tampered");
+
+        assert!(!verification.restore_ready);
+        assert_eq!(
+            verification
+                .checks
+                .iter()
+                .find(|check| check.name == "checksums")
+                .expect("checksum check")
+                .status,
+            "error"
+        );
     }
 
     #[test]

@@ -19,19 +19,22 @@ use vault_core::{
     AiIntegrationPreview, AiProviderConfig, AiProviderConnectionTestReport,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderRuntime, AiProviderSecretInput,
     AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot,
-    ArchiveMode, AuditRunDetail, DashboardSnapshot, ExplainInsightRequest, ExportRequest,
-    HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail,
-    InsightExplanation, InsightSnapshot, InsightStatus, InsightThreadDetail, KeyringStatusReport,
-    RemoteBackupPreview, RemoteBackupResult, RunInsightsReport, RunInsightsRequest,
-    S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest, ai_index_status, ai_queue,
-    ai_queue_status, answer_history_question, archive, archive_status, build_ai_index, doctor,
-    ensure_archive_initialized, explain_insight, export_history, import_takeout, insight_status,
-    inspect_takeout, list_history, load_assistant_run_response, load_audit_run_detail, load_config,
-    load_dashboard_snapshot, load_import_batches, load_insight_thread_detail, load_insights,
-    load_recent_runs, preview_ai_integrations, preview_import_batch, preview_remote_backup,
-    project_paths, provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
+    ArchiveMode, AuditRunDetail, ClearDerivedIntelligenceReport, DashboardSnapshot,
+    ExplainInsightRequest, ExportRequest, HealthRepairReport, HealthReport, HistoryQuery,
+    HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot, InsightStatus,
+    InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult,
+    RemoteBackupVerification, RunInsightsReport, RunInsightsRequest, S3CredentialInput,
+    SchedulePlan, TakeoutInspection, TakeoutRequest, ai_index_status, ai_queue, ai_queue_status,
+    answer_history_question, archive, archive_status, build_ai_index,
+    clear_derived_intelligence_state, doctor, ensure_archive_initialized, explain_insight,
+    export_history, import_takeout, insight_status, inspect_takeout, list_history,
+    load_assistant_run_response, load_audit_run_detail, load_config, load_dashboard_snapshot,
+    load_import_batches, load_insight_thread_detail, load_insights, load_recent_runs,
+    preview_ai_integrations, preview_import_batch, preview_remote_backup, project_paths,
+    provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
     repair_health_issues, restore_import_batch, revert_import_batch, run_backup, run_insights,
     run_remote_backup, save_config, semantic_search_history, test_provider_connection,
+    verify_remote_backup,
 };
 use vault_platform::{
     ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
@@ -738,6 +741,21 @@ pub fn upload_remote_backup_bundle(
     let credentials = keyring_get_s3_credentials()?
         .context("store S3 credentials in Settings before running a remote backup")?;
     run_remote_backup(&paths, &config, session_database_key, &credentials)
+}
+
+pub fn verify_remote_backup_bundle(
+    session_database_key: Option<&str>,
+    bundle_path: &str,
+) -> Result<RemoteBackupVerification> {
+    verify_remote_backup(std::path::Path::new(bundle_path), session_database_key)
+}
+
+pub fn clear_derived_intelligence(
+    session_database_key: Option<&str>,
+) -> Result<ClearDerivedIntelligenceReport> {
+    let paths = project_paths()?;
+    let config = load_config(&paths)?;
+    clear_derived_intelligence_state(&paths, &config, session_database_key)
 }
 
 pub fn inspect_takeout_source(request: &TakeoutRequest) -> Result<TakeoutInspection> {

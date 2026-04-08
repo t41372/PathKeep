@@ -38,6 +38,15 @@ const config: AppConfig = {
     lastUploadedObjectKey: null,
     lastError: null,
   },
+  enrichment: {
+    plugins: [
+      {
+        id: 'readable-content-refetch',
+        enabled: true,
+        version: 'm4-v1',
+      },
+    ],
+  },
   ai: {
     enabled: true,
     assistantEnabled: true,

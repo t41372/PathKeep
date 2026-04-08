@@ -147,8 +147,17 @@
 ### 遠端備份
 
 - 支援備份到 S3 相容的對象存儲。
-- 用戶在設定中配置 endpoint、bucket、credentials。
+- day-one provider scope 是 S3-compatible bucket，並支援自訂 endpoint、object prefix 與 path-style URL，讓使用者能對 AWS S3 和常見相容服務做同一套配置審查。
+- 用戶在設定中配置 endpoint、bucket、region、prefix、credentials。
 - 遠端備份是明確的用戶操作，不會自動上傳。
+- v1 遠端備份必須走完整 PME：
+  - Preview：先顯示 `bundlePath`、`objectKey`、`uploadUrl`、warnings 與 preview curl command。
+  - Manual：保留 manual upload steps、retention reminder 與 restore checklist，避免把遠端物件存儲變成黑盒。
+  - Execute：只有在 config 已 review 且 credential 已儲存時才允許上傳；成功 / 失敗都要回寫 last uploaded object key、時間與錯誤訊息。
+  - Verify：對實際生成的 bundle 重算 checksums、檢查 bundle version / required entries、並做本地 restore readiness 驗證，不能只把 upload 成功當作 restore 成功。
+- v1 bundle format 是 `pathkeep.remote-backup.v1` zip，至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`；如果本地已有 audit manifests / scheduler artifacts，也應一併打包。manifest 需記錄 `createdAt`、`appVersion`、`archiveMode`、`objectKey`，以及每個 entry 的 `sha256` / `sizeBytes`。
+- Verify 對 plaintext archive bundle 必須提出明確 warning；encrypted archive 的 verify / restore 則必須要求使用者先用相同資料庫金鑰解鎖 PathKeep。
+- v1 的 retention / prune / retry 仍是 manual-first：PathKeep 提供 guidance 與 upload / verify trace，但不在使用者尚未信任 bundle format 與 restore workflow 前自動清理遠端物件。
 
 ---
 
@@ -241,3 +250,11 @@
 - Enrichment 可以隨時重跑 — 插件升級後可以重新增強舊記錄。
 - Enrichment 的版本和來源有記錄 — 知道每條增強是哪個插件、什麼時候產生的。
 - 調用外部 API 的插件必須內建 **rate limiter** — 避免觸發 API 速率限制。重試策略由 Job Queue（見 [intelligence.md](intelligence.md) 7.6）統一管理。
+
+### M4-A / v1 已落地邊界
+
+- 目前已交付的內建 plugin 只有 `readable-content-refetch`，預設啟用、版本為 `m4-v1`，設定存在 `AppConfig.enrichment.plugins[*]`，使用者可在 Settings 明確 enable / disable。
+- `readable-content-refetch` 目前掛在 insights rebuild flow，而不是獨立的 canonical ingest pipeline；它只能寫入 derived enrichment / insight tables，不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
+- v1 的 freshness window 是 7 天；refetch client 採 10 秒 timeout、最多 5 次 redirect，`fetch-error`、`decode-error`、`unsupported-content`、`empty` 都視為 non-blocking derived failure，會留在 run notes / rebuild report，而不會讓核心 archive run 失敗。
+- Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
+- 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。

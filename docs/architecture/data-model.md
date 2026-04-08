@@ -128,6 +128,21 @@
 - `ai_assistant_runs` 保存 run-linked assistant trace：`run_id`、question / answer、LLM provider、retrieval provider、citations JSON 與 notes JSON。queued assistant job 完成後要能回到同一筆 trace，而不是只剩暫時性的 UI state。
 - sidecar 可以整個刪除後再依 `ai_jobs` / `ai_index_ledger` / canonical archive facts 重建；刪 sidecar 不應修改任何 `visits` / `downloads` / `search_terms` / `raw_row_versions`。
 
+### Enrichment / insight derived-state boundary
+
+- `AppConfig.enrichment.plugins[*]` 是 enrichment plugin 的設定 surface，至少保存 `id`、`enabled`、`version`。缺漏設定必須能從 built-in defaults 回補，避免舊 config 因為新增 plugin 而失真。
+- M4-A 目前唯一內建 plugin 是 `readable-content-refetch`，版本 `m4-v1`、預設啟用，queue contract 掛在 `insights`。這是 derived-state policy，不是 canonical ingest schema 的一部分。
+- `visit_content_enrichments`、`visit_insight_features`、`insight_topics`、`insight_threads`、`insight_thread_members`、`insight_cards`、`insight_runs` 都屬於可重建 derived tables。`run_insights(full_rebuild = true)` 可以先清空再重算；`clear_derived_intelligence_state` 也可以整批刪除這些表的內容。
+- derived clear / rebuild 絕不能修改 canonical `visits`、`downloads`、`search_terms`、`runs`、`manifests`、`raw_row_versions` 或 rollback visibility 欄位。任何 derived maintenance 都只能留下 trace，不可改寫 source facts。
+- refetch freshness / fetch status / snippet / readable text 都屬 derived evidence，而不是 source of truth。這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
+
+### Remote backup bundle contract
+
+- M4-A 的 remote backup artifact 是 `pathkeep.remote-backup.v1` zip bundle，不是直接把 live archive path 指向 object storage。bundle 至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`，並在存在時附帶 `audit/manifests/` 與 scheduler artifacts。
+- `bundle-manifest.json` 是 bundle 內的 restore contract：必須記錄 `bundleVersion`、`appVersion`、`createdAt`、`archiveMode`、`bucket`、`objectKey` 與每個 entry 的 `relativePath` / `sha256` / `sizeBytes`。
+- Verify 不只檢查 zip 能不能打開；它還必須驗證 bundle version、required entries、每個 manifest file 的 checksum / size，並嘗試用本機 restore path 打開打包後的 SQLite archive。encrypted bundle 驗證需要 session key；plaintext bundle 要留下明確 warning。
+- remote object lifecycle 在 v1 仍是 manual-first。PathKeep 可以記錄 `lastUploadedAt`、`lastUploadedObjectKey`、`lastError` 與 verify report，但不在未完成 restore rehearsal 前自動 prune bucket 內容。
+
 ---
 
 ## 3. 長期容量設計原則
@@ -139,4 +154,5 @@
 - **語義搜尋不能做全表掃描**。幾千萬行 embedding 全量 cosine 計算不可能保持互動性，需要 ANN（近似最近鄰）索引。LanceDB 提供 disk-based IVF-PQ 索引。
 - **AI 資產不能拖慢核心 archive**。Embedding 和向量索引存在獨立的 LanceDB sidecar 中，與主 SQLite archive 完全隔離。
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、FTS 索引、embedding / 向量索引、enrichment、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
+- M4-A 的 storage analytics v1 以 `core`、`audit`、`exports`、`rebuildable` 四個 slice 呈現現況，並把 `exports + staging + quarantine` 視為目前可回收空間的近似值；更細的 per-plugin / per-model accounting 可在後續里程碑再補。
 - **快照必須有保留上限**。一個 100 GB 的 archive 保留 8 份快照就是 800 GB。預設保留最近 4-8 個 archive 快照，用戶可調。

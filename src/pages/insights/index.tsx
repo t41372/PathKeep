@@ -8,6 +8,7 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
 import {
   calendarDayKey,
+  formatBytes,
   formatDateTime,
   formatRelativeTime,
 } from '../../lib/format'
@@ -18,6 +19,10 @@ import {
   dedupeEvidence,
   evidenceHref,
 } from '../../lib/intelligence'
+import {
+  storageAnalyticsSlices,
+  storageGrowthEvidence,
+} from '../../lib/storage-analytics'
 import type {
   InsightCard,
   InsightEvidenceItem,
@@ -45,7 +50,7 @@ function flattenInsightEvidence(snapshot: InsightSnapshot) {
 
 export function InsightsPage() {
   const { language, ns } = useI18n()
-  const { refreshAppData, refreshKey, snapshot } = useShellData()
+  const { dashboard, refreshAppData, refreshKey, snapshot } = useShellData()
   const [insights, setInsights] = useState<InsightSnapshot | null>(null)
   const [explanation, setExplanation] = useState<InsightExplanation | null>(
     null,
@@ -119,6 +124,14 @@ export function InsightsPage() {
     const seeded = insights.cards.slice(0, 2).map((card) => card.summary)
     return seeded.length > 0 ? seeded : insights.notes
   }, [insights])
+  const storageEvidence = useMemo(
+    () => storageGrowthEvidence(dashboard),
+    [dashboard],
+  )
+  const storageSlices = useMemo(
+    () => (dashboard ? storageAnalyticsSlices(dashboard.storage) : []),
+    [dashboard],
+  )
 
   async function handleRefreshInsights() {
     setAction(insightsT('refreshingAction'))
@@ -342,6 +355,119 @@ export function InsightsPage() {
                 description={insightsT('noSiteAnalyticsDescription')}
                 eyebrow={insightsT('noSiteAnalyticsEyebrow')}
                 title={insightsT('noSiteAnalyticsTitle')}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('storageAnalytics')}</span>
+            <span className="panel-action">{insightsT('growthSignal')}</span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {dashboard ? (
+              <>
+                <p className="summary-text">
+                  {insightsT('storageAnalyticsDescription')}
+                </p>
+                <div className="summary-stats">
+                  <div className="summary-stat">
+                    <span className="dim">{insightsT('trackedStorage')}</span>
+                    <span className="mono">
+                      {formatBytes(storageEvidence.totalTrackedBytes)}
+                    </span>
+                  </div>
+                  <div className="summary-stat">
+                    <span className="dim">{insightsT('reclaimableSpace')}</span>
+                    <span className="mono">
+                      {formatBytes(storageEvidence.reclaimableBytes)}
+                    </span>
+                  </div>
+                  <div className="summary-stat">
+                    <span className="dim">{insightsT('dominantStorage')}</span>
+                    <span className="mono">
+                      {insightsT(
+                        storageEvidence.dominantSlice.id === 'core'
+                          ? 'coreStorage'
+                          : storageEvidence.dominantSlice.id === 'audit'
+                            ? 'auditStorage'
+                            : storageEvidence.dominantSlice.id === 'exports'
+                              ? 'exportStorage'
+                              : 'rebuildableStorage',
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <div className="domain-list">
+                  {storageSlices.map((slice) => (
+                    <div key={slice.id} className="domain-item">
+                      <span className="domain-name mono">
+                        {insightsT(
+                          slice.id === 'core'
+                            ? 'coreStorage'
+                            : slice.id === 'audit'
+                              ? 'auditStorage'
+                              : slice.id === 'exports'
+                                ? 'exportStorage'
+                                : 'rebuildableStorage',
+                        )}
+                      </span>
+                      <div className="domain-bar-container">
+                        <div
+                          className="domain-bar"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              storageEvidence.totalTrackedBytes === 0
+                                ? 0
+                                : Math.round(
+                                    (slice.bytes /
+                                      storageEvidence.totalTrackedBytes) *
+                                      100,
+                                  ),
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="domain-count mono">
+                        {formatBytes(slice.bytes)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {storageEvidence.latestRunId ? (
+                  <Link
+                    className="result-row"
+                    to={`/audit?run=${storageEvidence.latestRunId}`}
+                  >
+                    <div className="result-row__header">
+                      <strong>{insightsT('latestRunGrowth')}</strong>
+                      <span className="mono">
+                        #{storageEvidence.latestRunId}
+                      </span>
+                    </div>
+                    <p>
+                      {insightsT('latestRunGrowthBody', {
+                        visits: storageEvidence.latestVisitGrowth,
+                        urls: storageEvidence.latestUrlGrowth,
+                        downloads: storageEvidence.latestDownloadGrowth,
+                      })}
+                    </p>
+                  </Link>
+                ) : (
+                  <EmptyState
+                    description={insightsT('noGrowthEvidenceDescription')}
+                    eyebrow={insightsT('growthSignal')}
+                    title={insightsT('noGrowthEvidenceTitle')}
+                  />
+                )}
+              </>
+            ) : (
+              <EmptyState
+                description={insightsT('noGrowthEvidenceDescription')}
+                eyebrow={insightsT('growthSignal')}
+                title={insightsT('noGrowthEvidenceTitle')}
               />
             )}
           </div>

@@ -137,6 +137,14 @@ pub(crate) fn run_remote_backup_impl(
     worker_result(vault_worker::upload_remote_backup_bundle(session_database_key))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn verify_remote_backup_impl(
+    bundle_path: String,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::RemoteBackupVerification, String> {
+    worker_result(vault_worker::verify_remote_backup_bundle(session_database_key, &bundle_path))
+}
+
 pub(crate) fn inspect_takeout_impl(
     request: TakeoutRequest,
 ) -> Result<vault_core::TakeoutInspection, String> {
@@ -203,6 +211,13 @@ pub(crate) fn repair_health_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::HealthRepairReport, String> {
     worker_result(vault_worker::repair_health(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn clear_derived_intelligence_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ClearDerivedIntelligenceReport, String> {
+    worker_result(vault_worker::clear_derived_intelligence(session_database_key))
 }
 
 pub(crate) fn keyring_status_impl() -> vault_core::KeyringStatusReport {

@@ -1,4 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import {
+  defaultEnrichmentSettings,
+  enrichmentPluginEnabled,
+  resolveEnrichmentSettings,
+  READABLE_CONTENT_REFETCH_PLUGIN_ID,
+} from './enrichment'
 import type {
   AiAssistantRequest,
   AiAssistantResponse,
@@ -19,6 +25,7 @@ import type {
   AuditRunDetail,
   BackupRunOverview,
   BackupReport,
+  ClearDerivedIntelligenceReport,
   DashboardSnapshot,
   ExplainInsightRequest,
   ExportRequest,
@@ -37,6 +44,7 @@ import type {
   RekeyRequest,
   RemoteBackupPreview,
   RemoteBackupResult,
+  RemoteBackupVerification,
   RunInsightsReport,
   RunInsightsRequest,
   SchedulePlan,
@@ -102,6 +110,7 @@ const mockSnapshot: AppSnapshot = {
       lastUploadedObjectKey: null,
       lastError: null,
     },
+    enrichment: defaultEnrichmentSettings(),
     ai: {
       enabled: false,
       assistantEnabled: false,
@@ -463,6 +472,7 @@ interface MockBackendState {
   snapshot: AppSnapshot
   history: HistoryQueryResponse
   keyringSecret: string | null
+  s3Credentials: S3CredentialInput | null
   importBatchDetails: Record<number, ImportBatchDetail>
   schedulePlanOverrides: Partial<
     Record<'macos' | 'windows' | 'linux', SchedulePlan>
@@ -473,6 +483,8 @@ interface MockBackendState {
   queueJobs: AiQueueJob[]
   nextAiJobId: number
   nextImportBatchId: number
+  lastRemoteBundlePath: string | null
+  derivedStateCleared: boolean
 }
 
 function browserKindFromProfileId(profileId: string) {
@@ -482,6 +494,279 @@ function browserKindFromProfileId(profileId: string) {
 
 function uniqueUrlCount(items: HistoryQueryResponse['items']) {
   return new Set(items.map((item) => item.url)).size
+}
+
+function normalizeMockConfig(
+  config: AppConfig,
+  s3Credentials: S3CredentialInput | null = null,
+): AppConfig {
+  return {
+    ...config,
+    enrichment: resolveEnrichmentSettings(config.enrichment),
+    remoteBackup: {
+      ...config.remoteBackup,
+      credentialsSaved: Boolean(s3Credentials),
+    },
+  }
+}
+
+function remoteBundlePath() {
+  const timestamp = new Date().toISOString().replaceAll(':', '-')
+  return `/tmp/pathkeep-remote-${timestamp}.zip`
+}
+
+function remoteObjectKey(config: AppConfig, bundlePath: string) {
+  const prefix = config.remoteBackup.prefix.trim().replace(/^\/+|\/+$/g, '')
+  const fileName = bundlePath.split('/').pop() ?? 'pathkeep-remote.zip'
+  return prefix ? `${prefix}/${fileName}` : fileName
+}
+
+function remoteUploadUrl(config: AppConfig, objectKey: string) {
+  const trimmedObjectKey = objectKey.replace(/^\/+/, '')
+  const endpoint = config.remoteBackup.endpoint?.trim()
+
+  if (endpoint) {
+    const normalized =
+      endpoint.startsWith('http://') || endpoint.startsWith('https://')
+        ? endpoint.replace(/\/+$/g, '')
+        : `https://${endpoint.replace(/\/+$/g, '')}`
+    if (config.remoteBackup.pathStyle) {
+      return `${normalized}/${config.remoteBackup.bucket}/${trimmedObjectKey}`
+    }
+
+    const url = new URL(normalized)
+    url.hostname = `${config.remoteBackup.bucket}.${url.hostname}`
+    return `${url.toString().replace(/\/+$/g, '')}/${trimmedObjectKey}`
+  }
+
+  if (config.remoteBackup.pathStyle) {
+    return `https://s3.${config.remoteBackup.region}.amazonaws.com/${config.remoteBackup.bucket}/${trimmedObjectKey}`
+  }
+
+  return `https://${config.remoteBackup.bucket}.s3.${config.remoteBackup.region}.amazonaws.com/${trimmedObjectKey}`
+}
+
+function previewRemoteBackupFixture(
+  state: MockBackendState,
+): RemoteBackupPreview {
+  const config = state.snapshot.config
+  const bundlePath = remoteBundlePath()
+  const objectKey = remoteObjectKey(config, bundlePath)
+  const uploadUrl = remoteUploadUrl(config, objectKey)
+  const warnings = []
+
+  if (config.archiveMode === 'Plaintext') {
+    warnings.push(
+      'The remote bundle will contain a plaintext archive because local encryption is currently disabled.',
+    )
+  }
+  if (!state.snapshot.config.remoteBackup.credentialsSaved) {
+    warnings.push(
+      'Remote credentials are not stored yet. Save the access key and secret before using Execute.',
+    )
+  }
+  if (config.remoteBackup.endpoint) {
+    warnings.push(
+      'A custom S3-compatible endpoint is configured. Verify TLS, bucket policy, and path-style compatibility before trusting automatic upload.',
+    )
+  }
+
+  state.lastRemoteBundlePath = bundlePath
+
+  return {
+    bundlePath,
+    objectKey,
+    uploadUrl,
+    previewCommand: `curl --fail --show-error --aws-sigv4 "aws:amz:${config.remoteBackup.region}:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T '${bundlePath}' '${uploadUrl}'`,
+    manualSteps: [
+      'Review the bundle path, object key, and upload URL before you trust the destination.',
+      'Store S3 credentials in Settings or copy the preview command into your own terminal session.',
+      'After execute finishes, run Verify to confirm checksums and restore readiness on the generated bundle.',
+    ],
+    warnings,
+  }
+}
+
+function verifyRemoteBackupFixture(
+  state: MockBackendState,
+  bundlePath?: string,
+): RemoteBackupVerification {
+  const resolvedBundlePath =
+    bundlePath ?? state.lastRemoteBundlePath ?? remoteBundlePath()
+  const objectKey = remoteObjectKey(state.snapshot.config, resolvedBundlePath)
+  return {
+    bundlePath: resolvedBundlePath,
+    bundleVersion: 'pathkeep.remote-backup.v1',
+    appVersion: mockBuildInfo.version,
+    createdAt: new Date().toISOString(),
+    archiveMode:
+      state.snapshot.config.archiveMode === 'Encrypted'
+        ? 'encrypted'
+        : 'plaintext',
+    objectKey,
+    restoreReady: true,
+    checks: [
+      {
+        name: 'bundle-manifest',
+        status: 'ok',
+        message:
+          'Bundle manifest exists and declares a supported PathKeep remote bundle version.',
+      },
+      {
+        name: 'checksums',
+        status: 'ok',
+        message:
+          'Preview verification recalculated bundle checksums and found no drift.',
+      },
+      {
+        name: 'restore-validation',
+        status: 'ok',
+        message:
+          'Required archive/config entries are present, so the bundle is restorable in the desktop app.',
+      },
+    ],
+    warnings:
+      state.snapshot.config.archiveMode === 'Plaintext'
+        ? [
+            'Restore validation passed, but the archive inside this bundle stays plaintext at rest.',
+          ]
+        : [],
+    restoreSteps: [
+      'Download the bundle to a local disk before attempting restore.',
+      'Verify the manifest and archive entries before replacing a live PathKeep archive.',
+      'If the archive is encrypted, unlock PathKeep with the current database key before restore.',
+    ],
+    manifestFiles: [
+      {
+        relativePath: 'archive/history-vault.sqlite',
+        sha256: 'preview-archive-sha256',
+        sizeBytes: 146_800_640,
+      },
+      {
+        relativePath: 'config/config.json',
+        sha256: 'preview-config-sha256',
+        sizeBytes: 4_096,
+      },
+      {
+        relativePath: 'metadata/bundle-manifest.json',
+        sha256: 'preview-manifest-sha256',
+        sizeBytes: 1_024,
+      },
+    ],
+  }
+}
+
+function clearDerivedIntelligenceFixture(
+  state: MockBackendState,
+): ClearDerivedIntelligenceReport {
+  state.derivedStateCleared = true
+  state.snapshot.insightStatus = {
+    ready: false,
+    lastRunAt: null,
+    runs: 0,
+    cards: 0,
+    topics: 0,
+    threads: 0,
+    contentCoverage: 0,
+    warning: null,
+  }
+
+  return {
+    clearedEnrichmentRows: 8,
+    clearedFeatureRows: 8,
+    clearedTopicRows: 2,
+    clearedThreadRows: 1,
+    clearedCardRows: 2,
+    clearedRunRows: 4,
+    notes: [
+      'Only derived enrichment and insight tables were cleared.',
+      'Canonical archive visits, manifests, and import history were left untouched.',
+    ],
+  }
+}
+
+function runInsightsFixture(
+  state: MockBackendState,
+  request?: RunInsightsRequest,
+): RunInsightsReport {
+  state.derivedStateCleared = false
+  state.snapshot.insightStatus = {
+    ready: true,
+    lastRunAt: new Date().toISOString(),
+    runs: 4,
+    cards: 4,
+    topics: 3,
+    threads: 2,
+    contentCoverage: enrichmentPluginEnabled(
+      state.snapshot.config.enrichment,
+      READABLE_CONTENT_REFETCH_PLUGIN_ID,
+    )
+      ? 0.64
+      : 0.18,
+    warning: null,
+  }
+
+  return {
+    ...mockInsightRunReport,
+    lastRunAt: new Date().toISOString(),
+    enrichedVisits: enrichmentPluginEnabled(
+      state.snapshot.config.enrichment,
+      READABLE_CONTENT_REFETCH_PLUGIN_ID,
+    )
+      ? mockInsightRunReport.enrichedVisits
+      : 0,
+    failedEnrichments: enrichmentPluginEnabled(
+      state.snapshot.config.enrichment,
+      READABLE_CONTENT_REFETCH_PLUGIN_ID,
+    )
+      ? mockInsightRunReport.failedEnrichments
+      : 0,
+    notes: [
+      request?.fullRebuild
+        ? 'Full rebuild cleared the previous derived state before recomputing insights.'
+        : 'Browser preview mode rebuilt the current derived insight fixture.',
+      enrichmentPluginEnabled(
+        state.snapshot.config.enrichment,
+        READABLE_CONTENT_REFETCH_PLUGIN_ID,
+      )
+        ? 'Readable content refetch stayed enabled for this run.'
+        : 'Readable content refetch was disabled, so the rebuild used lexical/archive fields only.',
+    ],
+  }
+}
+
+function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
+  if (state.derivedStateCleared) {
+    return {
+      ...structuredClone(mockInsightSnapshot),
+      status: structuredClone(state.snapshot.insightStatus),
+      cards: [],
+      topics: [],
+      threads: [],
+      notes: [
+        'Derived insight state is currently empty. Run a rebuild to repopulate enrichment and insight tables.',
+      ],
+    }
+  }
+
+  const refetchEnabled = enrichmentPluginEnabled(
+    state.snapshot.config.enrichment,
+    READABLE_CONTENT_REFETCH_PLUGIN_ID,
+  )
+
+  return {
+    ...structuredClone(mockInsightSnapshot),
+    status: structuredClone(state.snapshot.insightStatus),
+    notes: refetchEnabled
+      ? [
+          'Browser preview mode shows a deterministic insight fixture.',
+          'Readable content refetch stayed enabled for this snapshot.',
+        ]
+      : [
+          'Browser preview mode shows a deterministic insight fixture.',
+          'Readable content refetch is disabled, so this snapshot only reflects lexical and structural evidence.',
+        ],
+  }
 }
 
 function buildMockQueueStatus(state: MockBackendState): AiQueueStatus {
@@ -1150,6 +1435,7 @@ function createMockState(): MockBackendState {
     snapshot: structuredClone(mockSnapshot),
     history: structuredClone(mockHistory),
     keyringSecret: null,
+    s3Credentials: null,
     importBatchDetails: {},
     schedulePlanOverrides: {},
     scheduleStatusOverrides: {},
@@ -1191,7 +1477,13 @@ function createMockState(): MockBackendState {
     ],
     nextAiJobId: 3,
     nextImportBatchId: 1,
+    lastRemoteBundlePath: null,
+    derivedStateCleared: false,
   }
+  state.snapshot.config = normalizeMockConfig(
+    state.snapshot.config,
+    state.s3Credentials,
+  )
   syncMockAiStatus(state)
   return state
 }
@@ -1212,9 +1504,16 @@ async function call<T>(
       return mockBuildInfo as T
     case 'app_snapshot':
       syncMockAiStatus(mockState)
+      mockState.snapshot.config = normalizeMockConfig(
+        mockState.snapshot.config,
+        mockState.s3Credentials,
+      )
       return structuredClone(mockState.snapshot) as T
     case 'save_config': {
-      const nextConfig = structuredClone(args?.config as AppConfig)
+      const nextConfig = normalizeMockConfig(
+        structuredClone(args?.config as AppConfig),
+        mockState.s3Credentials,
+      )
       mockState.snapshot.config = nextConfig
       mockState.snapshot.archiveStatus.encrypted =
         nextConfig.archiveMode === 'Encrypted'
@@ -1222,7 +1521,10 @@ async function call<T>(
       return structuredClone(mockState.snapshot) as T
     }
     case 'initialize_archive': {
-      const nextConfig = structuredClone(args?.config as AppConfig)
+      const nextConfig = normalizeMockConfig(
+        structuredClone(args?.config as AppConfig),
+        mockState.s3Credentials,
+      )
       const databaseKey =
         typeof args?.databaseKey === 'string' ? args.databaseKey : null
       if (
@@ -1333,9 +1635,12 @@ async function call<T>(
         Number(args?.runId ?? mockState.snapshot.recentRuns[0]?.id ?? 1848),
       ) as T
     case 'run_insights_now':
-      return mockInsightRunReport as T
+      return runInsightsFixture(
+        mockState,
+        args?.request as RunInsightsRequest | undefined,
+      ) as T
     case 'load_insights':
-      return mockInsightSnapshot as T
+      return loadInsightsFixture(mockState) as T
     case 'load_thread_detail':
       return mockInsightThreadDetail as T
     case 'explain_insight':
@@ -1448,25 +1753,38 @@ async function call<T>(
       } as T
     }
     case 'preview_remote_backup':
+      return previewRemoteBackupFixture(mockState) as T
+    case 'run_remote_backup': {
+      const preview = previewRemoteBackupFixture(mockState)
+      const uploaded = Boolean(mockState.s3Credentials)
+      const finishedAt = new Date().toISOString()
+      mockState.snapshot.config.remoteBackup.lastError = uploaded
+        ? null
+        : 'Store S3 credentials before executing the remote backup.'
+      if (uploaded) {
+        mockState.snapshot.config.remoteBackup.lastUploadedAt = finishedAt
+        mockState.snapshot.config.remoteBackup.lastUploadedObjectKey =
+          preview.objectKey
+      }
+      mockState.snapshot.config = normalizeMockConfig(
+        mockState.snapshot.config,
+        mockState.s3Credentials,
+      )
       return {
-        bundlePath: '/tmp/pathkeep-remote.zip',
-        objectKey: 'pathkeep/pathkeep-remote.zip',
-        uploadUrl:
-          'https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/pathkeep-remote.zip',
-        previewCommand:
-          'curl --fail --show-error --aws-sigv4 "aws:amz:us-east-1:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T \'/tmp/pathkeep-remote.zip\' \'https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/pathkeep-remote.zip\'',
-        manualSteps: ['Browser preview mode cannot generate the real bundle.'],
-        warnings: [],
+        uploaded,
+        bundlePath: preview.bundlePath,
+        objectKey: preview.objectKey,
+        uploadUrl: preview.uploadUrl,
+        message: uploaded
+          ? 'Browser preview mode simulated the upload and produced a local bundle for verification.'
+          : 'Store S3 credentials before executing the remote backup.',
       } as T
-    case 'run_remote_backup':
-      return {
-        uploaded: false,
-        bundlePath: '/tmp/pathkeep-remote.zip',
-        objectKey: 'pathkeep/pathkeep-remote.zip',
-        uploadUrl:
-          'https://s3.us-east-1.amazonaws.com/example-bucket/pathkeep/pathkeep-remote.zip',
-        message: 'Remote backup upload is only available in the desktop app.',
-      } as T
+    }
+    case 'verify_remote_backup':
+      return verifyRemoteBackupFixture(
+        mockState,
+        typeof args?.bundlePath === 'string' ? args.bundlePath : undefined,
+      ) as T
     case 'keyring_status':
       return structuredClone(mockState.snapshot.keyringStatus) as T
     case 'security_status':
@@ -1485,12 +1803,22 @@ async function call<T>(
       mockState.snapshot.keyringStatus.storedSecret = false
       return structuredClone(mockState.snapshot.keyringStatus) as T
     case 'store_s3_credentials':
+      mockState.s3Credentials = structuredClone(
+        args?.credentials as S3CredentialInput,
+      )
+      mockState.snapshot.config = normalizeMockConfig(
+        mockState.snapshot.config,
+        mockState.s3Credentials,
+      )
+      return undefined as T
     case 'clear_s3_credentials':
-      return {
-        available: true,
-        backend: 'Mock keyring',
-        storedSecret: false,
-      } as T
+      mockState.s3Credentials = null
+      mockState.snapshot.config.remoteBackup.lastError = null
+      mockState.snapshot.config = normalizeMockConfig(
+        mockState.snapshot.config,
+        mockState.s3Credentials,
+      )
+      return undefined as T
     case 'store_ai_provider_api_key': {
       const providerId = (args?.input as AiProviderSecretInput | undefined)
         ?.providerId
@@ -1754,6 +2082,8 @@ async function call<T>(
         files: [],
         message: 'Remove is not available in browser preview mode.',
       } as T
+    case 'clear_derived_intelligence':
+      return clearDerivedIntelligenceFixture(mockState) as T
     default:
       throw new Error(`Mock backend does not implement ${command}`)
   }
@@ -1766,6 +2096,10 @@ export const backendTestHarness = {
   },
   mutateState: (mutator: (state: MockBackendState) => void) => {
     mutator(mockState)
+    mockState.snapshot.config = normalizeMockConfig(
+      mockState.snapshot.config,
+      mockState.s3Credentials,
+    )
     syncMockAiStatus(mockState)
   },
   seedSchedule: (plan: SchedulePlan, status?: ScheduleStatus) => {
@@ -1799,6 +2133,8 @@ export const backend = {
     call<ExportResult>('export_history', { request }),
   previewRemoteBackup: () => call<RemoteBackupPreview>('preview_remote_backup'),
   runRemoteBackup: () => call<RemoteBackupResult>('run_remote_backup'),
+  verifyRemoteBackup: (bundlePath: string) =>
+    call<RemoteBackupVerification>('verify_remote_backup', { bundlePath }),
   inspectTakeout: (request: TakeoutRequest) =>
     call<TakeoutInspection>('inspect_takeout', { request }),
   importTakeout: (request: TakeoutRequest) =>
@@ -1852,6 +2188,8 @@ export const backend = {
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
   runInsightsNow: (request: RunInsightsRequest) =>
     call<RunInsightsReport>('run_insights_now', { request }),
+  clearDerivedIntelligence: () =>
+    call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   loadInsights: (request: RunInsightsRequest) =>
     call<InsightSnapshot>('load_insights', { request }),
   loadThreadDetail: (threadId: string) =>

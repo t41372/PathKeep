@@ -61,6 +61,15 @@ const config: AppConfig = {
     lastUploadedObjectKey: null,
     lastError: null,
   },
+  enrichment: {
+    plugins: [
+      {
+        id: 'readable-content-refetch',
+        enabled: true,
+        version: 'm4-v1',
+      },
+    ],
+  },
   ai: {
     enabled: false,
     assistantEnabled: false,
@@ -257,6 +266,64 @@ describe('trust flows', () => {
 
     previewSpy.mockRestore()
     statusSpy.mockRestore()
+  })
+
+  test('shows apply and remove controls when the schedule supports direct execution', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+
+    backendTestHarness.seedSchedule(
+      {
+        platform: 'macos',
+        label: 'dev.codex.pathkeep.backup',
+        executablePath: '/Applications/PathKeep.app',
+        generatedFiles: [
+          {
+            relativePath: 'schedule/dev.codex.pathkeep.backup.plist',
+            absolutePath:
+              '/Users/test/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+            purpose: 'LaunchAgent plist',
+            contents:
+              '<?xml version="1.0"?><plist><dict><key>Label</key><string>dev.codex.pathkeep.backup</string></dict></plist>',
+          },
+        ],
+        manualSteps: ['Review the LaunchAgent install.'],
+        applyCommands: [['launchctl', 'bootstrap']],
+        rollbackCommands: [['launchctl', 'bootout']],
+        applySupported: true,
+      },
+      {
+        platform: 'macos',
+        label: 'dev.codex.pathkeep.backup',
+        dueAfterHours: 72,
+        checkIntervalHours: 6,
+        applySupported: true,
+        installState: 'installed',
+        detectedFiles: [
+          '~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+        ],
+        manualSteps: [
+          'Remove the LaunchAgent if you no longer want automation.',
+        ],
+        auditPath: null,
+        lastSuccessfulBackupAt: null,
+        warnings: [],
+      },
+    )
+
+    renderTrustPage(<SchedulePage />, {
+      language: 'en',
+      route: '/schedule',
+      snapshot,
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Execute' }))
+
+    expect(await screen.findByText('launchctl bootstrap')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Apply schedule' })).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Remove schedule' }),
+    ).toBeEnabled()
   })
 
   test('renders rekey preview in Traditional Chinese without English mode fallbacks', async () => {

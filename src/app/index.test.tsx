@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from './index'
@@ -43,6 +37,15 @@ const initializedConfig: AppConfig = {
     lastUploadedAt: null,
     lastUploadedObjectKey: null,
     lastError: null,
+  },
+  enrichment: {
+    plugins: [
+      {
+        id: 'readable-content-refetch',
+        enabled: true,
+        version: 'm4-v1',
+      },
+    ],
   },
   ai: {
     enabled: false,
@@ -258,28 +261,123 @@ describe('App shell', () => {
     },
   )
 
-  test('renders the schedule remove action when the platform supports it', async () => {
+  test('walks the settings remote backup PME and derived-state controls', async () => {
     await seedArchiveRun()
-    seedInteractiveSchedule()
+    const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/schedule'],
+      initialEntries: ['/settings'],
     })
 
     render(<App router={router} />)
 
-    const schedulePage = await screen.findByTestId('schedule-page')
-    expect(within(schedulePage).getByText('BACKUP SCHEDULE')).toBeVisible()
-    fireEvent.click(
-      within(schedulePage).getByRole('button', { name: /execute/i }),
+    const settingsPage = await screen.findByTestId('settings-page')
+    expect(within(settingsPage).getByText('REMOTE BACKUP')).toBeVisible()
+    expect(
+      within(settingsPage).getByText('ENRICHMENT + DERIVED STATE'),
+    ).toBeVisible()
+
+    await user.clear(within(settingsPage).getByLabelText('Bucket'))
+    await user.type(
+      within(settingsPage).getByLabelText('Bucket'),
+      'example-bucket',
     )
-    await waitFor(() =>
-      expect(screen.getByText('launchctl bootstrap')).toBeVisible(),
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Save remote settings',
+      }),
     )
-    await waitFor(() =>
+
+    await user.type(
+      within(settingsPage).getByLabelText('Access key ID'),
+      'preview-key',
+    )
+    await user.type(
+      within(settingsPage).getByLabelText('Secret access key'),
+      'preview-secret',
+    )
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Store credentials',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(within(settingsPage).getByText('Credentials saved')).toBeVisible()
+    })
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Preview bundle',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(within(settingsPage).getByText('Bundle path')).toBeVisible()
       expect(
-        screen.getByRole('button', { name: 'Remove schedule' }),
-      ).toBeEnabled(),
+        within(settingsPage).getAllByText(/pathkeep-remote-.*\.zip/).length,
+      ).toBeGreaterThan(0)
+    })
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Execute upload',
+      }),
     )
+
+    await waitFor(() => {
+      expect(
+        within(settingsPage).getByText(
+          'Browser preview mode simulated the upload and produced a local bundle for verification.',
+        ),
+      ).toBeVisible()
+    })
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Verify bundle',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(
+        within(settingsPage).getByText('pathkeep.remote-backup.v1'),
+      ).toBeVisible()
+    })
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Disable plugin',
+      }),
+    )
+    await waitFor(() => {
+      expect(
+        within(settingsPage).getByRole('button', {
+          name: 'Enable plugin',
+        }),
+      ).toBeVisible()
+    })
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Clear derived state',
+      }),
+    )
+    await waitFor(() => {
+      expect(
+        within(settingsPage).getByText('Derived state cleared'),
+      ).toBeVisible()
+    })
+
+    await user.click(
+      within(settingsPage).getByRole('button', {
+        name: 'Rebuild derived state',
+      }),
+    )
+    await waitFor(() => {
+      expect(
+        within(settingsPage).getByText('Derived state rebuilt'),
+      ).toBeVisible()
+    })
   })
 
   test('keeps sidebar information architecture grouped by section', () => {
