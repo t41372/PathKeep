@@ -90,6 +90,7 @@
 - repo 現在有一份正式的 [quality matrix](program/quality-matrix.md)，把 mainline blocking path、scheduled / release deep checks，以及 desktop / preview 驗收邊界全部寫清楚。
 - desktop contract slice 仍然存在，但它現在是 `bun run check` 裡的一條 targeted sub-gate，不再冒充整個產品 UI 或所有 desktop flows 都已驗收。
 - 2026-04-07 closeout：`WORK-QC-B` 已把 prototype / doc parity、desktop-vs-preview 邊界、dashboard / onboarding trust copy 與 timezone-sensitive On This Day 行為重新對齊；M4 現在可從 `WORK-M4-A` 啟動。
+- 2026-04-08 closeout：`WORK-M4-A` 已把 enrichment / derived-state v1、storage analytics / growth evidence、以及 remote backup 的 bundle / verify / PME 閉環正式落地；M4 主線現在只剩 `WORK-M4-B` 的 release readiness / platform polish。
 
 這個結果很重要，因為它代表 repo 現在不只保住 desktop entry + typed IPC contract，也重新把 living M0-M3 quality surface 的 coverage、build、e2e 與 deep-check 分層拉回可兌現狀態。
 
@@ -135,7 +136,7 @@ M4  Full Intelligence & Polish
 | `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)       |
 | `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
 | `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)         |
-| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md)           |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[/]` | [m4-full-polish/README.md](m4-full-polish/README.md)           |
 
 ---
 
