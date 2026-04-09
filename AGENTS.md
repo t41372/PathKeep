@@ -36,6 +36,8 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
    - 從 BACKLOG 頂部取最多 2 個未被阻塞的 work blocks，剪切到 `STATUS.md` 的 CURRENT FOCUS 區
    - 更新 `BACKLOG.md` 裡的 inline `[!blocked: ...]` 標記（如果有依賴被解鎖）
 5. Commit：保持可 review；`STATUS.md` 的 work block 不等於單一 commit，必要時拆成多個合理 commit
+6. 只要完成了**可以獨立提交**的工作量，就要立即整理成原子 commit；不要等整個 work block 全部收尾才一起提交
+7. commit message 一律遵守 Conventional Commits，且內容要精準描述這一個原子改動
 
 ### 情況判斷
 
@@ -145,7 +147,7 @@ reference/
 
 ## 工作規範
 
-- **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit
+- **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit。只要手上的變更已經形成一個可驗證、可回顧的原子單位，就要直接提交，不要把多個無關修復或文檔更新長時間混在 working tree
 - **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。現行 blocking / release gate 以 `docs/plan/program/quality-matrix.md` 為準：mainline 至少維持 `bun run check`、`bun run coverage:js`、`bun run coverage:rust`、`bun run build`、`bun run test:e2e`；`mutation:js` / `mutation:rust` / `verify` 屬於 scheduled、manual 或 pre-release deep checks。`bun run mutation:rust` 目前是誠實的 Rust mutation contract（`browser-history-parser` + `vault-core/src/ai.rs` status/helper slice），`bun run mutation:rust:full` 則保留作 exploratory whole-workspace sweep。但**所有新建或整段重寫的模組**仍必須有測試，且該 slice 要做到 100% coverage + mutation verification，否則不算完成
 - **Desktop contract slice**：目前納入 `bun run check` 的 targeted JS sub-gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`；前端 shell / route / sidebar / primitives 不在這條 coverage / mutation gate 內，不能再把 UI 完成度誤記到這條驗收上
 - **Accepted docs 決策不可隨意推翻**：如果 `docs/` 中已經有 `Accepted` 狀態、或其他明文確立的 source-of-truth 決策，**不允許** agent 因為直覺、實作偏好、或一句「降低複雜度」就直接改寫。這不代表不能推翻；但要推翻時，必須先產出**詳細的 trade-off 決策文檔**，包含問題定義、約束、候選方案、優缺點、多方案比較、風險、回滾策略與推薦理由。
