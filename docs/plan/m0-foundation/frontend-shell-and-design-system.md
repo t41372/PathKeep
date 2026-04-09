@@ -8,6 +8,7 @@
 - 新 shell 已落在 `src/app/`、`src/components/sidebar/`、`src/components/topbar/`、`src/pages/*/index.tsx`、`src/styles/{tokens,app}.css`
 - design token source of truth 已寫入 [../../design/design-tokens.md](../../design/design-tokens.md)
 - 2026-04-06 審查修正：舊的 shell slice gate 已退回成 desktop contract slice（`src/main.tsx` + `src/lib/ipc/bridge.ts`）；frontend shell / route / sidebar / primitives 不再宣稱已由 coverage / mutation gate 完整收口
+- 2026-04-09 closeout：prototype 未覆蓋的 production states、typed bridge / preview split、Dashboard / Explorer / Audit / Schedule / Security command-response contracts 都已由 M1 / M2 / M3 的真實頁面和測試補齊；M0 這裡不再把它們留成假開放項。
 
 ---
 
@@ -617,16 +618,16 @@ bun run typecheck   # 沒有宣告假資料的 export 被其他檔案依賴
 - [x] `M0-FE-PG-006` 建立 Import skeleton，預留 file picker、dry-run summary、preview artifacts、quarantine status、execute action。
 - [x] `M0-FE-PG-007` 建立 Audit skeleton，預留 run ledger table、run detail、artifact viewer、copy command、rollback entrypoint。
 - [x] `M0-FE-PG-008` 建立 Schedule、Security、Settings skeleton，為 PME、encryption、providers、language、storage location 提前留位。
-- [ ] `M0-FE-PG-009` 逐頁補上 prototype 沒畫但 production 必需的 empty / error / loading / offline / permission-denied states。
+- [x] `M0-FE-PG-009` 逐頁補上 prototype 沒畫但 production 必需的 empty / error / loading / offline / permission-denied states。（2026-04-09，`WORK-QC-C`：見 `screens-and-nav.md` 的 `Non-Prototype State Coverage`，以及 `trust-flows` / `intelligence-surfaces` tests）
 
 ### Frontend Data Contract
 
-- [ ] `M0-FE-DC-001` 為 Dashboard 定義 day-one IPC data contract，區分必需資料、lazy-loaded 資料、可選 intelligence 資料。
-- [ ] `M0-FE-DC-002` 為 Explorer 定義 query result contract，包含 filters、cursor / pagination、sort、highlight、evidence placeholder。
-- [ ] `M0-FE-DC-003` 為 Audit / Run detail 定義 artifact contract，包含 manifest、snapshot、warnings、copyable command、log excerpt。
-- [ ] `M0-FE-DC-004` 為 Onboarding / Schedule / Security / Settings 定義 command-response contract，區分 preview mode 和 execute mode。
-- [ ] `M0-FE-DC-005` 把 [`src/lib/backend.ts`](../../../src/lib/backend.ts) 裡的假資料和 IPC wrapper 拆開，建立真正的 typed bridge layer。
-- [ ] `M0-FE-DC-006` 決定前端如何表示 capability gating，例如 `archive_ready`、`scheduler_supported`、`keyring_available`、`ai_configured`。
+- [x] `M0-FE-DC-001` 為 Dashboard 定義 day-one IPC data contract，區分必需資料、lazy-loaded 資料、可選 intelligence 資料。（2026-04-09，`WORK-QC-C`：`AppSnapshot` / `DashboardSnapshot` / shell data provider 已正式接線）
+- [x] `M0-FE-DC-002` 為 Explorer 定義 query result contract，包含 filters、cursor / pagination、sort、highlight、evidence placeholder。（2026-04-09，`WORK-QC-C`：`HistoryQuery` / `HistoryEntry` / semantic recall contract 已落地）
+- [x] `M0-FE-DC-003` 為 Audit / Run detail 定義 artifact contract，包含 manifest、snapshot、warnings、copyable command、log excerpt。（2026-04-09，`WORK-QC-C`：`AuditRunDetail` / artifact viewer / reveal path 已落地）
+- [x] `M0-FE-DC-004` 為 Onboarding / Schedule / Security / Settings 定義 command-response contract，區分 preview mode 和 execute mode。（2026-04-09，`WORK-QC-C`：對應 worker / Tauri surface 與 trust-flow tests 已接通）
+- [x] `M0-FE-DC-005` 把 [`src/lib/backend.ts`](../../../src/lib/backend.ts) 裡的假資料和 IPC wrapper 拆開，建立真正的 typed bridge layer。（2026-04-09，`WORK-QC-C`：typed IPC wrapper 以 [`src/lib/ipc/bridge.ts`](../../../src/lib/ipc/bridge.ts) 為正式入口）
+- [x] `M0-FE-DC-006` 決定前端如何表示 capability gating，例如 `archive_ready`、`scheduler_supported`、`keyring_available`、`ai_configured`。（2026-04-09，`WORK-QC-C`：`AppSnapshot` / `SecurityStatus` / `ScheduleStatus` / `AiIndexStatus` / App Lock refusal path 已形成正式 contract）
 
 ### Legacy Removal
 

@@ -65,13 +65,47 @@
 - `browser-history-parser` 已不只是 foundation，而是被 `vault-core` 真正消費的 runtime 依賴；下一步要擴的是 richer Firefox / Safari metadata、Takeout / browser fixture 深度與 parser coverage，而不是再回頭討論 parser 是否存在。
 - legacy surface 並沒有完全消失，但它已退到 compatibility bridge。接下來應避免再把新功能寫回 `visit_events` / `profiles` 這類舊名稱。
 
+### Current Boundary Gap Table（2026-04-09 / `WORK-QC-C`）
+
+| Hotspot / current file                         | 現在實際承擔什麼                                                         | 目標邊界                                            | 目前 truth stance                                                                                                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-core/src/chrome.rs`                     | browser discovery、path heuristics、staging copy、provider glue          | discovery / staging 最終應收斂到 `vault-platform`   | accepted legacy hotspot；M1 / M2 已可用，但這個檔案不應再接新責任。                                                                                       |
+| `vault-core/src/archive/{mod,schema}.rs`       | canonical schema、backup ingest、query、doctor、rekey、storage summary   | 維持在 `vault-core`                                 | shipping canonical domain；`archive/mod.rs` 仍是 mega-file，但其責任本身是正確的。                                                                        |
+| `vault-worker/src/lib.rs`                      | orchestration、desktop read models、CLI、MCP、AI queue / insights bridge | 保持 orchestration / bridge                         | accepted worker hotspot；不要把新的 Tauri naming 或 UI 文案直接塞回 worker。                                                                              |
+| `src-tauri/src/{lib,worker_bridge,session}.rs` | Tauri command façade、session bridge、desktop refusal path               | 保持 desktop-only façade                            | signed-off desktop surface；這層受 `coverage:rust` 直接保護。                                                                                             |
+| `browser-history-parser/src/*`                 | provided-path inspection、row parsing、warning surface                   | 保持 parser-only crate                              | signed-off parser surface；這層受 parser tests + Rust mutation contract 保護。                                                                            |
+| `vault-core/src/{ai,insights,remote}.rs`       | derived-state intelligence、remote bundle / verify、advanced read models | canonical metadata + derived sidecar / bundle logic | partially closed in M4；`WORK-QC-D` 已補上 stale / cost / audit truth 與 60-year support envelope，但 revisit / plugin sandbox / perf proof 仍 deferred。 |
+
+### Current Archive Schema Gap Table（2026-04-09 / `WORK-QC-C`）
+
+| Surface                              | 現況                                                                                                                                                                              | Truthful boundary                                                                                    |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Canonical core tables                | `001_initial.sql` 已落地 `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` / `raw_row_versions` / `manifests` / `snapshots` / `settings` | 這是目前正式 source of truth。                                                                       |
+| Runtime helper / compatibility layer | `002_archive_runtime_foundation.sql` 增加 `profile_watermarks`、`import_batches`、compat views / triggers                                                                         | 這些是 accepted adjunct / transition surface，不是新的 canonical 命名方向。                          |
+| Search projection                    | `003_history_search_fts.sql` 導入 FTS5 `history_search` projection                                                                                                                | 這是 rebuildable derived state，不是 canonical source table。                                        |
+| Legacy DB 升級 harness               | fresh init、migration replay、checksum drift 已有；legacy-to-new one-shot conversion 仍無正式 harness                                                                             | deferred with rationale：目前沒有正式 legacy user base，shipping path 以 fresh canonical init 為主。 |
+| Snapshot restore preview / execute   | snapshot artifact 與 restore-readiness 敘事已存在；本地 snapshot restore command / preview 尚未 shipping                                                                          | deferred。M1 目前只簽收 safety snapshot，不誤報成完整 restore flow。                                 |
+| Approval / manual-step 寫入 `runs`   | `runs` 已記錄 trigger / timezone / warnings / stats / artifacts                                                                                                                   | approval reason / manual intervention 仍主要停在 preview artifact 和 UI copy，尚未成為 schema 欄位。 |
+
+### Current Intelligence / Derived-State Boundary Table（2026-04-09 / `WORK-QC-D`）
+
+| Surface                               | 目前位置 / 形式                                   | Truthful boundary                                                    |
+| ------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| `ai_jobs`, `ai_index_ledger`          | canonical archive SQLite                          | durable operational metadata；不是 canonical history facts           |
+| `ai_embeddings`                       | canonical archive SQLite                          | rebuildable compatibility mirror；不是 semantic source of truth      |
+| LanceDB semantic tables               | app data directory sidecar                        | primary ANN / vector store；整個 sidecar 可刪除後重建                |
+| enrichment / topics / threads / cards | canonical archive SQLite 的 derived tables        | rebuildable derived state；clear / rebuild 不可觸動 canonical visits |
+| MCP / skill integration preview files | preview payload only（command + JSON / markdown） | manual-copy artifact；PathKeep 不會在 preview 時偷偷安裝外部工具設定 |
+| remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth         |
+| `history_search` FTS projection       | SQLite FTS5 rebuildable projection                | fast-path search index；不是 canonical archive table                 |
+
 ### 待辦
 
-- [ ] `PG-BL-BE-001` 建立 `vault-core` 模組責任地圖，標記哪些函數會搬到 parser crate、哪些留在 archive plane、哪些移到 worker / platform。
-- [ ] `PG-BL-BE-002` 建立現有 Tauri commands 和未來 UI use cases 的對照表。
-- [ ] `PG-BL-BE-003` 盤點目前已存在的 AI / insight / enrichment 表和衍生狀態，標記哪些應留在 canonical SQLite、哪些應改為 sidecar / derived-state。
-- [ ] `PG-BL-BE-004` 盤點現有 archive schema 和 [data-model.md](../../architecture/data-model.md)、[archive.md](../../features/archive.md) 之間的差距，形成正式 gap table。
-- [ ] `PG-BL-BE-005` 盤點目前的 takeout / rollback / doctor / schedule / remote backup 行為是否和新的 PME / Trust 原則一致。
+- [x] `PG-BL-BE-001` 建立 `vault-core` 模組責任地圖，標記哪些函數會搬到 parser crate、哪些留在 archive plane、哪些移到 worker / platform。（2026-04-09，`WORK-QC-C`：見上方 `Current Boundary Gap Table` 與 [../../architecture/module-boundary-map.md](../../architecture/module-boundary-map.md)）
+- [x] `PG-BL-BE-002` 建立現有 Tauri commands 和未來 UI use cases 的對照表。（2026-04-09，`WORK-QC-C`：見 [../../architecture/desktop-command-surface.md](../../architecture/desktop-command-surface.md) 的 `Implemented Command Map`）
+- [x] `PG-BL-BE-003` 盤點目前已存在的 AI / insight / enrichment 表和衍生狀態，標記哪些應留在 canonical SQLite、哪些應改為 sidecar / derived-state。（2026-04-09，`WORK-QC-D`：見上方 `Current Intelligence / Derived-State Boundary Table`）
+- [x] `PG-BL-BE-004` 盤點現有 archive schema 和 [data-model.md](../../architecture/data-model.md)、[archive.md](../../features/archive.md) 之間的差距，形成正式 gap table。（2026-04-09，`WORK-QC-C`：見上方 `Current Archive Schema Gap Table`）
+- [x] `PG-BL-BE-005` 盤點目前的 takeout / rollback / doctor / schedule / remote backup 行為是否和新的 PME / Trust 原則一致。（2026-04-09，`WORK-QC-C`：M1-DB / M1-OPS acceptance matrices 已補齊；remote backup truth matrix 保留到後續 `WORK-QC-D`）
 
 ---
 
@@ -91,11 +125,23 @@
 
 - 現在的 gate 不再只剩 desktop contract slice 與 browser smoke；living M0-M3 quality surface 的 coverage 與 deep-check 分層已恢復到可兌現狀態。
 - repo 目前至少已回到「文檔怎麼寫，scripts / workflows 就怎麼擋」的程度，不再需要靠口頭補充來解釋哪些 gate 其實沒開。
-- QC-B 已把 product / design / doc parity 與 preview-vs-desktop 邊界收回 source docs；下一步真正還缺的是 test taxonomy / ownership、release-style desktop signoff，以及 M4 的 enrichment / remote 能力。
+- QC-B 已把 product / design / doc parity 與 preview-vs-desktop 邊界收回 source docs；`WORK-QC-C` 又補齊 test taxonomy / ownership。下一步真正還缺的是 release-style desktop signoff，以及 M4 的 enrichment / remote / intelligence closeout。
+
+### Test Pyramid And Ownership（2026-04-09 / `WORK-QC-C`）
+
+| Layer / owner                                 | 主要驗收入口                                                               | 備註                                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Parser / fixture owner                        | `cargo test -p browser-history-parser`                                     | 專注 provided-path parsing；由 Rust mutation contract 補強。                              |
+| Archive / import / doctor owner               | `cargo test -p vault-core`                                                 | 驗證 canonical ingest、takeout rollback / restore、doctor / repair、remote bundle logic。 |
+| Worker / platform / schedule / security owner | `cargo test -p vault-worker --lib`、`cargo test -p pathkeep-desktop --lib` | 驗證 orchestration、desktop bridge、schedule / security / app lock refusal path。         |
+| Desktop command façade owner                  | `bun run coverage:rust`                                                    | 只保護 `src-tauri/src/*` surface，不假裝整個 Rust workspace 都納入 100% coverage。        |
+| Frontend contract / component owner           | `bun run test:unit`                                                        | `src/app`、`src/lib`、`src/pages`、shared primitives 的單元與 integration tests。         |
+| Trust / IA / product-flow owner               | `bun run test:unit:product-flows`、`bun run test:e2e`                      | 聚焦 onboarding、schedule、security、import、dashboard / intelligence 等跨頁 UX。         |
+| Release / deep-check owner                    | `bun run verify`、GitHub `Mutation` workflow                               | 屬於 milestone closeout / release 預演，不是每次 PR 的 blocking path。                    |
 
 ### 待辦
 
-- [ ] `PG-BL-QA-001` 定義新的 test pyramid 和 ownership，明確哪些測試屬於 parser、archive、worker、frontend、e2e。
+- [x] `PG-BL-QA-001` 定義新的 test pyramid 和 ownership，明確哪些測試屬於 parser、archive、worker、frontend、e2e。（2026-04-09，`WORK-QC-C`：見上方 `Test Pyramid And Ownership`）
 - [x] `PG-BL-QA-002` 重寫 Playwright smoke 目標，從舊 setup shell 改成新 app shell / onboarding / dashboard smoke。
 - [x] `PG-BL-QA-003` 定義重寫期 quality policy：repo-wide coverage / mutation 暫時不擋主線，但新碼與整段重寫模組仍必須達到 100% coverage + mutation verification。
 - [x] `PG-BL-QA-004` 盤點 mutation test 現況和成本，先支持 targeted verification，再決定何時恢復整倉 sweep。

@@ -106,3 +106,4 @@ SQL
 - backup overlay 會收到 profile-scoped phase progress event，不再只剩 opaque spinner
 - canonical ingest 已減少 `source_profiles` / `urls` 的額外 SQLite round-trip，優先用 `RETURNING id`
 - 剩餘 hot spot 若再出現，優先考慮 `browser-history-parser` 的真正 streaming API 與 `archive/mod.rs` 的分模組化重整
+- 2026-04-09 補充：`bun run verify` 已重新全綠，但 production build 仍會對單一 main chunk（約 702 kB minified）發出 warning，且 repo 仍沒有真實 large-archive artifact bundle。下一輪若要對外背書「60 年資料量仍流暢」，至少要把 route-level payload / refresh 行為和真實 perf artifacts 一起補齊。

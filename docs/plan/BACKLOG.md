@@ -9,28 +9,17 @@
 
 ### Program — Quality Closeout Before M4
 
-- [ ] **WORK-QC-D** — Intelligence, Enrichment, And 60-Year Evidence Closeout
-  - 讀先：
-    `docs/features/intelligence.md`
-    `docs/plan/m3-intelligence/providers-indexing-and-jobs.md`
-    `docs/plan/m4-full-polish/enrichment-advanced-intelligence-and-remote.md`
-    `docs/plan/m4-full-polish/large-archive-performance-runbook.md`
-    `docs/plan/m4-full-polish/release-readiness-runbook.md`
-    `docs/plan/program/research-and-decisions.md`
-  - 目標：收斂剩餘的 M3 / M4 intelligence 開放項，包含 index invalidation、embedding / storage cost read model、MCP capability / consent / lock boundary、plugin sandbox / queue integration、revisit / resurfacing、privacy review 與 60-year baseline 的 artifact-backed honest support envelope。
-  - 驗收：`bun run verify`
-
 ### M1 — Solid Archive
 
-- [ ] **WORK-M1-C** — Archive Recoverability And Operations Truth Closure
+- [ ] **WORK-M1-D** — Snapshot Restore, Retention, And Rekey Audit Shipping
   - 讀先：
     `docs/features/archive.md`
     `docs/architecture/desktop-command-surface.md`
     `docs/plan/m1-solid-archive/schema-backup-and-ledger.md`
     `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
     `docs/plan/program/research-and-decisions.md`
-  - 目標：關閉 M1 尚未誠實簽收的 restore / snapshot / doctor / audit summary / retention / rekey / schedule acceptance 條目；若現況仍是 partial support，補齊 source docs、acceptance artifact 與 deferred rationale，避免把 M1 寫成已完成但缺 recoverability contract。
-  - 驗收：`bun run check && bun run build`
+  - 目標：把目前只停在 deferred / partial support 的 snapshot restore preview / execute、retention / prune、以及 richer rekey audit summary 拉回真正可 shipping 的 recoverability contract，而不是永遠停在 truth-closeout 文檔上。
+  - 驗收：`bun run verify`
 
 ### M2 — Recall & Trust
 
@@ -44,7 +33,8 @@
 
 ```
 WORK-M0-A ──┐
-WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B → WORK-M4-C / WORK-M4-D / WORK-M4-E
+WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B → WORK-M4-C / WORK-M4-D / WORK-M4-E / WORK-M4-F / WORK-M4-G / WORK-M4-H → WORK-QC-D → WORK-M4-J → WORK-M4-I
+                     └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────→ WORK-QC-C → WORK-M1-C → WORK-M1-D
 ```
 
 ---

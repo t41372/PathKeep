@@ -4,6 +4,8 @@
 > M1 不追求 Intelligence；M1 追求的是 migration、backup、audit、schedule、security、Explorer v1 都站得住。
 >
 > **Closeout（2026-04-07）**：`WORK-QC-A` 已恢復 honest quality gate，`WORK-QC-B` 又把 onboarding / dashboard trust copy、On This Day / evidence / timezone 行為、以及 desktop-vs-preview 邊界重新對齊 source docs 與 acceptance。M1 作為 no-AI archive baseline 現在正式完成；更廣的 release polish 留給 M4。
+>
+> **Truth closeout（2026-04-09 / `WORK-QC-C` + `WORK-M1-C`）**：M1 現在補上了 recoverability / operations acceptance matrix。正式 shipping 的是 canonical migration、backup、manifest、snapshot safety net、doctor baseline、schedule PME、security mode / unlock / rekey foundation；import batch 的 un-revert 也已誠實寫成獨立 `restore` run，而不是混成 `rollback`。尚未 shipping 的 snapshot restore preview / execute、auto retention / prune、與 richer rekey audit summary 都已明確標記為 deferred，而不是再含糊算進 M1 已完成。
 
 ---
 

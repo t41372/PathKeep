@@ -14,6 +14,8 @@
 - MCP server 和 IDE skill 可以把個人 history 安全暴露給外部 AI 工具。
 
 > 2026-04-07 狀態註記：M3 這裡的勾選代表 intelligence v1 的功能 slice 已經落地；`WORK-QC-B` 也已把 dashboard 的 On This Day / Periodic Summary、evidence deep-link、timezone-sensitive day matching 與 doc parity closeout 收斂回 source docs。這**仍不等於** repo 已完成最終 release-readiness signoff；`mutation:js` / `mutation:rust` / `verify` 仍屬於 deep-check / release gate，而更廣的 accessibility / platform polish 留在 M4。
+>
+> 2026-04-09 truth closeout：`WORK-QC-D` 進一步補齊了 semantic stale / cost read model、MCP consent / scope / audit preview 與 model-scoped readiness，但也正式凍結了一個更誠實的邊界：M3 intelligence v1 可用，不等於 repo 已通過 60-year all-features performance signoff。完整 support envelope 見 [../m4-full-polish/intelligence-60-year-envelope.md](../m4-full-polish/intelligence-60-year-envelope.md)。
 
 ---
 

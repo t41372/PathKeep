@@ -41,10 +41,25 @@
 | Enrichment plugins、進階分析、remote backup       | [../m4-full-polish/enrichment-advanced-intelligence-and-remote.md](../m4-full-polish/enrichment-advanced-intelligence-and-remote.md) | [../m4-full-polish/platform-release-and-polish.md](../m4-full-polish/platform-release-and-polish.md)                                 |
 | 發版、簽名、公用文檔、最終驗收                    | [../m4-full-polish/platform-release-and-polish.md](../m4-full-polish/platform-release-and-polish.md)                                 | [../m0-foundation/rename-quality-and-rewrite-discipline.md](../m0-foundation/rename-quality-and-rewrite-discipline.md)               |
 
+## Work Packages To Acceptance Surfaces
+
+> `WORK-QC-C` 起，traceability 不再只停在「哪份 docs 對應哪份計劃」；每個主要 work package 還要能指出目前真正的驗收入口。
+
+| Work package / surface                     | 主要驗收入口                                                                | 補充 gate / evidence                                                                                          |
+| ------------------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Desktop entry + typed IPC contract         | `bun run check:desktop-contract`                                            | `src/main.test.tsx`、`src/lib/ipc/bridge.test.ts`                                                             |
+| Shell / trust-critical product flows       | `bun run test:unit:product-flows`                                           | `src/app/index.test.tsx`、`src/pages/trust-flows.test.tsx`、`tests/e2e/shell.spec.ts`                         |
+| Parser crate                               | `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser` | `bun run mutation:rust` 的 parser contract                                                                    |
+| Canonical archive / import / doctor        | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core`             | canonical ingest、doctor、takeout rollback / restore acceptance-style Rust tests                              |
+| Worker orchestration / schedule / security | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --lib`     | `cargo test --manifest-path src-tauri/Cargo.toml -p pathkeep-desktop --lib`、`src/pages/trust-flows.test.tsx` |
+| Intelligence / insights / assistant        | `src/pages/intelligence-surfaces.test.tsx`                                  | `src/lib/intelligence.test.ts`、`bun run mutation:rust` 的 AI status/helper contract                          |
+| Release-style desktop truth                | `bun run verify`                                                            | `bun run desktop:build:debug`、[quality-matrix.md](quality-matrix.md)、M4 release / support runbook           |
+| Support / docs / truthfulness closeout     | milestone README + source docs 回寫                                         | [repo-baseline.md](repo-baseline.md)、[quality-matrix.md](quality-matrix.md)、M1 / M4 acceptance matrix       |
+
 ---
 
 ## 維護規則
 
-- [ ] `PG-TR-001` 新增或重寫 `docs/features/` 子文檔時，立刻補上本表對應關係。
-- [ ] `PG-TR-002` 新增畫面或新功能 work package 時，同步回寫 milestone `README.md` 和本表，避免入口失效。
-- [ ] `PG-TR-003` 如果某份 source doc 對應多個 milestone，至少要指定主入口和補充入口，不能只留下模糊方向。
+- [x] `PG-TR-001` 新增或重寫 `docs/features/` 子文檔時，立刻補上本表對應關係。（2026-04-09，`WORK-QC-C`：feature / design / architecture ↔ plan 入口重新核對）
+- [x] `PG-TR-002` 新增畫面或新功能 work package 時，同步回寫 milestone `README.md` 和本表，避免入口失效。（2026-04-09，`WORK-QC-C`：補上 acceptance surfaces 與 README closeout 回鏈）
+- [x] `PG-TR-003` 如果某份 source doc 對應多個 milestone，至少要指定主入口和補充入口，不能只留下模糊方向。（2026-04-09，`WORK-QC-C`：所有 source docs 現在都有主入口與補充入口）

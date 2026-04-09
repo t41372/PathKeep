@@ -15,10 +15,16 @@
 > **2026-04-08 mutation closeout 註記**：`WORK-M4-D` 已把 Rust mutation baseline 誠實收斂成兩塊：`browser-history-parser` crate，以及 `vault-core/src/ai.rs` 的 AI status/helper slice。`bun run mutation:rust` 和 GitHub `rust-mutation` workflow 現在只對這個 contract 背書；`bun run mutation:rust:full` 則保留作 exploratory whole-workspace triage。parser `open_readonly` 的 `|` / `^` 變異也已明確標記為等價 mutant，而不是再冒充真缺測。
 >
 > **2026-04-08 UX closeout 註記**：使用者改派後，原本暫掛 `ANTIGRAVITY-FE` 的 `WORK-M4-H` 已和 `WORK-M4-F` 一起收斂完成。`Insights` 現在正式對齊 shared profile scope honesty；`Assistant` / `Audit` / `Schedule` 的 IA 與 disabled / verify surface 也已補齊；raw internal route reload 與 i18n / app-shell / trust-flow / intelligence-surface checker drift 已全部收斂回 `bun run check && bun run build`。之後 `WORK-M4-E` 也已把 loading grammar 收斂為 skeleton + readable progress contract，而 `WORK-M4-C` 則正式補上 App Lock 的 session boundary、lock route、desktop / MCP refusal path 與 platform degradation copy。
+>
+> **2026-04-09 intelligence truth closeout 註記**：`WORK-QC-D` 沒有把 M4 粉飾成「advanced intelligence 全做完」。這輪實際完成的是 semantic stale / cost read model、MCP consent / scope / audit preview、model-scoped index readiness 與 run-type truth；同時新增 [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md)，明確標出 repo 目前**不能**聲稱已通過「60 年資料量、所有 AI 開啟、8 GB / 4-core 仍流暢」的最終性能背書。revisit / resurfacing、plugin sandbox、獨立 enrichment queue family 仍屬 deferred。
+>
+> **2026-04-09 審核結論**：`bun run verify` 現在已重新全綠，但這不等於 M4 已整體完成。release / support / remote backup / truthful intelligence v1 已簽收；尚未簽收的是兩塊真正會決定「設計文檔是否全完成」的剩餘工作：`WORK-M4-J` 的 60-year performance proof，以及 `WORK-M4-I` 的 advanced intelligence shipping（plugin sandbox / queue family / revisit surfaces）。
 
 ---
 
 ## M4 的完成定義
+
+> 2026-04-09 註記：下列條目描述的是 **full M4 signoff**，不是目前已完成的 truthful partial support。
 
 - Enrichment plugin system 和至少數個核心插件可用。
 - Advanced insights 和長期分析能力補齊。
@@ -32,12 +38,15 @@
 - [enrichment-advanced-intelligence-and-remote.md](enrichment-advanced-intelligence-and-remote.md)
 - [platform-release-and-polish.md](platform-release-and-polish.md)
 - [large-archive-performance-runbook.md](large-archive-performance-runbook.md)
+- [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md)
 
 ---
 
 ## 里程碑檢查表
 
-- [x] `M4-001` enrichment 和 remote backup 完成基本可用版本。
-- [x] `M4-002` advanced insights 和 storage analytics 完成。
+- [~] `M4-001` enrichment 和 remote backup 完成基本可用版本。
+  - remote backup PME、derived-state v1 與 `readable-content-refetch` 已交付；plugin sandbox、獨立 queue family 與更多 core plugins 仍未 shipping。
+- [~] `M4-002` advanced insights 和 storage analytics 完成。
+  - storage analytics、scoped insights、semantic / assistant truth boundary 已交付；revisit / resurfacing 與 long-horizon advanced intelligence 仍未 shipping，也尚未完成 60-year perf signoff。
 - [x] `M4-003` macOS / Windows / Linux 都完成至少一輪真正的發版前驗證。
 - [x] `M4-004` README、CONTRIBUTING、release pipeline 和 docs 皆對齊最終產品。

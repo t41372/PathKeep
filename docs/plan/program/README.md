@@ -67,10 +67,10 @@
 
 ## Program 級別 checklist
 
-- [ ] `PG-001` 維持 `docs/plan/` 為 implementation truth；需求改了之後要同步回寫 plan，不能讓 plan 默默過期。
-- [ ] `PG-002` 建立「需求來源 → 設計稿 → work package → 測試驗收」的 traceability。
-- [ ] `PG-003` 把缺少設計稿的畫面先補設計決策，再開做對應實作。
-- [ ] `PG-004` 在 M0 結束前，完成「哪些舊代碼保留作 reference、哪些正式淘汰」的判定。
-- [ ] `PG-005` 在 M1 開始前，確認 migration / rollback / snapshot / manifest 四個操作模型已經一致。
+- [x] `PG-001` 維持 `docs/plan/` 為 implementation truth；需求改了之後要同步回寫 plan，不能讓 plan 默默過期。（2026-04-09，`WORK-QC-C`：traceability、quality matrix、M1 acceptance matrix 與 milestone README 已重新對齊）
+- [x] `PG-002` 建立「需求來源 → 設計稿 → work package → 測試驗收」的 traceability。（2026-04-09，`WORK-QC-C`：見 [traceability-map.md](traceability-map.md) 的 `Work Packages To Acceptance Surfaces`）
+- [x] `PG-003` 把缺少設計稿的畫面先補設計決策，再開做對應實作。（2026-04-09，`WORK-QC-C`：prototype 未覆蓋的 production states 已在 [../../design/screens-and-nav.md](../../design/screens-and-nav.md) 的 `Non-Prototype State Coverage` 誠實定義）
+- [x] `PG-004` 在 M0 結束前，完成「哪些舊代碼保留作 reference、哪些正式淘汰」的判定。（2026-04-09，`WORK-QC-C`：見 [repo-baseline.md](repo-baseline.md) 與 [../../architecture/module-boundary-map.md](../../architecture/module-boundary-map.md)）
+- [x] `PG-005` 在 M1 開始前，確認 migration / rollback / snapshot / manifest 四個操作模型已經一致。（2026-04-09，`WORK-QC-C`：統一 `runs` ledger / manifest / snapshot safety net 已簽收；snapshot restore preview / execute 仍明確列為 deferred surface）
 - [ ] `PG-006` 在 M3 開始前，確認 AI provider 未配置、index 被刪除、AI pipeline 失敗三種情況都不會影響核心 archive。
-- [ ] `PG-007` 每個 milestone 結束時回寫 docs。如果實際決策和 vision 子文檔不同，先修文檔，再進下一階段。
+- [x] `PG-007` 每個 milestone 結束時回寫 docs。如果實際決策和 vision 子文檔不同，先修文檔，再進下一階段。（2026-04-09，`WORK-QC-C`：PG / M0 / M1 closeout source docs 已同步）
