@@ -661,7 +661,14 @@ export function ImportPage() {
               <div style={{ position: 'relative', minHeight: '120px' }}>
                 <BusyOverlay
                   label={t('import.importingTitle')}
-                  detail={`${(inspection?.candidateItems ?? 0).toLocaleString(language)} records · ${(inspection?.recognizedFiles.length ?? 0).toLocaleString(language)} files`}
+                  detail={t('import.importingProgressDetail', {
+                    records: (inspection?.candidateItems ?? 0).toLocaleString(
+                      language,
+                    ),
+                    files: (
+                      inspection?.recognizedFiles.length ?? 0
+                    ).toLocaleString(language),
+                  })}
                   progressLabel={`4 / ${wizardSteps.length.toLocaleString(language)}`}
                   progressValue={(4 / wizardSteps.length) * 100}
                   steps={wizardSteps

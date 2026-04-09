@@ -119,7 +119,8 @@ fn run_app() -> Result<()> {
             explain_insight,
             preview_ai_integrations,
             reset_local_secret_vault,
-            open_path_in_file_manager
+            open_path_in_file_manager,
+            open_external_url
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -579,4 +580,10 @@ fn reset_local_secret_vault() -> Result<(), String> {
 #[tauri::command]
 fn open_path_in_file_manager(path: String) -> Result<String, String> {
     file_manager::open_path_in_file_manager_impl(path)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn open_external_url(url: String) -> Result<String, String> {
+    file_manager::open_external_url_impl(url)
 }

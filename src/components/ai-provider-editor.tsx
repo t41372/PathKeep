@@ -51,6 +51,7 @@ export function AiProviderEditorList({
     providerId: string
     requestFormat: string
     baseUrl: string
+    baseUrlPlaceholder: string
     defaultModel: string
     modelCatalog: string
     modelCatalogHint: string
@@ -60,7 +61,10 @@ export function AiProviderEditorList({
     dimensions: string
     notes: string
     apiKey: string
+    apiKeyPlaceholder: string
     keyStored: string
+    yes: string
+    no: string
     saveKey: string
     clearKey: string
     remove: string
@@ -153,7 +157,7 @@ export function AiProviderEditorList({
                   control={
                     <input
                       disabled={disabled}
-                      placeholder="https://api.example.com/v1"
+                      placeholder={translations.baseUrlPlaceholder}
                       value={provider.baseUrl ?? ''}
                       onChange={(event) =>
                         onUpdate(provider.id, {
@@ -284,12 +288,14 @@ export function AiProviderEditorList({
 
               <div className="providerSecretRow">
                 <FieldBlock
-                  label={`${translations.apiKey} · ${translations.keyStored}: ${provider.apiKeySaved ? 'yes' : 'no'}`}
+                  label={`${translations.apiKey} · ${translations.keyStored}: ${
+                    provider.apiKeySaved ? translations.yes : translations.no
+                  }`}
                   control={
                     <input
                       autoComplete="off"
                       disabled={disabled}
-                      placeholder="sk-..."
+                      placeholder={translations.apiKeyPlaceholder}
                       type="password"
                       value={apiKeys[provider.id] ?? ''}
                       onChange={(event) =>

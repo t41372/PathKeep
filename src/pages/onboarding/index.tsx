@@ -7,6 +7,8 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { backend } from '../../lib/backend'
+import { formatBytes } from '../../lib/format'
+import { estimateOnboardingStorage } from '../../lib/onboarding-estimates'
 import type { SchedulePlan } from '../../lib/types'
 
 const stepKeys = [
@@ -31,7 +33,8 @@ export function OnboardingPage() {
     runBackup,
     snapshot,
   } = useShellData()
-  const { t } = useI18n('onboarding')
+  const { language, t, ns } = useI18n('onboarding')
+  const commonT = ns('common')
   const [step, setStep] = useState(0)
   const [masterPassword, setMasterPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -124,6 +127,21 @@ export function OnboardingPage() {
       (profile) => profile.profileId === id && profile.historyExists,
     ),
   ).length
+  const storageEstimate = estimateOnboardingStorage(
+    snapshot.browserProfiles,
+    snapshot.config.selectedProfileIds,
+  )
+
+  function handleSecurityCardClick(
+    mode: 'Encrypted' | 'Plaintext',
+    target: EventTarget | null,
+  ) {
+    const element = target instanceof HTMLElement ? target : null
+    if (element?.closest('button, input, select, textarea, a, label')) {
+      return
+    }
+    void updateConfig((config) => ({ ...config, archiveMode: mode }))
+  }
 
   async function updateConfig(
     updater: (c: typeof currentConfig) => typeof currentConfig,
@@ -225,7 +243,9 @@ export function OnboardingPage() {
           </div>
           <h1 className="welcome-title">PATHKEEP</h1>
           <p className="welcome-version mono">
-            v{buildInfo?.version ?? 'preview'} · Tauri desktop app
+            {t('versionLine', {
+              version: buildInfo?.version ?? 'preview',
+            })}
           </p>
           <p className="welcome-tagline">
             {t('welcomeTagline1')}
@@ -380,7 +400,11 @@ export function OnboardingPage() {
                           }}
                         >
                           {profile.historyExists
-                            ? `${profile.browserVersion ?? t('versionUnknown')} · ${profile.browserFamily} engine`
+                            ? t('browserEngineLabel', {
+                                version:
+                                  profile.browserVersion ?? t('versionUnknown'),
+                                engine: profile.browserFamily,
+                              })
                             : profile.browserFamily === 'safari'
                               ? t('safariAccessHint')
                               : t('cannotReadHint').replace(
@@ -488,25 +512,42 @@ export function OnboardingPage() {
                   <span className="estimate-label">
                     {t('estimateArchiveDb')}
                   </span>
-                  <span className="estimate-value mono">~140 MB</span>
+                  <span className="estimate-value mono">
+                    {formatBytes(storageEstimate.archiveDbBytes, language)}
+                  </span>
                 </div>
                 <div className="estimate-item">
                   <span className="estimate-label">
                     {t('estimateManifest')}
                   </span>
-                  <span className="estimate-value mono">~375 KB</span>
+                  <span className="estimate-value mono">
+                    {formatBytes(storageEstimate.manifestBytes, language)}
+                  </span>
                 </div>
                 <div className="estimate-item">
                   <span className="estimate-label">
                     {t('estimateSnapshots')}
                   </span>
-                  <span className="estimate-value mono">~1.2 MB</span>
+                  <span className="estimate-value mono">
+                    {formatBytes(storageEstimate.snapshotsBytes, language)}
+                  </span>
                 </div>
                 <div className="estimate-item highlight">
                   <span className="estimate-label">{t('estimateTotal')}</span>
-                  <span className="estimate-value mono">~142 MB</span>
+                  <span className="estimate-value mono">
+                    {formatBytes(storageEstimate.totalBytes, language)}
+                  </span>
                 </div>
               </div>
+              <p
+                className="mono-support"
+                style={{ marginTop: 'var(--space-3)' }}
+              >
+                {t('estimateExplanation', {
+                  count: storageEstimate.profileCount,
+                  source: formatBytes(storageEstimate.sourceBytes, language),
+                })}
+              </p>
             </div>
           </div>
 
@@ -545,6 +586,9 @@ export function OnboardingPage() {
           >
             <div
               className={`security-option ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
+              onClick={(event) =>
+                handleSecurityCardClick('Encrypted', event.target)
+              }
             >
               <button
                 aria-checked={currentConfig.archiveMode === 'Encrypted'}
@@ -616,6 +660,9 @@ export function OnboardingPage() {
 
             <div
               className={`security-option ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
+              onClick={(event) =>
+                handleSecurityCardClick('Plaintext', event.target)
+              }
             >
               <button
                 aria-checked={currentConfig.archiveMode === 'Plaintext'}
@@ -802,7 +849,9 @@ export function OnboardingPage() {
                 <div className="config-row">
                   <span className="config-label">{t('configEncryption')}</span>
                   <span className="config-value">
-                    {currentConfig.archiveMode}
+                    {currentConfig.archiveMode === 'Encrypted'
+                      ? commonT('modeEncrypted')
+                      : commonT('modePlaintext')}
                   </span>
                 </div>
                 <div className="config-row">

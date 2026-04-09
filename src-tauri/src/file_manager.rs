@@ -33,6 +33,20 @@ pub(crate) fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String>
     Err(format!("Path does not exist: {}", target.display()))
 }
 
+pub(crate) fn resolve_external_url_target(url: &str) -> Result<String, String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("URL does not exist.".to_string());
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err("Only http:// and https:// URLs can be opened.".to_string());
+    }
+
+    Ok(trimmed.to_string())
+}
+
 #[cfg_attr(test, allow(dead_code))]
 #[cfg(target_os = "macos")]
 pub(crate) fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
@@ -52,10 +66,36 @@ pub(crate) fn file_manager_command(target: &Path) -> (&'static str, Vec<String>)
 }
 
 #[cfg_attr(test, allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub(crate) fn external_url_command(target: &str) -> (&'static str, Vec<String>) {
+    ("open", vec![target.to_string()])
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(target_os = "windows")]
+pub(crate) fn external_url_command(target: &str) -> (&'static str, Vec<String>) {
+    ("cmd", vec!["/C".to_string(), "start".to_string(), String::new(), target.to_string()])
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+pub(crate) fn external_url_command(target: &str) -> (&'static str, Vec<String>) {
+    ("xdg-open", vec![target.to_string()])
+}
+
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn open_path_in_file_manager_impl(path: String) -> Result<String, String> {
     let target = resolve_file_manager_target(&path)?;
     spawn_file_manager_for_target(&target)?;
     Ok(target.display().to_string())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
+    let target = resolve_external_url_target(&url)?;
+    let (program, arguments) = external_url_command(&target);
+    spawn_external_url_command(program, arguments, &target)?;
+    Ok(target)
 }
 
 pub(crate) fn spawn_file_manager_for_target(target: &Path) -> Result<(), String> {
@@ -76,6 +116,19 @@ fn spawn_file_manager_command(
     Ok(())
 }
 
+#[cfg(not(test))]
+fn spawn_external_url_command(
+    program: &str,
+    arguments: Vec<String>,
+    target: &str,
+) -> Result<(), String> {
+    Command::new(program)
+        .args(arguments)
+        .spawn()
+        .map_err(|error| format!("Failed to open {target}: {error}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 fn spawn_file_manager_command(
     program: &str,
@@ -84,6 +137,18 @@ fn spawn_file_manager_command(
 ) -> Result<(), String> {
     if program.is_empty() || arguments.is_empty() || !target.exists() {
         return Err(format!("Failed to open {}", target.display()));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn spawn_external_url_command(
+    program: &str,
+    arguments: Vec<String>,
+    target: &str,
+) -> Result<(), String> {
+    if program.is_empty() || arguments.is_empty() || !target.starts_with("http") {
+        return Err(format!("Failed to open {target}"));
     }
     Ok(())
 }
@@ -106,6 +171,21 @@ mod tests {
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     fn expected_file_manager_program() -> &'static str {
+        "xdg-open"
+    }
+
+    #[cfg(target_os = "macos")]
+    fn expected_external_url_program() -> &'static str {
+        "open"
+    }
+
+    #[cfg(target_os = "windows")]
+    fn expected_external_url_program() -> &'static str {
+        "cmd"
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    fn expected_external_url_program() -> &'static str {
         "xdg-open"
     }
 
@@ -133,6 +213,22 @@ mod tests {
         let error = resolve_file_manager_target("/tmp/pathkeep-does-not-exist")
             .expect_err("missing path should fail");
         assert!(error.contains("Path does not exist"));
+    }
+
+    #[test]
+    fn resolve_external_url_target_accepts_http_and_https_only() {
+        assert_eq!(
+            resolve_external_url_target("https://example.com").expect("https target"),
+            "https://example.com"
+        );
+        assert_eq!(
+            resolve_external_url_target("http://example.com").expect("http target"),
+            "http://example.com"
+        );
+
+        let unsupported =
+            resolve_external_url_target("file:///tmp/example").expect_err("reject file urls");
+        assert!(unsupported.contains("http:// and https://"));
     }
 
     #[test]
@@ -167,6 +263,14 @@ mod tests {
             dir.path().display().to_string()
         );
         spawn_file_manager_for_target(dir.path()).expect("spawn file manager");
+
+        let (external_program, external_arguments) = external_url_command("https://example.com");
+        assert_eq!(external_program, expected_external_url_program());
+        assert!(!external_arguments.is_empty());
+        assert_eq!(
+            open_external_url_impl("https://example.com".to_string()).expect("open external url"),
+            "https://example.com"
+        );
     }
 
     #[test]

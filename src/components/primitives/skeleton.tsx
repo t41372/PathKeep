@@ -5,6 +5,10 @@ interface SkeletonProps {
   count?: number
 }
 
+interface LabeledSkeletonProps {
+  label: string
+}
+
 function SkeletonUnit({
   width,
   height,
@@ -77,9 +81,9 @@ export function Skeleton({
   )
 }
 
-export function DashboardSkeleton() {
+export function DashboardSkeleton({ label }: LabeledSkeletonProps) {
   return (
-    <div className="page-shell" aria-busy="true" aria-label="Loading dashboard">
+    <div className="page-shell" aria-busy="true" aria-label={label}>
       <div className="stats-row">
         <Skeleton variant="stat-card" count={4} />
       </div>
@@ -97,17 +101,20 @@ export function DashboardSkeleton() {
   )
 }
 
-export function TableSkeleton({ rows = 5 }: { rows?: number }) {
+export function TableSkeleton({
+  label,
+  rows = 5,
+}: LabeledSkeletonProps & { rows?: number }) {
   return (
-    <div className="skeleton-table" aria-busy="true" aria-label="Loading table">
+    <div className="skeleton-table" aria-busy="true" aria-label={label}>
       <Skeleton variant="table-row" count={rows} />
     </div>
   )
 }
 
-export function SkeletonExplorer() {
+export function SkeletonExplorer({ label }: LabeledSkeletonProps) {
   return (
-    <div className="page-shell" aria-busy="true" aria-label="Loading explorer">
+    <div className="page-shell" aria-busy="true" aria-label={label}>
       <div
         className="skeleton-block"
         style={{ height: '44px', marginBottom: 'var(--space-4)' }}
@@ -131,13 +138,9 @@ export function SkeletonExplorer() {
   )
 }
 
-export function SkeletonExplorerResults() {
+export function SkeletonExplorerResults({ label }: LabeledSkeletonProps) {
   return (
-    <div
-      className="explorer-grid"
-      aria-busy="true"
-      aria-label="Loading explorer results"
-    >
+    <div className="explorer-grid" aria-busy="true" aria-label={label}>
       <div className="record-list">
         <div className="record-group">
           <div className="record-group-header">
@@ -177,9 +180,9 @@ export function SkeletonExplorerResults() {
   )
 }
 
-export function SkeletonInsights() {
+export function SkeletonInsights({ label }: LabeledSkeletonProps) {
   return (
-    <div className="page-shell" aria-busy="true" aria-label="Loading insights">
+    <div className="page-shell" aria-busy="true" aria-label={label}>
       <div className="stats-row">
         <Skeleton variant="stat-card" count={4} />
       </div>
@@ -204,9 +207,9 @@ export function SkeletonInsights() {
   )
 }
 
-export function SkeletonSettings() {
+export function SkeletonSettings({ label }: LabeledSkeletonProps) {
   return (
-    <div className="page-shell" aria-busy="true" aria-label="Loading settings">
+    <div className="page-shell" aria-busy="true" aria-label={label}>
       {Array.from({ length: 3 }, (_, i) => (
         <div key={i} style={{ marginBottom: 'var(--space-4)' }}>
           <div

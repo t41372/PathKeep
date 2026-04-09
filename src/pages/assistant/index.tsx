@@ -493,7 +493,11 @@ export function AssistantPage() {
                         : assistantT('providerNeedsAttention')}
                     </strong>
                     <span className="mono-support">
-                      {providerProbe.model} · {providerProbe.latencyMs} ms
+                      {assistantT('providerProbeLatency', {
+                        model: providerProbe.model,
+                        latency:
+                          providerProbe.latencyMs.toLocaleString(language),
+                      })}
                     </span>
                   </div>
                   <p>{providerProbe.message}</p>
@@ -580,9 +584,12 @@ export function AssistantPage() {
                           {responseMeta.label}
                         </span>
                         <span className="mono-support">
-                          Job #{response.jobId ?? '—'} · Run #
-                          {response.runId ?? '—'} ·{' '}
-                          {response.providerId || t('common.pending')}
+                          {assistantT('responseMeta', {
+                            jobId: String(response.jobId ?? '—'),
+                            runId: String(response.runId ?? '—'),
+                            provider:
+                              response.providerId || t('common.pending'),
+                          })}
                         </span>
                       </div>
                     ) : null}
@@ -715,7 +722,14 @@ export function AssistantPage() {
                   compact
                   label={queueAction}
                   detail={assistantT('queueBoundaryBody')}
-                  progressLabel={`${(queueStatus?.queued ?? snapshot.aiStatus.queuedJobs).toLocaleString(language)} queued / ${(queueStatus?.running ?? snapshot.aiStatus.runningJobs).toLocaleString(language)} running`}
+                  progressLabel={assistantT('queueProgressLabel', {
+                    queued: (
+                      queueStatus?.queued ?? snapshot.aiStatus.queuedJobs
+                    ).toLocaleString(language),
+                    running: (
+                      queueStatus?.running ?? snapshot.aiStatus.runningJobs
+                    ).toLocaleString(language),
+                  })}
                   progressValue={67}
                 />
               ) : null}

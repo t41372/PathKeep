@@ -21,6 +21,9 @@ const safariProfile: BrowserProfile = {
   historyExists: false,
   browserVersion: null,
   historyFileName: 'History.db',
+  historyBytes: 18 * 1024 * 1024,
+  faviconsBytes: 0,
+  supportingBytes: 2 * 1024 * 1024,
 }
 
 const scheduleStatus: ScheduleStatus = {

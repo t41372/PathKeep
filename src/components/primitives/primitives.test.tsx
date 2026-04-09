@@ -114,8 +114,8 @@ describe('Shell primitives', () => {
   test('renders dashboard and table skeletons for long-running loads', () => {
     render(
       <>
-        <DashboardSkeleton />
-        <TableSkeleton rows={3} />
+        <DashboardSkeleton label="Loading dashboard" />
+        <TableSkeleton label="Loading table" rows={3} />
       </>,
     )
 

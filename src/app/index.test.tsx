@@ -281,18 +281,14 @@ describe('App shell', () => {
       screen.getByRole('button', { name: onboardingT('continueButton') }),
     )
 
-    await user.click(
-      screen.getByRole('radio', { name: onboardingT('plaintextSelectLabel') }),
-    )
+    await user.click(screen.getByText(onboardingT('plaintextDesc')))
     expect(
       await screen.findByText(new RegExp(onboardingT('tradeoffNoPassword')), {
         selector: '.tradeoff-row',
       }),
     ).toBeVisible()
 
-    await user.click(
-      screen.getByRole('radio', { name: onboardingT('encryptedSelectLabel') }),
-    )
+    await user.click(screen.getByText(onboardingT('encryptedDesc')))
     expect(
       await screen.findByText(onboardingT('masterPasswordLabel')),
     ).toBeVisible()
@@ -592,82 +588,82 @@ describe('App shell', () => {
   test('keeps sidebar information architecture grouped by section', () => {
     expect(sidebarSections).toEqual([
       {
-        label: 'CORE',
+        id: 'core',
         labelKey: 'navigation.coreSection',
         items: [
           expect.objectContaining({
             id: 'dashboard',
-            label: 'Dashboard',
-            subtitle: 'Archive overview & system status',
+            labelKey: 'navigation.dashboardLabel',
+            subtitleKey: 'navigation.dashboardSubtitle',
             icon: '⌂',
             href: '/',
           }),
           expect.objectContaining({
             id: 'explorer',
-            label: 'Explorer',
-            subtitle: 'Browse, search & filter your archive',
+            labelKey: 'navigation.explorerLabel',
+            subtitleKey: 'navigation.explorerSubtitle',
             icon: '◎',
             href: '/explorer',
           }),
           expect.objectContaining({
             id: 'insights',
-            label: 'Insights',
-            subtitle: 'Topics, threads & browsing patterns',
+            labelKey: 'navigation.insightsLabel',
+            subtitleKey: 'navigation.insightsSubtitle',
             icon: '◈',
             href: '/insights',
           }),
           expect.objectContaining({
             id: 'assistant',
-            label: 'AI Assistant',
-            subtitle: 'Ask questions about your browsing history',
+            labelKey: 'navigation.assistantLabel',
+            subtitleKey: 'navigation.assistantSubtitle',
             icon: '▷',
             href: '/assistant',
-            badge: 'OPT',
+            badgeKey: 'navigation.assistantBadge',
           }),
         ],
       },
       {
-        label: 'OPERATIONS',
+        id: 'operations',
         labelKey: 'navigation.operationsSection',
         items: [
           expect.objectContaining({
             id: 'import',
-            label: 'Import',
-            subtitle: 'Google Takeout & browser direct import',
+            labelKey: 'navigation.importLabel',
+            subtitleKey: 'navigation.importSubtitle',
             icon: '↓',
             href: '/import',
           }),
           expect.objectContaining({
             id: 'audit',
-            label: 'Audit Ledger',
-            subtitle: 'Manifest chain, run history & integrity',
+            labelKey: 'navigation.auditLabel',
+            subtitleKey: 'navigation.auditSubtitle',
             icon: '⊞',
             href: '/audit',
           }),
           expect.objectContaining({
             id: 'schedule',
-            label: 'Schedule',
-            subtitle: 'Backup schedule & install artifacts',
+            labelKey: 'navigation.scheduleLabel',
+            subtitleKey: 'navigation.scheduleSubtitle',
             icon: '⏀',
             href: '/schedule',
           }),
         ],
       },
       {
-        label: 'SYSTEM',
+        id: 'system',
         labelKey: 'navigation.systemSection',
         items: [
           expect.objectContaining({
             id: 'security',
-            label: 'Security',
-            subtitle: 'Encryption, keyring & password management',
+            labelKey: 'navigation.securityLabel',
+            subtitleKey: 'navigation.securitySubtitle',
             icon: '⊘',
             href: '/security',
           }),
           expect.objectContaining({
             id: 'settings',
-            label: 'Settings',
-            subtitle: 'Profiles, language & platform guidance',
+            labelKey: 'navigation.settingsLabel',
+            subtitleKey: 'navigation.settingsSubtitle',
             icon: '⚙',
             href: '/settings',
           }),
@@ -676,9 +672,9 @@ describe('App shell', () => {
     ])
     expect(onboardingScreen).toEqual(
       expect.objectContaining({
-        label: 'Onboarding',
-        title: 'Onboarding / Setup',
-        subtitle: 'Preview, manual guidance, and first-run archive decisions',
+        labelKey: 'navigation.onboardingLabel',
+        titleKey: 'navigation.onboardingTitle',
+        subtitleKey: 'navigation.onboardingSubtitle',
         icon: '◌',
         href: '/onboarding',
       }),

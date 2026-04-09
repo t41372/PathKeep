@@ -12,8 +12,8 @@ export function SidebarNavItem({ screen, collapsed }: SidebarNavItemProps) {
   const location = useLocation()
   const { t } = useI18n()
   const isActive = location.pathname === screen.href
-  const label = screen.labelKey ? t(screen.labelKey) : screen.label
-  const badge = screen.badgeKey ? t(screen.badgeKey) : screen.badge
+  const label = t(screen.labelKey)
+  const badge = screen.badgeKey ? t(screen.badgeKey) : null
 
   return (
     <Link

@@ -17,11 +17,9 @@ describe('Topbar', () => {
               <Topbar
                 screen={{
                   ...onboardingScreen,
-                  title: 'Dashboard',
-                  subtitle: 'Archive overview & system status',
-                  labelKey: undefined,
-                  titleKey: undefined,
-                  subtitleKey: undefined,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
                 }}
               />
             </MemoryRouter>

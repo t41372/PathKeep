@@ -266,6 +266,9 @@ describe('intelligence surfaces', () => {
       historyExists: false,
       browserVersion: null,
       historyFileName: 'History.db',
+      historyBytes: 18 * 1024 * 1024,
+      faviconsBytes: 0,
+      supportingBytes: 2 * 1024 * 1024,
     })
     snapshot.config.selectedProfileIds.push('safari:Personal')
 
@@ -431,6 +434,7 @@ describe('intelligence surfaces', () => {
   test('clears both explorer date bounds in a single interaction', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
+    const explorerT = createNamespaceTranslator('en', 'explorer')
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
@@ -438,8 +442,8 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    const startInput = await screen.findByLabelText('Explorer start date')
-    const endInput = await screen.findByLabelText('Explorer end date')
+    const startInput = await screen.findByLabelText(explorerT('filterStart'))
+    const endInput = await screen.findByLabelText(explorerT('filterEnd'))
 
     expect(startInput).toHaveValue('2026-04-01')
     expect(endInput).toHaveValue('2026-04-07')
@@ -552,6 +556,24 @@ describe('intelligence surfaces', () => {
         chromiumEnhanced: true,
       },
       profileFacets: [],
+      canonical: {
+        windowVisitCount: 6,
+        windowUniqueDomains: 3,
+        onThisDay: [
+          {
+            historyId: 41,
+            profileId: 'chrome:Default',
+            url: 'https://example.com/recall-drift',
+            title: 'Recall drift notes',
+            visitedAt: '2026-04-07T08:00:00Z',
+            note: 'Frequently reopened across the last week.',
+          },
+        ],
+        topDomains: [
+          { domain: 'example.com', visitCount: 4 },
+          { domain: 'sqlite.org', visitCount: 2 },
+        ],
+      },
       notes: ['Snapshot retained only evidence-backed summaries.'],
     }
     const explanation: InsightExplanation = {

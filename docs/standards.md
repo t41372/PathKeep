@@ -12,8 +12,11 @@
 - 所有用戶可見的文字都走 i18n，包括錯誤信息和通知。
 - 翻譯目錄採 namespace-based 結構（至少區分 `common`、`shell`、`navigation` 與 route / feature namespaces），避免單一巨檔持續膨脹。
 - trust-critical flow 必須同步交付 `en` / `zh-CN` / `zh-TW`；不接受靠英語 fallback 混過核心操作、warning、empty state 或修復 CTA。
+- 新功能的 shipping contract 也包含 placeholder、aria-label、loading / skeleton label、busy overlay detail、route metadata、browser preview honesty copy；這些都不算「之後再補的 polish」。
 - 日期時間、相對時間、檔案大小等格式化要走共用 helper，並跟語系解析規則一起測試。
 - route / page 級的 copy 變更至少要補一輪缺 key coverage 檢查，並保留 pseudo-locale 或等價 smoke 來提早發現 layout 溢出。
+- 活躍 TSX surface（`src/app/`、`src/components/`、`src/pages/`）由 `src/lib/i18n-literal-guard.test.ts` 擋 raw user-visible literal；新增 UI 文案若需要例外，必須先說明為什麼它不是翻譯內容。
+- browser preview fixture 不是 i18n 豁免區；新增或改動 `src/lib/backend.ts` 的 preview / honesty 文案時，也要同步考慮 locale 行為與長字串布局。
 
 ---
 

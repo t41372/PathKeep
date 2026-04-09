@@ -56,6 +56,13 @@
 - 空狀態友好：沒有數據時告訴用戶該怎麼開始。
 - 降級狀態友好：AI 未配置時明確提示，但不阻礙核心備份功能。
 
+### 國際化是 UX 契約
+
+- 所有新的 user-visible copy 都先假設要同時支援 `en` / `zh-CN` / `zh-TW`，而不是先寫英文再回頭補翻譯。
+- i18n 範圍不只正文，也包含 route title / subtitle、sidebar label、button 文案、error / warning / success callout、placeholder、aria-label、loading / skeleton label、busy overlay detail，以及 browser preview honesty copy。
+- sample / preview / disabled / empty state 不是例外；如果畫面會顯示給使用者看，它就屬於產品文案。
+- 設計和實作都必須預留 locale-length wrapping；至少要能承受 pseudo-locale、中文長句與較長的錯誤說明，不可因翻譯後溢出就回退成英文硬編碼。
+
 ---
 
 ## 4. Loading States & Skeleton Screens

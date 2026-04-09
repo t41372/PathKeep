@@ -72,6 +72,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 - 看 `docs/design/screens-and-nav.md` — 畫面結構和導航規格
 - 看 `docs/design/ux-principles.md` — PME 模型
 - 看 `docs/design/design-tokens.md` — token 與 theme contract 的 source of truth
+- i18n 是 UI 的硬性契約：所有新的 user-visible copy、placeholder、aria-label、loading / skeleton label、empty / error / disabled state、以及 browser preview honesty copy 都必須先想好 `en` / `zh-CN` / `zh-TW`
 - `src/app/`、`src/styles/`、`src/pages/` 是目前活的 shell surface；不要把新工作塞回已刪除的 `AppNew` 思路
 
 ### Rust/後端相關
@@ -85,6 +86,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 - 先讀對應的 `docs/features/` 子文檔
 - 如果「讀先」文檔之間打架：先修文檔，讓 source of truth 恢復一致，再寫代碼
+- 新功能沒有 i18n 就不算完成：至少同步補齊翻譯 key、locale / pseudo-locale smoke、以及相關 literal guard / coverage
 - 完成後跑 `bun run check`，通過才提交
 
 ---
@@ -94,9 +96,9 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 ```
 src/                          React 19 + TypeScript 前端
   main.tsx                    入口（載入 src/app）
-  app/                        shell、router、preview data、onboarding shell
+  app/                        shell、router、onboarding shell
   styles/                     token layer + app shell styles
-  lib/backend.ts              legacy helper / reference surface，避免新增 shell contract
+  lib/backend.ts              legacy helper / reference / browser-preview fixture surface，避免新增 shell contract，也不要往裡加新的 raw English UI copy
   lib/ipc/bridge.ts           typed IPC wrapper
   lib/app-context.tsx         舊全域狀態，reference only，不再擴寫
   pages/                      route-scoped page skeletons 與後續正式頁面
@@ -137,6 +139,7 @@ reference/
 3. **Longevity** — 設計壽命 20 年，選 SQLite/plaintext，不鎖死用戶
 4. **Intelligence Is Optional** — 沒有 AI provider 時 PathKeep 仍完整可用，AI 是增值層
 5. **Recoverability** — 所有操作可回滾，用戶不因我們的 bug 永久丟失數據
+6. **Internationalization Is A Shipping Contract** — user-visible copy、honesty note、loading label、preview fixture text 都不是最後才補的 polish，而是開發當下就要交付的產品契約
 
 ---
 

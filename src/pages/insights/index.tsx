@@ -15,9 +15,13 @@ import {
 } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
+  resolveInsightOnThisDay,
+  resolveInsightPeriodicSummary,
+  resolveInsightTopDomains,
+} from '../../lib/insight-canonical'
+import {
   aiStatusMeta,
   assistantHref,
-  dedupeEvidence,
   evidenceHref,
 } from '../../lib/intelligence'
 import {
@@ -36,22 +40,6 @@ import type {
 } from '../../lib/types'
 
 const topicColors = ['#FF7832', '#4ECDC4', '#FFE66D', '#FF6B6B', '#89CFF0']
-
-function domainFromUrl(url: string) {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
-}
-
-function flattenInsightEvidence(snapshot: InsightSnapshot) {
-  return dedupeEvidence([
-    ...snapshot.cards.flatMap((card) => card.evidence),
-    ...snapshot.topics.flatMap((topic) => topic.evidence),
-    ...snapshot.threads.flatMap((thread) => thread.evidence),
-  ])
-}
 
 export function InsightsPage() {
   const { language, ns } = useI18n()
@@ -101,39 +89,19 @@ export function InsightsPage() {
   const aiMeta = snapshot
     ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
     : null
-  const allEvidence = useMemo(
-    () => (insights ? flattenInsightEvidence(insights) : []),
-    [insights],
-  )
   const todayKey = calendarDayKey(new Date())
   const onThisDay = useMemo(
-    () =>
-      allEvidence
-        .filter((item) => calendarDayKey(item.visitedAt) === todayKey)
-        .slice(0, 6),
-    [allEvidence, todayKey],
+    () => (insights ? resolveInsightOnThisDay(insights, todayKey) : []),
+    [insights, todayKey],
   )
-  const siteAnalytics = useMemo(() => {
-    const counts = new Map<string, number>()
-    allEvidence.forEach((item) => {
-      const domain = domainFromUrl(item.url)
-      counts.set(domain, (counts.get(domain) ?? 0) + 1)
-    })
-    const top = [...counts.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 5)
-    const maxCount = top[0]?.[1] ?? 1
-    return top.map(([domain, count]) => ({
-      domain,
-      count,
-      pct: Math.round((count / maxCount) * 100),
-    }))
-  }, [allEvidence])
+  const siteAnalytics = useMemo(
+    () => (insights ? resolveInsightTopDomains(insights) : []),
+    [insights],
+  )
   const periodicSummary = useMemo(() => {
     if (!insights) return []
-    const seeded = insights.cards.slice(0, 2).map((card) => card.summary)
-    return seeded.length > 0 ? seeded : insights.notes
-  }, [insights])
+    return resolveInsightPeriodicSummary(insights, insightsT)
+  }, [insights, insightsT])
   const storageEvidence = useMemo(
     () => storageGrowthEvidence(dashboard),
     [dashboard],
@@ -207,7 +175,7 @@ export function InsightsPage() {
   }
 
   if (loading && !insights) {
-    return <SkeletonInsights />
+    return <SkeletonInsights label={commonT('loadingInsights')} />
   }
 
   if (loadError && !insights) {

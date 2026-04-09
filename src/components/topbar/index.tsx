@@ -26,8 +26,8 @@ export function Topbar({ screen }: TopbarProps) {
   const backupLabel = snapshot?.config.initialized
     ? t('navigation.backupNow')
     : t('navigation.initializeFirst')
-  const title = screen.titleKey ? t(screen.titleKey) : screen.title
-  const subtitle = screen.subtitleKey ? t(screen.subtitleKey) : screen.subtitle
+  const title = t(screen.titleKey)
+  const subtitle = t(screen.subtitleKey)
 
   return (
     <header className="topbar">

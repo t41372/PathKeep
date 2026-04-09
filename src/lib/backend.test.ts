@@ -225,6 +225,9 @@ describe('backend facade', () => {
     await expect(
       backend.exportHistory({ query: { q: 'sqlite' }, format: 'jsonl' }),
     ).resolves.toMatchObject({ format: 'jsonl', count: 1 })
+    await expect(
+      backend.openExternalUrl('https://example.com/pathkeep'),
+    ).resolves.toBe('https://example.com/pathkeep')
     const remotePreview = await backend.previewRemoteBackup()
     expect(remotePreview).toMatchObject({
       bundlePath: expect.stringMatching(/pathkeep-remote-.*\.zip$/),
@@ -1660,6 +1663,11 @@ describe('backend facade', () => {
     ).resolves.toEqual({
       ok: true,
     })
+    await expect(
+      backend.openExternalUrl('https://example.com/pathkeep'),
+    ).resolves.toEqual({
+      ok: true,
+    })
 
     expect(invoke).toHaveBeenNthCalledWith(1, 'preview_schedule', {
       platform: 'linux',
@@ -1710,6 +1718,51 @@ describe('backend facade', () => {
     expect(invoke).toHaveBeenNthCalledWith(17, 'open_path_in_file_manager', {
       path: '/tmp/pathkeep',
     })
+    expect(invoke).toHaveBeenNthCalledWith(18, 'open_external_url', {
+      url: 'https://example.com/pathkeep',
+    })
+  })
+
+  test('exports all filtered preview rows instead of the current page only', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.history.items = Array.from({ length: 75 }, (_, index) => ({
+        id: index + 1,
+        profileId: 'chrome:Default',
+        url: `https://example.com/sqlite/${index + 1}`,
+        title: `SQLite note ${index + 1}`,
+        domain: 'example.com',
+        visitedAt: new Date(Date.now() - index * 60_000).toISOString(),
+        visitTime: Date.now() - index * 60_000,
+        durationMs: 5_000,
+        transition: 805306368,
+        sourceVisitId: index + 1,
+        appId: null,
+      }))
+    })
+
+    const firstPage = await backend.queryHistory({
+      q: 'sqlite',
+      domain: null,
+      profileId: null,
+      browserKind: null,
+      startTimeMs: null,
+      endTimeMs: null,
+      sort: 'newest',
+      limit: 50,
+      cursor: null,
+    })
+    const exportResult = await backend.exportHistory({
+      query: {
+        q: 'sqlite',
+        limit: 50,
+        cursor: firstPage.nextCursor,
+      },
+      format: 'jsonl',
+    })
+
+    expect(firstPage.items).toHaveLength(50)
+    expect(firstPage.total).toBe(75)
+    expect(exportResult.count).toBe(75)
   })
 
   test('throws when a mock command is not implemented in browser preview mode', async () => {

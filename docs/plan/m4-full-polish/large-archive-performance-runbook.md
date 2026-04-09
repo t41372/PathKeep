@@ -100,10 +100,18 @@ SQL
 
 ---
 
-## Current Baseline (2026-04-08)
+## Current Baseline (2026-04-09)
 
 - Explorer day-one keyword recall 已切回 FTS5 `history_search` projection，不再走 `LIKE` 當 fast path
 - backup overlay 會收到 profile-scoped phase progress event，不再只剩 opaque spinner
 - canonical ingest 已減少 `source_profiles` / `urls` 的額外 SQLite round-trip，優先用 `RETURNING id`
+- shell route 現在已做 route-level code splitting；checked-in shell artifact bundle 位於 `artifacts/perf/2026-04-09-large-archive-shell-scaling/`
+- `bun run perf:artifact:shell` 會從最新 production build 重新生成 shell payload summary、route chunk breakdown 與 synthetic SQLite query-plan artifact
+- 目前 checked-in artifact 顯示：
+  - base shell approx bytes：`513901`
+  - largest approx first-route bytes：`563227`（`settings` route）
+  - synthetic Explorer keyword query plan 仍有 `VIRTUAL TABLE INDEX`
+- checked-in bundle 目前只對 shell scaling 與 synthetic FTS query plan 背書；`webview-trace.json` / `rust-sample.txt` 仍不是一次真實 large-profile replay 的產物
+- 在這台 workspace 上重新跑 `bun run verify` 仍被環境阻塞：缺 `pkg-config` / glib dev libraries，以及 `protoc`
 - 剩餘 hot spot 若再出現，優先考慮 `browser-history-parser` 的真正 streaming API 與 `archive/mod.rs` 的分模組化重整
-- 2026-04-09 補充：`bun run verify` 已重新全綠，但 production build 仍會對單一 main chunk（約 702 kB minified）發出 warning，且 repo 仍沒有真實 large-archive artifact bundle。下一輪若要對外背書「60 年資料量仍流暢」，至少要把 route-level payload / refresh 行為和真實 perf artifacts 一起補齊。
+- 下一輪若要對外背書「60 年資料量仍流暢」，至少還要補一份真實 large-profile replay artifact bundle，而不是只靠 synthetic shell / query-plan summary。

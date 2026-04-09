@@ -86,10 +86,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       <nav className="nav-main">
         {sidebarSections.map((section) => (
-          <div key={section.label} className="nav-section">
-            <div className="nav-section-label">
-              {section.labelKey ? t(section.labelKey) : section.label}
-            </div>
+          <div key={section.id} className="nav-section">
+            <div className="nav-section-label">{t(section.labelKey)}</div>
             {section.items.map((item) => (
               <SidebarNavItem
                 key={item.id}

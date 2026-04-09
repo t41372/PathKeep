@@ -18,7 +18,9 @@
 >
 > **2026-04-09 intelligence truth closeout 註記**：`WORK-QC-D` 沒有把 M4 粉飾成「advanced intelligence 全做完」。這輪實際完成的是 semantic stale / cost read model、MCP consent / scope / audit preview、model-scoped index readiness 與 run-type truth；同時新增 [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md)，明確標出 repo 目前**不能**聲稱已通過「60 年資料量、所有 AI 開啟、8 GB / 4-core 仍流暢」的最終性能背書。revisit / resurfacing、plugin sandbox、獨立 enrichment queue family 仍屬 deferred。
 >
-> **2026-04-09 審核結論**：`bun run verify` 現在已重新全綠，但這不等於 M4 已整體完成。release / support / remote backup / truthful intelligence v1 已簽收；尚未簽收的是兩塊真正會決定「設計文檔是否全完成」的剩餘工作：`WORK-M4-J` 的 60-year performance proof，以及 `WORK-M4-I` 的 advanced intelligence shipping（plugin sandbox / queue family / revisit surfaces）。
+> **2026-04-09 shell-scaling 註記**：shell 已切成 route-level chunks，並新增 checked-in artifact bundle [`artifacts/perf/2026-04-09-large-archive-shell-scaling/`](../../../artifacts/perf/2026-04-09-large-archive-shell-scaling/) 與 `bun run perf:artifact:shell`。目前可重跑的證據是 shell payload summary（base shell 約 `513901` bytes、heaviest first route 約 `563227` bytes）與 synthetic FTS query-plan artifact；這仍**不等於**已完成真實 large-profile replay。
+>
+> **2026-04-09 審核結論**：M4 仍未整體完成。release / support / remote backup / truthful intelligence v1 已簽收；尚未簽收的是兩塊真正會決定「設計文檔是否全完成」的剩餘工作：`WORK-M4-J` 的 60-year performance proof，以及 `WORK-M4-I` 的 advanced intelligence shipping（plugin sandbox / queue family / revisit surfaces）。`bun run verify` 仍是 `WORK-M4-J` 的驗收路徑，但在目前這台機器上被缺少 `pkg-config` / glib dev libraries 與 `protoc` 阻塞，不能誠實寫成已 rerun 全綠。
 
 ---
 

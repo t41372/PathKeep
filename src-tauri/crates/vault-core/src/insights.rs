@@ -3,16 +3,16 @@ use crate::{
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
     models::{
-        AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCard,
-        InsightEvidenceItem, InsightExplanation, InsightProfileFacet, InsightQueryLadder,
-        InsightSnapshot, InsightStatus, InsightThreadDetail, InsightThreadSummary,
-        InsightTopicSummary, InsightWorkflowEdge, InsightWorkflowMap, InsightWorkflowRole,
-        RunInsightsReport, RunInsightsRequest,
+        AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCanonicalSummary,
+        InsightCard, InsightDomainStat, InsightEvidenceItem, InsightExplanation,
+        InsightProfileFacet, InsightQueryLadder, InsightSnapshot, InsightStatus,
+        InsightThreadDetail, InsightThreadSummary, InsightTopicSummary, InsightWorkflowEdge,
+        InsightWorkflowMap, InsightWorkflowRole, RunInsightsReport, RunInsightsRequest,
     },
     utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, url_domain},
 };
 use anyhow::{Context, Result};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, Utc};
 use reqwest::blocking::Client;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use scraper::{Html, Selector};
@@ -460,10 +460,12 @@ pub fn load_insights(
         window_days,
         DEFAULT_ANALYSIS_LIMIT,
     )?;
+    let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
     let features = load_feature_rows(&connection, request.profile_id.as_deref())?;
     let query_ladders = build_query_ladders(&visits, &features);
     let workflow_map = build_workflow_map(&visits, &features, request.profile_id.as_deref());
     let profile_facets = build_profile_facets(&visits, &topics, &threads);
+    let canonical = build_canonical_summary(&visits, on_this_day);
     let status = insight_status(paths, config, key)?;
     let notes = connection
         .query_row(
@@ -489,6 +491,7 @@ pub fn load_insights(
         query_ladders,
         workflow_map,
         profile_facets,
+        canonical,
         notes,
     })
 }
@@ -689,6 +692,67 @@ fn load_visits(
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+fn load_on_this_day(
+    connection: &Connection,
+    profile_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<InsightEvidenceItem>> {
+    let today_key = Local::now().format("%m-%d").to_string();
+    let sql = if profile_id.is_some() {
+        "SELECT id, profile_id, url, title, visit_time
+         FROM visit_events
+         WHERE reverted_at IS NULL
+           AND profile_id = ?1
+           AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?2
+         ORDER BY visit_time DESC
+         LIMIT ?3"
+    } else {
+        "SELECT id, profile_id, url, title, visit_time
+         FROM visit_events
+         WHERE reverted_at IS NULL
+           AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?1
+         ORDER BY visit_time DESC
+         LIMIT ?2"
+    };
+    let mut statement = connection.prepare(sql)?;
+    let rows = if let Some(profile_id) = profile_id {
+        statement
+            .query_map(params![profile_id, today_key, limit as i64], insight_evidence_from_row)?
+    } else {
+        statement.query_map(params![today_key, limit as i64], insight_evidence_from_row)?
+    };
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn build_canonical_summary(
+    visits: &[VisitRecord],
+    on_this_day: Vec<InsightEvidenceItem>,
+) -> InsightCanonicalSummary {
+    let mut domain_counts = HashMap::<String, usize>::new();
+    for visit in visits {
+        *domain_counts.entry(url_domain(&visit.url)).or_default() += 1;
+    }
+    let mut top_domains = domain_counts
+        .into_iter()
+        .map(|(domain, visit_count)| InsightDomainStat { domain, visit_count })
+        .collect::<Vec<_>>();
+    top_domains.sort_by(|left, right| {
+        right.visit_count.cmp(&left.visit_count).then_with(|| left.domain.cmp(&right.domain))
+    });
+    top_domains.truncate(5);
+
+    InsightCanonicalSummary {
+        window_visit_count: visits.len(),
+        window_unique_domains: visits
+            .iter()
+            .map(|visit| url_domain(&visit.url))
+            .collect::<HashSet<_>>()
+            .len(),
+        on_this_day,
+        top_domains,
+    }
+}
+
 fn visit_record_from_row(row: &Row<'_>) -> rusqlite::Result<VisitRecord> {
     let url: String = row.get(4)?;
     let visit_time: i64 = row.get(6)?;
@@ -720,6 +784,19 @@ fn visit_record_from_row(row: &Row<'_>) -> rusqlite::Result<VisitRecord> {
         topic_id: None,
         thread_id: None,
         vector: None,
+    })
+}
+
+fn insight_evidence_from_row(row: &Row<'_>) -> rusqlite::Result<InsightEvidenceItem> {
+    let url: String = row.get(2)?;
+    let visit_time: i64 = row.get(4)?;
+    Ok(InsightEvidenceItem {
+        history_id: row.get(0)?,
+        profile_id: row.get(1)?,
+        url: url.clone(),
+        title: row.get(3)?,
+        visited_at: chrome_time_to_rfc3339(visit_time),
+        note: Some(url_domain(&url)),
     })
 }
 
@@ -2523,6 +2600,8 @@ mod tests {
         .expect("load insights");
         assert!(!snapshot.cards.is_empty());
         assert!(!snapshot.threads.is_empty());
+        assert!(!snapshot.canonical.on_this_day.is_empty());
+        assert!(!snapshot.canonical.top_domains.is_empty());
         assert!(snapshot.workflow_map.chromium_enhanced);
     }
 
@@ -2572,6 +2651,7 @@ mod tests {
         .expect("load cleared snapshot");
         assert!(snapshot.cards.is_empty());
         assert!(snapshot.threads.is_empty());
+        assert!(!snapshot.canonical.on_this_day.is_empty());
     }
 
     #[test]

@@ -21,14 +21,13 @@
   - `bun run check`
   - `bun run build`
   - `bun run verify`
-- 2026-04-09 release-style sweep status:
-  - `bun run verify` passed end-to-end, including `coverage:js`, `coverage:rust`, `mutation:js`, `mutation:rust`, `test:e2e`, and `desktop:build:debug`
-  - the current Vite production build still emits a single main-chunk warning (`dist/assets/index-*.js` at roughly 702 kB minified), so checker parity is back but whole-shell payload size is not yet signed off as "large-archive smooth"
-- Focused intelligence regressions were re-run while closing this work:
-  - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core ai:: -- --nocapture`
-  - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker mcp_ -- --nocapture`
-  - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core takeout:: -- --nocapture`
-  - `bunx vitest run src/lib/backend.test.ts src/lib/intelligence.test.ts src/lib/trust-review.test.ts src/app/index.test.tsx src/pages/intelligence-surfaces.test.tsx`
+- 2026-04-09 current rerunnable evidence on this workspace:
+  - `bun run build` passes and no longer emits the earlier single-main-chunk warning; shell routes are now code-split
+  - `bun run check:js` passes for the living JS surface
+  - `bun run perf:artifact:shell` regenerates a checked-in artifact bundle at `artifacts/perf/2026-04-09-large-archive-shell-scaling/`
+  - that bundle currently records `513901` approx base-shell bytes, `563227` approx first-route bytes for the heaviest route (`settings`), and a synthetic Explorer FTS query plan that still uses `VIRTUAL TABLE INDEX`
+- Current environment blockers:
+  - `bun run verify` is still the acceptance target for `WORK-M4-J`, but it is not rerunnable on this machine right now because `pkg-config` / glib dev libraries and `protoc` are missing
 - Code / architecture fixes landed during this closeout:
   - semantic retrieval now queries the LanceDB sidecar first and only falls back to the SQLite compatibility mirror with explicit notes
   - index state now reports `stale` when archive visibility / import watermark or readable-content enrichment freshness diverges from the last semantic build
@@ -38,7 +37,7 @@
   - MCP searches now write dedicated `mcp_query` run-ledger entries, and import restore no longer masquerades as `rollback`
   - selected provider/model readiness is now model-scoped, so switching embedding models no longer reuses readiness from a different model
 - Missing evidence that still matters:
-  - there is still no checked-in `artifacts/perf/<date>-large-archive-...>/` bundle for a real large-profile replay
+  - there is now a checked-in perf artifact bundle, but it is only a shell-scaling / synthetic SQLite query-plan bundle, not a real large-profile replay with actual webview trace + Rust CPU sample
   - there is still no synthetic long-horizon benchmark that exercises semantic search, assistant retrieval, insights rebuild, and shell responsiveness under a defined 60-year corpus shape
   - exploratory whole-workspace JS mutation still shows concentrated survivors in `src/app/shell-data.tsx` and `src/lib/backend.ts`; that debt does not fail the current gate, but it is still evidence that shell-state / preview-state complexity needs another hardening pass before we advertise long-horizon smoothness
 
@@ -100,4 +99,4 @@
 - No: PathKeep should not yet be documented as having completed every intelligence requirement in the design docs.
 - No: PathKeep should not yet claim a fully verified "60-year, all AI on, smooth on 8 GB / 4-core" baseline.
 - Yes: the current M3 / M4 intelligence slice is now materially more honest and more reviewable. Semantic staleness, cost visibility, MCP consent / scope / audit copy, and run-type truth have all been pulled into the shipped contract.
-- The next promotion from "truthful partial support" to "large-archive signed-off support" requires a real perf artifact bundle plus a replayable corpus definition, not just another docs-only closeout.
+- The next promotion from "truthful partial support" to "large-archive signed-off support" requires a real large-profile replay bundle plus a replayable corpus definition, not just another synthetic shell artifact or docs-only closeout.

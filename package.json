@@ -45,6 +45,7 @@
     "coverage": "bun run check:coverage",
     "ci:local": "bun run check && bun run coverage && bun run build && bun run test:e2e && bun run desktop:build:debug",
     "docs:llm": "bun scripts/build-llm-txt.mjs",
+    "perf:artifact:shell": "bun scripts/build-perf-artifact-bundle.mjs",
     "preview": "vite preview",
     "verify": "bun run check:full && bun run build && bun run desktop:build:debug"
   },

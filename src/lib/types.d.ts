@@ -338,6 +338,18 @@ export interface InsightProfileFacet {
   evidence: InsightEvidenceItem[]
 }
 
+export interface InsightDomainStat {
+  domain: string
+  visitCount: number
+}
+
+export interface InsightCanonicalSummary {
+  windowVisitCount: number
+  windowUniqueDomains: number
+  onThisDay: InsightEvidenceItem[]
+  topDomains: InsightDomainStat[]
+}
+
 export interface InsightSnapshot {
   generatedAt: string
   windowDays: number
@@ -349,6 +361,7 @@ export interface InsightSnapshot {
   queryLadders: InsightQueryLadder[]
   workflowMap: InsightWorkflowMap
   profileFacets: InsightProfileFacet[]
+  canonical: InsightCanonicalSummary
   notes: string[]
 }
 
@@ -398,6 +411,9 @@ export interface BrowserProfile {
   historyExists: boolean
   browserVersion?: string | null
   historyFileName: string
+  historyBytes: number
+  faviconsBytes: number
+  supportingBytes: number
 }
 
 export interface BackupRunOverview {

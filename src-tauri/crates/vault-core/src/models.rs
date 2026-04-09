@@ -455,6 +455,9 @@ pub struct BrowserProfile {
     pub history_exists: bool,
     pub browser_version: Option<String>,
     pub history_file_name: String,
+    pub history_bytes: u64,
+    pub favicons_bytes: u64,
+    pub supporting_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1131,6 +1134,22 @@ pub struct InsightProfileFacet {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct InsightDomainStat {
+    pub domain: String,
+    pub visit_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightCanonicalSummary {
+    pub window_visit_count: usize,
+    pub window_unique_domains: usize,
+    pub on_this_day: Vec<InsightEvidenceItem>,
+    pub top_domains: Vec<InsightDomainStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct InsightSnapshot {
     pub generated_at: String,
     pub window_days: u32,
@@ -1142,6 +1161,7 @@ pub struct InsightSnapshot {
     pub query_ladders: Vec<InsightQueryLadder>,
     pub workflow_map: InsightWorkflowMap,
     pub profile_facets: Vec<InsightProfileFacet>,
+    pub canonical: InsightCanonicalSummary,
     pub notes: Vec<String>,
 }
 

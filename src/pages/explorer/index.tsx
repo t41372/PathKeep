@@ -179,6 +179,7 @@ export function ExplorerPage() {
   } = useShellData()
   const { language, t, ns } = useI18n()
   const { activeProfileId } = useProfileScope()
+  const commonT = ns('common')
   const explorerT = ns('explorer')
   const intelligenceT = ns('intelligence')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -205,6 +206,7 @@ export function ExplorerPage() {
   const [intelligenceError, setIntelligenceError] = useState<string | null>(
     null,
   )
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const deferredQuery = useDeferredValue(searchParams.get('q') ?? '')
   const regexMode = searchParams.get('regex') === '1'
@@ -361,7 +363,9 @@ export function ExplorerPage() {
             requestKey,
             results: null,
             error:
-              nextError instanceof Error ? nextError.message : 'Query failed.',
+              nextError instanceof Error
+                ? nextError.message
+                : explorerT('queryFailedTitle'),
           })
       }
     }
@@ -373,6 +377,7 @@ export function ExplorerPage() {
     archiveReady,
     currentQuery,
     end,
+    explorerT,
     historyBlockedByInvalidRegex,
     mode,
     requestKey,
@@ -426,7 +431,7 @@ export function ExplorerPage() {
             error:
               nextError instanceof Error
                 ? nextError.message
-                : 'Semantic search failed.',
+                : explorerT('semanticRecallDegradedTitle'),
           })
         }
       }
@@ -435,7 +440,7 @@ export function ExplorerPage() {
     return () => {
       cancelled = true
     }
-  }, [archiveReady, mode, semanticQuery, semanticRequestKey])
+  }, [archiveReady, explorerT, mode, semanticQuery, semanticRequestKey])
 
   const results =
     archiveReady &&
@@ -476,19 +481,68 @@ export function ExplorerPage() {
     ),
   )
   const activeFilters = [
-    searchParams.get('q') ? `keyword: ${searchParams.get('q')}` : null,
-    mode !== 'keyword' ? `mode: ${mode}` : null,
-    regexMode ? 'regex' : null,
-    searchParams.get('domain') ? `domain: ${searchParams.get('domain')}` : null,
+    searchParams.get('q')
+      ? {
+          id: 'q',
+          label: explorerT('filterKeyword'),
+          value: searchParams.get('q') as string,
+        }
+      : null,
+    mode !== 'keyword'
+      ? {
+          id: 'mode',
+          label: explorerT('activeFilterMode'),
+          value:
+            mode === 'semantic'
+              ? explorerT('modeSemantic')
+              : explorerT('modeHybrid'),
+        }
+      : null,
+    regexMode
+      ? {
+          id: 'regex',
+          label: explorerT('activeFilterRegex'),
+          value: explorerT('activeFilterRegexEnabled'),
+        }
+      : null,
+    searchParams.get('domain')
+      ? {
+          id: 'domain',
+          label: explorerT('filterDomain'),
+          value: searchParams.get('domain') as string,
+        }
+      : null,
     searchParams.get('profileId')
-      ? `profile: ${searchParams.get('profileId')}`
+      ? {
+          id: 'profileId',
+          label: explorerT('filterProfile'),
+          value: searchParams.get('profileId') as string,
+        }
       : null,
     searchParams.get('browserKind')
-      ? `browser: ${searchParams.get('browserKind')}`
+      ? {
+          id: 'browserKind',
+          label: explorerT('filterBrowser'),
+          value: searchParams.get('browserKind') as string,
+        }
       : null,
-    start ? `start: ${start}` : null,
-    end ? `end: ${end}` : null,
-  ].filter(Boolean) as string[]
+    start
+      ? {
+          id: 'start',
+          label: explorerT('filterStart'),
+          value: start,
+        }
+      : null,
+    end
+      ? {
+          id: 'end',
+          label: explorerT('filterEnd'),
+          value: end,
+        }
+      : null,
+  ].filter((value): value is { id: string; label: string; value: string } =>
+    Boolean(value),
+  )
 
   function updateParam(
     key: string,
@@ -581,6 +635,7 @@ export function ExplorerPage() {
   ) {
     setQueueAction(label)
     setIntelligenceError(null)
+    setActionError(null)
     try {
       await action()
       await Promise.all([refreshAppData(), refreshQueueStatus()])
@@ -599,6 +654,7 @@ export function ExplorerPage() {
   ) {
     setIndexAction(label)
     setIntelligenceError(null)
+    setActionError(null)
     try {
       await backend.buildAiIndex({
         providerId: embeddingProvider?.id ?? null,
@@ -620,8 +676,9 @@ export function ExplorerPage() {
 
   async function handleProviderProbe() {
     if (!embeddingProvider) return
-    setQueueAction('Testing provider')
+    setQueueAction(explorerT('testingProviderAction'))
     setIntelligenceError(null)
+    setActionError(null)
     setProviderProbe(null)
     try {
       const probe = await backend.testAiProviderConnection({
@@ -696,11 +753,18 @@ export function ExplorerPage() {
   }
 
   async function handleExport(format: ExportFormat) {
-    const nextResult = await backend.exportHistory({
-      format,
-      query: currentQuery,
-    })
-    setExportResult(nextResult)
+    setActionError(null)
+    try {
+      const nextResult = await backend.exportHistory({
+        format,
+        query: currentQuery,
+      })
+      setExportResult(nextResult)
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : explorerT('exportFailed'),
+      )
+    }
   }
 
   async function handleCopyExportPath(path: string) {
@@ -714,7 +778,19 @@ export function ExplorerPage() {
     }
   }
 
-  if (shellLoading && !snapshot) return <SkeletonExplorer />
+  async function handleVisit(url: string) {
+    setActionError(null)
+    try {
+      await backend.openExternalUrl(url)
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : explorerT('visitFailed'),
+      )
+    }
+  }
+
+  if (shellLoading && !snapshot)
+    return <SkeletonExplorer label={t('common.loadingExplorer')} />
   if (shellError && !snapshot)
     return (
       <section className="page-shell">
@@ -800,21 +876,15 @@ export function ExplorerPage() {
         <div className="filter-bar">
           <div className="filter-tags">
             {activeFilters.map((filter) => (
-              <div key={filter} className="filter-tag">
-                <span>{filter}</span>
+              <div key={`${filter.id}:${filter.value}`} className="filter-tag">
+                <span>
+                  {filter.label}: {filter.value}
+                </span>
                 <button
                   className="filter-remove"
                   type="button"
                   onClick={() => {
-                    const key = filter.split(':')[0].trim()
-                    if (key === 'mode') updateParam('mode', null)
-                    else if (key === 'keyword') updateParam('q', null)
-                    else if (key === 'regex') updateParam('regex', null)
-                    else if (key === 'domain') updateParam('domain', null)
-                    else if (key === 'profile') updateParam('profileId', null)
-                    else if (key === 'browser') updateParam('browserKind', null)
-                    else if (key === 'start') updateParam('start', null)
-                    else if (key === 'end') updateParam('end', null)
+                    updateParam(filter.id, null)
                   }}
                 >
                   ×
@@ -885,7 +955,7 @@ export function ExplorerPage() {
               </span>
               <div className="regex-input-row">
                 <input
-                  aria-label="Explorer keyword"
+                  aria-label={explorerT('filterKeyword')}
                   className={regexMode && !regexValid ? 'input-invalid' : ''}
                   type="search"
                   value={searchParams.get('q') ?? ''}
@@ -923,7 +993,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterDomain')}</span>
               <input
-                aria-label="Explorer domain"
+                aria-label={explorerT('filterDomain')}
                 type="search"
                 value={searchParams.get('domain') ?? ''}
                 onChange={(event) =>
@@ -937,7 +1007,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterProfile')}</span>
               <select
-                aria-label="Explorer profile"
+                aria-label={explorerT('filterProfile')}
                 value={profileId ?? ''}
                 onChange={(event) =>
                   updateParam('profileId', event.target.value || null)
@@ -964,7 +1034,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterBrowser')}</span>
               <select
-                aria-label="Explorer browser"
+                aria-label={explorerT('filterBrowser')}
                 value={searchParams.get('browserKind') ?? ''}
                 onChange={(event) =>
                   updateParam('browserKind', event.target.value || null)
@@ -984,7 +1054,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterStart')}</span>
               <input
-                aria-label="Explorer start date"
+                aria-label={explorerT('filterStart')}
                 type="date"
                 value={start ?? ''}
                 onChange={(event) =>
@@ -998,7 +1068,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterEnd')}</span>
               <input
-                aria-label="Explorer end date"
+                aria-label={explorerT('filterEnd')}
                 type="date"
                 value={end ?? ''}
                 onChange={(event) =>
@@ -1012,7 +1082,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterSort')}</span>
               <select
-                aria-label="Explorer sort"
+                aria-label={explorerT('filterSort')}
                 value={searchParams.get('sort') ?? 'newest'}
                 onChange={(event) => updateParam('sort', event.target.value)}
               >
@@ -1051,7 +1121,7 @@ export function ExplorerPage() {
               ))
             ) : (
               <span className="mono-support">
-                Recent filters appear here after the first successful query.
+                {explorerT('recentFiltersEmpty')}
               </span>
             )}
           </div>
@@ -1062,7 +1132,7 @@ export function ExplorerPage() {
         <div className="intelligence-grid intelligence-grid--explorer">
           <StatusCallout
             tone={aiMeta.tone}
-            eyebrow="SEMANTIC STATUS"
+            eyebrow={explorerT('semanticStatusEyebrow')}
             title={aiMeta.label}
             body={aiMeta.description}
             actions={
@@ -1071,43 +1141,43 @@ export function ExplorerPage() {
                   className="btn-secondary"
                   type="button"
                   onClick={() =>
-                    void handleIndexAction('Building index', {
+                    void handleIndexAction(explorerT('buildingIndexAction'), {
                       fullRebuild: false,
                       clearOnly: false,
                     })
                   }
                   disabled={Boolean(indexAction) || !embeddingProvider}
                 >
-                  Build index
+                  {explorerT('buildIndex')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
                   onClick={() =>
-                    void handleIndexAction('Rebuilding index', {
+                    void handleIndexAction(explorerT('rebuildingIndexAction'), {
                       fullRebuild: true,
                       clearOnly: false,
                     })
                   }
                   disabled={Boolean(indexAction) || !embeddingProvider}
                 >
-                  Full rebuild
+                  {explorerT('fullRebuild')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
                   onClick={() =>
-                    void handleIndexAction('Clearing index', {
+                    void handleIndexAction(explorerT('clearingIndexAction'), {
                       fullRebuild: false,
                       clearOnly: true,
                     })
                   }
                   disabled={Boolean(indexAction) || !embeddingProvider}
                 >
-                  Clear index
+                  {explorerT('clearIndex')}
                 </button>
                 <Link className="btn-secondary" to="/settings">
-                  Open settings
+                  {explorerT('openSettings')}
                 </Link>
               </div>
             }
@@ -1115,39 +1185,41 @@ export function ExplorerPage() {
 
           <div className="panel">
             <div className="panel-header">
-              <span className="panel-title">PROVIDER + QUEUE</span>
+              <span className="panel-title">
+                {explorerT('providerQueueTitle')}
+              </span>
               <span className="panel-action">
                 {embeddingProvider
                   ? `${embeddingProvider.name} / ${embeddingProvider.defaultModel}`
-                  : 'No embedding provider selected'}
+                  : explorerT('noEmbeddingProviderSelected')}
               </span>
             </div>
             <div className="panel-body intelligence-stack">
               <div className="intelligence-stat-row">
                 <div className="summary-stat">
-                  <span className="dim">Queued</span>
+                  <span className="dim">{explorerT('queueQueued')}</span>
                   <span className="mono">
                     {queueStatus?.queued ?? snapshot.aiStatus.queuedJobs}
                   </span>
                 </div>
                 <div className="summary-stat">
-                  <span className="dim">Running</span>
+                  <span className="dim">{explorerT('queueRunning')}</span>
                   <span className="mono">
                     {queueStatus?.running ?? snapshot.aiStatus.runningJobs}
                   </span>
                 </div>
                 <div className="summary-stat">
-                  <span className="dim">Failed</span>
+                  <span className="dim">{explorerT('queueFailed')}</span>
                   <span className="mono">
                     {queueStatus?.failed ?? snapshot.aiStatus.failedJobs}
                   </span>
                 </div>
                 <div className="summary-stat">
-                  <span className="dim">Queue</span>
+                  <span className="dim">{explorerT('queueState')}</span>
                   <span className="mono">
                     {(queueStatus?.paused ?? snapshot.aiStatus.queuePaused)
-                      ? 'paused'
-                      : 'live'}
+                      ? explorerT('queueStatePaused')
+                      : explorerT('queueStateLive')}
                   </span>
                 </div>
               </div>
@@ -1158,25 +1230,26 @@ export function ExplorerPage() {
                   type="button"
                   onClick={() =>
                     void handleQueueAction(
-                      'Refreshing queue',
+                      explorerT('refreshingQueueAction'),
                       refreshQueueStatus,
                     )
                   }
                   disabled={Boolean(queueAction)}
                 >
-                  Refresh queue
+                  {explorerT('refreshQueue')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
                   onClick={() =>
-                    void handleQueueAction('Running queued jobs', () =>
-                      backend.runAiQueueJobs(2),
+                    void handleQueueAction(
+                      explorerT('runningQueueAction'),
+                      () => backend.runAiQueueJobs(2),
                     )
                   }
                   disabled={Boolean(queueAction)}
                 >
-                  Drain queue
+                  {explorerT('drainQueue')}
                 </button>
                 <button
                   className="btn-secondary"
@@ -1184,7 +1257,7 @@ export function ExplorerPage() {
                   onClick={() => void handleProviderProbe()}
                   disabled={Boolean(queueAction) || !embeddingProvider}
                 >
-                  Test provider
+                  {explorerT('testProvider')}
                 </button>
               </div>
 
@@ -1195,7 +1268,14 @@ export function ExplorerPage() {
                     indexAction ?? queueAction ?? explorerT('preparingRecall')
                   }
                   detail={explorerT('semanticRecallNeedsAttentionBody')}
-                  progressLabel={`${(queueStatus?.queued ?? snapshot.aiStatus.queuedJobs).toLocaleString(language)} queued / ${(queueStatus?.running ?? snapshot.aiStatus.runningJobs).toLocaleString(language)} running`}
+                  progressLabel={explorerT('queueProgressLabel', {
+                    queued: (
+                      queueStatus?.queued ?? snapshot.aiStatus.queuedJobs
+                    ).toLocaleString(language),
+                    running: (
+                      queueStatus?.running ?? snapshot.aiStatus.runningJobs
+                    ).toLocaleString(language),
+                  })}
                   progressValue={indexAction ? 50 : 75}
                 />
               ) : null}
@@ -1205,11 +1285,15 @@ export function ExplorerPage() {
                   <div className="result-row__header">
                     <strong>
                       {providerProbe.ok
-                        ? 'Provider reachable'
-                        : 'Provider needs attention'}
+                        ? explorerT('providerReachable')
+                        : explorerT('providerNeedsAttention')}
                     </strong>
                     <span className="mono-support">
-                      {providerProbe.model} · {providerProbe.latencyMs} ms
+                      {explorerT('providerProbeLatency', {
+                        model: providerProbe.model,
+                        latency:
+                          providerProbe.latencyMs.toLocaleString(language),
+                      })}
                     </span>
                   </div>
                   <p>{providerProbe.message}</p>
@@ -1232,15 +1316,16 @@ export function ExplorerPage() {
                       <p>
                         {job.summary ??
                           job.errorMessage ??
-                          'No summary recorded yet.'}
+                          explorerT('noJobSummary')}
                       </p>
                       <div className="intelligence-actions">
                         <button
                           className="btn-tiny"
                           type="button"
                           onClick={() =>
-                            void handleQueueAction('Replaying AI job', () =>
-                              backend.replayAiJob(job.id),
+                            void handleQueueAction(
+                              explorerT('replayingJobAction'),
+                              () => backend.replayAiJob(job.id),
                             )
                           }
                           disabled={
@@ -1253,21 +1338,22 @@ export function ExplorerPage() {
                             ].includes(job.state)
                           }
                         >
-                          Replay
+                          {explorerT('replayJob')}
                         </button>
                         <button
                           className="btn-tiny"
                           type="button"
                           onClick={() =>
-                            void handleQueueAction('Cancelling AI job', () =>
-                              backend.cancelAiJob(job.id),
+                            void handleQueueAction(
+                              explorerT('cancellingJobAction'),
+                              () => backend.cancelAiJob(job.id),
                             )
                           }
                           disabled={
                             Boolean(queueAction) || job.state === 'running'
                           }
                         >
-                          Cancel
+                          {explorerT('cancelJob')}
                         </button>
                       </div>
                     </div>
@@ -1282,7 +1368,9 @@ export function ExplorerPage() {
       {mode !== 'keyword' && (
         <div className="panel intelligence-panel">
           <div className="panel-header">
-            <span className="panel-title">SEMANTIC RECALL</span>
+            <span className="panel-title">
+              {explorerT('semanticRecallTitle')}
+            </span>
             <span className="panel-action">
               {semanticResults
                 ? explorerT('semanticPageSummary', {
@@ -1350,18 +1438,21 @@ export function ExplorerPage() {
                             type="button"
                             onClick={() => setSelectedId(item.historyId)}
                           >
-                            Jump to record
+                            {explorerT('jumpToRecord')}
                           </button>
                           <Link className="btn-tiny" to={evidenceHref(item)}>
-                            Open evidence
+                            {explorerT('openEvidence')}
                           </Link>
                           <Link
                             className="btn-tiny"
                             to={assistantHref(
-                              `Use history evidence to explain why ${item.title ?? item.url} matched "${semanticQuery.query}".`,
+                              explorerT('assistantExplainPrompt', {
+                                item: item.title ?? item.url,
+                                query: semanticQuery.query,
+                              }),
                             )}
                           >
-                            Ask assistant
+                            {explorerT('askAssistant')}
                           </Link>
                         </div>
                       </div>
@@ -1399,11 +1490,11 @@ export function ExplorerPage() {
       )}
 
       {loading ? (
-        <SkeletonExplorerResults />
+        <SkeletonExplorerResults label={t('common.loadingExplorerResults')} />
       ) : historyBlockedByInvalidRegex ? (
         <StatusCallout
           tone="blocked"
-          eyebrow="REGEX"
+          eyebrow={explorerT('regexEyebrow')}
           title={explorerT('regexInvalid')}
           body={explorerT('regexInvalidDetail')}
         />
@@ -1451,9 +1542,18 @@ export function ExplorerPage() {
                   </div>
                   <div className="record-meta">
                     <span className="dim mono" style={{ fontSize: '10px' }}>
-                      {formatRelativeTime(item.visitedAt)}
+                      {formatRelativeTime(item.visitedAt, language)}
                     </span>
-                    <span className="tag tag-sm tag-backup">visit</span>
+                    <button
+                      className="btn-tiny"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleVisit(item.url)
+                      }}
+                    >
+                      {explorerT('visitRecord')}
+                    </button>
                   </div>
                 </button>
               ))}
@@ -1490,13 +1590,15 @@ export function ExplorerPage() {
               <div className="detail-body">
                 <div className="detail-section">
                   <div className="detail-field">
-                    <span className="field-label">TITLE</span>
+                    <span className="field-label">
+                      {explorerT('fieldTitle')}
+                    </span>
                     <span className="field-value">
                       {selectedEntry.title || selectedEntry.url}
                     </span>
                   </div>
                   <div className="detail-field">
-                    <span className="field-label">URL</span>
+                    <span className="field-label">{explorerT('fieldUrl')}</span>
                     <span
                       className="field-value"
                       style={{ wordBreak: 'break-all' }}
@@ -1525,7 +1627,9 @@ export function ExplorerPage() {
                 </div>
                 <div className="detail-row">
                   <div className="detail-field half">
-                    <span className="field-label">PROFILE</span>
+                    <span className="field-label">
+                      {explorerT('fieldProfile')}
+                    </span>
                     <span className="field-value">
                       {selectedEntry.profileId}
                     </span>
@@ -1535,11 +1639,30 @@ export function ExplorerPage() {
                       {explorerT('transition')}
                     </span>
                     <span className="field-value">
-                      {selectedEntry.transition ?? 'N/A'}
+                      {selectedEntry.transition ?? commonT('notAvailable')}
                     </span>
                   </div>
                 </div>
                 <div className="detail-divider" />
+                <div
+                  className="intelligence-actions"
+                  style={{ marginBottom: 'var(--space-3)' }}
+                >
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void handleVisit(selectedEntry.url)
+                    }}
+                  >
+                    {explorerT('visitRecord')}
+                  </button>
+                </div>
+                {actionError ? (
+                  <p className="inline-error" role="alert">
+                    {actionError}
+                  </p>
+                ) : null}
                 <div className="summary-label">
                   {explorerT('exportVisibleQuery')}
                 </div>
@@ -1582,7 +1705,7 @@ export function ExplorerPage() {
                           void backend.openPathInFileManager(exportResult.path)
                         }}
                       >
-                        Open
+                        {commonT('openAction')}
                       </button>
                       <button
                         className="btn-tiny"
@@ -1591,12 +1714,17 @@ export function ExplorerPage() {
                           void handleCopyExportPath(exportResult.path)
                         }}
                       >
-                        Copy
+                        {commonT('copyAction')}
                       </button>
                     </div>
                     {copiedExportPath === exportResult.path && (
                       <span className="dim mono" style={{ fontSize: '10px' }}>
                         {explorerT('copied')}
+                      </span>
+                    )}
+                    {copiedExportPath === `error:${exportResult.path}` && (
+                      <span className="dim mono" style={{ fontSize: '10px' }}>
+                        {explorerT('copyFailed')}
                       </span>
                     )}
                   </div>

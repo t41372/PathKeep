@@ -37,6 +37,8 @@ import type {
   HistoryQueryResponse,
   ImportBatchDetail,
   ImportBatchOverview,
+  InsightCanonicalSummary,
+  InsightEvidenceItem,
   InsightExplanation,
   InsightSnapshot,
   InsightThreadDetail,
@@ -215,6 +217,9 @@ const mockSnapshot: AppSnapshot = {
       historyExists: true,
       browserVersion: '146.0.7680.178',
       historyFileName: 'History',
+      historyBytes: 58 * 1024 * 1024,
+      faviconsBytes: 14 * 1024 * 1024,
+      supportingBytes: 6 * 1024 * 1024,
     },
     {
       profileId: 'chrome:Profile 2',
@@ -230,6 +235,9 @@ const mockSnapshot: AppSnapshot = {
       historyExists: true,
       browserVersion: '146.0.7680.178',
       historyFileName: 'History',
+      historyBytes: 312 * 1024 * 1024,
+      faviconsBytes: 20 * 1024 * 1024,
+      supportingBytes: 14 * 1024 * 1024,
     },
     {
       profileId: 'chrome:Profile 5',
@@ -245,6 +253,9 @@ const mockSnapshot: AppSnapshot = {
       historyExists: true,
       browserVersion: '146.0.7680.178',
       historyFileName: 'History',
+      historyBytes: 24 * 1024 * 1024,
+      faviconsBytes: 8 * 1024 * 1024,
+      supportingBytes: 3 * 1024 * 1024,
     },
     {
       profileId: 'safari:default',
@@ -258,6 +269,9 @@ const mockSnapshot: AppSnapshot = {
       historyExists: true,
       browserVersion: '18.4',
       historyFileName: 'History.db',
+      historyBytes: 18 * 1024 * 1024,
+      faviconsBytes: 0,
+      supportingBytes: 2 * 1024 * 1024,
     },
   ],
   recentRuns: [],
@@ -294,6 +308,40 @@ const mockHistory: HistoryQueryResponse = {
       appId: null,
     },
   ],
+}
+
+function mockEvidenceFromHistoryItem(
+  item: HistoryQueryResponse['items'][number],
+): InsightEvidenceItem {
+  return {
+    historyId: item.id,
+    profileId: item.profileId,
+    url: item.url,
+    title: item.title,
+    visitedAt: item.visitedAt,
+    note: null,
+  }
+}
+
+function buildMockCanonicalSummary(
+  items: HistoryQueryResponse['items'],
+): InsightCanonicalSummary {
+  const topDomains = [...items]
+    .reduce((counts, item) => {
+      counts.set(item.domain, (counts.get(item.domain) ?? 0) + 1)
+      return counts
+    }, new Map<string, number>())
+    .entries()
+
+  return {
+    windowVisitCount: items.length,
+    windowUniqueDomains: new Set(items.map((item) => item.domain)).size,
+    onThisDay: items.slice(0, 6).map(mockEvidenceFromHistoryItem),
+    topDomains: [...topDomains]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([domain, visitCount]) => ({ domain, visitCount })),
+  }
 }
 
 const mockInsightSnapshot: InsightSnapshot = {
@@ -452,6 +500,7 @@ const mockInsightSnapshot: InsightSnapshot = {
       evidence: [],
     },
   ],
+  canonical: buildMockCanonicalSummary(mockHistory.items),
   notes: ['Browser preview mode shows a deterministic insight fixture.'],
 }
 
@@ -598,7 +647,8 @@ function ensureMockUnlocked(command: string, state: MockBackendState) {
     command === 'app_build_info' ||
     command === 'app_lock_status' ||
     command === 'unlock_app_session' ||
-    command === 'open_path_in_file_manager'
+    command === 'open_path_in_file_manager' ||
+    command === 'open_external_url'
   ) {
     return
   }
@@ -863,6 +913,7 @@ function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
       cards: [],
       topics: [],
       threads: [],
+      canonical: buildMockCanonicalSummary(state.history.items),
       notes: [
         'Derived insight state is currently empty. Run a rebuild to repopulate enrichment and insight tables.',
       ],
@@ -877,6 +928,7 @@ function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
   return {
     ...structuredClone(mockInsightSnapshot),
     status: structuredClone(state.snapshot.insightStatus),
+    canonical: buildMockCanonicalSummary(state.history.items),
     notes: refetchEnabled
       ? [
           'Browser preview mode shows a deterministic insight fixture.',
@@ -1775,6 +1827,10 @@ async function call<T>(
           ? args.path
           : mockState.snapshot.directories.appRoot
       ) as T
+    case 'open_external_url':
+      return (
+        typeof args?.url === 'string' ? args.url : 'https://example.com'
+      ) as T
     case 'run_backup_now': {
       if (!mockState.snapshot.config.initialized) {
         throw new Error('Initialize the archive before running a backup.')
@@ -2286,20 +2342,25 @@ async function call<T>(
         ],
         warnings: [],
       } as T
-    case 'export_history':
+    case 'export_history': {
+      const exportRequest = args?.request as ExportRequest | undefined
+      const exportedItems = filterMockHistory(mockState, {
+        ...exportRequest?.query,
+        cursor: null,
+        limit: Math.max(1, mockState.history.items.length),
+      }).items
+
       return {
-        format: (args?.request as ExportRequest)?.format ?? 'jsonl',
+        format: exportRequest?.format ?? 'jsonl',
         path: `/tmp/pathkeep-export-${new Date()
           .toISOString()
           .replaceAll(
             ':',
             '-',
-          )}.${((args?.request as ExportRequest)?.format ?? 'jsonl').replace('markdown', 'md')}`,
-        count: filterMockHistory(
-          mockState,
-          (args?.request as ExportRequest)?.query,
-        ).items.length,
+          )}.${(exportRequest?.format ?? 'jsonl').replace('markdown', 'md')}`,
+        count: exportedItems.length,
       } as T
+    }
     case 'apply_schedule':
       return {
         applied: false,
@@ -2442,4 +2503,5 @@ export const backend = {
   resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
+  openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
 }

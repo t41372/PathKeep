@@ -937,13 +937,42 @@ pub fn list_history(
     })
 }
 
+fn collect_history_for_export(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    query: HistoryQuery,
+) -> Result<HistoryQueryResponse> {
+    let mut export_query = query;
+    export_query.cursor = None;
+    export_query.limit = Some(1_000);
+
+    let mut total = 0;
+    let mut items = Vec::new();
+
+    loop {
+        let page = list_history(paths, config, key, export_query.clone())?;
+        total = page.total;
+        let next_cursor = page.next_cursor.clone();
+        items.extend(page.items);
+
+        let Some(next_cursor) = next_cursor else {
+            break;
+        };
+
+        export_query.cursor = Some(next_cursor);
+    }
+
+    Ok(HistoryQueryResponse { total, items, next_cursor: None })
+}
+
 pub fn export_history(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     request: ExportRequest,
 ) -> Result<ExportResult> {
-    let results = list_history(paths, config, key, request.query)?;
+    let results = collect_history_for_export(paths, config, key, request.query)?;
     fs::create_dir_all(&paths.exports_dir)?;
     let format = request.format;
     let extension = match format {

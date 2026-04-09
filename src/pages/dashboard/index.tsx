@@ -16,8 +16,11 @@ import {
 } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
+  resolveInsightOnThisDay,
+  resolveInsightPeriodicSummary,
+} from '../../lib/insight-canonical'
+import {
   aiStatusMeta,
-  dedupeEvidence,
   evidenceHref,
   selectedAiProvider,
 } from '../../lib/intelligence'
@@ -55,14 +58,6 @@ function browserIconLetter(profileId: string) {
   if (profileId.startsWith('firefox:')) return 'F'
   if (profileId.startsWith('safari:')) return 'S'
   return '?'
-}
-
-function flattenInsightEvidence(snapshot: InsightSnapshot) {
-  return dedupeEvidence([
-    ...snapshot.cards.flatMap((card) => card.evidence),
-    ...snapshot.topics.flatMap((topic) => topic.evidence),
-    ...snapshot.threads.flatMap((thread) => thread.evidence),
-  ])
 }
 
 export function DashboardPage() {
@@ -120,7 +115,7 @@ export function DashboardPage() {
   if (loading && !dashboard) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
-        <DashboardSkeleton />
+        <DashboardSkeleton label={t('common.loadingDashboard')} />
       </section>
     )
   }
@@ -173,18 +168,13 @@ export function DashboardPage() {
   const activeInsightLoadError = snapshot.config.initialized
     ? insightLoadError
     : null
-  const allInsightEvidence = activeInsights
-    ? flattenInsightEvidence(activeInsights)
-    : []
   const todayKey = calendarDayKey(new Date())
-  const onThisDay = allInsightEvidence
-    .filter((item) => calendarDayKey(item.visitedAt) === todayKey)
-    .slice(0, 3)
-  const periodicSummary = (() => {
-    if (!activeInsights) return []
-    const seeded = activeInsights.cards.slice(0, 2).map((card) => card.summary)
-    return seeded.length > 0 ? seeded : activeInsights.notes
-  })()
+  const onThisDay = activeInsights
+    ? resolveInsightOnThisDay(activeInsights, todayKey, 3)
+    : []
+  const periodicSummary = activeInsights
+    ? resolveInsightPeriodicSummary(activeInsights, insightsT)
+    : []
 
   function runSourceSummary(profileScope: string[] | undefined) {
     const sourceKinds = sourceKindFromProfileScope(profileScope ?? [])

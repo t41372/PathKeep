@@ -147,6 +147,25 @@ fn should_discover_safari(overrides_active: bool, safari_override_active: bool) 
     !overrides_active || safari_override_active
 }
 
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map(|metadata| metadata.len()).unwrap_or_default()
+}
+
+fn sidecar_bytes(path: &Path) -> u64 {
+    ["-wal", "-shm", "-journal"]
+        .into_iter()
+        .map(|suffix| file_size(&PathBuf::from(format!("{}{}", path.display(), suffix))))
+        .sum()
+}
+
+fn profile_storage_bytes(history_path: &Path, favicons_path: Option<&Path>) -> (u64, u64, u64) {
+    let history_bytes = file_size(history_path);
+    let favicons_bytes = favicons_path.map(file_size).unwrap_or_default();
+    let supporting_bytes =
+        sidecar_bytes(history_path) + favicons_path.map(sidecar_bytes).unwrap_or_default();
+    (history_bytes, favicons_bytes, supporting_bytes)
+}
+
 pub fn stage_profile_snapshot(
     paths: &ProjectPaths,
     profile: &BrowserProfile,
@@ -215,6 +234,12 @@ fn discover_chromium_profiles(
             let profile_path = root.join(&raw_profile_id);
             let history_path = profile_path.join("History");
             let favicons_path = profile_path.join("Favicons");
+            let history_exists = history_path.exists();
+            let favicons_exists = favicons_path.exists();
+            let (history_bytes, favicons_bytes, supporting_bytes) = profile_storage_bytes(
+                &history_path,
+                favicons_exists.then_some(favicons_path.as_path()),
+            );
             profiles.push(BrowserProfile {
                 profile_id: format!("{}:{}", definition.key, raw_profile_id),
                 profile_name: details
@@ -229,11 +254,14 @@ fn discover_chromium_profiles(
                     .and_then(Value::as_str)
                     .map(ToString::to_string),
                 profile_path: profile_path.display().to_string(),
-                history_path: history_path.exists().then(|| history_path.display().to_string()),
-                favicons_path: favicons_path.exists().then(|| favicons_path.display().to_string()),
-                history_exists: history_path.exists(),
+                history_path: history_exists.then(|| history_path.display().to_string()),
+                favicons_path: favicons_exists.then(|| favicons_path.display().to_string()),
+                history_exists,
                 browser_version: chrome_version.clone(),
                 history_file_name: "History".to_string(),
+                history_bytes,
+                favicons_bytes,
+                supporting_bytes,
             });
         }
     }
@@ -386,6 +414,11 @@ fn fallback_chromium_profiles(
 
         let raw_profile_id = entry.file_name().to_string_lossy().to_string();
         let favicons_path = profile_path.join("Favicons");
+        let favicons_exists = favicons_path.exists();
+        let (history_bytes, favicons_bytes, supporting_bytes) = profile_storage_bytes(
+            &history_path,
+            favicons_exists.then_some(favicons_path.as_path()),
+        );
         profiles.push(BrowserProfile {
             profile_id: format!("{}:{}", definition.key, raw_profile_id),
             profile_name: raw_profile_id.clone(),
@@ -394,10 +427,13 @@ fn fallback_chromium_profiles(
             user_name: None,
             profile_path: profile_path.display().to_string(),
             history_path: Some(history_path.display().to_string()),
-            favicons_path: favicons_path.exists().then(|| favicons_path.display().to_string()),
+            favicons_path: favicons_exists.then(|| favicons_path.display().to_string()),
             history_exists: true,
             browser_version: browser_version.map(ToString::to_string),
             history_file_name: "History".to_string(),
+            history_bytes,
+            favicons_bytes,
+            supporting_bytes,
         });
     }
     Ok(profiles)
@@ -416,6 +452,9 @@ fn direct_root_chromium_profile(
     let profile_name = if definition.key.starts_with("opera") { "Default" } else { "Root" };
     let profile_suffix = if definition.key.starts_with("opera") { "default" } else { "root" };
     let favicons_path = root.join("Favicons");
+    let favicons_exists = favicons_path.exists();
+    let (history_bytes, favicons_bytes, supporting_bytes) =
+        profile_storage_bytes(&history_path, favicons_exists.then_some(favicons_path.as_path()));
 
     Some(BrowserProfile {
         profile_id: format!("{}:{profile_suffix}", definition.key),
@@ -425,10 +464,13 @@ fn direct_root_chromium_profile(
         user_name: None,
         profile_path: root.display().to_string(),
         history_path: Some(history_path.display().to_string()),
-        favicons_path: favicons_path.exists().then(|| favicons_path.display().to_string()),
+        favicons_path: favicons_exists.then(|| favicons_path.display().to_string()),
         history_exists: true,
         browser_version: browser_version.map(ToString::to_string),
         history_file_name: "History".to_string(),
+        history_bytes,
+        favicons_bytes,
+        supporting_bytes,
     })
 }
 
@@ -454,6 +496,8 @@ fn discover_firefox_profiles(definition: FirefoxBrowserDefinition) -> Result<Vec
             }
 
             let raw_profile_id = entry.file_name().to_string_lossy().to_string();
+            let (history_bytes, favicons_bytes, supporting_bytes) =
+                profile_storage_bytes(&history_path, None);
             profiles.push(BrowserProfile {
                 profile_id: format!("{}:{raw_profile_id}", definition.key),
                 profile_name: display_names
@@ -469,6 +513,9 @@ fn discover_firefox_profiles(definition: FirefoxBrowserDefinition) -> Result<Vec
                 history_exists: true,
                 browser_version: None,
                 history_file_name: "places.sqlite".to_string(),
+                history_bytes,
+                favicons_bytes,
+                supporting_bytes,
             });
         }
     }
@@ -576,6 +623,9 @@ fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
     let Some(safari_root) = std::env::var_os(SAFARI_ROOT_OVERRIDE_ENV).map(PathBuf::from).map(Some).unwrap_or(default_safari_root()?) else { return Ok(None); };
 
     let history_path = safari_root.join("History.db");
+    let history_exists = history_path.exists();
+    let (history_bytes, favicons_bytes, supporting_bytes) =
+        profile_storage_bytes(&history_path, None);
     Ok(Some(BrowserProfile {
         profile_id: "safari:default".to_string(),
         profile_name: "Default".to_string(),
@@ -583,11 +633,14 @@ fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
         browser_name: "Safari".to_string(),
         user_name: None,
         profile_path: safari_root.display().to_string(),
-        history_path: history_path.exists().then(|| history_path.display().to_string()),
+        history_path: history_exists.then(|| history_path.display().to_string()),
         favicons_path: None,
-        history_exists: history_path.exists(),
+        history_exists,
         browser_version: None,
         history_file_name: "History.db".to_string(),
+        history_bytes,
+        favicons_bytes,
+        supporting_bytes,
     }))
 }
 
@@ -892,6 +945,9 @@ mod tests {
             history_exists: true,
             browser_version: None,
             history_file_name: "places.sqlite".to_string(),
+            history_bytes: 10,
+            favicons_bytes: 0,
+            supporting_bytes: 7,
         };
 
         let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot");
