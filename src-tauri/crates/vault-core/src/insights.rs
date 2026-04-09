@@ -701,16 +701,14 @@ fn load_on_this_day(
     let sql = if profile_id.is_some() {
         "SELECT id, profile_id, url, title, visit_time
          FROM visit_events
-         WHERE reverted_at IS NULL
-           AND profile_id = ?1
+         WHERE profile_id = ?1
            AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?2
          ORDER BY visit_time DESC
          LIMIT ?3"
     } else {
         "SELECT id, profile_id, url, title, visit_time
          FROM visit_events
-         WHERE reverted_at IS NULL
-           AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?1
+         WHERE strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?1
          ORDER BY visit_time DESC
          LIMIT ?2"
     };
@@ -2513,24 +2511,28 @@ mod tests {
         let visit_two = (Utc::now() - Duration::days(10) + Duration::minutes(12)).to_rfc3339();
         let visit_three = (Utc::now() - Duration::days(8)).to_rfc3339();
         let visit_four = (Utc::now() - Duration::days(2)).to_rfc3339();
+        let visit_five = (Utc::now() - Duration::days(365)).to_rfc3339();
         connection
             .execute(
                 "INSERT INTO visit_events
                  (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
                  VALUES
-                 (1, 'chrome:Default', 1, 1, 'https://example.com/docs/archive', 'Archive docs', ?1, NULL, 805306368, 24000, 1, NULL, 'https://google.com', NULL, 'a', 'a', ?5),
-                 (2, 'chrome:Default', 2, 2, 'https://github.com/example/repo/issues/1', 'Issue one', ?2, 1, 805306368, 12000, 1, NULL, NULL, NULL, 'b', 'b', ?6),
-                 (3, 'chrome:Default', 3, 3, 'https://www.google.com/search?q=archive+tool+compare', 'Google Search', ?3, NULL, 805306368, 6000, 1, NULL, NULL, NULL, 'c', 'c', ?7),
-                 (4, 'chrome:Default', 4, 4, 'https://example.com/pricing', 'Pricing', ?4, NULL, 805306368, 8000, 1, NULL, NULL, NULL, 'd', 'd', ?8)",
+                 (1, 'chrome:Default', 1, 1, 'https://example.com/docs/archive', 'Archive docs', ?1, NULL, 805306368, 24000, 1, NULL, 'https://google.com', NULL, 'a', 'a', ?6),
+                 (2, 'chrome:Default', 2, 2, 'https://github.com/example/repo/issues/1', 'Issue one', ?2, 1, 805306368, 12000, 1, NULL, NULL, NULL, 'b', 'b', ?7),
+                 (3, 'chrome:Default', 3, 3, 'https://www.google.com/search?q=archive+tool+compare', 'Google Search', ?3, NULL, 805306368, 6000, 1, NULL, NULL, NULL, 'c', 'c', ?8),
+                 (4, 'chrome:Default', 4, 4, 'https://example.com/pricing', 'Pricing', ?4, NULL, 805306368, 8000, 1, NULL, NULL, NULL, 'd', 'd', ?9),
+                 (5, 'chrome:Default', 5, 5, 'https://example.com/on-this-day', 'On this day', ?5, NULL, 805306368, 5000, 1, NULL, NULL, NULL, 'e', 'e', ?10)",
                 params![
                     iso_to_chrome_time_micros(&visit_one).expect("visit one chrome time"),
                     iso_to_chrome_time_micros(&visit_two).expect("visit two chrome time"),
                     iso_to_chrome_time_micros(&visit_three).expect("visit three chrome time"),
                     iso_to_chrome_time_micros(&visit_four).expect("visit four chrome time"),
+                    iso_to_chrome_time_micros(&visit_five).expect("visit five chrome time"),
                     visit_one,
                     visit_two,
                     visit_three,
                     visit_four,
+                    visit_five,
                 ],
             )
             .expect("insert visits");

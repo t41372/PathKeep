@@ -558,6 +558,9 @@ describe('backend facade', () => {
     await expect(
       backendTestHarness.call('open_path_in_file_manager'),
     ).resolves.toEqual(expect.stringContaining('PathKeep'))
+    await expect(backendTestHarness.call('open_external_url')).resolves.toBe(
+      'https://example.com',
+    )
   })
 
   test('enforces preview archive prerequisites and keeps lock state aligned with archive mode', async () => {
@@ -606,6 +609,57 @@ describe('backend facade', () => {
     await expect(backend.runBackupNow()).rejects.toThrow(
       'Select at least one profile before running a backup.',
     )
+  })
+
+  test('clamps mock history pagination limits into the supported range', async () => {
+    await expect(
+      backendTestHarness.call('query_history'),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({ id: 1 }),
+        expect.objectContaining({ id: 2 }),
+      ],
+      nextCursor: null,
+    })
+
+    await expect(
+      backend.queryHistory({
+        q: null,
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 0,
+        cursor: null,
+      }),
+    ).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: expect.any(Number) })],
+      nextCursor: expect.any(String),
+    })
+
+    await expect(
+      backend.queryHistory({
+        q: null,
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 5_000,
+        cursor: null,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({ id: 1 }),
+        expect.objectContaining({ id: 2 }),
+      ],
+      nextCursor: null,
+    })
   })
 
   test('guards browser preview archive surfaces while app lock is active', async () => {

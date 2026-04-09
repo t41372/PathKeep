@@ -1,4 +1,10 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import {
+  type KeyboardEvent,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -167,6 +173,18 @@ function browserLabel(kind: string) {
   if (kind === 'firefox') return 'Firefox'
   if (kind === 'safari') return 'Safari'
   return kind
+}
+
+function activateRecordSelection(
+  event: KeyboardEvent<HTMLDivElement>,
+  onSelect: () => void,
+) {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return
+  }
+
+  event.preventDefault()
+  onSelect()
 }
 
 export function ExplorerPage() {
@@ -955,7 +973,7 @@ export function ExplorerPage() {
               </span>
               <div className="regex-input-row">
                 <input
-                  aria-label={explorerT('filterKeyword')}
+                  aria-label={explorerT('filterKeywordAria')}
                   className={regexMode && !regexValid ? 'input-invalid' : ''}
                   type="search"
                   value={searchParams.get('q') ?? ''}
@@ -1007,7 +1025,7 @@ export function ExplorerPage() {
             >
               <span className="mono-kicker">{explorerT('filterProfile')}</span>
               <select
-                aria-label={explorerT('filterProfile')}
+                aria-label={explorerT('filterProfileAria')}
                 value={profileId ?? ''}
                 onChange={(event) =>
                   updateParam('profileId', event.target.value || null)
@@ -1527,11 +1545,16 @@ export function ExplorerPage() {
                 })}
               </div>
               {(results?.items ?? []).map((item) => (
-                <button
+                <div
                   key={item.id}
                   className={`record-item ${selectedEntry?.id === item.id ? 'selected' : ''}`}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedEntry?.id === item.id}
                   onClick={() => setSelectedId(item.id)}
+                  onKeyDown={(event) =>
+                    activateRecordSelection(event, () => setSelectedId(item.id))
+                  }
                 >
                   <div className="favicon-placeholder">
                     {(item.domain ?? '?')[0].toUpperCase()}
@@ -1555,7 +1578,7 @@ export function ExplorerPage() {
                       {explorerT('visitRecord')}
                     </button>
                   </div>
-                </button>
+                </div>
               ))}
               <div
                 className="intelligence-actions"

@@ -947,21 +947,20 @@ fn collect_history_for_export(
     export_query.cursor = None;
     export_query.limit = Some(1_000);
 
-    let mut total = 0;
     let mut items = Vec::new();
 
-    loop {
+    let total = loop {
         let page = list_history(paths, config, key, export_query.clone())?;
-        total = page.total;
+        let total = page.total;
         let next_cursor = page.next_cursor.clone();
         items.extend(page.items);
 
         let Some(next_cursor) = next_cursor else {
-            break;
+            break total;
         };
 
         export_query.cursor = Some(next_cursor);
-    }
+    };
 
     Ok(HistoryQueryResponse { total, items, next_cursor: None })
 }

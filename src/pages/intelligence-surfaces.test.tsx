@@ -456,6 +456,28 @@ describe('intelligence surfaces', () => {
     })
   })
 
+  test('keeps the explorer profile control aligned with the shared profile scope', async () => {
+    window.localStorage.setItem('pathkeep.profile-scope', 'chrome:Default')
+
+    try {
+      const { snapshot } = await seedArchiveState()
+      const explorerT = createNamespaceTranslator('en', 'explorer')
+
+      renderSurface(<ExplorerPage />, {
+        language: 'en',
+        route: '/explorer',
+        snapshot,
+      })
+
+      expect(
+        await screen.findByLabelText(explorerT('filterProfileAria')),
+      ).toHaveValue('chrome:Default')
+      expect(await screen.findByText(explorerT('scopeInherited'))).toBeVisible()
+    } finally {
+      window.localStorage.removeItem('pathkeep.profile-scope')
+    }
+  })
+
   test('renders insights snapshot and explainability flow', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()

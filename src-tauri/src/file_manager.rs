@@ -229,6 +229,9 @@ mod tests {
         let unsupported =
             resolve_external_url_target("file:///tmp/example").expect_err("reject file urls");
         assert!(unsupported.contains("http:// and https://"));
+
+        let missing = resolve_external_url_target("   ").expect_err("reject blank urls");
+        assert!(missing.contains("does not exist"));
     }
 
     #[test]
@@ -279,6 +282,13 @@ mod tests {
         let missing_target = dir.path().join("missing");
 
         let error = spawn_file_manager_command("", Vec::new(), &missing_target)
+            .expect_err("invalid invocation should fail");
+        assert!(error.contains("Failed to open"));
+    }
+
+    #[test]
+    fn spawn_external_url_command_rejects_invalid_invocations() {
+        let error = spawn_external_url_command("", Vec::new(), "mailto:test@example.com")
             .expect_err("invalid invocation should fail");
         assert!(error.contains("Failed to open"));
     }

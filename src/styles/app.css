@@ -1511,6 +1511,10 @@
 .record-item:hover {
   background: var(--bg-hover);
 }
+.record-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .record-item.selected {
   background: var(--accent-glow);
   border-left: 2px solid var(--accent);
