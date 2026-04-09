@@ -28,6 +28,7 @@ describe('stronghold helpers', () => {
 
   test('falls back to localStorage outside the Tauri shell', async () => {
     await storeDatabaseKeyStronghold('pw', 'db-key', '/tmp/vault.hold')
+    expect(window.localStorage.getItem('pathkeep.database-key')).toBe('db-key')
     await expect(
       readDatabaseKeyStronghold('pw', '/tmp/vault.hold'),
     ).resolves.toBe('db-key')
@@ -58,7 +59,10 @@ describe('stronghold helpers', () => {
       readDatabaseKeyStronghold('pw', '/tmp/vault.hold'),
     ).resolves.toBe('tauri-key')
     expect(loadClient).toHaveBeenCalledWith('pathkeep')
-    expect(insert).toHaveBeenCalledOnce()
+    expect(insert).toHaveBeenCalledWith(
+      'database-key',
+      Array.from(new TextEncoder().encode('tauri-key')),
+    )
     expect(save).toHaveBeenCalledOnce()
     expect(unload).toHaveBeenCalledTimes(2)
   })

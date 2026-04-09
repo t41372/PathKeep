@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { localeTag } from './i18n'
 import {
   calendarDayKey,
   formatBytes,
@@ -23,6 +24,24 @@ describe('format utilities', () => {
     expect(formatDateTime(iso, 'en')).toContain('2026')
     expect(formatDateTime(iso, 'zh-CN')).toContain('2026')
     expect(formatDateTime(iso, 'zh-TW')).toContain('2026')
+  })
+
+  test('formatDateTime uses medium-date and short-time formatting', () => {
+    const iso = '2026-04-03T12:34:00.000Z'
+    const date = new Date(iso)
+
+    expect(formatDateTime(iso, 'en')).toBe(
+      new Intl.DateTimeFormat(localeTag('en'), {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(date),
+    )
+    expect(formatDateTime(iso, 'zh-TW')).toBe(
+      new Intl.DateTimeFormat(localeTag('zh-TW'), {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(date),
+    )
   })
 
   test('calendarDayKey honors the requested timezone for day boundaries', () => {
@@ -67,6 +86,13 @@ describe('format utilities', () => {
     expect(formatBytes(1_572_864)).toBe('1.5 MB')
   })
 
+  test('formatBytes respects unit boundaries and integer cutovers', () => {
+    expect(formatBytes(1024)).toBe('1 KB')
+    expect(formatBytes(10 * 1024)).toBe('10 KB')
+    expect(formatBytes(1024 ** 3)).toBe('1 GB')
+    expect(formatBytes(1024 ** 4)).toBe('1 TB')
+  })
+
   test('formatRelativeTime handles missing and recent values', () => {
     expect(formatRelativeTime(null)).toBe('Not yet')
     expect(formatRelativeTime(undefined)).toBe('Not yet')
@@ -91,5 +117,31 @@ describe('format utilities', () => {
 
     expect(formatRelativeTime('2026-04-10T12:00:00.000Z')).toMatch(/3/)
     expect(formatRelativeTime('2026-04-04T12:00:00.000Z')).toMatch(/3/)
+  })
+
+  test('formatRelativeTime switches units at exact minute, hour, and day boundaries', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(
+      new Date('2026-04-07T12:00:00.000Z').getTime(),
+    )
+
+    const formatter = new Intl.RelativeTimeFormat(localeTag('en'), {
+      numeric: 'auto',
+    })
+
+    expect(formatRelativeTime('2026-04-07T12:00:29.000Z')).toBe(
+      formatter.format(0, 'second'),
+    )
+    expect(formatRelativeTime('2026-04-07T13:00:00.000Z')).toBe(
+      formatter.format(1, 'hour'),
+    )
+    expect(formatRelativeTime('2026-04-07T11:00:00.000Z')).toBe(
+      formatter.format(-1, 'hour'),
+    )
+    expect(formatRelativeTime('2026-04-09T12:00:00.000Z')).toBe(
+      formatter.format(2, 'day'),
+    )
+    expect(formatRelativeTime('2026-04-05T12:00:00.000Z')).toBe(
+      formatter.format(-2, 'day'),
+    )
   })
 })

@@ -11,6 +11,10 @@
 
 **2026-04-08 mutation closeout (`WORK-M4-D`)**：parser / AI 的 first-round cargo-mutants misses 已收斂成可兌現的 signed-off contract：`browser-history-parser` crate，加上 `vault-core/src/ai.rs` 的 status/helper slice（`ai_index_status`、`ai_queue_status`、`reconcile_ai_queue_controls`、`provider_capabilities`、`provider_connection_failure_report`、`test_provider_connection`）。`bun run mutation:rust` 與 GitHub `rust-mutation` workflow 現在對這個 contract 負責；`bun run mutation:rust:full` 則退回 exploratory whole-workspace sweep，用來產出後續 backlog 或 deferred rationale。parser `open_readonly` 的 `|` / `^` 等價 mutant 也已在 cargo-mutants config 中明確註記。
 
+**2026-04-08 UX closeout (`WORK-M4-F` / `WORK-M4-H`)**：`Insights` 已正式接回 shared profile scope，並對 archive-wide storage / growth analytics 補上誠實 badge 與 callout；`Assistant` 空狀態與 AI disabled guidance 也補齊 seeded prompt / scoped honesty；`Audit` run detail 改為 summary / artifacts / warnings 分頁；`Schedule` 補回完整 Verify surface 與 PME quick-jump。這一輪同時收斂了 raw internal route reload regression 與 i18n / trust-flow / app-shell / intelligence-surface checker drift，`bun run check && bun run build` 已重新回綠。
+
+**2026-04-08 loading / security closeout (`WORK-M4-E` / `WORK-M4-C`)**：Dashboard / Explorer / Insights / Import / AI action 的 loading UI 已全部收斂為 skeleton / readable progress grammar，並補上 `var(--border)` pulse 與 reduced-motion fallback；同時 App Lock 已以 session-only boundary 正式落地，包含 `/lock` route、startup / idle / manual lock、settings controls、desktop read-surface refusal、以及 MCP locked denial。安全模型見 [ADR-005](../../architecture/decisions/005-app-lock-session-boundary.md)。
+
 ---
 
 ## Source Inputs
@@ -69,6 +73,7 @@
 - [x] `M4-RL-PO-003` 進行一輪完整 accessibility review，覆蓋主要路徑、鍵盤操作、語系切換、reduced motion。
 - [x] `M4-RL-PO-004` 補齊觀測性：structured logs、run correlation id、user-visible diagnostics、support bundle 策略。
 - [x] `M4-RL-PO-005` 對隱私敏感資訊建立 log redaction 和 support export guardrail。
+- [x] `M4-RL-PO-006` 完成 `Insights` / `Assistant` / `Audit` / `Schedule` 的 UX / IA closeout，補齊 AI disabled guidance、PME/accordion、KPI hierarchy、profile-scoped honesty，不能只停在文案替換。
 
 ### Final Acceptance
 
@@ -77,6 +82,7 @@
 - [x] `M4-RL-QA-003` 執行 docs/plan 和 source docs 的最後一次 traceability 檢查，修正任何過期入口和錯誤鏈接。
 - [x] `M4-RL-QA-004` 準備發版前決策清單：哪些 feature GA、哪些標 beta、哪些明確 deferred。
 - [x] `M4-RL-QA-005` 在正式對外發版前，完成一輪 CTO review：產品定位、風險、相容性、資料安全、維運成本全部過關。
+- [x] `M4-RL-QA-006` 讓這輪 UX rewrite 重新對齊 mainline acceptance：禁止 raw route reload、更新 i18n / trust-flow / app-shell / intelligence-surface tests，恢復 `bun run check && bun run build` 全綠。
 
 ---
 

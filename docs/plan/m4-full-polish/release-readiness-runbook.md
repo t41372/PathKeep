@@ -123,4 +123,4 @@ Then perform a traceability sweep:
 
 - Windows code signing strategy is not hardcoded because the correct operator path depends on who owns the certificate and trust chain
 - Linux signing is not treated as a universal requirement because distribution channels and desktop environments vary
-- app lock / biometric / passcode work remains blocked on `PG-RD-PLAT-006`
+- App Lock 已正式 shipping 為 session-only boundary；真正的 native biometric integration 仍 deferred，直到 macOS / Windows / Linux 各自的 desktop bridge 真正接線完成

@@ -25,6 +25,14 @@ const config: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  appLock: {
+    enabled: false,
+    idleTimeoutMinutes: 5,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    recoveryHint: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -93,6 +101,18 @@ describe('intelligence helpers', () => {
     expect(selectedAiProvider(config.ai, 'llm')?.id).toBe('llm-primary')
   })
 
+  test('returns null when the selected provider id is missing', () => {
+    expect(
+      selectedAiProvider(
+        {
+          ...config.ai,
+          llmProviderId: 'missing-provider',
+        },
+        'llm',
+      ),
+    ).toBeNull()
+  })
+
   test('maps index states into user-facing metadata', () => {
     const readyStatus: AiIndexStatus = {
       enabled: true,
@@ -114,9 +134,9 @@ describe('intelligence helpers', () => {
       warning: null,
     }
     expect(aiStatusMeta(readyStatus, t)).toEqual({
-      label: 'Semantic index ready',
+      label: t('statusReadyLabel'),
       tone: 'success',
-      description: 'Indexed 24 records and ready for evidence-first retrieval.',
+      description: t('statusReadyDescription', { count: 24 }),
     })
 
     const degraded = aiStatusMeta(
@@ -198,6 +218,21 @@ describe('intelligence helpers', () => {
     expect(scoreBand(undefined, t)).toEqual({ label: 'No score', tone: 'info' })
   })
 
+  test('treats score thresholds as inclusive', () => {
+    expect(scoreBand(0.85, t)).toEqual({
+      label: 'High confidence',
+      tone: 'success',
+    })
+    expect(scoreBand(0.65, t)).toEqual({
+      label: 'Relevant',
+      tone: 'warning',
+    })
+    expect(scoreBand(0.649, t)).toEqual({
+      label: 'Weak match',
+      tone: 'info',
+    })
+  })
+
   test('builds deep links for evidence and assistant prompts', () => {
     expect(
       evidenceHref({
@@ -240,6 +275,37 @@ describe('intelligence helpers', () => {
         },
       ]),
     ).toHaveLength(1)
+  })
+
+  test('keeps evidence rows when either the history id or url changes', () => {
+    expect(
+      dedupeEvidence([
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: 'https://example.com',
+          title: 'Example',
+          visitedAt: '2026-04-07T00:00:00Z',
+          score: 0.9,
+        },
+        {
+          historyId: 2,
+          profileId: 'chrome:Default',
+          url: 'https://example.com',
+          title: 'Example 2',
+          visitedAt: '2026-04-07T01:00:00Z',
+          score: 0.8,
+        },
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/docs',
+          title: 'Docs',
+          visitedAt: '2026-04-07T02:00:00Z',
+          score: 0.7,
+        },
+      ]),
+    ).toHaveLength(3)
   })
 
   test('maps assistant responses into status chips', () => {

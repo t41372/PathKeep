@@ -80,12 +80,48 @@ describe('platform guidance helpers', () => {
         },
       ]),
     ).toBe(false)
+    expect(
+      hasSafariAccessIssue([
+        {
+          ...safariProfile,
+          historyPath: null,
+        },
+      ]),
+    ).toBe(false)
+    expect(
+      hasSafariAccessIssue([
+        {
+          ...safariProfile,
+          profileId: 'chrome:Default',
+          browserFamily: 'chromium',
+          browserName: 'Chrome',
+        },
+      ]),
+    ).toBe(false)
 
     expect(needsSchedulerReview(scheduleStatus)).toBe(false)
     expect(
       needsSchedulerReview({
         ...scheduleStatus,
         installState: 'manual-review',
+      }),
+    ).toBe(true)
+    expect(
+      needsSchedulerReview({
+        ...scheduleStatus,
+        installState: 'mismatch',
+      }),
+    ).toBe(true)
+    expect(
+      needsSchedulerReview({
+        ...scheduleStatus,
+        installState: 'permission-warning',
+      }),
+    ).toBe(true)
+    expect(
+      needsSchedulerReview({
+        ...scheduleStatus,
+        installState: 'legacy-install-detected',
       }),
     ).toBe(true)
     expect(needsSchedulerReview(null)).toBe(false)

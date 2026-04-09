@@ -20,6 +20,7 @@ describe('trust review helpers', () => {
   test('maps archive and security modes to translation keys', () => {
     expect(archiveModeKey('Encrypted')).toBe('common.modeEncrypted')
     expect(archiveModeKey('Plaintext')).toBe('common.modePlaintext')
+    expect(archiveModeKey('plaintext')).toBe('common.modePlaintext')
     expect(securityModeKey('uninitialized')).toBe('common.modeUninitialized')
     expect(securityModeKey('locked')).toBe('common.modeLocked')
     expect(securityModeKey('plaintext')).toBe('common.modePlaintext')
@@ -41,10 +42,12 @@ describe('trust review helpers', () => {
     expect(healthCheckStatusKey('info')).toBe('common.statusInfo')
     expect(healthCheckStatusKey('warning')).toBe('common.statusNeedsAttention')
     expect(healthCheckStatusKey('error')).toBe('common.statusBlocked')
+    expect(healthCheckStatusKey('blocked')).toBe('common.statusBlocked')
     expect(healthCheckStatusKey('pending')).toBe('common.statusPending')
     expect(healthCheckStatusTone('ok')).toBe('success')
     expect(healthCheckStatusTone('info')).toBe('info')
     expect(healthCheckStatusTone('warning')).toBe('warning')
+    expect(healthCheckStatusTone('error')).toBe('blocked')
     expect(healthCheckStatusTone('blocked')).toBe('blocked')
   })
 
@@ -62,6 +65,13 @@ describe('trust review helpers', () => {
     expect(runTriggerKey('manual')).toBe('audit.manualBackup')
     expect(
       sourceKindFromProfileScope(['chrome:Default', 'firefox:Default']),
+    ).toEqual(['chrome', 'firefox'])
+    expect(
+      sourceKindFromProfileScope([
+        'firefox:Default',
+        'chrome:Personal',
+        'chrome:Work',
+      ]),
     ).toEqual(['chrome', 'firefox'])
     expect(sourceKindFromProfileScope([])).toEqual(['archive-wide'])
     expect(sourceKindFromProfileScope([':Imported profile'])).toEqual([

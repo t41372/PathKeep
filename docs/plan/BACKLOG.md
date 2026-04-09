@@ -9,7 +9,28 @@
 
 ### Program — Quality Closeout Before M4
 
+- [ ] **WORK-QC-D** — Intelligence, Enrichment, And 60-Year Evidence Closeout
+  - 讀先：
+    `docs/features/intelligence.md`
+    `docs/plan/m3-intelligence/providers-indexing-and-jobs.md`
+    `docs/plan/m4-full-polish/enrichment-advanced-intelligence-and-remote.md`
+    `docs/plan/m4-full-polish/large-archive-performance-runbook.md`
+    `docs/plan/m4-full-polish/release-readiness-runbook.md`
+    `docs/plan/program/research-and-decisions.md`
+  - 目標：收斂剩餘的 M3 / M4 intelligence 開放項，包含 index invalidation、embedding / storage cost read model、MCP capability / consent / lock boundary、plugin sandbox / queue integration、revisit / resurfacing、privacy review 與 60-year baseline 的 artifact-backed honest support envelope。
+  - 驗收：`bun run verify`
+
 ### M1 — Solid Archive
+
+- [ ] **WORK-M1-C** — Archive Recoverability And Operations Truth Closure
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/plan/m1-solid-archive/schema-backup-and-ledger.md`
+    `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
+    `docs/plan/program/research-and-decisions.md`
+  - 目標：關閉 M1 尚未誠實簽收的 restore / snapshot / doctor / audit summary / retention / rekey / schedule acceptance 條目；若現況仍是 partial support，補齊 source docs、acceptance artifact 與 deferred rationale，避免把 M1 寫成已完成但缺 recoverability contract。
+  - 驗收：`bun run check && bun run build`
 
 ### M2 — Recall & Trust
 
@@ -17,30 +38,13 @@
 
 ### M4 — Full Polish
 
-> 2026-04-08：`WORK-M4-D` 已完成並移入 `CHANGELOG.md`；`WORK-M4-E` 與 `WORK-M4-F` 已 promoted 到 `STATUS.md` 當前 focus。此處目前只保留尚未 promoted 的後續 backlog 項目。
-
-- [!] **WORK-M4-C** — Secure App Lock And Profile Partitions `[!blocked: 先完成 PG-RD-PLAT-006，釐清 biometric / passcode / session-key security model]`
-  - 設計規格：`docs/features/archive.md` §8、`docs/design/screens-and-nav.md` §App Lock
-  - 讀先：
-    - `docs/vision-and-requirements.md`
-    - `docs/features/archive.md`
-    - `docs/features/recall.md`
-    - `docs/features/intelligence.md`
-    - `docs/design/screens-and-nav.md`
-    - `docs/plan/program/research-and-decisions.md`
-  - 範圍：
-    1. 定義 app lock 保護範圍：僅 UI session、資料庫解鎖、或兩者結合
-    2. 研究 macOS / Windows / Linux 的 biometric / passcode / keyring fallback 與 recovery story
-    3. 決定 shared profile scope 是否升級為真正的 per-profile partition，特別是 Insights / Dashboard 的 read model 邊界
-
 ---
 
 ## 依賴關係圖
 
 ```
 WORK-M0-A ──┐
-WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B → WORK-M4-D / WORK-M4-E / WORK-M4-F
-                                                                                                                                   └── WORK-M4-C [!blocked: PG-RD-PLAT-006]
+WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B → WORK-M4-C / WORK-M4-D / WORK-M4-E
 ```
 
 ---

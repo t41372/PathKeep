@@ -76,7 +76,7 @@
 ### MCP And External AI Surfaces
 
 - [ ] `M3-AI-MCP-001` 重新審視現有 MCP / server 實作，只保留符合新 evidence 和 permission 原則的表面。
-- [ ] `M3-AI-MCP-002` 定義對外暴露的 history query contract，確保不會默默繞過 visibility、archive lock、provider gating。
+- [x] `M3-AI-MCP-002` 定義對外暴露的 history query contract，確保不會默默繞過 visibility、archive lock、provider gating。（2026-04-08，`WORK-M4-C`：MCP 只能在 AI / MCP 明確啟用且 app unlocked 時啟動；query surface 會沿用 canonical visibility，並在 App Lock 下回傳 locked refusal。）
 - [ ] `M3-AI-MCP-003` 為 MCP / IDE integration 加入 capability detection、consent copy、scope boundary和 audit trace。
 - [ ] `M3-AI-MCP-004` 明確定義「無 AI provider 但要使用本地 recall / MCP read-only」是否允許，以及其安全限制。
 
@@ -86,7 +86,7 @@
 - [x] `M3-AI-QA-002` 建立 queue acceptance tests，覆蓋 retry、cancel、pause / resume、worker crash recovery。（2026-04-07，WORK-M3-A）
 - [x] `M3-AI-QA-003` 建立 index rebuild acceptance：fresh build、incremental build、clear and rebuild、rollback invalidation。（2026-04-07，WORK-M3-A；rollback / import auto-invalidations 仍待 `M3-AI-EM-004`）
 - [x] `M3-AI-QA-004` 建立 no-provider degrade tests，確保 archive 核心和非 AI UI 不受影響。（2026-04-07，WORK-M3-A）
-- [ ] `M3-AI-QA-005` 建立 MCP surface tests，驗證 visibility、permission、lock state 都會正確套用。
+- [x] `M3-AI-QA-005` 建立 MCP surface tests，驗證 visibility、permission、lock state 都會正確套用。（2026-04-08，`WORK-M4-C`）
 
 ---
 
