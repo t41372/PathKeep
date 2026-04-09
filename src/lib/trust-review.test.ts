@@ -59,8 +59,12 @@ describe('trust review helpers', () => {
     expect(runTypeKey('backup')).toBe('audit.runTypeBackup')
     expect(runTypeKey('import')).toBe('audit.runTypeImport')
     expect(runTypeKey('rollback')).toBe('audit.runTypeRollback')
+    expect(runTypeKey('restore')).toBe('audit.runTypeRestore')
     expect(runTypeKey('doctor')).toBe('audit.runTypeDoctor')
     expect(runTypeKey('snapshot_restore')).toBe('audit.runTypeSnapshotRestore')
+    expect(runTypeKey('ai_index')).toBe('audit.runTypeAiIndex')
+    expect(runTypeKey('assistant')).toBe('audit.runTypeAssistant')
+    expect(runTypeKey('mcp_query')).toBe('audit.runTypeMcpQuery')
     expect(runTriggerKey('schedule')).toBe('audit.scheduledBackup')
     expect(runTriggerKey('manual')).toBe('audit.manualBackup')
     expect(

@@ -17,6 +17,8 @@
 - 搜尋不只找頁面，還要支持找 session、task 和 topic level 的語義匹配。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - v1 semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
+- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
+- runtime contract：semantic retrieval 應先查 LanceDB sidecar；若 sidecar 缺失或失敗，可暫時退回 SQLite compatibility mirror，但 UI / notes 必須明講這是 fallback path。
 
 ---
 
@@ -52,6 +54,9 @@
 - App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時啟動本地 MCP server。
 - 提供搜尋、檢索歷史紀錄的 MCP tools；若 session 之後被 App Lock 鎖住，history query 相關 tool 必須回傳 locked refusal，而不是繞過 UI 直接讀 archive。
 - 安全考量：只綁定 localhost，不對外暴露，並且必須尊重 visibility、lock state 與 capability gating。
+- 若沒有 embedding provider，但使用者仍明確啟用 AI + MCP，read-only recall 仍可在 lexical mode 下運作；consent / capability copy 必須明講 semantic recall 目前不可用。
+- Settings 的 integration preview 是 preview-only surface：要顯示 command、MCP JSON、skill markdown、consent summary、scope boundary 與 audit trace，供使用者手動複製；不能假裝已經自動安裝到外部工具。
+- 每一次 MCP search 都必須寫入 dedicated `mcp_query` run，而不是混進 backup / assistant / generic utility run。
 
 ### AI IDE Skill
 
@@ -193,6 +198,7 @@
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
+- 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
 ### Profile-Scoped Insights（Profile 級別洞察篩選）
 
@@ -290,5 +296,6 @@
 - 計算結果存入獨立的表 / sidecar — 即使清空所有計算結果，重跑一遍就能恢復。
 - 沒有配置 AI provider 的用戶完全看不到這個系統。
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
+- v1 invalidation contract 先以 honest stale detection + manual rebuild 落地：import / rollback / visibility change / approved enrichment freshness 改變時，UI 必須把 index state 標成 stale。是否自動 re-enqueue rebuild 屬後續 work，不可假裝 day-one 已完成。
 - queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。
 - M4-A 目前把 `readable-content-refetch` 掛在 `insights` flow，而不是獨立 queue family；per-plugin retry / cancel / concurrency surface 仍屬後續工作，v1 不應假裝已有完整的 enrichment queue UX。

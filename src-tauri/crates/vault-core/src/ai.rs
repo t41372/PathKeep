@@ -43,7 +43,11 @@ pub struct AiProviderRuntime {
 #[serde(rename_all = "camelCase")]
 pub struct AiIntegrationPreview {
     pub mcp_command: String,
+    pub consent_summary: String,
     pub manual_steps: Vec<String>,
+    pub capability_notes: Vec<String>,
+    pub scope_boundary: Vec<String>,
+    pub audit_trace: Vec<String>,
     pub generated_files: Vec<crate::models::GeneratedFile>,
     pub warnings: Vec<String>,
 }
@@ -76,6 +80,7 @@ type SemanticRow = (i64, String, String, Option<String>, String, String, String)
 #[derive(Debug, Clone, Default)]
 struct AiIndexLedgerRow {
     state: String,
+    source_watermark: i64,
     last_indexed_at: Option<String>,
     last_failure_at: Option<String>,
     failure_reason: Option<String>,
@@ -86,6 +91,12 @@ struct ProviderReadiness {
     available: bool,
     warning: Option<String>,
     selected_model: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct SemanticMatchReport {
+    items: Vec<StoredEmbedding>,
+    notes: Vec<String>,
 }
 
 const AI_SCHEMA_SQL: &str = r#"
@@ -140,12 +151,21 @@ const AI_SCHEMA_SQL: &str = r#"
 "#;
 
 const SEMANTIC_MATCHES_SQL: &str = r#"
-    SELECT history_id, profile_id, url, title, domain, visited_at, embedding_json
+    SELECT
+      ai_embeddings.history_id,
+      ai_embeddings.profile_id,
+      ai_embeddings.url,
+      ai_embeddings.title,
+      ai_embeddings.domain,
+      ai_embeddings.visited_at,
+      ai_embeddings.embedding_json
     FROM ai_embeddings
-    WHERE provider_id = ?1
-      AND model = ?2
-      AND (?3 IS NULL OR profile_id = ?3)
-      AND (?4 IS NULL OR domain LIKE '%' || ?4 || '%')
+    JOIN visit_events
+      ON visit_events.id = ai_embeddings.history_id
+    WHERE ai_embeddings.provider_id = ?1
+      AND ai_embeddings.model = ?2
+      AND (?3 IS NULL OR ai_embeddings.profile_id = ?3)
+      AND (?4 IS NULL OR ai_embeddings.domain LIKE '%' || ?4 || '%')
 "#;
 
 const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
@@ -155,6 +175,8 @@ const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (histor
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
+const EMBEDDING_BATCH_SIZE: usize = 32;
+const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 
 #[derive(Debug, Clone)]
 struct SearchContext {
@@ -321,27 +343,49 @@ pub fn ai_index_status(
     } else {
         AiIndexLedgerRow::default()
     };
-    let indexed_items = if let Some(provider_id) = provider_id.as_deref() {
-        provider_embedding_count(&connection, provider_id)?
+    let indexed_items = if let Some((provider_id, model)) =
+        provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
+    {
+        provider_embedding_count(&connection, provider_id, model)?
     } else {
         0
     };
+    let semantic_sidecar_bytes = ai_sidecar::sidecar_storage_bytes(paths);
+    let semantic_mirror_bytes = ai_embeddings_storage_bytes(&connection)?;
+    let estimated_embedding_tokens = ai_embedding_token_estimate(&connection)?;
+    let staleness_reason = provider_id
+        .as_deref()
+        .zip(provider_readiness.selected_model.as_deref())
+        .map(|(provider_id, model)| {
+            semantic_index_staleness_reason(
+                &connection,
+                provider_id,
+                model,
+                ledger.source_watermark,
+                ledger.last_indexed_at.as_deref(),
+            )
+        })
+        .transpose()?
+        .flatten();
     let last_indexed_at = ledger.last_indexed_at.clone().or_else(|| {
-        provider_id.as_deref().and_then(|provider_id| {
-            connection
-                .query_row(
-                    "SELECT indexed_at
+        provider_id.as_deref().zip(provider_readiness.selected_model.as_deref()).and_then(
+            |(provider_id, model)| {
+                connection
+                    .query_row(
+                        "SELECT indexed_at
                      FROM ai_embeddings
                      WHERE provider_id = ?1
+                       AND model = ?2
                      ORDER BY indexed_at DESC
                      LIMIT 1",
-                    [provider_id],
-                    |row: &Row<'_>| row.get(0),
-                )
-                .optional()
-                .ok()
-                .flatten()
-        })
+                        params![provider_id, model],
+                        |row: &Row<'_>| row.get(0),
+                    )
+                    .optional()
+                    .ok()
+                    .flatten()
+            },
+        )
     });
     let ready = indexed_items > 0 && provider_readiness.available;
     let state = if !config.ai.enabled {
@@ -354,6 +398,8 @@ pub fn ai_index_status(
         "paused".to_string()
     } else if ledger.state == "failed" {
         "failed".to_string()
+    } else if staleness_reason.is_some() {
+        "stale".to_string()
     } else if ready {
         "ready".to_string()
     } else if index_queue_counts.queued > 0 {
@@ -378,10 +424,15 @@ pub fn ai_index_status(
         running_jobs: queue_status.running,
         failed_jobs: queue_status.failed,
         recent_jobs: queue_status.recent_jobs,
+        semantic_sidecar_bytes,
+        semantic_mirror_bytes,
+        estimated_embedding_tokens,
         warning: if ledger.state == "failed" {
             ledger.failure_reason.or(ledger.last_failure_at)
         } else if !provider_readiness.available {
             provider_readiness.warning
+        } else if staleness_reason.is_some() {
+            staleness_reason
         } else if config.ai.enabled && !ready {
             Some("Run Build index after configuring an embedding provider to enable semantic search.".to_string())
         } else {
@@ -672,41 +723,104 @@ pub async fn build_ai_index(
         let timestamp = now_rfc3339();
         let mut indexed_items = 0usize;
         let mut updated_items = 0usize;
+        let mut skipped_items = 0usize;
         let mut sidecar_rows = Vec::with_capacity(candidates.len());
+        let mut partial_failure_notes = Vec::new();
 
-        for visit in &candidates {
-            let had_prior_index = connection
-                .query_row(
-                    "SELECT id
-                     FROM ai_embeddings
-                     WHERE history_id = ?1
-                       AND provider_id = ?2
-                       AND model = ?3
-                     LIMIT 1",
-                    params![visit.history_id, provider.config.id, provider.config.default_model],
-                    |row: &Row<'_>| row.get::<_, i64>(0),
-                )
-                .optional()?
-                .is_some();
-            let vector = embed_query(provider, &visit.content).await?;
-            upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
-            sidecar_rows.push(SidecarEmbeddingRow {
-                history_id: visit.history_id,
-                profile_id: visit.profile_id.clone(),
-                url: visit.url.clone(),
-                title: visit.title.clone(),
-                domain: visit.domain.clone(),
-                visited_at: visit.visited_at.clone(),
-                provider_id: provider.config.id.clone(),
-                model: provider.config.default_model.clone(),
-                content_hash: visit.content_hash.clone(),
-                indexed_at: timestamp.clone(),
-                vector,
-            });
-            if had_prior_index {
-                updated_items += 1;
-            } else {
-                indexed_items += 1;
+        for batch in candidates.chunks(EMBEDDING_BATCH_SIZE) {
+            let texts = batch.iter().map(|visit| visit.content.clone()).collect::<Vec<_>>();
+            match embed_batch_with_retry(provider, &texts).await {
+                Ok(vectors) if vectors.len() == batch.len() => {
+                    for (visit, vector) in batch.iter().zip(vectors.into_iter()) {
+                        let had_prior_index = connection
+                            .query_row(
+                                "SELECT id
+                                 FROM ai_embeddings
+                                 WHERE history_id = ?1
+                                   AND provider_id = ?2
+                                   AND model = ?3
+                                 LIMIT 1",
+                                params![
+                                    visit.history_id,
+                                    provider.config.id,
+                                    provider.config.default_model
+                                ],
+                                |row: &Row<'_>| row.get::<_, i64>(0),
+                            )
+                            .optional()?
+                            .is_some();
+                        upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
+                        sidecar_rows.push(SidecarEmbeddingRow {
+                            history_id: visit.history_id,
+                            profile_id: visit.profile_id.clone(),
+                            url: visit.url.clone(),
+                            title: visit.title.clone(),
+                            domain: visit.domain.clone(),
+                            visited_at: visit.visited_at.clone(),
+                            provider_id: provider.config.id.clone(),
+                            model: provider.config.default_model.clone(),
+                            content_hash: visit.content_hash.clone(),
+                            indexed_at: timestamp.clone(),
+                            vector,
+                        });
+                        if had_prior_index {
+                            updated_items += 1;
+                        } else {
+                            indexed_items += 1;
+                        }
+                    }
+                }
+                Ok(_) | Err(_) => {
+                    for visit in batch {
+                        let had_prior_index = connection
+                            .query_row(
+                                "SELECT id
+                                 FROM ai_embeddings
+                                 WHERE history_id = ?1
+                                   AND provider_id = ?2
+                                   AND model = ?3
+                                 LIMIT 1",
+                                params![
+                                    visit.history_id,
+                                    provider.config.id,
+                                    provider.config.default_model
+                                ],
+                                |row: &Row<'_>| row.get::<_, i64>(0),
+                            )
+                            .optional()?
+                            .is_some();
+                        match embed_single_with_retry(provider, &visit.content).await {
+                            Ok(vector) => {
+                                upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
+                                sidecar_rows.push(SidecarEmbeddingRow {
+                                    history_id: visit.history_id,
+                                    profile_id: visit.profile_id.clone(),
+                                    url: visit.url.clone(),
+                                    title: visit.title.clone(),
+                                    domain: visit.domain.clone(),
+                                    visited_at: visit.visited_at.clone(),
+                                    provider_id: provider.config.id.clone(),
+                                    model: provider.config.default_model.clone(),
+                                    content_hash: visit.content_hash.clone(),
+                                    indexed_at: timestamp.clone(),
+                                    vector,
+                                });
+                                if had_prior_index {
+                                    updated_items += 1;
+                                } else {
+                                    indexed_items += 1;
+                                }
+                            }
+                            Err(error) => {
+                                skipped_items += 1;
+                                partial_failure_notes.push(format!(
+                                    "Skipped history row {} after batch and per-row embedding retries: {}",
+                                    visit.history_id, error
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         }
         let sidecar_synced = ai_sidecar::sync_provider_embeddings(
@@ -727,16 +841,31 @@ pub async fn build_ai_index(
             model: provider.config.default_model.clone(),
             indexed_items,
             updated_items,
-            skipped_items: 0,
+            skipped_items,
             removed_items: removed_items + sidecar_removed,
             last_indexed_at: timestamp,
-            notes: vec![
+            notes: {
+                let mut notes = vec![
                 format!("Indexed {} history rows with {}.", candidates.len(), provider.config.name),
                 format!(
-                    "Synced {} row(s) into the LanceDB semantic sidecar. Search still keeps a temporary SQLite compatibility mirror until the M3 query-surface closeout lands.",
+                    "Processed {} embedding batch(es) with a batch size of {}.",
+                    candidates.len().div_ceil(EMBEDDING_BATCH_SIZE),
+                    EMBEDDING_BATCH_SIZE
+                ),
+                format!(
+                    "Synced {} row(s) into the LanceDB semantic sidecar. Search still keeps a temporary SQLite compatibility mirror as a fallback path.",
                     sidecar_synced
                 ),
-            ],
+                ];
+                if skipped_items > 0 {
+                    notes.push(format!(
+                        "Skipped {} row(s) after retrying failed embedding batches individually.",
+                        skipped_items
+                    ));
+                    notes.extend(partial_failure_notes);
+                }
+                notes
+            },
         })
     }
     .await;
@@ -1000,13 +1129,44 @@ pub fn preview_ai_integrations(
             }
         }
     });
+    let providerless_note = if config.ai.embedding_provider_id.is_some() {
+        "Semantic retrieval can use the configured embedding provider when the semantic index is built.".to_string()
+    } else {
+        "No embedding provider is selected right now, so MCP and external assistants fall back to lexical recall only. They still respect archive visibility and App Lock."
+            .to_string()
+    };
     Ok(AiIntegrationPreview {
         mcp_command,
+        consent_summary:
+            "External AI integrations stay local-first and explicit. PathKeep only exposes localhost MCP tools after you turn on AI + MCP in Settings, and the current app session must stay unlocked."
+                .to_string(),
         manual_steps: vec![
             "Enable MCP or Skill integration in Settings first. Both are off by default.".to_string(),
             "Store the database key in the native keyring if the archive is encrypted, so background and MCP lookups can unlock the archive.".to_string(),
             "Copy the generated MCP JSON into your local MCP client configuration and restart that client.".to_string(),
             "Copy the generated skill markdown into your local skills directory if you want a reusable history-research workflow.".to_string(),
+        ],
+        capability_notes: vec![
+            if config.ai.mcp_enabled {
+                "MCP server toggle is currently enabled in saved Settings.".to_string()
+            } else {
+                "MCP server toggle is currently disabled in saved Settings.".to_string()
+            },
+            if config.ai.skill_enabled {
+                "Skill integration toggle is currently enabled in saved Settings.".to_string()
+            } else {
+                "Skill integration toggle is currently disabled in saved Settings.".to_string()
+            },
+            providerless_note,
+        ],
+        scope_boundary: vec![
+            "Queries only see currently visible archive facts. Reverted visits stay hidden even if an old embedding row still exists.".to_string(),
+            "If App Lock re-locks the session, MCP search returns a locked refusal instead of reading the archive behind the UI.".to_string(),
+            "The MCP surface is localhost-only and never publishes the archive to a remote PathKeep service.".to_string(),
+        ],
+        audit_trace: vec![
+            "Each MCP search writes a dedicated run-ledger entry so Audit can show that an external tool queried the archive.".to_string(),
+            "Assistant and semantic-index runs keep their own run IDs and do not masquerade as backup runs.".to_string(),
         ],
         generated_files: vec![
             crate::models::GeneratedFile {
@@ -1216,16 +1376,22 @@ fn load_index_ledger(
 ) -> Result<AiIndexLedgerRow> {
     connection
         .query_row(
-            "SELECT state, last_indexed_at, last_failure_at, failure_reason
+            "SELECT
+                state,
+                COALESCE(source_watermark, 0),
+                last_indexed_at,
+                last_failure_at,
+                failure_reason
              FROM ai_index_ledger
              WHERE provider_id = ?1 AND model = ?2",
             params![provider_id, model],
             |row| {
                 Ok(AiIndexLedgerRow {
                     state: row.get(0)?,
-                    last_indexed_at: row.get(1)?,
-                    last_failure_at: row.get(2)?,
-                    failure_reason: row.get(3)?,
+                    source_watermark: row.get(1)?,
+                    last_indexed_at: row.get(2)?,
+                    last_failure_at: row.get(3)?,
+                    failure_reason: row.get(4)?,
                 })
             },
         )
@@ -1583,12 +1749,13 @@ async fn search_history_internal(
         provider_id = provider.config.id.clone();
         model = provider.config.default_model.clone();
         let semantic = semantic_matches(paths, config, key, provider, request).await?;
-        if semantic.is_empty() {
+        notes.extend(semantic.notes.clone());
+        if semantic.items.is_empty() {
             notes.push(
                 "No indexed semantic matches were found; showing lexical results only.".to_string(),
             );
         }
-        for (index, item) in semantic.into_iter().take(limit).enumerate() {
+        for (index, item) in semantic.items.into_iter().take(limit).enumerate() {
             let entry = merged.entry(item.history_id).or_insert_with(|| AiSearchEntry {
                 history_id: item.history_id,
                 profile_id: item.profile_id.clone(),
@@ -1635,11 +1802,76 @@ async fn semantic_matches(
     key: Option<&str>,
     provider: &AiProviderRuntime,
     request: &AiSearchRequest,
-) -> Result<Vec<StoredEmbedding>> {
+) -> Result<SemanticMatchReport> {
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
+    let mut notes = Vec::new();
+    let ledger =
+        load_index_ledger(&connection, &provider.config.id, &provider.config.default_model)?;
+    if let Some(reason) = semantic_index_staleness_reason(
+        &connection,
+        &provider.config.id,
+        &provider.config.default_model,
+        ledger.source_watermark,
+        ledger.last_indexed_at.as_deref(),
+    )? {
+        notes.push(reason);
+    }
+
     let query_vector = embed_query(provider, request.query.trim()).await?;
+    let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
+    match ai_sidecar::search_provider_embeddings(
+        paths,
+        &provider.config.id,
+        &provider.config.default_model,
+        &query_vector,
+        request.profile_id.as_deref(),
+        request.domain.as_deref(),
+        limit,
+    )
+    .await
+    {
+        Ok(Some(rows)) if !rows.is_empty() => {
+            let mut visible_rows = Vec::new();
+            for row in rows {
+                if !history_row_is_visible(&connection, row.history_id)? {
+                    continue;
+                }
+                visible_rows.push(StoredEmbedding {
+                    history_id: row.history_id,
+                    profile_id: row.profile_id,
+                    url: row.url,
+                    title: row.title,
+                    domain: row.domain,
+                    visited_at: row.visited_at,
+                    score: row.score,
+                });
+            }
+            visible_rows.sort_by(sort_stored_embeddings_desc);
+            return Ok(SemanticMatchReport { items: visible_rows, notes });
+        }
+        Ok(Some(_)) | Ok(None) => {
+            if provider_embedding_count(
+                &connection,
+                &provider.config.id,
+                &provider.config.default_model,
+            )? > 0
+            {
+                notes.push(
+                    "The LanceDB semantic sidecar is missing or empty, so PathKeep fell back to the SQLite compatibility mirror."
+                        .to_string(),
+                );
+            }
+        }
+        Err(error) => {
+            notes.push(format!(
+                "The LanceDB semantic sidecar could not answer this search ({}). PathKeep fell back to the SQLite compatibility mirror.",
+                error
+            ));
+        }
+    }
+
     let rows = load_semantic_rows(&connection, provider, request)?;
 
     let mut scored = Vec::new();
@@ -1662,7 +1894,7 @@ async fn semantic_matches(
     }
 
     scored.sort_by(sort_stored_embeddings_desc);
-    Ok(scored)
+    Ok(SemanticMatchReport { items: scored, notes })
 }
 
 fn collect_visits_to_index(
@@ -1764,14 +1996,119 @@ fn collect_stale_history_ids(
         .context("collecting stale AI embedding ids")
 }
 
-fn provider_embedding_count(connection: &Connection, provider_id: &str) -> Result<i64> {
+fn provider_embedding_count(
+    connection: &Connection,
+    provider_id: &str,
+    model: &str,
+) -> Result<i64> {
     #[rustfmt::skip]
     let count = connection.query_row(
-        "SELECT COUNT(*) FROM ai_embeddings WHERE provider_id = ?1",
-        [provider_id],
+        "SELECT COUNT(*) FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2",
+        params![provider_id, model],
         |row: &Row<'_>| row.get::<_, i64>(0),
     )?;
     Ok(count)
+}
+
+fn history_row_is_visible(connection: &Connection, history_id: i64) -> Result<bool> {
+    connection
+        .query_row(
+            "SELECT 1 FROM visit_events WHERE id = ?1 LIMIT 1",
+            [history_id],
+            |row: &Row<'_>| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|value| value.is_some())
+        .context("checking semantic visibility against visit_events")
+}
+
+fn sqlite_table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table_name],
+        |row: &Row<'_>| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+fn semantic_index_staleness_reason(
+    connection: &Connection,
+    provider_id: &str,
+    _model: &str,
+    source_watermark: i64,
+    last_indexed_at: Option<&str>,
+) -> Result<Option<String>> {
+    if provider_embedding_count(connection, provider_id, _model)? == 0 {
+        return Ok(None);
+    }
+
+    let visible_watermark = current_source_watermark(connection)?;
+    if source_watermark != 0 && visible_watermark != source_watermark {
+        return Ok(Some(
+            "The semantic index no longer matches the current archive visibility or import watermark. Run Build index so semantic retrieval includes recent imports and reflects reverted rows."
+                .to_string(),
+        ));
+    }
+
+    if let Some(last_indexed_at) = last_indexed_at {
+        if sqlite_table_exists(connection, "visit_content_enrichments")? {
+            let latest_enrichment: Option<String> = connection
+                .query_row(
+                    "SELECT fetched_at
+                     FROM visit_content_enrichments
+                     WHERE fetch_status = 'success'
+                     ORDER BY fetched_at DESC
+                     LIMIT 1",
+                    [],
+                    |row: &Row<'_>| row.get(0),
+                )
+                .optional()?;
+            if latest_enrichment.as_deref().is_some_and(|value| value > last_indexed_at) {
+                return Ok(Some(
+                    "Readable-content enrichment changed after the last semantic build. Run Build index to refresh embeddings with the latest extracted text."
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn ai_embeddings_storage_bytes(connection: &Connection) -> Result<u64> {
+    if !sqlite_table_exists(connection, "ai_embeddings")? {
+        return Ok(0);
+    }
+    let bytes: i64 = connection.query_row(
+        "SELECT COALESCE(SUM(
+            LENGTH(IFNULL(url, '')) +
+            LENGTH(IFNULL(title, '')) +
+            LENGTH(IFNULL(domain, '')) +
+            LENGTH(IFNULL(visited_at, '')) +
+            LENGTH(IFNULL(content, '')) +
+            LENGTH(IFNULL(content_hash, '')) +
+            LENGTH(IFNULL(provider_id, '')) +
+            LENGTH(IFNULL(model, '')) +
+            LENGTH(IFNULL(embedding_json, ''))
+         ), 0)
+         FROM ai_embeddings",
+        [],
+        |row: &Row<'_>| row.get(0),
+    )?;
+    Ok(bytes.max(0) as u64)
+}
+
+fn ai_embedding_token_estimate(connection: &Connection) -> Result<u64> {
+    if !sqlite_table_exists(connection, "ai_embeddings")? {
+        return Ok(0);
+    }
+    let characters: i64 = connection.query_row(
+        "SELECT COALESCE(SUM(LENGTH(IFNULL(content, ''))), 0) FROM ai_embeddings",
+        [],
+        |row: &Row<'_>| row.get(0),
+    )?;
+    let characters = characters.max(0) as u64;
+    Ok(characters.div_ceil(4))
 }
 
 fn clear_provider_embeddings(connection: &Connection, provider: &AiProviderRuntime) -> Result<()> {
@@ -1914,6 +2251,111 @@ fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
     } else {
         dot / (left_norm.sqrt() * right_norm.sqrt())
     }
+}
+
+async fn embed_batch_with_retry(
+    provider: &AiProviderRuntime,
+    texts: &[String],
+) -> Result<Vec<Vec<f32>>> {
+    let mut attempts = 0usize;
+    loop {
+        match embed_text_batch(provider, texts).await {
+            Ok(vectors) => return Ok(vectors),
+            Err(error) if attempts < EMBEDDING_RETRY_ATTEMPTS => {
+                attempts += 1;
+                if embedding_error_is_rate_limited(&error) {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn embed_single_with_retry(provider: &AiProviderRuntime, text: &str) -> Result<Vec<f32>> {
+    let mut attempts = 0usize;
+    loop {
+        match embed_query(provider, text).await {
+            Ok(vector) => return Ok(vector),
+            Err(error) if attempts < EMBEDDING_RETRY_ATTEMPTS => {
+                attempts += 1;
+                if embedding_error_is_rate_limited(&error) {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn embedding_error_is_rate_limited(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_lowercase();
+    message.contains("rate limit") || message.contains("quota") || message.contains("429")
+}
+
+#[cfg(not(any(test, coverage)))]
+async fn embed_text_batch(provider: &AiProviderRuntime, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    match provider.config.request_format {
+        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
+            let mut builder = openai::Client::builder().api_key(provider.api_key.clone());
+            if let Some(base_url) = provider.config.base_url.as_deref() {
+                builder = builder.base_url(base_url);
+            }
+            let client = builder.build()?;
+            let model = client.embedding_model_with_ndims(
+                provider.config.default_model.clone(),
+                provider.config.dimensions.unwrap_or(1536) as usize,
+            );
+            let embeddings = model.embed_texts(texts.to_vec()).await?;
+            Ok(embeddings
+                .into_iter()
+                .map(|embedding| embedding.vec.into_iter().map(|value| value as f32).collect())
+                .collect())
+        }
+        AiRequestFormat::Google => {
+            let mut builder = gemini::Client::builder().api_key(provider.api_key.clone());
+            if let Some(base_url) = provider.config.base_url.as_deref() {
+                builder = builder.base_url(base_url);
+            }
+            let client = builder.build()?;
+            let model = client.embedding_model_with_ndims(
+                provider.config.default_model.clone(),
+                provider.config.dimensions.unwrap_or(768) as usize,
+            );
+            let embeddings = model.embed_texts(texts.to_vec()).await?;
+            Ok(embeddings
+                .into_iter()
+                .map(|embedding| embedding.vec.into_iter().map(|value| value as f32).collect())
+                .collect())
+        }
+        AiRequestFormat::Anthropic => {
+            anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
+        }
+    }
+}
+
+#[cfg(any(test, coverage))]
+async fn embed_text_batch(provider: &AiProviderRuntime, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    let dimensions = match provider.config.request_format {
+        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
+            provider.config.dimensions.unwrap_or(1536)
+        }
+        AiRequestFormat::Google => provider.config.dimensions.unwrap_or(768),
+        AiRequestFormat::Anthropic => {
+            anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
+        }
+    } as usize;
+
+    Ok(texts
+        .iter()
+        .map(|text| {
+            let fingerprint = sha256_hex(format!("{}::{text}", provider.config.id).as_bytes());
+            let bytes = fingerprint.as_bytes();
+            (0..dimensions)
+                .map(|index| ((bytes[index % bytes.len()] % 13) as f32 + 1.0) / 13.0)
+                .collect::<Vec<_>>()
+        })
+        .collect())
 }
 
 #[cfg(not(any(test, coverage)))]
@@ -2389,6 +2831,21 @@ mod tests {
         assert!(!disabled_status.ready);
         assert_eq!(disabled_status.state, "disabled");
         assert_eq!(disabled_status.warning, None);
+    }
+
+    #[test]
+    fn ai_index_status_treats_selected_model_without_embeddings_as_empty() {
+        let (paths, mut config, connection) = prepared_archive();
+        let provider = embedding_provider();
+        seed_visit(&connection, 1, "chrome:Default", "https://example.com/ready", Some("Ready"), 1);
+        seed_embedding(&connection, 1, &provider, "hash-ready");
+        config.ai.embedding_providers[0].default_model = "text-embedding-3-large".to_string();
+
+        let status = ai_index_status(&paths, &config, None).expect("status");
+        assert!(!status.ready);
+        assert_eq!(status.state, "empty");
+        assert_eq!(status.indexed_items, 0);
+        assert!(status.last_indexed_at.is_none());
     }
 
     #[test]
@@ -2998,9 +3455,9 @@ mod tests {
                 },
             ))
             .expect("semantic matches");
-        assert_eq!(matches.len(), 2);
-        assert_eq!(matches[0].history_id, 2);
-        assert!(matches[0].score >= matches[1].score);
+        assert_eq!(matches.items.len(), 2);
+        assert_eq!(matches.items[0].history_id, 2);
+        assert!(matches.items[0].score >= matches.items[1].score);
     }
 
     #[test]

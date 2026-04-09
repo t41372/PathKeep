@@ -131,6 +131,9 @@ describe('intelligence helpers', () => {
       runningJobs: 0,
       failedJobs: 0,
       recentJobs: [],
+      semanticSidecarBytes: 0,
+      semanticMirrorBytes: 0,
+      estimatedEmbeddingTokens: 0,
       warning: null,
     }
     expect(aiStatusMeta(readyStatus, t)).toEqual({
@@ -184,6 +187,13 @@ describe('intelligence helpers', () => {
       label: t('statusFailedLabel'),
       tone: 'blocked',
       description: t('statusFailedDescription'),
+    })
+    expect(
+      aiStatusMeta({ ...readyStatus, state: 'stale', warning: null }, t),
+    ).toEqual({
+      label: t('statusStaleLabel'),
+      tone: 'warning',
+      description: t('statusStaleDescription'),
     })
     expect(
       aiStatusMeta({ ...readyStatus, state: 'blocked', warning: null }, t),

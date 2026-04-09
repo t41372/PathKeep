@@ -10,6 +10,8 @@ import {
   resolveEnrichmentSettings,
 } from '../../lib/enrichment'
 import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
+import { aiStatusMeta } from '../../lib/intelligence'
+import { formatBytes } from '../../lib/format'
 import {
   hasSafariAccessIssue,
   keyringNeedsReview,
@@ -18,6 +20,7 @@ import {
   platformSummaryKey,
 } from '../../lib/platform-guidance'
 import type {
+  AiIntegrationPreview,
   AiProviderConfig,
   AiRequestFormat,
   AiSettings,
@@ -70,7 +73,7 @@ export function SettingsPage() {
     setAppLockPasscode,
     snapshot,
   } = useShellData()
-  const { language, setLanguagePreference, t } = useI18n()
+  const { language, setLanguagePreference, t, ns } = useI18n()
   const [saving, setSaving] = useState(false)
   const [remoteTab, setRemoteTab] = useState<
     'preview' | 'manual' | 'execute' | 'verify'
@@ -104,6 +107,13 @@ export function SettingsPage() {
   const [appLockAction, setAppLockAction] = useState<string | null>(null)
   const [aiDraft, setAiDraft] = useState<AiSettings | null>(null)
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
+  const [aiIntegrationPreview, setAiIntegrationPreview] =
+    useState<AiIntegrationPreview | null>(null)
+  const [aiIntegrationError, setAiIntegrationError] = useState<string | null>(
+    null,
+  )
+  const [selectedAiGeneratedFileIndex, setSelectedAiGeneratedFileIndex] =
+    useState(0)
   const lastSyncedAiSignatureRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -148,13 +158,14 @@ export function SettingsPage() {
     setAppLockRecoveryHint(snapshot.config.appLock.recoveryHint ?? '')
   }, [snapshot])
 
+  const savedAiSettings = snapshot?.config.ai
   const snapshotAiSignature = useMemo(
-    () => serializeAiSettings(snapshot?.config.ai),
-    [snapshot?.config.ai],
+    () => serializeAiSettings(savedAiSettings),
+    [savedAiSettings],
   )
 
   useEffect(() => {
-    if (!snapshot || snapshotAiSignature === null) {
+    if (!savedAiSettings || snapshotAiSignature === null) {
       return
     }
 
@@ -166,13 +177,46 @@ export function SettingsPage() {
       draftSignature === lastSyncedAiSignatureRef.current
 
     if (shouldSync && !draftMatchesSnapshot) {
-      setAiDraft(cloneAiSettings(snapshot.config.ai))
+      setAiDraft(cloneAiSettings(savedAiSettings))
     }
 
     if (shouldSync) {
       lastSyncedAiSignatureRef.current = snapshotAiSignature
     }
-  }, [aiDraft, snapshot, snapshotAiSignature])
+  }, [aiDraft, savedAiSettings, snapshotAiSignature])
+
+  useEffect(() => {
+    if (snapshotAiSignature === null) {
+      return
+    }
+
+    let cancelled = false
+    const loadPreview = async () => {
+      try {
+        const preview = await backend.previewAiIntegrations()
+        if (!cancelled) {
+          setAiIntegrationPreview(preview)
+          setAiIntegrationError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAiIntegrationPreview(null)
+          setAiIntegrationError(
+            error instanceof Error ? error.message : t('common.notAvailable'),
+          )
+        }
+      }
+    }
+
+    void loadPreview()
+    return () => {
+      cancelled = true
+    }
+  }, [snapshotAiSignature, t])
+
+  useEffect(() => {
+    setSelectedAiGeneratedFileIndex(0)
+  }, [aiIntegrationPreview?.generatedFiles.length])
 
   const enrichmentSettings = useMemo(
     () => resolveEnrichmentSettings(snapshot?.config.enrichment),
@@ -188,6 +232,7 @@ export function SettingsPage() {
   }
 
   const profiles = snapshot.browserProfiles
+  const intelligenceT = ns('intelligence')
   const selectedIds = new Set(snapshot.config.selectedProfileIds)
   const safariNeedsAccess = hasSafariAccessIssue(profiles)
   const platform = normalizePlatform(supportState.scheduleStatus?.platform)
@@ -210,6 +255,11 @@ export function SettingsPage() {
   const latestRemoteBundlePath = remoteResult?.bundlePath ?? null
   const currentAiSettings = aiDraft ?? snapshot.config.ai
   const currentAppLockSettings = appLockDraft ?? snapshot.config.appLock
+  const aiIndexMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
+  const selectedAiGeneratedFile =
+    aiIntegrationPreview?.generatedFiles[selectedAiGeneratedFileIndex] ??
+    aiIntegrationPreview?.generatedFiles[0] ??
+    null
   const aiConfigDirty =
     snapshotAiSignature !== null &&
     serializeAiSettings(currentAiSettings) !== snapshotAiSignature
@@ -1234,6 +1284,190 @@ export function SettingsPage() {
                 (p) => p.id === currentAiSettings.embeddingProviderId,
               )?.name ?? t('settings.aiNoneSelected')}
             </span>
+          </div>
+
+          <StatusCallout
+            tone={
+              aiIndexMeta.tone === 'success'
+                ? 'success'
+                : aiIndexMeta.tone === 'warning'
+                  ? 'warning'
+                  : aiIndexMeta.tone === 'blocked'
+                    ? 'blocked'
+                    : 'info'
+            }
+            title={t('settings.aiIndexHealthTitle', {
+              status: aiIndexMeta.label,
+            })}
+            body={aiIndexMeta.description}
+          />
+
+          <div className="settings-field-grid">
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.aiIndexedRows')}
+              </span>
+              <span className="config-value mono">
+                {snapshot.aiStatus.indexedItems.toLocaleString(language)}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.aiSemanticSidecar')}
+              </span>
+              <span className="config-value mono">
+                {formatBytes(snapshot.aiStatus.semanticSidecarBytes, language)}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.aiSemanticMirror')}
+              </span>
+              <span className="config-value mono">
+                {formatBytes(snapshot.aiStatus.semanticMirrorBytes, language)}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.aiEstimatedTokens')}
+              </span>
+              <span className="config-value mono">
+                {snapshot.aiStatus.estimatedEmbeddingTokens.toLocaleString(
+                  language,
+                )}
+              </span>
+            </div>
+          </div>
+
+          {snapshot.aiStatus.warning ? (
+            <div className="result-row">
+              <div className="result-row__header">
+                <strong>{t('settings.aiIndexWarning')}</strong>
+              </div>
+              <p>{snapshot.aiStatus.warning}</p>
+            </div>
+          ) : null}
+
+          <div className="settings-result-list">
+            {aiIntegrationError ? (
+              <StatusCallout
+                tone="warning"
+                title={t('settings.aiIntegrationUnavailable')}
+                body={aiIntegrationError}
+              />
+            ) : aiIntegrationPreview ? (
+              <>
+                <StatusCallout
+                  tone={
+                    aiIntegrationPreview.warnings.length > 0
+                      ? 'warning'
+                      : 'info'
+                  }
+                  title={t('settings.aiIntegrationReview')}
+                  body={aiIntegrationPreview.consentSummary}
+                />
+                <div className="code-panel">
+                  <span>{t('settings.aiMcpCommand')}</span>
+                  <pre>{aiIntegrationPreview.mcpCommand}</pre>
+                </div>
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.aiCapabilityNotes')}</strong>
+                  </div>
+                  {aiIntegrationPreview.capabilityNotes.map((note) => (
+                    <p key={note}>{note}</p>
+                  ))}
+                </div>
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.aiScopeBoundary')}</strong>
+                  </div>
+                  {aiIntegrationPreview.scopeBoundary.map((note) => (
+                    <p key={note}>{note}</p>
+                  ))}
+                </div>
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.aiAuditTrace')}</strong>
+                  </div>
+                  {aiIntegrationPreview.auditTrace.map((note) => (
+                    <p key={note}>{note}</p>
+                  ))}
+                </div>
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.aiGeneratedFiles')}</strong>
+                  </div>
+                  {aiIntegrationPreview.generatedFiles.length > 0 ? (
+                    <>
+                      <div
+                        className="generated-file-tabs"
+                        style={{ marginBottom: 'var(--space-3)' }}
+                      >
+                        {aiIntegrationPreview.generatedFiles.map(
+                          (file, index) => (
+                            <button
+                              key={file.relativePath}
+                              className={`chip-button ${
+                                selectedAiGeneratedFileIndex === index
+                                  ? 'chip-button--active'
+                                  : ''
+                              }`}
+                              type="button"
+                              onClick={() =>
+                                setSelectedAiGeneratedFileIndex(index)
+                              }
+                            >
+                              {file.relativePath}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                      {selectedAiGeneratedFile ? (
+                        <div className="code-panel">
+                          <div className="row-between">
+                            <strong>{selectedAiGeneratedFile.purpose}</strong>
+                            <span className="mono dim">
+                              {selectedAiGeneratedFile.relativePath}
+                            </span>
+                          </div>
+                          <pre className="code-block">
+                            <code>{selectedAiGeneratedFile.contents}</code>
+                          </pre>
+                          {selectedAiGeneratedFile.absolutePath ? (
+                            <div className="code-actions">
+                              <button
+                                className="btn-tiny"
+                                type="button"
+                                onClick={() => {
+                                  void backend.openPathInFileManager(
+                                    selectedAiGeneratedFile.absolutePath ??
+                                      selectedAiGeneratedFile.relativePath,
+                                  )
+                                }}
+                              >
+                                {t('common.openPath')}
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.aiManualSteps')}</strong>
+                  </div>
+                  {aiIntegrationPreview.manualSteps.map((step) => (
+                    <p key={step}>{step}</p>
+                  ))}
+                  {aiIntegrationPreview.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       </div>

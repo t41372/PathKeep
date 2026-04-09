@@ -54,8 +54,12 @@ export function runStatusKey(status: string): TranslationKey {
 export function runTypeKey(runType: string): TranslationKey {
   if (runType === 'import') return 'audit.runTypeImport'
   if (runType === 'rollback') return 'audit.runTypeRollback'
+  if (runType === 'restore') return 'audit.runTypeRestore'
   if (runType === 'doctor') return 'audit.runTypeDoctor'
   if (runType === 'snapshot_restore') return 'audit.runTypeSnapshotRestore'
+  if (runType === 'ai_index') return 'audit.runTypeAiIndex'
+  if (runType === 'assistant') return 'audit.runTypeAssistant'
+  if (runType === 'mcp_query') return 'audit.runTypeMcpQuery'
   return 'audit.runTypeBackup'
 }
 

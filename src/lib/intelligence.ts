@@ -62,6 +62,12 @@ export function aiStatusMeta(
         tone: 'blocked',
         description: status.warning ?? t('statusFailedDescription'),
       }
+    case 'stale':
+      return {
+        label: t('statusStaleLabel'),
+        tone: 'warning',
+        description: status.warning ?? t('statusStaleDescription'),
+      }
     case 'degraded':
       return {
         label: t('statusDegradedLabel'),

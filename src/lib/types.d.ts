@@ -177,6 +177,9 @@ export interface AiIndexStatus {
   runningJobs: number
   failedJobs: number
   recentJobs: AiQueueJob[]
+  semanticSidecarBytes: number
+  semanticMirrorBytes: number
+  estimatedEmbeddingTokens: number
   warning?: string | null
 }
 
@@ -832,7 +835,11 @@ export interface AiAssistantResponse {
 
 export interface AiIntegrationPreview {
   mcpCommand: string
+  consentSummary: string
   manualSteps: string[]
+  capabilityNotes: string[]
+  scopeBoundary: string[]
+  auditTrace: string[]
   generatedFiles: ScheduleGeneratedFile[]
   warnings: string[]
 }

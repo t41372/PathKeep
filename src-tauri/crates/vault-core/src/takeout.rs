@@ -721,7 +721,7 @@ fn create_import_restore_run(
            due_only
          )
          VALUES (
-           'rollback',
+           'restore',
            'manual',
            ?1,
            ?1,
@@ -1422,7 +1422,7 @@ mod tests {
         assert_eq!(visible_rows, 2);
         let recent_runs =
             load_recent_runs(&paths, &config, None).expect("recent runs after restore");
-        assert_eq!(recent_runs[0].run_type, "rollback");
+        assert_eq!(recent_runs[0].run_type, "restore");
         assert_eq!(recent_runs[0].new_visits, 2);
     }
 

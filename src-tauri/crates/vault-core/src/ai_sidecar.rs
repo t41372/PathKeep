@@ -1,9 +1,21 @@
 use crate::{config::ProjectPaths, utils::sha256_hex};
 use anyhow::{Context, Result};
-use arrow_array::{FixedSizeListArray, Int64Array, RecordBatch, StringArray, types::Float32Type};
+use arrow_array::{
+    Array, FixedSizeListArray, Float32Array, Float64Array, Int64Array, RecordBatch, StringArray,
+    types::Float32Type,
+};
 use arrow_schema::{DataType, Field, Schema};
-use lancedb::{Table, connect, index::Index};
-use std::{path::PathBuf, sync::Arc};
+use futures::TryStreamExt;
+use lancedb::{
+    DistanceType, Table, connect,
+    index::Index,
+    query::{ExecutableQuery, QueryBase, Select},
+};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 #[derive(Debug, Clone)]
 pub struct SidecarEmbeddingRow {
@@ -18,6 +30,17 @@ pub struct SidecarEmbeddingRow {
     pub content_hash: String,
     pub indexed_at: String,
     pub vector: Vec<f32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SidecarSearchRow {
+    pub history_id: i64,
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub visited_at: String,
+    pub score: f32,
 }
 
 pub async fn sync_provider_embeddings(
@@ -92,6 +115,59 @@ pub async fn count_provider_embeddings(
     }
     let table = database.open_table(&table_name).execute().await?;
     table.count_rows(None).await.context("counting sidecar rows")
+}
+
+pub async fn search_provider_embeddings(
+    paths: &ProjectPaths,
+    provider_id: &str,
+    model: &str,
+    query_vector: &[f32],
+    profile_id: Option<&str>,
+    domain: Option<&str>,
+    limit: usize,
+) -> Result<Option<Vec<SidecarSearchRow>>> {
+    let database = connect_database(paths).await?;
+    let table_name = provider_table_name(provider_id, model);
+    let table_names = database.table_names().execute().await?;
+    if !table_names.iter().any(|value| value == &table_name) {
+        return Ok(None);
+    }
+
+    let table = database.open_table(&table_name).execute().await?;
+    let mut query = table
+        .query()
+        .select(Select::columns(&[
+            "history_id",
+            "profile_id",
+            "url",
+            "title",
+            "domain",
+            "visited_at",
+            "_distance",
+        ]))
+        .limit(limit.max(1));
+    if let Some(filter) = sidecar_filter(profile_id, domain) {
+        query = query.only_if(filter);
+    }
+
+    let stream = query
+        .nearest_to(query_vector.to_vec())?
+        .distance_type(DistanceType::Cosine)
+        .refine_factor(5)
+        .execute()
+        .await
+        .context("querying LanceDB semantic sidecar")?;
+    let batches: Vec<RecordBatch> = stream.try_collect().await?;
+
+    let mut rows = Vec::new();
+    for batch in batches {
+        rows.extend(extract_search_rows(&batch)?);
+    }
+    Ok(Some(rows))
+}
+
+pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
+    directory_size(&sidecar_root(paths))
 }
 
 pub fn sidecar_root(paths: &ProjectPaths) -> PathBuf {
@@ -198,6 +274,96 @@ fn build_record_batch(rows: &[SidecarEmbeddingRow]) -> Result<RecordBatch> {
 fn history_predicate(history_ids: &[i64]) -> String {
     let ids = history_ids.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     format!("history_id IN ({ids})")
+}
+
+fn sidecar_filter(profile_id: Option<&str>, domain: Option<&str>) -> Option<String> {
+    let mut filters = Vec::new();
+    if let Some(profile_id) = profile_id.filter(|value| !value.trim().is_empty()) {
+        filters.push(format!("profile_id = '{}'", sql_literal(profile_id)));
+    }
+    if let Some(domain) = domain.filter(|value| !value.trim().is_empty()) {
+        filters.push(format!("domain LIKE '%{}%'", sql_literal(domain)));
+    }
+    (!filters.is_empty()).then(|| filters.join(" AND "))
+}
+
+fn sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn extract_search_rows(batch: &RecordBatch) -> Result<Vec<SidecarSearchRow>> {
+    let history_ids = batch
+        .column_by_name("history_id")
+        .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+        .context("missing history_id in sidecar query result")?;
+    let profile_ids = batch
+        .column_by_name("profile_id")
+        .and_then(|column| column.as_any().downcast_ref::<StringArray>())
+        .context("missing profile_id in sidecar query result")?;
+    let urls = batch
+        .column_by_name("url")
+        .and_then(|column| column.as_any().downcast_ref::<StringArray>())
+        .context("missing url in sidecar query result")?;
+    let titles = batch
+        .column_by_name("title")
+        .and_then(|column| column.as_any().downcast_ref::<StringArray>())
+        .context("missing title in sidecar query result")?;
+    let domains = batch
+        .column_by_name("domain")
+        .and_then(|column| column.as_any().downcast_ref::<StringArray>())
+        .context("missing domain in sidecar query result")?;
+    let visited_at = batch
+        .column_by_name("visited_at")
+        .and_then(|column| column.as_any().downcast_ref::<StringArray>())
+        .context("missing visited_at in sidecar query result")?;
+    let distances =
+        batch.column_by_name("_distance").context("missing _distance in sidecar query result")?;
+
+    let mut rows = Vec::with_capacity(batch.num_rows());
+    for index in 0..batch.num_rows() {
+        let distance = f32_distance(distances.as_ref(), index)?;
+        rows.push(SidecarSearchRow {
+            history_id: history_ids.value(index),
+            profile_id: profile_ids.value(index).to_string(),
+            url: urls.value(index).to_string(),
+            title: (!titles.is_null(index)).then(|| titles.value(index).to_string()),
+            domain: domains.value(index).to_string(),
+            visited_at: visited_at.value(index).to_string(),
+            score: cosine_score_from_distance(distance),
+        });
+    }
+    Ok(rows)
+}
+
+fn f32_distance(column: &dyn arrow_array::Array, index: usize) -> Result<f32> {
+    if let Some(distances) = column.as_any().downcast_ref::<Float32Array>() {
+        return Ok(distances.value(index));
+    }
+    if let Some(distances) = column.as_any().downcast_ref::<Float64Array>() {
+        return Ok(distances.value(index) as f32);
+    }
+    anyhow::bail!("unsupported LanceDB _distance column type")
+}
+
+fn cosine_score_from_distance(distance: f32) -> f32 {
+    (1.0 - distance).clamp(-1.0, 1.0)
+}
+
+fn directory_size(path: &Path) -> u64 {
+    if !path.exists() {
+        return 0;
+    }
+    if path.is_file() {
+        return fs::metadata(path).map(|metadata| metadata.len()).unwrap_or_default();
+    }
+    fs::read_dir(path)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| directory_size(&entry.path()))
+                .sum::<u64>()
+        })
+        .unwrap_or_default()
 }
 
 async fn maybe_create_vector_index(table: &Table, row_count: usize) -> Result<()> {
@@ -320,5 +486,48 @@ mod tests {
                 .expect("count after incremental"),
             2
         );
+    }
+
+    #[tokio::test]
+    async fn search_sidecar_rows_honors_filters_and_returns_scores() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths(dir.path());
+        sync_provider_embeddings(
+            &paths,
+            "embed",
+            "text-embedding-3-small",
+            &[
+                row(1, &[1.0, 0.0, 0.0]),
+                row(2, &[0.0, 1.0, 0.0]),
+                SidecarEmbeddingRow {
+                    profile_id: "arc:Profile-2".to_string(),
+                    domain: "docs.example.com".to_string(),
+                    ..row(3, &[0.9, 0.0, 0.1])
+                },
+            ],
+            false,
+            false,
+            &[],
+        )
+        .await
+        .expect("seed rows");
+
+        let filtered = search_provider_embeddings(
+            &paths,
+            "embed",
+            "text-embedding-3-small",
+            &[1.0, 0.0, 0.0],
+            Some("arc:Profile-2"),
+            Some("docs.example.com"),
+            5,
+        )
+        .await
+        .expect("search")
+        .expect("sidecar table");
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].history_id, 3);
+        assert!(filtered[0].score > 0.0);
+        assert!(sidecar_storage_bytes(&paths) > 0);
     }
 }

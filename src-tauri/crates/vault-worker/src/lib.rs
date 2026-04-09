@@ -488,18 +488,70 @@ fn execute_assistant_job(
     )
 }
 
+fn record_mcp_query_run(
+    connection: &rusqlite::Connection,
+    request: &McpSearchRequest,
+    response: &AiSearchResponse,
+) -> Result<i64> {
+    let started_at = chrono::Utc::now().to_rfc3339();
+    let finished_at = chrono::Utc::now().to_rfc3339();
+    connection.execute(
+        "INSERT INTO runs (
+           run_type,
+           trigger,
+           started_at,
+           finished_at,
+           timezone,
+           status,
+           profile_scope_json,
+           warnings_json,
+           stats_json,
+           due_only
+         )
+         VALUES (?1, ?2, ?3, ?4, 'UTC', 'success', ?5, ?6, ?7, 0)",
+        rusqlite::params![
+            "mcp_query",
+            "external",
+            started_at,
+            finished_at,
+            serde_json::to_string(
+                &request
+                    .profile_id
+                    .as_ref()
+                    .map(|profile_id| vec![profile_id.clone()])
+                    .unwrap_or_default(),
+            )?,
+            serde_json::to_string(&response.notes)?,
+            serde_json::to_string(&serde_json::json!({
+                "query": request.query,
+                "profileId": request.profile_id,
+                "domain": request.domain,
+                "limit": request.limit,
+                "providerId": response.provider_id,
+                "model": response.model,
+                "total": response.total,
+            }))?,
+        ],
+    )?;
+    Ok(connection.last_insert_rowid())
+}
+
 pub(crate) fn mcp_search_result(
     database_key: Option<&str>,
     request: McpSearchRequest,
 ) -> Result<McpSearchResult> {
+    let paths = project_paths()?;
+    let config = load_unlocked_config(&paths)?;
     let search_request = AiSearchRequest {
-        query: request.query,
-        profile_id: request.profile_id,
-        domain: request.domain,
+        query: request.query.clone(),
+        profile_id: request.profile_id.clone(),
+        domain: request.domain.clone(),
         limit: request.limit,
         cursor: None,
     };
     let response = search_ai_history(database_key, &search_request)?;
+    let connection = ai_archive_connection(&paths, &config, database_key)?;
+    record_mcp_query_run(&connection, &request, &response)?;
     Ok(McpSearchResult {
         total: response.total,
         provider_id: response.provider_id,

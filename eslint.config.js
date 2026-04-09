@@ -15,6 +15,8 @@ export default defineConfig([
     'coverage',
     'dist',
     'playwright-report',
+    'reports',
+    '.stryker-tmp',
     'src-tauri/target',
     'var',
     'test-results',

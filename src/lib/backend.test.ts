@@ -279,7 +279,7 @@ describe('backend facade', () => {
     await expect(backend.loadAuditRunDetail(1851)).resolves.toMatchObject({
       run: expect.objectContaining({
         id: 1851,
-        runType: 'rollback',
+        runType: 'restore',
       }),
     })
     await expect(backend.previewSchedule()).resolves.toMatchObject({
@@ -538,11 +538,15 @@ describe('backend facade', () => {
     })
     await expect(backend.previewAiIntegrations()).resolves.toMatchObject({
       mcpCommand: expect.stringContaining('--worker mcp-server'),
-      generatedFiles: [
+      consentSummary: expect.any(String),
+      capabilityNotes: expect.arrayContaining([expect.any(String)]),
+      scopeBoundary: expect.arrayContaining([expect.any(String)]),
+      auditTrace: expect.arrayContaining([expect.any(String)]),
+      generatedFiles: expect.arrayContaining([
         expect.objectContaining({
           relativePath: 'integrations/pathkeep-mcp.json',
         }),
-      ],
+      ]),
     })
     await expect(backend.resetLocalSecretVault()).resolves.toBeUndefined()
     await expect(backend.openPathInFileManager('/tmp/pathkeep')).resolves.toBe(

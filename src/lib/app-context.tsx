@@ -138,6 +138,9 @@ const EMPTY_AI_STATUS: AppSnapshot['aiStatus'] = {
   runningJobs: 0,
   failedJobs: 0,
   recentJobs: [],
+  semanticSidecarBytes: 0,
+  semanticMirrorBytes: 0,
+  estimatedEmbeddingTokens: 0,
   warning: null,
 }
 

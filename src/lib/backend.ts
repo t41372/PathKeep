@@ -185,6 +185,9 @@ const mockSnapshot: AppSnapshot = {
     runningJobs: 0,
     failedJobs: 0,
     recentJobs: [],
+    semanticSidecarBytes: 0,
+    semanticMirrorBytes: 0,
+    estimatedEmbeddingTokens: 0,
     warning: null,
   },
   insightStatus: {
@@ -1424,7 +1427,7 @@ function mutateImportBatch(
     startedAt: new Date().toISOString(),
     finishedAt: new Date().toISOString(),
     status: 'success',
-    runType: 'rollback',
+    runType: action === 'revert' ? 'rollback' : 'restore',
     trigger: 'manual',
     profileScope: [updatedBatch.profileId],
     manifestHash: null,
@@ -2147,6 +2150,19 @@ async function call<T>(
         },
         ...mockState.queueJobs,
       ]
+      mockState.snapshot.aiStatus = {
+        ...mockState.snapshot.aiStatus,
+        enabled: true,
+        assistantEnabled: true,
+        state: 'ready',
+        ready: true,
+        indexedItems: 2,
+        lastIndexedAt: new Date().toISOString(),
+        embeddingProviderId: 'mock-embedding',
+        semanticSidecarBytes: 196_608,
+        semanticMirrorBytes: 24_576,
+        estimatedEmbeddingTokens: 1_024,
+      }
       syncMockAiStatus(mockState)
       return {
         jobId: buildJobId,
@@ -2232,10 +2248,25 @@ async function call<T>(
     case 'preview_ai_integrations':
       return {
         mcpCommand: '/Applications/PathKeep.app --worker mcp-server',
+        consentSummary:
+          'External AI integrations stay local-first and only start after the user enables them in Settings.',
         manualSteps: [
           'Enable MCP or Skill integration in Settings first.',
           'Store the database key in the native keyring if the archive is encrypted.',
           'Copy the generated MCP JSON into your MCP client configuration.',
+        ],
+        capabilityNotes: [
+          'MCP server toggle is currently disabled in saved Settings.',
+          'Skill integration toggle is currently disabled in saved Settings.',
+          'No embedding provider is selected right now, so external tools fall back to lexical recall only.',
+        ],
+        scopeBoundary: [
+          'Only visible archive facts are returned to external tools.',
+          'If App Lock re-locks the session, MCP search returns a locked refusal.',
+        ],
+        auditTrace: [
+          'Each MCP search writes a dedicated run-ledger entry.',
+          'Assistant and semantic-index work keep distinct run types.',
         ],
         generatedFiles: [
           {
@@ -2244,6 +2275,13 @@ async function call<T>(
               '~/Library/Application Support/PathKeep/integrations/pathkeep-mcp.json',
             purpose: 'PathKeep MCP client snippet',
             contents: '{\n  "mcpServers": {}\n}',
+          },
+          {
+            relativePath: 'integrations/codex-pathkeep-skill/SKILL.md',
+            absolutePath:
+              '~/Library/Application Support/PathKeep/integrations/codex-pathkeep-skill/SKILL.md',
+            purpose: 'Codex skill starter',
+            contents: '# PathKeep Search\n',
           },
         ],
         warnings: [],

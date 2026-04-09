@@ -20,6 +20,15 @@ pub(crate) fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String>
             .map(Path::to_path_buf)
             .ok_or_else(|| format!("Unable to open a parent directory for {}", target.display()));
     }
+    if target.extension().is_some() {
+        let mut current = target.parent();
+        while let Some(parent) = current {
+            if parent.is_dir() {
+                return Ok(parent.to_path_buf());
+            }
+            current = parent.parent();
+        }
+    }
 
     Err(format!("Path does not exist: {}", target.display()))
 }
@@ -124,6 +133,18 @@ mod tests {
         let error = resolve_file_manager_target("/tmp/pathkeep-does-not-exist")
             .expect_err("missing path should fail");
         assert!(error.contains("Path does not exist"));
+    }
+
+    #[test]
+    fn resolve_file_manager_target_allows_preview_file_paths_to_open_existing_parent_dir() {
+        let dir = tempdir().expect("tempdir");
+        let preview_file = dir.path().join("integrations/pathkeep-mcp.json");
+
+        assert_eq!(
+            resolve_file_manager_target(&preview_file.display().to_string())
+                .expect("resolve preview file parent"),
+            dir.path()
+        );
     }
 
     #[test]

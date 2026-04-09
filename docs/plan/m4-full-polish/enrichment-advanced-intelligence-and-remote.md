@@ -24,6 +24,8 @@
 
 **2026-04-08 closeout (`WORK-M4-A`)**：第一個可驗收 slice 已落地。這一輪正式交付了 `readable-content-refetch` plugin v1、derived-state rebuild / clear boundary、Insights storage analytics / latest growth signal，以及 Settings 中完整的 remote backup PME / bundle verify flow。未完成的多 plugin / richer intelligence / release polish 仍留在後續 M4 工作。
 
+**2026-04-09 truth closeout (`WORK-QC-D`)**：這輪沒有把 M4 補寫成「全部 advanced intelligence 都已完成」。相反地，repo 現在明確凍結了 honest boundary：`readable-content-refetch` 仍是唯一 shipping plugin；plugin sandbox、獨立 enrichment queue family、revisit / resurfacing 類 intelligence 仍未 shipping。隱私 / data-sovereignty review 與 60-year support envelope 已補成正式文檔，見 [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md)。
+
 ---
 
 ## WBS
@@ -66,7 +68,7 @@
 - [ ] `M4-ER-QA-002` 建立 core plugins acceptance，驗證 evidence、cost guardrail、storage impact 可被追蹤。
 - [x] `M4-ER-QA-003` 建立 remote backup acceptance：bundle create、upload、tamper detect、restore preview / verify。
 - [x] `M4-ER-QA-004` 建立 M4-A advanced insights acceptance，驗證 storage / growth evidence 仍可回到原始 archive / audit evidence。
-- [ ] `M4-ER-QA-005` 補一輪隱私和資料主權 review，確保 enrichment / remote 不違反核心原則。
+- [x] `M4-ER-QA-005` 補一輪隱私和資料主權 review，確保 enrichment / remote 不違反核心原則。（2026-04-09，`WORK-QC-D`：見 [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md) 的 `Privacy And Data Sovereignty Review`。）
 
 ---
 

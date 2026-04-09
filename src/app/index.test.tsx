@@ -549,6 +549,46 @@ describe('App shell', () => {
     })
   })
 
+  test('shows AI integration preview artifacts and consent boundaries in settings', async () => {
+    await seedArchiveRun()
+    await seedAiProviders()
+    const user = userEvent.setup()
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/settings'],
+    })
+
+    render(<App router={router} />)
+
+    const settingsPage = await screen.findByTestId('settings-page')
+    const aiPanel = expectHtmlElement(
+      within(settingsPage).getByText(settingsT('aiProvider')).closest('.panel'),
+    )
+
+    expect(
+      await within(aiPanel).findByText(settingsT('aiIntegrationReview')),
+    ).toBeVisible()
+    expect(
+      within(aiPanel).getByText(settingsT('aiCapabilityNotes')),
+    ).toBeVisible()
+    expect(
+      within(aiPanel).getByText(settingsT('aiGeneratedFiles')),
+    ).toBeVisible()
+    expect(
+      within(aiPanel).getByRole('button', {
+        name: 'integrations/pathkeep-mcp.json',
+      }),
+    ).toBeVisible()
+    expect(within(aiPanel).getByText(/"mcpServers"/)).toBeVisible()
+
+    await user.click(
+      within(aiPanel).getByRole('button', {
+        name: 'integrations/codex-pathkeep-skill/SKILL.md',
+      }),
+    )
+
+    expect(within(aiPanel).getByText(/# PathKeep Search/)).toBeVisible()
+  })
+
   test('keeps sidebar information architecture grouped by section', () => {
     expect(sidebarSections).toEqual([
       {

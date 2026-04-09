@@ -23,6 +23,12 @@ PathKeep 採用 **unified run ledger**：
 - 所有 manifest、snapshot、preview artifact、warning/error 摘要都透過 `run_id` 關聯，而不是各類操作再各建一張專屬 run 表。
 - Tauri / worker / frontend 的 command surface 也以這個 unified run model 為前提，區分 read model、preview、execute、artifact fetch 與 job progress，而不是以舊 UI 的頁面名稱命名命令。
 
+2026-04-09 follow-up:
+
+- 這個 ADR 凍結的是「共用同一張 `runs` 表」的原則，不是永久凍結唯一的 `run_type` 字串清單。
+- repo 現況已在同一個 unified ledger 中**增量擴充** `rollback`、`restore`、`ai_index`、`assistant`、`mcp_query` 等 run types。這沒有推翻 ADR；相反地，這正是 ADR 所要求的演化方式。
+- `restore` 明確保留給 import batch 的 un-revert / restore；`snapshot_restore` 則保留給未來真正的 snapshot restore flow，兩者不能再混成同一個 run type。
+
 ## Rationale
 
 - run ledger 的核心責任是「描述一次可審計操作」，不是只描述 backup。
