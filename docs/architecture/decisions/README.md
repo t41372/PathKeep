@@ -51,3 +51,4 @@ agent 只需要把它們正式化成 ADR 文件即可：
 2. **ADR-002** — [Canonical timestamp contract](002-timestamp-contract.md)（`*_ms` + `*_iso` + run timezone + fallback timezone）
 3. **ADR-003** — [Unified run ledger](003-run-model.md)（所有操作類型共用一張 `runs` 表）
 4. **ADR-004** — [Soft-hide rollback](004-rollback-visibility-model.md)（用 `reverted_at` / `reverted_by_run_id` 標記可見性，不刪 immutable facts）
+5. **ADR-005** — [App Lock session boundary](005-app-lock-session-boundary.md)（App Lock 保護 UI session 與 read/query surface；archive encryption 仍獨立保護資料庫檔案）

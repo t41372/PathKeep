@@ -67,6 +67,42 @@ export interface AiSettings {
   embeddingProviders: AiProviderConfig[]
 }
 
+export interface AppLockConfig {
+  enabled: boolean
+  idleTimeoutMinutes: number
+  biometricEnabled: boolean
+  passcodeEnabled: boolean
+  passcodeConfigured: boolean
+  recoveryHint?: string | null
+}
+
+export interface AppLockStatus {
+  enabled: boolean
+  locked: boolean
+  idleTimeoutMinutes: number
+  biometricAvailable: boolean
+  biometricEnabled: boolean
+  passcodeEnabled: boolean
+  passcodeConfigured: boolean
+  configPath: string
+  lockReason?: string | null
+  lockedAt?: string | null
+  lastUnlockedAt?: string | null
+  recoveryHint?: string | null
+  warnings: string[]
+  degradationNotes: string[]
+}
+
+export interface UnlockAppSessionRequest {
+  passcode?: string | null
+  useBiometric?: boolean
+}
+
+export interface SetAppLockPasscodeRequest {
+  passcode: string
+  recoveryHint?: string | null
+}
+
 export interface AppConfig {
   initialized: boolean
   archiveMode: ArchiveMode
@@ -79,6 +115,7 @@ export interface AppConfig {
   gitEnabled: boolean
   rememberDatabaseKeyInKeyring: boolean
   appAutostart: boolean
+  appLock: AppLockConfig
   remoteBackup: RemoteBackupConfig
   enrichment: EnrichmentSettings
   ai: AiSettings
@@ -455,6 +492,7 @@ export interface AppSnapshot {
   directories: AppDirectories
   config: AppConfig
   archiveStatus: ArchiveStatus
+  appLockStatus: AppLockStatus
   keyringStatus: KeyringStatusReport
   aiStatus: AiIndexStatus
   insightStatus: InsightStatus

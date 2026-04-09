@@ -20,6 +20,7 @@ import type {
   AiSearchResponse,
   AppBuildInfo,
   AppConfig,
+  AppLockStatus,
   AppSnapshot,
   ApplyResult,
   AuditRunDetail,
@@ -50,9 +51,11 @@ import type {
   SchedulePlan,
   ScheduleStatus,
   SecurityStatus,
+  SetAppLockPasscodeRequest,
   S3CredentialInput,
   TakeoutInspection,
   TakeoutRequest,
+  UnlockAppSessionRequest,
 } from './types'
 
 // Stryker disable all: browser-preview fixtures are static reference data, not behavior.
@@ -97,6 +100,14 @@ const mockSnapshot: AppSnapshot = {
     gitEnabled: true,
     rememberDatabaseKeyInKeyring: false,
     appAutostart: false,
+    appLock: {
+      enabled: false,
+      idleTimeoutMinutes: 5,
+      biometricEnabled: false,
+      passcodeEnabled: true,
+      passcodeConfigured: false,
+      recoveryHint: null,
+    },
     remoteBackup: {
       enabled: false,
       bucket: '',
@@ -135,6 +146,22 @@ const mockSnapshot: AppSnapshot = {
     unlocked: false,
     databasePath:
       '~/Library/Application Support/PathKeep/archive/history-vault.sqlite',
+  },
+  appLockStatus: {
+    enabled: false,
+    locked: false,
+    idleTimeoutMinutes: 5,
+    biometricAvailable: false,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    configPath: '~/Library/Application Support/PathKeep/config.json',
+    lockReason: null,
+    lockedAt: null,
+    lastUnlockedAt: null,
+    recoveryHint: null,
+    warnings: [],
+    degradationNotes: [],
   },
   keyringStatus: {
     available: true,
@@ -473,6 +500,8 @@ interface MockBackendState {
   history: HistoryQueryResponse
   keyringSecret: string | null
   s3Credentials: S3CredentialInput | null
+  appLockPasscode: string | null
+  appLockRecoveryHint: string | null
   importBatchDetails: Record<number, ImportBatchDetail>
   schedulePlanOverrides: Partial<
     Record<'macos' | 'windows' | 'linux', SchedulePlan>
@@ -502,11 +531,99 @@ function normalizeMockConfig(
 ): AppConfig {
   return {
     ...config,
+    appLock: {
+      ...config.appLock,
+      idleTimeoutMinutes: Math.min(
+        60,
+        Math.max(1, config.appLock.idleTimeoutMinutes),
+      ),
+    },
     enrichment: resolveEnrichmentSettings(config.enrichment),
     remoteBackup: {
       ...config.remoteBackup,
       credentialsSaved: Boolean(s3Credentials),
     },
+  }
+}
+
+function syncMockAppLockState(state: MockBackendState) {
+  const passcodeConfigured = Boolean(state.appLockPasscode)
+  const enabled = state.snapshot.config.appLock.enabled
+  const passcodeEnabled = state.snapshot.config.appLock.passcodeEnabled
+  const biometricEnabled = state.snapshot.config.appLock.biometricEnabled
+  const pendingPasscodeWarning =
+    enabled && passcodeEnabled && !passcodeConfigured
+  const locked = enabled ? state.snapshot.appLockStatus.locked : false
+  const lockReason = locked ? state.snapshot.appLockStatus.lockReason : null
+  const lockedAt = locked ? state.snapshot.appLockStatus.lockedAt : null
+  const lastUnlockedAt = state.snapshot.appLockStatus.lastUnlockedAt
+
+  state.snapshot.config.appLock = {
+    ...state.snapshot.config.appLock,
+    passcodeConfigured,
+    recoveryHint: state.appLockRecoveryHint,
+  }
+  state.snapshot.appLockStatus = {
+    ...state.snapshot.appLockStatus,
+    enabled,
+    locked,
+    idleTimeoutMinutes: state.snapshot.config.appLock.idleTimeoutMinutes,
+    biometricAvailable: false,
+    biometricEnabled,
+    passcodeEnabled,
+    passcodeConfigured,
+    recoveryHint: state.appLockRecoveryHint,
+    lockReason,
+    lockedAt,
+    lastUnlockedAt,
+    warnings: pendingPasscodeWarning
+      ? ['Set an app lock passcode before relying on session lock.']
+      : [],
+    degradationNotes: [
+      'App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest.',
+      'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
+    ],
+  }
+}
+
+function ensureMockUnlocked(command: string, state: MockBackendState) {
+  if (!state.snapshot.appLockStatus.locked) {
+    return
+  }
+
+  if (
+    command === 'app_build_info' ||
+    command === 'app_lock_status' ||
+    command === 'unlock_app_session' ||
+    command === 'open_path_in_file_manager'
+  ) {
+    return
+  }
+
+  throw new Error(
+    'PathKeep is currently locked. Unlock the app before requesting archive data.',
+  )
+}
+
+function validateMockAppLockConfig(state: MockBackendState, config: AppConfig) {
+  if (!config.appLock.enabled) {
+    return
+  }
+
+  if (config.appLock.biometricEnabled) {
+    throw new Error(
+      'Biometric unlock is not available in the current desktop build.',
+    )
+  }
+
+  if (!config.appLock.passcodeEnabled) {
+    throw new Error(
+      'Enable a passcode before turning on App Lock in this build.',
+    )
+  }
+
+  if (!state.appLockPasscode) {
+    throw new Error('Set an app lock passcode before turning on App Lock.')
   }
 }
 
@@ -1440,6 +1557,8 @@ function createMockState(): MockBackendState {
     history: structuredClone(mockHistory),
     keyringSecret: null,
     s3Credentials: null,
+    appLockPasscode: null,
+    appLockRecoveryHint: null,
     importBatchDetails: {},
     schedulePlanOverrides: {},
     scheduleStatusOverrides: {},
@@ -1488,6 +1607,7 @@ function createMockState(): MockBackendState {
     state.snapshot.config,
     state.s3Credentials,
   )
+  syncMockAppLockState(state)
   syncMockAiStatus(state)
   return state
 }
@@ -1503,24 +1623,31 @@ async function call<T>(
     return invoke<T>(command, args)
   }
 
+  mockState.snapshot.config = normalizeMockConfig(
+    mockState.snapshot.config,
+    mockState.s3Credentials,
+  )
+  syncMockAppLockState(mockState)
+  ensureMockUnlocked(command, mockState)
+
   switch (command) {
     case 'app_build_info':
       return mockBuildInfo as T
+    case 'app_lock_status':
+      return structuredClone(mockState.snapshot.appLockStatus) as T
     case 'app_snapshot':
       syncMockAiStatus(mockState)
-      mockState.snapshot.config = normalizeMockConfig(
-        mockState.snapshot.config,
-        mockState.s3Credentials,
-      )
       return structuredClone(mockState.snapshot) as T
     case 'save_config': {
       const nextConfig = normalizeMockConfig(
         structuredClone(args?.config as AppConfig),
         mockState.s3Credentials,
       )
+      validateMockAppLockConfig(mockState, nextConfig)
       mockState.snapshot.config = nextConfig
       mockState.snapshot.archiveStatus.encrypted =
         nextConfig.archiveMode === 'Encrypted'
+      syncMockAppLockState(mockState)
       syncMockAiStatus(mockState)
       return structuredClone(mockState.snapshot) as T
     }
@@ -1529,6 +1656,7 @@ async function call<T>(
         structuredClone(args?.config as AppConfig),
         mockState.s3Credentials,
       )
+      validateMockAppLockConfig(mockState, nextConfig)
       const databaseKey =
         typeof args?.databaseKey === 'string' ? args.databaseKey : null
       if (
@@ -1550,7 +1678,69 @@ async function call<T>(
           Boolean(databaseKey && databaseKey.trim()),
         warning: null,
       }
+      syncMockAppLockState(mockState)
       return structuredClone(mockState.snapshot) as T
+    }
+    case 'set_app_lock_passcode': {
+      const request = args?.request as SetAppLockPasscodeRequest | undefined
+      const passcode = request?.passcode?.trim()
+      if (!passcode || passcode.length < 4) {
+        throw new Error(
+          'App lock passcodes must be at least 4 characters long.',
+        )
+      }
+      mockState.appLockPasscode = passcode
+      mockState.appLockRecoveryHint = request?.recoveryHint?.trim() || null
+      syncMockAppLockState(mockState)
+      return structuredClone(mockState.snapshot.appLockStatus) as T
+    }
+    case 'clear_app_lock_passcode':
+      mockState.appLockPasscode = null
+      mockState.appLockRecoveryHint = null
+      mockState.snapshot.config.appLock.enabled = false
+      mockState.snapshot.appLockStatus = {
+        ...mockState.snapshot.appLockStatus,
+        locked: false,
+        lockReason: null,
+        lockedAt: null,
+      }
+      syncMockAppLockState(mockState)
+      return structuredClone(mockState.snapshot.appLockStatus) as T
+    case 'lock_app_session':
+      if (mockState.snapshot.config.appLock.enabled) {
+        mockState.snapshot.appLockStatus = {
+          ...mockState.snapshot.appLockStatus,
+          locked: true,
+          lockReason:
+            typeof args?.reason === 'string' && args.reason.trim()
+              ? args.reason
+              : 'manual',
+          lockedAt: new Date().toISOString(),
+        }
+      }
+      syncMockAppLockState(mockState)
+      return structuredClone(mockState.snapshot.appLockStatus) as T
+    case 'unlock_app_session': {
+      const request = args?.request as UnlockAppSessionRequest | undefined
+      if (request?.useBiometric) {
+        throw new Error(
+          'Biometric unlock is not available in the current desktop build.',
+        )
+      }
+      if (mockState.snapshot.config.appLock.enabled) {
+        if ((request?.passcode?.trim() ?? '') !== mockState.appLockPasscode) {
+          throw new Error('The app lock passcode did not match.')
+        }
+        mockState.snapshot.appLockStatus = {
+          ...mockState.snapshot.appLockStatus,
+          locked: false,
+          lockReason: null,
+          lockedAt: null,
+          lastUnlockedAt: new Date().toISOString(),
+        }
+      }
+      syncMockAppLockState(mockState)
+      return structuredClone(mockState.snapshot.appLockStatus) as T
     }
     case 'rekey_archive': {
       const request = args?.request as RekeyRequest
@@ -2104,6 +2294,7 @@ export const backendTestHarness = {
       mockState.snapshot.config,
       mockState.s3Credentials,
     )
+    syncMockAppLockState(mockState)
     syncMockAiStatus(mockState)
   },
   seedSchedule: (plan: SchedulePlan, status?: ScheduleStatus) => {
@@ -2113,6 +2304,7 @@ export const backendTestHarness = {
 
 export const backend = {
   getAppBuildInfo: () => call<AppBuildInfo>('app_build_info'),
+  loadAppLockStatus: () => call<AppLockStatus>('app_lock_status'),
   getAppSnapshot: () => call<AppSnapshot>('app_snapshot'),
   saveConfig: (config: AppConfig) =>
     call<AppSnapshot>('save_config', { config }),
@@ -2125,6 +2317,13 @@ export const backend = {
   setSessionDatabaseKey: (databaseKey: string) =>
     call<void>('set_session_database_key', { databaseKey }),
   clearSessionDatabaseKey: () => call<void>('clear_session_database_key'),
+  setAppLockPasscode: (request: SetAppLockPasscodeRequest) =>
+    call<AppLockStatus>('set_app_lock_passcode', { request }),
+  clearAppLockPasscode: () => call<AppLockStatus>('clear_app_lock_passcode'),
+  lockAppSession: (reason?: string | null) =>
+    call<AppLockStatus>('lock_app_session', { reason }),
+  unlockAppSession: (request: UnlockAppSessionRequest) =>
+    call<AppLockStatus>('unlock_app_session', { request }),
   runBackupNow: (dueOnly = false) =>
     call<BackupReport>('run_backup_now', { dueOnly }),
   queryHistory: (query: HistoryQuery) =>

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
+import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
@@ -69,6 +70,11 @@ export function AssistantPage() {
 
   const assistantT = ns('assistant')
   const intelligenceT = ns('intelligence')
+  const suggestedQuestions = [
+    assistantT('examplePrompt'),
+    assistantT('examplePromptFocus'),
+    assistantT('examplePromptTimeline'),
+  ]
   const aiMeta = snapshot
     ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
     : null
@@ -324,6 +330,11 @@ export function AssistantPage() {
           description={assistantT('archiveNotInitializedDescription')}
           eyebrow={assistantT('statusEyebrow')}
           title={assistantT('archiveNotInitializedTitle')}
+          action={
+            <Link className="btn-primary" to="/onboarding">
+              {assistantT('goToSetup')}
+            </Link>
+          }
         />
       </section>
     )
@@ -347,7 +358,7 @@ export function AssistantPage() {
 
   if (!snapshot.config.ai.enabled || !snapshot.config.ai.assistantEnabled) {
     return (
-      <section className="page-shell">
+      <section className="page-shell assistant-page">
         <StatusCallout
           tone="info"
           eyebrow={assistantT('statusEyebrow')}
@@ -359,12 +370,42 @@ export function AssistantPage() {
             </Link>
           }
         />
+        <div className="panel">
+          <div className="panel-header">
+            <span className="panel-title">{assistantT('emptyEyebrow')}</span>
+            <span className="panel-action">{assistantT('emptyTitle')}</span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            <p className="dashboard-next-action">
+              {assistantT('emptyDescription')}
+            </p>
+            <div className="intelligence-job-list">
+              {suggestedQuestions.map((question) => (
+                <div key={question} className="result-row">
+                  <div className="result-row__header">
+                    <strong>{question}</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
     )
   }
 
   return (
     <section className="page-shell assistant-page" data-testid="assistant-page">
+      {activeProfileId ? (
+        <StatusCallout
+          tone="info"
+          eyebrow={t('common.profileScope')}
+          title={assistantT('scopedViewTitle')}
+          body={assistantT('scopedViewBody', {
+            profile: profileIdLabel(activeProfileId),
+          })}
+        />
+      ) : null}
       {aiMeta && (
         <div className="intelligence-grid intelligence-grid--assistant">
           <StatusCallout
@@ -499,13 +540,20 @@ export function AssistantPage() {
             {messages.length === 0 && !sending ? (
               <EmptyState
                 action={
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => setInput(assistantT('examplePrompt'))}
-                  >
-                    {assistantT('loadExamplePrompt')}
-                  </button>
+                  <div className="intelligence-actions">
+                    {suggestedQuestions.map((question, index) => (
+                      <button
+                        key={question}
+                        className="btn-secondary"
+                        type="button"
+                        onClick={() => setInput(question)}
+                      >
+                        {index === 0
+                          ? assistantT('loadExamplePrompt')
+                          : question}
+                      </button>
+                    ))}
+                  </div>
                 }
                 description={assistantT('emptyDescription')}
                 eyebrow={assistantT('emptyEyebrow')}
@@ -610,15 +658,13 @@ export function AssistantPage() {
             {sending && (
               <div className="msg msg-ai">
                 <div className="msg-content">
-                  <div className="assistant-message-head">
-                    <span className="status-badge status-info">
-                      {assistantT('working')}
-                    </span>
-                    <span className="mono-support">
-                      {assistantT('preparingAnswer')}
-                    </span>
-                  </div>
-                  <p>{assistantT('searchingArchive')}</p>
+                  <LoadingState
+                    compact
+                    label={assistantT('preparingAnswer')}
+                    detail={assistantT('searchingArchive')}
+                    progressLabel="1 / 3"
+                    progressValue={33}
+                  />
                 </div>
               </div>
             )}
@@ -627,6 +673,7 @@ export function AssistantPage() {
           <div className="assistant-input-area">
             <div className="assistant-input-wrapper">
               <input
+                aria-label={assistantT('inputLabel')}
                 type="text"
                 className="assistant-input"
                 placeholder={assistantT('inputPlaceholder')}
@@ -664,7 +711,13 @@ export function AssistantPage() {
                 {assistantT('queueBoundaryBody')}
               </p>
               {queueAction ? (
-                <p className="mono-support">{queueAction}…</p>
+                <LoadingState
+                  compact
+                  label={queueAction}
+                  detail={assistantT('queueBoundaryBody')}
+                  progressLabel={`${(queueStatus?.queued ?? snapshot.aiStatus.queuedJobs).toLocaleString(language)} queued / ${(queueStatus?.running ?? snapshot.aiStatus.runningJobs).toLocaleString(language)} running`}
+                  progressValue={67}
+                />
               ) : null}
             </div>
           </div>

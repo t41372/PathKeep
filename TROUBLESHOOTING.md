@@ -57,6 +57,26 @@ The Settings page now exposes the app data root, archive database path, audit re
 - If you do not have another valid unlock path, treat the encrypted archive as unrecoverable.
 - Do not delete the archive immediately; keep the files intact while you confirm whether another machine or keyring still has the unlock material.
 
+## App Lock
+
+### PathKeep keeps opening on the lock screen
+
+- If App Lock is enabled, startup locked state is expected.
+- Unlock with the App Lock passcode, not the archive encryption password unless you deliberately set them to the same value.
+- If the app re-locks too aggressively, reduce the idle timeout in Settings after you unlock.
+
+### Biometric unlock is unavailable
+
+- That is expected in the current build.
+- PathKeep currently ships App Lock as a passcode-first UI session lock and shows biometric controls as truthful capability / degradation state only.
+- Use the passcode path instead of assuming Touch ID / Windows Hello / Linux PAM is already wired in.
+
+### You forgot the App Lock passcode
+
+- PathKeep does not offer a fake recovery flow here.
+- Use the lock screen or Settings to open the config path, then follow your local support / recovery process for resetting the UI session lock.
+- Resetting App Lock does not recover or change the archive encryption password.
+
 ## Remote Backup
 
 ### Preview works but execute does not

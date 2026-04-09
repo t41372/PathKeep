@@ -4,7 +4,10 @@ import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
-import { SkeletonExplorer } from '../../components/primitives/skeleton'
+import {
+  SkeletonExplorer,
+  SkeletonExplorerResults,
+} from '../../components/primitives/skeleton'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
@@ -174,7 +177,7 @@ export function ExplorerPage() {
     refreshAppData,
     snapshot,
   } = useShellData()
-  const { language, ns } = useI18n()
+  const { language, t, ns } = useI18n()
   const { activeProfileId } = useProfileScope()
   const explorerT = ns('explorer')
   const intelligenceT = ns('intelligence')
@@ -715,7 +718,10 @@ export function ExplorerPage() {
   if (shellError && !snapshot)
     return (
       <section className="page-shell">
-        <ErrorState title="Explorer could not load" description={shellError} />
+        <ErrorState
+          title={explorerT('couldNotLoadTitle')}
+          description={shellError}
+        />
       </section>
     )
   if (!snapshot?.config.initialized) {
@@ -724,12 +730,12 @@ export function ExplorerPage() {
         <EmptyState
           action={
             <Link className="btn-primary" to="/onboarding">
-              Initialize archive first
+              {t('common.initializeFirst')}
             </Link>
           }
-          description="Explorer reads the canonical archive only after onboarding initializes the local database and the first manual backup completes."
-          eyebrow="EXPLORER"
-          title="History Explorer is waiting for the first archive run"
+          description={explorerT('uninitializedDescription')}
+          eyebrow={explorerT('eyebrow')}
+          title={explorerT('uninitializedTitle')}
         />
       </section>
     )
@@ -738,12 +744,12 @@ export function ExplorerPage() {
     return (
       <section className="page-shell">
         <PermissionGate
-          detail="The archive is locked. Unlock it first."
-          eyebrow="LOCKED"
-          title="Explorer needs an unlocked archive"
+          detail={explorerT('lockedDescription')}
+          eyebrow={explorerT('lockedEyebrow')}
+          title={explorerT('lockedTitle')}
         >
           <Link className="btn-primary" to="/security">
-            Review security
+            {t('dashboard.reviewSecurity')}
           </Link>
         </PermissionGate>
       </section>
@@ -822,7 +828,7 @@ export function ExplorerPage() {
               type="button"
               onClick={() => setSearchParams(new URLSearchParams())}
             >
-              Clear all
+              {explorerT('clearAllFilters')}
             </button>
           </div>
         </div>
@@ -837,9 +843,11 @@ export function ExplorerPage() {
 
       <div className="panel">
         <div className="panel-header">
-          <span className="panel-title">QUERY + FILTERS</span>
+          <span className="panel-title">{explorerT('queryFiltersTitle')}</span>
           <span className="panel-action">
-            {results ? `${results.total} visible records` : 'Waiting for query'}
+            {results
+              ? explorerT('visibleRecords', { count: results.total })
+              : explorerT('waitingForQuery')}
           </span>
         </div>
         <div className="panel-body">
@@ -858,7 +866,11 @@ export function ExplorerPage() {
                   updateParam('mode', option === 'keyword' ? null : option)
                 }
               >
-                {option}
+                {option === 'keyword'
+                  ? explorerT('modeKeyword')
+                  : option === 'semantic'
+                    ? explorerT('modeSemantic')
+                    : explorerT('modeHybrid')}
               </button>
             ))}
           </div>
@@ -868,7 +880,7 @@ export function ExplorerPage() {
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
               <span className="mono-kicker">
-                KEYWORD
+                {explorerT('filterKeyword')}
                 {regexMode ? <span className="regex-badge">[.*]</span> : null}
               </span>
               <div className="regex-input-row">
@@ -909,7 +921,7 @@ export function ExplorerPage() {
               className="field-stack"
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <span className="mono-kicker">DOMAIN</span>
+              <span className="mono-kicker">{explorerT('filterDomain')}</span>
               <input
                 aria-label="Explorer domain"
                 type="search"
@@ -923,7 +935,7 @@ export function ExplorerPage() {
               className="field-stack"
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <span className="mono-kicker">PROFILE</span>
+              <span className="mono-kicker">{explorerT('filterProfile')}</span>
               <select
                 aria-label="Explorer profile"
                 value={profileId ?? ''}
@@ -931,7 +943,7 @@ export function ExplorerPage() {
                   updateParam('profileId', event.target.value || null)
                 }
               >
-                <option value="">All profiles</option>
+                <option value="">{explorerT('allProfiles')}</option>
                 {snapshot.config.selectedProfileIds.map((id) => (
                   <option key={id} value={id}>
                     {id}
@@ -950,7 +962,7 @@ export function ExplorerPage() {
               className="field-stack"
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <span className="mono-kicker">BROWSER</span>
+              <span className="mono-kicker">{explorerT('filterBrowser')}</span>
               <select
                 aria-label="Explorer browser"
                 value={searchParams.get('browserKind') ?? ''}
@@ -958,7 +970,7 @@ export function ExplorerPage() {
                   updateParam('browserKind', event.target.value || null)
                 }
               >
-                <option value="">All browsers</option>
+                <option value="">{explorerT('allBrowsers')}</option>
                 {browserKinds.map((kind) => (
                   <option key={kind} value={kind}>
                     {browserLabel(kind)}
@@ -970,7 +982,7 @@ export function ExplorerPage() {
               className="field-stack"
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <span className="mono-kicker">START</span>
+              <span className="mono-kicker">{explorerT('filterStart')}</span>
               <input
                 aria-label="Explorer start date"
                 type="date"
@@ -984,7 +996,7 @@ export function ExplorerPage() {
               className="field-stack"
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <span className="mono-kicker">END</span>
+              <span className="mono-kicker">{explorerT('filterEnd')}</span>
               <input
                 aria-label="Explorer end date"
                 type="date"
@@ -998,14 +1010,14 @@ export function ExplorerPage() {
               className="field-stack"
               style={{ border: 'none', background: 'transparent', padding: 0 }}
             >
-              <span className="mono-kicker">SORT</span>
+              <span className="mono-kicker">{explorerT('filterSort')}</span>
               <select
                 aria-label="Explorer sort"
                 value={searchParams.get('sort') ?? 'newest'}
                 onChange={(event) => updateParam('sort', event.target.value)}
               >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
+                <option value="newest">{explorerT('sortNewest')}</option>
+                <option value="oldest">{explorerT('sortOldest')}</option>
               </select>
             </label>
           </div>
@@ -1176,9 +1188,17 @@ export function ExplorerPage() {
                 </button>
               </div>
 
-              {(indexAction || queueAction) && (
-                <p className="mono-support">{indexAction ?? queueAction}…</p>
-              )}
+              {indexAction || queueAction ? (
+                <LoadingState
+                  compact
+                  label={
+                    indexAction ?? queueAction ?? explorerT('preparingRecall')
+                  }
+                  detail={explorerT('semanticRecallNeedsAttentionBody')}
+                  progressLabel={`${(queueStatus?.queued ?? snapshot.aiStatus.queuedJobs).toLocaleString(language)} queued / ${(queueStatus?.running ?? snapshot.aiStatus.runningJobs).toLocaleString(language)} running`}
+                  progressValue={indexAction ? 50 : 75}
+                />
+              ) : null}
 
               {providerProbe && (
                 <div className="result-row">
@@ -1281,7 +1301,13 @@ export function ExplorerPage() {
                 {explorerT('semanticPrompt')}
               </p>
             ) : semanticLoading ? (
-              <LoadingState label={explorerT('rankingSemanticEvidence')} />
+              <LoadingState
+                compact
+                label={explorerT('rankingSemanticEvidence')}
+                detail={explorerT('preparingRecall')}
+                progressLabel={`1 / ${mode === 'hybrid' ? 3 : 2}`}
+                progressValue={mode === 'hybrid' ? 33 : 50}
+              />
             ) : semanticError ? (
               <ErrorState
                 title={explorerT('semanticRecallDegradedTitle')}
@@ -1373,7 +1399,7 @@ export function ExplorerPage() {
       )}
 
       {loading ? (
-        <LoadingState label={explorerT('loadingArchive')} />
+        <SkeletonExplorerResults />
       ) : historyBlockedByInvalidRegex ? (
         <StatusCallout
           tone="blocked"

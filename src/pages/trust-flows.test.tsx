@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -25,6 +25,8 @@ import {
   type ResolvedLanguage,
 } from '../lib/i18n'
 import { backend, backendTestHarness } from '../lib/backend'
+import { platformLabelKey } from '../lib/platform-guidance'
+import { securityModeKey } from '../lib/trust-review'
 import type {
   AppConfig,
   AppSnapshot,
@@ -48,6 +50,14 @@ const config: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  appLock: {
+    enabled: false,
+    idleTimeoutMinutes: 5,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    recoveryHint: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -90,12 +100,23 @@ const config: AppConfig = {
 }
 
 function createI18nValue(language: ResolvedLanguage): I18nContextValue {
+  const namespaceCache = new Map<string, ReturnType<typeof createTranslator>>()
+
   return {
     language,
     preference: language,
     setLanguagePreference: vi.fn(),
     t: createTranslator(language),
-    ns: (namespace) => createNamespaceTranslator(language, namespace),
+    ns: (namespace) => {
+      const cached = namespaceCache.get(namespace)
+      if (cached) {
+        return cached
+      }
+
+      const translator = createNamespaceTranslator(language, namespace)
+      namespaceCache.set(namespace, translator)
+      return translator
+    },
   }
 }
 
@@ -105,6 +126,7 @@ function createShellValue(
 ): ShellDataContextValue {
   return {
     buildInfo: null,
+    appLockStatus: snapshot.appLockStatus,
     snapshot,
     dashboard,
     loading: false,
@@ -123,8 +145,17 @@ function createShellValue(
       warnings: [],
       remoteBackup: null,
     }),
+    setAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    clearAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    lockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    unlockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     clearNotice: vi.fn(),
   }
+}
+
+function expectHtmlElement(node: Element | null): HTMLElement {
+  expect(node).toBeInstanceOf(HTMLElement)
+  return node as HTMLElement
 }
 
 function renderTrustPage(
@@ -163,6 +194,7 @@ async function seedInitializedSnapshot() {
 
 describe('trust flows', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
     isTauri.mockReturnValue(false)
     invoke.mockReset()
     backendTestHarness.reset()
@@ -172,6 +204,8 @@ describe('trust flows', () => {
     const user = userEvent.setup()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('zh-CN', 'import')
+    const zhCnT = createTranslator('zh-CN')
 
     renderTrustPage(<ImportPage />, {
       language: 'zh-CN',
@@ -183,26 +217,42 @@ describe('trust flows', () => {
       screen.getByPlaceholderText('/path/to/takeout.zip'),
       '/tmp/takeout',
     )
-    await user.click(screen.getByRole('button', { name: '扫描来源 →' }))
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
 
-    expect(await screen.findByText('步骤 3：预览导入')).toBeVisible()
+    expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
     expect(await screen.findByText('PathKeep trust UX notes')).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: '确认导入 →' }))
-    expect(await screen.findByText('步骤 5：导入完成')).toBeVisible()
-    expect((await screen.findAllByText('已导入')).length).toBeGreaterThan(0)
-
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '回滚批次' })).toBeEnabled(),
+    await user.click(
+      screen.getByRole('button', { name: importT('confirmImport') }),
     )
-    await user.click(screen.getByRole('button', { name: '回滚批次' }))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '恢复批次' })).toBeEnabled(),
-    )
-
-    await user.click(screen.getByRole('button', { name: '运行检查' }))
+    expect(await screen.findByText(importT('completeTitle'))).toBeVisible()
     expect(
-      await screen.findByRole('heading', { name: '需要关注' }),
+      (await screen.findAllByText(importT('imported'))).length,
+    ).toBeGreaterThan(0)
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: importT('revertBatch') }),
+      ).toBeEnabled(),
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('revertBatch') }),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: importT('restoreBatch') }),
+      ).toBeEnabled(),
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: importT('runHealthCheckAction') }),
+    )
+    expect(
+      await screen.findByRole('heading', {
+        name: new RegExp(zhCnT('common.statusNeedsAttention')),
+      }),
     ).toBeVisible()
 
     confirmSpy.mockRestore()
@@ -211,6 +261,8 @@ describe('trust flows', () => {
   test('renders Windows scheduler guidance and keeps PME tabs keyboard reachable', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
+    const scheduleT = createNamespaceTranslator('zh-TW', 'schedule')
+    const zhTwT = createTranslator('zh-TW')
     const previewSpy = vi.spyOn(backend, 'previewSchedule').mockResolvedValue({
       platform: 'windows',
       label: 'dev.codex.pathkeep.backup',
@@ -252,18 +304,52 @@ describe('trust flows', () => {
       snapshot,
     })
 
-    expect(
-      await screen.findByRole('heading', { name: 'Windows 工作排程器' }),
-    ).toBeVisible()
-    expect(await screen.findByText('每 48 小時一次')).toBeVisible()
-    expect(await screen.findByText('每 6 小時檢查一次')).toBeVisible()
+    const workflowPanel = expectHtmlElement(
+      (await screen.findByText(scheduleT('pmeTitle'))).closest('.panel'),
+    )
 
+    expect(
+      await screen.findByRole('heading', {
+        name: zhTwT(platformLabelKey('windows')),
+      }),
+    ).toBeVisible()
+    expect(
+      await screen.findByText(scheduleT('intervalValue', { hours: 48 })),
+    ).toBeVisible()
+    expect(
+      await screen.findByText(scheduleT('verificationValue', { hours: 6 })),
+    ).toBeVisible()
+
+    const previewTab = within(workflowPanel).getByRole('button', {
+      name: zhTwT('common.previewTab'),
+    })
+    const manualTab = within(workflowPanel).getByRole('button', {
+      name: zhTwT('common.manualTab'),
+    })
+    const executeTab = within(workflowPanel).getByRole('button', {
+      name: zhTwT('common.executeTab'),
+    })
+    const verifyTab = within(workflowPanel).getByRole('button', {
+      name: zhTwT('common.verifyTab'),
+    })
+
+    previewTab.focus()
+    expect(previewTab).toHaveFocus()
     await user.tab()
-    expect(screen.getByRole('button', { name: '預覽' })).toHaveFocus()
+    expect(manualTab).toHaveFocus()
     await user.tab()
-    expect(screen.getByRole('button', { name: '手動' })).toHaveFocus()
+    expect(executeTab).toHaveFocus()
     await user.tab()
-    expect(screen.getByRole('button', { name: '執行' })).toHaveFocus()
+    expect(verifyTab).toHaveFocus()
+
+    await user.click(verifyTab)
+    expect(
+      (
+        await within(workflowPanel).findAllByText(
+          'Review StartWhenAvailable before trusting the schedule.',
+        )
+      )[0],
+    ).toBeVisible()
 
     previewSpy.mockRestore()
     statusSpy.mockRestore()
@@ -272,6 +358,8 @@ describe('trust flows', () => {
   test('shows apply and remove controls when the schedule supports direct execution', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
+    const scheduleT = createNamespaceTranslator('en', 'schedule')
+    const enT = createTranslator('en')
 
     backendTestHarness.seedSchedule(
       {
@@ -318,18 +406,30 @@ describe('trust flows', () => {
       snapshot,
     })
 
-    await user.click(await screen.findByRole('button', { name: 'Execute' }))
+    const workflowPanel = expectHtmlElement(
+      (await screen.findByText(scheduleT('pmeTitle'))).closest('.panel'),
+    )
+
+    await user.click(
+      within(workflowPanel).getByRole('button', {
+        name: enT('common.executeTab'),
+      }),
+    )
 
     expect(await screen.findByText('launchctl bootstrap')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Apply schedule' })).toBeEnabled()
     expect(
-      screen.getByRole('button', { name: 'Remove schedule' }),
+      screen.getByRole('button', { name: scheduleT('applySchedule') }),
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: scheduleT('removeSchedule') }),
     ).toBeEnabled()
   })
 
   test('renders rekey preview in Traditional Chinese without English mode fallbacks', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
+    const securityT = createNamespaceTranslator('zh-TW', 'security')
+    const zhTwT = createTranslator('zh-TW')
 
     renderTrustPage(<SecurityPage />, {
       language: 'zh-TW',
@@ -337,19 +437,28 @@ describe('trust flows', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('歸檔目前為 加密')).toBeVisible()
+    expect(
+      await screen.findByText(
+        zhTwT('security.archiveIs', {
+          mode: zhTwT(securityModeKey('encrypted')),
+        }),
+      ),
+    ).toBeVisible()
 
     await user.selectOptions(
-      screen.getByLabelText('目標模式'),
+      screen.getByLabelText(securityT('targetMode')),
       screen.getByRole('option', { name: '明文' }),
     )
-    await user.click(screen.getByRole('button', { name: '預覽重新加密' }))
+    await user.click(
+      screen.getByRole('button', { name: securityT('previewRekey') }),
+    )
 
     expect(await screen.findByText('加密 → 明文')).toBeVisible()
   })
 
   test('filters audit runs and shows delta against the previous visible run', async () => {
     const user = userEvent.setup()
+    const auditT = createNamespaceTranslator('en', 'audit')
     const snapshot = await backend.getAppSnapshot()
     snapshot.config.initialized = true
     snapshot.recentRuns = [
@@ -512,6 +621,16 @@ describe('trust flows', () => {
     expect(screen.getByRole('button', { name: /#10/ })).toBeVisible()
     expect(await screen.findByText('Compared to run #9')).toBeVisible()
     expect(screen.getByText('+2')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: auditT('artifactsTab') }),
+    )
+    expect(await screen.findByText(/\/tmp\/run-10\.snapshot/)).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: auditT('warningsTab') }),
+    )
+    expect(await screen.findByText('Schedule drift detected')).toBeVisible()
 
     loadAuditRunDetailSpy.mockRestore()
   })

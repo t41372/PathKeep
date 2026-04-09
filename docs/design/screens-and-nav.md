@@ -10,19 +10,19 @@
 
 ## 畫面清單
 
-| 畫面                   | 核心職責                                                                                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                    |
-| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                         |
-| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                        |
-| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                                                           |
-| **AI Assistant**       | 自然語言問答介面                                                                                                                              |
-| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                                                    |
-| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                                                          |
-| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                            |
-| **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；支援生物辨識與密碼解鎖；鎖定時所有資料存取完全阻斷                                                    |
-| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                       |
-| **Settings**           | 通用設定、語言、AI provider 管理、remote backup PME、derived-state controls、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息 |
+| 畫面                   | 核心職責                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                       |
+| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                            |
+| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                           |
+| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                                                              |
+| **AI Assistant**       | 自然語言問答介面                                                                                                                                 |
+| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                                                       |
+| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                                                             |
+| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                               |
+| **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；目前以 passcode 解鎖為主，biometric 僅顯示 truthful capability / degradation；鎖定時所有資料存取完全阻斷 |
+| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                          |
+| **Settings**           | 通用設定、語言、AI provider 管理、remote backup PME、derived-state controls、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息    |
 
 ---
 
@@ -53,6 +53,9 @@
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Insights 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Insights 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
+- Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
+- Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
+- Schedule 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
 
 ---
 
@@ -89,9 +92,11 @@
 - App Lock 是獨立的 utility route（`/lock`），不常駐 sidebar。
 - 啟動時若 App Lock 已啟用，PathKeep 先顯示 lock screen，通過驗證後才載入主 shell。
 - 閒置逾時（idle timeout）觸發時，自動導向 `/lock`，主 shell chrome 完全不渲染。
-- Lock screen 顯示 PathKeep branding、unlock prompt（biometric / password input）、以及 "Forgot password?" 連結（導向 recovery docs）。
-- 鎖定狀態下不僅 UI 隱藏，後端 query 也必須被阻擋 — 避免透過 dev tools / MCP 繞過。
-- Settings 的 App Lock panel：enable / disable toggle、idle timeout duration 選擇、biometric toggle（macOS Touch ID / Windows Hello）、PIN code 作為輕量替代選項。
+- Topbar 在 App Lock 已啟用時提供 `Lock now` 動作；手動鎖定也走同一個 `/lock` route。
+- Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode input、recovery hint callout，以及打開 config path 的 recovery 動作。
+- 若 biometric toggle 已開啟但 native integration 尚未接線，lock screen 仍可顯示 biometric CTA / note，但按鈕必須 disabled，並用文案誠實說明目前會回退到 passcode-only。
+- 鎖定狀態下不僅 UI 隱藏，後端 query 與 MCP history query 也必須被阻擋 — 避免透過 dev tools / MCP 繞過。
+- Settings 的 App Lock panel：enable / disable toggle、idle timeout duration、biometric toggle、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
 - App Lock 與 archive encryption 是**獨立的兩層保護**：App Lock 保護 UI session，encryption 保護資料庫檔案。兩者可獨立啟用。
 - 設計規格 → `docs/features/archive.md` §8
 

@@ -15,7 +15,7 @@ use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, HistoryQuery,
     RunInsightsRequest, S3CredentialInput, SchedulePlan, ScheduleStatus, SecurityStatus,
-    TakeoutRequest,
+    SetAppLockPasscodeRequest, TakeoutRequest, UnlockAppSessionRequest,
 };
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
@@ -49,22 +49,32 @@ fn run_app() -> Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
         .setup(|app| {
-            let salt_path =
-                vault_core::project_paths().map_err(tauri::Error::Anyhow)?.stronghold_salt_path;
-            app.handle()
-                .plugin(tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build())?;
+            let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
+            let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;
+            vault_core::hydrate_app_lock_config(&paths, &mut config)
+                .map_err(tauri::Error::Anyhow)?;
+            vault_core::initialize_app_lock_session(&paths, &config)
+                .map_err(tauri::Error::Anyhow)?;
+            app.handle().plugin(
+                tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
+            )?;
             Ok(())
         })
         .manage(SessionState::default())
         .invoke_handler(tauri::generate_handler![
             app_build_info,
             app_snapshot,
+            app_lock_status,
             save_config,
             initialize_archive,
             preview_rekey_archive,
             rekey_archive,
             set_session_database_key,
             clear_session_database_key,
+            set_app_lock_passcode,
+            clear_app_lock_passcode,
+            lock_app_session,
+            unlock_app_session,
             run_backup_now,
             query_history,
             load_dashboard_snapshot,
@@ -353,6 +363,40 @@ fn keyring_status() -> vault_core::KeyringStatusReport {
 #[tauri::command]
 fn security_status(state: State<'_, SessionState>) -> Result<SecurityStatus, String> {
     worker_bridge::security_status_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn app_lock_status() -> Result<vault_core::AppLockStatus, String> {
+    worker_bridge::app_lock_status_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn set_app_lock_passcode(
+    request: SetAppLockPasscodeRequest,
+) -> Result<vault_core::AppLockStatus, String> {
+    worker_bridge::set_app_lock_passcode_impl(request)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn clear_app_lock_passcode() -> Result<vault_core::AppLockStatus, String> {
+    worker_bridge::clear_app_lock_passcode_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn lock_app_session(reason: Option<String>) -> Result<vault_core::AppLockStatus, String> {
+    worker_bridge::lock_app_session_impl(reason)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn unlock_app_session(
+    request: UnlockAppSessionRequest,
+) -> Result<vault_core::AppLockStatus, String> {
+    worker_bridge::unlock_app_session_impl(request)
 }
 
 #[cfg(not(test))]

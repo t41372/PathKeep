@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
-import { DashboardSkeleton } from '../../components/primitives/skeleton'
+import {
+  DashboardSkeleton,
+  Skeleton,
+} from '../../components/primitives/skeleton'
 import { backend } from '../../lib/backend'
 import {
   calendarDayKey,
@@ -70,14 +72,17 @@ export function DashboardPage() {
   const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
   const [insights, setInsights] = useState<InsightSnapshot | null>(null)
+  const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightLoadError, setInsightLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
+      setInsightsLoading(false)
       return
     }
 
     let cancelled = false
+    setInsightsLoading(true)
 
     const load = async () => {
       try {
@@ -97,6 +102,10 @@ export function DashboardPage() {
               ? nextError.message
               : insightsT('refreshAttentionTitle'),
           )
+        }
+      } finally {
+        if (!cancelled) {
+          setInsightsLoading(false)
         }
       }
     }
@@ -277,16 +286,95 @@ export function DashboardPage() {
             </article>
           ))}
         </div>
-        <EmptyState
-          action={
+        <StatusCallout
+          tone="info"
+          eyebrow={t('dashboard.zeroStateEyebrow')}
+          title={t('dashboard.zeroStateTitle')}
+          body={dashboard.nextAction ?? t('dashboard.zeroStateBody')}
+          actions={
             <Link className="btn-primary" to="/onboarding">
               {t('dashboard.openOnboardingFlow')}
             </Link>
           }
-          description={dashboard.nextAction ?? t('dashboard.zeroStateBody')}
-          eyebrow={t('dashboard.zeroStateEyebrow')}
-          title={t('dashboard.zeroStateTitle')}
         />
+        <div className="dashboard-grid">
+          <div className="dashboard-left">
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">
+                  {t('dashboard.archiveBoundary')}
+                </span>
+                <span className="panel-action">
+                  {t('dashboard.selectedProfiles', {
+                    count: selectedProfiles.length,
+                  })}
+                </span>
+              </div>
+              <div className="panel-body">
+                {selectedProfiles.length > 0 ? (
+                  selectedProfiles.map((profile) => (
+                    <div key={profile.profileId} className="otd-item">
+                      <div
+                        className={`browser-icon ${browserIconClass(profile.profileId)}`}
+                      >
+                        {browserIconLetter(profile.profileId)}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="otd-title">
+                          {profile.browserName} / {profile.profileName}
+                        </div>
+                        <div className="otd-meta mono">
+                          {profile.historyExists
+                            ? t('dashboard.historyDetected')
+                            : t('dashboard.historyMissing')}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="dashboard-next-action">
+                    {t('dashboard.zeroStateNoBrowsers')}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="dashboard-right">
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">
+                  {t('dashboard.zeroStateChecklist')}
+                </span>
+              </div>
+              <div className="panel-body">
+                <div className="stacked-column">
+                  <div className="list-item">
+                    <span
+                      className={snapshot.config.initialized ? 'accent' : 'dim'}
+                    >
+                      {snapshot.config.initialized ? '✓' : '1'}
+                    </span>
+                    <span>{t('dashboard.zeroStep1')}</span>
+                  </div>
+                  <div className="list-item">
+                    <span
+                      className={
+                        dashboard.recentRuns.length > 0 ? 'accent' : 'dim'
+                      }
+                    >
+                      {dashboard.recentRuns.length > 0 ? '✓' : '2'}
+                    </span>
+                    <span>{t('dashboard.zeroStep2')}</span>
+                  </div>
+                  <div className="list-item">
+                    <span className="dim">3</span>
+                    <span>{t('dashboard.zeroStep3')}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     )
   }
@@ -296,6 +384,8 @@ export function DashboardPage() {
     snapshot.config.rememberDatabaseKeyInKeyring &&
     !snapshot.keyringStatus.storedSecret
   const safariNeedsAccess = hasSafariAccessIssue(selectedProfiles)
+
+  const nextActionMessage = dashboard.nextAction ?? null
 
   return (
     <section className="page-shell" data-testid="dashboard-page">
@@ -307,19 +397,14 @@ export function DashboardPage() {
           body={t('dashboard.scopeNotice')}
         />
       ) : null}
-      <div className="stats-row">
-        {stats.map((stat) => (
-          <article key={stat.label} className="stat-card" data-tone={stat.tone}>
-            <div className="stat-label">{stat.label}</div>
-            <div className="stat-value">{stat.value}</div>
-            <div
-              className={`stat-delta ${stat.tone === 'success' ? 'positive' : 'neutral'}`}
-            >
-              {stat.detail}
-            </div>
-          </article>
-        ))}
-      </div>
+
+      {nextActionMessage ? (
+        <StatusCallout
+          tone="info"
+          eyebrow={t('dashboard.nextActionEyebrow')}
+          title={nextActionMessage}
+        />
+      ) : null}
 
       {(needsKeyringReview || safariNeedsAccess) && (
         <div className="dashboard-callouts">
@@ -349,6 +434,20 @@ export function DashboardPage() {
           ) : null}
         </div>
       )}
+
+      <div className="stats-row">
+        {stats.map((stat) => (
+          <article key={stat.label} className="stat-card" data-tone={stat.tone}>
+            <div className="stat-label">{stat.label}</div>
+            <div className="stat-value">{stat.value}</div>
+            <div
+              className={`stat-delta ${stat.tone === 'success' ? 'positive' : 'neutral'}`}
+            >
+              {stat.detail}
+            </div>
+          </article>
+        ))}
+      </div>
 
       <div className="dashboard-grid">
         <div className="dashboard-left">
@@ -447,6 +546,41 @@ export function DashboardPage() {
               ))}
             </div>
           </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">
+                {t('dashboard.storageFootprint')}
+              </span>
+              <span className="panel-action">
+                {t('dashboard.storageTotal', {
+                  size: formatBytes(totalStorage, language),
+                })}
+              </span>
+            </div>
+            <div className="panel-body">
+              <div className="storage-chart">
+                {storageSegments.map((segment) => (
+                  <div key={segment.label} className="storage-row">
+                    <div className="row-between">
+                      <span>{segment.label}</span>
+                      <span className="mono">
+                        {formatBytes(segment.value, language)}
+                      </span>
+                    </div>
+                    <div className="storage-bar">
+                      <div
+                        className={segment.tone}
+                        style={{
+                          width: `${totalStorage > 0 ? (segment.value / totalStorage) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="dashboard-right">
@@ -502,7 +636,11 @@ export function DashboardPage() {
               </Link>
             </div>
             <div className="panel-body">
-              {onThisDay.length > 0 ? (
+              {insightsLoading ? (
+                <div className="intelligence-stack" aria-busy="true">
+                  <Skeleton variant="block" height="68px" count={3} />
+                </div>
+              ) : onThisDay.length > 0 ? (
                 onThisDay.map((item) => (
                   <Link
                     key={`${item.historyId}-${item.url}`}
@@ -545,7 +683,11 @@ export function DashboardPage() {
               </span>
             </div>
             <div className="panel-body">
-              {periodicSummary.length > 0 ? (
+              {insightsLoading ? (
+                <div className="intelligence-stack" aria-busy="true">
+                  <Skeleton variant="block" height="78px" count={2} />
+                </div>
+              ) : periodicSummary.length > 0 ? (
                 <div className="otd-summary">
                   {periodicSummary.slice(0, 2).map((paragraph) => (
                     <p key={paragraph}>{paragraph}</p>
@@ -577,41 +719,6 @@ export function DashboardPage() {
                 <Link className="btn-secondary" to="/schedule">
                   {t('dashboard.reviewSchedule')}
                 </Link>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {t('dashboard.storageFootprint')}
-              </span>
-              <span className="panel-action">
-                {t('dashboard.storageTotal', {
-                  size: formatBytes(totalStorage, language),
-                })}
-              </span>
-            </div>
-            <div className="panel-body">
-              <div className="storage-chart">
-                {storageSegments.map((segment) => (
-                  <div key={segment.label} className="storage-row">
-                    <div className="row-between">
-                      <span>{segment.label}</span>
-                      <span className="mono">
-                        {formatBytes(segment.value, language)}
-                      </span>
-                    </div>
-                    <div className="storage-bar">
-                      <div
-                        className={segment.tone}
-                        style={{
-                          width: `${totalStorage > 0 ? (segment.value / totalStorage) * 100 : 0}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>

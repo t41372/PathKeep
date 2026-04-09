@@ -11,7 +11,18 @@ import {
   sidebarSections,
 } from './router'
 import { backend, backendTestHarness } from '../lib/backend'
+import { createNamespaceTranslator, createTranslator } from '../lib/i18n'
 import type { AppConfig } from '../lib/types'
+
+const commonT = createTranslator('en')
+const dashboardT = createNamespaceTranslator('en', 'dashboard')
+const shellT = createNamespaceTranslator('en', 'shell')
+const onboardingT = createNamespaceTranslator('en', 'onboarding')
+const assistantT = createNamespaceTranslator('en', 'assistant')
+const insightsT = createNamespaceTranslator('en', 'insights')
+const scheduleT = createNamespaceTranslator('en', 'schedule')
+const securityT = createNamespaceTranslator('en', 'security')
+const settingsT = createNamespaceTranslator('en', 'settings')
 
 const initializedConfig: AppConfig = {
   initialized: false,
@@ -25,6 +36,14 @@ const initializedConfig: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  appLock: {
+    enabled: false,
+    idleTimeoutMinutes: 5,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    recoveryHint: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -101,6 +120,11 @@ async function seedAiProviders() {
   })
 }
 
+function expectHtmlElement(node: Element | null): HTMLElement {
+  expect(node).toBeInstanceOf(HTMLElement)
+  return node as HTMLElement
+}
+
 function seedInteractiveSchedule() {
   backendTestHarness.seedSchedule(
     {
@@ -155,15 +179,17 @@ describe('App shell', () => {
     expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', {
-        name: 'The first archive run still needs review',
+        name: dashboardT('zeroStateTitle'),
       }),
     ).toBeVisible()
 
-    await user.click(screen.getByRole('link', { name: 'Open onboarding flow' }))
+    await user.click(
+      screen.getByRole('link', { name: dashboardT('openOnboardingFlow') }),
+    )
 
     expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
     expect(
-      await screen.findByRole('button', { name: /Begin Setup/ }),
+      await screen.findByRole('button', { name: onboardingT('beginSetup') }),
     ).toBeVisible()
   })
 
@@ -176,11 +202,8 @@ describe('App shell', () => {
 
     expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
 
-    // The new onboarding is a wizard — step through to the security step
-    // Step 0 is Welcome, navigate to step 5 (Ready) directly
-    // For the test, we verify the onboarding page renders and has the wizard
     expect(
-      await screen.findByRole('button', { name: /Begin Setup/ }),
+      await screen.findByRole('button', { name: onboardingT('beginSetup') }),
     ).toBeVisible()
   })
 
@@ -194,13 +217,49 @@ describe('App shell', () => {
 
     expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
     expect(
-      await screen.findByRole('button', { name: /Begin Setup/ }),
+      await screen.findByRole('button', { name: onboardingT('beginSetup') }),
     ).toBeVisible()
-    expect(screen.getByText(/GPL v3 licensed/i)).toBeVisible()
+    expect(screen.getByText(/GPL v3/i)).toBeVisible()
     expect(screen.queryByText(/MIT licensed/i)).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Exit setup' }))
+    await user.click(screen.getByRole('button', { name: shellT('exitSetup') }))
 
     expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
+  })
+
+  test('routes locked sessions to the lock screen and restores the requested route after unlock', async () => {
+    const user = userEvent.setup()
+
+    await seedArchiveRun()
+    await backend.setAppLockPasscode({
+      passcode: '2468',
+      recoveryHint: 'digits only',
+    })
+    const snapshot = await backend.getAppSnapshot()
+    await backend.saveConfig({
+      ...snapshot.config,
+      appLock: {
+        ...snapshot.config.appLock,
+        enabled: true,
+        passcodeConfigured: true,
+        recoveryHint: 'digits only',
+      },
+    })
+    await backend.lockAppSession('startup')
+
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/explorer?mode=keyword'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('lock-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('app-shell')).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(shellT('lockPasscodeLabel')), '2468')
+    await user.click(screen.getByRole('button', { name: shellT('unlockApp') }))
+
+    expect(await screen.findByTestId('app-shell')).toBeInTheDocument()
+    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
   })
 
   test('switches archive mode from the onboarding security step', async () => {
@@ -212,19 +271,31 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: /Begin Setup/ }))
-    await user.click(screen.getByRole('button', { name: /Continue/ }))
-    await user.click(screen.getByRole('button', { name: /Continue/ }))
+    await user.click(
+      await screen.findByRole('button', { name: onboardingT('beginSetup') }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
 
     await user.click(
-      screen.getByRole('radio', { name: 'Select plaintext mode' }),
+      screen.getByRole('radio', { name: onboardingT('plaintextSelectLabel') }),
     )
-    expect(await screen.findByText('✓ No password to remember')).toBeVisible()
+    expect(
+      await screen.findByText(new RegExp(onboardingT('tradeoffNoPassword')), {
+        selector: '.tradeoff-row',
+      }),
+    ).toBeVisible()
 
     await user.click(
-      screen.getByRole('radio', { name: 'Select encrypted mode' }),
+      screen.getByRole('radio', { name: onboardingT('encryptedSelectLabel') }),
     )
-    expect(await screen.findByText('MASTER PASSWORD')).toBeVisible()
+    expect(
+      await screen.findByText(onboardingT('masterPasswordLabel')),
+    ).toBeVisible()
   })
 
   test('renders explorer filters, detail, export, and audit run detail from live shell data', async () => {
@@ -247,28 +318,28 @@ describe('App shell', () => {
     {
       entry: '/schedule',
       pageTestId: 'schedule-page',
-      sentinel: 'BACKUP SCHEDULE',
+      sentinel: scheduleT('backupSchedule'),
       prepare: () => seedInteractiveSchedule(),
     },
     {
       entry: '/security',
       pageTestId: 'security-page',
-      sentinel: 'ENCRYPTION STATUS',
+      sentinel: securityT('encryptionStatus'),
     },
     {
       entry: '/assistant',
       pageTestId: null,
-      sentinel: /Assistant is currently disabled/i,
+      sentinel: assistantT('disabledTitle'),
     },
     {
       entry: '/insights',
       pageTestId: 'insights-page',
-      sentinel: 'INSIGHT CARDS',
+      sentinel: insightsT('onThisDay'),
     },
     {
       entry: '/settings',
       pageTestId: 'settings-page',
-      sentinel: /AI PROVIDER/i,
+      sentinel: settingsT('aiProvider'),
     },
   ])(
     'renders route $entry with live data-backed content',
@@ -301,115 +372,142 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     const settingsPage = await screen.findByTestId('settings-page')
-    expect(within(settingsPage).getByText('REMOTE BACKUP')).toBeVisible()
+    const remotePanel = expectHtmlElement(
+      within(settingsPage)
+        .getByText(settingsT('remoteBackup'))
+        .closest('.panel'),
+    )
     expect(
-      within(settingsPage).getByText('ENRICHMENT + DERIVED STATE'),
+      within(settingsPage).getByText(settingsT('enrichmentDerivedState')),
     ).toBeVisible()
-    expect(within(settingsPage).getByText('Archive database')).toBeVisible()
-    expect(within(settingsPage).getByText('Audit repository')).toBeVisible()
-    expect(within(settingsPage).getByText('Git commit')).toBeVisible()
-    expect(within(settingsPage).getByText('preview')).toBeVisible()
+    expect(
+      within(settingsPage).getByText(settingsT('archiveDatabase')),
+    ).toBeVisible()
+    expect(
+      within(settingsPage).getByText(settingsT('auditRepository')),
+    ).toBeVisible()
+    expect(within(settingsPage).getByText(settingsT('gitCommit'))).toBeVisible()
+    expect(
+      within(settingsPage).getByText(commonT('common.previewTab')),
+    ).toBeVisible()
 
-    await user.clear(within(settingsPage).getByLabelText('Bucket'))
+    await user.clear(
+      within(remotePanel).getByLabelText(settingsT('bucketLabel')),
+    )
     await user.type(
-      within(settingsPage).getByLabelText('Bucket'),
+      within(remotePanel).getByLabelText(settingsT('bucketLabel')),
       'example-bucket',
     )
     await user.click(
-      within(settingsPage).getByRole('button', {
-        name: 'Save remote settings',
+      within(remotePanel).getByRole('button', {
+        name: settingsT('saveRemoteSettings'),
       }),
     )
 
     await user.type(
-      within(settingsPage).getByLabelText('Access key ID'),
+      within(remotePanel).getByLabelText(settingsT('accessKeyId')),
       'preview-key',
     )
     await user.type(
-      within(settingsPage).getByLabelText('Secret access key'),
+      within(remotePanel).getByLabelText(settingsT('secretAccessKey')),
       'preview-secret',
     )
     await user.click(
-      within(settingsPage).getByRole('button', {
-        name: 'Store credentials',
+      within(remotePanel).getByRole('button', {
+        name: settingsT('storeRemoteCredentials'),
       }),
     )
 
     await waitFor(() => {
-      expect(within(settingsPage).getByText('Credentials saved')).toBeVisible()
+      expect(
+        within(remotePanel).getByText(settingsT('credentialsSaved')),
+      ).toBeVisible()
     })
 
     await user.click(
-      within(settingsPage).getByRole('button', {
-        name: 'Preview bundle',
+      within(remotePanel).getByRole('button', {
+        name: settingsT('previewRemoteBackup'),
       }),
     )
 
     await waitFor(() => {
-      expect(within(settingsPage).getByText('Bundle path')).toBeVisible()
       expect(
-        within(settingsPage).getAllByText(/pathkeep-remote-.*\.zip/).length,
+        within(remotePanel).getByText(settingsT('bundlePath')),
+      ).toBeVisible()
+      expect(
+        within(remotePanel).getAllByText(/pathkeep-remote-.*\.zip/).length,
       ).toBeGreaterThan(0)
     })
 
     await user.click(
-      within(settingsPage).getByRole('button', {
-        name: 'Execute upload',
+      within(remotePanel).getByRole('button', {
+        name: settingsT('executeRemoteBackup'),
       }),
     )
 
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText(
+        within(remotePanel).getByText(
           'Browser preview mode simulated the upload and produced a local bundle for verification.',
         ),
       ).toBeVisible()
     })
 
+    await waitFor(() => {
+      expect(
+        within(remotePanel).getByRole('button', {
+          name: settingsT('verifyRemoteBackup'),
+        }),
+      ).toBeEnabled()
+    })
+
     await user.click(
-      within(settingsPage).getByRole('button', {
-        name: 'Verify bundle',
+      within(remotePanel).getByRole('button', {
+        name: settingsT('verifyRemoteBackup'),
       }),
     )
 
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText('pathkeep.remote-backup.v1'),
+        within(remotePanel).getByText(settingsT('bundleVersion')),
+      ).toBeVisible()
+      expect(
+        within(remotePanel).getByText('pathkeep.remote-backup.v1'),
       ).toBeVisible()
     })
 
     await user.click(
       within(settingsPage).getByRole('button', {
-        name: 'Disable plugin',
+        name: settingsT('disablePlugin'),
       }),
     )
     await waitFor(() => {
       expect(
         within(settingsPage).getByRole('button', {
-          name: 'Enable plugin',
+          name: settingsT('enablePlugin'),
         }),
       ).toBeVisible()
     })
 
     await user.click(
       within(settingsPage).getByRole('button', {
-        name: 'Clear derived state',
+        name: settingsT('clearDerivedState'),
       }),
     )
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText('Derived state cleared'),
+        within(settingsPage).getByText(settingsT('clearCompletedTitle')),
       ).toBeVisible()
     })
 
     await user.click(
       within(settingsPage).getByRole('button', {
-        name: 'Rebuild derived state',
+        name: settingsT('rebuildDerivedState'),
       }),
     )
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText('Derived state rebuilt'),
+        within(settingsPage).getByText(settingsT('rebuildCompletedTitle')),
       ).toBeVisible()
     })
   })
@@ -426,6 +524,9 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     const settingsPage = await screen.findByTestId('settings-page')
+    const aiPanel = expectHtmlElement(
+      within(settingsPage).getByText(settingsT('aiProvider')).closest('.panel'),
+    )
     const providerNameInput =
       within(settingsPage).getByDisplayValue('Local LLM')
 
@@ -434,12 +535,12 @@ describe('App shell', () => {
 
     expect(saveConfigSpy).not.toHaveBeenCalled()
     expect(
-      within(settingsPage).getByText('AI configuration changes need review'),
+      within(aiPanel).getByText(settingsT('aiUnsavedChanges')),
     ).toBeVisible()
 
     await user.click(
-      within(settingsPage).getByRole('button', {
-        name: 'Save AI settings',
+      within(aiPanel).getByRole('button', {
+        name: settingsT('aiSaveConfig'),
       }),
     )
 

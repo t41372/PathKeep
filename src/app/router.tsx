@@ -10,6 +10,7 @@ import { SecurityPage } from '../pages/security'
 import { SettingsPage } from '../pages/settings'
 import { OnboardingPage } from '../pages/onboarding'
 import { OnboardingShell } from './onboarding-shell'
+import { RequireLockScreen, RequireUnlockedShell } from './route-guards'
 import { AppShell } from './shell'
 
 export type AppRouteId =
@@ -245,12 +246,24 @@ const appRouteChildren: RouteObject[] = [
 export const appRoutes: RouteObject[] = [
   {
     path: '/',
-    element: <AppShell />,
+    element: (
+      <RequireUnlockedShell>
+        <AppShell />
+      </RequireUnlockedShell>
+    ),
     children: appRouteChildren,
   },
   {
+    path: '/lock',
+    element: <RequireLockScreen />,
+  },
+  {
     path: '/onboarding',
-    element: <OnboardingShell />,
+    element: (
+      <RequireUnlockedShell>
+        <OnboardingShell />
+      </RequireUnlockedShell>
+    ),
     handle: withHandle(onboardingScreen),
     children: [
       {

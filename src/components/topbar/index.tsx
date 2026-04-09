@@ -12,7 +12,14 @@ interface TopbarProps {
 export function Topbar({ screen }: TopbarProps) {
   const navigate = useNavigate()
   const { t } = useI18n()
-  const { busyAction, notice, runBackup, snapshot } = useShellData()
+  const {
+    appLockStatus,
+    busyAction,
+    lockAppSession,
+    notice,
+    runBackup,
+    snapshot,
+  } = useShellData()
   const [query, setQuery] = useState('')
 
   const backupDisabled = !snapshot || busyAction !== null
@@ -60,10 +67,23 @@ export function Topbar({ screen }: TopbarProps) {
           />
         </form>
         <ProfileSwitcher />
+        {appLockStatus?.enabled ? (
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={busyAction !== null}
+            onClick={() => {
+              void lockAppSession('manual')
+            }}
+          >
+            {t('navigation.lockNow')}
+          </button>
+        ) : null}
         <button
           className="btn-backup"
           type="button"
           disabled={backupDisabled}
+          aria-busy={busyAction !== null}
           onClick={() => {
             if (!snapshot?.config.initialized) {
               void navigate('/onboarding')
@@ -73,7 +93,7 @@ export function Topbar({ screen }: TopbarProps) {
           }}
         >
           <span aria-hidden className="backup-icon">
-            ▶
+            ⟳
           </span>
           {busyAction ?? backupLabel}
         </button>

@@ -21,7 +21,7 @@ interface ScheduleLoadState {
   error: string | null
 }
 
-type PmeTab = 'preview' | 'manual' | 'execute'
+type PmeTab = 'preview' | 'manual' | 'execute' | 'verify'
 
 interface ScheduleExecutionState {
   mode: 'apply' | 'remove'
@@ -115,6 +115,7 @@ export function SchedulePage() {
   const lastBackup =
     status?.lastSuccessfulBackupAt ??
     snapshot?.archiveStatus.lastSuccessfulBackupAt
+  const latestAuditPath = executionResult?.result.auditPath ?? status?.auditPath
 
   const badge =
     status?.installState === 'installed'
@@ -207,6 +208,36 @@ export function SchedulePage() {
         title={t(platformLabelKey(status.platform))}
         body={t(platformSummaryKey(status.platform))}
       />
+      <StatusCallout
+        tone={scheduleInstallTone(status.installState)}
+        title={badge}
+        body={installDescription}
+        actions={
+          <div className="intelligence-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setPmeTab('preview')}
+            >
+              {t('common.previewTab')}
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setPmeTab('execute')}
+            >
+              {t('common.executeTab')}
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setPmeTab('verify')}
+            >
+              {t('common.verifyTab')}
+            </button>
+          </div>
+        }
+      />
 
       <div className="panel">
         <div className="panel-header">
@@ -277,21 +308,25 @@ export function SchedulePage() {
         <div className="panel-header">
           <span className="panel-title">{t('schedule.pmeTitle')}</span>
           <div className="pme-tabs">
-            {(['preview', 'manual', 'execute'] as PmeTab[]).map((tab) => (
-              <button
-                aria-pressed={pmeTab === tab}
-                key={tab}
-                className={`pme-tab ${pmeTab === tab ? 'active' : ''}`}
-                type="button"
-                onClick={() => setPmeTab(tab)}
-              >
-                {tab === 'preview'
-                  ? t('common.previewTab')
-                  : tab === 'manual'
-                    ? t('common.manualTab')
-                    : t('common.executeTab')}
-              </button>
-            ))}
+            {(['preview', 'manual', 'execute', 'verify'] as PmeTab[]).map(
+              (tab) => (
+                <button
+                  aria-pressed={pmeTab === tab}
+                  key={tab}
+                  className={`pme-tab ${pmeTab === tab ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setPmeTab(tab)}
+                >
+                  {tab === 'preview'
+                    ? t('common.previewTab')
+                    : tab === 'manual'
+                      ? t('common.manualTab')
+                      : tab === 'execute'
+                        ? t('common.executeTab')
+                        : t('common.verifyTab')}
+                </button>
+              ),
+            )}
           </div>
         </div>
         <div className="panel-body">
@@ -366,9 +401,7 @@ export function SchedulePage() {
             <div className="manual-steps">
               {status.manualSteps.map((step, index) => (
                 <div key={step} className="manual-step">
-                  <span className="step-num-inline mono">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
+                  <span className="step-num-inline mono">{index + 1}</span>
                   <span>{step}</span>
                 </div>
               ))}
@@ -501,6 +534,91 @@ export function SchedulePage() {
                   {t('schedule.initializeArchiveFirst')}
                 </p>
               )}
+            </div>
+          )}
+
+          {pmeTab === 'verify' && (
+            <div className="settings-result-list">
+              <div className="summary-label">{t('common.verifyTab')}</div>
+              <p className="dashboard-next-action">{installDescription}</p>
+              <div className="config-row">
+                <span className="config-label">
+                  {t('schedule.installState')}
+                </span>
+                <span className="config-value">{badge}</span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {t('schedule.lastTriggered')}
+                </span>
+                <span className="config-value mono">
+                  {lastBackup
+                    ? formatRelativeTime(lastBackup, language)
+                    : t('common.notAvailable')}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('common.filesLabel')}</span>
+                <span className="config-value mono">
+                  {status.detectedFiles.length > 0
+                    ? String(status.detectedFiles.length)
+                    : t('common.notAvailable')}
+                </span>
+              </div>
+              {status.detectedFiles.length > 0 ? (
+                <div className="manual-steps">
+                  {status.detectedFiles.map((path) => (
+                    <div key={path} className="manual-step">
+                      <span className="step-num-inline mono">
+                        {t('common.fileStepLabel')}
+                      </span>
+                      <span className="mono">{path}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {status.warnings.length > 0 ? (
+                <div className="warning-box">
+                  <div className="warning-icon">⚠</div>
+                  <div className="warning-text">
+                    {status.warnings.map((warning) => (
+                      <div key={warning}>{warning}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <StatusCallout
+                  tone="success"
+                  title={t('common.statusClear')}
+                  body={installDescription}
+                />
+              )}
+              {executionResult ? (
+                <div className="warning-box">
+                  <div className="warning-icon">ℹ</div>
+                  <div className="warning-text">
+                    <strong>
+                      {executionResult.mode === 'apply'
+                        ? t('schedule.applySchedule')
+                        : t('schedule.removeSchedule')}
+                    </strong>{' '}
+                    {executionResult.result.message}
+                  </div>
+                </div>
+              ) : null}
+              {latestAuditPath ? (
+                <div className="code-actions">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void backend.openPathInFileManager(latestAuditPath)
+                    }}
+                  >
+                    {t('schedule.openLatestAudit')}
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

@@ -5,7 +5,8 @@ use crate::{
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, HistoryQuery,
-    RunInsightsRequest, S3CredentialInput, SchedulePlan, TakeoutRequest,
+    RunInsightsRequest, S3CredentialInput, SchedulePlan, SetAppLockPasscodeRequest, TakeoutRequest,
+    UnlockAppSessionRequest,
 };
 use vault_worker::{self, RekeyRequest};
 
@@ -233,6 +234,37 @@ pub(crate) fn security_status_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::SecurityStatus, String> {
     worker_result(vault_worker::security_status(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn app_lock_status_impl() -> Result<vault_core::AppLockStatus, String> {
+    worker_result(vault_worker::load_app_lock_status())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn set_app_lock_passcode_impl(
+    request: SetAppLockPasscodeRequest,
+) -> Result<vault_core::AppLockStatus, String> {
+    worker_result(vault_worker::configure_app_lock_passcode(&request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn clear_app_lock_passcode_impl() -> Result<vault_core::AppLockStatus, String> {
+    worker_result(vault_worker::remove_app_lock_passcode())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn lock_app_session_impl(
+    reason: Option<String>,
+) -> Result<vault_core::AppLockStatus, String> {
+    worker_result(vault_worker::lock_app_ui_session(reason.as_deref()))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn unlock_app_session_impl(
+    request: UnlockAppSessionRequest,
+) -> Result<vault_core::AppLockStatus, String> {
+    worker_result(vault_worker::unlock_app_ui_session(&request))
 }
 
 pub(crate) fn keyring_get_database_key_impl() -> Result<Option<String>, String> {
@@ -890,6 +922,81 @@ mod tests {
         assert!(!info.version.is_empty());
         assert!(!info.git_commit_short.is_empty());
         assert!(!info.git_commit_full.is_empty());
+    }
+
+    #[test]
+    fn app_lock_bridge_guards_desktop_read_models_until_unlock() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let session = SessionState::default();
+        let mut config = initialized_config();
+        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+
+        let passcode_status = set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
+            passcode: "2468".to_string(),
+            recovery_hint: Some("desk drawer".to_string()),
+        })
+        .expect("set app lock passcode");
+        assert!(passcode_status.passcode_configured);
+        let app_lock_status = app_lock_status_impl().expect("load app lock status");
+        assert!(app_lock_status.passcode_configured);
+
+        config.app_lock.enabled = true;
+        let saved_snapshot =
+            save_config_impl(config, session_key(&session).as_deref()).expect("enable app lock");
+        assert!(saved_snapshot.config.app_lock.enabled);
+
+        let locked = lock_app_session_impl(Some("manual".to_string())).expect("lock app session");
+        assert!(locked.locked);
+        assert_eq!(locked.lock_reason.as_deref(), Some("manual"));
+
+        let snapshot_error =
+            app_snapshot_impl(session_key(&session).as_deref()).expect_err("snapshot should block");
+        assert!(snapshot_error.contains("currently locked"));
+
+        let dashboard_error = dashboard_snapshot_impl(session_key(&session).as_deref())
+            .expect_err("dashboard should block");
+        assert!(dashboard_error.contains("currently locked"));
+
+        let unlock_error = unlock_app_session_impl(UnlockAppSessionRequest {
+            passcode: Some("9999".to_string()),
+            use_biometric: false,
+        })
+        .expect_err("wrong passcode should fail");
+        assert!(unlock_error.contains("did not match"));
+
+        let unlocked = unlock_app_session_impl(UnlockAppSessionRequest {
+            passcode: Some("2468".to_string()),
+            use_biometric: false,
+        })
+        .expect("unlock app session");
+        assert!(!unlocked.locked);
+
+        let snapshot =
+            app_snapshot_impl(session_key(&session).as_deref()).expect("snapshot after unlock");
+        assert!(snapshot.archive_status.initialized);
+        let dashboard =
+            dashboard_snapshot_impl(session_key(&session).as_deref()).expect("dashboard");
+        assert!(!dashboard.recent_runs.is_empty());
+        let cleared = clear_app_lock_passcode_impl().expect("clear app lock passcode");
+        assert!(!cleared.enabled);
+        assert!(!cleared.passcode_configured);
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
     }
 
     #[test]

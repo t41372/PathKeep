@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
+import { LoadingState } from '../../components/primitives/loading-state'
 import { SkeletonInsights } from '../../components/primitives/skeleton'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend'
@@ -195,6 +196,11 @@ export function InsightsPage() {
           description={insightsT('archiveNotInitializedDescription')}
           eyebrow={insightsT('intelligenceEyebrow')}
           title={insightsT('archiveNotInitializedTitle')}
+          action={
+            <Link className="btn-primary" to="/onboarding">
+              {insightsT('goToSetup')}
+            </Link>
+          }
         />
       </section>
     )
@@ -222,6 +228,11 @@ export function InsightsPage() {
           description={insightsT('emptyDescription')}
           eyebrow={insightsT('intelligenceEyebrow')}
           title={insightsT('emptyTitle')}
+          action={
+            <Link className="btn-secondary" to="/explorer">
+              {insightsT('openExplorer')}
+            </Link>
+          }
         />
       </section>
     )
@@ -260,15 +271,34 @@ export function InsightsPage() {
       )}
 
       {activeProfileId ? (
-        <p className="mono-support">
-          {commonT('profileScope')}: {profileIdLabel(activeProfileId)}
-        </p>
+        <StatusCallout
+          tone="info"
+          eyebrow={commonT('profileScope')}
+          title={insightsT('scopedViewTitle')}
+          body={insightsT('scopedViewBody', {
+            profile: profileIdLabel(activeProfileId),
+          })}
+        />
       ) : null}
 
       {loadError ? (
         <ErrorState
           title={insightsT('refreshAttentionTitle')}
           description={loadError}
+        />
+      ) : null}
+
+      {action ? (
+        <LoadingState
+          compact
+          label={action}
+          detail={
+            selectedCard
+              ? selectedCard.summary
+              : insightsT('storageAnalyticsDescription')
+          }
+          progressLabel={selectedCard ? '2 / 2' : '1 / 2'}
+          progressValue={selectedCard ? 100 : 50}
         />
       ) : null}
 
@@ -380,7 +410,11 @@ export function InsightsPage() {
         <div className="panel panel-wide">
           <div className="panel-header">
             <span className="panel-title">{insightsT('storageAnalytics')}</span>
-            <span className="panel-action">{insightsT('growthSignal')}</span>
+            <span className="panel-action">
+              {activeProfileId
+                ? insightsT('archiveWideBadge')
+                : insightsT('growthSignal')}
+            </span>
           </div>
           <div className="panel-body intelligence-stack">
             {dashboard ? (

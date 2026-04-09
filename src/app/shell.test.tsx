@@ -62,6 +62,7 @@ describe('AppShell', () => {
 
     const shellValue: ShellDataContextValue = {
       buildInfo: null,
+      appLockStatus: null,
       snapshot: null,
       dashboard: null,
       loading: false,
@@ -83,6 +84,10 @@ describe('AppShell', () => {
       saveConfig: () => Promise.reject(new Error('not implemented')),
       initializeArchive: () => Promise.reject(new Error('not implemented')),
       runBackup: () => Promise.reject(new Error('not implemented')),
+      setAppLockPasscode: () => Promise.reject(new Error('not implemented')),
+      clearAppLockPasscode: () => Promise.reject(new Error('not implemented')),
+      lockAppSession: () => Promise.reject(new Error('not implemented')),
+      unlockAppSession: () => Promise.reject(new Error('not implemented')),
       clearNotice: () => undefined,
     }
 

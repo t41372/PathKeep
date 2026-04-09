@@ -29,8 +29,17 @@ describe('Shell primitives', () => {
   test('renders loading and error state affordances', () => {
     render(
       <>
-        <BusyOverlay label="Applying native schedule changes" />
-        <LoadingState label="Rebuilding the semantic index" />
+        <BusyOverlay
+          label="Applying native schedule changes"
+          progressLabel="2 / 4"
+          progressValue={50}
+        />
+        <LoadingState
+          label="Rebuilding the semantic index"
+          detail="Refreshing derived views without blocking the archive."
+          progressLabel="1 / 2"
+          progressValue={50}
+        />
         <ErrorState
           description="The app should pause here and show rollback instructions."
           title="Schedule preview unavailable"
@@ -42,6 +51,7 @@ describe('Shell primitives', () => {
 
     expect(statuses[0]).toHaveTextContent('Applying native schedule changes')
     expect(statuses[1]).toHaveTextContent('Rebuilding the semantic index')
+    expect(screen.getAllByText('50%')).toHaveLength(2)
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Schedule preview unavailable',
     )

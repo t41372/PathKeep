@@ -16,20 +16,22 @@
    - 啟動 backup / import / doctor / future reindex，回傳 `run_id`
 4. Artifact fetch
    - 用 `run_id` 或 artifact id 拉 manifest、snapshot metadata、preview bundle
+5. Session guard
+   - 提供 app lock 狀態、鎖定 / 解鎖與 lock-aware refusal path
 
 ---
 
 ## Draft Domains
 
-| Domain     | Read model                                 | Mutating / Preview                                                                | Artifact                                           |
-| ---------- | ------------------------------------------ | --------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `app`      | `app.snapshot`, `app.build_info`           | -                                                                                 | -                                                  |
-| `archive`  | `archive.status`, `explorer.query_history` | `archive.backup.preview`, `archive.backup.execute`                                | `artifacts.list_for_run`, `artifacts.get_manifest` |
-| `import`   | `import.list_batches`                      | `archive.import.preview`, `archive.import.execute`                                | `artifacts.get_preview_bundle`                     |
-| `rollback` | `audit.get_run_detail`                     | `archive.rollback.preview`, `archive.rollback.execute`                            | `artifacts.list_for_run`                           |
-| `schedule` | `schedule.get_status`                      | `schedule.install.preview`, `schedule.install.execute`, `schedule.install.remove` | `artifacts.get_preview_bundle`                     |
-| `security` | `security.get_status`                      | `security.rekey.preview`, `security.rekey.execute`                                | `artifacts.list_for_run`                           |
-| `doctor`   | `audit.list_runs`                          | `jobs.start_doctor`                                                               | `artifacts.get_doctor_report`                      |
+| Domain     | Read model                                          | Mutating / Preview                                                                | Artifact                                           |
+| ---------- | --------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `app`      | `app.snapshot`, `app.build_info`, `app.lock_status` | `app.lock.configure`, `app.lock.lock`, `app.lock.unlock`                          | -                                                  |
+| `archive`  | `archive.status`, `explorer.query_history`          | `archive.backup.preview`, `archive.backup.execute`                                | `artifacts.list_for_run`, `artifacts.get_manifest` |
+| `import`   | `import.list_batches`                               | `archive.import.preview`, `archive.import.execute`                                | `artifacts.get_preview_bundle`                     |
+| `rollback` | `audit.get_run_detail`                              | `archive.rollback.preview`, `archive.rollback.execute`                            | `artifacts.list_for_run`                           |
+| `schedule` | `schedule.get_status`                               | `schedule.install.preview`, `schedule.install.execute`, `schedule.install.remove` | `artifacts.get_preview_bundle`                     |
+| `security` | `security.get_status`                               | `security.rekey.preview`, `security.rekey.execute`                                | `artifacts.list_for_run`                           |
+| `doctor`   | `audit.list_runs`                                   | `jobs.start_doctor`                                                               | `artifacts.get_doctor_report`                      |
 
 ---
 
@@ -40,6 +42,7 @@
 - 2026-04-06 audit follow-up：目前已經有對應的現行命令可承接這份草案的核心 read models / previews，例如 `schedule_status`、`security_status`、`preview_rekey_archive`、`preview_schedule`、`apply_schedule`
 - 2026-04-07 trust UX follow-up：現行 schedule execute surface 也已補上 `remove_schedule`，讓原生排程安裝和解除安裝都能留在同一個 PME / audit 故事裡
 - 2026-04-07 M2-A follow-up：`inspect_takeout`、`import_takeout`、`preview_import_batch`、`revert_import_batch`、`restore_import_batch`、`doctor_report`、`repair_health` 已把 import / rollback / doctor 的現行 command surface 接上 unified run / artifact story
+- 2026-04-08 app lock follow-up：現行 surface 已加入 `app_lock_status`、`set_app_lock_passcode`、`clear_app_lock_passcode`、`lock_app_session`、`unlock_app_session`。`app_snapshot`、dashboard、Explorer、Insights、AI queue / MCP 等 data read commands 必須在 locked state 下回傳 refusal，而不是偷偷載入 archive data
 - 新命令不要再以舊 UI 頁面名稱或 legacy product strings 命名
 - 新 preview / execute 流程要直接對齊 PME
 - 新 long-running 操作要以 unified `runs` ledger 為中心回報狀態

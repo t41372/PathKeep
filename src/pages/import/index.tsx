@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -278,6 +279,11 @@ export function ImportPage() {
           description={t('import.archiveNotInitializedBody')}
           eyebrow={t('navigation.importLabel')}
           title={t('import.archiveNotInitialized')}
+          action={
+            <Link className="btn-primary" to="/onboarding">
+              {t('import.goToSetup')}
+            </Link>
+          }
         />
       </section>
     )
@@ -322,6 +328,7 @@ export function ImportPage() {
           <button
             className={`import-card ${method === 'takeout' ? 'active-import' : ''}`}
             type="button"
+            aria-pressed={method === 'takeout'}
             onClick={() => setMethod('takeout')}
           >
             <div className="import-card-icon">↓</div>
@@ -335,6 +342,7 @@ export function ImportPage() {
           <button
             className={`import-card ${method === 'browser' ? 'active-import' : ''}`}
             type="button"
+            aria-pressed={method === 'browser'}
             onClick={() => setMethod('browser')}
           >
             <div className="import-card-icon">⊕</div>
@@ -346,6 +354,11 @@ export function ImportPage() {
             </div>
           </button>
         </div>
+        <p className="dim" style={{ marginTop: 'var(--space-2)' }}>
+          {method === 'takeout'
+            ? t('import.takeoutPreparationHint')
+            : t('import.browserPreparationHint')}
+        </p>
 
         <div className="wizard-panel">
           <div className="wizard-steps">
@@ -417,6 +430,7 @@ export function ImportPage() {
                       void handleScan()
                     }}
                     disabled={!sourcePath.trim()}
+                    aria-disabled={!sourcePath.trim()}
                   >
                     {t('import.scanSource')}
                   </button>
@@ -429,6 +443,8 @@ export function ImportPage() {
                 <BusyOverlay
                   label={t('import.scanningTitle')}
                   detail={t('import.workflowPreviewReason')}
+                  progressLabel={`2 / ${wizardSteps.length.toLocaleString(language)}`}
+                  progressValue={(2 / wizardSteps.length) * 100}
                   steps={wizardSteps
                     .slice(0, 3)
                     .map((wizardStep) => wizardStep.label)}
@@ -485,8 +501,23 @@ export function ImportPage() {
                     </div>
                     {inspection.recognizedFiles.map((file) => (
                       <div key={file.path} className="file-item">
-                        <span className="file-status ok">✓</span>
-                        <span className="file-name mono">{file.path}</span>
+                        <span
+                          className="file-status ok"
+                          aria-label={t('common.statusSuccess')}
+                        >
+                          ✓
+                        </span>
+                        <span
+                          className="file-name mono"
+                          title={file.path}
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {file.path}
+                        </span>
                         <span className="file-detail dim">
                           {file.records.toLocaleString(language)} · {file.kind}
                         </span>
@@ -507,8 +538,23 @@ export function ImportPage() {
                     </div>
                     {inspection.quarantinedFiles.map((file) => (
                       <div key={file.path} className="file-item">
-                        <span className="file-status warn">⚠</span>
-                        <span className="file-name mono">{file.path}</span>
+                        <span
+                          className="file-status warn"
+                          aria-label={t('common.warning')}
+                        >
+                          ⚠
+                        </span>
+                        <span
+                          className="file-name mono"
+                          title={file.path}
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {file.path}
+                        </span>
                         <span className="file-detail dim">{file.status}</span>
                       </div>
                     ))}
@@ -546,11 +592,54 @@ export function ImportPage() {
                   </div>
                 )}
 
+                <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
+                  <div className="panel-header">
+                    <span className="panel-title">
+                      {t('import.confirmSummaryTitle')}
+                    </span>
+                  </div>
+                  <div className="panel-body">
+                    <p className="dim">{t('import.confirmSummaryBody')}</p>
+                    <div className="manifest-grid">
+                      <div className="manifest-field">
+                        <span className="field-label">
+                          {t('import.confirmSummaryNewRecords')}
+                        </span>
+                        <span className="field-value mono accent">
+                          {(
+                            inspection.candidateItems -
+                            inspection.duplicateItems
+                          ).toLocaleString(language)}
+                        </span>
+                      </div>
+                      <div className="manifest-field">
+                        <span className="field-label">
+                          {t('import.confirmSummaryDuplicates')}
+                        </span>
+                        <span className="field-value mono">
+                          {inspection.duplicateItems.toLocaleString(language)}
+                        </span>
+                      </div>
+                      <div className="manifest-field">
+                        <span className="field-label">
+                          {t('import.confirmSummaryFiles')}
+                        </span>
+                        <span className="field-value mono">
+                          {inspection.recognizedFiles.length.toLocaleString(
+                            language,
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="wizard-actions">
                   <button
                     className="btn-secondary"
                     type="button"
                     onClick={() => setStep('select')}
+                    disabled={importing}
                   >
                     {t('import.backAction')}
                   </button>
@@ -560,6 +649,7 @@ export function ImportPage() {
                     onClick={() => {
                       void handleImport()
                     }}
+                    disabled={importing}
                   >
                     {t('import.confirmImport')}
                   </button>
@@ -571,7 +661,9 @@ export function ImportPage() {
               <div style={{ position: 'relative', minHeight: '120px' }}>
                 <BusyOverlay
                   label={t('import.importingTitle')}
-                  detail={t('import.workflowExecuteReason')}
+                  detail={`${(inspection?.candidateItems ?? 0).toLocaleString(language)} records · ${(inspection?.recognizedFiles.length ?? 0).toLocaleString(language)} files`}
+                  progressLabel={`4 / ${wizardSteps.length.toLocaleString(language)}`}
+                  progressValue={(4 / wizardSteps.length) * 100}
                   steps={wizardSteps
                     .slice(2)
                     .map((wizardStep) => wizardStep.label)}
@@ -648,7 +740,11 @@ export function ImportPage() {
                       onClick={() => setSelectedBatchId(batch.id)}
                     >
                       <div className="result-row__header">
-                        <strong>#{batch.id}</strong>
+                        <strong>
+                          {t('import.batchIdLabel', {
+                            id: String(batch.id),
+                          })}
+                        </strong>
                         <span
                           aria-label={t(importBatchStatusKey(batch.status))}
                           className="status-badge"
@@ -656,7 +752,17 @@ export function ImportPage() {
                           {t(importBatchStatusKey(batch.status))}
                         </span>
                       </div>
-                      <p className="mono">{batch.sourcePath}</p>
+                      <p
+                        className="mono"
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={batch.sourcePath}
+                      >
+                        {batch.sourcePath}
+                      </p>
                       <div className="result-row__meta dim">
                         <span>
                           {t('import.importedRows')}: {batch.importedItems}
@@ -688,11 +794,13 @@ export function ImportPage() {
                     void handleRunDoctor()
                   }}
                 >
-                  {t('common.runDoctorAction')}
+                  {t('import.runHealthCheckAction')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
+                  disabled={!healthReport}
+                  aria-disabled={!healthReport}
                   onClick={() => {
                     void handleRepairHealth()
                   }}
@@ -700,6 +808,9 @@ export function ImportPage() {
                   {t('common.repairAction')}
                 </button>
               </div>
+              <p className="dim" style={{ marginTop: 'var(--space-2)' }}>
+                {t('import.repairDescription')}
+              </p>
               {healthReport ? (
                 <div
                   className="manual-steps"
@@ -709,8 +820,8 @@ export function ImportPage() {
                     <StatusCallout
                       key={check.name}
                       tone={healthCheckStatusTone(check.status)}
-                      title={t(healthCheckStatusKey(check.status))}
-                      body={`${check.name} — ${check.message}`}
+                      title={`${t(healthCheckStatusKey(check.status))} — ${check.name}`}
+                      body={check.message}
                     />
                   ))}
                 </div>
@@ -718,7 +829,9 @@ export function ImportPage() {
                 <p className="dim">{t('import.noHealthChecks')}</p>
               )}
               {repairNotice ? (
-                <p className="mono-support">{repairNotice}</p>
+                <p className="mono-support" role="status">
+                  {repairNotice}
+                </p>
               ) : null}
             </div>
           </div>
@@ -816,6 +929,9 @@ export function ImportPage() {
                         )
                       }}
                       disabled={selectedBatchDetail.batch.status === 'reverted'}
+                      aria-disabled={
+                        selectedBatchDetail.batch.status === 'reverted'
+                      }
                     >
                       {t('import.revertBatch')}
                     </button>
@@ -829,6 +945,9 @@ export function ImportPage() {
                         )
                       }}
                       disabled={selectedBatchDetail.batch.status !== 'reverted'}
+                      aria-disabled={
+                        selectedBatchDetail.batch.status !== 'reverted'
+                      }
                     >
                       {t('import.restoreBatch')}
                     </button>

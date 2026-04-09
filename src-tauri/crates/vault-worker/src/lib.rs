@@ -18,23 +18,25 @@ use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIndexStatus,
     AiIntegrationPreview, AiProviderConfig, AiProviderConnectionTestReport,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderRuntime, AiProviderSecretInput,
-    AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot,
-    ArchiveMode, AuditRunDetail, BackupProgressEvent, ClearDerivedIntelligenceReport,
+    AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, AppLockStatus,
+    AppSnapshot, ArchiveMode, AuditRunDetail, BackupProgressEvent, ClearDerivedIntelligenceReport,
     DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthRepairReport, HealthReport,
     HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot,
     InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
     RemoteBackupResult, RemoteBackupVerification, RunInsightsReport, RunInsightsRequest,
-    S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest, ai_index_status, ai_queue,
-    ai_queue_status, answer_history_question, archive, archive_status, build_ai_index,
-    clear_derived_intelligence_state, doctor, ensure_archive_initialized, explain_insight,
-    export_history, import_takeout, insight_status, inspect_takeout, list_history,
-    load_assistant_run_response, load_audit_run_detail, load_config, load_dashboard_snapshot,
-    load_import_batches, load_insight_thread_detail, load_insights, load_recent_runs,
-    preview_ai_integrations, preview_import_batch, preview_remote_backup, project_paths,
-    provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
-    repair_health_issues, restore_import_batch, revert_import_batch, run_backup_with_progress,
-    run_insights, run_remote_backup, save_config, semantic_search_history,
-    test_provider_connection, verify_remote_backup,
+    S3CredentialInput, SchedulePlan, SetAppLockPasscodeRequest, TakeoutInspection, TakeoutRequest,
+    UnlockAppSessionRequest, ai_index_status, ai_queue, ai_queue_status, answer_history_question,
+    app_lock_status, archive, archive_status, build_ai_index, clear_app_lock_passcode,
+    clear_derived_intelligence_state, doctor, ensure_app_lock_unlocked, ensure_archive_initialized,
+    explain_insight, export_history, hydrate_app_lock_config, import_takeout, insight_status,
+    inspect_takeout, list_history, load_assistant_run_response, load_audit_run_detail, load_config,
+    load_dashboard_snapshot, load_import_batches, load_insight_thread_detail, load_insights,
+    load_recent_runs, lock_app_session, preview_ai_integrations, preview_import_batch,
+    preview_remote_backup, project_paths, provider_connection_failure_report,
+    reconcile_ai_queue_controls, rekey_archive, repair_health_issues, restore_import_batch,
+    revert_import_batch, run_backup_with_progress, run_insights, run_remote_backup, save_config,
+    semantic_search_history, set_app_lock_passcode, test_provider_connection, unlock_app_session,
+    validate_app_lock_config, verify_remote_backup,
 };
 use vault_platform::{
     ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
@@ -122,6 +124,19 @@ fn hydrate_derived_config_state(config: &mut AppConfig) {
     config.remote_backup.credentials_saved = s3_credentials_saved();
     hydrate_provider_collection(&mut config.ai.llm_providers);
     hydrate_provider_collection(&mut config.ai.embedding_providers);
+}
+
+fn load_hydrated_config(paths: &vault_core::ProjectPaths) -> Result<AppConfig> {
+    let mut config = load_config(paths)?;
+    hydrate_derived_config_state(&mut config);
+    hydrate_app_lock_config(paths, &mut config)?;
+    Ok(config)
+}
+
+fn load_unlocked_config(paths: &vault_core::ProjectPaths) -> Result<AppConfig> {
+    let config = load_hydrated_config(paths)?;
+    ensure_app_lock_unlocked(paths, &config)?;
+    Ok(config)
 }
 
 fn derive_ai_status(
@@ -508,23 +523,46 @@ pub(crate) fn mcp_search_result(
 }
 
 pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<McpArchiveStatus> {
-    let snapshot = app_snapshot(database_key)?;
+    let paths = project_paths()?;
+    let config = load_hydrated_config(&paths)?;
+    let lock = app_lock_status(&paths, &config)?;
+    let archive_status = if lock.locked {
+        archive_status(&paths, &config, None).unwrap_or_default()
+    } else {
+        archive_status(&paths, &config, database_key)?
+    };
+    let ai_status = if lock.locked {
+        AiIndexStatus {
+            enabled: config.ai.enabled,
+            assistant_enabled: config.ai.assistant_enabled,
+            mcp_enabled: config.ai.mcp_enabled,
+            skill_enabled: config.ai.skill_enabled,
+            state: "blocked".to_string(),
+            warning: Some("PathKeep is currently locked.".to_string()),
+            ..AiIndexStatus::default()
+        }
+    } else {
+        derive_ai_status(&paths, &config, database_key)
+    };
     Ok(McpArchiveStatus {
-        initialized: snapshot.archive_status.initialized,
-        encrypted: snapshot.archive_status.encrypted,
-        unlocked: snapshot.archive_status.unlocked,
-        ai_enabled: snapshot.ai_status.enabled,
-        assistant_enabled: snapshot.ai_status.assistant_enabled,
-        semantic_index_enabled: snapshot.config.ai.semantic_index_enabled,
-        indexed_items: snapshot.ai_status.indexed_items,
-        warning: snapshot.ai_status.warning.or(snapshot.archive_status.warning),
+        initialized: archive_status.initialized,
+        encrypted: archive_status.encrypted,
+        unlocked: archive_status.unlocked && !lock.locked,
+        ai_enabled: ai_status.enabled,
+        assistant_enabled: ai_status.assistant_enabled,
+        semantic_index_enabled: config.ai.semantic_index_enabled,
+        indexed_items: ai_status.indexed_items,
+        warning: if lock.locked {
+            Some("PathKeep is currently locked.".to_string())
+        } else {
+            ai_status.warning.or(archive_status.warning)
+        },
     })
 }
 
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let browser_profiles = vault_core::discover_profiles()?;
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
@@ -532,6 +570,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
     let recent_import_batches =
         load_import_batches(&paths, &config, session_database_key).unwrap_or_default();
+    let app_lock_status = app_lock_status(&paths, &config)?;
 
     Ok(AppSnapshot {
         directories: vault_core::AppDirectories {
@@ -550,6 +589,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         },
         config,
         archive_status,
+        app_lock_status,
         keyring_status: keyring_status(),
         ai_status,
         insight_status,
@@ -564,9 +604,11 @@ pub fn save_user_config(
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
     let paths = project_paths()?;
-    let previous_config = load_config(&paths).unwrap_or_default();
+    let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
+    hydrate_app_lock_config(&paths, &mut next_config)?;
+    validate_app_lock_config(&paths, &next_config)?;
     save_config(&paths, &next_config)?;
     if let Err(error) =
         reconcile_ai_queue_controls(&paths, &previous_config, &next_config, session_database_key)
@@ -586,6 +628,8 @@ pub fn initialize_archive_database(
     let paths = project_paths()?;
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
+    hydrate_app_lock_config(&paths, &mut next_config)?;
+    validate_app_lock_config(&paths, &next_config)?;
     save_config(&paths, &next_config)?;
     ensure_archive_initialized(&paths, &next_config, database_key)?;
     app_snapshot(database_key)
@@ -596,7 +640,7 @@ pub fn rekey_archive_database(
     request: &RekeyRequest,
 ) -> Result<AppSnapshot> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     rekey_archive(&paths, &config, old_key, request.new_mode.clone(), request.new_key.as_deref())?;
     let mut next_config = config;
     next_config.archive_mode = request.new_mode.clone();
@@ -621,7 +665,7 @@ where
     F: FnMut(BackupProgressEvent),
 {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     let mut report =
         run_backup_with_progress(&paths, &config, session_database_key, due_only, |event| {
             report_progress(event);
@@ -702,19 +746,19 @@ pub fn query_history(
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     list_history(&paths, &config, session_database_key, query)
 }
 
 pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<DashboardSnapshot> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     load_dashboard_snapshot(&paths, &config, session_database_key)
 }
 
 pub fn audit_run_detail(session_database_key: Option<&str>, run_id: i64) -> Result<AuditRunDetail> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     load_audit_run_detail(&paths, &config, session_database_key, run_id)
 }
 
@@ -723,14 +767,13 @@ pub fn export_query(
     request: ExportRequest,
 ) -> Result<vault_core::ExportResult> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     export_history(&paths, &config, session_database_key, request)
 }
 
 pub fn preview_remote_backup_bundle() -> Result<RemoteBackupPreview> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     preview_remote_backup(&paths, &config)
 }
 
@@ -738,8 +781,7 @@ pub fn upload_remote_backup_bundle(
     session_database_key: Option<&str>,
 ) -> Result<RemoteBackupResult> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let credentials = keyring_get_s3_credentials()?
         .context("store S3 credentials in Settings before running a remote backup")?;
     run_remote_backup(&paths, &config, session_database_key, &credentials)
@@ -749,6 +791,9 @@ pub fn verify_remote_backup_bundle(
     session_database_key: Option<&str>,
     bundle_path: &str,
 ) -> Result<RemoteBackupVerification> {
+    let paths = project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let _ = app_lock_status(&paths, &config)?;
     verify_remote_backup(std::path::Path::new(bundle_path), session_database_key)
 }
 
@@ -756,7 +801,7 @@ pub fn clear_derived_intelligence(
     session_database_key: Option<&str>,
 ) -> Result<ClearDerivedIntelligenceReport> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     clear_derived_intelligence_state(&paths, &config, session_database_key)
 }
 
@@ -770,7 +815,7 @@ pub fn import_takeout_source(
     request: &TakeoutRequest,
 ) -> Result<TakeoutInspection> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     import_takeout(&paths, &config, session_database_key, request)
 }
 
@@ -779,7 +824,7 @@ pub fn preview_import_batch_detail(
     batch_id: i64,
 ) -> Result<ImportBatchDetail> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     preview_import_batch(&paths, &config, session_database_key, batch_id)
 }
 
@@ -788,7 +833,7 @@ pub fn revert_import_batch_detail(
     batch_id: i64,
 ) -> Result<ImportBatchDetail> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     revert_import_batch(&paths, &config, session_database_key, batch_id)
 }
 
@@ -797,19 +842,19 @@ pub fn restore_import_batch_detail(
     batch_id: i64,
 ) -> Result<ImportBatchDetail> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     restore_import_batch(&paths, &config, session_database_key, batch_id)
 }
 
 pub fn doctor_report(session_database_key: Option<&str>) -> Result<HealthReport> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     doctor(&paths, &config, session_database_key)
 }
 
 pub fn repair_health(session_database_key: Option<&str>) -> Result<HealthRepairReport> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     repair_health_issues(&paths, &config, session_database_key)
 }
 
@@ -849,7 +894,7 @@ pub fn schedule_status(
     executable_path: Option<PathBuf>,
 ) -> Result<vault_core::ScheduleStatus> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     let executable = executable_path
         .or_else(|| std::env::current_exe().ok())
         .context("resolving executable path for schedule status")?;
@@ -869,7 +914,7 @@ pub fn schedule_status(
 
 pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core::SecurityStatus> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     let archive = archive_status(&paths, &config, session_database_key)?;
     let keyring = keyring_status();
     let mut warnings = Vec::new();
@@ -917,12 +962,42 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
     })
 }
 
+pub fn load_app_lock_status() -> Result<AppLockStatus> {
+    let paths = project_paths()?;
+    let config = load_hydrated_config(&paths)?;
+    app_lock_status(&paths, &config)
+}
+
+pub fn configure_app_lock_passcode(request: &SetAppLockPasscodeRequest) -> Result<AppLockStatus> {
+    let paths = project_paths()?;
+    let mut config = load_hydrated_config(&paths)?;
+    set_app_lock_passcode(&paths, &mut config, request)
+}
+
+pub fn remove_app_lock_passcode() -> Result<AppLockStatus> {
+    let paths = project_paths()?;
+    let mut config = load_hydrated_config(&paths)?;
+    clear_app_lock_passcode(&paths, &mut config)
+}
+
+pub fn lock_app_ui_session(reason: Option<&str>) -> Result<AppLockStatus> {
+    let paths = project_paths()?;
+    let config = load_hydrated_config(&paths)?;
+    lock_app_session(&paths, &config, reason)
+}
+
+pub fn unlock_app_ui_session(request: &UnlockAppSessionRequest) -> Result<AppLockStatus> {
+    let paths = project_paths()?;
+    let config = load_hydrated_config(&paths)?;
+    unlock_app_session(&paths, &config, request)
+}
+
 pub fn preview_rekey_archive(
     session_database_key: Option<&str>,
     request: &RekeyRequest,
 ) -> Result<vault_core::RekeyPreview> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_unlocked_config(&paths)?;
     let archive = archive_status(&paths, &config, session_database_key)?;
     if !archive.initialized || !paths.archive_database_path.exists() {
         anyhow::bail!("initialize the archive before previewing a rekey operation");
@@ -1026,8 +1101,7 @@ pub fn test_ai_provider_connection_report(
     request: &AiProviderConnectionTestRequest,
 ) -> Result<AiProviderConnectionTestReport> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let provider_config =
         provider_config_for_request(&config, Some(&request.provider_id), request.purpose.clone())?;
 
@@ -1046,8 +1120,7 @@ pub fn test_ai_provider_connection_report(
 
 pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     ai_queue_status(&paths, &config, session_database_key)
 }
 
@@ -1056,8 +1129,7 @@ pub fn run_ai_queue_jobs(
     max_jobs: Option<u32>,
 ) -> Result<AiQueueStatus> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     if config.ai.job_queue_paused {
         return ai_queue_status(&paths, &config, session_database_key);
     }
@@ -1097,16 +1169,14 @@ pub fn run_ai_queue_jobs(
 
 pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)
 }
 
 pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     ai_queue::cancel_ai_job(&connection, job_id)
 }
@@ -1116,8 +1186,7 @@ pub fn build_ai_index_now(
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let provider_config = provider_config_for_request(
         &config,
         request.provider_id.as_deref(),
@@ -1162,8 +1231,7 @@ pub fn search_ai_history(
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let embedding_provider = match selected_optional_embedding_runtime(&config) {
         Ok(provider) => provider,
         Err(error) => {
@@ -1196,8 +1264,7 @@ pub fn ask_ai_assistant(
     request: &AiAssistantRequest,
 ) -> Result<AiAssistantResponse> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let llm_provider = provider_config_for_request(&config, None, AiProviderPurpose::Llm)?;
     let embedding_provider = config.ai.embedding_provider_id.clone();
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
@@ -1234,8 +1301,7 @@ pub fn load_ai_assistant_job(
     job_id: i64,
 ) -> Result<AiAssistantResponse> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     let job = ai_queue::load_ai_job(&connection, job_id)?;
     let Some(run_id) = job.run_id else {
@@ -1276,8 +1342,7 @@ pub fn load_ai_assistant_job(
 
 pub fn preview_ai_integration_files() -> Result<AiIntegrationPreview> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     preview_ai_integrations(&paths, &config)
 }
 
@@ -1286,8 +1351,7 @@ pub fn run_insights_now(
     request: &RunInsightsRequest,
 ) -> Result<RunInsightsReport> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     let embedding_provider = selected_optional_embedding_runtime(&config).ok().flatten();
     run_insights(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
 }
@@ -1297,8 +1361,7 @@ pub fn load_insights_snapshot(
     request: &RunInsightsRequest,
 ) -> Result<InsightSnapshot> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     load_insights(&paths, &config, session_database_key, request)
 }
 
@@ -1307,8 +1370,7 @@ pub fn load_insight_thread(
     thread_id: &str,
 ) -> Result<InsightThreadDetail> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     load_insight_thread_detail(&paths, &config, session_database_key, thread_id)
 }
 
@@ -1317,8 +1379,7 @@ pub fn explain_insight_now(
     request: &ExplainInsightRequest,
 ) -> Result<InsightExplanation> {
     let paths = project_paths()?;
-    let mut config = load_config(&paths)?;
-    hydrate_derived_config_state(&mut config);
+    let config = load_unlocked_config(&paths)?;
     explain_insight(&paths, &config, session_database_key, request)
 }
 
@@ -1353,11 +1414,14 @@ impl ServerHandler for BrowserHistoryMcpServer {}
 
 fn run_mcp_stdio_server() -> Result<()> {
     let paths = project_paths()?;
-    let config = load_config(&paths)?;
+    let config = load_hydrated_config(&paths)?;
     if !config.ai.enabled || !config.ai.mcp_enabled {
         anyhow::bail!(
             "Enable AI and the MCP server in Settings before starting the MCP server worker."
         );
+    }
+    if app_lock_status(&paths, &config)?.locked {
+        anyhow::bail!("Unlock PathKeep before starting the MCP server worker.");
     }
 
     #[cfg(any(test, coverage))]
@@ -1760,6 +1824,94 @@ mod tests {
         let error =
             run_worker_cli(&["mcp-server".to_string()]).expect_err("mcp server should be gated");
         assert!(error.to_string().contains("Enable AI and the MCP server"));
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn mcp_surface_respects_visibility_and_locked_app_sessions() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+        let takeout_source = takeout_fixture(dir.path());
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let config = configured_ai_config();
+        initialize_archive_database(&config, None).expect("initialize archive");
+        run_backup_now(None, false).expect("backup");
+
+        let imported = import_takeout_source(
+            None,
+            &TakeoutRequest { source_path: takeout_source, dry_run: false },
+        )
+        .expect("import takeout");
+        let batch_id = imported.import_batch.expect("import batch").id;
+
+        let visible = mcp_search_result(
+            None,
+            McpSearchRequest {
+                query: "Imported".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+            },
+        )
+        .expect("visible mcp search");
+        assert_eq!(visible.total, 1);
+
+        revert_import_batch_detail(None, batch_id).expect("revert takeout batch");
+        let hidden = mcp_search_result(
+            None,
+            McpSearchRequest {
+                query: "Imported".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+            },
+        )
+        .expect("hidden mcp search");
+        assert_eq!(hidden.total, 0);
+
+        configure_app_lock_passcode(&SetAppLockPasscodeRequest {
+            passcode: "2468".to_string(),
+            recovery_hint: Some("desk drawer".to_string()),
+        })
+        .expect("configure app lock passcode");
+        let mut locked_config = config.clone();
+        locked_config.app_lock.enabled = true;
+        save_user_config(&locked_config, None).expect("enable app lock");
+        let locked = lock_app_ui_session(Some("manual")).expect("lock app session");
+        assert!(locked.locked);
+
+        let search_error = mcp_search_result(
+            None,
+            McpSearchRequest {
+                query: "example".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+            },
+        )
+        .expect_err("locked app should reject mcp search");
+        assert!(search_error.to_string().contains("currently locked"));
+
+        let archive_status = mcp_archive_status_result(None).expect("locked archive status");
+        assert!(!archive_status.unlocked);
+        assert_eq!(archive_status.warning.as_deref(), Some("PathKeep is currently locked."));
+
+        let cli_error =
+            run_worker_cli(&["mcp-server".to_string()]).expect_err("locked mcp server should fail");
+        assert!(cli_error.to_string().contains("Unlock PathKeep"));
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

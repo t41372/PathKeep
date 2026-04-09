@@ -2,10 +2,12 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { BusyOverlay } from '../components/primitives/busy-overlay'
 import { BrandMark } from '../components/brand-mark'
 import { useShellData } from './shell-data-context'
+import { useI18n } from '../lib/i18n'
 
 export function OnboardingShell() {
   const navigate = useNavigate()
   const { busyAction, busyOverlay } = useShellData()
+  const { t } = useI18n('shell')
 
   return (
     <div className="app-frame onboarding-frame" data-testid="onboarding-shell">
@@ -30,14 +32,10 @@ export function OnboardingShell() {
             </div>
             <div className="logo-text">
               <span className="logo-name">PATHKEEP</span>
-              <span className="logo-version">Onboarding / Setup</span>
+              <span className="logo-version">{t('onboardingVersion')}</span>
             </div>
           </div>
-          <p>
-            You can leave setup at any point. PathKeep saves the current archive
-            choices immediately and you can return from Dashboard or Settings
-            later.
-          </p>
+          <p>{t('onboardingLeaveHint')}</p>
         </div>
         <div className="onboarding-actions">
           <button
@@ -45,7 +43,7 @@ export function OnboardingShell() {
             type="button"
             onClick={() => void navigate('/')}
           >
-            Exit setup
+            {t('exitSetup')}
           </button>
         </div>
       </header>
@@ -59,6 +57,8 @@ export function OnboardingShell() {
         <BusyOverlay
           label={busyOverlay?.label ?? busyAction}
           detail={busyOverlay?.detail}
+          progressLabel={busyOverlay?.progressLabel}
+          progressValue={busyOverlay?.progressValue}
           steps={busyOverlay?.steps}
           activeStep={busyOverlay?.activeStep}
         />

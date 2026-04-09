@@ -41,6 +41,14 @@ const baseConfig: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  appLock: {
+    enabled: false,
+    idleTimeoutMinutes: 5,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    recoveryHint: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -83,12 +91,23 @@ const baseConfig: AppConfig = {
 }
 
 function createI18nValue(language: ResolvedLanguage): I18nContextValue {
+  const namespaceCache = new Map<string, ReturnType<typeof createTranslator>>()
+
   return {
     language,
     preference: language,
     setLanguagePreference: vi.fn(),
     t: createTranslator(language),
-    ns: (namespace) => createNamespaceTranslator(language, namespace),
+    ns: (namespace) => {
+      const cached = namespaceCache.get(namespace)
+      if (cached) {
+        return cached
+      }
+
+      const translator = createNamespaceTranslator(language, namespace)
+      namespaceCache.set(namespace, translator)
+      return translator
+    },
   }
 }
 
@@ -98,6 +117,7 @@ function createShellValue(
 ): ShellDataContextValue {
   return {
     buildInfo: null,
+    appLockStatus: snapshot.appLockStatus,
     snapshot,
     dashboard,
     loading: false,
@@ -116,6 +136,10 @@ function createShellValue(
       warnings: [],
       remoteBackup: null,
     }),
+    setAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    clearAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    lockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    unlockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     clearNotice: vi.fn(),
   }
 }
@@ -220,10 +244,12 @@ describe('intelligence surfaces', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     backendTestHarness.reset()
+    window.localStorage.clear()
   })
 
   test('renders localized dashboard intelligence and trust callouts', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
+    const dashboardT = createNamespaceTranslator('zh-TW', 'dashboard')
 
     enableAi(snapshot)
     snapshot.config.rememberDatabaseKeyInKeyring = true
@@ -250,20 +276,27 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('智慧')).toBeVisible()
-    expect(screen.getByRole('link', { name: '語義搜尋' })).toBeVisible()
-    expect(screen.getAllByRole('link', { name: '檢查洞察' })).toHaveLength(2)
-    expect(screen.getAllByRole('link', { name: '檢查安全狀態' })).toHaveLength(
-      2,
-    )
-    expect(screen.getAllByRole('link', { name: '檢查匯入批次' })).toHaveLength(
-      2,
-    )
-    expect(screen.getAllByRole('link', { name: '檢查洞察' })).toHaveLength(2)
+    expect(
+      await screen.findByText(dashboardT('intelligenceTitle')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: dashboardT('semanticSearchAction') }),
+    ).toBeVisible()
+    expect(
+      screen.getAllByRole('link', { name: dashboardT('reviewInsightsAction') }),
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByRole('link', { name: dashboardT('reviewSecurity') }),
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByRole('link', { name: dashboardT('reviewImportBatches') }),
+    ).toHaveLength(2)
   })
 
   test('renders dashboard on-this-day and periodic summary cards without leaking raw i18n keys', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
+    const insightsT = createNamespaceTranslator('en', 'insights')
+    const settingsT = createNamespaceTranslator('en', 'settings')
 
     renderSurface(<DashboardPage />, {
       dashboard,
@@ -272,25 +305,24 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('ON THIS DAY')).toBeVisible()
-    expect(
-      await screen.findByText('SQLite inspection in browser developer tools'),
-    ).toBeVisible()
-    expect(await screen.findByText('PERIODIC SUMMARY')).toBeVisible()
+    expect(await screen.findByText(insightsT('onThisDay'))).toBeVisible()
+    expect(await screen.findByText(insightsT('periodicSummary'))).toBeVisible()
     expect(
       screen.getByText(
         'Archive tooling is gaining momentum across docs, repo issues, and comparison pages.',
       ),
     ).toBeVisible()
-    expect(screen.getByText('Disabled')).toBeVisible()
-    expect(screen.queryByText('common.disabled')).not.toBeInTheDocument()
+    expect(screen.getByText(settingsT('disabled'))).toBeVisible()
+    expect(screen.queryByText('settings.disabled')).not.toBeInTheDocument()
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('zh-CN', 'assistant')
 
     enableAi(snapshot)
+    window.localStorage.setItem('pathkeep.profile-scope', 'chrome:Default')
 
     const queueStatus: AiQueueStatus = {
       paused: false,
@@ -368,20 +400,32 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('运行上下文')).toBeVisible()
-    expect(await screen.findByText('助手 · #77')).toBeVisible()
+    expect(await screen.findByText(assistantT('scopedViewTitle'))).toBeVisible()
+    expect(await screen.findByText(assistantT('runningContext'))).toBeVisible()
+    expect(
+      await screen.findByText(assistantT('queuedJobLabel', { id: 77 })),
+    ).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: '测试服务商' }))
-    expect(await screen.findByText('服务商可达')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: assistantT('testProvider') }),
+    )
+    expect(
+      await screen.findByText(assistantT('providerReachable')),
+    ).toBeVisible()
 
-    const input =
-      await screen.findByPlaceholderText('问一些关于你的浏览历史的问题…')
+    const input = await screen.findByPlaceholderText(
+      assistantT('inputPlaceholder'),
+    )
     await user.type(input, '总结最近的证据{enter}')
 
     expect(
       await screen.findByText('语义搜索质量趋势稳定，证据契约文档被多次访问。'),
     ).toBeVisible()
-    expect(await screen.findByText('证据 · 1 条记录')).toBeVisible()
+    expect(
+      await screen.findByText(assistantT('evidenceLabel', { count: 1 })),
+    ).toBeVisible()
+
+    window.localStorage.removeItem('pathkeep.profile-scope')
   })
 
   test('clears both explorer date bounds in a single interaction', async () => {
@@ -411,6 +455,7 @@ describe('intelligence surfaces', () => {
   test('renders insights snapshot and explainability flow', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
+    const insightsT = createNamespaceTranslator('en', 'insights')
 
     enableAi(snapshot)
 
@@ -526,12 +571,14 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('INSIGHT CARDS')).toBeVisible()
+    expect(
+      (await screen.findAllByText(insightsT('insightCards'))).length,
+    ).toBeGreaterThan(0)
     expect(await screen.findByText('Semantic recall drift')).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: 'Explain' }))
+    await user.click(screen.getByRole('button', { name: insightsT('explain') }))
 
-    expect(await screen.findByText('EXPLAINABILITY')).toBeVisible()
+    expect(await screen.findByText(insightsT('explainability'))).toBeVisible()
     expect(
       await screen.findByText(
         'This card stayed visible because the same evidence cluster reopened several times.',
@@ -541,6 +588,7 @@ describe('intelligence surfaces', () => {
 
   test('renders storage analytics linked back to the latest audit run', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
+    const insightsT = createNamespaceTranslator('en', 'insights')
 
     renderSurface(<InsightsPage />, {
       dashboard,
@@ -549,13 +597,15 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('STORAGE ANALYTICS')).toBeVisible()
-    expect(screen.getByText('Tracked storage')).toBeVisible()
-    expect(screen.getByText('Reclaimable')).toBeVisible()
-    expect(screen.getAllByText('Core archive').length).toBeGreaterThan(0)
+    expect(await screen.findByText(insightsT('storageAnalytics'))).toBeVisible()
+    expect(screen.getByText(insightsT('trackedStorage'))).toBeVisible()
+    expect(screen.getByText(insightsT('reclaimableSpace'))).toBeVisible()
+    expect(
+      screen.getAllByText(insightsT('coreStorage')).length,
+    ).toBeGreaterThan(0)
 
     const growthLink = screen.getByRole('link', {
-      name: /Latest audit-linked growth/i,
+      name: new RegExp(insightsT('latestRunGrowth'), 'i'),
     })
     expect(growthLink).toHaveAttribute(
       'href',

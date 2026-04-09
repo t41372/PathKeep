@@ -41,6 +41,7 @@ export function SecurityPage() {
   const [sessionKey, setSessionKey] = useState('')
   const [rekeyMode, setRekeyMode] = useState<ArchiveMode>('Encrypted')
   const [rekeyKey, setRekeyKey] = useState('')
+  const [rekeyConfirmText, setRekeyConfirmText] = useState('')
   const [saveRekeyKey, setSaveRekeyKey] = useState(false)
   const [preview, setPreview] = useState<RekeyPreview | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -200,6 +201,7 @@ export function SecurityPage() {
       await reloadAfterAction(t('security.executeRekey'))
       setPreview(null)
       setRekeyKey('')
+      setRekeyConfirmText('')
     })
   }
 
@@ -359,6 +361,7 @@ export function SecurityPage() {
               </span>
               <input
                 aria-label={t('security.currentDatabaseKey')}
+                autoComplete="current-password"
                 type="password"
                 value={sessionKey}
                 onChange={(event) => setSessionKey(event.target.value)}
@@ -439,6 +442,7 @@ export function SecurityPage() {
                 value={rekeyMode}
                 onChange={(event) => {
                   setPreview(null)
+                  setRekeyConfirmText('')
                   setRekeyMode(event.target.value as ArchiveMode)
                 }}
               >
@@ -457,6 +461,7 @@ export function SecurityPage() {
                 </span>
                 <input
                   aria-label={t('security.newDatabaseKey')}
+                  autoComplete="new-password"
                   type="password"
                   value={rekeyKey}
                   onChange={(event) => setRekeyKey(event.target.value)}
@@ -480,6 +485,25 @@ export function SecurityPage() {
             </label>
           )}
 
+          {rekeyMode === 'Plaintext' && preview !== null && (
+            <label
+              className="field-stack"
+              style={{ marginTop: 'var(--space-3)' }}
+            >
+              <span className="mono-kicker">
+                {t('security.rekeyConfirmLabel')}
+              </span>
+              <input
+                aria-label={t('security.rekeyConfirmLabel')}
+                autoComplete="off"
+                type="text"
+                value={rekeyConfirmText}
+                onChange={(event) => setRekeyConfirmText(event.target.value)}
+                placeholder={t('security.rekeyConfirmPlaceholder')}
+              />
+            </label>
+          )}
+
           <div className="wizard-actions">
             <button
               className="btn-secondary"
@@ -497,7 +521,10 @@ export function SecurityPage() {
                 rekeyMode === 'Plaintext' ? 'btn-danger' : 'btn-primary'
               }
               type="button"
-              disabled={preview === null}
+              disabled={
+                preview === null ||
+                (rekeyMode === 'Plaintext' && rekeyConfirmText !== 'confirm')
+              }
               onClick={() => {
                 void handleExecuteRekey()
               }}
@@ -536,9 +563,7 @@ export function SecurityPage() {
               </div>
               {preview.steps.map((step, index) => (
                 <div key={step} className="manual-step">
-                  <span className="step-num-inline mono">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
+                  <span className="step-num-inline mono">{index + 1}</span>
                   <span>{step}</span>
                 </div>
               ))}

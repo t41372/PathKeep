@@ -21,6 +21,7 @@ import type {
   AiProviderConfig,
   AiRequestFormat,
   AiSettings,
+  AppLockConfig,
   ClearDerivedIntelligenceReport,
   RemoteBackupConfig,
   RemoteBackupPreview,
@@ -58,8 +59,17 @@ function serializeAiSettings(settings: AiSettings | null | undefined) {
 }
 
 export function SettingsPage() {
-  const { buildInfo, dashboard, refreshAppData, saveConfig, snapshot } =
-    useShellData()
+  const {
+    appLockStatus,
+    buildInfo,
+    clearAppLockPasscode,
+    dashboard,
+    lockAppSession,
+    refreshAppData,
+    saveConfig,
+    setAppLockPasscode,
+    snapshot,
+  } = useShellData()
   const { language, setLanguagePreference, t } = useI18n()
   const [saving, setSaving] = useState(false)
   const [remoteTab, setRemoteTab] = useState<
@@ -88,6 +98,10 @@ export function SettingsPage() {
     scheduleStatus: null,
     securityStatus: null,
   })
+  const [appLockDraft, setAppLockDraft] = useState<AppLockConfig | null>(null)
+  const [appLockPasscode, setAppLockPasscodeDraft] = useState('')
+  const [appLockRecoveryHint, setAppLockRecoveryHint] = useState('')
+  const [appLockAction, setAppLockAction] = useState<string | null>(null)
   const [aiDraft, setAiDraft] = useState<AiSettings | null>(null)
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
   const lastSyncedAiSignatureRef = useRef<string | null>(null)
@@ -123,6 +137,15 @@ export function SettingsPage() {
     }
 
     setRemoteDraft(snapshot.config.remoteBackup)
+  }, [snapshot])
+
+  useEffect(() => {
+    if (!snapshot) {
+      return
+    }
+
+    setAppLockDraft(snapshot.config.appLock)
+    setAppLockRecoveryHint(snapshot.config.appLock.recoveryHint ?? '')
   }, [snapshot])
 
   const snapshotAiSignature = useMemo(
@@ -186,15 +209,22 @@ export function SettingsPage() {
   )
   const latestRemoteBundlePath = remoteResult?.bundlePath ?? null
   const currentAiSettings = aiDraft ?? snapshot.config.ai
+  const currentAppLockSettings = appLockDraft ?? snapshot.config.appLock
   const aiConfigDirty =
     snapshotAiSignature !== null &&
     serializeAiSettings(currentAiSettings) !== snapshotAiSignature
+  const appLockConfigDirty =
+    JSON.stringify(currentAppLockSettings) !==
+    JSON.stringify(snapshot.config.appLock)
   const persistedProviderIds = new Set(
     [
       ...snapshot.config.ai.llmProviders,
       ...snapshot.config.ai.embeddingProviders,
     ].map((provider) => provider.id),
   )
+  const appLockCanEnable =
+    currentAppLockSettings.passcodeConfigured ||
+    Boolean(appLockStatus?.passcodeConfigured)
 
   function updateAiDraft(updater: (current: AiSettings) => AiSettings) {
     setAiDraft((current) =>
@@ -425,6 +455,67 @@ export function SettingsPage() {
     }
   }
 
+  async function handleSaveAppLockConfig() {
+    if (!snapshot || !appLockDraft) {
+      return
+    }
+
+    setAppLockAction(t('settings.appLockSaving'))
+    try {
+      const nextSnapshot = await saveConfig({
+        ...snapshot.config,
+        appLock: {
+          ...appLockDraft,
+          biometricEnabled:
+            appLockDraft.biometricEnabled &&
+            Boolean(appLockStatus?.biometricAvailable),
+          passcodeEnabled: true,
+          passcodeConfigured:
+            appLockStatus?.passcodeConfigured ??
+            appLockDraft.passcodeConfigured,
+          recoveryHint: appLockRecoveryHint.trim() || null,
+        },
+      })
+      setAppLockDraft(nextSnapshot.config.appLock)
+      setAppLockRecoveryHint(nextSnapshot.config.appLock.recoveryHint ?? '')
+    } finally {
+      setAppLockAction(null)
+    }
+  }
+
+  async function handleSetAppLockPasscode() {
+    setAppLockAction(t('settings.appLockSavingPasscode'))
+    try {
+      await setAppLockPasscode({
+        passcode: appLockPasscode,
+        recoveryHint: appLockRecoveryHint.trim() || null,
+      })
+      setAppLockPasscodeDraft('')
+    } finally {
+      setAppLockAction(null)
+    }
+  }
+
+  async function handleClearAppLockPasscode() {
+    setAppLockAction(t('settings.appLockClearingPasscode'))
+    try {
+      await clearAppLockPasscode()
+      setAppLockPasscodeDraft('')
+      setAppLockRecoveryHint('')
+    } finally {
+      setAppLockAction(null)
+    }
+  }
+
+  async function handleLockNow() {
+    setAppLockAction(t('settings.appLockLockingNow'))
+    try {
+      await lockAppSession('manual')
+    } finally {
+      setAppLockAction(null)
+    }
+  }
+
   function handleAiToggle() {
     updateAiDraft((current) => ({
       ...current,
@@ -605,14 +696,354 @@ export function SettingsPage() {
     remove: t('settings.aiRemoveProvider'),
   }
 
+  const noAiProviders =
+    currentAiSettings.llmProviders.length === 0 &&
+    currentAiSettings.embeddingProviders.length === 0
+
   return (
     <section className="page-shell settings-page" data-testid="settings-page">
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{t('settings.general')}</span>
+        </div>
+        <div className="panel-body">
+          <p className="dashboard-next-action">
+            {t('settings.generalDescription')}
+          </p>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.interfaceLanguage')}
+            </span>
+            <select
+              aria-label={t('settings.interfaceLanguage')}
+              className="settings-select"
+              disabled={saving}
+              value={snapshot.config.preferredLanguage}
+              onChange={(event) => {
+                void handleLanguageChange(event.target.value)
+              }}
+            >
+              <option value="system">{t('common.followSystem')}</option>
+              {supportedLanguages.map((entry) => (
+                <option key={entry} value={entry}>
+                  {languageLabel(entry, language)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.currentLanguage')}
+            </span>
+            <span className="config-value">
+              {languageLabel(language, language)}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.dataDirectory')}</span>
+            <span className="config-value mono">
+              {snapshot.directories.appRoot}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(snapshot.directories.appRoot)
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.archiveDatabase')}
+            </span>
+            <span className="config-value mono">
+              {snapshot.directories.archiveDatabasePath}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(
+                  snapshot.directories.archiveDatabasePath,
+                )
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.auditRepository')}
+            </span>
+            <span className="config-value mono">
+              {snapshot.directories.auditRepoPath}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(
+                  snapshot.directories.auditRepoPath,
+                )
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.mcpServer')}</span>
+            <span className="config-value">
+              {snapshot.config.ai.mcpEnabled
+                ? t('settings.enabled')
+                : t('settings.disabled')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.version')}</span>
+            <span className="config-value mono">
+              {buildInfo?.version ?? t('common.notAvailable')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.gitCommit')}</span>
+            <span className="config-value mono">
+              {buildInfo?.gitCommitShort ?? t('common.notAvailable')}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{t('settings.appLock')}</span>
+          <span className="panel-badge">{t('settings.optional')}</span>
+        </div>
+        <div className="panel-body settings-remote-grid">
+          <StatusCallout
+            tone={currentAppLockSettings.enabled ? 'warning' : 'info'}
+            title={t('settings.appLockBoundaryTitle')}
+            body={t('settings.appLockBoundaryBody')}
+          />
+
+          <div className="settings-field-grid">
+            <label className="checkbox-row">
+              <input
+                aria-label={t('settings.appLockEnabled')}
+                checked={currentAppLockSettings.enabled}
+                type="checkbox"
+                onChange={(event) => {
+                  setAppLockDraft((current) =>
+                    current
+                      ? { ...current, enabled: event.target.checked }
+                      : current,
+                  )
+                }}
+              />
+              <span>{t('settings.appLockEnabled')}</span>
+            </label>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.appLockStatus')}
+              </span>
+              <span className="config-value mono">
+                {appLockStatus?.locked
+                  ? t('settings.appLockStatusLocked')
+                  : t('settings.appLockStatusUnlocked')}
+              </span>
+            </div>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.appLockIdleTimeout')}
+              </span>
+              <select
+                aria-label={t('settings.appLockIdleTimeout')}
+                className="settings-select"
+                value={currentAppLockSettings.idleTimeoutMinutes}
+                onChange={(event) => {
+                  const idleTimeoutMinutes = Number(event.target.value)
+                  setAppLockDraft((current) =>
+                    current ? { ...current, idleTimeoutMinutes } : current,
+                  )
+                }}
+              >
+                {[1, 5, 10, 15, 30, 60].map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {t('settings.appLockMinutes', { count: minutes })}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label className="checkbox-row">
+              <input
+                aria-label={t('settings.appLockBiometric')}
+                checked={currentAppLockSettings.biometricEnabled}
+                disabled={!appLockStatus?.biometricAvailable}
+                type="checkbox"
+                onChange={(event) => {
+                  setAppLockDraft((current) =>
+                    current
+                      ? { ...current, biometricEnabled: event.target.checked }
+                      : current,
+                  )
+                }}
+              />
+              <span>{t('settings.appLockBiometric')}</span>
+            </label>
+
+            {!appLockStatus?.biometricAvailable ? (
+              <p className="dashboard-next-action">
+                {t('settings.appLockBiometricUnavailable')}
+              </p>
+            ) : null}
+
+            <label className="fieldBlock">
+              <span className="config-label">
+                {t('settings.appLockRecoveryHint')}
+              </span>
+              <input
+                aria-label={t('settings.appLockRecoveryHint')}
+                className="settings-input"
+                placeholder={t('settings.appLockRecoveryHintPlaceholder')}
+                type="text"
+                value={appLockRecoveryHint}
+                onChange={(event) => {
+                  const recoveryHint = event.target.value
+                  setAppLockRecoveryHint(recoveryHint)
+                  setAppLockDraft((current) =>
+                    current ? { ...current, recoveryHint } : current,
+                  )
+                }}
+              />
+            </label>
+
+            <label className="fieldBlock">
+              <span className="config-label">
+                {t('settings.appLockPasscode')}
+              </span>
+              <input
+                aria-label={t('settings.appLockPasscode')}
+                className="settings-input"
+                placeholder={t('settings.appLockPasscodePlaceholder')}
+                type="password"
+                value={appLockPasscode}
+                onChange={(event) =>
+                  setAppLockPasscodeDraft(event.target.value)
+                }
+              />
+            </label>
+
+            <div className="settings-action-row">
+              <button
+                className="btn-primary"
+                type="button"
+                disabled={
+                  Boolean(appLockAction) ||
+                  !appLockConfigDirty ||
+                  (currentAppLockSettings.enabled && !appLockCanEnable)
+                }
+                onClick={() => {
+                  void handleSaveAppLockConfig()
+                }}
+              >
+                {appLockAction ?? t('settings.appLockSave')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={
+                  Boolean(appLockAction) || appLockPasscode.trim().length < 4
+                }
+                onClick={() => {
+                  void handleSetAppLockPasscode()
+                }}
+              >
+                {appLockStatus?.passcodeConfigured
+                  ? t('settings.appLockUpdatePasscode')
+                  : t('settings.appLockSetPasscode')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={
+                  Boolean(appLockAction) || !appLockStatus?.passcodeConfigured
+                }
+                onClick={() => {
+                  void handleClearAppLockPasscode()
+                }}
+              >
+                {t('settings.appLockClearPasscode')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={Boolean(appLockAction) || !appLockStatus?.enabled}
+                onClick={() => {
+                  void handleLockNow()
+                }}
+              >
+                {t('settings.appLockLockNow')}
+              </button>
+            </div>
+
+            {!appLockCanEnable ? (
+              <StatusCallout
+                tone="warning"
+                title={t('settings.appLockNeedsPasscodeTitle')}
+                body={t('settings.appLockNeedsPasscodeBody')}
+              />
+            ) : null}
+
+            {appLockStatus?.degradationNotes.map((note) => (
+              <p key={note} className="dashboard-next-action">
+                {note}
+              </p>
+            ))}
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.appLockConfigPath')}
+              </span>
+              <span className="config-value mono">
+                {appLockStatus?.configPath ?? t('common.notAvailable')}
+              </span>
+              <button
+                className="btn-tiny"
+                type="button"
+                onClick={() => {
+                  if (appLockStatus?.configPath) {
+                    void backend.openPathInFileManager(appLockStatus.configPath)
+                  }
+                }}
+              >
+                {t('settings.openDirectory')}
+              </button>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.appLockLastUnlocked')}
+              </span>
+              <span className="config-value mono">
+                {appLockStatus?.lastUnlockedAt ?? t('common.notAvailable')}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="panel">
         <div className="panel-header">
           <span className="panel-title">{t('settings.browserProfiles')}</span>
           <span className="panel-action">{t('common.rescanAction')}</span>
         </div>
         <div className="panel-body">
+          <p className="dashboard-next-action">
+            {t('settings.browserProfilesBody')}
+          </p>
           <div className="profile-list">
             {profiles.map((profile) => {
               const checked = selectedIds.has(profile.profileId)
@@ -651,6 +1082,325 @@ export function SettingsPage() {
                 </button>
               )
             })}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{t('settings.aiProvider')}</span>
+          <span className="panel-badge">{t('settings.optional')}</span>
+        </div>
+        <div className="panel-body">
+          <p className="dashboard-next-action">
+            {t('settings.aiProviderBody')}
+          </p>
+          {noAiProviders ? (
+            <StatusCallout
+              tone="info"
+              title={t('settings.aiGettingStartedTitle')}
+              body={t('settings.aiGettingStartedBody')}
+            />
+          ) : null}
+          <StatusCallout
+            tone={aiConfigDirty ? 'warning' : 'info'}
+            title={
+              aiConfigDirty
+                ? t('settings.aiUnsavedChanges')
+                : t('settings.aiDraftSaved')
+            }
+            body={t('settings.aiDraftBoundaryBody')}
+            actions={
+              <div className="settings-action-row">
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={saving || !aiConfigDirty}
+                  onClick={() => {
+                    void handleSaveAiConfig()
+                  }}
+                >
+                  {saving
+                    ? t('settings.aiSavingConfig')
+                    : t('settings.aiSaveConfig')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={saving || !aiConfigDirty}
+                  onClick={handleResetAiConfig}
+                >
+                  {t('settings.aiResetDraft')}
+                </button>
+              </div>
+            }
+          />
+
+          <label className="checkbox-row">
+            <input
+              aria-label={t('settings.aiMasterToggle')}
+              checked={currentAiSettings.enabled}
+              type="checkbox"
+              disabled={saving}
+              onChange={() => {
+                void handleAiToggle()
+              }}
+            />
+            <span>{t('settings.aiMasterToggle')}</span>
+          </label>
+
+          <AiProviderEditorList
+            addLabel={t('settings.aiAddLlmProvider')}
+            apiKeys={aiApiKeys}
+            disabled={saving}
+            onAdd={() => handleAddProvider('llm')}
+            onApiKeyChange={(id, value) =>
+              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
+            }
+            onClearKey={(id) => {
+              void handleClearAiApiKey(id)
+            }}
+            onClearKeyDisabled={(providerId) =>
+              saving || !persistedProviderIds.has(providerId)
+            }
+            onRemove={(id) => handleRemoveProvider('llm', id)}
+            onSaveKey={(id) => {
+              void handleSaveAiApiKey(id)
+            }}
+            onSaveKeyDisabled={(providerId) =>
+              saving ||
+              !persistedProviderIds.has(providerId) ||
+              !aiApiKeys[providerId]?.trim()
+            }
+            onSelect={(id) => handleSelectProvider('llm', id)}
+            onUpdate={(id, patch) => handleUpdateProvider('llm', id, patch)}
+            providers={currentAiSettings.llmProviders}
+            purpose="llm"
+            selectedProviderId={currentAiSettings.llmProviderId ?? null}
+            title={t('settings.aiLlmProviders')}
+            translations={aiProviderTranslations}
+          />
+
+          <AiProviderEditorList
+            addLabel={t('settings.aiAddEmbeddingProvider')}
+            apiKeys={aiApiKeys}
+            disabled={saving}
+            onAdd={() => handleAddProvider('embedding')}
+            onApiKeyChange={(id, value) =>
+              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
+            }
+            onClearKey={(id) => {
+              void handleClearAiApiKey(id)
+            }}
+            onClearKeyDisabled={(providerId) =>
+              saving || !persistedProviderIds.has(providerId)
+            }
+            onRemove={(id) => handleRemoveProvider('embedding', id)}
+            onSaveKey={(id) => {
+              void handleSaveAiApiKey(id)
+            }}
+            onSaveKeyDisabled={(providerId) =>
+              saving ||
+              !persistedProviderIds.has(providerId) ||
+              !aiApiKeys[providerId]?.trim()
+            }
+            onSelect={(id) => handleSelectProvider('embedding', id)}
+            onUpdate={(id, patch) =>
+              handleUpdateProvider('embedding', id, patch)
+            }
+            providers={currentAiSettings.embeddingProviders}
+            purpose="embedding"
+            selectedProviderId={currentAiSettings.embeddingProviderId ?? null}
+            title={t('settings.aiEmbeddingProviders')}
+            translations={aiProviderTranslations}
+          />
+
+          <div className="config-row" style={{ marginTop: 'var(--space-4)' }}>
+            <span className="config-label">
+              {t('settings.aiActiveLlmProvider')}
+            </span>
+            <span className="config-value mono">
+              {currentAiSettings.llmProviders.find(
+                (p) => p.id === currentAiSettings.llmProviderId,
+              )?.name ?? t('settings.aiNoneSelected')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {t('settings.aiActiveEmbeddingProvider')}
+            </span>
+            <span className="config-value mono">
+              {currentAiSettings.embeddingProviders.find(
+                (p) => p.id === currentAiSettings.embeddingProviderId,
+              )?.name ?? t('settings.aiNoneSelected')}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">
+            {t('settings.enrichmentDerivedState')}
+          </span>
+          <span className="panel-badge">{t('settings.derivedOnly')}</span>
+        </div>
+        <div className="panel-body settings-remote-grid">
+          <StatusCallout
+            tone="info"
+            title={t('settings.derivedStateBoundaryTitle')}
+            body={t('settings.derivedStateBoundaryBody')}
+            actions={
+              <div className="settings-action-row">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={Boolean(derivedAction)}
+                  onClick={() => {
+                    void handleRebuildDerivedState()
+                  }}
+                >
+                  {t('settings.rebuildDerivedState')}
+                </button>
+                <button
+                  className="btn-danger"
+                  type="button"
+                  disabled={Boolean(derivedAction)}
+                  onClick={() => {
+                    void handleClearDerivedState()
+                  }}
+                >
+                  {t('settings.clearDerivedState')}
+                </button>
+              </div>
+            }
+          />
+
+          <div className="result-row result-row--active">
+            <div className="result-row__header">
+              <strong>{t('settings.readableContentRefetch')}</strong>
+              <span className="mono">
+                {readableRefetchPlugin.enabled
+                  ? t('settings.enabled')
+                  : t('settings.disabled')}
+              </span>
+            </div>
+            <p>{t('settings.readableContentRefetchBody')}</p>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.pluginVersion')}
+              </span>
+              <span className="config-value mono">
+                {readableRefetchPlugin.version}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">{t('settings.pluginQueue')}</span>
+              <span className="config-value mono">
+                {readableRefetchMeta?.queue ?? t('common.notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.pluginFreshness')}
+              </span>
+              <span className="config-value mono">
+                {readableRefetchMeta?.freshnessDays
+                  ? t('settings.daysFreshness', {
+                      days: readableRefetchMeta.freshnessDays,
+                    })
+                  : t('common.notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.pluginDerivedTables')}
+              </span>
+              <span className="config-value mono">
+                {readableRefetchMeta?.derivedTables.join(', ')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.pluginStorageImpact')}
+              </span>
+              <span className="config-value">
+                {t('settings.readableContentRefetchImpact')}
+              </span>
+            </div>
+            <div className="settings-action-row">
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={Boolean(derivedAction)}
+                onClick={() => {
+                  void handleReadableRefetchToggle()
+                }}
+              >
+                {readableRefetchPlugin.enabled
+                  ? t('settings.disablePlugin')
+                  : t('settings.enablePlugin')}
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-result-list">
+            {dashboard?.recentRuns[0] ? (
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{t('settings.latestGrowthSignal')}</strong>
+                  <Link
+                    className="btn-tiny"
+                    to={`/audit?run=${dashboard.recentRuns[0].id}`}
+                  >
+                    {t('settings.openAuditRun')}
+                  </Link>
+                </div>
+                <p>
+                  {t('settings.latestGrowthSignalBody', {
+                    runId: dashboard.recentRuns[0].id,
+                    visits: dashboard.recentRuns[0].newVisits,
+                    urls: dashboard.recentRuns[0].newUrls,
+                    downloads: dashboard.recentRuns[0].newDownloads,
+                  })}
+                </p>
+              </div>
+            ) : null}
+            {rebuildReport ? (
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{t('settings.rebuildCompletedTitle')}</strong>
+                  <span className="mono">#{rebuildReport.runId}</span>
+                </div>
+                <p>
+                  {t('settings.rebuildCompletedBody', {
+                    visits: rebuildReport.processedVisits,
+                    enriched: rebuildReport.enrichedVisits,
+                    cards: rebuildReport.cardCount,
+                  })}
+                </p>
+              </div>
+            ) : null}
+            {clearReport ? (
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{t('settings.clearCompletedTitle')}</strong>
+                  <span className="mono">
+                    {clearReport.clearedCardRows + clearReport.clearedTopicRows}
+                  </span>
+                </div>
+                <p>
+                  {t('settings.clearCompletedBody', {
+                    enrichments: clearReport.clearedEnrichmentRows,
+                    features: clearReport.clearedFeatureRows,
+                    cards: clearReport.clearedCardRows,
+                  })}
+                </p>
+              </div>
+            ) : null}
+            {derivedAction ? (
+              <StatusCallout tone="info" title={derivedAction} body="" />
+            ) : null}
           </div>
         </div>
       </div>
@@ -1123,429 +1873,13 @@ export function SettingsPage() {
       <div className="panel">
         <div className="panel-header">
           <span className="panel-title">
-            {t('settings.enrichmentDerivedState')}
-          </span>
-          <span className="panel-badge">{t('settings.derivedOnly')}</span>
-        </div>
-        <div className="panel-body settings-remote-grid">
-          <StatusCallout
-            tone="info"
-            title={t('settings.derivedStateBoundaryTitle')}
-            body={t('settings.derivedStateBoundaryBody')}
-            actions={
-              <div className="settings-action-row">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={Boolean(derivedAction)}
-                  onClick={() => {
-                    void handleRebuildDerivedState()
-                  }}
-                >
-                  {t('settings.rebuildDerivedState')}
-                </button>
-                <button
-                  className="btn-danger"
-                  type="button"
-                  disabled={Boolean(derivedAction)}
-                  onClick={() => {
-                    void handleClearDerivedState()
-                  }}
-                >
-                  {t('settings.clearDerivedState')}
-                </button>
-              </div>
-            }
-          />
-
-          <div className="result-row result-row--active">
-            <div className="result-row__header">
-              <strong>{t('settings.readableContentRefetch')}</strong>
-              <span className="mono">
-                {readableRefetchPlugin.enabled
-                  ? t('settings.enabled')
-                  : t('settings.disabled')}
-              </span>
-            </div>
-            <p>{t('settings.readableContentRefetchBody')}</p>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginVersion')}
-              </span>
-              <span className="config-value mono">
-                {readableRefetchPlugin.version}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('settings.pluginQueue')}</span>
-              <span className="config-value mono">
-                {readableRefetchMeta?.queue ?? t('common.notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginFreshness')}
-              </span>
-              <span className="config-value mono">
-                {readableRefetchMeta?.freshnessDays
-                  ? t('settings.daysFreshness', {
-                      days: readableRefetchMeta.freshnessDays,
-                    })
-                  : t('common.notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginDerivedTables')}
-              </span>
-              <span className="config-value mono">
-                {readableRefetchMeta?.derivedTables.join(', ')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginStorageImpact')}
-              </span>
-              <span className="config-value">
-                {t('settings.readableContentRefetchImpact')}
-              </span>
-            </div>
-            <div className="settings-action-row">
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={Boolean(derivedAction)}
-                onClick={() => {
-                  void handleReadableRefetchToggle()
-                }}
-              >
-                {readableRefetchPlugin.enabled
-                  ? t('settings.disablePlugin')
-                  : t('settings.enablePlugin')}
-              </button>
-            </div>
-          </div>
-
-          <div className="settings-result-list">
-            {dashboard?.recentRuns[0] ? (
-              <div className="result-row">
-                <div className="result-row__header">
-                  <strong>{t('settings.latestGrowthSignal')}</strong>
-                  <Link
-                    className="btn-tiny"
-                    to={`/audit?run=${dashboard.recentRuns[0].id}`}
-                  >
-                    {t('settings.openAuditRun')}
-                  </Link>
-                </div>
-                <p>
-                  {t('settings.latestGrowthSignalBody', {
-                    runId: dashboard.recentRuns[0].id,
-                    visits: dashboard.recentRuns[0].newVisits,
-                    urls: dashboard.recentRuns[0].newUrls,
-                    downloads: dashboard.recentRuns[0].newDownloads,
-                  })}
-                </p>
-              </div>
-            ) : null}
-            {rebuildReport ? (
-              <div className="result-row">
-                <div className="result-row__header">
-                  <strong>{t('settings.rebuildCompletedTitle')}</strong>
-                  <span className="mono">#{rebuildReport.runId}</span>
-                </div>
-                <p>
-                  {t('settings.rebuildCompletedBody', {
-                    visits: rebuildReport.processedVisits,
-                    enriched: rebuildReport.enrichedVisits,
-                    cards: rebuildReport.cardCount,
-                  })}
-                </p>
-              </div>
-            ) : null}
-            {clearReport ? (
-              <div className="result-row">
-                <div className="result-row__header">
-                  <strong>{t('settings.clearCompletedTitle')}</strong>
-                  <span className="mono">
-                    {clearReport.clearedCardRows + clearReport.clearedTopicRows}
-                  </span>
-                </div>
-                <p>
-                  {t('settings.clearCompletedBody', {
-                    enrichments: clearReport.clearedEnrichmentRows,
-                    features: clearReport.clearedFeatureRows,
-                    cards: clearReport.clearedCardRows,
-                  })}
-                </p>
-              </div>
-            ) : null}
-            {derivedAction ? (
-              <StatusCallout tone="info" title={derivedAction} body="" />
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.aiProvider')}</span>
-          <span className="panel-badge">{t('settings.optional')}</span>
-        </div>
-        <div className="panel-body">
-          <StatusCallout
-            tone={aiConfigDirty ? 'warning' : 'info'}
-            title={
-              aiConfigDirty
-                ? t('settings.aiUnsavedChanges')
-                : t('settings.aiDraftSaved')
-            }
-            body={t('settings.aiDraftBoundaryBody')}
-            actions={
-              <div className="settings-action-row">
-                <button
-                  className="btn-primary"
-                  type="button"
-                  disabled={saving || !aiConfigDirty}
-                  onClick={() => {
-                    void handleSaveAiConfig()
-                  }}
-                >
-                  {saving
-                    ? t('settings.aiSavingConfig')
-                    : t('settings.aiSaveConfig')}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={saving || !aiConfigDirty}
-                  onClick={handleResetAiConfig}
-                >
-                  {t('settings.aiResetDraft')}
-                </button>
-              </div>
-            }
-          />
-
-          <label className="checkbox-row">
-            <input
-              aria-label={t('settings.aiMasterToggle')}
-              checked={currentAiSettings.enabled}
-              type="checkbox"
-              disabled={saving}
-              onChange={() => {
-                void handleAiToggle()
-              }}
-            />
-            <span>{t('settings.aiMasterToggle')}</span>
-          </label>
-
-          <AiProviderEditorList
-            addLabel={t('settings.aiAddLlmProvider')}
-            apiKeys={aiApiKeys}
-            disabled={saving}
-            onAdd={() => handleAddProvider('llm')}
-            onApiKeyChange={(id, value) =>
-              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
-            }
-            onClearKey={(id) => {
-              void handleClearAiApiKey(id)
-            }}
-            onClearKeyDisabled={(providerId) =>
-              saving || !persistedProviderIds.has(providerId)
-            }
-            onRemove={(id) => handleRemoveProvider('llm', id)}
-            onSaveKey={(id) => {
-              void handleSaveAiApiKey(id)
-            }}
-            onSaveKeyDisabled={(providerId) =>
-              saving ||
-              !persistedProviderIds.has(providerId) ||
-              !aiApiKeys[providerId]?.trim()
-            }
-            onSelect={(id) => handleSelectProvider('llm', id)}
-            onUpdate={(id, patch) => handleUpdateProvider('llm', id, patch)}
-            providers={currentAiSettings.llmProviders}
-            purpose="llm"
-            selectedProviderId={currentAiSettings.llmProviderId ?? null}
-            title={t('settings.aiLlmProviders')}
-            translations={aiProviderTranslations}
-          />
-
-          <AiProviderEditorList
-            addLabel={t('settings.aiAddEmbeddingProvider')}
-            apiKeys={aiApiKeys}
-            disabled={saving}
-            onAdd={() => handleAddProvider('embedding')}
-            onApiKeyChange={(id, value) =>
-              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
-            }
-            onClearKey={(id) => {
-              void handleClearAiApiKey(id)
-            }}
-            onClearKeyDisabled={(providerId) =>
-              saving || !persistedProviderIds.has(providerId)
-            }
-            onRemove={(id) => handleRemoveProvider('embedding', id)}
-            onSaveKey={(id) => {
-              void handleSaveAiApiKey(id)
-            }}
-            onSaveKeyDisabled={(providerId) =>
-              saving ||
-              !persistedProviderIds.has(providerId) ||
-              !aiApiKeys[providerId]?.trim()
-            }
-            onSelect={(id) => handleSelectProvider('embedding', id)}
-            onUpdate={(id, patch) =>
-              handleUpdateProvider('embedding', id, patch)
-            }
-            providers={currentAiSettings.embeddingProviders}
-            purpose="embedding"
-            selectedProviderId={currentAiSettings.embeddingProviderId ?? null}
-            title={t('settings.aiEmbeddingProviders')}
-            translations={aiProviderTranslations}
-          />
-
-          <div className="config-row" style={{ marginTop: 'var(--space-4)' }}>
-            <span className="config-label">
-              {t('settings.aiActiveLlmProvider')}
-            </span>
-            <span className="config-value mono">
-              {currentAiSettings.llmProviders.find(
-                (p) => p.id === currentAiSettings.llmProviderId,
-              )?.name ?? t('settings.aiNoneSelected')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.aiActiveEmbeddingProvider')}
-            </span>
-            <span className="config-value mono">
-              {currentAiSettings.embeddingProviders.find(
-                (p) => p.id === currentAiSettings.embeddingProviderId,
-              )?.name ?? t('settings.aiNoneSelected')}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.general')}</span>
-        </div>
-        <div className="panel-body">
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.interfaceLanguage')}
-            </span>
-            <select
-              aria-label={t('settings.interfaceLanguage')}
-              className="settings-select"
-              disabled={saving}
-              value={snapshot.config.preferredLanguage}
-              onChange={(event) => {
-                void handleLanguageChange(event.target.value)
-              }}
-            >
-              <option value="system">{t('common.followSystem')}</option>
-              {supportedLanguages.map((entry) => (
-                <option key={entry} value={entry}>
-                  {languageLabel(entry, language)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.currentLanguage')}
-            </span>
-            <span className="config-value">
-              {languageLabel(language, language)}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.dataDirectory')}</span>
-            <span className="config-value mono">
-              {snapshot.directories.appRoot}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(snapshot.directories.appRoot)
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.archiveDatabase')}
-            </span>
-            <span className="config-value mono">
-              {snapshot.directories.archiveDatabasePath}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(
-                  snapshot.directories.archiveDatabasePath,
-                )
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.auditRepository')}
-            </span>
-            <span className="config-value mono">
-              {snapshot.directories.auditRepoPath}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(
-                  snapshot.directories.auditRepoPath,
-                )
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.mcpServer')}</span>
-            <span className="config-value">
-              {snapshot.config.ai.mcpEnabled
-                ? t('settings.enabled')
-                : t('settings.disabled')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.version')}</span>
-            <span className="config-value mono">
-              {buildInfo?.version ?? t('common.notAvailable')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.gitCommit')}</span>
-            <span className="config-value mono">
-              {buildInfo?.gitCommitShort ?? t('common.notAvailable')}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">
             {t('settings.platformTroubleshooting')}
           </span>
         </div>
         <div className="panel-body settings-support-grid">
+          <p className="dashboard-next-action">
+            {t('settings.platformDescription')}
+          </p>
           <StatusCallout
             tone={scheduleNeedsHelp ? 'warning' : 'info'}
             title={t(platformLabelKey(platform))}

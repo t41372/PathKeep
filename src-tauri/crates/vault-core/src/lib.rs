@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod ai_queue;
 pub mod ai_sidecar;
+pub mod app_lock;
 pub mod archive;
 pub mod chrome;
 pub mod config;
@@ -16,6 +17,11 @@ pub use ai::{
     answer_history_question, build_ai_index, load_assistant_run_response, preview_ai_integrations,
     provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
     semantic_search_history, test_provider_connection,
+};
+pub use app_lock::{
+    app_lock_status, clear_app_lock_passcode, ensure_app_lock_unlocked, hydrate_app_lock_config,
+    initialize_app_lock_session, lock_app_session, set_app_lock_passcode, unlock_app_session,
+    validate_app_lock_config,
 };
 pub use archive::{
     archive_status, doctor, ensure_archive_initialized, export_history, list_history,

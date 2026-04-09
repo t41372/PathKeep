@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 interface StatusCalloutProps {
   tone: 'info' | 'warning' | 'danger' | 'blocked' | 'success'
   title: string
-  body: string
+  body?: string
   eyebrow?: string
   actions?: ReactNode
 }
@@ -19,7 +19,7 @@ export function StatusCallout({
     <section className={`status-callout status-callout--${tone}`}>
       {eyebrow ? <p className="mono-kicker">{eyebrow}</p> : null}
       <h3>{title}</h3>
-      <p>{body}</p>
+      {body ? <p>{body}</p> : null}
       {actions ? <div className="utility-block__actions">{actions}</div> : null}
     </section>
   )

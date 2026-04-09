@@ -12,6 +12,7 @@ browser-history-parser = { version = "0.1.0", path = "../browser-history-parser"
 chrono.workspace = true
 directories.workspace = true
 futures.workspace = true
+getrandom.workspace = true
 hex.workspace = true
 iana-time-zone = "0.1.64"
 lancedb.workspace = true

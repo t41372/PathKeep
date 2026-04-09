@@ -14,6 +14,8 @@ describe('BusyOverlay', () => {
       <BusyOverlay
         label="Writing archive facts"
         detail="Large real-world profiles can take a while here."
+        progressLabel="2 / 3"
+        progressValue={67}
         steps={[
           'Inspect selected browser profiles',
           'Write the canonical archive run',
@@ -27,6 +29,8 @@ describe('BusyOverlay', () => {
     expect(
       screen.getByText('Large real-world profiles can take a while here.'),
     ).toBeVisible()
+    expect(screen.getByText('2 / 3')).toBeVisible()
+    expect(screen.getByText('67%')).toBeVisible()
     expect(
       screen
         .getByText('Inspect selected browser profiles')

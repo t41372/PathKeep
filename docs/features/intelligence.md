@@ -38,6 +38,7 @@
 - citation contract 至少包含 `historyId`、`profileId`、URL / title、visited time、score；若 citation ranking 後沒有可保留 evidence，assistant 必須拒答，而不是補一個看似合理的答案。
 - queued assistant request 可在執行前 replay / cancel；目前 running job 仍不支援 mid-flight cancel，UI 必須清楚說明這個邊界。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
+- Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
 
 ---
 
@@ -48,9 +49,9 @@
 ### MCP Server
 
 - 在設定中手動開啟。
-- App 啟動本地 MCP server。
-- 提供搜尋、檢索歷史紀錄的 MCP tools。
-- 安全考量：只綁定 localhost，不對外暴露。
+- App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時啟動本地 MCP server。
+- 提供搜尋、檢索歷史紀錄的 MCP tools；若 session 之後被 App Lock 鎖住，history query 相關 tool 必須回傳 locked refusal，而不是繞過 UI 直接讀 archive。
+- 安全考量：只綁定 localhost，不對外暴露，並且必須尊重 visibility、lock state 與 capability gating。
 
 ### AI IDE Skill
 

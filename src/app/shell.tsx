@@ -66,6 +66,8 @@ export function AppShell() {
         <BusyOverlay
           label={busyOverlay?.label ?? busyAction}
           detail={busyOverlay?.detail}
+          progressLabel={busyOverlay?.progressLabel}
+          progressValue={busyOverlay?.progressValue}
           steps={busyOverlay?.steps}
           activeStep={busyOverlay?.activeStep}
         />

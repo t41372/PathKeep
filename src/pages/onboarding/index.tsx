@@ -190,18 +190,22 @@ export function OnboardingPage() {
           <div className="stepper-track">
             {stepKeys.map((key, i) => (
               <div key={key} style={{ display: 'contents' }}>
-                <div
+                <button
+                  type="button"
                   className={`stepper-step ${i < step ? 'completed' : ''} ${i === step ? 'active' : ''} ${i < step ? 'clickable' : ''}`}
+                  aria-current={i === step ? 'step' : undefined}
+                  aria-label={`${t(key)}${i < step ? ' ✓' : ''}`}
+                  disabled={i > step}
                   onClick={() => {
                     if (i < step) setStep(i)
                   }}
                 >
                   <div className="stepper-dot">
                     <span className="stepper-check">✓</span>
-                    <span className="stepper-num">{i}</span>
+                    <span className="stepper-num">{i + 1}</span>
                   </div>
                   <span className="stepper-label">{t(key)}</span>
-                </div>
+                </button>
                 {i < stepKeys.length - 1 && (
                   <div
                     className={`stepper-line ${i < step ? 'completed' : ''} ${i === step - 1 ? 'active' : ''}`}
@@ -312,26 +316,33 @@ export function OnboardingPage() {
                   const selected = snapshot.config.selectedProfileIds.includes(
                     profile.profileId,
                   )
+                  const toggleProfile = () => {
+                    const nextSelected = selected
+                      ? snapshot.config.selectedProfileIds.filter(
+                          (v) => v !== profile.profileId,
+                        )
+                      : [
+                          ...snapshot.config.selectedProfileIds,
+                          profile.profileId,
+                        ]
+                    void updateConfig((c) => ({
+                      ...c,
+                      selectedProfileIds: nextSelected,
+                    }))
+                  }
                   return (
-                    <div
+                    <label
                       key={profile.profileId}
                       className="profile-item"
-                      onClick={() => {
-                        const nextSelected = selected
-                          ? snapshot.config.selectedProfileIds.filter(
-                              (v) => v !== profile.profileId,
-                            )
-                          : [
-                              ...snapshot.config.selectedProfileIds,
-                              profile.profileId,
-                            ]
-                        void updateConfig((c) => ({
-                          ...c,
-                          selectedProfileIds: nextSelected,
-                        }))
-                      }}
                       style={{ cursor: 'pointer' }}
                     >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={selected}
+                        onChange={toggleProfile}
+                        aria-label={`${profile.browserName} / ${profile.profileName}`}
+                      />
                       <div className={`checkbox ${selected ? 'active' : ''}`}>
                         {selected ? '✓' : ''}
                       </div>
@@ -378,7 +389,7 @@ export function OnboardingPage() {
                                 )}
                         </span>
                       </div>
-                    </div>
+                    </label>
                   )
                 })}
               </div>
@@ -477,23 +488,23 @@ export function OnboardingPage() {
                   <span className="estimate-label">
                     {t('estimateArchiveDb')}
                   </span>
-                  <span className="estimate-value">~140 MB</span>
+                  <span className="estimate-value mono">~140 MB</span>
                 </div>
                 <div className="estimate-item">
                   <span className="estimate-label">
                     {t('estimateManifest')}
                   </span>
-                  <span className="estimate-value">~375 KB</span>
+                  <span className="estimate-value mono">~375 KB</span>
                 </div>
                 <div className="estimate-item">
                   <span className="estimate-label">
                     {t('estimateSnapshots')}
                   </span>
-                  <span className="estimate-value">~1.2 MB</span>
+                  <span className="estimate-value mono">~1.2 MB</span>
                 </div>
                 <div className="estimate-item highlight">
                   <span className="estimate-label">{t('estimateTotal')}</span>
-                  <span className="estimate-value">~142 MB</span>
+                  <span className="estimate-value mono">~142 MB</span>
                 </div>
               </div>
             </div>
@@ -702,7 +713,7 @@ export function OnboardingPage() {
                       void updateConfig((c) => ({ ...c, dueAfterHours: hours }))
                     }
                   >
-                    {hours}h
+                    {t('intervalChipLabel').replace('{hours}', String(hours))}
                   </button>
                 ))}
               </div>

@@ -62,8 +62,8 @@ describe('i18n helpers', () => {
     expect(english('selectedProfiles', { count: 3 })).toBe(
       '3 selected profiles',
     )
-    expect(simplified('import.revertBatch')).toBe('回滚批次')
-    expect(traditional('import.revertBatch')).toBe('回滾批次')
+    expect(simplified('import.revertBatch')).toBe('撤销导入')
+    expect(traditional('import.revertBatch')).toBe('復原匯入')
     expect(languageLabel('system', 'en')).toBe('Follow system')
     expect(languageLabel('zh-CN', 'zh-TW')).toBe('简体中文')
     expect(languageLabel('zh-TW', 'en')).toBe('繁體中文')

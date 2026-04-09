@@ -80,7 +80,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           type="button"
           onClick={onToggle}
         >
-          <span aria-hidden>{collapsed ? '→' : '←'}</span>
+          <span aria-hidden>{collapsed ? '»' : '«'}</span>
         </button>
       </div>
 

@@ -82,6 +82,7 @@
   - 安裝結果記入審計日誌。
   - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。
 - Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
+- Schedule 的 Verify surface 必須直接列出 install state、detected files、warnings、latest audit artifact 與最近一次 apply / remove 結果，並保留 Preview / Manual / Execute / Verify 的快速切換，避免 verify 只剩一段模糊狀態字串。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
 
 ### 平台注意事項
@@ -197,6 +198,7 @@
 - Git 只管理審計文字工件：manifests, schema snapshots, 排程設定草稿, 導入/匯出報告, 完整性報告。
 - 主 SQLite archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
+- Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。
 - Doctor / 健康檢查命令：重算 archive table hash 並出報告。
 - doctor / repair baseline 至少要涵蓋 missing import audit artifact、broken visibility references、stale derived state，並把 repair 本身寫回 unified `runs` ledger。
 - 如果用戶已配置 GPG 簽名 commit，就沿用。
@@ -270,12 +272,13 @@
 
 ### 需求要點
 
-- App 級鎖定畫面：啟動時以及可配置的閒置逾時（idle timeout）後出現。
-- 支援生物辨識解鎖（macOS Touch ID / Windows Hello），以密碼作為 fallback。
-- 可選：PIN code 作為輕量替代方案。
-- Lock screen 顯示 PathKeep branding、unlock prompt、以及 "Forgot password?" 連結（導向 recovery docs）。
-- 鎖定時所有資料存取完全阻斷 — 不僅是 UI 隱藏，後端 query 也必須被攔截。MCP server 在鎖定狀態下不應回應任何資料請求。
-- Settings 中的配置項：enable / disable toggle、idle timeout duration（預設 5 分鐘，可調 1–60 分鐘）、biometric toggle、PIN code toggle。
+- App Lock 是 **UI session lock**：啟動時、手動鎖定時，以及可配置的閒置逾時（預設 5 分鐘，可調 1–60 分鐘）後出現。
+- 目前 shipped unlock path 是 **app-lock passcode**。biometric toggle 只作為 capability / degradation state 呈現；native biometric integration 尚未接進目前 build，不可假裝已可用。
+- 目前不 shipping 獨立 PIN mode；passcode 是唯一正式的解鎖憑證。
+- Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode prompt，以及帶 recovery hint / open-config-path 動作的 recovery callout。
+- 鎖定時必須阻斷 shell rendering、desktop query/read commands，以及 MCP 的 history query surface；不能只靠前端遮罩。安全例外 surface 只保留 lock status、unlock、config-path recovery 與非資料型 diagnostics。
+- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、biometric toggle（若平台未接線則 disabled + degradation note）、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
+- shared profile scope 仍然只是 viewer / filter contract，不會因為 App Lock 而升級成真正的 per-profile partition。
 
 ### 與 Archive Encryption 的區別
 
@@ -289,12 +292,15 @@
 
 ### 平台考量
 
-- **macOS**：透過 LocalAuthentication framework 支援 Touch ID。
-- **Windows**：透過 Windows Hello API 支援指紋 / 臉部辨識 / PIN。
-- **Linux**：生物辨識支援有限，預設以密碼為主。如有可用的 PAM 或 polkit 介面，可研究整合。
-- 需要先完成 `PG-RD-PLAT-006` 的安全研究，釐清 biometric / passcode / session-key security model。
+| 平台        | 目前 shipped unlock path | truthful stance                                                                                      |
+| ----------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| **macOS**   | passcode                 | Touch ID 尚未接進目前 build；Settings / lock screen 顯示 future integration 的 degradation note      |
+| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 顯示 future integration 的 degradation note |
+| **Linux**   | passcode                 | 維持 passcode-only；不宣稱有 biometric 支援                                                          |
+
+- `PG-RD-PLAT-006` 已定案：App Lock 保護的是 UI session 與 read/query surface，不是 database key。決策見 [ADR-005](../architecture/decisions/005-app-lock-session-boundary.md)。
 
 ### 導航規則
 
 - 畫面與導航結構 → `docs/design/screens-and-nav.md` §App Lock
-- BACKLOG → `WORK-M4-C`
+- 決策記錄 → `docs/architecture/decisions/005-app-lock-session-boundary.md`

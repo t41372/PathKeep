@@ -25,6 +25,14 @@ const config: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  appLock: {
+    enabled: false,
+    idleTimeoutMinutes: 5,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    recoveryHint: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -591,6 +599,168 @@ describe('backend facade', () => {
     await expect(backend.runBackupNow()).rejects.toThrow(
       'Select at least one profile before running a backup.',
     )
+  })
+
+  test('guards browser preview archive surfaces while app lock is active', async () => {
+    await expect(
+      backend.saveConfig({
+        ...config,
+        appLock: {
+          ...config.appLock,
+          enabled: true,
+        },
+      }),
+    ).rejects.toThrow('Set an app lock passcode before turning on App Lock.')
+    await expect(
+      backend.saveConfig({
+        ...config,
+        appLock: {
+          ...config.appLock,
+          enabled: true,
+          biometricEnabled: true,
+        },
+      }),
+    ).rejects.toThrow('Biometric unlock is not available')
+    await expect(
+      backend.saveConfig({
+        ...config,
+        appLock: {
+          ...config.appLock,
+          enabled: true,
+          passcodeEnabled: false,
+        },
+      }),
+    ).rejects.toThrow('Enable a passcode before turning on App Lock')
+    await expect(
+      backend.setAppLockPasscode({
+        passcode: '123',
+        recoveryHint: null,
+      }),
+    ).rejects.toThrow('at least 4 characters')
+
+    await backend.setAppLockPasscode({
+      passcode: '2468',
+      recoveryHint: 'digits only',
+    })
+    await expect(
+      backend.setAppLockPasscode({
+        passcode: '2468',
+        recoveryHint: '   ',
+      }),
+    ).resolves.toMatchObject({
+      recoveryHint: null,
+    })
+    await backend.setAppLockPasscode({
+      passcode: '2468',
+      recoveryHint: 'digits only',
+    })
+    const unlockedSnapshot = await backend.saveConfig({
+      ...config,
+      appLock: {
+        ...config.appLock,
+        enabled: true,
+        passcodeConfigured: true,
+        recoveryHint: 'digits only',
+      },
+    })
+
+    expect(unlockedSnapshot.appLockStatus).toMatchObject({
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+      recoveryHint: 'digits only',
+    })
+
+    await expect(backend.lockAppSession('manual')).resolves.toMatchObject({
+      enabled: true,
+      locked: true,
+      lockReason: 'manual',
+    })
+    await expect(backend.loadAppLockStatus()).resolves.toMatchObject({
+      enabled: true,
+      locked: true,
+      passcodeConfigured: true,
+    })
+    await expect(backend.getAppSnapshot()).rejects.toThrow('currently locked')
+    await expect(
+      backend.queryHistory({
+        q: 'sqlite',
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+      }),
+    ).rejects.toThrow('currently locked')
+    await expect(backend.openPathInFileManager('/tmp/pathkeep')).resolves.toBe(
+      '/tmp/pathkeep',
+    )
+    await expect(
+      backend.unlockAppSession({
+        passcode: null,
+        useBiometric: true,
+      }),
+    ).rejects.toThrow('Biometric unlock is not available')
+    await expect(
+      backend.unlockAppSession({
+        passcode: '9999',
+        useBiometric: false,
+      }),
+    ).rejects.toThrow('did not match')
+    await expect(
+      backend.unlockAppSession({
+        passcode: null,
+        useBiometric: false,
+      }),
+    ).rejects.toThrow('did not match')
+    await expect(
+      backend.unlockAppSession({
+        passcode: '2468',
+        useBiometric: false,
+      }),
+    ).resolves.toMatchObject({
+      enabled: true,
+      locked: false,
+    })
+    await expect(backend.getAppSnapshot()).resolves.toMatchObject({
+      appLockStatus: expect.objectContaining({
+        enabled: true,
+        locked: false,
+      }),
+    })
+  })
+
+  test('treats app lock commands as no-ops when the feature is disabled', async () => {
+    await expect(backend.lockAppSession('manual')).resolves.toMatchObject({
+      enabled: false,
+      locked: false,
+      lockReason: null,
+    })
+    await expect(
+      backend.unlockAppSession({
+        passcode: '2468',
+        useBiometric: false,
+      }),
+    ).resolves.toMatchObject({
+      enabled: false,
+      locked: false,
+      lockReason: null,
+    })
+  })
+
+  test('surfaces preview warnings when app lock is flagged on without a passcode', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.config.appLock.enabled = true
+      state.appLockPasscode = null
+    })
+
+    await expect(backend.loadAppLockStatus()).resolves.toMatchObject({
+      enabled: true,
+      passcodeConfigured: false,
+      warnings: ['Set an app lock passcode before relying on session lock.'],
+    })
   })
 
   test('tracks preview queue, provider secrets, remote preview, and doctor repair state transitions', async () => {

@@ -20,6 +20,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<I18nContextValue>(() => {
     const t = createTranslator(language)
+    const namespaceCache = new Map<
+      Parameters<I18nContextValue['ns']>[0],
+      ReturnType<I18nContextValue['ns']>
+    >()
+    const ns: I18nContextValue['ns'] = (namespace) => {
+      const cached = namespaceCache.get(namespace)
+      if (cached) {
+        return cached
+      }
+
+      const translator = createNamespaceTranslator(language, namespace)
+      namespaceCache.set(namespace, translator)
+      return translator
+    }
 
     return {
       language,
@@ -32,7 +46,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         window.localStorage.setItem(i18nStorageKey, nextPreference)
       },
       t,
-      ns: (namespace) => createNamespaceTranslator(language, namespace),
+      ns,
     }
   }, [language, preference])
 

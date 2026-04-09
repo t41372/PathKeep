@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend, backendTestHarness } from '../lib/backend'
@@ -10,7 +10,12 @@ import {
   createTranslator,
   type ResolvedLanguage,
 } from '../lib/i18n'
-import type { AppConfig, AppSnapshot } from '../lib/types'
+import type {
+  AppConfig,
+  AppSnapshot,
+  BackupProgressEvent,
+  BackupReport,
+} from '../lib/types'
 import { ShellDataProvider } from './shell-data'
 import { useShellData } from './shell-data-context'
 
@@ -30,6 +35,14 @@ const baseConfig: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  appLock: {
+    enabled: false,
+    idleTimeoutMinutes: 5,
+    biometricEnabled: false,
+    passcodeEnabled: true,
+    passcodeConfigured: false,
+    recoveryHint: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -108,6 +121,20 @@ function ShellProbe({ onReady }: { onReady?: () => void }) {
       <div data-testid="snapshot-language">
         {shell.snapshot?.config.preferredLanguage ?? 'none'}
       </div>
+      <div data-testid="app-lock-enabled">
+        {String(shell.appLockStatus?.enabled ?? false)}
+      </div>
+      <div data-testid="app-lock-locked">
+        {String(shell.appLockStatus?.locked ?? false)}
+      </div>
+      <div data-testid="busy-label">{shell.busyOverlay?.label ?? 'none'}</div>
+      <div data-testid="busy-detail">{shell.busyOverlay?.detail ?? 'none'}</div>
+      <div data-testid="busy-progress-label">
+        {shell.busyOverlay?.progressLabel ?? 'none'}
+      </div>
+      <div data-testid="busy-progress-value">
+        {shell.busyOverlay?.progressValue?.toString() ?? 'none'}
+      </div>
       <button
         type="button"
         onClick={() => {
@@ -149,6 +176,73 @@ function ShellProbe({ onReady }: { onReady?: () => void }) {
         }}
       >
         backup
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .setAppLockPasscode({
+              passcode: '2468',
+              recoveryHint: 'digits only',
+            })
+            .catch(() => undefined)
+        }}
+      >
+        set-passcode
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .saveConfig({
+              ...(shell.snapshot?.config ?? baseConfig),
+              appLock: {
+                ...(shell.snapshot?.config.appLock ?? baseConfig.appLock),
+                enabled: true,
+                idleTimeoutMinutes: 1,
+              },
+            })
+            .catch(() => undefined)
+        }}
+      >
+        enable-lock
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell.clearAppLockPasscode().catch(() => undefined)
+        }}
+      >
+        clear-passcode
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell.lockAppSession('manual').catch(() => undefined)
+        }}
+      >
+        lock
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell.lockAppSession().catch(() => undefined)
+        }}
+      >
+        lock-default
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .unlockAppSession({
+              passcode: '2468',
+              useBiometric: false,
+            })
+            .catch(() => undefined)
+        }}
+      >
+        unlock
       </button>
       <button type="button" onClick={() => shell.clearNotice()}>
         clear
@@ -267,6 +361,7 @@ describe('ShellDataProvider', () => {
     const originalRequestAnimationFrame = window.requestAnimationFrame
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
+      writable: true,
       value: undefined,
     })
 
@@ -323,6 +418,7 @@ describe('ShellDataProvider', () => {
     } finally {
       Object.defineProperty(window, 'requestAnimationFrame', {
         configurable: true,
+        writable: true,
         value: originalRequestAnimationFrame,
       })
     }
@@ -371,6 +467,545 @@ describe('ShellDataProvider', () => {
       expect(loadDashboardSnapshotSpy).toHaveBeenCalledTimes(2),
     )
     expect(screen.getByTestId('error')).toHaveTextContent('none')
+  })
+
+  test('boots into the lock state and reloads shell data after unlock', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const lockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: true,
+      passcodeConfigured: true,
+      lockReason: 'startup',
+    }
+    const unlockedStatus = {
+      ...lockedStatus,
+      locked: false,
+      lockReason: null,
+      lastUnlockedAt: '2026-04-08T01:00:00Z',
+    }
+
+    const getAppSnapshotSpy = vi
+      .spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus')
+      .mockResolvedValueOnce(lockedStatus)
+      .mockResolvedValue(unlockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'unlockAppSession').mockResolvedValue(unlockedStatus)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('app-lock-enabled')).toHaveTextContent('true')
+    expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('true')
+    expect(screen.getByTestId('snapshot-language')).toHaveTextContent('none')
+    expect(getAppSnapshotSpy).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'unlock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false'),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
+        'none',
+      ),
+    )
+    expect(getAppSnapshotSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('runs app lock success actions through the shell provider', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'set-passcode' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-enabled')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'enable-lock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-enabled')).toHaveTextContent('true'),
+    )
+    expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false')
+
+    await user.click(screen.getByRole('button', { name: 'lock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('true'),
+    )
+    expect(screen.getByTestId('snapshot-language')).toHaveTextContent('none')
+
+    await user.click(screen.getByRole('button', { name: 'unlock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false'),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
+        'none',
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'lock-default' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('true'),
+    )
+    await user.click(screen.getByRole('button', { name: 'unlock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'clear-passcode' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-enabled')).toHaveTextContent('false'),
+    )
+  })
+
+  test('auto-locks after idle timeout when app lock is enabled', async () => {
+    const { dashboard, snapshot } = await seedSnapshot()
+    const unlockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+      idleTimeoutMinutes: 1,
+    }
+    const lockedStatus = {
+      ...unlockedStatus,
+      locked: true,
+      lockReason: 'idle-timeout',
+    }
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        appLock: {
+          ...snapshot.config.appLock,
+          enabled: true,
+          idleTimeoutMinutes: 1,
+          passcodeConfigured: true,
+        },
+      },
+      appLockStatus: unlockedStatus,
+    })
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(unlockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    const lockSpy = vi
+      .spyOn(backend, 'lockAppSession')
+      .mockResolvedValue(lockedStatus)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('app-lock-enabled')).toHaveTextContent('true')
+
+    const visibilityDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      'visibilityState',
+    )
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    try {
+      await act(async () => {
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'hidden',
+        })
+        document.dispatchEvent(new Event('visibilitychange'))
+        await Promise.resolve()
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'visible',
+        })
+        window.dispatchEvent(new Event('pointerdown'))
+        document.dispatchEvent(new Event('visibilitychange'))
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+
+      await waitFor(() => expect(lockSpy).toHaveBeenCalledWith('idle-timeout'))
+      await waitFor(() =>
+        expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('true'),
+      )
+      expect(screen.getByTestId('snapshot-language')).toHaveTextContent('none')
+    } finally {
+      if (vi.isFakeTimers()) {
+        vi.runOnlyPendingTimers()
+      }
+      if (visibilityDescriptor) {
+        Object.defineProperty(document, 'visibilityState', visibilityDescriptor)
+      } else {
+        delete (document as { visibilityState?: string }).visibilityState
+      }
+      vi.useRealTimers()
+    }
+  })
+
+  test('keeps the original error when a lock refresh still reports an unlocked session', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const unlockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+    }
+
+    vi.spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(
+        new Error(
+          'PathKeep is currently locked. Unlock the app before requesting archive data.',
+        ),
+      )
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus')
+      .mockResolvedValueOnce(unlockedStatus)
+      .mockResolvedValueOnce(unlockedStatus)
+      .mockResolvedValueOnce(unlockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('currently locked'),
+    )
+    expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false')
+  })
+
+  test('falls back to locked app state when archive refresh reports a lock error', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const unlockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+    }
+    const lockedStatus = {
+      ...unlockedStatus,
+      locked: true,
+      lockReason: 'manual',
+    }
+
+    vi.spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(
+        new Error(
+          'PathKeep is currently locked. Unlock the app before requesting archive data.',
+        ),
+      )
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus')
+      .mockResolvedValueOnce(unlockedStatus)
+      .mockResolvedValueOnce(unlockedStatus)
+      .mockResolvedValueOnce(lockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false')
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('true'),
+    )
+    expect(screen.getByTestId('snapshot-language')).toHaveTextContent('none')
+    expect(screen.getByTestId('error')).toHaveTextContent('none')
+  })
+
+  test('surfaces idle-timeout lock failures without clearing the loaded shell state', async () => {
+    const translator = createTranslator('en')
+    const { dashboard, snapshot } = await seedSnapshot()
+    const unlockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+      idleTimeoutMinutes: 1,
+    }
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        appLock: {
+          ...snapshot.config.appLock,
+          enabled: true,
+          idleTimeoutMinutes: 1,
+          passcodeConfigured: true,
+        },
+      },
+      appLockStatus: unlockedStatus,
+    })
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(unlockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    const lockSpy = vi
+      .spyOn(backend, 'lockAppSession')
+      .mockRejectedValueOnce(new Error('idle lock failed'))
+      .mockRejectedValueOnce('not-an-error')
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    try {
+      await act(async () => {
+        window.dispatchEvent(new Event('pointerdown'))
+        await Promise.resolve()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+
+      await waitFor(() =>
+        expect(screen.getByTestId('error')).toHaveTextContent(
+          'idle lock failed',
+        ),
+      )
+      expect(lockSpy).toHaveBeenCalledWith('idle-timeout')
+      expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
+        'none',
+      )
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      await act(async () => {
+        window.dispatchEvent(new Event('pointerdown'))
+        await Promise.resolve()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+
+      await waitFor(() =>
+        expect(screen.getByTestId('error')).toHaveTextContent(
+          translator('shell.lockAppFailed'),
+        ),
+      )
+      expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
+        'none',
+      )
+    } finally {
+      if (vi.isFakeTimers()) {
+        vi.runOnlyPendingTimers()
+      }
+      vi.useRealTimers()
+    }
+  })
+
+  test('surfaces app lock action failures with both explicit and fallback errors', async () => {
+    const user = userEvent.setup()
+    const translator = createTranslator('en')
+    const { dashboard, snapshot } = await seedSnapshot()
+    const unlockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+      idleTimeoutMinutes: 1,
+    }
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        appLock: {
+          ...snapshot.config.appLock,
+          enabled: true,
+          idleTimeoutMinutes: 1,
+          passcodeConfigured: true,
+        },
+      },
+      appLockStatus: unlockedStatus,
+    })
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(unlockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'setAppLockPasscode')
+      .mockRejectedValueOnce(new Error('set passcode failed'))
+      .mockRejectedValueOnce('not-an-error')
+    vi.spyOn(backend, 'clearAppLockPasscode')
+      .mockRejectedValueOnce(new Error('clear passcode failed'))
+      .mockRejectedValueOnce('not-an-error')
+    vi.spyOn(backend, 'lockAppSession')
+      .mockRejectedValueOnce(new Error('lock failed'))
+      .mockRejectedValueOnce('not-an-error')
+    vi.spyOn(backend, 'unlockAppSession')
+      .mockRejectedValueOnce(new Error('unlock failed'))
+      .mockRejectedValueOnce('not-an-error')
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'set-passcode' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'set passcode failed',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'set-passcode' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.setAppLockPasscodeFailed'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'clear-passcode' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'clear passcode failed',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'clear-passcode' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.clearAppLockPasscodeFailed'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'lock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('lock failed'),
+    )
+    await user.click(screen.getByRole('button', { name: 'lock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.lockAppFailed'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'unlock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('unlock failed'),
+    )
+    await user.click(screen.getByRole('button', { name: 'unlock' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.unlockAppFailed'),
+      ),
+    )
   })
 
   test('surfaces provider errors and context misuse clearly', async () => {
@@ -447,6 +1082,14 @@ describe('ShellDataProvider', () => {
       expect(screen.getByTestId('error')).toHaveTextContent(
         translator('shell.manualBackupFailed'),
       ),
+    )
+
+    vi.mocked(subscribeToBackupProgress).mockRejectedValueOnce(
+      new Error('subscribe failed'),
+    )
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('subscribe failed'),
     )
 
     expect(() => render(<ShellProbe />)).toThrow(
@@ -527,5 +1170,223 @@ describe('ShellDataProvider', () => {
         translator('common.complete'),
       ),
     )
+  })
+
+  test('tracks backup progress phases through the shared busy overlay state', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const translator = createTranslator('en')
+    const unsubscribe = vi.fn()
+    let listener: ((event: BackupProgressEvent) => void) | null = null
+    let resolveBackup: ((value: BackupReport) => void) | null = null
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.mocked(subscribeToBackupProgress).mockImplementation((nextListener) => {
+      listener = nextListener
+      return Promise.resolve(unsubscribe)
+    })
+    vi.spyOn(backend, 'runBackupNow').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBackup = resolve
+        }),
+    )
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        translator('shell.backupWritingArchive'),
+      ),
+    )
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('2 / 3')
+    expect(
+      Number(screen.getByTestId('busy-progress-value').textContent),
+    ).toBeCloseTo(67, 0)
+
+    act(() => {
+      listener?.({
+        phase: 'prepare',
+        label: 'Inspect selected browser profiles',
+        detail: 'Queued 3 readable profile(s) for the canonical backup run.',
+        step: 0,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 3,
+        profileId: null,
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
+        '0 / 3',
+      ),
+    )
+
+    act(() => {
+      listener?.({
+        phase: 'stage-profile',
+        label: 'Stage source profile',
+        detail: 'Copying chrome:Default into the staging area (1/3).',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 3,
+        profileId: 'chrome:Default',
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-detail')).toHaveTextContent(
+        'chrome:Default (1/3)',
+      ),
+    )
+    expect(
+      Number(screen.getByTestId('busy-progress-value').textContent),
+    ).toBeCloseTo(33, 0)
+
+    act(() => {
+      listener?.({
+        phase: 'ingest-profile',
+        label: 'Write canonical archive facts',
+        detail: 'Processing chrome:Default and writing archive rows (2/3).',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 1,
+        totalProfiles: 3,
+        profileId: null,
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        translator('shell.backupWritingArchive'),
+      ),
+    )
+
+    act(() => {
+      listener?.({
+        phase: 'finalize',
+        label: 'Finalize manifest and cached totals',
+        detail: 'Committing run artifacts after 3 processed profile(s).',
+        step: 2,
+        totalSteps: 3,
+        completedProfiles: 3,
+        totalProfiles: 3,
+        profileId: null,
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
+        '3 / 3',
+      ),
+    )
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('100')
+
+    act(() => {
+      listener?.({
+        phase: 'mystery',
+        label: 'Unexpected phase',
+        detail: 'Fallback branch should still stay honest.',
+        step: 0,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 0,
+        profileId: null,
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        translator('shell.runningManualBackup'),
+      ),
+    )
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('1 / 3')
+    expect(
+      Number(screen.getByTestId('busy-progress-value').textContent),
+    ).toBeCloseTo(33, 0)
+
+    act(() => {
+      listener?.({
+        phase: 'stage-profile',
+        label: 'Stage source profile',
+        detail: 'Fallback branch without profile scope.',
+        step: 0,
+        totalSteps: 0,
+        completedProfiles: 0,
+        totalProfiles: 0,
+        profileId: null,
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        translator('shell.backupWritingArchive'),
+      ),
+    )
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('0 / 0')
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
+
+    act(() => {
+      listener?.({
+        phase: 'finalize',
+        label: 'Finalize without profile counts',
+        detail: 'Fallback branch without totals.',
+        step: 0,
+        totalSteps: 0,
+        completedProfiles: 0,
+        totalProfiles: 0,
+        profileId: null,
+      })
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        translator('shell.refreshingArchiveViews'),
+      ),
+    )
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('0 / 0')
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
+
+    act(() => {
+      resolveBackup?.({
+        dueSkipped: false,
+        run: {
+          id: 73,
+          startedAt: '2026-04-08T00:00:00Z',
+          finishedAt: '2026-04-08T00:05:00Z',
+          status: 'success',
+          manifestHash: 'manifest-73',
+          profileScope: ['chrome:Default'],
+          profilesProcessed: 1,
+          newVisits: 2,
+          newUrls: 1,
+          newDownloads: 0,
+          runType: 'backup',
+        },
+        profiles: [],
+        warnings: [],
+        remoteBackup: null,
+      })
+    })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(/run #73/i),
+    )
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('busy-label')).toHaveTextContent('none')
   })
 })

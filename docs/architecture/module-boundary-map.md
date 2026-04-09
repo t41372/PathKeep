@@ -93,6 +93,7 @@ Tauri facade 暫時仍集中在 `src-tauri/src/lib.rs`，但命名與回傳 enve
 ### 1. Read Models
 
 - `app.snapshot`
+- `app.lock_status`
 - `onboarding.discover_profiles`
 - `dashboard.get_summary`
 - `explorer.query_history`
@@ -106,6 +107,9 @@ Tauri facade 暫時仍集中在 `src-tauri/src/lib.rs`，但命名與回傳 enve
 
 - `archive.backup.preview`
 - `archive.backup.execute`
+- `app.lock.configure`
+- `app.lock.lock`
+- `app.lock.unlock`
 - `archive.import.preview`
 - `archive.import.execute`
 - `archive.rollback.preview`
@@ -134,3 +138,4 @@ Command surface rules:
 - facade 保持在 desktop layer，但 request / response shape 以 domain 命名，不以頁面組件或舊 UI 名稱命名
 - mutating command 一律能對應到 `run_id` 或 preview artifact
 - user-facing error model 要帶上 `error_code`、`action_hint`、`retry_hint`，而不只是裸字串
+- App Lock 屬於 session guard，不是 archive encryption 的別名；locked state 下除了 `app.lock_status` / `app.lock.unlock` / recovery helper 之外，其餘 data read surface 必須走一致的 refusal path

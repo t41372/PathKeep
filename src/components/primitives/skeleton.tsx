@@ -85,12 +85,12 @@ export function DashboardSkeleton() {
       </div>
       <div className="dashboard-grid">
         <div className="dashboard-left">
-          <Skeleton variant="block" height="208px" />
-          <Skeleton variant="block" height="160px" />
+          <Skeleton variant="block" height="260px" />
+          <Skeleton variant="block" height="182px" />
         </div>
         <div className="dashboard-right">
-          <Skeleton variant="block" height="182px" />
-          <Skeleton variant="block" height="182px" />
+          <Skeleton variant="block" height="196px" />
+          <Skeleton variant="block" height="196px" />
         </div>
       </div>
     </div>
@@ -131,11 +131,57 @@ export function SkeletonExplorer() {
   )
 }
 
+export function SkeletonExplorerResults() {
+  return (
+    <div
+      className="explorer-grid"
+      aria-busy="true"
+      aria-label="Loading explorer results"
+    >
+      <div className="record-list">
+        <div className="record-group">
+          <div className="record-group-header">
+            <div
+              className="skeleton-block"
+              style={{ height: '18px', width: '42%' }}
+            />
+          </div>
+          <div className="panel-body" style={{ padding: 0 }}>
+            {Array.from({ length: 6 }, (_, index) => (
+              <div
+                key={index}
+                className="skeleton-block"
+                style={{
+                  height: '70px',
+                  marginBottom: 'var(--space-2)',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-header">
+          <div
+            className="skeleton-block"
+            style={{ height: '18px', width: '36%' }}
+          />
+        </div>
+        <div className="panel-body intelligence-stack">
+          <Skeleton variant="block" height="120px" />
+          <Skeleton variant="block" height="80px" />
+          <Skeleton variant="block" height="160px" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function SkeletonInsights() {
   return (
     <div className="page-shell" aria-busy="true" aria-label="Loading insights">
       <div className="stats-row">
-        <Skeleton variant="stat-card" count={3} />
+        <Skeleton variant="stat-card" count={4} />
       </div>
       <div
         style={{

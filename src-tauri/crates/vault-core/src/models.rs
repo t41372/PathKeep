@@ -186,6 +186,63 @@ impl Default for AiSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+pub struct AppLockConfig {
+    pub enabled: bool,
+    pub idle_timeout_minutes: u64,
+    pub biometric_enabled: bool,
+    pub passcode_enabled: bool,
+    pub passcode_configured: bool,
+    pub recovery_hint: Option<String>,
+}
+
+impl Default for AppLockConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            idle_timeout_minutes: 5,
+            biometric_enabled: false,
+            passcode_enabled: true,
+            passcode_configured: false,
+            recovery_hint: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppLockStatus {
+    pub enabled: bool,
+    pub locked: bool,
+    pub idle_timeout_minutes: u64,
+    pub biometric_available: bool,
+    pub biometric_enabled: bool,
+    pub passcode_enabled: bool,
+    pub passcode_configured: bool,
+    pub config_path: String,
+    pub lock_reason: Option<String>,
+    pub locked_at: Option<String>,
+    pub last_unlocked_at: Option<String>,
+    pub recovery_hint: Option<String>,
+    pub warnings: Vec<String>,
+    pub degradation_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockAppSessionRequest {
+    pub passcode: Option<String>,
+    pub use_biometric: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAppLockPasscodeRequest {
+    pub passcode: String,
+    pub recovery_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
     pub initialized: bool,
     pub archive_mode: ArchiveMode,
@@ -198,6 +255,7 @@ pub struct AppConfig {
     pub git_enabled: bool,
     pub remember_database_key_in_keyring: bool,
     pub app_autostart: bool,
+    pub app_lock: AppLockConfig,
     pub remote_backup: RemoteBackupConfig,
     pub enrichment: EnrichmentSettings,
     pub ai: AiSettings,
@@ -217,6 +275,7 @@ impl Default for AppConfig {
             git_enabled: true,
             remember_database_key_in_keyring: false,
             app_autostart: false,
+            app_lock: AppLockConfig::default(),
             remote_backup: RemoteBackupConfig::default(),
             enrichment: EnrichmentSettings::default(),
             ai: AiSettings::default(),
@@ -508,6 +567,7 @@ pub struct AppSnapshot {
     pub directories: AppDirectories,
     pub config: AppConfig,
     pub archive_status: ArchiveStatus,
+    pub app_lock_status: AppLockStatus,
     pub keyring_status: KeyringStatusReport,
     pub ai_status: AiIndexStatus,
     pub insight_status: InsightStatus,

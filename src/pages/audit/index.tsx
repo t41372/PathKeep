@@ -32,6 +32,8 @@ interface AuditFilterState {
   artifactType: string
 }
 
+type AuditDetailTab = 'summary' | 'artifacts' | 'warnings'
+
 export function AuditPage() {
   const {
     error: shellError,
@@ -58,6 +60,7 @@ export function AuditPage() {
     profileId: 'all',
     artifactType: 'all',
   })
+  const [detailTab, setDetailTab] = useState<AuditDetailTab>('summary')
 
   const runIdFromParams = Number(searchParams.get('run') ?? '')
   const runId =
@@ -246,6 +249,7 @@ export function AuditPage() {
   const filtersLoading =
     indexedRuns.length > 0 &&
     Object.keys(detailCache).length < indexedRuns.length
+  const detailSeverity = detail ? auditSeverity(detail) : null
 
   function sourceLabel(sourceKind: string) {
     if (sourceKind === 'chrome') return t('audit.sourceChrome')
@@ -267,6 +271,10 @@ export function AuditPage() {
     nextParams.set('run', String(filteredRuns[0].id))
     setSearchParams(nextParams)
   }, [filteredRuns, runId, searchParams, setSearchParams])
+
+  useEffect(() => {
+    setDetailTab('summary')
+  }, [runId])
 
   async function handleCopyPath(path: string) {
     try {
@@ -359,6 +367,7 @@ export function AuditPage() {
       <div className="panel">
         <div className="panel-header">
           <span className="panel-title">{t('audit.filterLabel')}</span>
+          <span className="panel-action">{t('audit.filterDescription')}</span>
         </div>
         <div className="panel-body">
           <div className="audit-filter-grid">
@@ -483,7 +492,11 @@ export function AuditPage() {
           {filteredRuns.length === 0 ? (
             <p className="dashboard-next-action">{t('audit.noMatchingRuns')}</p>
           ) : (
-            <div className="chain-viz">
+            <div
+              className="chain-viz"
+              role="group"
+              aria-label={t('audit.manifestChain')}
+            >
               {filteredRuns.slice(0, 4).map((run, index) => {
                 const indexedDetail = detailCache[run.id]
                 const severity = indexedDetail
@@ -492,7 +505,11 @@ export function AuditPage() {
 
                 return (
                   <div key={run.id} style={{ display: 'contents' }}>
-                    {index > 0 && <div className="chain-link">→</div>}
+                    {index > 0 && (
+                      <div className="chain-link" aria-hidden="true">
+                        →
+                      </div>
+                    )}
                     <button
                       aria-label={`#${run.id} · ${t(runTypeKey(run.runType ?? 'backup'))} · ${t(runTriggerKey(run.trigger ?? indexedDetail?.trigger ?? 'manual'))} · ${t(runStatusKey(run.status))} · ${t(auditSeverityKey(severity))}`}
                       aria-pressed={run.id === runId}
@@ -531,7 +548,9 @@ export function AuditPage() {
                 )
               })}
               {filteredRuns.length > 4 && (
-                <div className="chain-link dim">→ ···</div>
+                <div className="chain-link dim" aria-hidden="true">
+                  → ···
+                </div>
               )}
             </div>
           )}
@@ -588,76 +607,108 @@ export function AuditPage() {
             <span className="panel-title">
               {t('audit.manifestDetail', { runId: detail.run.id })}
             </span>
+            {detailSeverity ? (
+              <span className="panel-action">
+                {t(auditSeverityKey(detailSeverity))}
+              </span>
+            ) : null}
           </div>
           <div className="panel-body">
-            <div className="manifest-grid">
-              <div className="manifest-field">
-                <span className="field-label">{t('audit.runId')}</span>
-                <span className="field-value mono">#{detail.run.id}</span>
-              </div>
-              <div className="manifest-field">
-                <span className="field-label">{t('audit.runType')}</span>
-                <span className="field-value">
-                  {t(runTypeKey(detail.run.runType ?? 'backup'))}
-                </span>
-              </div>
-              <div className="manifest-field">
-                <span className="field-label">{t('audit.runSource')}</span>
-                <span className="field-value">
-                  {detail.profileScope.join(' · ') || t('audit.archiveWide')}
-                </span>
-              </div>
-              <div className="manifest-field">
-                <span className="field-label">{t('audit.executedAt')}</span>
-                <span className="field-value mono">
-                  {formatDateTime(detail.run.startedAt, language) ??
-                    detail.run.startedAt}
-                </span>
-              </div>
-              <div className="manifest-field">
-                <span className="field-label">{t('audit.manifestHash')}</span>
-                <span className="field-value mono">
-                  {detail.manifestHash ?? t('common.notAvailable')}
-                </span>
-              </div>
-              <div className="manifest-field">
-                <span className="field-label">{t('audit.manifestPath')}</span>
-                <span className="field-value mono">
-                  {detail.manifestPath ?? t('common.notAvailable')}
-                </span>
-              </div>
-            </div>
-            <div className="detail-divider" />
-            <div className="manifest-stats">
-              <div className="manifest-stat">
-                <span className="dim">{t('audit.newVisits')}</span>
-                <span className="mono accent">+{detail.run.newVisits}</span>
-              </div>
-              <div className="manifest-stat">
-                <span className="dim">{t('audit.newUrls')}</span>
-                <span className="mono">{detail.run.newUrls}</span>
-              </div>
-              <div className="manifest-stat">
-                <span className="dim">{t('audit.downloads')}</span>
-                <span className="mono">{detail.run.newDownloads}</span>
-              </div>
-              <div className="manifest-stat">
-                <span className="dim">{t('audit.profiles')}</span>
-                <span className="mono">{detail.run.profilesProcessed}</span>
-              </div>
+            <div className="pme-tabs">
+              {(
+                [
+                  ['summary', t('audit.summaryTab')],
+                  ['artifacts', t('audit.artifactsTab')],
+                  ['warnings', t('audit.warningsTab')],
+                ] as const
+              ).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  className={`pme-tab ${detailTab === tab ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setDetailTab(tab)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            {detail.artifacts.length > 0 && (
+            {detailTab === 'summary' ? (
               <>
+                <div className="manifest-grid">
+                  <div className="manifest-field">
+                    <span className="field-label">{t('audit.runId')}</span>
+                    <span className="field-value mono">#{detail.run.id}</span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">{t('audit.runType')}</span>
+                    <span className="field-value">
+                      {t(runTypeKey(detail.run.runType ?? 'backup'))}
+                    </span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">{t('audit.runSource')}</span>
+                    <span className="field-value">
+                      {detail.profileScope.join(' · ') ||
+                        t('audit.archiveWide')}
+                    </span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">{t('audit.executedAt')}</span>
+                    <span className="field-value mono">
+                      {formatDateTime(detail.run.startedAt, language) ??
+                        detail.run.startedAt}
+                    </span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">
+                      {t('audit.manifestHash')}
+                    </span>
+                    <span className="field-value mono">
+                      {detail.manifestHash ?? t('common.notAvailable')}
+                    </span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">
+                      {t('audit.manifestPath')}
+                    </span>
+                    <span className="field-value mono">
+                      {detail.manifestPath ?? t('common.notAvailable')}
+                    </span>
+                  </div>
+                </div>
                 <div className="detail-divider" />
-                <div style={{ marginTop: 'var(--space-3)' }}>
-                  <span
-                    className="mono-kicker"
-                    style={{ marginBottom: 'var(--space-2)', display: 'block' }}
-                  >
-                    {t('audit.artifacts', { count: detail.artifacts.length })}
-                  </span>
-                  {detail.artifacts.map((artifact) => (
+                <div className="manifest-stats">
+                  <div className="manifest-stat">
+                    <span className="dim">{t('audit.newVisits')}</span>
+                    <span className="mono accent">+{detail.run.newVisits}</span>
+                  </div>
+                  <div className="manifest-stat">
+                    <span className="dim">{t('audit.newUrls')}</span>
+                    <span className="mono">{detail.run.newUrls}</span>
+                  </div>
+                  <div className="manifest-stat">
+                    <span className="dim">{t('audit.downloads')}</span>
+                    <span className="mono">{detail.run.newDownloads}</span>
+                  </div>
+                  <div className="manifest-stat">
+                    <span className="dim">{t('audit.profiles')}</span>
+                    <span className="mono">{detail.run.profilesProcessed}</span>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {detailTab === 'artifacts' ? (
+              <div style={{ marginTop: 'var(--space-3)' }}>
+                <span
+                  className="mono-kicker"
+                  style={{ marginBottom: 'var(--space-2)', display: 'block' }}
+                >
+                  {t('audit.artifacts', { count: detail.artifacts.length })}
+                </span>
+                {detail.artifacts.length > 0 ? (
+                  detail.artifacts.map((artifact) => (
                     <div
                       key={`${artifact.kind}:${artifact.path}`}
                       style={{ marginBottom: 'var(--space-2)' }}
@@ -702,21 +753,27 @@ export function AuditPage() {
                           {t('common.copyAction')}
                         </button>
                       </div>
-                      {copiedPath === artifact.path && (
+                      {copiedPath === artifact.path ? (
                         <span className="dim mono" style={{ fontSize: '10px' }}>
                           {t('audit.copied')}
                         </span>
-                      )}
+                      ) : null}
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
+                  ))
+                ) : (
+                  <p className="dashboard-next-action">
+                    {t('common.notAvailable')}
+                  </p>
+                )}
+              </div>
+            ) : null}
 
-            {detail.warnings.length > 0 && (
-              <>
-                <div className="detail-divider" />
-                <div className="warning-box">
+            {detailTab === 'warnings' ? (
+              detail.warnings.length > 0 ? (
+                <div
+                  className="warning-box"
+                  style={{ marginTop: 'var(--space-3)' }}
+                >
                   <div className="warning-icon">⚠</div>
                   <div className="warning-text">
                     {detail.warnings.map((warning) => (
@@ -724,8 +781,15 @@ export function AuditPage() {
                     ))}
                   </div>
                 </div>
-              </>
-            )}
+              ) : (
+                <p
+                  className="dashboard-next-action"
+                  style={{ marginTop: 'var(--space-3)' }}
+                >
+                  {t('audit.noWarnings')}
+                </p>
+              )
+            ) : null}
 
             <div
               className="wizard-actions"
