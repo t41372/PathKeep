@@ -1,0 +1,164 @@
+{
+  "generatedAt": "2026-04-09T22:53:15.801Z",
+  "commit": {
+    "short": "8e1d798",
+    "full": "8e1d798abb7a528ba366ff7deb6518d9fe9da687"
+  },
+  "buildSource": {
+    "manifestPath": "dist/.vite/manifest.json",
+    "distDir": "dist"
+  },
+  "baseShell": {
+    "approxBytes": 580261,
+    "assets": [
+      "assets/index-DN2bWhrR.js",
+      "assets/index-D0FnlC0w.css",
+      "assets/format-KxB1hco7.js",
+      "assets/core-CMC5z0ub.js"
+    ]
+  },
+  "largestFirstRoute": {
+    "route": "settings",
+    "approxBytes": 629465,
+    "routeOnlyBytes": 49204
+  },
+  "routes": [
+    {
+      "route": "settings",
+      "manifestKey": "src/pages/settings/index.tsx",
+      "entryAsset": "assets/settings-BINpCEhp.js",
+      "approxFirstLoadBytes": 629465,
+      "routeOnlyBytes": 49204,
+      "routeOnlyAssets": [
+        "assets/settings-BINpCEhp.js",
+        "assets/ui-DVL9FLvf.js",
+        "assets/intelligence-Bj8gfFXu.js",
+        "assets/platform-guidance-8gh_iXsj.js"
+      ]
+    },
+    {
+      "route": "explorer",
+      "manifestKey": "src/pages/explorer/index.tsx",
+      "entryAsset": "assets/explorer-DKFDwHAB.js",
+      "approxFirstLoadBytes": 614559,
+      "routeOnlyBytes": 34298,
+      "routeOnlyAssets": [
+        "assets/explorer-DKFDwHAB.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/error-state-CD7h4VK3.js",
+        "assets/permission-gate-BAHyMKwt.js",
+        "assets/skeleton-T5ltjEj1.js",
+        "assets/intelligence-Bj8gfFXu.js"
+      ]
+    },
+    {
+      "route": "dashboard",
+      "manifestKey": "src/pages/dashboard/index.tsx",
+      "entryAsset": "assets/dashboard-DNQa2bc5.js",
+      "approxFirstLoadBytes": 605271,
+      "routeOnlyBytes": 25010,
+      "routeOnlyAssets": [
+        "assets/dashboard-DNQa2bc5.js",
+        "assets/error-state-CD7h4VK3.js",
+        "assets/skeleton-T5ltjEj1.js",
+        "assets/insight-canonical-CiDVM5bi.js",
+        "assets/intelligence-Bj8gfFXu.js",
+        "assets/platform-guidance-8gh_iXsj.js",
+        "assets/trust-review-Cih1vZh1.js"
+      ]
+    },
+    {
+      "route": "import",
+      "manifestKey": "src/pages/import/index.tsx",
+      "entryAsset": "assets/import-CaUzKKWi.js",
+      "approxFirstLoadBytes": 604502,
+      "routeOnlyBytes": 24241,
+      "routeOnlyAssets": [
+        "assets/import-CaUzKKWi.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/ui-DVL9FLvf.js",
+        "assets/trust-review-Cih1vZh1.js"
+      ]
+    },
+    {
+      "route": "onboarding",
+      "manifestKey": "src/pages/onboarding/index.tsx",
+      "entryAsset": "assets/onboarding-DeIwKtnl.js",
+      "approxFirstLoadBytes": 602944,
+      "routeOnlyBytes": 22683,
+      "routeOnlyAssets": [
+        "assets/onboarding-DeIwKtnl.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/error-state-CD7h4VK3.js"
+      ]
+    },
+    {
+      "route": "insights",
+      "manifestKey": "src/pages/insights/index.tsx",
+      "entryAsset": "assets/insights-sDAECAkf.js",
+      "approxFirstLoadBytes": 602756,
+      "routeOnlyBytes": 22495,
+      "routeOnlyAssets": [
+        "assets/insights-sDAECAkf.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/error-state-CD7h4VK3.js",
+        "assets/skeleton-T5ltjEj1.js",
+        "assets/insight-canonical-CiDVM5bi.js",
+        "assets/intelligence-Bj8gfFXu.js"
+      ]
+    },
+    {
+      "route": "audit",
+      "manifestKey": "src/pages/audit/index.tsx",
+      "entryAsset": "assets/audit-jWCmE5iA.js",
+      "approxFirstLoadBytes": 598455,
+      "routeOnlyBytes": 18194,
+      "routeOnlyAssets": [
+        "assets/audit-jWCmE5iA.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/error-state-CD7h4VK3.js",
+        "assets/trust-review-Cih1vZh1.js"
+      ]
+    },
+    {
+      "route": "assistant",
+      "manifestKey": "src/pages/assistant/index.tsx",
+      "entryAsset": "assets/assistant-3UP8Y28O.js",
+      "approxFirstLoadBytes": 595702,
+      "routeOnlyBytes": 15441,
+      "routeOnlyAssets": [
+        "assets/assistant-3UP8Y28O.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/error-state-CD7h4VK3.js",
+        "assets/permission-gate-BAHyMKwt.js",
+        "assets/intelligence-Bj8gfFXu.js"
+      ]
+    },
+    {
+      "route": "schedule",
+      "manifestKey": "src/pages/schedule/index.tsx",
+      "entryAsset": "assets/schedule-DUib59_g.js",
+      "approxFirstLoadBytes": 595449,
+      "routeOnlyBytes": 15188,
+      "routeOnlyAssets": [
+        "assets/schedule-DUib59_g.js",
+        "assets/error-state-CD7h4VK3.js",
+        "assets/platform-guidance-8gh_iXsj.js",
+        "assets/trust-review-Cih1vZh1.js"
+      ]
+    },
+    {
+      "route": "security",
+      "manifestKey": "src/pages/security/index.tsx",
+      "entryAsset": "assets/security-DPSlhSts.js",
+      "approxFirstLoadBytes": 594353,
+      "routeOnlyBytes": 14092,
+      "routeOnlyAssets": [
+        "assets/security-DPSlhSts.js",
+        "assets/empty-state-BWcl5cs9.js",
+        "assets/trust-review-Cih1vZh1.js"
+      ]
+    }
+  ],
+  "syntheticQueryPlanHasVirtualTableIndex": true
+}

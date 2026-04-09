@@ -1,0 +1,3 @@
+placeholder: no rust sample captured
+reason: synthetic shell-scaling bundle only
+captured_at: 2026-04-09T22:53:15.801Z

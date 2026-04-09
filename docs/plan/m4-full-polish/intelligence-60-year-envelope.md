@@ -25,9 +25,10 @@
   - `bun run build` passes and no longer emits the earlier single-main-chunk warning; shell routes are now code-split
   - `bun run check:js` passes for the living JS surface
   - `bun run perf:artifact:shell` regenerates a checked-in artifact bundle at `artifacts/perf/2026-04-09-large-archive-shell-scaling/`
-  - that bundle currently records `513901` approx base-shell bytes, `563227` approx first-route bytes for the heaviest route (`settings`), and a synthetic Explorer FTS query plan that still uses `VIRTUAL TABLE INDEX`
-- Current environment blockers:
-  - `bun run verify` is still the acceptance target for `WORK-M4-J`, but it is not rerunnable on this machine right now because `pkg-config` / glib dev libraries and `protoc` are missing
+  - that bundle currently records `580261` approx base-shell bytes, `629465` approx first-route bytes for the heaviest route (`settings`), and a synthetic Explorer FTS query plan that still uses `VIRTUAL TABLE INDEX`
+- Current signoff blockers:
+  - `bun run verify` is still the acceptance target for `WORK-M4-J`, and it now reruns green on this machine
+  - the remaining blocker is evidence quality, not CI: the checked-in `artifacts/perf/2026-04-09-large-archive-shell-scaling/` bundle is still synthetic and does not replace a true large-profile replay with webview trace plus Rust sampling
 - Code / architecture fixes landed during this closeout:
   - semantic retrieval now queries the LanceDB sidecar first and only falls back to the SQLite compatibility mirror with explicit notes
   - index state now reports `stale` when archive visibility / import watermark or readable-content enrichment freshness diverges from the last semantic build
@@ -37,7 +38,7 @@
   - MCP searches now write dedicated `mcp_query` run-ledger entries, and import restore no longer masquerades as `rollback`
   - selected provider/model readiness is now model-scoped, so switching embedding models no longer reuses readiness from a different model
 - Missing evidence that still matters:
-  - there is now a checked-in perf artifact bundle, but it is only a shell-scaling / synthetic SQLite query-plan bundle, not a real large-profile replay with actual webview trace + Rust CPU sample
+  - there is now a checked-in perf artifact bundle, but it is only a shell-scaling / synthetic SQLite query-plan bundle with placeholder trace/sample files, not a real large-profile replay with actual webview trace + Rust CPU sample
   - there is still no synthetic long-horizon benchmark that exercises semantic search, assistant retrieval, insights rebuild, and shell responsiveness under a defined 60-year corpus shape
   - exploratory whole-workspace JS mutation still shows concentrated survivors in `src/app/shell-data.tsx` and `src/lib/backend.ts`; that debt does not fail the current gate, but it is still evidence that shell-state / preview-state complexity needs another hardening pass before we advertise long-horizon smoothness
 

@@ -106,12 +106,12 @@ SQL
 - backup overlay 會收到 profile-scoped phase progress event，不再只剩 opaque spinner
 - canonical ingest 已減少 `source_profiles` / `urls` 的額外 SQLite round-trip，優先用 `RETURNING id`
 - shell route 現在已做 route-level code splitting；checked-in shell artifact bundle 位於 `artifacts/perf/2026-04-09-large-archive-shell-scaling/`
-- `bun run perf:artifact:shell` 會從最新 production build 重新生成 shell payload summary、route chunk breakdown 與 synthetic SQLite query-plan artifact
+- `bun run perf:artifact:shell` 現在會從最新 production build 重新生成 `context.md`、`shell-payload-summary.json`、`route-chunk-breakdown.md`、synthetic `sqlite-query-plan.txt`，以及誠實標記的 placeholder `webview-trace.json` / `rust-sample.txt`
 - 目前 checked-in artifact 顯示：
-  - base shell approx bytes：`513901`
-  - largest approx first-route bytes：`563227`（`settings` route）
+  - base shell approx bytes：`580261`
+  - largest approx first-route bytes：`629465`（`settings` route）
   - synthetic Explorer keyword query plan 仍有 `VIRTUAL TABLE INDEX`
-- checked-in bundle 目前只對 shell scaling 與 synthetic FTS query plan 背書；`webview-trace.json` / `rust-sample.txt` 仍不是一次真實 large-profile replay 的產物
-- 在這台 workspace 上重新跑 `bun run verify` 仍被環境阻塞：缺 `pkg-config` / glib dev libraries，以及 `protoc`
+- checked-in bundle 目前只對 shell scaling 與 synthetic FTS query plan 背書；`webview-trace.json` / `rust-sample.txt` 目前仍是 placeholder，不是一次真實 large-profile replay 的產物
+- 在這台 workspace 上，`bun run verify` 已經可以重新跑到全綠；目前剩下的 gap 是真實 large-profile replay artifact，而不是 CI / build gate
 - 剩餘 hot spot 若再出現，優先考慮 `browser-history-parser` 的真正 streaming API 與 `archive/mod.rs` 的分模組化重整
 - 下一輪若要對外背書「60 年資料量仍流暢」，至少還要補一份真實 large-profile replay artifact bundle，而不是只靠 synthetic shell / query-plan summary。

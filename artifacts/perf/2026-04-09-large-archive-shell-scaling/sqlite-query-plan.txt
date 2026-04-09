@@ -1,0 +1,5 @@
+QUERY PLAN
+|--SCAN history_search VIRTUAL TABLE INDEX 0:M2
+|--SEARCH urls USING INTEGER PRIMARY KEY (rowid=?)
+|--SCAN visits
+`--SEARCH source_profiles USING INTEGER PRIMARY KEY (rowid=?)
