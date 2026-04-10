@@ -71,3 +71,15 @@
 - [!blocked] App Lock（Biometric / Password）：應用程式鎖定功能，阻於 `PG-RD-PLAT-006` 安全研究。參見 `WORK-M4-C`、`docs/features/archive.md` §8
 
 📋 詳細待辦 → [plan/m4-full-polish/README.md](plan/m4-full-polish/README.md)
+
+## M5 — Deterministic Intelligence（提案中）
+
+- 用 evidence-first deterministic baseline 取代 session / dwell-centric 假設
+- Query groups、reformulation ladders、reference pages、source effectiveness、open loops 正式成為 no-AI 也可 shipping 的 intelligence surface
+- Taxonomy v2 採 multi-dimensional rule-first classifier，優先覆蓋中國大陸與美國，再擴到台灣、日本、韓國、歐洲、俄羅斯與 international 常見網站
+- deterministic modules 採 internal registry / DI / derived-state invalidation contract；third-party runtime plugin 仍待 sandbox 決策
+- 為 long-horizon deterministic pipeline 補上 fixtures、rebuild contract 與 replayable perf evidence
+
+> 這個 milestone 目前是 proposal，仍 blocked on [ADR-006](architecture/decisions/006-deterministic-intelligence-boundary.md) acceptance；它不能在未經 signoff 的情況下直接覆寫現有 [features/intelligence.md](features/intelligence.md)。
+
+📋 詳細待辦 → [plan/m5-deterministic-intelligence/README.md](plan/m5-deterministic-intelligence/README.md)

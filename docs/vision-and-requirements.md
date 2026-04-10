@@ -145,6 +145,7 @@ PathKeep 是一個**本地優先、開源、可信賴的瀏覽器歷史紀錄長
   - [M2 — Recall & Trust](plan/m2-recall-and-trust/README.md) — import、rollback、Doctor、多瀏覽器、i18n、PME
   - [M3 — Intelligence](plan/m3-intelligence/README.md) — provider、index、assistant、insights、MCP
   - [M4 — Full Intelligence & Polish](plan/m4-full-polish/README.md) — enrichment、advanced insights、remote backup、release polish
+  - [M5 — Deterministic Intelligence](plan/m5-deterministic-intelligence/README.md) — evidence-first analytics、taxonomy v2、query groups、reference pages、long-horizon no-AI baseline（proposal）
 
 > 想知道某個功能「應該做成什麼樣」看 `features/` / `design/` / `architecture/`；想知道「接下來怎麼做、做到哪裡、卡在哪裡」就看 `docs/plan/`。
 
