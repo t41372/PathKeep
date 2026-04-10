@@ -21,7 +21,7 @@
     `docs/architecture/module-boundary-map.md`
     `docs/architecture/tech-stack.md`
   - 目標：凍結 honest evidence contract、URL normalization / registrable-domain / search-parser baseline、多維 taxonomy precedence、region rule packs、script-aware tokenization 與 unknown / override governance，避免 deterministic intelligence 再建立在 estimated dwell 或 session-duration 假設上。
-  - 進度：2026-04-10 已接受 `ADR-006`、解除 M5 blocker，並落地第一版 `vault-core::deterministic` normalization / search-parser foundation；其餘 taxonomy / rule-pack / override / evidence-tier contract 仍待本 block 收尾。
+  - 進度：2026-04-10 已接受 `ADR-006`、解除 M5 blocker，並落地第一版 `vault-core::deterministic` normalization / search-parser foundation；其後已補上 taxonomy v2 precedence、China Mainland / US core packs、user override、script-aware tokenization、unknown review note 與 persisted evidence/taxonomy trace，且移除 deterministic importance 對 `duration_ms` 的依賴。其餘 plugin sandbox / queue family / closeout acceptance 仍待本 block 收尾。
   - 併入的 M4 deferred work：plugin execution sandbox、dedicated enrichment queue family、favicon / title normalization、topic / entity extraction、periodic summarization plugin 與對應 acceptance contract。
   - 驗收：`bun run check && bun run build`
 

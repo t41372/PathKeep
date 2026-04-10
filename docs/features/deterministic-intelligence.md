@@ -165,6 +165,12 @@ Normalization 要求：
 
 高信心規則不可被低信心模型結果覆蓋。`unknown` 必須能沿整個 UI 與 explainability 合法存在。
 
+2026-04-10 implementation note：
+
+- `vault-core::deterministic` 已作為 taxonomy v2 的唯一 foundation home。
+- `visit_insight_features` 現在會持久化 `domain_category`、`page_category`、`interaction_kind`、`evidence_tier`、taxonomy source / pack / version / reason，供 explainability、unknown review 與後續 rebuild contract 使用。
+- deterministic feature scoring 已移除 `duration_ms` 權重，避免把 estimated dwell / session-duration proxy 再包裝成 baseline truth。
+
 ### 5.3 Burst construction
 
 `burst` 是低成本時間容器：
@@ -347,6 +353,11 @@ v1 taxonomy packs 以以下順序維護：
 - 每次新增 / 修改規則都要有 fixture
 - 使用者 override 永遠優先
 - unknown rate、top unmatched domains、top misclassified domains 要可 review
+
+2026-04-10 runtime guardrail：
+
+- 在 `PG-RD-AI-010` 完成前，shipping runtime 只允許 checked-in heuristic rule packs 與 script-aware tokenization baseline。
+- external registrable-domain / tokenizer / language-ID / optional model assets 只允許留在 research / offline evaluation 討論，不可先偷渡進桌面 bundle。
 
 ---
 

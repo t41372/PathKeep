@@ -42,9 +42,15 @@
 
 - [x] `M5-001` 凍結 deterministic evidence contract，正式移除 dwell / session-duration baseline 假設
 - [/] `M5-002` 建立 URL normalization、registrable domain extraction、search URL parsing、script-aware tokenization 基礎
-- [ ] `M5-003` 建立 multi-dimensional taxonomy v2，具 user override、rule packs、lexicons、`unknown`
+- [/] `M5-003` 建立 multi-dimensional taxonomy v2，具 user override、rule packs、lexicons、`unknown`
 - [ ] `M5-004` 實作 query groups 與 query reformulation ladders v2
 - [ ] `M5-005` 實作 cross-burst / cross-day thread merge、open loops、reference pages
 - [ ] `M5-006` 建立 source role / source effectiveness 與 template summary modules
 - [ ] `M5-007` 把 deterministic insights 拆出 internal module registry 與 explainability contract
 - [ ] `M5-008` 補齊 rollback / restore / visibility invalidation、fixtures、acceptance 與 long-horizon benchmark
+
+### 2026-04-10 foundation progress
+
+- `vault-core::deterministic` 現在已提供 URL normalization、registrable-domain / subdomain extraction、search parser、script-aware tokenization、evidence tiers、taxonomy v2 precedence、China Mainland / US core packs 與 user override baseline。
+- `vault-core::insights` 已開始把 taxonomy / evidence trace 持久化到 `visit_insight_features`，並把 deterministic importance score 從 `duration_ms` 移開。
+- `PG-RD-AI-010` 尚未完成，因此 runtime 仍只允許 checked-in heuristic packs；任何 external tokenizer / registrable-domain / language-ID / optional model asset 仍不得進 shipping bundle。

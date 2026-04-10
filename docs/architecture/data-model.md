@@ -134,6 +134,7 @@
 - `AppConfig.enrichment.plugins[*]` 是 enrichment plugin 的設定 surface，至少保存 `id`、`enabled`、`version`。缺漏設定必須能從 built-in defaults 回補，避免舊 config 因為新增 plugin 而失真。
 - M4-A 目前唯一內建 plugin 是 `readable-content-refetch`，版本 `m4-v1`、預設啟用，queue contract 掛在 `insights`。這是 derived-state policy，不是 canonical ingest schema 的一部分。
 - `visit_content_enrichments`、`visit_insight_features`、`insight_topics`、`insight_threads`、`insight_thread_members`、`insight_cards`、`insight_runs` 都屬於可重建 derived tables。`run_insights(full_rebuild = true)` 可以先清空再重算；`clear_derived_intelligence_state` 也可以整批刪除這些表的內容。
+- `visit_insight_features` 現在除了 legacy `page_type` / `source_role` 相容欄位，也持久化 deterministic taxonomy / evidence trace：`domain_category`、`page_category`、`interaction_kind`、`evidence_tier`、`taxonomy_source`、`taxonomy_pack`、`taxonomy_version`、`taxonomy_reason`。這些都屬 derived explanation state，而不是 canonical archive fact。
 - derived clear / rebuild 絕不能修改 canonical `visits`、`downloads`、`search_terms`、`runs`、`manifests`、`raw_row_versions` 或 rollback visibility 欄位。任何 derived maintenance 都只能留下 trace，不可改寫 source facts。
 - refetch freshness / fetch status / snippet / readable text 都屬 derived evidence，而不是 source of truth。這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
 

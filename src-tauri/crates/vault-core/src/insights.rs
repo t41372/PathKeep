@@ -4,7 +4,10 @@ use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
-    deterministic::extract_search_query_from_url,
+    deterministic::{
+        DomainCategory, EvidenceTier, InteractionKind, PageCategory, VisitAnalysisInput,
+        analyze_visit, extract_search_query_from_url, tokenize_text,
+    },
     intelligence_runtime::{
         ENRICHMENT_JOB_TYPE, EnrichmentJobPayload, LOCAL_PLUGIN_SOURCE_KIND,
         NETWORK_PLUGIN_SOURCE_KIND, built_in_enrichment_plugin, built_in_enrichment_plugins,
@@ -66,6 +69,14 @@ CREATE TABLE IF NOT EXISTS visit_insight_features (
   thread_id TEXT,
   page_type TEXT NOT NULL,
   source_role TEXT NOT NULL,
+  domain_category TEXT NOT NULL DEFAULT 'unknown',
+  page_category TEXT NOT NULL DEFAULT 'unknown',
+  interaction_kind TEXT NOT NULL DEFAULT 'unknown',
+  evidence_tier TEXT NOT NULL DEFAULT 'tier-c',
+  taxonomy_source TEXT NOT NULL DEFAULT 'unknown',
+  taxonomy_pack TEXT,
+  taxonomy_version TEXT,
+  taxonomy_reason TEXT,
   query_term TEXT,
   query_stage TEXT,
   novelty_score REAL NOT NULL,
@@ -173,16 +184,27 @@ struct VisitRecord {
     from_visit: Option<i64>,
     #[allow(dead_code)]
     transition: Option<i64>,
+    #[allow(dead_code)]
     duration_ms: Option<i64>,
     external_referrer_url: Option<String>,
     #[allow(dead_code)]
     app_id: Option<String>,
     query_term: Option<String>,
+    has_canonical_search_term: bool,
     readable_title: Option<String>,
     readable_text: Option<String>,
     snippets: Vec<String>,
     source_role: String,
     page_type: String,
+    domain_category: DomainCategory,
+    page_category_v2: PageCategory,
+    interaction_kind: InteractionKind,
+    evidence_tier: EvidenceTier,
+    taxonomy_source: String,
+    taxonomy_pack: Option<String>,
+    taxonomy_version: Option<String>,
+    taxonomy_reason: Option<String>,
+    registrable_domain: String,
     keywords: Vec<String>,
     entities: Vec<String>,
     novelty_score: f32,
@@ -263,6 +285,53 @@ struct InterruptedInsightRecovery {
 
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INSIGHT_SCHEMA_SQL)?;
+    ensure_visit_insight_feature_column(
+        connection,
+        "domain_category",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    ensure_visit_insight_feature_column(
+        connection,
+        "page_category",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    ensure_visit_insight_feature_column(
+        connection,
+        "interaction_kind",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    ensure_visit_insight_feature_column(
+        connection,
+        "evidence_tier",
+        "TEXT NOT NULL DEFAULT 'tier-c'",
+    )?;
+    ensure_visit_insight_feature_column(
+        connection,
+        "taxonomy_source",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    ensure_visit_insight_feature_column(connection, "taxonomy_pack", "TEXT")?;
+    ensure_visit_insight_feature_column(connection, "taxonomy_version", "TEXT")?;
+    ensure_visit_insight_feature_column(connection, "taxonomy_reason", "TEXT")?;
+    Ok(())
+}
+
+fn ensure_visit_insight_feature_column(
+    connection: &Connection,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(visit_insight_features)")?;
+    let columns = statement
+        .query_map([], |row: &Row<'_>| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if columns.iter().any(|existing| existing == column) {
+        return Ok(());
+    }
+    connection.execute(
+        &format!("ALTER TABLE visit_insight_features ADD COLUMN {column} {definition}"),
+        [],
+    )?;
     Ok(())
 }
 
@@ -406,7 +475,7 @@ pub fn run_insights(
                 .count() as f32
                 / visits.len() as f32
         };
-        let notes = build_run_notes(
+        let mut notes = build_run_notes(
             embedding_provider.is_some(),
             config.ai.enrichment_enabled,
             enrichment_report.enriched_visits,
@@ -414,6 +483,7 @@ pub fn run_insights(
             enrichment_report.queued_network_jobs,
             &recovery,
         );
+        notes.extend(build_taxonomy_review_notes(&visits));
         connection.execute(
             "UPDATE insight_runs
              SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
@@ -806,11 +876,21 @@ fn visit_record_from_row(row: &Row<'_>) -> rusqlite::Result<VisitRecord> {
         external_referrer_url: row.get(10)?,
         app_id: row.get(11)?,
         query_term: None,
+        has_canonical_search_term: false,
         readable_title: None,
         readable_text: None,
         snippets: Vec::new(),
         source_role: "general".to_string(),
         page_type: "page".to_string(),
+        domain_category: DomainCategory::Unknown,
+        page_category_v2: PageCategory::Unknown,
+        interaction_kind: InteractionKind::Unknown,
+        evidence_tier: EvidenceTier::TierC,
+        taxonomy_source: "unknown".to_string(),
+        taxonomy_pack: None,
+        taxonomy_version: None,
+        taxonomy_reason: None,
+        registrable_domain: String::new(),
         keywords: Vec::new(),
         entities: Vec::new(),
         novelty_score: 0.0,
@@ -873,10 +953,9 @@ fn load_search_term_map(
 
 fn hydrate_query_terms(visits: &mut [VisitRecord], query_terms: &HashMap<(String, i64), String>) {
     for visit in visits {
-        visit.query_term = query_terms
-            .get(&(visit.profile_id.clone(), visit.source_url_id))
-            .cloned()
-            .or_else(|| query_term_from_url(&visit.url));
+        let canonical_query = query_terms.get(&(visit.profile_id.clone(), visit.source_url_id));
+        visit.has_canonical_search_term = canonical_query.is_some();
+        visit.query_term = canonical_query.cloned().or_else(|| query_term_from_url(&visit.url));
     }
 }
 
@@ -1486,8 +1565,32 @@ fn hydrate_enrichment_and_embeddings(
             visit.snippets =
                 serde_json::from_str::<Vec<String>>(&enrichment.snippet_json).unwrap_or_default();
         }
-        visit.source_role = classify_source_role(visit);
-        visit.page_type = classify_page_type(visit);
+        let analysis = analyze_visit(
+            VisitAnalysisInput {
+                url: &visit.url,
+                title: visit.readable_title.as_deref().or(visit.title.as_deref()),
+                query: visit.query_term.as_deref(),
+                has_canonical_search_term: visit.has_canonical_search_term,
+                external_referrer_url: visit.external_referrer_url.as_deref(),
+                from_visit: visit.from_visit,
+            },
+            &[],
+        );
+        visit.domain_category = analysis.taxonomy.domain_category;
+        visit.page_category_v2 = analysis.taxonomy.page_category;
+        visit.interaction_kind = analysis.taxonomy.interaction_kind;
+        visit.evidence_tier = analysis.evidence.tier;
+        visit.taxonomy_source = analysis.taxonomy.source.as_str().to_string();
+        visit.taxonomy_pack = analysis.taxonomy.rule_pack.clone();
+        visit.taxonomy_version = Some(analysis.taxonomy.version.clone());
+        visit.taxonomy_reason = Some(analysis.taxonomy.reasons.join("; "));
+        visit.registrable_domain = analysis
+            .normalized_url
+            .as_ref()
+            .map(|value| value.registrable_domain.clone())
+            .unwrap_or_else(|| url_domain(&visit.url));
+        visit.source_role = legacy_source_role(visit).to_string();
+        visit.page_type = legacy_page_type(visit).to_string();
         visit.keywords = extract_keywords(visit);
         visit.entities = extract_entities(visit);
         visit.vector = embeddings.get(&visit.history_id).cloned();
@@ -1506,13 +1609,33 @@ fn compute_feature_scores(visits: &mut [VisitRecord]) {
         let revisit_key = canonical_visit_key(visit);
         let revisit_count = revisit_counts.entry(revisit_key).or_insert(0);
         *revisit_count += 1;
+        let evidence_bonus = match visit.evidence_tier {
+            EvidenceTier::TierA => 0.6,
+            EvidenceTier::TierB => 0.3,
+            EvidenceTier::TierC => 0.0,
+        };
+        let domain_bonus = match visit.domain_category {
+            DomainCategory::Docs | DomainCategory::Developer => 0.35,
+            DomainCategory::Community | DomainCategory::Shopping | DomainCategory::Work => 0.2,
+            DomainCategory::Search | DomainCategory::Ai => 0.15,
+            _ => 0.0,
+        };
+        let interaction_bonus = match visit.interaction_kind {
+            InteractionKind::Resolve | InteractionKind::Compare => 0.3,
+            InteractionKind::Learn => 0.2,
+            InteractionKind::Manage => 0.15,
+            InteractionKind::Discuss | InteractionKind::Discover | InteractionKind::Watch => 0.1,
+            InteractionKind::Transact | InteractionKind::Unknown => 0.0,
+        };
         visit.novelty_score = (1.0 - max_similarity).clamp(0.0, 1.0);
         visit.importance_score = ((*revisit_count as f32 - 1.0) * 0.35
-            + (visit.duration_ms.unwrap_or(0).max(0) as f32 / 60_000.0).min(2.0)
-            + if visit.source_role == "docs" || visit.source_role == "repo" { 0.3 } else { 0.0 })
-        .clamp(0.0, 4.0);
+            + evidence_bonus
+            + domain_bonus
+            + interaction_bonus)
+            .clamp(0.0, 4.0);
         visit.explore_score = ((visit.novelty_score * 0.7)
-            + if *revisit_count <= 1 { 0.3 } else { 0.0 })
+            + if *revisit_count <= 1 { 0.2 } else { 0.0 }
+            + if visit.interaction_kind == InteractionKind::Discover { 0.1 } else { 0.0 })
         .clamp(0.0, 1.0);
         prior_tokens.push(tokens);
     }
@@ -1697,10 +1820,13 @@ fn persist_features(connection: &Connection, visits: &[VisitRecord]) -> Result<(
     for visit in visits {
         connection.execute(
             "INSERT OR REPLACE INTO visit_insight_features
-             (history_id, profile_id, topic_id, thread_id, page_type, source_role, query_term,
-              query_stage, novelty_score, importance_score, explore_score, keywords_json,
-              entities_json, updated_at, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             (history_id, profile_id, topic_id, thread_id, page_type, source_role,
+              domain_category, page_category, interaction_kind, evidence_tier,
+              taxonomy_source, taxonomy_pack, taxonomy_version, taxonomy_reason,
+              query_term, query_stage, novelty_score, importance_score, explore_score,
+              keywords_json, entities_json, updated_at, pipeline_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                     ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 visit.history_id,
                 visit.profile_id,
@@ -1708,6 +1834,14 @@ fn persist_features(connection: &Connection, visits: &[VisitRecord]) -> Result<(
                 visit.thread_id,
                 visit.page_type,
                 visit.source_role,
+                visit.domain_category.as_str(),
+                visit.page_category_v2.as_str(),
+                visit.interaction_kind.as_str(),
+                visit.evidence_tier.as_str(),
+                visit.taxonomy_source.as_str(),
+                visit.taxonomy_pack.as_deref(),
+                visit.taxonomy_version.as_deref(),
+                visit.taxonomy_reason.as_deref(),
                 visit.query_term,
                 classify_query_stage(visit.query_term.as_deref(), None),
                 visit.novelty_score,
@@ -2121,8 +2255,8 @@ fn build_query_ladders(
                 == current.as_ref().map(|value| value.profile_id.as_str()).unwrap_or("")
                 && chrome_gap_hours(*previous_time, visit.visit_time) <= 2
                 && token_similarity(
-                    &tokenize(previous).into_iter().collect(),
-                    &tokenize(&query_term).into_iter().collect(),
+                    &tokenize_text(previous).into_iter().collect(),
+                    &tokenize_text(&query_term).into_iter().collect(),
                 ) >= 0.2
         });
         if !continues {
@@ -2415,6 +2549,50 @@ fn build_run_notes(
     notes
 }
 
+fn build_taxonomy_review_notes(visits: &[VisitRecord]) -> Vec<String> {
+    let mut notes = Vec::new();
+    let taxonomy_version = visits
+        .iter()
+        .find_map(|visit| visit.taxonomy_version.clone())
+        .unwrap_or_else(|| "m5-taxonomy-v1".to_string());
+    notes.push(format!(
+        "Deterministic taxonomy {taxonomy_version} used script-aware tokens plus checked-in regional rule packs; external tokenizer and registrable-domain wheels stay gated behind PG-RD-AI-010."
+    ));
+
+    let unknown_visits = visits
+        .iter()
+        .filter(|visit| visit.domain_category == DomainCategory::Unknown)
+        .collect::<Vec<_>>();
+    if unknown_visits.is_empty() {
+        notes.push("Deterministic taxonomy classified the analyzed window without falling back to unknown.".to_string());
+        return notes;
+    }
+
+    let mut counts = HashMap::<String, usize>::new();
+    for visit in unknown_visits {
+        let key = if visit.registrable_domain.is_empty() {
+            url_domain(&visit.url)
+        } else {
+            visit.registrable_domain.clone()
+        };
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    let mut ranked = counts.into_iter().collect::<Vec<_>>();
+    ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    let preview = ranked
+        .into_iter()
+        .take(5)
+        .map(|(domain, count)| format!("{domain} ({count})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    notes.push(format!(
+        "Deterministic taxonomy fell back to unknown for {} visit(s); top unmatched domains: {}.",
+        visits.iter().filter(|visit| visit.domain_category == DomainCategory::Unknown).count(),
+        preview
+    ));
+    notes
+}
+
 fn query_term_from_url(url: &str) -> Option<String> {
     extract_search_query_from_url(url)
 }
@@ -2490,93 +2668,50 @@ fn build_embedding_content_from_parts(
     content
 }
 
-fn classify_source_role(visit: &VisitRecord) -> String {
-    let domain = visit.domain();
-    let url = visit.url.to_lowercase();
-    if query_term_from_url(&visit.url).is_some()
-        || matches!(
-            domain.as_str(),
-            "google.com" | "www.google.com" | "bing.com" | "duckduckgo.com" | "search.brave.com"
-        )
-    {
-        "search".to_string()
-    } else if domain.contains("github.com")
-        || domain.contains("gitlab.com")
-        || url.contains("/issues/")
-        || url.contains("/pull/")
-    {
-        "repo".to_string()
-    } else if domain.contains("developer.")
-        || url.contains("/docs")
-        || url.contains("/reference")
-        || url.contains("/api/")
-    {
-        "docs".to_string()
-    } else if domain.contains("reddit.com")
-        || domain.contains("stackoverflow.com")
-        || domain.contains("news.ycombinator.com")
-        || url.contains("/forum")
-        || url.contains("/discuss")
-    {
-        "forum".to_string()
-    } else if domain.contains("youtube.com")
-        || domain.contains("youtu.be")
-        || domain.contains("vimeo.com")
-    {
-        "video".to_string()
-    } else if domain.contains("amazon.")
-        || url.contains("/pricing")
-        || url.contains("/compare")
-        || url.contains("/shop")
-    {
-        "shopping".to_string()
-    } else if domain.contains("notion.so")
-        || domain.contains("docs.google.com")
-        || domain.contains("obsidian.md")
-    {
-        "notes".to_string()
-    } else if domain.contains("x.com")
-        || domain.contains("twitter.com")
-        || domain.contains("linkedin.com")
-    {
-        "social".to_string()
-    } else if domain.contains("medium.com")
-        || domain.contains("substack.com")
-        || domain.contains("nytimes.com")
-    {
-        "news".to_string()
-    } else {
-        "general".to_string()
+fn legacy_source_role(visit: &VisitRecord) -> &'static str {
+    match visit.page_category_v2 {
+        PageCategory::SearchResults => "search",
+        PageCategory::Repo | PageCategory::Issue | PageCategory::PullRequest => "repo",
+        PageCategory::DocsPage => "docs",
+        PageCategory::ForumThread => "forum",
+        PageCategory::VideoPage => "video",
+        PageCategory::ProductPage | PageCategory::CategoryPage => "shopping",
+        PageCategory::Dashboard if visit.domain_category == DomainCategory::Work => "notes",
+        PageCategory::ArticlePage if visit.domain_category == DomainCategory::News => "news",
+        PageCategory::Profile if visit.domain_category == DomainCategory::Social => "social",
+        _ => match visit.domain_category {
+            DomainCategory::Docs => "docs",
+            DomainCategory::Developer => "repo",
+            DomainCategory::Community => "forum",
+            DomainCategory::Video => "video",
+            DomainCategory::Shopping => "shopping",
+            DomainCategory::Work => "notes",
+            DomainCategory::Social => "social",
+            DomainCategory::News => "news",
+            DomainCategory::Search => "search",
+            _ => "general",
+        },
     }
 }
 
-fn classify_page_type(visit: &VisitRecord) -> String {
-    let url = visit.url.to_lowercase();
-    if visit.source_role == "repo" && url.contains("/issues/") {
-        "issue".to_string()
-    } else if visit.source_role == "repo" && url.contains("/pull/") {
-        "pull-request".to_string()
-    } else if visit.source_role == "docs" {
-        "documentation".to_string()
-    } else if visit.source_role == "video" {
-        "video".to_string()
-    } else if visit.source_role == "search" {
-        "search-results".to_string()
-    } else if visit.source_role == "forum" {
-        "discussion".to_string()
-    } else if visit.source_role == "shopping" {
-        "comparison".to_string()
-    } else if url.contains("/blog") || url.contains("/article") {
-        "article".to_string()
-    } else {
-        "page".to_string()
+fn legacy_page_type(visit: &VisitRecord) -> &'static str {
+    match visit.page_category_v2 {
+        PageCategory::Issue => "issue",
+        PageCategory::PullRequest => "pull-request",
+        PageCategory::DocsPage => "documentation",
+        PageCategory::VideoPage => "video",
+        PageCategory::SearchResults => "search-results",
+        PageCategory::ForumThread => "discussion",
+        PageCategory::ProductPage | PageCategory::CategoryPage => "comparison",
+        PageCategory::ArticlePage => "article",
+        _ => "page",
     }
 }
 
 fn extract_keywords(visit: &VisitRecord) -> Vec<String> {
     let mut counts = HashMap::<String, usize>::new();
     let mut push_tokens = |value: &str| {
-        for token in tokenize(value) {
+        for token in tokenize_text(value) {
             *counts.entry(token).or_insert(0) += 1;
         }
     };
@@ -2620,30 +2755,6 @@ fn extract_entities(visit: &VisitRecord) -> Vec<String> {
     entities.truncate(6);
     entities
 }
-
-fn tokenize(input: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    for ch in input.chars() {
-        if ch.is_alphanumeric() {
-            current.push(ch.to_ascii_lowercase());
-        } else if !current.is_empty() {
-            if current.len() > 1 && !STOP_WORDS.contains(&current.as_str()) {
-                tokens.push(current.clone());
-            }
-            current.clear();
-        }
-    }
-    if !current.is_empty() && current.len() > 1 && !STOP_WORDS.contains(&current.as_str()) {
-        tokens.push(current);
-    }
-    tokens
-}
-
-const STOP_WORDS: &[&str] = &[
-    "the", "and", "for", "that", "with", "from", "into", "this", "your", "what", "how", "why",
-    "when", "where", "about", "http", "https", "www", "com", "org", "net", "html",
-];
 
 fn token_similarity(left: &HashSet<String>, right: &HashSet<String>) -> f32 {
     if left.is_empty() || right.is_empty() {
@@ -2780,12 +2891,14 @@ fn classify_query_stage(query_term: Option<&str>, previous: Option<&str>) -> Str
     {
         "error-driven".to_string()
     } else if let Some(previous) = previous {
-        if query_term.contains(previous) || tokenize(&query_term).len() > tokenize(previous).len() {
+        if query_term.contains(previous)
+            || tokenize_text(&query_term).len() > tokenize_text(previous).len()
+        {
             "narrowing".to_string()
         } else {
             "broadening".to_string()
         }
-    } else if tokenize(&query_term).len() >= 5 {
+    } else if tokenize_text(&query_term).len() >= 5 {
         "narrowing".to_string()
     } else {
         "broad".to_string()
@@ -2818,16 +2931,6 @@ fn chrome_gap_minutes(left: i64, right: i64) -> i64 {
 
 fn chrome_gap_hours(left: i64, right: i64) -> i64 {
     (right.saturating_sub(left) / 3_600_000_000).max(0)
-}
-
-trait VisitDomain {
-    fn domain(&self) -> String;
-}
-
-impl VisitDomain for VisitRecord {
-    fn domain(&self) -> String {
-        url_domain(&self.url)
-    }
 }
 
 fn is_chromium_profile(profile_id: &str) -> bool {
