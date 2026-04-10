@@ -36,7 +36,7 @@
 | M2 Recall & Trust                             | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                     |
 | M3 Intelligence                               | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
 | M4 Full Intelligence & Polish                 | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
-| M5 Deterministic Intelligence (proposal)      | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
+| M5 Deterministic Intelligence                 | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
 | 產品願景、需求、畫面結構                      | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
 
 ---
@@ -97,6 +97,7 @@
 - 2026-04-09 audit closeout：`WORK-QC-D` 與 `WORK-M1-C` 已完成，當時 closeout environment 的 `bun run verify` / `bun run check` / `bun run build` 已重新回綠；但這次審核也確認 repo **不能**聲稱「所有設計文檔需求都已完成」。M4 仍保留兩個真正的未完成主線：`WORK-M4-J`（60-year performance proof）與 `WORK-M4-I`（advanced intelligence shipping）。`WORK-M4-J` 現在已重新補回可重跑的 shell-scaling artifact script 與 checked-in bundle，但 final signoff 仍需要真實 large-profile replay，不是 synthetic bundle 即可代替。
 - 2026-04-10 recoverability closeout：`WORK-M1-D` 已完成。repo 現在正式 shipping checkpoint-based `snapshot_restore` preview / execute、manual-first local retention prune，以及 run-ledger-backed rekey audit summary；M1 不再把 recoverability 留在「truth-only 文檔收尾」。仍保留 manual-first 的只剩 archive-file safety snapshot 在需要舊 key 時的恢復邊界，以及 M4 的剩餘主線 `WORK-M4-K` / `WORK-M4-L`。
 - 2026-04-10 boundary / release closeout：`WORK-M4-K` 與 `WORK-M4-L` 已完成。PathKeep 現在正式 shipping macOS Touch ID session unlock、consented frontend analytics、Settings updater review / install surface、`com.yi-ting.pathkeep` clean-break namespace、single-script version bump，以及 release size / code-health artifact docs。plugin sandbox、獨立 enrichment queue family 與 longer-horizon intelligence 已明確移回 `WORK-M5-A` / `WORK-M5-B`；M4 因此 truthfully close out，而不是停在模糊 `[~]`。
+- 2026-04-10 deterministic unblock：使用者已明確 sign off `ADR-006`，M5 從 proposal / blocked 轉為 active。repo 也同步落下第一版 `vault-core::deterministic` URL normalization / search parser foundation，並補修 onboarding archive-mode IPC mismatch 與 insights refresh queue regression，避免 M4 closeout 遺留的契約錯位繼續污染 M5 起點。
 
 這個結果很重要，因為它代表 repo 現在不只保住 desktop entry + typed IPC contract，也重新把 living M0-M3 quality surface 的 coverage、build、e2e 與 deep-check 分層拉回可兌現狀態。
 
@@ -144,7 +145,7 @@ M5  Deterministic Intelligence
 | `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                     |
 | `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
 | `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
-| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline              | `[!]` | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
+| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline              | `[/]` | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
 
 ---
 

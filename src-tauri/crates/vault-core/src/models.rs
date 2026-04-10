@@ -43,10 +43,11 @@ pub fn normalize_app_config(config: &mut AppConfig) {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
 pub enum ArchiveMode {
+    #[serde(rename = "Plaintext", alias = "plaintext")]
     #[default]
     Plaintext,
+    #[serde(rename = "Encrypted", alias = "encrypted")]
     Encrypted,
 }
 

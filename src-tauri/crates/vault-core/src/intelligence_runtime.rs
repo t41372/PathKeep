@@ -260,6 +260,35 @@ pub(crate) fn mark_intelligence_job_failed(
     Ok(())
 }
 
+pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result<usize> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'queued', scheduled_at = ?1, started_at = NULL, finished_at = NULL,
+             updated_at = ?1, last_error = NULL, cancellation_reason = NULL
+         WHERE job_type = ?2 AND state = 'running'",
+        params![now, ENRICHMENT_JOB_TYPE],
+    )?;
+    Ok(updated)
+}
+
+pub(crate) fn requeue_running_enrichment_jobs_for_run(
+    connection: &Connection,
+    run_id: i64,
+) -> Result<usize> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'queued', scheduled_at = ?1, started_at = NULL, finished_at = NULL,
+             updated_at = ?1, last_error = NULL, cancellation_reason = NULL
+         WHERE job_type = ?2 AND state = 'running' AND run_id = ?3",
+        params![now, ENRICHMENT_JOB_TYPE, run_id],
+    )?;
+    Ok(updated)
+}
+
 pub fn load_intelligence_runtime(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -544,5 +573,65 @@ mod tests {
         };
         config.ai.enrichment_enabled = false;
         assert!(!enrichment_plugin_enabled(&config, TITLE_NORMALIZATION_PLUGIN_ID));
+    }
+
+    #[test]
+    fn running_jobs_can_be_requeued_globally_or_by_run() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, updated_at)
+                 VALUES (?1, ?2, 11, 'running', 10, 1, 'job-1', ?3, '{}', ?4, ?4, ?4, ?4),
+                        (?1, ?2, 12, 'running', 10, 1, 'job-2', ?3, '{}', ?4, ?4, ?4, ?4)",
+                params![
+                    ENRICHMENT_JOB_TYPE,
+                    TITLE_NORMALIZATION_PLUGIN_ID,
+                    serde_json::to_string(&EnrichmentJobPayload {
+                        history_id: 3,
+                        profile_id: "chrome:Default".to_string(),
+                        url: "https://example.com/docs".to_string(),
+                        title: Some("Docs".to_string()),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert running jobs");
+
+        let requeued_for_run =
+            requeue_running_enrichment_jobs_for_run(&connection, 11).expect("requeue run jobs");
+        assert_eq!(requeued_for_run, 1);
+        let first_state = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE dedupe_key = 'job-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("first state");
+        let second_state = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE dedupe_key = 'job-2'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("second state");
+        assert_eq!(first_state, "queued");
+        assert_eq!(second_state, "running");
+
+        let requeued_all =
+            requeue_running_enrichment_jobs(&connection).expect("requeue all running jobs");
+        assert_eq!(requeued_all, 1);
+        let final_state = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE dedupe_key = 'job-2'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("final state");
+        assert_eq!(final_state, "queued");
     }
 }

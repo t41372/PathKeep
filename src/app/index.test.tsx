@@ -442,14 +442,22 @@ describe('App shell', () => {
       screen.getByRole('button', { name: onboardingT('continueButton') }),
     )
 
-    await user.click(screen.getByText(onboardingT('plaintextDesc')))
+    await user.click(
+      screen.getByRole('radio', {
+        name: onboardingT('plaintextSelectLabel'),
+      }),
+    )
     expect(
       await screen.findByText(new RegExp(onboardingT('tradeoffNoPassword')), {
         selector: '.tradeoff-row',
       }),
     ).toBeVisible()
 
-    await user.click(screen.getByText(onboardingT('encryptedDesc')))
+    await user.click(
+      screen.getByRole('radio', {
+        name: onboardingT('encryptedSelectLabel'),
+      }),
+    )
     expect(
       await screen.findByText(onboardingT('masterPasswordLabel')),
     ).toBeVisible()

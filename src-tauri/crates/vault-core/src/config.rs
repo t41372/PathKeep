@@ -159,6 +159,8 @@ mod tests {
         assert!(loaded.initialized);
         assert_eq!(loaded.selected_profile_ids, vec!["chrome:Default".to_string()]);
         assert!(matches!(loaded.archive_mode, ArchiveMode::Encrypted));
+        let saved_content = fs::read_to_string(&paths.config_path).expect("read saved config");
+        assert!(saved_content.contains(r#""archiveMode": "Encrypted""#));
     }
 
     #[test]
@@ -185,6 +187,92 @@ mod tests {
         fs::write(&paths.config_path, "{not-json").expect("write invalid config");
         let error = load_config(&paths).expect_err("invalid config should fail");
         assert!(error.to_string().contains("parsing config json"));
+    }
+
+    #[test]
+    fn load_config_accepts_legacy_lowercase_archive_mode_values() {
+        let dir = tempdir().expect("tempdir");
+        let paths = ProjectPaths {
+            app_root: dir.path().to_path_buf(),
+            config_path: dir.path().join("config.json"),
+            archive_database_path: dir.path().join("archive/history-vault.sqlite"),
+            audit_repo_path: dir.path().join("audit"),
+            manifests_dir: dir.path().join("audit/manifests"),
+            exports_dir: dir.path().join("exports"),
+            raw_snapshots_dir: dir.path().join("raw-snapshots"),
+            staging_dir: dir.path().join("staging"),
+            quarantine_dir: dir.path().join("quarantine"),
+            schedule_dir: dir.path().join("schedule"),
+            stronghold_path: dir.path().join("vault.hold"),
+            stronghold_salt_path: dir.path().join("stronghold-salt.txt"),
+        };
+
+        fs::write(
+            &paths.config_path,
+            r#"{
+  "initialized": true,
+  "archiveMode": "plaintext",
+  "preferredLanguage": "system",
+  "dueAfterHours": 72,
+  "scheduleCheckIntervalHours": 6,
+  "checkpointDays": 1,
+  "captureFavicons": true,
+  "selectedProfileIds": [],
+  "gitEnabled": false,
+  "rememberDatabaseKeyInKeyring": false,
+  "appAutostart": false,
+  "appLock": {
+    "enabled": false,
+    "idleTimeoutMinutes": 5,
+    "biometricEnabled": false,
+    "passcodeEnabled": false,
+    "passcodeConfigured": false,
+    "recoveryHint": null
+  },
+  "analytics": {
+    "enabled": false,
+    "consentGrantedAt": null
+  },
+  "remoteBackup": {
+    "enabled": false,
+    "bucket": "",
+    "region": "us-east-1",
+    "endpoint": null,
+    "prefix": "pathkeep",
+    "pathStyle": true,
+    "uploadAfterBackup": false,
+    "credentialsSaved": false,
+    "lastUploadedAt": null,
+    "lastUploadedObjectKey": null,
+    "lastError": null
+  },
+  "enrichment": {
+    "plugins": []
+  },
+  "ai": {
+    "enabled": false,
+    "assistantEnabled": false,
+    "semanticIndexEnabled": false,
+    "mcpEnabled": false,
+    "skillEnabled": false,
+    "autoIndexAfterBackup": false,
+    "jobQueuePaused": false,
+    "jobQueueConcurrency": 1,
+    "enrichmentEnabled": true,
+    "enrichmentPlugins": [],
+    "llmProviderId": null,
+    "embeddingProviderId": null,
+    "retrievalTopK": 8,
+    "assistantSystemPrompt": "",
+    "llmProviders": [],
+    "embeddingProviders": []
+  }
+}"#,
+        )
+        .expect("write legacy lowercase config");
+
+        let loaded = load_config(&paths).expect("load legacy lowercase config");
+        assert!(matches!(loaded.archive_mode, ArchiveMode::Plaintext));
     }
 
     #[test]

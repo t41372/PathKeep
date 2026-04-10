@@ -2,7 +2,7 @@
 
 ## 狀態
 
-Proposed
+Accepted (2026-04-10)
 
 ## 背景
 

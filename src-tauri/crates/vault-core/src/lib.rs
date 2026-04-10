@@ -6,6 +6,7 @@ pub mod archive;
 mod browser_retention;
 pub mod chrome;
 pub mod config;
+pub mod deterministic;
 pub mod git_audit;
 pub mod insights;
 pub mod intelligence_runtime;

@@ -4,11 +4,14 @@ use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
+    deterministic::extract_search_query_from_url,
     intelligence_runtime::{
-        ENRICHMENT_JOB_TYPE, EnrichmentJobPayload, built_in_enrichment_plugin,
-        built_in_enrichment_plugins, claim_enrichment_jobs, enqueue_enrichment_job,
-        enrichment_plugin_enabled, ensure_intelligence_runtime_schema,
-        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+        ENRICHMENT_JOB_TYPE, EnrichmentJobPayload, LOCAL_PLUGIN_SOURCE_KIND,
+        NETWORK_PLUGIN_SOURCE_KIND, built_in_enrichment_plugin, built_in_enrichment_plugins,
+        claim_enrichment_jobs, enqueue_enrichment_job, enrichment_plugin_enabled,
+        ensure_intelligence_runtime_schema, mark_intelligence_job_failed,
+        mark_intelligence_job_succeeded, requeue_running_enrichment_jobs,
+        requeue_running_enrichment_jobs_for_run,
     },
     models::{
         AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCanonicalSummary,
@@ -34,6 +37,7 @@ const ENRICH_TEXT_LIMIT: usize = 12_000;
 const SNIPPET_LIMIT: usize = 3;
 const DEFAULT_WINDOW_DAYS: u32 = 30;
 const DEFAULT_ANALYSIS_LIMIT: usize = 600;
+const MAX_NETWORK_ENRICHMENT_JOBS_PER_RUN: usize = 4;
 const SESSION_GAP_MINUTES: i64 = 30;
 const THREAD_GAP_DAYS: i64 = 14;
 const REOPEN_GAP_HOURS: i64 = 24;
@@ -248,6 +252,13 @@ struct StoredEnrichment {
 struct EnrichmentProcessingReport {
     enriched_visits: usize,
     failed_enrichments: usize,
+    queued_network_jobs: usize,
+}
+
+#[derive(Debug, Default)]
+struct InterruptedInsightRecovery {
+    recovered_runs: usize,
+    requeued_enrichment_jobs: usize,
 }
 
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
@@ -337,6 +348,9 @@ pub fn run_insights(
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     ensure_insight_schema(&connection)?;
+    ensure_intelligence_runtime_schema(&connection)?;
+
+    let recovery = recover_interrupted_insight_runs(&connection)?;
 
     if request.full_rebuild {
         clear_derived_insight_state(&connection)?;
@@ -351,82 +365,112 @@ pub fn run_insights(
         params![started_at, profile_scope, window_days as i64],
     )?;
     let run_id = connection.last_insert_rowid();
+    let run_result = (|| -> Result<RunInsightsReport> {
+        let analysis_limit = request.limit.unwrap_or(DEFAULT_ANALYSIS_LIMIT as u32) as usize;
+        let mut visits =
+            load_visits(&connection, request.profile_id.as_deref(), window_days, analysis_limit)?;
+        let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
+        hydrate_query_terms(&mut visits, &query_terms);
 
-    let analysis_limit = request.limit.unwrap_or(DEFAULT_ANALYSIS_LIMIT as u32) as usize;
-    let mut visits =
-        load_visits(&connection, request.profile_id.as_deref(), window_days, analysis_limit)?;
-    let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
-    hydrate_query_terms(&mut visits, &query_terms);
+        schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
+        let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
 
-    schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
-    let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
+        if embedding_provider.is_some() {
+            // Embeddings are refreshed by the worker before analytics. Here we only consume them.
+        }
 
-    if embedding_provider.is_some() {
-        // Embeddings are refreshed by the worker before analytics. Here we only consume them.
-    }
+        let enrichments = load_best_enrichment_map(&connection, &visits)?;
+        let embeddings = load_embedding_map(&connection, embedding_provider, &visits)?;
+        hydrate_enrichment_and_embeddings(&mut visits, &enrichments, &embeddings);
+        compute_feature_scores(&mut visits);
 
-    let enrichments = load_best_enrichment_map(&connection, &visits)?;
-    let embeddings = load_embedding_map(&connection, embedding_provider, &visits)?;
-    hydrate_enrichment_and_embeddings(&mut visits, &enrichments, &embeddings);
-    compute_feature_scores(&mut visits);
+        let sessions = build_sessions(&visits);
+        let topics = assign_topics(&mut visits, window_days);
+        let threads = assign_threads(&mut visits, &sessions);
+        persist_features(&connection, &visits)?;
+        persist_topics(&connection, &topics, &visits, request.profile_id.as_deref(), window_days)?;
+        persist_threads(&connection, &threads, &visits)?;
 
-    let sessions = build_sessions(&visits);
-    let topics = assign_topics(&mut visits, window_days);
-    let threads = assign_threads(&mut visits, &sessions);
-    persist_features(&connection, &visits)?;
-    persist_topics(&connection, &topics, &visits, request.profile_id.as_deref(), window_days)?;
-    persist_threads(&connection, &threads, &visits)?;
+        let cards =
+            build_cards(&visits, &topics, &threads, window_days, request.profile_id.as_deref());
+        persist_cards(&connection, &cards, request.profile_id.as_deref(), window_days)?;
 
-    let cards = build_cards(&visits, &topics, &threads, window_days, request.profile_id.as_deref());
-    persist_cards(&connection, &cards, request.profile_id.as_deref(), window_days)?;
+        let content_coverage = if visits.is_empty() {
+            0.0
+        } else {
+            visits
+                .iter()
+                .filter(|visit| {
+                    visit.readable_text.as_deref().is_some_and(|value| !value.is_empty())
+                })
+                .count() as f32
+                / visits.len() as f32
+        };
+        let notes = build_run_notes(
+            embedding_provider.is_some(),
+            config.ai.enrichment_enabled,
+            enrichment_report.enriched_visits,
+            enrichment_report.failed_enrichments,
+            enrichment_report.queued_network_jobs,
+            &recovery,
+        );
+        connection.execute(
+            "UPDATE insight_runs
+             SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
+                 failed_enrichments = ?4, topic_count = ?5, thread_count = ?6, card_count = ?7,
+                 content_coverage = ?8, warning = NULL, notes_json = ?9
+             WHERE id = ?10",
+            params![
+                now_rfc3339(),
+                visits.len() as i64,
+                enrichment_report.enriched_visits as i64,
+                enrichment_report.failed_enrichments as i64,
+                topics.len() as i64,
+                threads.len() as i64,
+                cards.len() as i64,
+                content_coverage,
+                serde_json::to_string(&notes)?,
+                run_id,
+            ],
+        )?;
 
-    let content_coverage = if visits.is_empty() {
-        0.0
-    } else {
-        visits
-            .iter()
-            .filter(|visit| visit.readable_text.as_deref().is_some_and(|value| !value.is_empty()))
-            .count() as f32
-            / visits.len() as f32
-    };
-    let notes = build_run_notes(
-        embedding_provider.is_some(),
-        config.ai.enrichment_enabled,
-        enrichment_report.enriched_visits,
-        enrichment_report.failed_enrichments,
-    );
-    connection.execute(
-        "UPDATE insight_runs
-         SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
-             failed_enrichments = ?4, topic_count = ?5, thread_count = ?6, card_count = ?7,
-             content_coverage = ?8, notes_json = ?9
-         WHERE id = ?10",
-        params![
-            now_rfc3339(),
-            visits.len() as i64,
-            enrichment_report.enriched_visits as i64,
-            enrichment_report.failed_enrichments as i64,
-            topics.len() as i64,
-            threads.len() as i64,
-            cards.len() as i64,
-            content_coverage,
-            serde_json::to_string(&notes)?,
+        Ok(RunInsightsReport {
             run_id,
-        ],
-    )?;
+            processed_visits: visits.len(),
+            enriched_visits: enrichment_report.enriched_visits,
+            failed_enrichments: enrichment_report.failed_enrichments,
+            topic_count: topics.len(),
+            thread_count: threads.len(),
+            card_count: cards.len(),
+            content_coverage,
+            last_run_at: started_at.clone(),
+            notes,
+        })
+    })();
 
-    Ok(RunInsightsReport {
-        run_id,
-        processed_visits: visits.len(),
-        enriched_visits: enrichment_report.enriched_visits,
-        failed_enrichments: enrichment_report.failed_enrichments,
-        topic_count: topics.len(),
-        thread_count: threads.len(),
-        card_count: cards.len(),
-        content_coverage,
-        last_run_at: started_at,
-        notes,
-    })
+    match run_result {
+        Ok(report) => Ok(report),
+        Err(error) => {
+            let failure_warning = format!("Insight refresh stopped before completion: {}", error);
+            let failure_notes = vec![
+                "PathKeep kept the canonical archive unchanged.".to_string(),
+                "Any interrupted enrichment work was re-queued for a later refresh.".to_string(),
+            ];
+            let _ = connection.execute(
+                "UPDATE insight_runs
+                 SET finished_at = ?1, status = 'failed', warning = ?2, notes_json = ?3
+                 WHERE id = ?4",
+                params![
+                    now_rfc3339(),
+                    failure_warning,
+                    serde_json::to_string(&failure_notes)?,
+                    run_id,
+                ],
+            );
+            let _ = requeue_running_enrichment_jobs_for_run(&connection, run_id);
+            Err(error)
+        }
+    }
 }
 
 pub fn load_insights(
@@ -892,22 +936,44 @@ fn process_enrichment_jobs(
         return Ok(EnrichmentProcessingReport::default());
     }
 
-    let allowed_plugin_ids = built_in_enrichment_plugins()
+    let allowed_plugins = built_in_enrichment_plugins()
         .iter()
         .filter(|plugin| enrichment_plugin_enabled(config, plugin.id))
-        .map(|plugin| plugin.id.to_string())
+        .copied()
         .collect::<Vec<_>>();
-    if allowed_plugin_ids.is_empty() {
+    if allowed_plugins.is_empty() {
         return Ok(EnrichmentProcessingReport::default());
     }
 
     let allowed_history_ids = visits.iter().map(|visit| visit.history_id).collect::<HashSet<_>>();
-    let claimed = claim_enrichment_jobs(
-        connection,
-        &allowed_plugin_ids,
-        &allowed_history_ids,
-        visits.len().max(1) * allowed_plugin_ids.len(),
-    )?;
+    let local_plugin_ids = allowed_plugins
+        .iter()
+        .filter(|plugin| plugin.source_kind == LOCAL_PLUGIN_SOURCE_KIND)
+        .map(|plugin| plugin.id.to_string())
+        .collect::<Vec<_>>();
+    let network_plugin_ids = allowed_plugins
+        .iter()
+        .filter(|plugin| plugin.source_kind == NETWORK_PLUGIN_SOURCE_KIND)
+        .map(|plugin| plugin.id.to_string())
+        .collect::<Vec<_>>();
+
+    let mut claimed = Vec::new();
+    if !local_plugin_ids.is_empty() {
+        claimed.extend(claim_enrichment_jobs(
+            connection,
+            &local_plugin_ids,
+            &allowed_history_ids,
+            visits.len().max(1) * local_plugin_ids.len(),
+        )?);
+    }
+    if !network_plugin_ids.is_empty() {
+        claimed.extend(claim_enrichment_jobs(
+            connection,
+            &network_plugin_ids,
+            &allowed_history_ids,
+            MAX_NETWORK_ENRICHMENT_JOBS_PER_RUN,
+        )?);
+    }
     if claimed.is_empty() {
         return Ok(EnrichmentProcessingReport::default());
     }
@@ -976,7 +1042,53 @@ fn process_enrichment_jobs(
         }
     }
 
+    if !network_plugin_ids.is_empty() {
+        report.queued_network_jobs = queued_enrichment_jobs(connection, &network_plugin_ids)?;
+    }
+
     Ok(report)
+}
+
+fn recover_interrupted_insight_runs(connection: &Connection) -> Result<InterruptedInsightRecovery> {
+    let recovered_runs = connection
+        .query_row(
+            "SELECT COUNT(*) FROM insight_runs WHERE status = 'running'",
+            [],
+            |row: &Row<'_>| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        .max(0) as usize;
+    if recovered_runs == 0 {
+        return Ok(InterruptedInsightRecovery::default());
+    }
+
+    let now = now_rfc3339();
+    connection.execute(
+        "UPDATE insight_runs
+         SET finished_at = ?1, status = 'failed', warning = ?2
+         WHERE status = 'running'",
+        params![now, "A previous insight refresh was interrupted before completion.",],
+    )?;
+    let requeued_enrichment_jobs = requeue_running_enrichment_jobs(connection)?;
+    Ok(InterruptedInsightRecovery { recovered_runs, requeued_enrichment_jobs })
+}
+
+fn queued_enrichment_jobs(connection: &Connection, plugin_ids: &[String]) -> Result<usize> {
+    let mut total = 0usize;
+    for plugin_id in plugin_ids {
+        let queued = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM intelligence_jobs
+                 WHERE job_type = ?1 AND plugin_id = ?2 AND state = 'queued'",
+                params![ENRICHMENT_JOB_TYPE, plugin_id],
+                |row: &Row<'_>| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            .max(0) as usize;
+        total += queued;
+    }
+    Ok(total)
 }
 
 fn plugin_is_eligible(plugin_id: &str, visit: &VisitRecord) -> bool {
@@ -1072,7 +1184,8 @@ fn enrichment_failure_message(enrichment: &EnrichmentResult) -> String {
 fn build_refetch_client() -> Result<Client> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::limited(5))
-        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(4))
         .user_agent("PathKeep Insights/0.1")
         .build()
         .context("building content refetch client")
@@ -2268,8 +2381,16 @@ fn build_run_notes(
     enrichment_enabled: bool,
     enriched_visits: usize,
     failed_enrichments: usize,
+    queued_network_jobs: usize,
+    recovery: &InterruptedInsightRecovery,
 ) -> Vec<String> {
     let mut notes = Vec::new();
+    if recovery.recovered_runs > 0 {
+        notes.push(format!(
+            "Recovered {} interrupted insight run(s) and re-queued {} stuck enrichment job(s).",
+            recovery.recovered_runs, recovery.requeued_enrichment_jobs
+        ));
+    }
     notes.push(if embeddings_available {
         "Insight run used semantic vectors when available.".to_string()
     } else {
@@ -2286,21 +2407,16 @@ fn build_run_notes(
             "{failed_enrichments} enrichment jobs failed or returned unsupported content."
         ));
     }
+    if queued_network_jobs > 0 {
+        notes.push(format!(
+            "Deferred {queued_network_jobs} network enrichment job(s) to later refreshes so this run stays responsive."
+        ));
+    }
     notes
 }
 
 fn query_term_from_url(url: &str) -> Option<String> {
-    let (_, query) = url.split_once('?')?;
-    for pair in query.split('&') {
-        let (key, value) = pair.split_once('=')?;
-        if matches!(key, "q" | "query" | "search_query" | "p") {
-            let value = percent_decode(value);
-            if !value.trim().is_empty() {
-                return Some(value);
-            }
-        }
-    }
-    None
+    extract_search_query_from_url(url)
 }
 
 fn percent_decode(input: &str) -> String {
@@ -2981,6 +3097,111 @@ mod tests {
         .expect("embedding content");
         assert!(content.contains("Readable text body"));
         assert!(content.contains("Readable title"));
+    }
+
+    #[test]
+    fn run_insights_marks_runs_failed_when_job_payload_is_invalid() {
+        let paths = test_paths();
+        let mut config = test_config();
+        config.enrichment.plugins[0].enabled = false;
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+        seed_visits(&connection);
+
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, updated_at)
+                 VALUES (?1, ?2, NULL, 'queued', 0, 0, 'broken-job', '{', '{}', ?3, ?3, ?3)",
+                params![ENRICHMENT_JOB_TYPE, TITLE_NORMALIZATION_PLUGIN_ID, now],
+            )
+            .expect("insert malformed job");
+
+        let error = run_insights(&paths, &config, None, None, &RunInsightsRequest::default())
+            .expect_err("invalid payload should fail the run");
+        assert!(error.to_string().contains("parsing enrichment payload"));
+
+        let (status, warning) = connection
+            .query_row(
+                "SELECT status, warning
+                 FROM insight_runs
+                 ORDER BY id DESC
+                 LIMIT 1",
+                [],
+                |row: &Row<'_>| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .expect("load failed run");
+        assert_eq!(status, "failed");
+        assert!(warning.expect("warning").contains("Insight refresh stopped before completion"));
+    }
+
+    #[test]
+    fn run_insights_recovers_interrupted_runs_and_requeues_stuck_jobs() {
+        let paths = test_paths();
+        let mut config = test_config();
+        config.enrichment.plugins[0].enabled = false;
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+        seed_visits(&connection);
+
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO insight_runs (id, started_at, status, mode, profile_scope, window_days, notes_json)
+                 VALUES (41, ?1, 'running', 'manual', 'all', 30, '[]')",
+                [now.clone()],
+            )
+            .expect("insert interrupted run");
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, updated_at)
+                 VALUES (?1, ?2, 41, 'running', 10, 1, 'title-normalization:1', ?3, '{}', ?4, ?4, ?4, ?4)",
+                params![
+                    ENRICHMENT_JOB_TYPE,
+                    TITLE_NORMALIZATION_PLUGIN_ID,
+                    serde_json::to_string(&EnrichmentJobPayload {
+                        history_id: 1,
+                        profile_id: "chrome:Default".to_string(),
+                        url: "https://example.com/docs/archive".to_string(),
+                        title: Some("Archive docs".to_string()),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert interrupted job");
+
+        let report = run_insights(&paths, &config, None, None, &RunInsightsRequest::default())
+            .expect("run insights after recovery");
+        assert!(
+            report.notes.iter().any(|note| note.contains("Recovered 1 interrupted insight run"))
+        );
+
+        let previous_status = connection
+            .query_row("SELECT status FROM insight_runs WHERE id = 41", [], |row: &Row<'_>| {
+                row.get::<_, String>(0)
+            })
+            .expect("previous run status");
+        assert_eq!(previous_status, "failed");
+
+        let job_state = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE dedupe_key = 'title-normalization:1'",
+                [],
+                |row: &Row<'_>| row.get::<_, String>(0),
+            )
+            .expect("job state");
+        assert_eq!(job_state, "succeeded");
     }
 
     #[test]

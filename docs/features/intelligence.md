@@ -3,6 +3,8 @@
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。  
 > Intelligence 是建立在 Archive 夠好的基礎上的增值層。  
 > 所有 AI 功能預設關閉，可以在設定中開啟。
+>
+> **2026-04-10 truth note:** deterministic baseline 已由 [deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 接管。這份文檔仍描述 optional AI / assistant / MCP / M3-M4 shipped surface；任何殘留的 session / dwell / embedding-first deterministic wording，都屬需要被 M5 持續 supersede 的 legacy implementation debt，不再是新的 accepted baseline。
 
 ---
 
@@ -92,16 +94,16 @@
 ```
 層 1：結構特徵提取
   從每條歷史紀錄中提取可計算的特徵：
-  URL 結構、domain 類型、搜尋關鍵詞、transition/referrer、
-  訪問時間/星期/時段、訪問頻率、估計停留時長
+  URL 結構、domain / page 類型、搜尋關鍵詞、transition/referrer、
+  訪問時間/星期/時段、訪問頻率、reopen / revisit evidence tier
 
-層 2：Session 和 Task 構建
+層 2：Burst / Query Group / Thread 構建
   把零散的頁面訪問聚合成有意義的單元：
-  相鄰訪問 → session → 語義相近的 session 合併為 thread → 偵測 reopen
+  相鄰訪問 → burst → query group → cross-burst / cross-day thread merge → 偵測 reopen
 
 層 3：Topic 聚類和時間序列
-  對 visit/session 的 embedding 做聚類，形成 topic →
-  追蹤每個 topic 隨時間的變化 → 偵測趨勢、爆發、轉折
+  deterministic topic / reference-page / source-effectiveness signals →
+  optional embeddings 只作 additive coverage，而不是 baseline truth
 
 層 4：LLM 增強
   為 topic 和 thread 起人類可讀的名字 →
@@ -144,7 +146,7 @@
 
 - 自動偵測進行中的研究線：跨天持續的、語義上連貫的一系列訪問。
 - 偵測「任務重新打開」：停了幾天又回來繼續的研究線。
-- **實現**：先切出 session（≤30 分鐘間隔），再用 embedding 相似度合併語義連貫的 session 成 thread。
+- **實現**：M5 之後以 burst / query group / reference-page reuse / reopen evidence 為 baseline；embedding merge 只作 optional additive layer。
 
 ##### 🔄 Open Loops（未完成的任務）
 
@@ -156,7 +158,7 @@
 
 你看了很多次、顯然覺得重要，但從來沒有 bookmark 的頁面。
 
-- **實現**：`importance = revisit_count × estimated_dwell × semantic_centrality`。
+- **實現**：importance 以 revisit、reference-page reuse、query-group 後段穩定落點與 deterministic centrality signal 為主；不再依賴 estimated dwell。
 
 ##### 📈 Explore vs Exploit（探索 vs 深挖）
 
@@ -174,7 +176,7 @@
 
 ##### 🌐 Site Analytics（網站統計）
 
-按 domain 統計訪問次數和估計 session 時長。純數據庫查詢和統計計算，不需要 AI。
+按 domain 統計訪問次數、revisit / reopen evidence 與 source role。純數據庫查詢和統計計算，不需要 AI。
 
 ##### 🎯 Contrastive Summary（對比式摘要）
 

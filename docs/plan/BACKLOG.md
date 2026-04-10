@@ -19,18 +19,6 @@
 
 ### M5 — Deterministic Intelligence
 
-- [ ] **WORK-M5-A** — Deterministic Evidence Contract, Foundation, And Taxonomy [!blocked: requires ADR-006 acceptance before replacing current session/dwell-centric intelligence contract]
-  - 讀先：
-    `docs/architecture/decisions/006-deterministic-intelligence-boundary.md`
-    `docs/features/deterministic-intelligence.md`
-    `docs/features/intelligence.md`
-    `docs/architecture/data-model.md`
-    `docs/architecture/module-boundary-map.md`
-    `docs/architecture/tech-stack.md`
-  - 目標：凍結 honest evidence contract、URL normalization / registrable-domain / search-parser baseline、多維 taxonomy precedence、region rule packs、script-aware tokenization 與 unknown / override governance，避免 deterministic intelligence 再建立在 estimated dwell 或 session-duration 假設上。
-  - 併入的 M4 deferred work：plugin execution sandbox、dedicated enrichment queue family、favicon / title normalization、topic / entity extraction、periodic summarization plugin 與對應 acceptance contract。
-  - 驗收：`bun run check && bun run build`
-
 - [ ] **WORK-M5-B** — Query Groups, Threads, Reference Pages, And Module Registry [!blocked: depends on WORK-M5-A]
   - 讀先：
     `docs/features/deterministic-intelligence.md`

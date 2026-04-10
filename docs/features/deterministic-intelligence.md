@@ -1,7 +1,7 @@
-# DETERMINISTIC INTELLIGENCE — Evidence-First Analytics Proposal
+# DETERMINISTIC INTELLIGENCE — Evidence-First Analytics
 
-> **狀態：Proposed (M5)**  
-> 這份文檔整理 `ADR-006` 的具體 feature spec。它先作為 proposal 存在，**不直接覆寫**現有 [intelligence.md](intelligence.md) 的 accepted / shipped contract；等 `ADR-006` 被接受後，再由 M5 正式 supersede 現行的 session / dwell / embedding-first deterministic 假設。
+> **狀態：Accepted (M5 baseline, 2026-04-10)**  
+> 這份文檔是 `ADR-006` 的正式 feature spec。M5 之後，PathKeep 的 deterministic baseline 以這裡為準；[intelligence.md](intelligence.md) 仍保留 optional AI / assistant / MCP contract 與現行 shipping truth note，但不再是新的 deterministic heuristic source of truth。
 
 ---
 
