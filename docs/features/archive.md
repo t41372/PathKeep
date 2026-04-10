@@ -61,6 +61,8 @@
 - canonical archive 的 run ledger 使用共用 `runs` 表；backup、import、rollback、restore、doctor、snapshot restore 都要帶上 `run_id` 與 artifact 關聯。
 - rollback 採 soft-hide visibility：user-visible facts 以 `reverted_at` / `reverted_by_run_id` 隱藏，raw rows / manifests / snapshots 保持 immutable。
 - import batch 的 un-revert / restore 必須留下獨立 `restore` run，而不是繼續冒充 `rollback`；`snapshot_restore` 則保留給未來真正的 archive snapshot restore flow。
+- v1 shipping 的 `snapshot_restore` 是 **checkpoint replay**：使用者從 Audit review 一個已保存的 browser source checkpoint（`raw-source-checkpoint`）做 Preview / Execute，PathKeep 會把該 checkpoint 重新 ingest 回 canonical archive，留下獨立 `snapshot_restore` run 與 artifact 關聯；既有可見 facts 不會因為 restore 被 destructive 覆寫，重複資料則由 dedupe / watermark 邊界跳過。
+- rekey flow 產生的 archive safety snapshot file 也必須寫進 audit / security summary，保留 open / copy path 與 manifest / run detail；但若該 snapshot 需要舊的 database key，v1 仍保持 manual-first recovery，而不是假裝任何 archive file snapshot 都能自動 replay。
 
 ---
 
@@ -180,6 +182,7 @@
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
 - keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
+- rekey execute 必須留下可 review 的 audit summary：至少包含 `rekey` run、safety snapshot path、manifest artifact、以及 Security / Audit 可直接打開的 review surface，而不是只改完 config 就結束。
 - **密碼遺忘等於數據丟失**：UI 中必須有明確、醒目的警告，要求用戶把密碼妥善保存，並且告知風險。
 
 ---
@@ -204,6 +207,8 @@
 - Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。
 - Doctor / 健康檢查命令：重算 archive table hash 並出報告。
 - doctor / repair baseline 至少要涵蓋 missing import audit artifact、broken visibility references、stale derived state，並把 repair 本身寫回 unified `runs` ledger。
+- local retention / prune 走 manual-first，但不是 hidden cleanup：Settings 必須提供 local snapshot / export / staging / quarantine 的 preview + explicit prune，並在 prune 後保留 run summary / manifest，而不是把 retention 寫成「只能自己去資料夾刪」。
+- prune snapshot artifact 時，PathKeep 會把對應 artifact path 從未來的 review surface 移除，但不刪除原本的 run summary / manifest / audit trail。
 - 如果用戶已配置 GPG 簽名 commit，就沿用。
 - support / release 診斷預設只導出 metadata-first 事實：run id、audit path、manifest path、platform state、build info、checksum 結果；不自動包含 canonical archive facts、raw snapshots、API keys 或 master password。
 

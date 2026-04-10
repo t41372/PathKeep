@@ -94,10 +94,11 @@
 - 2026-04-08 性能 closeout：`WORK-M4-G` 已把 Explorer day-one keyword recall 從 `LIKE` 收斂到 FTS5 `history_search` projection，manual backup 也改為透過 desktop progress event 顯示 profile-scoped phase log；同時補齊 [large-archive-performance-runbook.md](m4-full-polish/large-archive-performance-runbook.md)，讓之後的大型 archive triage 有固定 artifact bundle，而不是再靠一次性的口頭記錄。
 - 2026-04-08 UI closeout：`WORK-M4-E` 已把 Dashboard / Explorer / Insights / Import / AI action 的 loading grammar 收斂成 skeleton + readable progress contract；`WORK-M4-C` 也補上 App Lock route、session guard、MCP refusal path 與 source-of-truth docs。M4 當前已切好的 work blocks 全部收口，下一輪需要從剩餘 docs/plan 開放項重新切出新的 half-milestone block。
 - 2026-04-09 audit closeout：`WORK-QC-D` 與 `WORK-M1-C` 已完成，當時 closeout environment 的 `bun run verify` / `bun run check` / `bun run build` 已重新回綠；但這次審核也確認 repo **不能**聲稱「所有設計文檔需求都已完成」。M4 仍保留兩個真正的未完成主線：`WORK-M4-J`（60-year performance proof）與 `WORK-M4-I`（advanced intelligence shipping）。`WORK-M4-J` 現在已重新補回可重跑的 shell-scaling artifact script 與 checked-in bundle，但 final signoff 仍需要真實 large-profile replay，不是 synthetic bundle 即可代替。
+- 2026-04-10 recoverability closeout：`WORK-M1-D` 已完成。repo 現在正式 shipping checkpoint-based `snapshot_restore` preview / execute、manual-first local retention prune，以及 run-ledger-backed rekey audit summary；M1 不再把 recoverability 留在「truth-only 文檔收尾」。仍保留 manual-first 的只剩 archive-file safety snapshot 在需要舊 key 時的恢復邊界，以及 M4 的剩餘主線 `WORK-M4-K` / `WORK-M4-L`。
 
 這個結果很重要，因為它代表 repo 現在不只保住 desktop entry + typed IPC contract，也重新把 living M0-M3 quality surface 的 coverage、build、e2e 與 deep-check 分層拉回可兌現狀態。
 
-2026-04-06 審查修正：M1 的 archive feature baseline 已經落地，但 milestone 本身仍有 closeout 要完成。非前端剩餘重點已收斂到 `M1-DB` / `M1-OPS` 的 acceptance matrix、security mode taxonomy、retention / audit summary；前端 shell / route / sidebar 的驗收也不能再借用舊的 shell slice 敘事，必須由前端 owner 補上獨立驗收。
+2026-04-06 審查修正：M1 的 archive feature baseline 已經落地，但 milestone 本身仍有 closeout 要完成。當時非前端剩餘重點收斂到 `M1-DB` / `M1-OPS` 的 acceptance matrix、security mode taxonomy、retention / audit summary；這些 gap 現已由 `WORK-M1-D` 收口。前端 shell / route / sidebar 的驗收仍不能借用舊的 shell slice 敘事，必須由前端 owner 補上獨立驗收。
 
 ---
 

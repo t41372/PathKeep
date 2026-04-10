@@ -12,16 +12,6 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-M1-D** — Snapshot Restore, Retention, And Rekey Audit Shipping
-  - 讀先：
-    `docs/features/archive.md`
-    `docs/architecture/desktop-command-surface.md`
-    `docs/plan/m1-solid-archive/schema-backup-and-ledger.md`
-    `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
-    `docs/plan/program/research-and-decisions.md`
-  - 目標：把目前只停在 deferred / partial support 的 snapshot restore preview / execute、retention / prune、以及 richer rekey audit summary 拉回真正可 shipping 的 recoverability contract，而不是永遠停在 truth-closeout 文檔上。
-  - 驗收：`bun run verify`
-
 - [ ] **WORK-M4-K** — Security, Privacy, And Update Boundary
   - 讀先：
     `docs/architecture/decisions/005-app-lock-session-boundary.md`

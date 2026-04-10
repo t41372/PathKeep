@@ -29,18 +29,19 @@
 - schedule status read model 已補上：macOS 會檢查 LaunchAgent 是否已安裝、內容是否 mismatch、是否殘留 legacy plist；Windows / Linux 目前明確回報 `manual-review`，不再假裝自動檢測已完成。
 - keyring status / get / set / clear、archive unlock session、security status read model、rekey preview 與 snapshot-backed rekey execute 基礎已經存在於 worker / platform surface；Security trust UI 也已落地，Linux keyring 仍維持 truthful degradation / warning stance。
 - storage layout、artifact naming 與 Dashboard / Audit 可消費的 storage summary / artifact metadata 已落地；retention policy 現在已明確定為 manual-first，自動清理 UX 仍未完成。
-- 2026-04-09 closeout：M1-OPS 現在有明確 acceptance matrix。shipping surface 是 schedule PME + verify、security mode / unlock / rekey foundation、storage summary 與 safe reveal/open boundary；自動 retention、完整 rekey audit summary 與真機 runbook 仍保留為 partial / deferred。
+- 2026-04-09 closeout：M1-OPS 現在有明確 acceptance matrix。shipping surface 是 schedule PME + verify、security mode / unlock / rekey foundation、storage summary 與 safe reveal/open boundary；當時自動 retention、完整 rekey audit summary 與真機 runbook 仍保留為 partial / deferred。
+- 2026-04-10 closeout：`WORK-M1-D` 已補齊 recoverability / ops 的剩餘 shipping 面：rekey execute 現在會寫 `rekey` run + manifest + safety snapshot artifact，Security 也能顯示 latest rekey review path；Settings 另外補上 manual-first local retention preview / prune。仍未 shipping 的只剩 auto-prune job / retention ledger 與「任何 archive snapshot file 都可自動 restore」的更強承諾。
 
 ## Acceptance Matrix（2026-04-09 / `WORK-QC-C`）
 
-| Surface                   | Current support                                                                                                                                  | Evidence                                                                               | Truthful boundary                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Schedule domain model     | `SchedulePlan` + `ScheduleStatus` 已表達 platform、interval、install state、detected files、manual steps、warnings                               | `vault-platform::schedule_status`、`src/pages/schedule/index.tsx`、trust-flow tests    | `next_run` / `last_apply_remove` 仍未成為獨立 persisted scheduler ledger。 |
-| Schedule PME + verify     | Preview / Manual / Execute / Verify 全部已有 UI 與 command surface                                                                               | `preview_schedule` / `apply_schedule` / `remove_schedule` / `schedule_status`          | Windows / Linux 保持 manual-review，不假裝自動 apply / detect 已完成。     |
-| Security mode taxonomy    | `uninitialized` / `plaintext` / `encrypted` / `locked` 已形成正式 read model                                                                     | `security_status`、Security page、Dashboard / Settings keyring warnings                | `rekeying` 仍是 execute-time flow，而不是 persisted long-lived mode。      |
-| Rekey safety boundary     | preview 顯示 snapshot / temp DB / warnings；execute 前建立 safety snapshot                                                                       | `preview_rekey_archive`、`rekey_archive_keeps_a_safety_snapshot`                       | rekey 本身尚未寫入 unified run artifact / audit summary matrix。           |
-| Storage / reveal boundary | storage summary、artifact metadata、open / reveal helper 已落地；preview file path 現在也會退回到最近存在的父資料夾，避免 PME preview 變成假按鈕 | `StorageSummary`、`open_path_in_file_manager`、Audit / Schedule / Settings / Import UI | 不提供跨磁碟搬移或自動清理；operator-guided reveal 仍是 v1 主線。          |
-| Retention policy          | manual-first policy 已定義：manifests / audit summary 永久保留，raw snapshots / exports / remote bundles 不自動 prune                            | `archive.md`、Settings remote-backup manual tab、storage diagnostics                   | 尚未有 auto-prune job、retention ledger 或 UI cleanup workflow。           |
+| Surface                   | Current support                                                                                                                                                                         | Evidence                                                                                                      | Truthful boundary                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Schedule domain model     | `SchedulePlan` + `ScheduleStatus` 已表達 platform、interval、install state、detected files、manual steps、warnings                                                                      | `vault-platform::schedule_status`、`src/pages/schedule/index.tsx`、trust-flow tests                           | `next_run` / `last_apply_remove` 仍未成為獨立 persisted scheduler ledger。  |
+| Schedule PME + verify     | Preview / Manual / Execute / Verify 全部已有 UI 與 command surface                                                                                                                      | `preview_schedule` / `apply_schedule` / `remove_schedule` / `schedule_status`                                 | Windows / Linux 保持 manual-review，不假裝自動 apply / detect 已完成。      |
+| Security mode taxonomy    | `uninitialized` / `plaintext` / `encrypted` / `locked` 已形成正式 read model                                                                                                            | `security_status`、Security page、Dashboard / Settings keyring warnings                                       | `rekeying` 仍是 execute-time flow，而不是 persisted long-lived mode。       |
+| Rekey safety boundary     | preview 顯示 snapshot / temp DB / warnings；execute 前建立 safety snapshot，且 execute 完成後會寫 `rekey` run / manifest / snapshot artifact，Security 也能直接 deep-link 回最新 review | `preview_rekey_archive`、`rekey_archive_keeps_a_safety_snapshot`、`command_helpers_cover_local_desktop_flows` | archive-file safety snapshot 若依賴舊 key，仍維持 manual-first recovery。   |
+| Storage / reveal boundary | storage summary、artifact metadata、open / reveal helper 已落地；preview file path 現在也會退回到最近存在的父資料夾，避免 PME preview 變成假按鈕                                        | `StorageSummary`、`open_path_in_file_manager`、Audit / Schedule / Settings / Import UI                        | 不提供跨磁碟搬移或自動清理；operator-guided reveal 仍是 v1 主線。           |
+| Retention policy          | manual-first policy 已落地：manifests / audit summary 永久保留，Settings 可 explicit prune local snapshots / exports / staging / quarantine                                             | `archive.md`、Settings retention panel、`retention_preview_and_prune_clear_local_artifacts_and_record_a_run`  | 尚未有 auto-prune job、retention ledger 或 remote bucket cleanup workflow。 |
 
 ---
 
@@ -64,7 +65,7 @@
 - [x] `M1-OPS-SEC-004` 實作 archive unlock / lock 流程和 session state，確保前端可感知當前可用能力。
 - [x] `M1-OPS-SEC-005` 實作 rekey preview，清楚說明會建立 safety snapshot、temporary database 與 execute 前置條件。（2026-04-06 audit follow-up）
 - [x] `M1-OPS-SEC-006` 實作 rekey execute 基礎流程，先建立 safety snapshot，再做 temp export 與 swap；如果最終替換失敗，會嘗試把原始 archive 放回原位。（2026-04-06 audit follow-up）
-- [~] `M1-OPS-SEC-007` 為 Security 頁建立清楚的 trust UI：目前模式、上次 rekey、keyring status、手動恢復指引。現況：目前模式 / keyring / unlock / rekey guidance 已存在；`last rekey` 與更完整 recovery audit 仍未落地。
+- [x] `M1-OPS-SEC-007` 為 Security 頁建立清楚的 trust UI：目前模式、上次 rekey、keyring status、手動恢復指引。（2026-04-10，`WORK-M1-D`：Security 現在顯示 latest rekey timestamp、safety snapshot path 與 Audit deep-link）
 
 ### Storage Layout And Artifact Management
 
@@ -76,7 +77,7 @@
 
 ### Audit Transparency
 
-- [~] `M1-OPS-AU-001` 為每次 schedule / rekey / backup 操作生成可讀的 audit summary，不只保留機器日志。現況：schedule apply/remove 與 import / backup artifacts 已有人類可讀 summary；rekey 尚未完全接入同等 audit summary。
+- [x] `M1-OPS-AU-001` 為每次 schedule / rekey / backup 操作生成可讀的 audit summary，不只保留機器日志。（2026-04-10，`WORK-M1-D`：rekey 現在也會寫 run / manifest / snapshot artifact，可直接從 Audit / Security review）
 - [~] `M1-OPS-AU-002` 在 run detail 中顯示 trigger source、security mode、scheduler origin、manual intervention steps。現況：trigger / warnings / artifact 已有；security mode / scheduler origin / manual intervention 尚未完整進 run detail。
 - [~] `M1-OPS-AU-003` 為高風險操作加入 explicit confirmation reason 和 rollback hint。現況：UI preview 已有 confirmation / rollback guidance，但 unified audit ledger 尚未完整持久化這些欄位。
 - [x] `M1-OPS-AU-004` 實作 artifact viewer 所需的 metadata，例如 content type、size、created at、source run、copy path。
@@ -85,7 +86,7 @@
 
 - [x] `M1-OPS-QA-001` 為 macOS scheduler 建立 preview / manual / apply 三種模式的 acceptance tests。
 - [~] `M1-OPS-QA-002` 為 keyring 可用 / 不可用、plaintext / encrypted、rekey success / failure 建立測試矩陣。現況：bridge / worker / frontend 已覆蓋主要分支，但還未整理成完整矩陣文檔。
-- [~] `M1-OPS-QA-003` 為 storage summary、artifact retention、snapshot before rekey 建立整合測試。現況：storage summary 與 rekey snapshot 已各自有測試；retention 仍是 doc-led manual-first policy。
+- [x] `M1-OPS-QA-003` 為 storage summary、artifact retention、snapshot before rekey 建立整合測試。（2026-04-10，`WORK-M1-D`：新增 retention preview / prune 與 snapshot restore / rekey audit coverage）
 - [x] `M1-OPS-QA-004` 為 PME 文案和 UI 流程建立前端測試，確保 trust 信息不會在重構時被隨手刪掉。（2026-04-09，`WORK-QC-C`：`src/pages/trust-flows.test.tsx` 已作為正式 acceptance anchor）
 - [~] `M1-OPS-QA-005` 在 M1 結束前，產出一輪真機驗收記錄，至少覆蓋 macOS schedule install / remove 和 encrypted archive rekey。現況：macOS apply / remove Rust acceptance 已有；人工真機 runbook 仍保留到 release / support docs。
 
