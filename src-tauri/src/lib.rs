@@ -125,6 +125,9 @@ fn run_app() -> Result<()> {
             load_insights,
             load_thread_detail,
             explain_insight,
+            load_intelligence_runtime,
+            retry_intelligence_job,
+            cancel_intelligence_job,
             preview_ai_integrations,
             reset_local_secret_vault,
             open_path_in_file_manager,
@@ -605,6 +608,32 @@ fn explain_insight(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::InsightExplanation, String> {
     worker_bridge::explain_insight_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn load_intelligence_runtime(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
+    worker_bridge::load_intelligence_runtime_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn retry_intelligence_job(
+    job_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
+    worker_bridge::retry_intelligence_job_impl(job_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn cancel_intelligence_job(
+    job_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
+    worker_bridge::cancel_intelligence_job_impl(job_id, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

@@ -8,6 +8,7 @@ pub mod chrome;
 pub mod config;
 pub mod git_audit;
 pub mod insights;
+pub mod intelligence_runtime;
 pub mod models;
 pub mod remote;
 pub mod takeout;
@@ -36,6 +37,9 @@ pub use config::{ProjectPaths, load_config, project_paths, save_config};
 pub use insights::{
     clear_derived_intelligence_state, explain_insight, insight_status, load_insight_thread_detail,
     load_insights, run_insights,
+};
+pub use intelligence_runtime::{
+    cancel_intelligence_job, load_intelligence_runtime, retry_intelligence_job,
 };
 pub use models::*;
 pub use remote::{preview_remote_backup, run_remote_backup, verify_remote_backup};

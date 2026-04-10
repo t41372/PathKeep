@@ -42,6 +42,7 @@ import type {
   InsightExplanation,
   InsightSnapshot,
   InsightThreadDetail,
+  IntelligenceRuntimeSnapshot,
   KeyringStatusReport,
   RekeyPreview,
   RekeyRequest,
@@ -147,6 +148,11 @@ const mockSnapshot: AppSnapshot = {
       autoIndexAfterBackup: false,
       jobQueuePaused: false,
       jobQueueConcurrency: 1,
+      enrichmentEnabled: true,
+      enrichmentPlugins: [
+        { pluginId: 'title-normalization', enabled: true },
+        { pluginId: 'readable-content-refetch', enabled: true },
+      ],
       llmProviderId: null,
       embeddingProviderId: null,
       retrievalTopK: 8,
@@ -583,6 +589,78 @@ const mockInsightExplanation: InsightExplanation = {
   usedLlm: false,
   citations: structuredClone(mockInsightThreadDetail.visits),
   notes: ['Browser preview mode explains insights from static evidence only.'],
+}
+
+const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
+  queue: {
+    queued: 1,
+    running: 0,
+    succeeded: 9,
+    failed: 1,
+    cancelled: 0,
+    lastActivityAt: new Date().toISOString(),
+  },
+  plugins: [
+    {
+      pluginId: 'title-normalization',
+      sourceKind: 'local',
+      enabled: true,
+      storedRecords: 24,
+      queuedJobs: 0,
+      runningJobs: 0,
+      failedJobs: 0,
+      lastCompletedAt: new Date().toISOString(),
+      lastError: null,
+    },
+    {
+      pluginId: 'readable-content-refetch',
+      sourceKind: 'network',
+      enabled: true,
+      storedRecords: 8,
+      queuedJobs: 1,
+      runningJobs: 0,
+      failedJobs: 1,
+      lastCompletedAt: new Date().toISOString(),
+      lastError: '429 from upstream host',
+    },
+  ],
+  recentJobs: [
+    {
+      id: 11,
+      jobType: 'enrichment-plugin',
+      pluginId: 'readable-content-refetch',
+      state: 'failed',
+      historyId: 2,
+      profileId: 'chrome:Default',
+      url: mockHistory.items[1].url,
+      title: mockHistory.items[1].title,
+      attempt: 2,
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      startedAt: new Date(Date.now() - 55_000).toISOString(),
+      finishedAt: new Date(Date.now() - 54_000).toISOString(),
+      lastError: '429 from upstream host',
+      retryable: true,
+      cancellable: false,
+    },
+    {
+      id: 12,
+      jobType: 'enrichment-plugin',
+      pluginId: 'title-normalization',
+      state: 'succeeded',
+      historyId: 1,
+      profileId: 'chrome:Default',
+      url: mockHistory.items[0].url,
+      title: mockHistory.items[0].title,
+      attempt: 1,
+      createdAt: new Date(Date.now() - 120_000).toISOString(),
+      startedAt: new Date(Date.now() - 118_000).toISOString(),
+      finishedAt: new Date(Date.now() - 117_000).toISOString(),
+      lastError: null,
+      retryable: false,
+      cancellable: false,
+    },
+  ],
+  notes: ['Browser preview mode shows a deterministic queue/runtime fixture.'],
 }
 
 interface MockBackendState {
@@ -2197,6 +2275,10 @@ async function call<T>(
       return mockInsightThreadDetail as T
     case 'explain_insight':
       return mockInsightExplanation as T
+    case 'load_intelligence_runtime':
+    case 'retry_intelligence_job':
+    case 'cancel_intelligence_job':
+      return mockIntelligenceRuntime as T
     case 'inspect_takeout':
       return buildMockTakeoutInspection(
         mockState,
@@ -2805,6 +2887,12 @@ export const backend = {
     call<InsightThreadDetail>('load_thread_detail', { threadId }),
   explainInsight: (request: ExplainInsightRequest) =>
     call<InsightExplanation>('explain_insight', { request }),
+  loadIntelligenceRuntime: () =>
+    call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
+  retryIntelligenceJob: (jobId: number) =>
+    call<IntelligenceRuntimeSnapshot>('retry_intelligence_job', { jobId }),
+  cancelIntelligenceJob: (jobId: number) =>
+    call<IntelligenceRuntimeSnapshot>('cancel_intelligence_job', { jobId }),
   previewAiIntegrations: () =>
     call<AiIntegrationPreview>('preview_ai_integrations'),
   resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),

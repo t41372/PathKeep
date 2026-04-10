@@ -1,4 +1,7 @@
-use crate::{models::AppConfig, utils::now_rfc3339};
+use crate::{
+    models::{AppConfig, normalize_app_config},
+    utils::now_rfc3339,
+};
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -77,12 +80,16 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
 
 pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
     if !paths.config_path.exists() {
-        return Ok(AppConfig::default());
+        let mut config = AppConfig::default();
+        normalize_app_config(&mut config);
+        return Ok(config);
     }
 
     let content = fs::read_to_string(&paths.config_path)
         .with_context(|| format!("reading {}", paths.config_path.display()))?;
-    serde_json::from_str(&content).context("parsing config json")
+    let mut config = serde_json::from_str::<AppConfig>(&content).context("parsing config json")?;
+    normalize_app_config(&mut config);
+    Ok(config)
 }
 
 pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {

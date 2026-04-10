@@ -50,6 +50,11 @@ export interface AiProviderConfig {
   notes?: string | null
 }
 
+export interface EnrichmentPluginPreference {
+  pluginId: string
+  enabled: boolean
+}
+
 export interface AiSettings {
   enabled: boolean
   assistantEnabled: boolean
@@ -59,6 +64,8 @@ export interface AiSettings {
   autoIndexAfterBackup: boolean
   jobQueuePaused: boolean
   jobQueueConcurrency: number
+  enrichmentEnabled: boolean
+  enrichmentPlugins: EnrichmentPluginPreference[]
   llmProviderId?: string | null
   embeddingProviderId?: string | null
   retrievalTopK: number
@@ -459,6 +466,52 @@ export interface InsightExplanation {
   explanation: string
   usedLlm: boolean
   citations: InsightEvidenceItem[]
+  notes: string[]
+}
+
+export interface IntelligenceQueueStatus {
+  queued: number
+  running: number
+  succeeded: number
+  failed: number
+  cancelled: number
+  lastActivityAt?: string | null
+}
+
+export interface EnrichmentPluginStatus {
+  pluginId: string
+  sourceKind: string
+  enabled: boolean
+  storedRecords: number
+  queuedJobs: number
+  runningJobs: number
+  failedJobs: number
+  lastCompletedAt?: string | null
+  lastError?: string | null
+}
+
+export interface IntelligenceJobOverview {
+  id: number
+  jobType: string
+  pluginId?: string | null
+  state: string
+  historyId?: number | null
+  profileId?: string | null
+  url?: string | null
+  title?: string | null
+  attempt: number
+  createdAt: string
+  startedAt?: string | null
+  finishedAt?: string | null
+  lastError?: string | null
+  retryable: boolean
+  cancellable: boolean
+}
+
+export interface IntelligenceRuntimeSnapshot {
+  queue: IntelligenceQueueStatus
+  plugins: EnrichmentPluginStatus[]
+  recentJobs: IntelligenceJobOverview[]
   notes: string[]
 }
 

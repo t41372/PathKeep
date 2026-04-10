@@ -1,6 +1,47 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const TITLE_NORMALIZATION_PLUGIN_ID: &str = "title-normalization";
+pub const READABLE_CONTENT_PLUGIN_ID: &str = "readable-content-refetch";
+
+fn default_enrichment_enabled() -> bool {
+    true
+}
+
+pub fn default_enrichment_plugin_preferences() -> Vec<EnrichmentPluginPreference> {
+    vec![
+        EnrichmentPluginPreference {
+            plugin_id: TITLE_NORMALIZATION_PLUGIN_ID.to_string(),
+            enabled: true,
+        },
+        EnrichmentPluginPreference {
+            plugin_id: READABLE_CONTENT_PLUGIN_ID.to_string(),
+            enabled: true,
+        },
+    ]
+}
+
+pub fn merge_enrichment_plugin_preferences(
+    current: &[EnrichmentPluginPreference],
+) -> Vec<EnrichmentPluginPreference> {
+    let defaults = default_enrichment_plugin_preferences();
+    let mut merged = Vec::with_capacity(defaults.len());
+    for default in defaults {
+        let enabled = current
+            .iter()
+            .find(|item| item.plugin_id == default.plugin_id)
+            .map(|item| item.enabled)
+            .unwrap_or(default.enabled);
+        merged.push(EnrichmentPluginPreference { enabled, ..default });
+    }
+    merged
+}
+
+pub fn normalize_app_config(config: &mut AppConfig) {
+    config.ai.enrichment_plugins =
+        merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiveMode {
@@ -144,6 +185,13 @@ impl Default for AiProviderConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EnrichmentPluginPreference {
+    pub plugin_id: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AiSettings {
@@ -155,6 +203,10 @@ pub struct AiSettings {
     pub auto_index_after_backup: bool,
     pub job_queue_paused: bool,
     pub job_queue_concurrency: u32,
+    #[serde(default = "default_enrichment_enabled")]
+    pub enrichment_enabled: bool,
+    #[serde(default = "default_enrichment_plugin_preferences")]
+    pub enrichment_plugins: Vec<EnrichmentPluginPreference>,
     pub llm_provider_id: Option<String>,
     pub embedding_provider_id: Option<String>,
     pub retrieval_top_k: u32,
@@ -174,6 +226,8 @@ impl Default for AiSettings {
             auto_index_after_backup: false,
             job_queue_paused: false,
             job_queue_concurrency: 1,
+            enrichment_enabled: true,
+            enrichment_plugins: default_enrichment_plugin_preferences(),
             llm_provider_id: None,
             embedding_provider_id: None,
             retrieval_top_k: 8,
@@ -1314,9 +1368,66 @@ pub struct InsightExplanation {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceQueueStatus {
+    pub queued: usize,
+    pub running: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+    pub cancelled: usize,
+    pub last_activity_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EnrichmentPluginStatus {
+    pub plugin_id: String,
+    pub source_kind: String,
+    pub enabled: bool,
+    pub stored_records: usize,
+    pub queued_jobs: usize,
+    pub running_jobs: usize,
+    pub failed_jobs: usize,
+    pub last_completed_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceJobOverview {
+    pub id: i64,
+    pub job_type: String,
+    pub plugin_id: Option<String>,
+    pub state: String,
+    pub history_id: Option<i64>,
+    pub profile_id: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub attempt: usize,
+    pub created_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub last_error: Option<String>,
+    pub retryable: bool,
+    pub cancellable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceRuntimeSnapshot {
+    pub queue: IntelligenceQueueStatus,
+    pub plugins: Vec<EnrichmentPluginStatus>,
+    pub recent_jobs: Vec<IntelligenceJobOverview>,
+    pub notes: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AiSearchRequest, InsightStatus};
+    use super::{
+        AiSearchRequest, AppConfig, InsightStatus, READABLE_CONTENT_PLUGIN_ID,
+        TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences, normalize_app_config,
+    };
 
     #[test]
     fn ai_search_request_defaults_to_eight_results() {
@@ -1333,5 +1444,28 @@ mod tests {
         assert!(!status.ready);
         assert_eq!(status.cards, 0);
         assert_eq!(status.content_coverage, 0.0);
+    }
+
+    #[test]
+    fn enrichment_preferences_merge_with_defaults() {
+        let merged = merge_enrichment_plugin_preferences(&[super::EnrichmentPluginPreference {
+            plugin_id: TITLE_NORMALIZATION_PLUGIN_ID.to_string(),
+            enabled: false,
+        }]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].plugin_id, TITLE_NORMALIZATION_PLUGIN_ID);
+        assert!(!merged[0].enabled);
+        assert_eq!(merged[1].plugin_id, READABLE_CONTENT_PLUGIN_ID);
+        assert!(merged[1].enabled);
+    }
+
+    #[test]
+    fn normalize_app_config_restores_missing_runtime_defaults() {
+        let mut config = AppConfig::default();
+        config.ai.enrichment_plugins.clear();
+        normalize_app_config(&mut config);
+
+        assert_eq!(config.ai.enrichment_plugins.len(), 2);
+        assert!(config.ai.enrichment_enabled);
     }
 }

@@ -1517,15 +1517,25 @@ const catalog: Record<
         'These actions only affect enrichment and insights data. Your original history, audit logs, and undo history are never touched.',
       rebuildDerivedState: 'Rebuild',
       clearDerivedState: 'Clear all',
+      titleNormalizationPlugin: 'Title normalization',
+      titleNormalizationDescription:
+        'Normalizes page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into cleaner evidence labels.',
       readableContentRefetch: 'Page content fetcher',
       readableContentRefetchBody:
         'Fetches readable text from pages you visited, used for better summaries and richer insights. Disabling stops new fetches; clearing removes previously fetched content.',
+      readableContentPlugin: 'Page content fetcher',
+      readableContentDescription:
+        'Fetches readable page content for visited pages so summaries and deterministic insights can cite fuller local evidence.',
+      enrichmentPluginFallbackDescription:
+        'Review the plugin boundary before enabling it for routine runs.',
       pluginVersion: 'Version',
       pluginQueue: 'Queue',
       pluginFreshness: 'Refresh after',
       daysFreshness: '{days} days',
       pluginDerivedTables: 'Data tables',
       pluginStorageImpact: 'Disk usage',
+      networkAccess: 'Network',
+      localOnly: 'Local only',
       readableContentRefetchImpact:
         'Stores page text locally. Can be rebuilt anytime.',
       disablePlugin: 'Disable',
@@ -2832,15 +2842,25 @@ const catalog: Record<
         '只影响分析和洞察数据。你的原始历史记录、审计日志和撤销功能不受影响。',
       rebuildDerivedState: '重新生成',
       clearDerivedState: '清除所有',
+      titleNormalizationPlugin: '标题规范化',
+      titleNormalizationDescription:
+        '在本地规范网页标题，让重复标签、跳转页和噪声后缀收敛成更清晰的证据标签。',
       readableContentRefetch: '页面内容抓取',
       readableContentRefetchBody:
         '自动获取你访问过的网页正文，用于生成更好的摘要和洞察。关闭后不再获取新内容；清除会删除已获取的内容。',
+      readableContentPlugin: '页面内容抓取',
+      readableContentDescription:
+        '抓取已访问页面的可读正文，让摘要和确定性洞察可以引用更完整的本地证据。',
+      enrichmentPluginFallbackDescription:
+        '启用前请先确认这个插件的边界是否适合日常运行。',
       pluginVersion: '版本',
       pluginQueue: '队列',
       pluginFreshness: '刷新周期',
       daysFreshness: '{days} 天',
       pluginDerivedTables: '数据表',
       pluginStorageImpact: '磁盘占用',
+      networkAccess: '网络',
+      localOnly: '仅本地',
       readableContentRefetchImpact: '在本地保存网页文本，可随时重新生成。',
       disablePlugin: '关闭',
       enablePlugin: '开启',
@@ -3799,15 +3819,25 @@ const catalog: Record<
         '只影響分析和洞察資料。你的原始歷史紀錄、稽核日誌和復原功能不受影響。',
       rebuildDerivedState: '重新產生',
       clearDerivedState: '清除全部',
+      titleNormalizationPlugin: '標題正規化',
+      titleNormalizationDescription:
+        '在本機正規化網頁標題，讓重複分頁、跳轉頁和雜訊尾碼收斂成更清楚的證據標籤。',
       readableContentRefetch: '網頁內容擷取',
       readableContentRefetchBody:
         '自動擷取你造訪過的網頁文字，用於產生更好的摘要和洞察。關閉後不再擷取新內容；清除會刪除已擷取的內容。',
+      readableContentPlugin: '網頁內容擷取',
+      readableContentDescription:
+        '擷取已造訪頁面的可讀正文，讓摘要和確定性洞察可以引用更完整的本機證據。',
+      enrichmentPluginFallbackDescription:
+        '啟用前請先確認這個插件的邊界是否適合日常執行。',
       pluginVersion: '版本',
       pluginQueue: '佇列',
       pluginFreshness: '重新整理週期',
       daysFreshness: '{days} 天',
       pluginDerivedTables: '資料表',
       pluginStorageImpact: '磁碟用量',
+      networkAccess: '網路',
+      localOnly: '僅限本機',
       readableContentRefetchImpact: '在本機儲存網頁文字，可隨時重新產生。',
       disablePlugin: '關閉',
       enablePlugin: '開啟',

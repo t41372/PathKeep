@@ -78,6 +78,11 @@ const baseConfig: AppConfig = {
     autoIndexAfterBackup: false,
     jobQueuePaused: false,
     jobQueueConcurrency: 1,
+    enrichmentEnabled: true,
+    enrichmentPlugins: [
+      { pluginId: 'title-normalization', enabled: true },
+      { pluginId: 'readable-content-refetch', enabled: true },
+    ],
     llmProviderId: null,
     embeddingProviderId: null,
     retrievalTopK: 8,

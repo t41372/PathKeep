@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   startTransition,
@@ -57,6 +58,11 @@ const EMPTY_AI_SETTINGS: AppConfig['ai'] = {
   autoIndexAfterBackup: false,
   jobQueuePaused: false,
   jobQueueConcurrency: 1,
+  enrichmentEnabled: true,
+  enrichmentPlugins: [
+    { pluginId: 'title-normalization', enabled: true },
+    { pluginId: 'readable-content-refetch', enabled: true },
+  ],
   llmProviderId: null,
   embeddingProviderId: null,
   retrievalTopK: 8,
@@ -261,7 +267,6 @@ export interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null)
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useApp(): AppContextValue {
   const context = useContext(AppContext)
   if (!context) {

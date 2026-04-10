@@ -1,4 +1,8 @@
-import type { AiProviderConfig, AiRequestFormat } from '../lib/types'
+import type {
+  AiProviderConfig,
+  AiProviderPurpose,
+  AiRequestFormat,
+} from '../lib/types'
 import { FieldBlock, ToggleRow } from './ui'
 
 const aiRequestFormats: AiRequestFormat[] = [
@@ -8,8 +12,6 @@ const aiRequestFormats: AiRequestFormat[] = [
   'ollama',
   'lm-studio',
 ]
-
-export type AiProviderPurpose = 'llm' | 'embedding'
 
 export function AiProviderEditorList({
   addLabel,

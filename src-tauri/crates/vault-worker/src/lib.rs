@@ -23,20 +23,21 @@ use vault_core::{
     AppSnapshot, ArchiveMode, AuditRunDetail, BackupProgressEvent, ClearDerivedIntelligenceReport,
     DashboardSnapshot, ExplainInsightRequest, ExportRequest, HealthRepairReport, HealthReport,
     HistoryQuery, HistoryQueryResponse, ImportBatchDetail, InsightExplanation, InsightSnapshot,
-    InsightStatus, InsightThreadDetail, KeyringStatusReport, RemoteBackupPreview,
-    RemoteBackupResult, RemoteBackupVerification, RunInsightsReport, RunInsightsRequest,
-    S3CredentialInput, SchedulePlan, SetAppLockPasscodeRequest, TakeoutInspection, TakeoutRequest,
-    UnlockAppSessionRequest, ai_index_status, ai_queue, ai_queue_status, answer_history_question,
-    app_lock_status_with_biometric, archive, archive_status, build_ai_index,
-    clear_app_lock_passcode, clear_derived_intelligence_state, doctor, ensure_app_lock_unlocked,
-    ensure_archive_initialized, explain_insight, export_history, hydrate_app_lock_config,
-    import_takeout, insight_status, inspect_takeout, list_history, load_assistant_run_response,
-    load_audit_run_detail, load_config, load_dashboard_snapshot, load_import_batches,
-    load_insight_thread_detail, load_insights, load_recent_runs, lock_app_session,
-    preview_ai_integrations, preview_import_batch, preview_remote_backup, project_paths,
-    provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
-    repair_health_issues, restore_import_batch, revert_import_batch, run_backup_with_progress,
-    run_insights, run_remote_backup, save_config, semantic_search_history, set_app_lock_passcode,
+    InsightStatus, InsightThreadDetail, IntelligenceRuntimeSnapshot, KeyringStatusReport,
+    RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification, RunInsightsReport,
+    RunInsightsRequest, S3CredentialInput, SchedulePlan, SetAppLockPasscodeRequest,
+    TakeoutInspection, TakeoutRequest, UnlockAppSessionRequest, ai_index_status, ai_queue,
+    ai_queue_status, answer_history_question, app_lock_status_with_biometric, archive,
+    archive_status, build_ai_index, cancel_intelligence_job, clear_app_lock_passcode,
+    clear_derived_intelligence_state, doctor, ensure_app_lock_unlocked, ensure_archive_initialized,
+    explain_insight, export_history, hydrate_app_lock_config, import_takeout, insight_status,
+    inspect_takeout, list_history, load_assistant_run_response, load_audit_run_detail, load_config,
+    load_dashboard_snapshot, load_import_batches, load_insight_thread_detail, load_insights,
+    load_intelligence_runtime, load_recent_runs, lock_app_session, preview_ai_integrations,
+    preview_import_batch, preview_remote_backup, project_paths, provider_connection_failure_report,
+    reconcile_ai_queue_controls, rekey_archive, repair_health_issues, restore_import_batch,
+    retry_intelligence_job, revert_import_batch, run_backup_with_progress, run_insights,
+    run_remote_backup, save_config, semantic_search_history, set_app_lock_passcode,
     test_provider_connection, unlock_app_session_with_biometric,
     validate_app_lock_config_with_biometric, verify_remote_backup,
 };
@@ -1540,6 +1541,35 @@ pub fn explain_insight_now(
     let paths = project_paths()?;
     let config = load_unlocked_config(&paths)?;
     explain_insight(&paths, &config, session_database_key, request)
+}
+
+pub fn load_intelligence_runtime_snapshot(
+    session_database_key: Option<&str>,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    load_intelligence_runtime(&paths, &config, session_database_key)
+}
+
+pub fn retry_intelligence_job_now(
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    retry_intelligence_job(&paths, &config, session_database_key, job_id)
+}
+
+pub fn cancel_intelligence_job_now(
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    cancel_intelligence_job(&paths, &config, session_database_key, job_id)
 }
 
 #[tool_router]
