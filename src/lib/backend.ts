@@ -76,20 +76,25 @@ const mockBuildInfo: AppBuildInfo = {
 
 const mockSnapshot: AppSnapshot = {
   directories: {
-    appRoot: '~/Library/Application Support/PathKeep',
-    configPath: '~/Library/Application Support/PathKeep/config.json',
+    appRoot: '~/Library/Application Support/com.yi-ting.pathkeep',
+    configPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/config.json',
     archiveDatabasePath:
-      '~/Library/Application Support/PathKeep/archive/history-vault.sqlite',
-    auditRepoPath: '~/Library/Application Support/PathKeep/audit',
-    manifestsDir: '~/Library/Application Support/PathKeep/audit/manifests',
-    exportsDir: '~/Library/Application Support/PathKeep/exports',
-    rawSnapshotsDir: '~/Library/Application Support/PathKeep/raw-snapshots',
-    stagingDir: '~/Library/Application Support/PathKeep/staging',
-    quarantineDir: '~/Library/Application Support/PathKeep/quarantine',
-    scheduleDir: '~/Library/Application Support/PathKeep/schedule',
-    strongholdPath: '~/Library/Application Support/PathKeep/vault.hold',
+      '~/Library/Application Support/com.yi-ting.pathkeep/archive/history-vault.sqlite',
+    auditRepoPath: '~/Library/Application Support/com.yi-ting.pathkeep/audit',
+    manifestsDir:
+      '~/Library/Application Support/com.yi-ting.pathkeep/audit/manifests',
+    exportsDir: '~/Library/Application Support/com.yi-ting.pathkeep/exports',
+    rawSnapshotsDir:
+      '~/Library/Application Support/com.yi-ting.pathkeep/raw-snapshots',
+    stagingDir: '~/Library/Application Support/com.yi-ting.pathkeep/staging',
+    quarantineDir:
+      '~/Library/Application Support/com.yi-ting.pathkeep/quarantine',
+    scheduleDir: '~/Library/Application Support/com.yi-ting.pathkeep/schedule',
+    strongholdPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/vault.hold',
     strongholdSaltPath:
-      '~/Library/Application Support/PathKeep/stronghold-salt.txt',
+      '~/Library/Application Support/com.yi-ting.pathkeep/stronghold-salt.txt',
   },
   config: {
     initialized: false,
@@ -114,6 +119,10 @@ const mockSnapshot: AppSnapshot = {
       passcodeEnabled: true,
       passcodeConfigured: false,
       recoveryHint: null,
+    },
+    analytics: {
+      enabled: false,
+      consentGrantedAt: null,
     },
     remoteBackup: {
       enabled: false,
@@ -152,7 +161,7 @@ const mockSnapshot: AppSnapshot = {
     encrypted: true,
     unlocked: false,
     databasePath:
-      '~/Library/Application Support/PathKeep/archive/history-vault.sqlite',
+      '~/Library/Application Support/com.yi-ting.pathkeep/archive/history-vault.sqlite',
   },
   appLockStatus: {
     enabled: false,
@@ -160,9 +169,11 @@ const mockSnapshot: AppSnapshot = {
     idleTimeoutMinutes: 5,
     biometricAvailable: false,
     biometricEnabled: false,
+    biometricState: 'unsupported',
     passcodeEnabled: true,
     passcodeConfigured: false,
-    configPath: '~/Library/Application Support/PathKeep/config.json',
+    configPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/config.json',
     lockReason: null,
     lockedAt: null,
     lastUnlockedAt: null,
@@ -581,6 +592,7 @@ interface MockBackendState {
   s3Credentials: S3CredentialInput | null
   appLockPasscode: string | null
   appLockRecoveryHint: string | null
+  biometricState: AppLockStatus['biometricState']
   importBatchDetails: Record<number, ImportBatchDetail>
   schedulePlanOverrides: Partial<
     Record<'macos' | 'windows' | 'linux', SchedulePlan>
@@ -647,8 +659,9 @@ function syncMockAppLockState(state: MockBackendState) {
     enabled,
     locked,
     idleTimeoutMinutes: state.snapshot.config.appLock.idleTimeoutMinutes,
-    biometricAvailable: false,
+    biometricAvailable: state.biometricState === 'touch-id-available',
     biometricEnabled,
+    biometricState: state.biometricState,
     passcodeEnabled,
     passcodeConfigured,
     recoveryHint: state.appLockRecoveryHint,
@@ -657,10 +670,20 @@ function syncMockAppLockState(state: MockBackendState) {
     lastUnlockedAt,
     warnings: pendingPasscodeWarning
       ? ['Set an app lock passcode before relying on session lock.']
-      : [],
+      : biometricEnabled && state.biometricState !== 'touch-id-available'
+        ? [
+            state.biometricState === 'touch-id-unavailable'
+              ? 'Touch ID is unavailable on this Mac right now, so PathKeep falls back to the app-lock passcode.'
+              : 'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
+          ]
+        : [],
     degradationNotes: [
       'App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest.',
-      'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
+      state.biometricState === 'touch-id-available'
+        ? 'Touch ID is available on this Mac and can unlock the current PathKeep session.'
+        : state.biometricState === 'touch-id-unavailable'
+          ? 'Touch ID is unavailable on this Mac right now, so PathKeep falls back to the app-lock passcode.'
+          : 'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
     ],
   }
 }
@@ -690,9 +713,14 @@ function validateMockAppLockConfig(state: MockBackendState, config: AppConfig) {
     return
   }
 
-  if (config.appLock.biometricEnabled) {
+  if (
+    config.appLock.biometricEnabled &&
+    state.biometricState !== 'touch-id-available'
+  ) {
     throw new Error(
-      'Biometric unlock is not available in the current desktop build.',
+      state.biometricState === 'touch-id-unavailable'
+        ? 'Touch ID is unavailable on this Mac right now. Use the app lock passcode instead.'
+        : 'Biometric unlock is not available in the current desktop build.',
     )
   }
 
@@ -1120,13 +1148,13 @@ function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
   if (resolvedPlatform === 'windows') {
     return {
       platform: 'windows',
-      label: 'dev.codex.pathkeep.backup',
+      label: 'com.yi-ting.pathkeep.backup',
       executablePath: 'C:/Program Files/PathKeep/pathkeep.exe',
       generatedFiles: [
         {
-          relativePath: 'schedule/pathkeep-backup.xml',
+          relativePath: 'schedule/com.yi-ting.pathkeep.task.xml',
           absolutePath:
-            'C:/Users/test/AppData/Local/PathKeep/schedule/pathkeep-backup.xml',
+            'C:/Users/test/AppData/Local/com.yi-ting.pathkeep/schedule/com.yi-ting.pathkeep.task.xml',
           purpose: 'Task Scheduler XML',
           contents:
             '<Task><Triggers><TimeTrigger /></Triggers><Settings><StartWhenAvailable>true</StartWhenAvailable></Settings></Task>',
@@ -1136,9 +1164,11 @@ function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
         'Review the generated Task Scheduler XML.',
         'Import it manually in Task Scheduler if you do not want PathKeep to apply it.',
       ],
-      applyCommands: [['schtasks', '/Create', '/XML', 'pathkeep-backup.xml']],
+      applyCommands: [
+        ['schtasks', '/Create', '/XML', 'com.yi-ting.pathkeep.task.xml'],
+      ],
       rollbackCommands: [
-        ['schtasks', '/Delete', '/TN', 'dev.codex.pathkeep.backup', '/F'],
+        ['schtasks', '/Delete', '/TN', 'com.yi-ting.pathkeep.backup', '/F'],
       ],
       applySupported: false,
     }
@@ -1147,20 +1177,21 @@ function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
   if (resolvedPlatform === 'linux') {
     return {
       platform: 'linux',
-      label: 'dev.codex.pathkeep.backup',
+      label: 'com.yi-ting.pathkeep.backup',
       executablePath: '/usr/bin/pathkeep',
       generatedFiles: [
         {
-          relativePath: 'schedule/pathkeep-backup.service',
+          relativePath: 'schedule/com.yi-ting.pathkeep.service',
           absolutePath:
-            '/home/test/.config/systemd/user/pathkeep-backup.service',
+            '/home/test/.config/systemd/user/com.yi-ting.pathkeep.service',
           purpose: 'systemd user service',
           contents:
             '[Unit]\nDescription=PathKeep backup\n[Service]\nExecStart=/usr/bin/pathkeep backup',
         },
         {
-          relativePath: 'schedule/pathkeep-backup.timer',
-          absolutePath: '/home/test/.config/systemd/user/pathkeep-backup.timer',
+          relativePath: 'schedule/com.yi-ting.pathkeep.timer',
+          absolutePath:
+            '/home/test/.config/systemd/user/com.yi-ting.pathkeep.timer',
           purpose: 'systemd user timer',
           contents:
             '[Timer]\nOnCalendar=hourly\nPersistent=true\n[Install]\nWantedBy=timers.target',
@@ -1171,10 +1202,22 @@ function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
         'Copy them into ~/.config/systemd/user and run systemctl --user daemon-reload.',
       ],
       applyCommands: [
-        ['systemctl', '--user', 'enable', '--now', 'pathkeep-backup.timer'],
+        [
+          'systemctl',
+          '--user',
+          'enable',
+          '--now',
+          'com.yi-ting.pathkeep.timer',
+        ],
       ],
       rollbackCommands: [
-        ['systemctl', '--user', 'disable', '--now', 'pathkeep-backup.timer'],
+        [
+          'systemctl',
+          '--user',
+          'disable',
+          '--now',
+          'com.yi-ting.pathkeep.timer',
+        ],
       ],
       applySupported: false,
     }
@@ -1182,26 +1225,31 @@ function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
 
   return {
     platform: 'macos',
-    label: 'dev.codex.pathkeep.backup',
+    label: 'com.yi-ting.pathkeep.backup',
     executablePath: '/Applications/PathKeep.app',
     generatedFiles: [
       {
-        relativePath: 'schedule/dev.codex.pathkeep.backup.plist',
+        relativePath: 'schedule/com.yi-ting.pathkeep.backup.plist',
         absolutePath:
-          '/Users/test/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+          '/Users/test/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
         purpose: 'LaunchAgent plist',
         contents:
-          '<?xml version="1.0"?><plist><dict><key>Label</key><string>dev.codex.pathkeep.backup</string></dict></plist>',
+          '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
       },
     ],
     manualSteps: [
       'Open the desktop build to verify the LaunchAgent artifact and install status.',
     ],
     applyCommands: [
-      ['launchctl', 'bootstrap', 'gui/501', 'dev.codex.pathkeep.backup.plist'],
+      [
+        'launchctl',
+        'bootstrap',
+        'gui/501',
+        'com.yi-ting.pathkeep.backup.plist',
+      ],
     ],
     rollbackCommands: [
-      ['launchctl', 'bootout', 'gui/501', 'dev.codex.pathkeep.backup'],
+      ['launchctl', 'bootout', 'gui/501', 'com.yi-ting.pathkeep.backup'],
     ],
     applySupported: false,
   }
@@ -1214,7 +1262,7 @@ function buildMockScheduleStatus(
   const resolvedPlatform = normalizeMockPlatform(platform)
   return {
     platform: resolvedPlatform,
-    label: 'dev.codex.pathkeep.backup',
+    label: 'com.yi-ting.pathkeep.backup',
     dueAfterHours: state.snapshot.config.dueAfterHours,
     checkIntervalHours: state.snapshot.config.scheduleCheckIntervalHours,
     applySupported: false,
@@ -1750,6 +1798,7 @@ function createMockState(): MockBackendState {
     s3Credentials: null,
     appLockPasscode: null,
     appLockRecoveryHint: null,
+    biometricState: 'unsupported',
     importBatchDetails: {},
     schedulePlanOverrides: {},
     scheduleStatusOverrides: {},
@@ -1914,12 +1963,19 @@ async function call<T>(
     case 'unlock_app_session': {
       const request = args?.request as UnlockAppSessionRequest | undefined
       if (request?.useBiometric) {
-        throw new Error(
-          'Biometric unlock is not available in the current desktop build.',
-        )
+        if (mockState.biometricState !== 'touch-id-available') {
+          throw new Error(
+            mockState.biometricState === 'touch-id-unavailable'
+              ? 'Touch ID is unavailable on this Mac right now. Use the app lock passcode instead.'
+              : 'Biometric unlock is not available in the current desktop build.',
+          )
+        }
       }
       if (mockState.snapshot.config.appLock.enabled) {
-        if ((request?.passcode?.trim() ?? '') !== mockState.appLockPasscode) {
+        if (
+          !request?.useBiometric &&
+          (request?.passcode?.trim() ?? '') !== mockState.appLockPasscode
+        ) {
           throw new Error('The app lock passcode did not match.')
         }
         mockState.snapshot.appLockStatus = {

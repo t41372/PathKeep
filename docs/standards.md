@@ -101,4 +101,5 @@
 - 不寫回瀏覽器的 live 數據庫。
 - 不做背景常駐的 autonomous agent。
 - 不做 SaaS 或 subscription model。
-- 不收集用戶數據或 telemetry。
+- 不做 hidden telemetry。
+- 若明確 shipping frontend analytics，必須同時滿足：使用者 opt-in、first-party JSON endpoint、coarse event family、browser preview / dev / test 不送、且 payload 不得包含 archive content、URL、query、profile id、run id、prompt 或 filesystem path。

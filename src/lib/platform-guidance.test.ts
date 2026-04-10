@@ -32,7 +32,7 @@ const safariProfile: BrowserProfile = {
 
 const scheduleStatus: ScheduleStatus = {
   platform: 'macos',
-  label: 'dev.codex.pathkeep.backup',
+  label: 'com.yi-ting.pathkeep.backup',
   dueAfterHours: 72,
   checkIntervalHours: 6,
   applySupported: true,

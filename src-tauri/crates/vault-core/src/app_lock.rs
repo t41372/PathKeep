@@ -1,6 +1,9 @@
 use crate::{
     config::{ProjectPaths, ensure_paths, save_config},
-    models::{AppConfig, AppLockStatus, SetAppLockPasscodeRequest, UnlockAppSessionRequest},
+    models::{
+        AppConfig, AppLockBiometricState, AppLockStatus, SetAppLockPasscodeRequest,
+        UnlockAppSessionRequest,
+    },
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result, bail};
@@ -95,20 +98,117 @@ fn clear_app_lock_secret(paths: &ProjectPaths) -> Result<()> {
     Ok(())
 }
 
-fn biometric_available() -> bool {
-    false
+fn default_biometric_state() -> AppLockBiometricState {
+    AppLockBiometricState::Unsupported
 }
 
-fn biometric_note() -> Option<&'static str> {
-    if cfg!(target_os = "linux") {
-        Some(
-            "Linux currently uses passcode-only app lock because biometric integration is not wired into this build.",
-        )
-    } else {
-        Some(
-            "Biometric unlock is reserved for future platform integration; this build currently falls back to the app-lock passcode.",
-        )
+fn biometric_available(state: AppLockBiometricState) -> bool {
+    matches!(state, AppLockBiometricState::TouchIdAvailable)
+}
+
+fn biometric_note(state: AppLockBiometricState) -> Option<String> {
+    match state {
+        AppLockBiometricState::TouchIdAvailable => Some(
+            "Touch ID is available on this Mac and can unlock the current PathKeep session."
+                .to_string(),
+        ),
+        AppLockBiometricState::TouchIdUnavailable => Some(
+            "Touch ID is unavailable on this Mac right now, so PathKeep falls back to the app-lock passcode."
+                .to_string(),
+        ),
+        AppLockBiometricState::Unsupported => {
+            if cfg!(target_os = "linux") {
+                Some(
+                    "Linux currently uses passcode-only app lock because biometric integration is not wired into this build."
+                        .to_string(),
+                )
+            } else {
+                Some(
+                    "Biometric unlock is reserved for future platform integration; this build currently falls back to the app-lock passcode."
+                        .to_string(),
+                )
+            }
+        }
     }
+}
+
+fn biometric_unavailable_error(state: AppLockBiometricState) -> &'static str {
+    match state {
+        AppLockBiometricState::TouchIdUnavailable => {
+            "Touch ID is unavailable on this Mac right now. Use the app lock passcode instead."
+        }
+        _ => "Biometric unlock is not available in the current desktop build.",
+    }
+}
+
+pub fn validate_app_lock_config_with_biometric(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    biometric_state: AppLockBiometricState,
+) -> Result<()> {
+    if !config.app_lock.enabled {
+        return Ok(());
+    }
+
+    if !config.app_lock.passcode_enabled && !config.app_lock.biometric_enabled {
+        bail!("Enable a passcode before turning on App Lock in this build.");
+    }
+
+    if config.app_lock.biometric_enabled && !biometric_available(biometric_state) {
+        bail!(biometric_unavailable_error(biometric_state));
+    }
+
+    if config.app_lock.passcode_enabled && load_app_lock_secret(paths)?.is_none() {
+        bail!("Set an app lock passcode before turning on App Lock.");
+    }
+
+    Ok(())
+}
+
+pub fn app_lock_status_with_biometric(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    biometric_state: AppLockBiometricState,
+) -> Result<AppLockStatus> {
+    let state = load_app_lock_state(paths, config)?;
+    let mut warnings = Vec::new();
+    let mut degradation_notes = vec![
+        "App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest."
+            .to_string(),
+    ];
+    if config.app_lock.enabled
+        && config.app_lock.passcode_enabled
+        && !config.app_lock.passcode_configured
+    {
+        warnings.push(
+            "Set an app lock passcode before relying on session lock on this device.".to_string(),
+        );
+    }
+
+    if let Some(note) = biometric_note(biometric_state) {
+        if config.app_lock.biometric_enabled && !biometric_available(biometric_state) {
+            warnings.push(note.clone());
+        }
+        degradation_notes.push(note);
+    }
+
+    Ok(AppLockStatus {
+        enabled: config.app_lock.enabled,
+        locked: config.app_lock.enabled && state.locked,
+        idle_timeout_minutes: config.app_lock.idle_timeout_minutes,
+        biometric_available: biometric_available(biometric_state),
+        biometric_enabled: config.app_lock.biometric_enabled,
+        biometric_state,
+        passcode_enabled: config.app_lock.passcode_enabled,
+        passcode_configured: config.app_lock.passcode_configured,
+        config_path: paths.config_path.display().to_string(),
+        lock_reason: state.lock_reason,
+        locked_at: state.locked_at,
+        last_unlocked_at: state.last_unlocked_at,
+        recovery_hint: config.app_lock.recovery_hint.clone(),
+        warnings,
+        degradation_notes,
+    })
 }
 
 fn normalize_hint(value: Option<String>) -> Option<String> {
@@ -153,65 +253,11 @@ pub fn hydrate_app_lock_config(paths: &ProjectPaths, config: &mut AppConfig) -> 
 }
 
 pub fn validate_app_lock_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
-    if !config.app_lock.enabled {
-        return Ok(());
-    }
-
-    if !config.app_lock.passcode_enabled && !config.app_lock.biometric_enabled {
-        bail!("Enable a passcode before turning on App Lock in this build.");
-    }
-
-    if config.app_lock.biometric_enabled && !biometric_available() {
-        bail!("Biometric unlock is not available in the current desktop build.");
-    }
-
-    if config.app_lock.passcode_enabled && load_app_lock_secret(paths)?.is_none() {
-        bail!("Set an app lock passcode before turning on App Lock.");
-    }
-
-    Ok(())
+    validate_app_lock_config_with_biometric(paths, config, default_biometric_state())
 }
 
 pub fn app_lock_status(paths: &ProjectPaths, config: &AppConfig) -> Result<AppLockStatus> {
-    let state = load_app_lock_state(paths, config)?;
-    let mut warnings = Vec::new();
-    let mut degradation_notes = vec![
-        "App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest."
-            .to_string(),
-    ];
-
-    if config.app_lock.enabled
-        && config.app_lock.passcode_enabled
-        && !config.app_lock.passcode_configured
-    {
-        warnings.push(
-            "Set an app lock passcode before relying on session lock on this device.".to_string(),
-        );
-    }
-
-    if let Some(note) = biometric_note() {
-        degradation_notes.push(note.to_string());
-        if config.app_lock.biometric_enabled {
-            warnings.push(note.to_string());
-        }
-    }
-
-    Ok(AppLockStatus {
-        enabled: config.app_lock.enabled,
-        locked: config.app_lock.enabled && state.locked,
-        idle_timeout_minutes: config.app_lock.idle_timeout_minutes,
-        biometric_available: biometric_available(),
-        biometric_enabled: config.app_lock.biometric_enabled,
-        passcode_enabled: config.app_lock.passcode_enabled,
-        passcode_configured: config.app_lock.passcode_configured,
-        config_path: paths.config_path.display().to_string(),
-        lock_reason: state.lock_reason,
-        locked_at: state.locked_at,
-        last_unlocked_at: state.last_unlocked_at,
-        recovery_hint: config.app_lock.recovery_hint.clone(),
-        warnings,
-        degradation_notes,
-    })
+    app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
 pub fn initialize_app_lock_session(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
@@ -257,23 +303,29 @@ pub fn lock_app_session(
             last_unlocked_at: load_app_lock_state(paths, config)?.last_unlocked_at,
         },
     )?;
-    app_lock_status(paths, config)
+    app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
-pub fn unlock_app_session(
+pub fn unlock_app_session_with_biometric<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
     request: &UnlockAppSessionRequest,
-) -> Result<AppLockStatus> {
+    biometric_state: AppLockBiometricState,
+    authenticate_biometric: F,
+) -> Result<AppLockStatus>
+where
+    F: FnOnce() -> Result<()>,
+{
     if !config.app_lock.enabled {
-        return app_lock_status(paths, config);
+        return app_lock_status_with_biometric(paths, config, biometric_state);
     }
 
     if request.use_biometric {
-        bail!("Biometric unlock is not available in the current desktop build.");
-    }
-
-    if config.app_lock.passcode_enabled {
+        if !biometric_available(biometric_state) {
+            bail!(biometric_unavailable_error(biometric_state));
+        }
+        authenticate_biometric()?;
+    } else if config.app_lock.passcode_enabled {
         let passcode = request
             .passcode
             .as_deref()
@@ -298,7 +350,17 @@ pub fn unlock_app_session(
             last_unlocked_at: Some(now_rfc3339()),
         },
     )?;
-    app_lock_status(paths, config)
+    app_lock_status_with_biometric(paths, config, biometric_state)
+}
+
+pub fn unlock_app_session(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    request: &UnlockAppSessionRequest,
+) -> Result<AppLockStatus> {
+    unlock_app_session_with_biometric(paths, config, request, default_biometric_state(), || {
+        bail!("Biometric unlock is not available in the current desktop build.")
+    })
 }
 
 pub fn set_app_lock_passcode(
@@ -322,7 +384,7 @@ pub fn set_app_lock_passcode(
     config.app_lock.passcode_configured = true;
     config.app_lock.recovery_hint = secret.recovery_hint.clone();
     save_config(paths, config)?;
-    app_lock_status(paths, config)
+    app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
 pub fn clear_app_lock_passcode(
@@ -335,7 +397,7 @@ pub fn clear_app_lock_passcode(
     config.app_lock.passcode_configured = false;
     config.app_lock.recovery_hint = None;
     save_config(paths, config)?;
-    app_lock_status(paths, config)
+    app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
 #[cfg(test)]
@@ -417,5 +479,75 @@ mod tests {
         let cleared = clear_app_lock_passcode(&paths, &mut config).expect("clear passcode");
         assert!(!cleared.enabled);
         assert!(!cleared.passcode_configured);
+    }
+
+    #[test]
+    fn biometric_status_and_unlock_follow_the_supplied_capability() {
+        let paths = temp_paths();
+        let mut config = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig {
+                enabled: true,
+                idle_timeout_minutes: 5,
+                biometric_enabled: true,
+                passcode_enabled: true,
+                passcode_configured: false,
+                recovery_hint: None,
+            },
+            ..AppConfig::default()
+        };
+
+        set_app_lock_passcode(
+            &paths,
+            &mut config,
+            &SetAppLockPasscodeRequest { passcode: "2468".to_string(), recovery_hint: None },
+        )
+        .expect("set passcode");
+        hydrate_app_lock_config(&paths, &mut config).expect("hydrate");
+
+        validate_app_lock_config_with_biometric(
+            &paths,
+            &config,
+            AppLockBiometricState::TouchIdAvailable,
+        )
+        .expect("biometric-capable config");
+
+        let status = app_lock_status_with_biometric(
+            &paths,
+            &config,
+            AppLockBiometricState::TouchIdAvailable,
+        )
+        .expect("status");
+        assert!(status.biometric_available);
+        assert_eq!(status.biometric_state, AppLockBiometricState::TouchIdAvailable);
+
+        let unavailable = validate_app_lock_config_with_biometric(
+            &paths,
+            &config,
+            AppLockBiometricState::TouchIdUnavailable,
+        )
+        .expect_err("touch id unavailable");
+        assert!(unavailable.to_string().contains("Touch ID is unavailable"));
+
+        lock_app_session(&paths, &config, Some("manual")).expect("lock");
+        let unlocked = unlock_app_session_with_biometric(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: true },
+            AppLockBiometricState::TouchIdAvailable,
+            || Ok(()),
+        )
+        .expect("touch id unlock");
+        assert!(!unlocked.locked);
+
+        let canceled = unlock_app_session_with_biometric(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: true },
+            AppLockBiometricState::TouchIdAvailable,
+            || bail!("Touch ID unlock was canceled."),
+        )
+        .expect_err("canceled");
+        assert!(canceled.to_string().contains("Touch ID unlock was canceled"));
     }
 }

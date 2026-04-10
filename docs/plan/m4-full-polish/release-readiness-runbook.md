@@ -4,10 +4,11 @@
 
 ## Exit State
 
-- release workflow has version-sync preflight and produces `SHA256SUMS.txt` plus `RELEASE-MANIFEST.json`
+- release workflow has version-sync preflight and produces updater `latest.json`, signatures, `SHA256SUMS.txt`, plus `RELEASE-MANIFEST.json`
 - README / CONTRIBUTING / DEVELOPMENT / TESTING / RELEASE / TROUBLESHOOTING / SUPPORT are aligned with real product boundaries
-- Settings exposes release and support diagnostics needed by the docs: data root, archive DB, audit repo, version, git short SHA
+- Settings exposes release and support diagnostics needed by the docs: data root, archive DB, audit repo, version, git short SHA, analytics consent posture, and updater review state
 - platform validation is explicit about what is stable, what is preview, and what is deferred
+- bundle / keyring / data-root namespace is consistently `com.yi-ting.pathkeep`, with no automatic migration from `dev.codex.pathkeep`
 
 ## Artifact Matrix
 
@@ -18,6 +19,8 @@
 | macOS release bundles                | GitHub `Release` workflow | signed / notarized public builds when Apple secrets are configured |
 | Windows release bundles              | GitHub `Release` workflow | preview installers until operator-owned signing path is wired      |
 | Linux release bundles                | GitHub `Release` workflow | preview packages with checksum verification                        |
+| updater `latest.json`                | GitHub `Release` workflow | updater availability contract for desktop installs                 |
+| updater signatures                   | GitHub `Release` workflow | updater install verification                                       |
 | `SHA256SUMS.txt`                     | GitHub `Release` workflow | user-visible checksum validation                                   |
 | `RELEASE-MANIFEST.json`              | GitHub `Release` workflow | operator-facing file inventory and traceability                    |
 
@@ -29,6 +32,7 @@
 - verify first backup on Chromium plus Safari guidance when Full Disk Access is missing
 - review LaunchAgent preview, apply, verify, and remove flow
 - confirm encrypted archive unlock, restart, and re-open behavior
+- verify App Lock passcode + Touch ID unlock path, including truthful Touch ID unavailable fallback
 - run remote backup preview / execute / verify
 - reinstall over an existing data directory and confirm archive is reused
 - uninstall expectation: app removal does not silently delete the archive data root
@@ -119,8 +123,15 @@ Then perform a traceability sweep:
 - plan docs, features docs, and design docs do not claim unsupported behavior
 - blocked work remains explicitly blocked instead of silently implied as shipped
 
+Then generate the release size audit:
+
+```bash
+bun run release:size-audit
+```
+
 ## Deferred With Rationale
 
 - Windows code signing strategy is not hardcoded because the correct operator path depends on who owns the certificate and trust chain
 - Linux signing is not treated as a universal requirement because distribution channels and desktop environments vary
-- App Lock 已正式 shipping 為 session-only boundary；真正的 native biometric integration 仍 deferred，直到 macOS / Windows / Linux 各自的 desktop bridge 真正接線完成
+- App Lock 已正式 shipping 為 session-only boundary；只有 macOS 現在有真正的 Touch ID integration，Windows / Linux native biometric 仍 deferred
+- namespace rename 採 clean break；若要保留既有 `dev.codex.pathkeep` 本機資料，維運者必須手動搬移

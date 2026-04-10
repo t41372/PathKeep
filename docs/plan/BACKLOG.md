@@ -17,16 +17,6 @@
 
 ### M4 — Full Polish
 
-- [ ] **WORK-M4-L** — Package Rename, Release Flow, Size Audit, And Code Health
-  - 讀先：
-    `AGENTS.md`
-    `RELEASE.md`
-    `docs/standards.md`
-    `docs/plan/m4-full-polish/README.md`
-    `docs/plan/program/repo-baseline.md`
-  - 目標：把 bundle / keyring / data-root namespace 正式改成 `com.yi-ting.pathkeep`，建立真實 version bump / release runbook，並補上 artifact size attribution 與前後端 code health audit，避免發版準備只停在現有 private-release workflow。
-  - 驗收：`bun run verify`
-
 ### M5 — Deterministic Intelligence
 
 - [ ] **WORK-M5-A** — Deterministic Evidence Contract, Foundation, And Taxonomy [!blocked: requires ADR-006 acceptance before replacing current session/dwell-centric intelligence contract]
@@ -38,6 +28,7 @@
     `docs/architecture/module-boundary-map.md`
     `docs/architecture/tech-stack.md`
   - 目標：凍結 honest evidence contract、URL normalization / registrable-domain / search-parser baseline、多維 taxonomy precedence、region rule packs、script-aware tokenization 與 unknown / override governance，避免 deterministic intelligence 再建立在 estimated dwell 或 session-duration 假設上。
+  - 併入的 M4 deferred work：plugin execution sandbox、dedicated enrichment queue family、favicon / title normalization、topic / entity extraction、periodic summarization plugin 與對應 acceptance contract。
   - 驗收：`bun run check && bun run build`
 
 - [ ] **WORK-M5-B** — Query Groups, Threads, Reference Pages, And Module Registry [!blocked: depends on WORK-M5-A]
@@ -48,6 +39,7 @@
     `docs/plan/m4-full-polish/intelligence-60-year-envelope.md`
     `docs/design/screens-and-nav.md`
   - 目標：把 query groups、query ladders、cross-day thread merge、open loops、source effectiveness、reference pages 與 deterministic module registry 做成 explainable、可重建、可 profile-scope、可 invalidate 的正式 shipping surface。
+  - 併入的 M4 deferred work：longer-horizon topic timeline / periodic summary、returning topics / session-pattern families，以及其對應 reference-page / thread surfaces。
   - 驗收：`bun run check && bun run build`
 
 ---

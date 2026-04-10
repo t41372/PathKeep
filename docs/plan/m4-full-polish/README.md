@@ -28,16 +28,20 @@
 
 > **2026-04-09 deterministic intelligence closeout 註記**：`WORK-M4-I` 已完成。PathKeep 現在正式 shipping deterministic `open-loop` / `revisit` highlights、Chromium query-evolution ladders、Onboarding / Dashboard 的 browser-retention honesty，以及 `readable-content-refetch` 內建的 YouTube / Vimeo video metadata adapters。這輪仍沒有把 M4 寫成「plugin sandbox / enrichment queue / long-horizon intelligence 全部完成」；剩餘 M4 主線現在收斂到 `WORK-M4-K` 與 `WORK-M4-L`。
 
+> **2026-04-10 boundary closeout 註記**：`WORK-M4-K` 已完成。PathKeep 現在在不改寫 session-only security model 的前提下，於 macOS 真正 shipping Touch ID session unlock；同時正式補上 consented frontend analytics boundary、Settings analytics review、以及 updater review / download / install / restart surface。這輪沒有偷偷打開 archive telemetry 或跨平台 fake parity：analytics 仍是 explicit opt-in、frontend-only、coarse、first-party JSON；Windows / Linux 仍維持 truthful unsupported state。
+
+> **2026-04-10 release closeout 註記**：`WORK-M4-L` 已完成。bundle / keyring / data-root namespace 現在正式切成 `com.yi-ting.pathkeep`，且是 clean break，不再自動兼容 `dev.codex.pathkeep`；release workflow 改成對 updater `latest.json` / signatures / checksums 負責，`bun run release:bump -- <semver>` 與 `bun run release:size-audit` 也已成為正式 operator contract。對於仍未 shipping 的 plugin sandbox、獨立 queue family、以及更長 horizon intelligence，現在已明確移回 `WORK-M5-A` / `WORK-M5-B`，不再讓 M4 保持模糊 `[~]` 狀態。
+
 ---
 
 ## M4 的完成定義
 
-> 2026-04-09 註記：下列條目描述的是 **full M4 signoff**，不是目前已完成的 truthful partial support。
+> 2026-04-10 註記：M4 現在已 truthfully close out。這裡的完成定義不是「所有 long-horizon intelligence 都做完」，而是 v1 shipping boundary、release / update / namespace closeout、以及 deferred-with-rationale 已全部寫回 source docs。
 
-- Enrichment plugin system 和至少數個核心插件可用。
-- Advanced insights 和長期分析能力補齊。
-- Remote backup、storage breakdown、release docs、多平台 validation 完成。
-- Release workflow、README、CONTRIBUTING、驗收清單可支撐公開發版。
+- Enrichment / remote backup v1 已 shipping，且 derived-state / plugin boundary、manual review、verify / clear / rebuild story 都有正式 contract。
+- Advanced insights / storage analytics / deterministic `open-loop` / `revisit` / query ladders 已 shipping，且 evidence-first / non-LLM / profile-boundary honesty 都已落地。
+- App Lock / Touch ID / consented analytics / updater / namespace rename / release workflow / artifact audit 已完成 closeout，不再靠口頭補充。
+- plugin sandbox、獨立 enrichment queue family、longer-horizon topic timeline / periodic summary 等後續能力已明確移到 M5，而不是繼續以 M4 partial support 名義懸空。
 
 ---
 
@@ -47,14 +51,16 @@
 - [platform-release-and-polish.md](platform-release-and-polish.md)
 - [large-archive-performance-runbook.md](large-archive-performance-runbook.md)
 - [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md)
+- [release-size-audit.md](release-size-audit.md)
+- [code-health-audit.md](code-health-audit.md)
 
 ---
 
 ## 里程碑檢查表
 
-- [~] `M4-001` enrichment 和 remote backup 完成基本可用版本。
-  - remote backup PME、derived-state v1 與 `readable-content-refetch` 已交付；plugin sandbox、獨立 queue family 與更多 core plugins 仍未 shipping。
-- [~] `M4-002` advanced insights 和 storage analytics 完成。
-  - storage analytics、scoped insights、semantic / assistant truth boundary、deterministic revisit / open-loop / query ladders、browser-retention honesty 與 video site adapters 已交付；plugin sandbox、獨立 enrichment queue family 與更長 horizon 的 intelligence families 仍未完成。
+- [x] `M4-001` enrichment 和 remote backup 完成基本可用版本。
+  - remote backup PME、derived-state v1 與 `readable-content-refetch` 已交付；plugin sandbox、獨立 queue family 與更多 core plugins 已明確移到 M5，不再冒充 M4 partial support。
+- [x] `M4-002` advanced insights 和 storage analytics 完成。
+  - storage analytics、scoped insights、semantic / assistant truth boundary、deterministic revisit / open-loop / query ladders、browser-retention honesty 與 video site adapters 已交付；更長 horizon 的 intelligence families 已明確移到 M5。
 - [x] `M4-003` macOS / Windows / Linux 都完成至少一輪真正的發版前驗證。
 - [x] `M4-004` README、CONTRIBUTING、release pipeline 和 docs 皆對齊最終產品。

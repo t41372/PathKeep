@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Outlet, useMatches } from 'react-router-dom'
+import { Outlet, useLocation, useMatches } from 'react-router-dom'
 import { BusyOverlay } from '../components/primitives/busy-overlay'
 import { Sidebar } from '../components/sidebar'
 import { Topbar } from '../components/topbar'
+import { trackAnalyticsEvent } from '../lib/analytics'
 import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
 
 export function AppShell() {
-  const { busyAction, busyOverlay } = useShellData()
+  const { buildInfo, busyAction, busyOverlay, snapshot } = useShellData()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     typeof window !== 'undefined' && 'matchMedia' in window
       ? window.matchMedia('(max-width: 1200px)').matches
       : false,
   )
+  const location = useLocation()
   const activeScreen =
     [...useMatches()]
       .map((match) => readRouteHandle(match.handle))
@@ -30,6 +32,23 @@ export function AppShell() {
       mediaQuery.removeEventListener('change', handleChange)
     }
   }, [])
+
+  useEffect(() => {
+    if (!snapshot || !buildInfo) {
+      return
+    }
+
+    void trackAnalyticsEvent(
+      snapshot.config.analytics,
+      {
+        type: 'route-view',
+        route: location.pathname,
+        screen: activeScreen.id,
+        language: snapshot.config.preferredLanguage,
+      },
+      buildInfo,
+    )
+  }, [activeScreen.id, buildInfo, location.pathname, snapshot])
 
   return (
     <div

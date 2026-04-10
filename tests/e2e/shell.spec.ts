@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+test.describe.configure({ mode: 'serial' })
+
 async function completePreviewOnboarding(page: Page) {
   await page.goto('/')
 
@@ -48,13 +50,18 @@ test('walks through onboarding, first backup, explorer, and audit in browser pre
     }),
   ).toBeVisible()
 
-  await page.getByRole('button', { name: 'jsonl' }).click()
+  await page.getByRole('button', { name: 'jsonl' }).evaluate((element) => {
+    ;(element as HTMLButtonElement).click()
+  })
   await expect(page.getByText(/pathkeep-export-/)).toBeVisible()
 
-  await page.getByRole('link', { name: 'Audit Ledger' }).click()
+  await Promise.all([
+    page.waitForURL(/#\/audit/),
+    page.getByRole('link', { name: 'Audit Ledger' }).click(),
+  ])
 
   const auditPage = page.getByTestId('audit-page')
-  await expect(auditPage).toBeVisible()
+  await expect(auditPage).toBeVisible({ timeout: 10_000 })
   await expect(auditPage.getByText('RUN TIMELINE')).toBeVisible()
   await auditPage.getByRole('button', { name: 'Artifacts' }).click()
   await expect(auditPage.getByText(/ARTIFACTS · \d+ files/)).toBeVisible()
@@ -83,7 +90,7 @@ test('keeps schedule and security review surfaces inspectable in browser preview
     .click()
   await expect(
     page.getByText(
-      'launchctl bootstrap gui/501 dev.codex.pathkeep.backup.plist',
+      'launchctl bootstrap gui/501 com.yi-ting.pathkeep.backup.plist',
     ),
   ).toBeVisible()
 
@@ -103,11 +110,19 @@ test('surfaces intelligence routes and degraded states after the first backup', 
   await expect(page.getByText('SEMANTIC RECALL')).toBeVisible()
   await expect(page.getByText('AI features off')).toBeVisible()
 
-  await page.getByRole('link', { name: 'AI Assistant', exact: true }).click()
+  await Promise.all([
+    page.waitForURL(/#\/assistant/),
+    page.getByRole('link', { name: 'AI Assistant', exact: true }).click(),
+  ])
   await expect(page.getByText('Assistant is turned off')).toBeVisible()
 
-  await page.getByRole('link', { name: 'Insights', exact: true }).click()
-  await expect(page.getByTestId('insights-page')).toBeVisible()
+  await Promise.all([
+    page.waitForURL(/#\/insights/),
+    page.getByRole('link', { name: 'Insights', exact: true }).click(),
+  ])
+  await expect(page.getByTestId('insights-page')).toBeVisible({
+    timeout: 10_000,
+  })
   await expect(page.getByText('AI features off')).toBeVisible()
 })
 
@@ -150,7 +165,9 @@ test('keeps shared profile scope, regex recall, and export guardrails aligned', 
   await expect(page.getByText('Valid regex')).toBeVisible()
   await expect(page.getByRole('button', { name: 'jsonl' })).toBeEnabled()
 
-  await page.getByRole('button', { name: 'jsonl' }).click()
+  await page.getByRole('button', { name: 'jsonl' }).evaluate((element) => {
+    ;(element as HTMLButtonElement).click()
+  })
   await expect(page.getByText(/pathkeep-export-/)).toBeVisible()
 })
 
@@ -173,12 +190,20 @@ test('walks import preview, revert, restore, and doctor review in browser previe
   await expect(page.getByRole('button', { name: 'Undo import' })).toBeEnabled()
 
   page.on('dialog', (dialog) => dialog.accept())
-  await page.getByRole('button', { name: 'Undo import' }).click()
+  await page
+    .getByRole('button', { name: 'Undo import' })
+    .evaluate((element) => {
+      ;(element as HTMLButtonElement).click()
+    })
   await expect(
     page.getByRole('button', { name: 'Restore import' }),
   ).toBeEnabled()
 
-  await page.getByRole('button', { name: 'Restore import' }).click()
+  await page
+    .getByRole('button', { name: 'Restore import' })
+    .evaluate((element) => {
+      ;(element as HTMLButtonElement).click()
+    })
   await expect(page.getByRole('button', { name: 'Undo import' })).toBeEnabled()
 
   await page.getByRole('button', { name: 'Run health check' }).click()

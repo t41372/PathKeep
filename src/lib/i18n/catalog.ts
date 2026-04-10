@@ -843,8 +843,11 @@ const catalog: Record<
       lockPasscodePlaceholder: 'Enter your app lock passcode',
       unlockApp: 'Unlock',
       unlockWithBiometric: 'Use biometric',
+      unlockWithTouchId: 'Use Touch ID',
       unlockBiometricUnavailable:
         'Biometric unlock is not available in this desktop build yet, so PathKeep is using the passcode fallback.',
+      unlockTouchIdUnavailable:
+        'Touch ID is unavailable on this Mac right now, so PathKeep is using the passcode fallback.',
       lockRecoveryTitle: 'Forgot passcode?',
       lockRecoveryBody:
         'PathKeep does not offer a fake recovery flow here. Open the config path and follow the support guidance if you need to reset the UI session lock.',
@@ -1370,8 +1373,11 @@ const catalog: Record<
       appLockIdleTimeout: 'Idle timeout',
       appLockMinutes: '{count} minutes',
       appLockBiometric: 'Allow biometric unlock when available',
+      appLockTouchId: 'Allow Touch ID unlock when available',
       appLockBiometricUnavailable:
         'Biometric unlock is not wired into this build yet, so passcode unlock stays required.',
+      appLockTouchIdUnavailable:
+        'Touch ID is unavailable on this Mac right now, so passcode unlock stays required.',
       appLockRecoveryHint: 'Recovery hint',
       appLockRecoveryHintPlaceholder:
         'Optional reminder shown on the lock screen',
@@ -1405,6 +1411,41 @@ const catalog: Record<
       mcpServer: 'MCP Server',
       version: 'Version',
       gitCommit: 'Build',
+      analyticsTitle: 'ANALYTICS',
+      analyticsBoundaryTitle: 'Opt-in frontend analytics only',
+      analyticsBoundaryBody:
+        'PathKeep only sends coarse frontend events after you opt in. It never includes archive content, URLs, search queries, profile IDs, run IDs, prompts, or filesystem paths.',
+      analyticsEndpointMissingTitle: 'Analytics endpoint not configured',
+      analyticsEndpointMissingBody:
+        'This desktop build has no first-party analytics endpoint configured, so enabling consent would still keep event delivery off.',
+      analyticsEnabled: 'Allow coarse frontend analytics',
+      analyticsEndpoint: 'Endpoint',
+      analyticsConsentGrantedAt: 'Consent granted',
+      analyticsStatusBody:
+        'Analytics only runs in packaged desktop production builds, and only after explicit opt-in.',
+      analyticsSave: 'Save analytics consent',
+      analyticsSaving: 'Saving analytics consent…',
+      updateTitle: 'APP UPDATES',
+      updateBoundaryTitle: 'Manual check and install',
+      updateBoundaryBody:
+        'Review release availability, notes, and install progress before PathKeep restarts into a new version.',
+      updateCurrentVersion: 'Current version',
+      updateLatestVersion: 'Latest available',
+      updatePublishedAt: 'Published',
+      updateCheckedAt: 'Last checked',
+      updateProgress: 'Downloaded {downloaded} of {total}.',
+      updateReleaseNotes: 'Release notes',
+      updateCheckNow: 'Check now',
+      updateChecking: 'Checking for updates…',
+      updateDownloadAndInstall: 'Download and install',
+      updateRestartNow: 'Restart now',
+      updateOpenReleasePage: 'Open release page',
+      updateAvailableBody:
+        'PathKeep {version} is available. Review the notes below before installing.',
+      updateUpToDateBody:
+        'This build is already on the latest available release.',
+      updateUnsupportedBody:
+        'This surface only works in the desktop app. Browser preview can open the release page instead.',
       remoteBackup: 'CLOUD BACKUP',
       s3Compatible: 'S3-COMPATIBLE',
       remoteBackupSummary: 'Upload your archive to cloud storage',
@@ -2165,8 +2206,11 @@ const catalog: Record<
       lockPasscodePlaceholder: '输入应用锁密码',
       unlockApp: '解锁',
       unlockWithBiometric: '使用生物识别',
+      unlockWithTouchId: '使用 Touch ID',
       unlockBiometricUnavailable:
         '当前桌面构建暂不支持生物识别，所以 PathKeep 仍使用密码作为回退方式。',
+      unlockTouchIdUnavailable:
+        '这台 Mac 当前无法使用 Touch ID，所以 PathKeep 仍使用密码作为回退方式。',
       lockRecoveryTitle: '忘记密码？',
       lockRecoveryBody:
         'PathKeep 不会在这里提供假的恢复流程。打开配置路径，并按照支持文档重置 UI 会话锁。',
@@ -2654,8 +2698,11 @@ const catalog: Record<
       appLockIdleTimeout: '闲置超时',
       appLockMinutes: '{count} 分钟',
       appLockBiometric: '在可用时允许生物识别解锁',
+      appLockTouchId: '在可用时允许 Touch ID 解锁',
       appLockBiometricUnavailable:
         '当前构建尚未接入生物识别，所以仍然必须使用密码解锁。',
+      appLockTouchIdUnavailable:
+        '这台 Mac 当前无法使用 Touch ID，所以仍然必须使用密码解锁。',
       appLockRecoveryHint: '恢复提示',
       appLockRecoveryHintPlaceholder: '锁定页面上显示的可选提示',
       appLockPasscode: '密码',
@@ -2687,6 +2734,40 @@ const catalog: Record<
       mcpServer: 'MCP 服务',
       version: '版本',
       gitCommit: '构建版本',
+      analyticsTitle: '分析',
+      analyticsBoundaryTitle: '仅在同意后发送前端分析',
+      analyticsBoundaryBody:
+        '只有在你明确同意后，PathKeep 才会发送粗粒度前端事件。它绝不会包含存档内容、URL、搜索词、profile ID、run ID、提示词或文件路径。',
+      analyticsEndpointMissingTitle: '未配置分析端点',
+      analyticsEndpointMissingBody:
+        '当前桌面构建没有配置第一方分析端点，所以即使打开同意，事件发送也仍然保持关闭。',
+      analyticsEnabled: '允许粗粒度前端分析',
+      analyticsEndpoint: '端点',
+      analyticsConsentGrantedAt: '同意时间',
+      analyticsStatusBody:
+        '分析只会在打包后的桌面生产构建中运行，而且必须先明确同意。',
+      analyticsSave: '保存分析同意',
+      analyticsSaving: '正在保存分析同意…',
+      updateTitle: '应用更新',
+      updateBoundaryTitle: '手动检查并安装',
+      updateBoundaryBody:
+        '先检查可用版本、查看发行说明和安装进度，再由 PathKeep 重启切换到新版本。',
+      updateCurrentVersion: '当前版本',
+      updateLatestVersion: '最新可用版本',
+      updatePublishedAt: '发布时间',
+      updateCheckedAt: '上次检查',
+      updateProgress: '已下载 {downloaded} / {total}。',
+      updateReleaseNotes: '发行说明',
+      updateCheckNow: '立即检查',
+      updateChecking: '正在检查更新…',
+      updateDownloadAndInstall: '下载并安装',
+      updateRestartNow: '立即重启',
+      updateOpenReleasePage: '打开发布页',
+      updateAvailableBody:
+        '已发现 PathKeep {version}。安装前请先查看下方说明。',
+      updateUpToDateBody: '当前构建已经是最新可用版本。',
+      updateUnsupportedBody:
+        '这个界面只在桌面应用里可用。浏览器预览版只能打开发布页面。',
       remoteBackup: '云端备份',
       s3Compatible: 'S3 兼容',
       remoteBackupSummary: '将存档上传到云端存储',
@@ -3093,8 +3174,11 @@ const catalog: Record<
       lockPasscodePlaceholder: '輸入應用鎖密碼',
       unlockApp: '解鎖',
       unlockWithBiometric: '使用生物辨識',
+      unlockWithTouchId: '使用 Touch ID',
       unlockBiometricUnavailable:
         '目前桌面建置暫不支援生物辨識，所以 PathKeep 仍使用密碼作為回退方式。',
+      unlockTouchIdUnavailable:
+        '這台 Mac 目前無法使用 Touch ID，所以 PathKeep 仍使用密碼作為回退方式。',
       lockRecoveryTitle: '忘記密碼？',
       lockRecoveryBody:
         'PathKeep 不會在這裡提供假的恢復流程。開啟設定路徑，並依照支援文件重設 UI 會話鎖。',
@@ -3581,8 +3665,11 @@ const catalog: Record<
       appLockIdleTimeout: '閒置逾時',
       appLockMinutes: '{count} 分鐘',
       appLockBiometric: '可用時允許生物辨識解鎖',
+      appLockTouchId: '可用時允許 Touch ID 解鎖',
       appLockBiometricUnavailable:
         '目前建置尚未接上生物辨識，所以仍然必須使用密碼解鎖。',
+      appLockTouchIdUnavailable:
+        '這台 Mac 目前無法使用 Touch ID，所以仍然必須使用密碼解鎖。',
       appLockRecoveryHint: '恢復提示',
       appLockRecoveryHintPlaceholder: '鎖定畫面上顯示的可選提示',
       appLockPasscode: '密碼',
@@ -3614,6 +3701,40 @@ const catalog: Record<
       mcpServer: 'MCP 服務',
       version: '版本',
       gitCommit: '建置版本',
+      analyticsTitle: '分析',
+      analyticsBoundaryTitle: '僅在同意後傳送前端分析',
+      analyticsBoundaryBody:
+        '只有在你明確同意後，PathKeep 才會傳送粗粒度前端事件。它絕不包含封存內容、URL、搜尋詞、profile ID、run ID、提示詞或檔案路徑。',
+      analyticsEndpointMissingTitle: '尚未設定分析端點',
+      analyticsEndpointMissingBody:
+        '目前桌面建置沒有設定第一方分析端點，所以即使開啟同意，事件傳送也仍然維持關閉。',
+      analyticsEnabled: '允許粗粒度前端分析',
+      analyticsEndpoint: '端點',
+      analyticsConsentGrantedAt: '同意時間',
+      analyticsStatusBody:
+        '分析只會在打包後的桌面正式建置中運作，而且必須先明確同意。',
+      analyticsSave: '儲存分析同意',
+      analyticsSaving: '正在儲存分析同意…',
+      updateTitle: '應用更新',
+      updateBoundaryTitle: '手動檢查並安裝',
+      updateBoundaryBody:
+        '先檢查可用版本、查看發行說明和安裝進度，再由 PathKeep 重新啟動切換到新版本。',
+      updateCurrentVersion: '目前版本',
+      updateLatestVersion: '最新可用版本',
+      updatePublishedAt: '發布時間',
+      updateCheckedAt: '上次檢查',
+      updateProgress: '已下載 {downloaded} / {total}。',
+      updateReleaseNotes: '發行說明',
+      updateCheckNow: '立即檢查',
+      updateChecking: '正在檢查更新…',
+      updateDownloadAndInstall: '下載並安裝',
+      updateRestartNow: '立即重新啟動',
+      updateOpenReleasePage: '開啟發布頁',
+      updateAvailableBody:
+        '已發現 PathKeep {version}。安裝前請先查看下方說明。',
+      updateUpToDateBody: '目前建置已經是最新可用版本。',
+      updateUnsupportedBody:
+        '這個介面只在桌面應用程式中可用。瀏覽器預覽版只能開啟發布頁面。',
       remoteBackup: '雲端備份',
       s3Compatible: 'S3 相容',
       remoteBackupSummary: '將封存上傳到雲端儲存',

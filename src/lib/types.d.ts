@@ -76,12 +76,18 @@ export interface AppLockConfig {
   recoveryHint?: string | null
 }
 
+export type AppLockBiometricState =
+  | 'touch-id-available'
+  | 'touch-id-unavailable'
+  | 'unsupported'
+
 export interface AppLockStatus {
   enabled: boolean
   locked: boolean
   idleTimeoutMinutes: number
   biometricAvailable: boolean
   biometricEnabled: boolean
+  biometricState: AppLockBiometricState
   passcodeEnabled: boolean
   passcodeConfigured: boolean
   configPath: string
@@ -103,6 +109,11 @@ export interface SetAppLockPasscodeRequest {
   recoveryHint?: string | null
 }
 
+export interface AnalyticsConfig {
+  enabled: boolean
+  consentGrantedAt?: string | null
+}
+
 export interface AppConfig {
   initialized: boolean
   archiveMode: ArchiveMode
@@ -116,10 +127,62 @@ export interface AppConfig {
   rememberDatabaseKeyInKeyring: boolean
   appAutostart: boolean
   appLock: AppLockConfig
+  analytics: AnalyticsConfig
   remoteBackup: RemoteBackupConfig
   enrichment: EnrichmentSettings
   ai: AiSettings
 }
+
+export interface UpdateAvailability {
+  supported: boolean
+  checkedAt: string
+  available: boolean
+  currentVersion?: string | null
+  version?: string | null
+  notes?: string | null
+  publishedAt?: string | null
+  error?: string | null
+  downloadUrl?: string | null
+}
+
+export type UpdateInstallPhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'installing'
+  | 'installed'
+  | 'uptodate'
+  | 'error'
+  | 'unsupported'
+
+export interface UpdateInstallState {
+  phase: UpdateInstallPhase
+  downloadedBytes?: number | null
+  contentLength?: number | null
+  message?: string | null
+}
+
+export type AnalyticsEvent =
+  | {
+      type: 'route-view'
+      route: string
+      screen: string
+      language: LanguagePreference
+    }
+  | {
+      type: 'cta-click'
+      screen: string
+      action: string
+      feature: string
+    }
+  | {
+      type: 'update-lifecycle'
+      screen: string
+      action: string
+      status: string
+      version?: string | null
+    }
 
 export interface AppDirectories {
   appRoot: string

@@ -208,6 +208,15 @@ impl Default for AppLockConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppLockBiometricState {
+    TouchIdAvailable,
+    TouchIdUnavailable,
+    #[default]
+    Unsupported,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppLockStatus {
@@ -216,6 +225,7 @@ pub struct AppLockStatus {
     pub idle_timeout_minutes: u64,
     pub biometric_available: bool,
     pub biometric_enabled: bool,
+    pub biometric_state: AppLockBiometricState,
     pub passcode_enabled: bool,
     pub passcode_configured: bool,
     pub config_path: String,
@@ -241,6 +251,13 @@ pub struct SetAppLockPasscodeRequest {
     pub recovery_hint: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AnalyticsConfig {
+    pub enabled: bool,
+    pub consent_granted_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
@@ -256,6 +273,7 @@ pub struct AppConfig {
     pub remember_database_key_in_keyring: bool,
     pub app_autostart: bool,
     pub app_lock: AppLockConfig,
+    pub analytics: AnalyticsConfig,
     pub remote_backup: RemoteBackupConfig,
     pub enrichment: EnrichmentSettings,
     pub ai: AiSettings,
@@ -276,6 +294,7 @@ impl Default for AppConfig {
             remember_database_key_in_keyring: false,
             app_autostart: false,
             app_lock: AppLockConfig::default(),
+            analytics: AnalyticsConfig::default(),
             remote_backup: RemoteBackupConfig::default(),
             enrichment: EnrichmentSettings::default(),
             ai: AiSettings::default(),

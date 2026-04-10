@@ -119,6 +119,7 @@
 - `vitest.quality.config.ts` 已把 `coverage:js` 收斂到 living M0-M3 JS quality surface；`coverage:rust` 也已有明確的 Tauri desktop command / bridge quality scope，而不是再用失真的 repo-wide 敘事。
 - `mutation:js` 已恢復為 living M0-M3 JS surface 的 repo-level mutation sweep，`Mutation` workflow 則把 JS / Rust mutation 都收回到 scheduled / manual deep check。
 - README、release workflow、Tauri metadata、app-facing strings 已切到 PathKeep。
+- M4-L 又把 updater `latest.json` / signatures、`bun run release:bump -- <semver>`、`bun run release:size-audit` 與 `com.yi-ting.pathkeep` clean-break namespace 收進正式 release contract。
 - [quality-matrix.md](quality-matrix.md)、[standards.md](../../standards.md)、[AGENTS.md](../../../AGENTS.md)、CI workflows 現在已對齊同一套 blocking / release gate 說法。
 
 ### 判斷
@@ -155,12 +156,14 @@
 ### 觀察
 
 - `package.json` 已切到 `pathkeep`，Tauri `productName` / window title / identifier 也已改成 PathKeep。
+- bundle id、keyring service、scheduler labels 與 app data root naming 已統一切到 `com.yi-ting.pathkeep`。
 - README、CONTRIBUTING、release workflow、frontend public strings、Tauri product strings 與大部分 worker / platform 文案都已切到 PathKeep。
 - repo 內仍有少量 `Chrome History Backup` / `Chrome History Vault` 殘留，但它們現在只出現在 explicit legacy alias / migration comment，用於升級與資料恢復敘事，而不是現行品牌。
 
 ### 判斷
 
 - M0 的 rename sweep 對 public surface 與 build metadata 已足夠完成；剩餘舊名字串是受控的 legacy reference，不代表命名遷移未完成。
+- M4-L 之後，desktop namespace rename 已不再保留 `dev.codex.pathkeep` 自動遷移；這是 user-approved clean break，而不是遺漏。
 - 因為沒有正式用戶，repo 不需要為舊品牌維持長期兼容窗口；接下來只要避免在新功能把舊名字重新帶回來即可。
 
 ### 待辦

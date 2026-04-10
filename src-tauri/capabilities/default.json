@@ -9,6 +9,8 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "dialog:allow-open",
+    "process:default",
+    "updater:default",
     "stronghold:default"
   ]
 }

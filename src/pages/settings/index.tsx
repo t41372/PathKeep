@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
+import {
+  CONFIGURED_ANALYTICS_ENDPOINT,
+  trackAnalyticsEvent,
+} from '../../lib/analytics'
 import { backend } from '../../lib/backend'
 import {
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
@@ -19,7 +23,16 @@ import {
   platformLabelKey,
   platformSummaryKey,
 } from '../../lib/platform-guidance'
+import {
+  RELEASES_PAGE_URL,
+  checkForAppUpdate,
+  downloadAndInstallAppUpdate,
+  initialUpdateInstallState,
+  relaunchAfterUpdate,
+  type PendingAppUpdate,
+} from '../../lib/update'
 import type {
+  AnalyticsConfig,
   AiIntegrationPreview,
   AiProviderConfig,
   AiRequestFormat,
@@ -35,6 +48,8 @@ import type {
   RunInsightsReport,
   ScheduleStatus,
   SecurityStatus,
+  UpdateAvailability,
+  UpdateInstallState,
 } from '../../lib/types'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
@@ -104,9 +119,20 @@ export function SettingsPage() {
     securityStatus: null,
   })
   const [appLockDraft, setAppLockDraft] = useState<AppLockConfig | null>(null)
+  const [analyticsDraft, setAnalyticsDraft] = useState<AnalyticsConfig | null>(
+    null,
+  )
   const [appLockPasscode, setAppLockPasscodeDraft] = useState('')
   const [appLockRecoveryHint, setAppLockRecoveryHint] = useState('')
   const [appLockAction, setAppLockAction] = useState<string | null>(null)
+  const [analyticsAction, setAnalyticsAction] = useState<string | null>(null)
+  const [updateAvailability, setUpdateAvailability] =
+    useState<UpdateAvailability | null>(null)
+  const [pendingUpdate, setPendingUpdate] = useState<PendingAppUpdate | null>(
+    null,
+  )
+  const [updateInstallState, setUpdateInstallState] =
+    useState<UpdateInstallState>(initialUpdateInstallState)
   const [aiDraft, setAiDraft] = useState<AiSettings | null>(null)
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
   const [retentionPreview, setRetentionPreview] =
@@ -167,6 +193,14 @@ export function SettingsPage() {
 
     setAppLockDraft(snapshot.config.appLock)
     setAppLockRecoveryHint(snapshot.config.appLock.recoveryHint ?? '')
+  }, [snapshot])
+
+  useEffect(() => {
+    if (!snapshot) {
+      return
+    }
+
+    setAnalyticsDraft(snapshot.config.analytics)
   }, [snapshot])
 
   useEffect(() => {
@@ -309,6 +343,7 @@ export function SettingsPage() {
     supportState.securityStatus.unlocked === false
   const currentAiSettings = aiDraft ?? snapshot.config.ai
   const currentAppLockSettings = appLockDraft ?? snapshot.config.appLock
+  const currentAnalyticsSettings = analyticsDraft ?? snapshot.config.analytics
   const aiIndexMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
   const selectedAiGeneratedFile =
     aiIntegrationPreview?.generatedFiles[selectedAiGeneratedFileIndex] ??
@@ -329,6 +364,13 @@ export function SettingsPage() {
   const appLockCanEnable =
     currentAppLockSettings.passcodeConfigured ||
     Boolean(appLockStatus?.passcodeConfigured)
+  const analyticsConfigDirty =
+    JSON.stringify(currentAnalyticsSettings) !==
+    JSON.stringify(snapshot.config.analytics)
+  const analyticsEndpointConfigured = Boolean(CONFIGURED_ANALYTICS_ENDPOINT)
+  const biometricUsesTouchId =
+    appLockStatus?.biometricState === 'touch-id-available' ||
+    appLockStatus?.biometricState === 'touch-id-unavailable'
 
   function updateAiDraft(updater: (current: AiSettings) => AiSettings) {
     setAiDraft((current) =>
@@ -663,6 +705,170 @@ export function SettingsPage() {
     }
   }
 
+  async function handleSaveAnalyticsConsent() {
+    if (!snapshot) {
+      return
+    }
+
+    setAnalyticsAction(t('settings.analyticsSaving'))
+    try {
+      const nextEnabled = currentAnalyticsSettings.enabled
+      const nextSnapshot = await saveConfig({
+        ...snapshot.config,
+        analytics: {
+          enabled: nextEnabled,
+          consentGrantedAt: nextEnabled ? new Date().toISOString() : null,
+        },
+      })
+      setAnalyticsDraft(nextSnapshot.config.analytics)
+      if (nextEnabled) {
+        await trackAnalyticsEvent(
+          nextSnapshot.config.analytics,
+          {
+            type: 'cta-click',
+            screen: 'settings',
+            action: 'save-consent',
+            feature: 'analytics',
+          },
+          buildInfo,
+        )
+      }
+    } finally {
+      setAnalyticsAction(null)
+    }
+  }
+
+  async function handleCheckForUpdates() {
+    if (!snapshot) {
+      return
+    }
+
+    setUpdateInstallState({
+      phase: 'checking',
+      downloadedBytes: null,
+      contentLength: null,
+      message: t('settings.updateChecking'),
+    })
+    await trackAnalyticsEvent(
+      snapshot.config.analytics,
+      {
+        type: 'cta-click',
+        screen: 'settings',
+        action: 'check-for-updates',
+        feature: 'updater',
+      },
+      buildInfo,
+    )
+    const result = await checkForAppUpdate(buildInfo?.version)
+    setUpdateAvailability(result.availability)
+    setPendingUpdate(result.pendingUpdate)
+    if (!result.availability.supported) {
+      setUpdateInstallState({
+        phase: 'unsupported',
+        downloadedBytes: null,
+        contentLength: null,
+        message:
+          result.availability.error ?? t('settings.updateUnsupportedBody'),
+      })
+    } else if (result.availability.error) {
+      setUpdateInstallState({
+        phase: 'error',
+        downloadedBytes: null,
+        contentLength: null,
+        message: result.availability.error,
+      })
+    } else if (result.availability.available) {
+      setUpdateInstallState({
+        phase: 'available',
+        downloadedBytes: null,
+        contentLength: null,
+        message: t('settings.updateAvailableBody', {
+          version: result.availability.version ?? t('common.notAvailable'),
+        }),
+      })
+    } else {
+      setUpdateInstallState({
+        phase: 'uptodate',
+        downloadedBytes: null,
+        contentLength: null,
+        message: t('settings.updateUpToDateBody'),
+      })
+    }
+    await trackAnalyticsEvent(
+      snapshot.config.analytics,
+      {
+        type: 'update-lifecycle',
+        screen: 'settings',
+        action: 'check',
+        status: result.availability.available
+          ? 'available'
+          : result.availability.error
+            ? 'error'
+            : result.availability.supported
+              ? 'uptodate'
+              : 'unsupported',
+        version: result.availability.version ?? null,
+      },
+      buildInfo,
+    )
+  }
+
+  async function handleDownloadAndInstallUpdate() {
+    if (!snapshot || !pendingUpdate) {
+      return
+    }
+
+    await trackAnalyticsEvent(
+      snapshot.config.analytics,
+      {
+        type: 'cta-click',
+        screen: 'settings',
+        action: 'download-and-install',
+        feature: 'updater',
+      },
+      buildInfo,
+    )
+    const result = await downloadAndInstallAppUpdate(
+      pendingUpdate,
+      setUpdateInstallState,
+    )
+    await trackAnalyticsEvent(
+      snapshot.config.analytics,
+      {
+        type: 'update-lifecycle',
+        screen: 'settings',
+        action: 'download-and-install',
+        status: result.phase,
+        version: pendingUpdate.version,
+      },
+      buildInfo,
+    )
+  }
+
+  async function handleRelaunchForUpdate() {
+    if (!snapshot) {
+      return
+    }
+
+    await trackAnalyticsEvent(
+      snapshot.config.analytics,
+      {
+        type: 'cta-click',
+        screen: 'settings',
+        action: 'restart-after-update',
+        feature: 'updater',
+      },
+      buildInfo,
+    )
+    await relaunchAfterUpdate()
+  }
+
+  async function handleOpenReleasePage() {
+    await backend.openExternalUrl(
+      updateAvailability?.downloadUrl ?? RELEASES_PAGE_URL,
+    )
+  }
+
   function handleAiToggle() {
     updateAiDraft((current) => ({
       ...current,
@@ -968,6 +1174,216 @@ export function SettingsPage() {
 
       <div className="panel">
         <div className="panel-header">
+          <span className="panel-title">{t('settings.analyticsTitle')}</span>
+          <span className="panel-badge">{t('settings.optional')}</span>
+        </div>
+        <div className="panel-body settings-remote-grid">
+          <StatusCallout
+            tone={currentAnalyticsSettings.enabled ? 'warning' : 'info'}
+            title={t('settings.analyticsBoundaryTitle')}
+            body={t('settings.analyticsBoundaryBody')}
+          />
+
+          {!analyticsEndpointConfigured ? (
+            <StatusCallout
+              tone="warning"
+              title={t('settings.analyticsEndpointMissingTitle')}
+              body={t('settings.analyticsEndpointMissingBody')}
+            />
+          ) : null}
+
+          <div className="settings-field-grid">
+            <label className="checkbox-row">
+              <input
+                aria-label={t('settings.analyticsEnabled')}
+                checked={currentAnalyticsSettings.enabled}
+                type="checkbox"
+                onChange={(event) => {
+                  setAnalyticsDraft((current) => ({
+                    enabled: event.target.checked,
+                    consentGrantedAt: current?.consentGrantedAt ?? null,
+                  }))
+                }}
+              />
+              <span>{t('settings.analyticsEnabled')}</span>
+            </label>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.analyticsEndpoint')}
+              </span>
+              <span className="config-value mono">
+                {analyticsEndpointConfigured
+                  ? import.meta.env.VITE_ANALYTICS_ENDPOINT
+                  : t('common.notAvailable')}
+              </span>
+            </div>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.analyticsConsentGrantedAt')}
+              </span>
+              <span className="config-value mono">
+                {currentAnalyticsSettings.consentGrantedAt ??
+                  t('common.notAvailable')}
+              </span>
+            </div>
+
+            <p className="dashboard-next-action">
+              {t('settings.analyticsStatusBody')}
+            </p>
+
+            <div className="settings-action-row">
+              <button
+                className="btn-primary"
+                type="button"
+                disabled={Boolean(analyticsAction) || !analyticsConfigDirty}
+                onClick={() => {
+                  void handleSaveAnalyticsConsent()
+                }}
+              >
+                {analyticsAction ?? t('settings.analyticsSave')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{t('settings.updateTitle')}</span>
+          <span className="panel-action mono">
+            {buildInfo?.version ?? t('common.notAvailable')}
+          </span>
+        </div>
+        <div className="panel-body settings-remote-grid">
+          <StatusCallout
+            tone={
+              updateInstallState.phase === 'error'
+                ? 'danger'
+                : updateInstallState.phase === 'available' ||
+                    updateInstallState.phase === 'installed'
+                  ? 'warning'
+                  : 'info'
+            }
+            title={t('settings.updateBoundaryTitle')}
+            body={
+              updateInstallState.message ?? t('settings.updateBoundaryBody')
+            }
+          />
+
+          <div className="settings-field-grid">
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.updateCurrentVersion')}
+              </span>
+              <span className="config-value mono">
+                {buildInfo?.version ?? t('common.notAvailable')}
+              </span>
+            </div>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.updateLatestVersion')}
+              </span>
+              <span className="config-value mono">
+                {updateAvailability?.version ?? t('common.notAvailable')}
+              </span>
+            </div>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.updatePublishedAt')}
+              </span>
+              <span className="config-value mono">
+                {updateAvailability?.publishedAt ?? t('common.notAvailable')}
+              </span>
+            </div>
+
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.updateCheckedAt')}
+              </span>
+              <span className="config-value mono">
+                {updateAvailability?.checkedAt ?? t('common.notAvailable')}
+              </span>
+            </div>
+
+            {updateInstallState.contentLength ? (
+              <p className="dashboard-next-action">
+                {t('settings.updateProgress', {
+                  downloaded: formatBytes(
+                    updateInstallState.downloadedBytes ?? 0,
+                    language,
+                  ),
+                  total: formatBytes(
+                    updateInstallState.contentLength,
+                    language,
+                  ),
+                })}
+              </p>
+            ) : null}
+
+            {updateAvailability?.notes ? (
+              <div className="fieldBlock">
+                <span className="config-label">
+                  {t('settings.updateReleaseNotes')}
+                </span>
+                <pre className="code-block">{updateAvailability.notes}</pre>
+              </div>
+            ) : null}
+
+            <div className="settings-action-row">
+              <button
+                className="btn-primary"
+                type="button"
+                disabled={updateInstallState.phase === 'checking'}
+                onClick={() => {
+                  void handleCheckForUpdates()
+                }}
+              >
+                {t('settings.updateCheckNow')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={
+                  !pendingUpdate ||
+                  updateInstallState.phase === 'downloading' ||
+                  updateInstallState.phase === 'installing'
+                }
+                onClick={() => {
+                  void handleDownloadAndInstallUpdate()
+                }}
+              >
+                {t('settings.updateDownloadAndInstall')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={updateInstallState.phase !== 'installed'}
+                onClick={() => {
+                  void handleRelaunchForUpdate()
+                }}
+              >
+                {t('settings.updateRestartNow')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => {
+                  void handleOpenReleasePage()
+                }}
+              >
+                {t('settings.updateOpenReleasePage')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
           <span className="panel-title">{t('settings.retentionTitle')}</span>
           <span className="panel-action">
             {t('settings.retentionSelected', {
@@ -1166,7 +1582,11 @@ export function SettingsPage() {
 
             <label className="checkbox-row">
               <input
-                aria-label={t('settings.appLockBiometric')}
+                aria-label={
+                  biometricUsesTouchId
+                    ? t('settings.appLockTouchId')
+                    : t('settings.appLockBiometric')
+                }
                 checked={currentAppLockSettings.biometricEnabled}
                 disabled={!appLockStatus?.biometricAvailable}
                 type="checkbox"
@@ -1178,12 +1598,18 @@ export function SettingsPage() {
                   )
                 }}
               />
-              <span>{t('settings.appLockBiometric')}</span>
+              <span>
+                {biometricUsesTouchId
+                  ? t('settings.appLockTouchId')
+                  : t('settings.appLockBiometric')}
+              </span>
             </label>
 
             {!appLockStatus?.biometricAvailable ? (
               <p className="dashboard-next-action">
-                {t('settings.appLockBiometricUnavailable')}
+                {biometricUsesTouchId
+                  ? t('settings.appLockTouchIdUnavailable')
+                  : t('settings.appLockBiometricUnavailable')}
               </p>
             ) : null}
 

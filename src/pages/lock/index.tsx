@@ -41,6 +41,9 @@ export function LockPage() {
   const reason = lockReasonLabel(appLockStatus.lockReason, t)
   const canTryBiometric =
     appLockStatus.biometricEnabled || appLockStatus.biometricAvailable
+  const touchIdState =
+    appLockStatus.biometricState === 'touch-id-available' ||
+    appLockStatus.biometricState === 'touch-id-unavailable'
 
   async function handleUnlock(useBiometric = false) {
     setUnlocking(true)
@@ -153,7 +156,9 @@ export function LockPage() {
                     void handleUnlock(true)
                   }}
                 >
-                  {t('shell.unlockWithBiometric')}
+                  {touchIdState
+                    ? t('shell.unlockWithTouchId')
+                    : t('shell.unlockWithBiometric')}
                 </button>
               ) : null}
             </div>
@@ -161,7 +166,9 @@ export function LockPage() {
 
           {canTryBiometric && !appLockStatus.biometricAvailable ? (
             <p className="dashboard-next-action">
-              {t('shell.unlockBiometricUnavailable')}
+              {touchIdState
+                ? t('shell.unlockTouchIdUnavailable')
+                : t('shell.unlockBiometricUnavailable')}
             </p>
           ) : null}
 

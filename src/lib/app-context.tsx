@@ -85,6 +85,10 @@ const EMPTY_CONFIG: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
+  analytics: {
+    enabled: false,
+    consentGrantedAt: null,
+  },
   remoteBackup: EMPTY_REMOTE_BACKUP,
   enrichment: defaultEnrichmentSettings(),
   ai: EMPTY_AI_SETTINGS,

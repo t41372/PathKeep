@@ -46,6 +46,8 @@
     "ci:local": "bun run check && bun run coverage && bun run build && bun run test:e2e && bun run desktop:build:debug",
     "docs:llm": "bun scripts/build-llm-txt.mjs",
     "perf:artifact:shell": "bun scripts/build-perf-artifact-bundle.mjs",
+    "release:bump": "node scripts/bump-version.mjs",
+    "release:size-audit": "node scripts/build-release-size-audit.mjs",
     "preview": "vite preview",
     "verify": "bun run check:full && bun run build && bun run desktop:build:debug"
   },
@@ -53,7 +55,9 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.4.3",
+    "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-stronghold": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "clsx": "^2.1.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

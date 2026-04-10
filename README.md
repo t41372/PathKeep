@@ -15,14 +15,15 @@ The app keeps canonical history facts, rollback state, audit artifacts, schedule
 - Local-first by default. Archive data stays on the machine unless the user explicitly configures remote backup.
 - Intelligence is optional. Search, backup, import, rollback, export, audit, and recovery still work without any AI provider.
 - Recoverability beats convenience. Remote backup, re-key, rollback, and derived-state rebuild all keep the user-facing boundary honest.
-- Telemetry is a non-goal. Support diagnostics stay metadata-first and must not collect archive contents or secrets by default.
+- Hidden telemetry is a non-goal. Any frontend analytics must stay explicit opt-in, coarse, metadata-only, and first-party.
 
 ## Release Status
 
 - `WORK-M4-B` release-readiness closeout is complete: release docs, troubleshooting docs, platform validation runbooks, support diagnostics guidance, and release workflow preflight are now in repo.
 - macOS is the primary release target and has a documented signing / notarization path in CI.
 - Windows and Linux release artifacts are built in CI and covered by the validation runbook, but both remain explicit preview channels until maintainers wire platform signing choices for their own credentials and distribution policy.
-- App lock / biometric / profile partition work is intentionally deferred behind `PG-RD-PLAT-006`; PathKeep does not ship a fake security layer in the meantime.
+- App Lock remains a session-only boundary. macOS now ships truthful Touch ID unlock for the current session, while Windows / Linux still show honest unsupported states instead of fake parity.
+- Settings also includes a manual update-check surface with release availability, release notes, install progress, and restart controls backed by Tauri's updater contract.
 
 ## What Ships Today
 

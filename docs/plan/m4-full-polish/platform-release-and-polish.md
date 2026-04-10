@@ -15,6 +15,8 @@
 
 **2026-04-08 loading / security closeout (`WORK-M4-E` / `WORK-M4-C`)**：Dashboard / Explorer / Insights / Import / AI action 的 loading UI 已全部收斂為 skeleton / readable progress grammar，並補上 `var(--border)` pulse 與 reduced-motion fallback；同時 App Lock 已以 session-only boundary 正式落地，包含 `/lock` route、startup / idle / manual lock、settings controls、desktop read-surface refusal、以及 MCP locked denial。安全模型見 [ADR-005](../../architecture/decisions/005-app-lock-session-boundary.md)。
 
+**2026-04-10 boundary / release closeout (`WORK-M4-K` / `WORK-M4-L`)**：macOS 現在已在不改寫 `ADR-005` 的前提下正式接上 Touch ID session unlock；Settings 也新增 consented frontend analytics review 與 updater check / download / install / restart surface。另一方面，bundle / keyring / data-root namespace 已統一切成 `com.yi-ting.pathkeep`，release workflow 也補齊 updater `latest.json` / signatures / checksums contract、single-script version bump、release size attribution 與 code-health audit。剩餘未 shipping 的 plugin sandbox / queue-family / long-horizon intelligence 已明確移到 M5，而不是留在 M4。
+
 ---
 
 ## Source Inputs
@@ -26,6 +28,8 @@
 - [enrichment-advanced-intelligence-and-remote.md](enrichment-advanced-intelligence-and-remote.md)
 - [e2e-workflow-rehearsal.md](e2e-workflow-rehearsal.md)
 - [large-archive-performance-runbook.md](large-archive-performance-runbook.md)
+- [release-size-audit.md](release-size-audit.md)
+- [code-health-audit.md](code-health-audit.md)
 - [../m0-foundation/rename-quality-and-rewrite-discipline.md](../m0-foundation/rename-quality-and-rewrite-discipline.md)
 
 ---

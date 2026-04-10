@@ -1,0 +1,132 @@
+use vault_core::AppLockBiometricState;
+
+pub fn app_lock_biometric_state() -> AppLockBiometricState {
+    platform::app_lock_biometric_state()
+}
+
+pub fn authenticate_app_lock_biometric() -> Result<(), String> {
+    platform::authenticate_app_lock_biometric()
+}
+
+fn map_touch_id_error(code: Option<isize>, description: Option<String>) -> String {
+    match code {
+        Some(-1) => "Touch ID could not verify your identity. Try again or use the app lock passcode."
+            .to_string(),
+        Some(-2) => "Touch ID unlock was canceled.".to_string(),
+        Some(-3) => "Touch ID was skipped. Use the app lock passcode instead.".to_string(),
+        Some(-4) => {
+            "Touch ID unlock was interrupted by macOS. Try again or use the app lock passcode."
+                .to_string()
+        }
+        Some(-5) | Some(-6) | Some(-12) | Some(-13) => {
+            "Touch ID is unavailable on this Mac right now. Use the app lock passcode instead."
+                .to_string()
+        }
+        Some(-7) => {
+            "Touch ID is available on this Mac, but no fingerprints are enrolled. Use the app lock passcode instead."
+                .to_string()
+        }
+        Some(-8) => {
+            "Touch ID is locked out on this Mac right now. Unlock it in macOS or use the app lock passcode instead."
+                .to_string()
+        }
+        Some(-9) => "Touch ID unlock was canceled by PathKeep.".to_string(),
+        Some(-10) => "Touch ID unlock is no longer valid. Try again.".to_string(),
+        _ => description.unwrap_or_else(|| {
+            "Touch ID unlock failed. Use the app lock passcode instead.".to_string()
+        }),
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::map_touch_id_error;
+    use block2::RcBlock;
+    use objc2::runtime::Bool;
+    use objc2_foundation::{NSError, NSString};
+    use objc2_local_authentication::{LAContext, LAPolicy};
+    use std::{sync::mpsc, time::Duration};
+    use vault_core::AppLockBiometricState;
+
+    const TOUCH_ID_PROMPT_TIMEOUT: Duration = Duration::from_secs(90);
+
+    pub fn app_lock_biometric_state() -> AppLockBiometricState {
+        let context = unsafe { LAContext::new() };
+        match unsafe {
+            context.canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthenticationWithBiometrics)
+        } {
+            Ok(()) => AppLockBiometricState::TouchIdAvailable,
+            Err(_) => AppLockBiometricState::TouchIdUnavailable,
+        }
+    }
+
+    pub fn authenticate_app_lock_biometric() -> Result<(), String> {
+        let context = unsafe { LAContext::new() };
+        match unsafe {
+            context.canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthenticationWithBiometrics)
+        } {
+            Ok(()) => {}
+            Err(error) => {
+                return Err(map_touch_id_error(
+                    Some(error.code()),
+                    Some(error.localizedDescription().to_string()),
+                ));
+            }
+        }
+
+        let (sender, receiver) = mpsc::channel();
+        let reply = RcBlock::new(move |success: Bool, error: *mut NSError| {
+            let code = if error.is_null() { None } else { Some(unsafe { &*error }.code()) };
+            let description = if error.is_null() {
+                None
+            } else {
+                Some(unsafe { &*error }.localizedDescription().to_string())
+            };
+            let _ = sender.send((success.as_bool(), code, description));
+        });
+        let reason = NSString::from_str("unlock the current PathKeep session with Touch ID");
+
+        unsafe {
+            context.evaluatePolicy_localizedReason_reply(
+                LAPolicy::DeviceOwnerAuthenticationWithBiometrics,
+                &reason,
+                &reply,
+            );
+        }
+
+        match receiver.recv_timeout(TOUCH_ID_PROMPT_TIMEOUT) {
+            Ok((true, _, _)) => Ok(()),
+            Ok((false, code, description)) => Err(map_touch_id_error(code, description)),
+            Err(_) => Err(
+                "Touch ID did not finish before PathKeep timed out. Try again or use the app lock passcode."
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod platform {
+    use vault_core::AppLockBiometricState;
+
+    pub fn app_lock_biometric_state() -> AppLockBiometricState {
+        AppLockBiometricState::Unsupported
+    }
+
+    pub fn authenticate_app_lock_biometric() -> Result<(), String> {
+        Err("Biometric unlock is not available in the current desktop build.".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_touch_id_error;
+
+    #[test]
+    fn maps_touch_id_errors_to_truthful_messages() {
+        assert!(map_touch_id_error(Some(-2), None).contains("canceled"));
+        assert!(map_touch_id_error(Some(-7), None).contains("no fingerprints"));
+        assert!(map_touch_id_error(Some(-8), None).contains("locked out"));
+        assert_eq!(map_touch_id_error(None, Some("Custom failure".to_string())), "Custom failure");
+    }
+}

@@ -33,6 +33,10 @@ const config: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
+  analytics: {
+    enabled: false,
+    consentGrantedAt: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -379,7 +383,7 @@ describe('backend facade', () => {
       platform: 'windows',
       generatedFiles: [
         expect.objectContaining({
-          relativePath: 'schedule/pathkeep-backup.xml',
+          relativePath: 'schedule/com.yi-ting.pathkeep.task.xml',
         }),
       ],
     })
@@ -646,7 +650,7 @@ describe('backend facade', () => {
     )
     await expect(
       backendTestHarness.call('open_path_in_file_manager'),
-    ).resolves.toEqual(expect.stringContaining('PathKeep'))
+    ).resolves.toEqual(expect.stringContaining('com.yi-ting.pathkeep'))
     await expect(backendTestHarness.call('open_external_url')).resolves.toBe(
       'https://example.com',
     )
@@ -965,6 +969,115 @@ describe('backend facade', () => {
       enabled: false,
       locked: false,
       lockReason: null,
+    })
+  })
+
+  test('surfaces the truthful Touch ID unavailable fallback in preview mode', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.biometricState = 'touch-id-unavailable'
+    })
+
+    await backend.setAppLockPasscode({
+      passcode: '2468',
+      recoveryHint: null,
+    })
+
+    await expect(
+      backend.saveConfig({
+        ...config,
+        appLock: {
+          ...config.appLock,
+          enabled: true,
+          passcodeConfigured: true,
+          biometricEnabled: true,
+        },
+      }),
+    ).rejects.toThrow(
+      'Touch ID is unavailable on this Mac right now. Use the app lock passcode instead.',
+    )
+
+    await expect(
+      backend.unlockAppSession({
+        passcode: null,
+        useBiometric: true,
+      }),
+    ).rejects.toThrow(
+      'Touch ID is unavailable on this Mac right now. Use the app lock passcode instead.',
+    )
+  })
+
+  test('reports truthful Touch ID capability notes when preview mode marks it available', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.biometricState = 'touch-id-available'
+      state.appLockPasscode = '2468'
+      state.snapshot.config.appLock = {
+        ...state.snapshot.config.appLock,
+        enabled: true,
+        passcodeEnabled: true,
+        passcodeConfigured: true,
+        biometricEnabled: true,
+      }
+      state.snapshot.appLockStatus = {
+        ...state.snapshot.appLockStatus,
+        enabled: true,
+        locked: true,
+        biometricEnabled: true,
+      }
+    })
+
+    await expect(backend.loadAppLockStatus()).resolves.toMatchObject({
+      enabled: true,
+      locked: true,
+      biometricAvailable: true,
+      biometricEnabled: true,
+      biometricState: 'touch-id-available',
+      warnings: [],
+      degradationNotes: expect.arrayContaining([
+        'Touch ID is available on this Mac and can unlock the current PathKeep session.',
+      ]),
+    })
+
+    await expect(
+      backend.unlockAppSession({
+        passcode: null,
+        useBiometric: true,
+      }),
+    ).resolves.toMatchObject({
+      enabled: true,
+      locked: false,
+      biometricAvailable: true,
+      biometricState: 'touch-id-available',
+    })
+  })
+
+  test('reports truthful unsupported biometric warnings in preview mode', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.biometricState = 'unsupported'
+      state.appLockPasscode = '2468'
+      state.snapshot.config.appLock = {
+        ...state.snapshot.config.appLock,
+        enabled: true,
+        passcodeEnabled: true,
+        passcodeConfigured: true,
+        biometricEnabled: true,
+      }
+      state.snapshot.appLockStatus = {
+        ...state.snapshot.appLockStatus,
+        enabled: true,
+        biometricEnabled: true,
+      }
+    })
+
+    await expect(backend.loadAppLockStatus()).resolves.toMatchObject({
+      biometricAvailable: false,
+      biometricEnabled: true,
+      biometricState: 'unsupported',
+      warnings: [
+        'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
+      ],
+      degradationNotes: expect.arrayContaining([
+        'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
+      ]),
     })
   })
 
@@ -1302,10 +1415,10 @@ describe('backend facade', () => {
       platform: 'linux',
       generatedFiles: [
         expect.objectContaining({
-          relativePath: 'schedule/pathkeep-backup.service',
+          relativePath: 'schedule/com.yi-ting.pathkeep.service',
         }),
         expect.objectContaining({
-          relativePath: 'schedule/pathkeep-backup.timer',
+          relativePath: 'schedule/com.yi-ting.pathkeep.timer',
         }),
       ],
     })
@@ -1517,7 +1630,7 @@ describe('backend facade', () => {
     })
     await expect(
       backendTestHarness.call('open_path_in_file_manager'),
-    ).resolves.toEqual(expect.stringContaining('PathKeep'))
+    ).resolves.toEqual(expect.stringContaining('com.yi-ting.pathkeep'))
   })
 
   test('covers remaining preview fallback branches through seeded mock state', async () => {

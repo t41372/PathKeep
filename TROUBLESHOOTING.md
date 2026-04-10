@@ -67,9 +67,9 @@ The Settings page now exposes the app data root, archive database path, audit re
 
 ### Biometric unlock is unavailable
 
-- That is expected in the current build.
-- PathKeep currently ships App Lock as a passcode-first UI session lock and shows biometric controls as truthful capability / degradation state only.
-- Use the passcode path instead of assuming Touch ID / Windows Hello / Linux PAM is already wired in.
+- On macOS, Touch ID can still be temporarily unavailable because of OS state, enrollment, lockout, or cancellation. PathKeep falls back to the App Lock passcode when that happens.
+- On Windows and Linux, this is expected: the current build remains passcode-only and shows biometric controls as truthful unsupported / degradation state.
+- App Lock is still a passcode-first UI session lock, even when Touch ID is available on macOS.
 
 ### You forgot the App Lock passcode
 

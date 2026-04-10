@@ -4,8 +4,9 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
-const CURRENT_APP_NAME: &str = "PathKeep";
-const LEGACY_APP_NAMES: [&str; 2] = ["Chrome History Backup", "Chrome History Vault"];
+const CURRENT_APP_QUALIFIER: &str = "com";
+const CURRENT_APP_ORGANIZATION: &str = "yi-ting";
+const CURRENT_APP_NAME: &str = "pathkeep";
 const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,24 +48,10 @@ fn project_root() -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
 
-    let dirs = ProjectDirs::from("dev", "Codex", CURRENT_APP_NAME)
+    let dirs = ProjectDirs::from(CURRENT_APP_QUALIFIER, CURRENT_APP_ORGANIZATION, CURRENT_APP_NAME)
         .context("resolving current project directories")?;
-    let root = dirs.data_local_dir().to_path_buf();
-
-    if root.exists() {
-        return Ok(root);
-    }
-
-    migrate_legacy_root(&root)?;
-
-    Ok(root)
+    Ok(dirs.data_local_dir().to_path_buf())
 }
-
-#[rustfmt::skip]
-fn migrate_legacy_root(root: &std::path::Path) -> Result<()> { for legacy_name in LEGACY_APP_NAMES { let Some(legacy_dirs) = ProjectDirs::from("dev", "Codex", legacy_name) else { continue }; if migrate_legacy_candidate(root, legacy_dirs.data_local_dir())? { return Ok(()); } } Ok(()) }
-
-#[rustfmt::skip]
-fn migrate_legacy_candidate(root: &std::path::Path, legacy_root: &std::path::Path) -> Result<bool> { if !legacy_root.exists() { return Ok(false); } root.parent().map(|parent| fs::create_dir_all(parent).context(format!("creating {}", parent.display()))).transpose()?; fs::rename(legacy_root, root).context(format!("migrating app data from {} to {}", legacy_root.display(), root.display()))?; Ok(true) }
 
 pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     for dir in [
@@ -204,10 +191,11 @@ mod tests {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
         }
 
-        let current_root = ProjectDirs::from("dev", "Codex", CURRENT_APP_NAME)
-            .expect("project dirs")
-            .data_local_dir()
-            .to_path_buf();
+        let current_root =
+            ProjectDirs::from(CURRENT_APP_QUALIFIER, CURRENT_APP_ORGANIZATION, CURRENT_APP_NAME)
+                .expect("project dirs")
+                .data_local_dir()
+                .to_path_buf();
         fs::create_dir_all(&current_root).expect("create current root");
 
         let resolved = project_root().expect("project root");
@@ -215,46 +203,6 @@ mod tests {
 
         restore_test_env_var("HOME", original_home.as_deref());
         restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
-    }
-
-    #[test]
-    fn project_root_migrates_legacy_directories_when_needed() {
-        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let dir = tempdir().expect("tempdir");
-        let original_home = std::env::var_os("HOME");
-        let original_override = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
-        unsafe {
-            std::env::set_var("HOME", dir.path());
-            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        }
-
-        let current_root = ProjectDirs::from("dev", "Codex", CURRENT_APP_NAME)
-            .expect("project dirs")
-            .data_local_dir()
-            .to_path_buf();
-        let legacy_root = ProjectDirs::from("dev", "Codex", LEGACY_APP_NAMES[0])
-            .expect("legacy project dirs")
-            .data_local_dir()
-            .to_path_buf();
-        fs::create_dir_all(&legacy_root).expect("create legacy root");
-        fs::write(legacy_root.join("legacy.txt"), "migrate me").expect("write legacy fixture");
-
-        let resolved = project_root().expect("project root");
-        assert_eq!(resolved, current_root);
-        assert!(current_root.join("legacy.txt").exists());
-        assert!(!legacy_root.exists());
-
-        restore_test_env_var("HOME", original_home.as_deref());
-        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
-    }
-
-    #[test]
-    fn migrate_legacy_root_returns_ok_when_no_legacy_directories_exist() {
-        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let dir = tempdir().expect("tempdir");
-        let root = dir.path().join("fresh-root");
-        migrate_legacy_root(&root).expect("no-op migration");
-        assert!(!root.exists());
     }
 
     #[test]

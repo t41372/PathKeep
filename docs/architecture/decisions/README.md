@@ -53,3 +53,5 @@ agent 只需要把它們正式化成 ADR 文件即可：
 4. **ADR-004** — [Soft-hide rollback](004-rollback-visibility-model.md)（用 `reverted_at` / `reverted_by_run_id` 標記可見性，不刪 immutable facts）
 5. **ADR-005** — [App Lock session boundary](005-app-lock-session-boundary.md)（App Lock 保護 UI session 與 read/query surface；archive encryption 仍獨立保護資料庫檔案）
 6. **ADR-006** — [Deterministic intelligence boundary](006-deterministic-intelligence-boundary.md)（Proposed：用 honest evidence / query groups / rule-first taxonomy 取代 session / dwell-centric deterministic baseline）
+7. **ADR-007** — [macOS Touch ID session unlock](007-macos-biometric-session-unlock.md)（Accepted：macOS Touch ID 是 additive session convenience，不改寫 ADR-005 的 session-only boundary）
+8. **ADR-008** — [Consented frontend analytics boundary](008-consented-frontend-analytics-boundary.md)（Accepted：analytics 必須 explicit opt-in、frontend-only、coarse、first-party JSON、無 hidden telemetry）

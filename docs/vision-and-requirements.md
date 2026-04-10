@@ -84,6 +84,7 @@ PathKeep 是一個**本地優先、開源、可信賴的瀏覽器歷史紀錄長
 - 所有數據永遠只存在本地。
 - 用戶完全擁有自己的數據，知道數據存在哪，能直接訪問底層文件。
 - 遠端備份（如 S3）是用戶主動配置的，app 本身不會偷偷上傳任何東西。
+- 若未來需要產品面 usage 訊號，唯一允許的邊界是 **explicit opt-in 的 coarse frontend analytics**；它不得包含 archive facts、URL、query、profile id、run id、prompt 或 filesystem path。
 - 開源。用戶可以審計所有代碼。
 
 ### 3.3 Longevity（長期可用性）

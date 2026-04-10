@@ -32,6 +32,15 @@ Keep these three files aligned before tagging or dispatching a release:
 
 The GitHub `Release` workflow now fails fast if those versions drift or if the requested release tag does not match them.
 
+To bump them together locally, run:
+
+```bash
+bun run release:bump -- 0.1.0
+```
+
+The canonical desktop namespace is now `com.yi-ting.pathkeep`.
+This is a clean break: if you still need data from an older `dev.codex.pathkeep` install, move it manually before release validation.
+
 ## Required Validation Before Release
 
 Run:
@@ -74,9 +83,13 @@ Manual workflow inputs:
 
 Workflow behavior:
 
+- bump versions locally first with `bun run release:bump -- <semver>`
+- verify the repo with `bun run verify`
+- generate the local size attribution bundle with `bun run release:size-audit`
 - resolves the tag and version up front
 - verifies version sync across the repo
 - builds release bundles on macOS, Windows, and Linux
+- builds updater artifacts and publishes `latest.json`
 - uploads assets to the GitHub Release
 - downloads the assets again
 - publishes `SHA256SUMS.txt`
@@ -126,6 +139,14 @@ Every release rehearsal should cover:
 
 Use the per-platform checklist in [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).
 
+## Size Audit
+
+For release closeout, also generate the size attribution bundle:
+
+```bash
+bun run release:size-audit
+```
+
 ## Rollback Plan
 
 If a release is bad:
@@ -144,7 +165,7 @@ If a release is bad:
 - Safari access on macOS still depends on Full Disk Access outside the app.
 - Windows SmartScreen reputation depends on maintainer signing policy and reputation, not just a successful CI build.
 - Linux keyring behavior varies by desktop environment; encrypted mode remains supported, but unattended unlock can degrade.
-- App lock / biometric / passcode work is still blocked on `PG-RD-PLAT-006` and is intentionally not shipped as a fake front-end-only feature.
+- App Lock remains a session-only boundary; only macOS currently ships a real Touch ID unlock path.
 
 ## External References
 

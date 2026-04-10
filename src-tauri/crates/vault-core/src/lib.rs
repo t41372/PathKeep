@@ -20,9 +20,10 @@ pub use ai::{
     semantic_search_history, test_provider_connection,
 };
 pub use app_lock::{
-    app_lock_status, clear_app_lock_passcode, ensure_app_lock_unlocked, hydrate_app_lock_config,
-    initialize_app_lock_session, lock_app_session, set_app_lock_passcode, unlock_app_session,
-    validate_app_lock_config,
+    app_lock_status, app_lock_status_with_biometric, clear_app_lock_passcode,
+    ensure_app_lock_unlocked, hydrate_app_lock_config, initialize_app_lock_session,
+    lock_app_session, set_app_lock_passcode, unlock_app_session, unlock_app_session_with_biometric,
+    validate_app_lock_config, validate_app_lock_config_with_biometric,
 };
 pub use archive::{
     archive_status, doctor, ensure_archive_initialized, export_history, list_history,

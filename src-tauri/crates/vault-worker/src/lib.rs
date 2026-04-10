@@ -27,24 +27,26 @@ use vault_core::{
     RemoteBackupResult, RemoteBackupVerification, RunInsightsReport, RunInsightsRequest,
     S3CredentialInput, SchedulePlan, SetAppLockPasscodeRequest, TakeoutInspection, TakeoutRequest,
     UnlockAppSessionRequest, ai_index_status, ai_queue, ai_queue_status, answer_history_question,
-    app_lock_status, archive, archive_status, build_ai_index, clear_app_lock_passcode,
-    clear_derived_intelligence_state, doctor, ensure_app_lock_unlocked, ensure_archive_initialized,
-    explain_insight, export_history, hydrate_app_lock_config, import_takeout, insight_status,
-    inspect_takeout, list_history, load_assistant_run_response, load_audit_run_detail, load_config,
-    load_dashboard_snapshot, load_import_batches, load_insight_thread_detail, load_insights,
-    load_recent_runs, lock_app_session, preview_ai_integrations, preview_import_batch,
-    preview_remote_backup, project_paths, provider_connection_failure_report,
-    reconcile_ai_queue_controls, rekey_archive, repair_health_issues, restore_import_batch,
-    revert_import_batch, run_backup_with_progress, run_insights, run_remote_backup, save_config,
-    semantic_search_history, set_app_lock_passcode, test_provider_connection, unlock_app_session,
-    validate_app_lock_config, verify_remote_backup,
+    app_lock_status_with_biometric, archive, archive_status, build_ai_index,
+    clear_app_lock_passcode, clear_derived_intelligence_state, doctor, ensure_app_lock_unlocked,
+    ensure_archive_initialized, explain_insight, export_history, hydrate_app_lock_config,
+    import_takeout, insight_status, inspect_takeout, list_history, load_assistant_run_response,
+    load_audit_run_detail, load_config, load_dashboard_snapshot, load_import_batches,
+    load_insight_thread_detail, load_insights, load_recent_runs, lock_app_session,
+    preview_ai_integrations, preview_import_batch, preview_remote_backup, project_paths,
+    provider_connection_failure_report, reconcile_ai_queue_controls, rekey_archive,
+    repair_health_issues, restore_import_batch, revert_import_batch, run_backup_with_progress,
+    run_insights, run_remote_backup, save_config, semantic_search_history, set_app_lock_passcode,
+    test_provider_connection, unlock_app_session_with_biometric,
+    validate_app_lock_config_with_biometric, verify_remote_backup,
 };
 use vault_platform::{
-    ScheduleParameters, apply_schedule, keyring_clear_database_key, keyring_clear_provider_api_key,
-    keyring_clear_s3_credentials, keyring_get_database_key, keyring_get_provider_api_key,
-    keyring_get_s3_credentials, keyring_set_database_key, keyring_set_provider_api_key,
-    keyring_set_s3_credentials, keyring_status, preview_schedule, provider_api_key_saved,
-    remove_schedule, s3_credentials_saved, schedule_status as detect_schedule_status,
+    ScheduleParameters, app_lock_biometric_state, apply_schedule, authenticate_app_lock_biometric,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
+    keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
+    keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
+    keyring_status, preview_schedule, provider_api_key_saved, remove_schedule,
+    s3_credentials_saved, schedule_status as detect_schedule_status,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +140,17 @@ fn load_unlocked_config(paths: &vault_core::ProjectPaths) -> Result<AppConfig> {
     let config = load_hydrated_config(paths)?;
     ensure_app_lock_unlocked(paths, &config)?;
     Ok(config)
+}
+
+fn current_app_lock_biometric_state() -> vault_core::AppLockBiometricState {
+    app_lock_biometric_state()
+}
+
+fn resolved_app_lock_status(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+) -> Result<AppLockStatus> {
+    app_lock_status_with_biometric(paths, config, current_app_lock_biometric_state())
 }
 
 fn derive_ai_status(
@@ -578,7 +591,7 @@ pub(crate) fn mcp_search_result(
 pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<McpArchiveStatus> {
     let paths = project_paths()?;
     let config = load_hydrated_config(&paths)?;
-    let lock = app_lock_status(&paths, &config)?;
+    let lock = resolved_app_lock_status(&paths, &config)?;
     let archive_status = if lock.locked {
         archive_status(&paths, &config, None).unwrap_or_default()
     } else {
@@ -623,7 +636,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
     let recent_import_batches =
         load_import_batches(&paths, &config, session_database_key).unwrap_or_default();
-    let app_lock_status = app_lock_status(&paths, &config)?;
+    let app_lock_status = resolved_app_lock_status(&paths, &config)?;
 
     Ok(AppSnapshot {
         directories: vault_core::AppDirectories {
@@ -661,7 +674,11 @@ pub fn save_user_config(
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config(&paths, &next_config)?;
+    validate_app_lock_config_with_biometric(
+        &paths,
+        &next_config,
+        current_app_lock_biometric_state(),
+    )?;
     save_config(&paths, &next_config)?;
     if let Err(error) =
         reconcile_ai_queue_controls(&paths, &previous_config, &next_config, session_database_key)
@@ -682,7 +699,11 @@ pub fn initialize_archive_database(
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config(&paths, &next_config)?;
+    validate_app_lock_config_with_biometric(
+        &paths,
+        &next_config,
+        current_app_lock_biometric_state(),
+    )?;
     save_config(&paths, &next_config)?;
     ensure_archive_initialized(&paths, &next_config, database_key)?;
     app_snapshot(database_key)
@@ -881,7 +902,7 @@ pub fn verify_remote_backup_bundle(
 ) -> Result<RemoteBackupVerification> {
     let paths = project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let _ = app_lock_status(&paths, &config)?;
+    let _ = resolved_app_lock_status(&paths, &config)?;
     verify_remote_backup(std::path::Path::new(bundle_path), session_database_key)
 }
 
@@ -1094,31 +1115,40 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
 pub fn load_app_lock_status() -> Result<AppLockStatus> {
     let paths = project_paths()?;
     let config = load_hydrated_config(&paths)?;
-    app_lock_status(&paths, &config)
+    resolved_app_lock_status(&paths, &config)
 }
 
 pub fn configure_app_lock_passcode(request: &SetAppLockPasscodeRequest) -> Result<AppLockStatus> {
     let paths = project_paths()?;
     let mut config = load_hydrated_config(&paths)?;
-    set_app_lock_passcode(&paths, &mut config, request)
+    set_app_lock_passcode(&paths, &mut config, request)?;
+    resolved_app_lock_status(&paths, &config)
 }
 
 pub fn remove_app_lock_passcode() -> Result<AppLockStatus> {
     let paths = project_paths()?;
     let mut config = load_hydrated_config(&paths)?;
-    clear_app_lock_passcode(&paths, &mut config)
+    clear_app_lock_passcode(&paths, &mut config)?;
+    resolved_app_lock_status(&paths, &config)
 }
 
 pub fn lock_app_ui_session(reason: Option<&str>) -> Result<AppLockStatus> {
     let paths = project_paths()?;
     let config = load_hydrated_config(&paths)?;
-    lock_app_session(&paths, &config, reason)
+    lock_app_session(&paths, &config, reason)?;
+    resolved_app_lock_status(&paths, &config)
 }
 
 pub fn unlock_app_ui_session(request: &UnlockAppSessionRequest) -> Result<AppLockStatus> {
     let paths = project_paths()?;
     let config = load_hydrated_config(&paths)?;
-    unlock_app_session(&paths, &config, request)
+    unlock_app_session_with_biometric(
+        &paths,
+        &config,
+        request,
+        current_app_lock_biometric_state(),
+        || authenticate_app_lock_biometric().map_err(anyhow::Error::msg),
+    )
 }
 
 pub fn preview_rekey_archive(
@@ -1549,7 +1579,7 @@ fn run_mcp_stdio_server() -> Result<()> {
             "Enable AI and the MCP server in Settings before starting the MCP server worker."
         );
     }
-    if app_lock_status(&paths, &config)?.locked {
+    if resolved_app_lock_status(&paths, &config)?.locked {
         anyhow::bail!("Unlock PathKeep before starting the MCP server worker.");
     }
 

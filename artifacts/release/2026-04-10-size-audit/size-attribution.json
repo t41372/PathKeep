@@ -1,0 +1,353 @@
+{
+  "generatedAt": "2026-04-10T10:41:16.163Z",
+  "web": {
+    "totalBytes": 852181,
+    "entries": [
+      {
+        "manifestKey": "_browser-retention-E1auJEF_.js",
+        "entryAsset": "assets/browser-retention-E1auJEF_.js",
+        "assets": [
+          {
+            "asset": "assets/browser-retention-E1auJEF_.js",
+            "sizeBytes": 280
+          }
+        ],
+        "totalBytes": 280
+      },
+      {
+        "manifestKey": "_core-BELePaoy.js",
+        "entryAsset": "assets/core-BELePaoy.js",
+        "assets": [
+          {
+            "asset": "assets/core-BELePaoy.js",
+            "sizeBytes": 1925
+          }
+        ],
+        "totalBytes": 1925
+      },
+      {
+        "manifestKey": "_empty-state-D2oycNix.js",
+        "entryAsset": "assets/empty-state-D2oycNix.js",
+        "assets": [
+          {
+            "asset": "assets/empty-state-D2oycNix.js",
+            "sizeBytes": 400
+          }
+        ],
+        "totalBytes": 400
+      },
+      {
+        "manifestKey": "_error-state-u1BN3e-D.js",
+        "entryAsset": "assets/error-state-u1BN3e-D.js",
+        "assets": [
+          {
+            "asset": "assets/error-state-u1BN3e-D.js",
+            "sizeBytes": 419
+          }
+        ],
+        "totalBytes": 419
+      },
+      {
+        "manifestKey": "_format-DqOIU28h.js",
+        "entryAsset": "assets/format-DqOIU28h.js",
+        "assets": [
+          {
+            "asset": "assets/format-DqOIU28h.js",
+            "sizeBytes": 227648
+          }
+        ],
+        "totalBytes": 227648
+      },
+      {
+        "manifestKey": "_insight-canonical-f1GmE2nR.js",
+        "entryAsset": "assets/insight-canonical-f1GmE2nR.js",
+        "assets": [
+          {
+            "asset": "assets/insight-canonical-f1GmE2nR.js",
+            "sizeBytes": 960
+          }
+        ],
+        "totalBytes": 960
+      },
+      {
+        "manifestKey": "_intelligence-ByZOLvky.js",
+        "entryAsset": "assets/intelligence-ByZOLvky.js",
+        "assets": [
+          {
+            "asset": "assets/intelligence-ByZOLvky.js",
+            "sizeBytes": 2297
+          }
+        ],
+        "totalBytes": 2297
+      },
+      {
+        "manifestKey": "_permission-gate-CAX5Hvmk.js",
+        "entryAsset": "assets/permission-gate-CAX5Hvmk.js",
+        "assets": [
+          {
+            "asset": "assets/permission-gate-CAX5Hvmk.js",
+            "sizeBytes": 490
+          }
+        ],
+        "totalBytes": 490
+      },
+      {
+        "manifestKey": "_platform-guidance-MD6jjHys.js",
+        "entryAsset": "assets/platform-guidance-MD6jjHys.js",
+        "assets": [
+          {
+            "asset": "assets/platform-guidance-MD6jjHys.js",
+            "sizeBytes": 542
+          }
+        ],
+        "totalBytes": 542
+      },
+      {
+        "manifestKey": "_skeleton-DKLkwisX.js",
+        "entryAsset": "assets/skeleton-DKLkwisX.js",
+        "assets": [
+          {
+            "asset": "assets/skeleton-DKLkwisX.js",
+            "sizeBytes": 3978
+          }
+        ],
+        "totalBytes": 3978
+      },
+      {
+        "manifestKey": "_trust-review-DjNh3s1o.js",
+        "entryAsset": "assets/trust-review-DjNh3s1o.js",
+        "assets": [
+          {
+            "asset": "assets/trust-review-DjNh3s1o.js",
+            "sizeBytes": 2134
+          }
+        ],
+        "totalBytes": 2134
+      },
+      {
+        "manifestKey": "_ui-D_vXpY0L.js",
+        "entryAsset": "assets/ui-D_vXpY0L.js",
+        "assets": [
+          {
+            "asset": "assets/ui-D_vXpY0L.js",
+            "sizeBytes": 3498
+          }
+        ],
+        "totalBytes": 3498
+      },
+      {
+        "manifestKey": "index.html",
+        "entryAsset": "assets/index-C7eMQ5Ym.js",
+        "assets": [
+          {
+            "asset": "assets/index-C7eMQ5Ym.js",
+            "sizeBytes": 315606
+          },
+          {
+            "asset": "assets/index-B1L982MG.css",
+            "sizeBytes": 67921
+          }
+        ],
+        "totalBytes": 383527
+      },
+      {
+        "manifestKey": "node_modules/@tauri-apps/api/event.js",
+        "entryAsset": "assets/event-BXWDHnHY.js",
+        "assets": [
+          {
+            "asset": "assets/event-BXWDHnHY.js",
+            "sizeBytes": 961
+          }
+        ],
+        "totalBytes": 961
+      },
+      {
+        "manifestKey": "node_modules/@tauri-apps/plugin-dialog/dist-js/index.js",
+        "entryAsset": "assets/dist-js-BjW68hNF.js",
+        "assets": [
+          {
+            "asset": "assets/dist-js-BjW68hNF.js",
+            "sizeBytes": 166
+          }
+        ],
+        "totalBytes": 166
+      },
+      {
+        "manifestKey": "src/pages/assistant/index.tsx",
+        "entryAsset": "assets/assistant-ZTxdNugV.js",
+        "assets": [
+          {
+            "asset": "assets/assistant-ZTxdNugV.js",
+            "sizeBytes": 11835
+          }
+        ],
+        "totalBytes": 11835
+      },
+      {
+        "manifestKey": "src/pages/audit/index.tsx",
+        "entryAsset": "assets/audit-CZfwxR2i.js",
+        "assets": [
+          {
+            "asset": "assets/audit-CZfwxR2i.js",
+            "sizeBytes": 24644
+          }
+        ],
+        "totalBytes": 24644
+      },
+      {
+        "manifestKey": "src/pages/dashboard/index.tsx",
+        "entryAsset": "assets/dashboard-VHJcVZ0u.js",
+        "assets": [
+          {
+            "asset": "assets/dashboard-VHJcVZ0u.js",
+            "sizeBytes": 14673
+          }
+        ],
+        "totalBytes": 14673
+      },
+      {
+        "manifestKey": "src/pages/explorer/index.tsx",
+        "entryAsset": "assets/explorer-CWfSyaHp.js",
+        "assets": [
+          {
+            "asset": "assets/explorer-CWfSyaHp.js",
+            "sizeBytes": 28838
+          }
+        ],
+        "totalBytes": 28838
+      },
+      {
+        "manifestKey": "src/pages/import/index.tsx",
+        "entryAsset": "assets/import-Ck_BY2Zq.js",
+        "assets": [
+          {
+            "asset": "assets/import-Ck_BY2Zq.js",
+            "sizeBytes": 22820
+          }
+        ],
+        "totalBytes": 22820
+      },
+      {
+        "manifestKey": "src/pages/insights/index.tsx",
+        "entryAsset": "assets/insights-DTuwpE4U.js",
+        "assets": [
+          {
+            "asset": "assets/insights-DTuwpE4U.js",
+            "sizeBytes": 16168
+          }
+        ],
+        "totalBytes": 16168
+      },
+      {
+        "manifestKey": "src/pages/onboarding/index.tsx",
+        "entryAsset": "assets/onboarding-CCPYMULM.js",
+        "assets": [
+          {
+            "asset": "assets/onboarding-CCPYMULM.js",
+            "sizeBytes": 22239
+          }
+        ],
+        "totalBytes": 22239
+      },
+      {
+        "manifestKey": "src/pages/schedule/index.tsx",
+        "entryAsset": "assets/schedule-DF8EmLKt.js",
+        "assets": [
+          {
+            "asset": "assets/schedule-DF8EmLKt.js",
+            "sizeBytes": 12178
+          }
+        ],
+        "totalBytes": 12178
+      },
+      {
+        "manifestKey": "src/pages/security/index.tsx",
+        "entryAsset": "assets/security-BETHirpP.js",
+        "assets": [
+          {
+            "asset": "assets/security-BETHirpP.js",
+            "sizeBytes": 12535
+          }
+        ],
+        "totalBytes": 12535
+      },
+      {
+        "manifestKey": "src/pages/settings/index.tsx",
+        "entryAsset": "assets/settings-BpOnf8dp.js",
+        "assets": [
+          {
+            "asset": "assets/settings-BpOnf8dp.js",
+            "sizeBytes": 57026
+          }
+        ],
+        "totalBytes": 57026
+      }
+    ]
+  },
+  "releaseAssets": [],
+  "localBundleArtifacts": [
+    {
+      "relativePath": ".DS_Store",
+      "sizeBytes": 6148,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "dmg/bundle_dmg.sh",
+      "sizeBytes": 19300,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "dmg/icon.icns",
+      "sizeBytes": 15543,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "dmg/PathKeep_0.1.0_aarch64.dmg",
+      "sizeBytes": 70884740,
+      "category": "installer-bundle"
+    },
+    {
+      "relativePath": "macos/.DS_Store",
+      "sizeBytes": 6148,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "macos/PathKeep.app/Contents/Info.plist",
+      "sizeBytes": 972,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "macos/PathKeep.app/Contents/MacOS/pathkeep-desktop",
+      "sizeBytes": 198510112,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "macos/PathKeep.app/Contents/Resources/icon.icns",
+      "sizeBytes": 15543,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "share/create-dmg/support/eula-resources-template.xml",
+      "sizeBytes": 2376,
+      "category": "support-file"
+    },
+    {
+      "relativePath": "share/create-dmg/support/template.applescript",
+      "sizeBytes": 1828,
+      "category": "support-file"
+    }
+  ],
+  "releaseAssetCategories": [],
+  "localBundleCategories": [
+    {
+      "category": "installer-bundle",
+      "count": 1,
+      "totalBytes": 70884740
+    },
+    {
+      "category": "support-file",
+      "count": 9,
+      "totalBytes": 198577970
+    }
+  ]
+}

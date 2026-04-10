@@ -59,6 +59,10 @@ const config: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
+  analytics: {
+    enabled: false,
+    consentGrantedAt: null,
+  },
   remoteBackup: {
     enabled: false,
     bucket: '',
@@ -307,28 +311,30 @@ describe('trust flows', () => {
     const zhTwT = createTranslator('zh-TW')
     const previewSpy = vi.spyOn(backend, 'previewSchedule').mockResolvedValue({
       platform: 'windows',
-      label: 'dev.codex.pathkeep.backup',
+      label: 'com.yi-ting.pathkeep.backup',
       executablePath: 'C:/Program Files/PathKeep/pathkeep.exe',
       generatedFiles: [
         {
-          relativePath: 'schedule/pathkeep-backup.xml',
+          relativePath: 'schedule/com.yi-ting.pathkeep.task.xml',
           absolutePath:
-            'C:/Users/test/AppData/Local/PathKeep/schedule/pathkeep-backup.xml',
+            'C:/Users/test/AppData/Local/com.yi-ting.pathkeep/schedule/com.yi-ting.pathkeep.task.xml',
           purpose: 'Task Scheduler XML',
           contents:
             '<Task><Settings><StartWhenAvailable>true</StartWhenAvailable></Settings></Task>',
         },
       ],
       manualSteps: ['Review the XML before import.'],
-      applyCommands: [['schtasks', '/Create', '/XML', 'pathkeep-backup.xml']],
+      applyCommands: [
+        ['schtasks', '/Create', '/XML', 'com.yi-ting.pathkeep.task.xml'],
+      ],
       rollbackCommands: [
-        ['schtasks', '/Delete', '/TN', 'dev.codex.pathkeep.backup', '/F'],
+        ['schtasks', '/Delete', '/TN', 'com.yi-ting.pathkeep.backup', '/F'],
       ],
       applySupported: false,
     })
     const statusSpy = vi.spyOn(backend, 'scheduleStatus').mockResolvedValue({
       platform: 'windows',
-      label: 'dev.codex.pathkeep.backup',
+      label: 'com.yi-ting.pathkeep.backup',
       dueAfterHours: 48,
       checkIntervalHours: 6,
       applySupported: false,
@@ -406,16 +412,16 @@ describe('trust flows', () => {
     backendTestHarness.seedSchedule(
       {
         platform: 'macos',
-        label: 'dev.codex.pathkeep.backup',
+        label: 'com.yi-ting.pathkeep.backup',
         executablePath: '/Applications/PathKeep.app',
         generatedFiles: [
           {
-            relativePath: 'schedule/dev.codex.pathkeep.backup.plist',
+            relativePath: 'schedule/com.yi-ting.pathkeep.backup.plist',
             absolutePath:
-              '/Users/test/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+              '/Users/test/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
             purpose: 'LaunchAgent plist',
             contents:
-              '<?xml version="1.0"?><plist><dict><key>Label</key><string>dev.codex.pathkeep.backup</string></dict></plist>',
+              '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
           },
         ],
         manualSteps: ['Review the LaunchAgent install.'],
@@ -425,13 +431,13 @@ describe('trust flows', () => {
       },
       {
         platform: 'macos',
-        label: 'dev.codex.pathkeep.backup',
+        label: 'com.yi-ting.pathkeep.backup',
         dueAfterHours: 72,
         checkIntervalHours: 6,
         applySupported: true,
         installState: 'installed',
         detectedFiles: [
-          '~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+          '~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
         ],
         manualSteps: [
           'Remove the LaunchAgent if you no longer want automation.',

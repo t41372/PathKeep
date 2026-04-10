@@ -163,7 +163,7 @@ jobs:
             Automated desktop release for PathKeep.
 
             Download the installer or package for your platform from the assets below.
-            `SHA256SUMS.txt` and `RELEASE-MANIFEST.json` are attached after all matrix builds complete.
+            `latest.json`, `SHA256SUMS.txt`, and `RELEASE-MANIFEST.json` are attached after all matrix builds complete.
             See `RELEASE.md` and `TROUBLESHOOTING.md` in the repository for platform support boundaries and operator guidance.
           releaseCommitish: ${{ github.sha }}
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
@@ -191,6 +191,9 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --dir dist/release
           printf '%s' "$RESOLVED_TAG" > dist/release/.resolved-tag
+
+      - name: Verify updater manifest exists
+        run: test -f dist/release/latest.json
 
       - name: Generate SHA256SUMS.txt
         run: |

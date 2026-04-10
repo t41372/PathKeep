@@ -282,11 +282,12 @@
 ### 需求要點
 
 - App Lock 是 **UI session lock**：啟動時、手動鎖定時，以及可配置的閒置逾時（預設 5 分鐘，可調 1–60 分鐘）後出現。
-- 目前 shipped unlock path 是 **app-lock passcode**。biometric toggle 只作為 capability / degradation state 呈現；native biometric integration 尚未接進目前 build，不可假裝已可用。
+- 目前 shipped unlock path 是 **app-lock passcode + macOS Touch ID**。
+- Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 仍維持 capability / degradation state，不可假裝已有 native biometric parity。
 - 目前不 shipping 獨立 PIN mode；passcode 是唯一正式的解鎖憑證。
 - Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode prompt，以及帶 recovery hint / open-config-path 動作的 recovery callout。
 - 鎖定時必須阻斷 shell rendering、desktop query/read commands，以及 MCP 的 history query surface；不能只靠前端遮罩。安全例外 surface 只保留 lock status、unlock、config-path recovery 與非資料型 diagnostics。
-- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、biometric toggle（若平台未接線則 disabled + degradation note）、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
+- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、biometric toggle（若平台未接線或暫不可用則 disabled + honesty note）、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
 - shared profile scope 仍然只是 viewer / filter contract，不會因為 App Lock 而升級成真正的 per-profile partition。
 
 ### 與 Archive Encryption 的區別
@@ -301,13 +302,13 @@
 
 ### 平台考量
 
-| 平台        | 目前 shipped unlock path | truthful stance                                                                                      |
-| ----------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| **macOS**   | passcode                 | Touch ID 尚未接進目前 build；Settings / lock screen 顯示 future integration 的 degradation note      |
-| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 顯示 future integration 的 degradation note |
-| **Linux**   | passcode                 | 維持 passcode-only；不宣稱有 biometric 支援                                                          |
+| 平台        | 目前 shipped unlock path | truthful stance                                                                                       |
+| ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| **macOS**   | passcode + Touch ID      | Touch ID 現在可用於解鎖當前 UI session；passcode 仍是 required fallback，不取代 archive encryption    |
+| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 顯示 truthful unsupported / degradation note |
+| **Linux**   | passcode                 | 維持 passcode-only；不宣稱有 biometric 支援                                                           |
 
-- `PG-RD-PLAT-006` 已定案：App Lock 保護的是 UI session 與 read/query surface，不是 database key。決策見 [ADR-005](../architecture/decisions/005-app-lock-session-boundary.md)。
+- `PG-RD-PLAT-006` 已定案：App Lock 保護的是 UI session 與 read/query surface，不是 database key；macOS Touch ID 的 additive amendment 見 [ADR-007](../architecture/decisions/007-macos-biometric-session-unlock.md)，session-only boundary 本身仍以 [ADR-005](../architecture/decisions/005-app-lock-session-boundary.md) 為準。
 
 ### 導航規則
 

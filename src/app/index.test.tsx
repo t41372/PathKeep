@@ -12,6 +12,7 @@ import {
 } from './router'
 import { backend, backendTestHarness } from '../lib/backend'
 import { createNamespaceTranslator, createTranslator } from '../lib/i18n'
+import * as updateLib from '../lib/update'
 import type { AppConfig } from '../lib/types'
 
 const commonT = createTranslator('en')
@@ -43,6 +44,10 @@ const initializedConfig: AppConfig = {
     passcodeEnabled: true,
     passcodeConfigured: false,
     recoveryHint: null,
+  },
+  analytics: {
+    enabled: false,
+    consentGrantedAt: null,
   },
   remoteBackup: {
     enabled: false,
@@ -129,16 +134,16 @@ function seedInteractiveSchedule() {
   backendTestHarness.seedSchedule(
     {
       platform: 'macos',
-      label: 'dev.codex.pathkeep.backup',
+      label: 'com.yi-ting.pathkeep.backup',
       executablePath: '/Applications/PathKeep.app',
       generatedFiles: [
         {
-          relativePath: 'schedule/dev.codex.pathkeep.backup.plist',
+          relativePath: 'schedule/com.yi-ting.pathkeep.backup.plist',
           absolutePath:
-            '/Users/test/Library/LaunchAgents/dev.codex.pathkeep.backup.plist',
+            '/Users/test/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
           purpose: 'LaunchAgent plist',
           contents:
-            '<?xml version="1.0"?><plist><dict><key>Label</key><string>dev.codex.pathkeep.backup</string></dict></plist>',
+            '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
         },
       ],
       manualSteps: ['Review the LaunchAgent install.'],
@@ -148,12 +153,14 @@ function seedInteractiveSchedule() {
     },
     {
       platform: 'macos',
-      label: 'dev.codex.pathkeep.backup',
+      label: 'com.yi-ting.pathkeep.backup',
       dueAfterHours: 72,
       checkIntervalHours: 6,
       applySupported: true,
       installState: 'installed',
-      detectedFiles: ['~/Library/LaunchAgents/dev.codex.pathkeep.backup.plist'],
+      detectedFiles: [
+        '~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
+      ],
       manualSteps: ['Remove the LaunchAgent if you no longer want automation.'],
       auditPath: null,
       lastSuccessfulBackupAt: null,
@@ -260,6 +267,41 @@ describe('App shell', () => {
 
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument()
     expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
+  })
+
+  test('shows truthful Touch ID fallback copy on the lock screen when macOS biometric is unavailable', async () => {
+    await seedArchiveRun()
+    backendTestHarness.mutateState((state) => {
+      state.biometricState = 'touch-id-unavailable'
+      state.appLockPasscode = '2468'
+      state.appLockRecoveryHint = 'digits only'
+      state.snapshot.config.appLock = {
+        ...state.snapshot.config.appLock,
+        enabled: true,
+        biometricEnabled: true,
+        passcodeConfigured: true,
+        recoveryHint: 'digits only',
+      }
+      state.snapshot.appLockStatus = {
+        ...state.snapshot.appLockStatus,
+        locked: true,
+        lockReason: 'startup',
+      }
+    })
+
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/lock'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('lock-page')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: shellT('unlockWithTouchId'),
+      }),
+    ).toBeDisabled()
+    expect(screen.getByText(shellT('unlockTouchIdUnavailable'))).toBeVisible()
   })
 
   test('supports explicit page jumps in explorer results and preserves the shell scroll position', async () => {
@@ -697,6 +739,114 @@ describe('App shell', () => {
     )
 
     expect(within(aiPanel).getByText(/# PathKeep Search/)).toBeVisible()
+  })
+
+  test('saves analytics consent and runs the updater review flow from settings', async () => {
+    await seedArchiveRun()
+    const user = userEvent.setup()
+    const saveConfigSpy = vi.spyOn(backend, 'saveConfig')
+    const checkForAppUpdateSpy = vi
+      .spyOn(updateLib, 'checkForAppUpdate')
+      .mockResolvedValue({
+        availability: {
+          supported: true,
+          checkedAt: '2026-04-10T00:00:00Z',
+          available: true,
+          currentVersion: '0.1.0',
+          version: '0.2.0',
+          notes: 'Updater wiring is ready.',
+          publishedAt: '2026-04-10T00:00:00Z',
+          error: null,
+          downloadUrl: updateLib.RELEASES_PAGE_URL,
+        },
+        pendingUpdate: {
+          currentVersion: '0.1.0',
+          version: '0.2.0',
+          notes: 'Updater wiring is ready.',
+          publishedAt: '2026-04-10T00:00:00Z',
+          update: {
+            version: '0.2.0',
+            date: '2026-04-10T00:00:00Z',
+            body: 'Updater wiring is ready.',
+            downloadAndInstall: vi.fn(),
+          },
+        },
+      })
+    const downloadAndInstallSpy = vi
+      .spyOn(updateLib, 'downloadAndInstallAppUpdate')
+      .mockResolvedValue({
+        phase: 'installed',
+        downloadedBytes: 128,
+        contentLength: null,
+        message: 'Installed',
+      } as Awaited<ReturnType<typeof updateLib.downloadAndInstallAppUpdate>>)
+
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/settings'],
+    })
+
+    render(<App router={router} />)
+
+    const settingsPage = await screen.findByTestId('settings-page')
+    const analyticsPanel = expectHtmlElement(
+      within(settingsPage)
+        .getByText(settingsT('analyticsTitle'))
+        .closest('.panel'),
+    )
+    const updatePanel = expectHtmlElement(
+      within(settingsPage)
+        .getByText(settingsT('updateTitle'))
+        .closest('.panel'),
+    )
+
+    await user.click(
+      within(analyticsPanel).getByRole('checkbox', {
+        name: settingsT('analyticsEnabled'),
+      }),
+    )
+    await user.click(
+      within(analyticsPanel).getByRole('button', {
+        name: settingsT('analyticsSave'),
+      }),
+    )
+
+    await waitFor(() => {
+      expect(saveConfigSpy).toHaveBeenCalled()
+    })
+    expect(saveConfigSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        analytics: expect.objectContaining({
+          enabled: true,
+          consentGrantedAt: expect.any(String),
+        }),
+      }),
+    )
+
+    await user.click(
+      within(updatePanel).getByRole('button', {
+        name: settingsT('updateCheckNow'),
+      }),
+    )
+
+    await waitFor(() => {
+      expect(checkForAppUpdateSpy).toHaveBeenCalledWith('0.1.0')
+    })
+    expect(
+      within(updatePanel).getByText(settingsT('updateReleaseNotes')),
+    ).toBeVisible()
+    expect(
+      within(updatePanel).getByText('Updater wiring is ready.'),
+    ).toBeVisible()
+
+    await user.click(
+      within(updatePanel).getByRole('button', {
+        name: settingsT('updateDownloadAndInstall'),
+      }),
+    )
+
+    await waitFor(() => {
+      expect(downloadAndInstallSpy).toHaveBeenCalledTimes(1)
+    })
   })
 
   test('keeps sidebar information architecture grouped by section', () => {

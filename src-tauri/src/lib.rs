@@ -50,6 +50,7 @@ fn run_app() -> Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
             let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;
@@ -60,6 +61,7 @@ fn run_app() -> Result<()> {
             app.handle().plugin(
                 tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
             )?;
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             Ok(())
         })
         .manage(SessionState::default())

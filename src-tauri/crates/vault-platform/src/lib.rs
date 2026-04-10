@@ -1,3 +1,5 @@
+mod biometric;
+
 use anyhow::{Context, Result};
 use chrono::Utc;
 #[cfg(not(any(test, coverage)))]
@@ -7,10 +9,12 @@ use keyring::use_native_store;
 #[cfg(not(coverage))]
 use keyring_core::Entry;
 use serde::Serialize;
+#[cfg(all(not(coverage), target_os = "macos"))]
+use std::collections::HashMap;
 #[cfg(not(any(test, coverage)))]
 use std::process::Command;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -22,13 +26,10 @@ use vault_core::{
     },
 };
 
-const KEYRING_SERVICE: &str = "dev.codex.pathkeep";
-#[cfg(not(coverage))]
-const LEGACY_KEYRING_SERVICES: [&str; 1] = ["dev.codex.chrome-history-backup"];
+const KEYRING_SERVICE: &str = "com.yi-ting.pathkeep";
 const KEYRING_DATABASE_USER: &str = "database-key";
 const KEYRING_S3_USER: &str = "remote-s3";
-const MACOS_LABEL: &str = "dev.codex.pathkeep.backup";
-const LEGACY_MACOS_LABEL: &str = "dev.codex.chrome-history-backup.backup";
+const MACOS_LABEL: &str = "com.yi-ting.pathkeep.backup";
 const TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";
 
 #[derive(Debug, Clone, Serialize)]
@@ -42,6 +43,8 @@ pub fn current_platform_name() -> String {
     compiled_platform_name().to_string()
 }
 
+pub use biometric::{app_lock_biometric_state, authenticate_app_lock_biometric};
+
 #[cfg(not(coverage))]
 fn keyring_entry(user: &str) -> Result<Entry> {
     Ok(Entry::new(KEYRING_SERVICE, user)?)
@@ -49,11 +52,6 @@ fn keyring_entry(user: &str) -> Result<Entry> {
 
 fn provider_keyring_user(provider_id: &str) -> String {
     format!("ai-provider::{provider_id}")
-}
-
-#[cfg(not(coverage))]
-fn legacy_keyring_entries(user: &str) -> Vec<Entry> {
-    LEGACY_KEYRING_SERVICES.iter().filter_map(|service| Entry::new(service, user).ok()).collect()
 }
 
 #[cfg(all(not(coverage), target_os = "macos"))]
@@ -72,11 +70,7 @@ fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
 
 #[cfg(not(coverage))]
 fn keyring_entry_exists(user: &str) -> bool {
-    if keyring_entry_exists_for_service(KEYRING_SERVICE, user) {
-        return true;
-    }
-
-    LEGACY_KEYRING_SERVICES.iter().any(|service| keyring_entry_exists_for_service(service, user))
+    keyring_entry_exists_for_service(KEYRING_SERVICE, user)
 }
 
 pub fn preview_schedule(
@@ -166,21 +160,15 @@ pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Appl
 
     let uid = scheduler_uid()?;
     let current_path = generated_plist_target_path(plan, &launch_agents_dir)?;
-    let legacy_path = launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist"));
-
     let current_unload = bootout_launch_agent(&uid, MACOS_LABEL)?;
-    let legacy_unload = bootout_launch_agent(&uid, LEGACY_MACOS_LABEL)?;
 
     let mut removed_files = Vec::new();
-    for path in [&current_path, &legacy_path] {
-        if path.exists() {
-            fs::remove_file(path)?;
-            removed_files.push(path.display().to_string());
-        }
+    if current_path.exists() {
+        fs::remove_file(&current_path)?;
+        removed_files.push(current_path.display().to_string());
     }
 
-    let audit_path =
-        write_schedule_remove_audit(paths, plan, &removed_files, &[current_unload, legacy_unload])?;
+    let audit_path = write_schedule_remove_audit(paths, plan, &removed_files, &[current_unload])?;
     let applied = !removed_files.is_empty();
 
     Ok(ApplyResult {
@@ -228,7 +216,6 @@ pub fn schedule_status(
 
     let launch_agents_dir = launch_agents_dir()?;
     let target_path = generated_plist_target_path(&plan, &launch_agents_dir)?;
-    let legacy_path = launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist"));
 
     if target_path.exists() {
         status.detected_files.push(target_path.display().to_string());
@@ -250,17 +237,6 @@ pub fn schedule_status(
                     target_path.display()
                 ));
             }
-        }
-    }
-
-    if legacy_path.exists() {
-        status.detected_files.push(legacy_path.display().to_string());
-        status.warnings.push(format!(
-            "A legacy Browser History Backup LaunchAgent is still present at {}. Remove it before trusting the new schedule state.",
-            legacy_path.display()
-        ));
-        if status.install_state == "not-installed" {
-            status.install_state = "legacy-install-detected".to_string();
         }
     }
 
@@ -398,14 +374,7 @@ pub fn keyring_get_database_key() -> Result<Option<String>> {
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
-        Err(_) => {
-            for legacy_entry in legacy_keyring_entries(KEYRING_DATABASE_USER) {
-                if let Ok(value) = legacy_entry.get_password() {
-                    return Ok(Some(value));
-                }
-            }
-            Ok(None)
-        }
+        Err(_) => Ok(None),
     }
 }
 
@@ -440,9 +409,6 @@ pub fn keyring_clear_database_key() -> Result<()> {
     use_native_store(cfg!(target_os = "linux")).ok();
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     let _ = entry.delete_credential();
-    for legacy_entry in legacy_keyring_entries(KEYRING_DATABASE_USER) {
-        let _ = legacy_entry.delete_credential();
-    }
     Ok(())
 }
 
@@ -467,17 +433,7 @@ pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
         Ok(value) => {
             Ok(Some(serde_json::from_str(&value).context("parsing stored S3 credentials")?))
         }
-        Err(_) => {
-            for legacy_entry in legacy_keyring_entries(KEYRING_S3_USER) {
-                if let Ok(value) = legacy_entry.get_password() {
-                    return Ok(Some(
-                        serde_json::from_str(&value)
-                            .context("parsing stored legacy S3 credentials")?,
-                    ));
-                }
-            }
-            Ok(None)
-        }
+        Err(_) => Ok(None),
     }
 }
 
@@ -516,9 +472,6 @@ pub fn keyring_clear_s3_credentials() -> Result<()> {
     use_native_store(cfg!(target_os = "linux")).ok();
     let entry = keyring_entry(KEYRING_S3_USER)?;
     let _ = entry.delete_credential();
-    for legacy_entry in legacy_keyring_entries(KEYRING_S3_USER) {
-        let _ = legacy_entry.delete_credential();
-    }
     Ok(())
 }
 
@@ -659,10 +612,6 @@ fn macos_schedule_plan(
         manual_steps: vec![
             format!("Save the plist to ~/Library/LaunchAgents/{MACOS_LABEL}.plist."),
             format!(
-                "Run `launchctl bootout gui/$(id -u) {}` to unload an older pre-PathKeep schedule if one still exists.",
-                LEGACY_MACOS_LABEL
-            ),
-            format!(
                 "Run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{MACOS_LABEL}.plist` to load the new schedule."
             ),
         ],
@@ -736,21 +685,21 @@ fn windows_schedule_plan(
         label: MACOS_LABEL.to_string(),
         executable_path: executable_path.display().to_string(),
         generated_files: vec![GeneratedFile {
-            relative_path: "windows/pathkeep-task.xml".to_string(),
+            relative_path: "windows/com.yi-ting.pathkeep.task.xml".to_string(),
             absolute_path: None,
             purpose: "Import into Task Scheduler or register with schtasks.exe".to_string(),
             contents: xml,
         }],
         manual_steps: vec![
             "Save the XML file and import it in Task Scheduler.".to_string(),
-            "Alternatively run `schtasks /Create /TN PathKeep /XML pathkeep-task.xml`.".to_string(),
+            "Alternatively run `schtasks /Create /TN com.yi-ting.pathkeep.backup /XML com.yi-ting.pathkeep.task.xml`.".to_string(),
         ],
         apply_commands: Vec::new(),
         rollback_commands: vec![vec![
             "schtasks".to_string(),
             "/Delete".to_string(),
             "/TN".to_string(),
-            "BrowserHistoryBackup".to_string(),
+            MACOS_LABEL.to_string(),
             "/F".to_string(),
         ]],
         apply_supported: false,
@@ -777,13 +726,13 @@ fn linux_schedule_plan(
         executable_path: executable_path.display().to_string(),
         generated_files: vec![
             GeneratedFile {
-                relative_path: "systemd/pathkeep.service".to_string(),
+                relative_path: "systemd/com.yi-ting.pathkeep.service".to_string(),
                 absolute_path: None,
                 purpose: "User service entry for the worker mode".to_string(),
                 contents: service,
             },
             GeneratedFile {
-                relative_path: "systemd/pathkeep.timer".to_string(),
+                relative_path: "systemd/com.yi-ting.pathkeep.timer".to_string(),
                 absolute_path: None,
                 purpose: format!(
                     "Persistent user timer that wakes every {} hours.",
@@ -795,8 +744,8 @@ fn linux_schedule_plan(
         manual_steps: vec![
             "Copy the files to ~/.config/systemd/user/.".to_string(),
             "Run `systemctl --user daemon-reload`.".to_string(),
-            "Run `systemctl --user enable --now pathkeep.timer`.".to_string(),
-            "Run `systemctl --user list-timers pathkeep.timer` to verify the next scheduled run."
+            "Run `systemctl --user enable --now com.yi-ting.pathkeep.timer`.".to_string(),
+            "Run `systemctl --user list-timers com.yi-ting.pathkeep.timer` to verify the next scheduled run."
                 .to_string(),
         ],
         apply_commands: Vec::new(),
@@ -805,7 +754,7 @@ fn linux_schedule_plan(
             "--user".to_string(),
             "disable".to_string(),
             "--now".to_string(),
-            "pathkeep.timer".to_string(),
+            "com.yi-ting.pathkeep.timer".to_string(),
         ]],
         apply_supported: false,
     })
@@ -879,7 +828,6 @@ fn scheduler_uid() -> Result<String> {
 
 #[cfg(not(any(test, coverage)))]
 fn bootstrap_launch_agent(uid: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
-    let _ = bootout_launch_agent(uid, LEGACY_MACOS_LABEL);
     let _ = bootout_launch_agent(uid, MACOS_LABEL);
     let status = Command::new("launchctl")
         .args(["bootstrap", &format!("gui/{uid}"), plist_path])
@@ -1042,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn macos_schedule_status_detects_installed_content_and_legacy_warning() {
+    fn macos_schedule_status_detects_installed_content() {
         let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
         let launch_agents_dir = dir.path().join("LaunchAgents");
@@ -1061,8 +1009,6 @@ mod tests {
             &plan.generated_files[0].contents,
         )
         .expect("write current plist");
-        fs::write(launch_agents_dir.join(format!("{LEGACY_MACOS_LABEL}.plist")), "legacy")
-            .expect("write legacy plist");
 
         let status =
             schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
@@ -1070,8 +1016,7 @@ mod tests {
         restore_env_var("CHB_TEST_LAUNCH_AGENTS_DIR", original_launch_agents.as_deref());
 
         assert_eq!(status.install_state, "installed");
-        assert_eq!(status.detected_files.len(), 2);
-        assert!(status.warnings.iter().any(|warning| warning.contains("legacy")));
+        assert_eq!(status.detected_files.len(), 1);
     }
 
     #[test]
