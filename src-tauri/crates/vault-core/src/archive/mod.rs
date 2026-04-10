@@ -776,8 +776,7 @@ pub fn list_history(
 
     fn build_fts_query(raw: &str) -> Option<String> {
         let tokens = raw
-            .split_whitespace()
-            .map(str::trim)
+            .split(|character: char| !character.is_alphanumeric())
             .filter(|token| !token.is_empty())
             .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
             .collect::<Vec<_>>();
@@ -3343,6 +3342,15 @@ mod tests {
         )
         .expect("list search term history");
         assert_eq!(search_term_history.total, 2);
+
+        let url_fragment_history = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { q: Some("example.com/archive".to_string()), ..HistoryQuery::default() },
+        )
+        .expect("list url fragment history");
+        assert_eq!(url_fragment_history.total, 2);
 
         let regex_history = list_history(
             &paths,

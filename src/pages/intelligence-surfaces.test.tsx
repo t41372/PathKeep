@@ -478,6 +478,32 @@ describe('intelligence surfaces', () => {
     }
   })
 
+  test('debounces explorer keyword query commits while the user is typing', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const explorerT = createNamespaceTranslator('en', 'explorer')
+    const querySpy = vi.spyOn(backend, 'queryHistory')
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
+    await waitFor(() => expect(querySpy).toHaveBeenCalledTimes(1))
+
+    await user.type(
+      screen.getByLabelText(explorerT('filterKeywordAria')),
+      'sqlite',
+    )
+
+    expect(querySpy).toHaveBeenCalledTimes(1)
+
+    await new Promise((resolve) => window.setTimeout(resolve, 220))
+    await waitFor(() => expect(querySpy).toHaveBeenCalledTimes(2))
+  })
+
   test('renders insights snapshot and explainability flow', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()

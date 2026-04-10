@@ -1,4 +1,5 @@
 import {
+  startTransition,
   type KeyboardEvent,
   useDeferredValue,
   useEffect,
@@ -227,18 +228,20 @@ export function ExplorerPage() {
   )
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const deferredQuery = useDeferredValue(searchParams.get('q') ?? '')
+  const rawQuery = searchParams.get('q') ?? ''
+  const [queryInput, setQueryInput] = useState(rawQuery)
+  const deferredQuery = useDeferredValue(rawQuery)
   const regexMode = searchParams.get('regex') === '1'
   const regexValid = useMemo(() => {
-    if (!regexMode || !deferredQuery.trim()) return true
+    if (!regexMode || !queryInput.trim()) return true
 
     try {
-      new RegExp(deferredQuery)
+      new RegExp(queryInput)
       return true
     } catch {
       return false
     }
-  }, [deferredQuery, regexMode])
+  }, [queryInput, regexMode])
   const mode =
     (searchParams.get('mode') as 'keyword' | 'semantic' | 'hybrid' | null) ??
     'keyword'
@@ -305,7 +308,7 @@ export function ExplorerPage() {
   const historyQuerySignature = useMemo(
     () =>
       JSON.stringify({
-        q: deferredQuery || null,
+        q: rawQuery || null,
         profileId,
         browserKind,
         domain,
@@ -314,16 +317,7 @@ export function ExplorerPage() {
         sort,
         regexMode,
       }),
-    [
-      browserKind,
-      deferredQuery,
-      domain,
-      end,
-      profileId,
-      regexMode,
-      sort,
-      start,
-    ],
+    [browserKind, rawQuery, domain, end, profileId, regexMode, sort, start],
   )
   const semanticQuerySignature = useMemo(
     () =>
@@ -336,6 +330,42 @@ export function ExplorerPage() {
     [deferredQuery, domain, mode, profileId],
   )
   const semanticTrail = semanticCursorTrail[semanticQuerySignature] ?? []
+
+  useEffect(() => {
+    setQueryInput(rawQuery)
+  }, [rawQuery])
+
+  useEffect(() => {
+    if (queryInput === rawQuery) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      pendingHistoryScrollKeyRef.current = null
+      setSemanticCursorTrail((current) => ({
+        ...current,
+        [semanticQuerySignature]: [],
+      }))
+      startTransition(() => {
+        setSearchParams((current) => {
+          const next = new URLSearchParams(current)
+          if (queryInput) {
+            next.set('q', queryInput)
+          } else {
+            next.delete('q')
+          }
+          next.delete('page')
+          next.delete('cursor')
+          next.delete('semanticCursor')
+          return next
+        })
+      })
+    }, 180)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [queryInput, rawQuery, semanticQuerySignature, setSearchParams])
 
   const archiveReady = Boolean(
     snapshot?.config.initialized && snapshot.archiveStatus.unlocked,
@@ -356,7 +386,7 @@ export function ExplorerPage() {
   )
 
   const historyBlockedByInvalidRegex =
-    archiveReady && regexMode && Boolean(deferredQuery.trim()) && !regexValid
+    archiveReady && regexMode && Boolean(queryInput.trim()) && !regexValid
 
   useEffect(() => {
     if (!archiveReady || historyBlockedByInvalidRegex) return
@@ -1034,10 +1064,8 @@ export function ExplorerPage() {
                   aria-label={explorerT('filterKeywordAria')}
                   className={regexMode && !regexValid ? 'input-invalid' : ''}
                   type="search"
-                  value={searchParams.get('q') ?? ''}
-                  onChange={(event) =>
-                    updateParam('q', event.target.value || null)
-                  }
+                  value={queryInput}
+                  onChange={(event) => setQueryInput(event.target.value)}
                 />
                 <button
                   aria-label={explorerT('toggleRegex')}
@@ -1052,7 +1080,7 @@ export function ExplorerPage() {
                   .*
                 </button>
               </div>
-              {regexMode && deferredQuery.trim() ? (
+              {regexMode && queryInput.trim() ? (
                 <span
                   className={regexValid ? 'regex-valid' : 'regex-error'}
                   role={regexValid ? undefined : 'alert'}
