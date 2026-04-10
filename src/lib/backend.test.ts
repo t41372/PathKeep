@@ -45,6 +45,11 @@ const config: AppConfig = {
     mcpEnabled: false,
     skillEnabled: false,
     autoIndexAfterBackup: false,
+    enrichmentEnabled: true,
+    enrichmentPlugins: [
+      { pluginId: 'title-normalization', enabled: true },
+      { pluginId: 'readable-content-refetch', enabled: true },
+    ],
     llmProviderId: null,
     embeddingProviderId: null,
     retrievalTopK: 8,
@@ -269,6 +274,12 @@ describe('backend facade', () => {
         ]),
       },
     )
+    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
+      queue: expect.objectContaining({ queued: 1, failed: 1 }),
+      plugins: expect.arrayContaining([
+        expect.objectContaining({ pluginId: 'title-normalization' }),
+      ]),
+    })
     await expect(
       backend.explainInsight({
         insightId: 'card-rising-topic-1',
@@ -288,6 +299,12 @@ describe('backend facade', () => {
           relativePath: 'integrations/browser-history-backup-mcp.json',
         }),
       ],
+    })
+    await expect(backend.retryIntelligenceJob(11)).resolves.toMatchObject({
+      recentJobs: expect.any(Array),
+    })
+    await expect(backend.cancelIntelligenceJob(11)).resolves.toMatchObject({
+      recentJobs: expect.any(Array),
     })
     await expect(backend.resetLocalSecretVault()).resolves.toBeUndefined()
     await expect(

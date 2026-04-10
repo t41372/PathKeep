@@ -253,6 +253,29 @@ pub(crate) fn explain_insight_impl(
     worker_result(vault_worker::explain_insight_now(session_database_key, &request))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn load_intelligence_runtime_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
+    worker_result(vault_worker::load_intelligence_runtime_snapshot(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn retry_intelligence_job_impl(
+    job_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
+    worker_result(vault_worker::retry_intelligence_job_now(session_database_key, job_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn cancel_intelligence_job_impl(
+    job_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
+    worker_result(vault_worker::cancel_intelligence_job_now(session_database_key, job_id))
+}
+
 pub(crate) fn reset_local_secret_vault_impl() -> Result<(), String> {
     worker_result(vault_worker::reset_local_secret_vault())
 }

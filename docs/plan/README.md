@@ -8,18 +8,18 @@
 
 ## 先看哪裡
 
-| 如果你關心 | 先看這份 |
-|-----------|---------|
-| 整體節奏、里程碑順序、依賴關係 | [program/README.md](program/README.md) |
-| 現在這個 repo 和新 vision 的距離 | [program/repo-baseline.md](program/repo-baseline.md) |
-| 哪些技術決策還沒落地、哪些研究要先做 | [program/research-and-decisions.md](program/research-and-decisions.md) |
-| 某份需求/設計文檔應該對應哪份實作計劃 | [program/traceability-map.md](program/traceability-map.md) |
-| M0 重構基礎 | [m0-foundation/README.md](m0-foundation/README.md) |
-| M1 Solid Archive | [m1-solid-archive/README.md](m1-solid-archive/README.md) |
-| M2 Recall & Trust | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
-| M3 Intelligence | [m3-intelligence/README.md](m3-intelligence/README.md) |
-| M4 Full Intelligence & Polish | [m4-full-polish/README.md](m4-full-polish/README.md) |
-| 產品願景、需求、畫面結構 | [../vision-and-requirements.md](../vision-and-requirements.md) |
+| 如果你關心                            | 先看這份                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| 整體節奏、里程碑順序、依賴關係        | [program/README.md](program/README.md)                                 |
+| 現在這個 repo 和新 vision 的距離      | [program/repo-baseline.md](program/repo-baseline.md)                   |
+| 哪些技術決策還沒落地、哪些研究要先做  | [program/research-and-decisions.md](program/research-and-decisions.md) |
+| 某份需求/設計文檔應該對應哪份實作計劃 | [program/traceability-map.md](program/traceability-map.md)             |
+| M0 重構基礎                           | [m0-foundation/README.md](m0-foundation/README.md)                     |
+| M1 Solid Archive                      | [m1-solid-archive/README.md](m1-solid-archive/README.md)               |
+| M2 Recall & Trust                     | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)         |
+| M3 Intelligence                       | [m3-intelligence/README.md](m3-intelligence/README.md)                 |
+| M4 Full Intelligence & Polish         | [m4-full-polish/README.md](m4-full-polish/README.md)                   |
+| 產品願景、需求、畫面結構              | [../vision-and-requirements.md](../vision-and-requirements.md)         |
 
 ---
 
@@ -83,6 +83,7 @@ M1  Solid Archive
 M2  Recall & Trust
 M3  Intelligence
 M4  Full Intelligence & Polish
+M5  Intelligence Runtime & Extensions
 ```
 
 每個里程碑目錄都有：
@@ -94,14 +95,15 @@ M4  Full Intelligence & Polish
 
 ## 里程碑入口
 
-| 里程碑 | 目標 | 狀態 | 入口 |
-|-------|------|------|------|
-| `PG` | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係 | `[/]` | [program/README.md](program/README.md) |
-| `M0` | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點 | `[ ]` | [m0-foundation/README.md](m0-foundation/README.md) |
-| `M1` | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎 | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md) |
-| `M2` | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程 | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md) |
-| `M3` | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md) |
-| `M4` | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證 | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md) |
+| 里程碑 | 目標                                                                                                              | 狀態  | 入口                                                                       |
+| ------ | ----------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------- |
+| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                                                          | `[/]` | [program/README.md](program/README.md)                                     |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                                                          | `[ ]` | [m0-foundation/README.md](m0-foundation/README.md)                         |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎                                                 | `[ ]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                   |
+| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                                                          | `[ ]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)             |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights                                          | `[ ]` | [m3-intelligence/README.md](m3-intelligence/README.md)                     |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證                                             | `[ ]` | [m4-full-polish/README.md](m4-full-polish/README.md)                       |
+| `M5`   | 把 deferred intelligence runtime 補成正式系統，完成 plugin / queue / richer deterministic insights 的 operability | `[ ]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md) |
 
 ---
 
@@ -121,5 +123,6 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m1-solid-archive/
        ├── m2-recall-and-trust/
        ├── m3-intelligence/
-       └── m4-full-polish/
+       ├── m4-full-polish/
+       └── m5-runtime-and-extensions/
 ```

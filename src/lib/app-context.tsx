@@ -54,6 +54,11 @@ const EMPTY_AI_SETTINGS: AppConfig['ai'] = {
   mcpEnabled: false,
   skillEnabled: false,
   autoIndexAfterBackup: false,
+  enrichmentEnabled: true,
+  enrichmentPlugins: [
+    { pluginId: 'title-normalization', enabled: true },
+    { pluginId: 'readable-content-refetch', enabled: true },
+  ],
   llmProviderId: null,
   embeddingProviderId: null,
   retrievalTopK: 8,

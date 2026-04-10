@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../lib/app-context'
 import { formatDateTime } from '../lib/format'
-import { EmptyState, Glyph, StatusTag, Surface } from '../components/ui'
+import {
+  EmptyState,
+  Glyph,
+  InfoStat,
+  StatusTag,
+  Surface,
+} from '../components/ui'
 import { backend } from '../lib/backend'
+import { enrichmentPluginLabel } from '../lib/intelligence-runtime'
 import type {
   InsightExplanation,
   InsightSnapshot,
   InsightThreadDetail,
+  IntelligenceRuntimeSnapshot,
   RunInsightsReport,
 } from '../lib/types'
 
@@ -39,8 +47,15 @@ export function InsightsPage() {
   const [selectedInsightLabel, setSelectedInsightLabel] = useState<
     string | null
   >(null)
+  const [runtimeSnapshot, setRuntimeSnapshot] =
+    useState<IntelligenceRuntimeSnapshot | null>(null)
 
   const profiles = snapshot?.browserProfiles ?? []
+  const activeThreadId = insightSnapshot?.threads.some(
+    (thread) => thread.threadId === selectedThreadId,
+  )
+    ? selectedThreadId
+    : insightSnapshot?.threads[0]?.threadId ?? null
 
   // Load insights on mount/filter change
   useEffect(() => {
@@ -70,29 +85,36 @@ export function InsightsPage() {
     }
   }, [initialized, unlocked, profileFilter, windowDays, setError])
 
-  // Thread selection
   useEffect(() => {
-    if (!insightSnapshot?.threads.length) {
-      setSelectedThreadId(null)
-      setThreadDetail(null)
-      return
-    }
-    const stillExists = insightSnapshot.threads.some(
-      (t) => t.threadId === selectedThreadId,
-    )
-    if (!stillExists) {
-      setSelectedThreadId(insightSnapshot.threads[0].threadId)
-    }
-  }, [insightSnapshot, selectedThreadId])
-
-  // Thread detail loading
-  useEffect(() => {
-    if (!initialized || !unlocked || !selectedThreadId) return
+    if (!initialized || !unlocked) return
     let cancelled = false
 
     void (async () => {
       try {
-        const detail = await backend.loadThreadDetail(selectedThreadId)
+        const next = await backend.loadIntelligenceRuntime()
+        if (!cancelled) setRuntimeSnapshot(next)
+      } catch (taskError) {
+        if (!cancelled) {
+          setError(
+            taskError instanceof Error ? taskError.message : String(taskError),
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [initialized, unlocked, setError])
+
+  // Thread detail loading
+  useEffect(() => {
+    if (!initialized || !unlocked || !activeThreadId) return
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const detail = await backend.loadThreadDetail(activeThreadId)
         if (!cancelled) setThreadDetail(detail)
       } catch (taskError) {
         if (!cancelled) {
@@ -106,13 +128,7 @@ export function InsightsPage() {
     return () => {
       cancelled = true
     }
-  }, [initialized, unlocked, selectedThreadId, setError])
-
-  // Reset explanation on filter change
-  useEffect(() => {
-    setExplanation(null)
-    setSelectedInsightLabel(null)
-  }, [profileFilter, windowDays])
+  }, [activeThreadId, initialized, unlocked, setError])
 
   async function handleRunInsights() {
     await runTask(t('runInsightsNow'), async () => {
@@ -131,6 +147,7 @@ export function InsightsPage() {
         limit: null,
       })
       setInsightSnapshot(next)
+      setRuntimeSnapshot(await backend.loadIntelligenceRuntime())
       setNotice(t('insightsUpdated'))
     })
   }
@@ -145,6 +162,22 @@ export function InsightsPage() {
       })
       setExplanation(result)
       setSelectedInsightLabel(insightId)
+    })
+  }
+
+  async function handleRetryJob(jobId: number) {
+    await runTask(t('retryJob'), async () => {
+      const next = await backend.retryIntelligenceJob(jobId)
+      setRuntimeSnapshot(next)
+      setNotice(t('runtimeQueueUpdated'))
+    })
+  }
+
+  async function handleCancelJob(jobId: number) {
+    await runTask(t('cancelJob'), async () => {
+      const next = await backend.cancelIntelligenceJob(jobId)
+      setRuntimeSnapshot(next)
+      setNotice(t('runtimeQueueUpdated'))
     })
   }
 
@@ -176,7 +209,11 @@ export function InsightsPage() {
               <select
                 className="selectInput"
                 value={profileFilter}
-                onChange={(e) => setProfileFilter(e.target.value)}
+                onChange={(e) => {
+                  setProfileFilter(e.target.value)
+                  setExplanation(null)
+                  setSelectedInsightLabel(null)
+                }}
               >
                 <option value="">{t('allProfiles')}</option>
                 {profiles.map((p) => (
@@ -188,7 +225,11 @@ export function InsightsPage() {
               <select
                 className="selectInput"
                 value={windowDays}
-                onChange={(e) => setWindowDays(Number(e.target.value))}
+                onChange={(e) => {
+                  setWindowDays(Number(e.target.value))
+                  setExplanation(null)
+                  setSelectedInsightLabel(null)
+                }}
               >
                 <option value={7}>7 {t('days')}</option>
                 <option value={14}>14 {t('days')}</option>
@@ -308,7 +349,7 @@ export function InsightsPage() {
                 {insightSnapshot.threads.map((thread) => (
                   <button
                     key={thread.threadId}
-                    className={`threadRow ${selectedThreadId === thread.threadId ? 'selected' : ''}`}
+                    className={`threadRow ${activeThreadId === thread.threadId ? 'selected' : ''}`}
                     type="button"
                     onClick={() => setSelectedThreadId(thread.threadId)}
                   >
@@ -331,7 +372,7 @@ export function InsightsPage() {
               </div>
 
               {/* Thread detail  */}
-              {threadDetail && (
+              {threadDetail?.summary.threadId === activeThreadId && (
                 <div className="threadDetail">
                   <h4>{threadDetail.summary.title}</h4>
                   {threadDetail.visits.map((visit, i) => (
@@ -382,6 +423,136 @@ export function InsightsPage() {
               </div>
             </Surface>
           )}
+
+          <Surface
+            eyebrow={t('intelligenceQueueTitle')}
+            title={t('intelligenceQueueTitle')}
+            icon="lan"
+          >
+            {!runtimeSnapshot ? (
+              <EmptyState
+                icon="hourglass_empty"
+                message={t('runtimeQueueLoading')}
+              />
+            ) : (
+              <>
+                <div className="runtimeSummaryGrid">
+                  <InfoStat
+                    label={t('queuedJobs')}
+                    value={runtimeSnapshot.queue.queued}
+                  />
+                  <InfoStat
+                    label={t('runningStatus')}
+                    value={runtimeSnapshot.queue.running}
+                  />
+                  <InfoStat
+                    label={t('completedJobs')}
+                    value={runtimeSnapshot.queue.succeeded}
+                  />
+                  <InfoStat
+                    label={t('failedJobs')}
+                    value={runtimeSnapshot.queue.failed}
+                  />
+                </div>
+
+                {runtimeSnapshot.recentJobs.length ? (
+                  <div className="runtimeJobList">
+                    {runtimeSnapshot.recentJobs.map((job) => (
+                      <div className="runtimeJobCard" key={job.id}>
+                        <div className="runtimeJobHeader">
+                          <div>
+                            <strong>
+                              {job.pluginId
+                                ? enrichmentPluginLabel(job.pluginId, t)
+                                : job.jobType}
+                            </strong>
+                            <p className="muted">
+                              {job.title ?? job.url ?? t('notAvailable')}
+                            </p>
+                          </div>
+                          <StatusTag
+                            tone={
+                              job.state === 'failed'
+                                ? 'danger'
+                                : job.state === 'queued'
+                                  ? 'neutral'
+                                  : 'success'
+                            }
+                          >
+                            {job.state}
+                          </StatusTag>
+                        </div>
+
+                        <div className="runtimeJobMeta">
+                          <span>
+                            {t('attemptLabel')}: {job.attempt}
+                          </span>
+                          <span>
+                            {t('createdAtLabel')}:{' '}
+                            {formatDateTime(job.createdAt, resolvedLanguage) ??
+                              t('notAvailable')}
+                          </span>
+                          {job.finishedAt && (
+                            <span>
+                              {t('finishedAtLabel')}:{' '}
+                              {formatDateTime(
+                                job.finishedAt,
+                                resolvedLanguage,
+                              ) ?? t('notAvailable')}
+                            </span>
+                          )}
+                        </div>
+
+                        {job.lastError ? (
+                          <p className="runtimeJobError">{job.lastError}</p>
+                        ) : null}
+
+                        {job.retryable || job.cancellable ? (
+                          <div className="runtimeJobActions">
+                            {job.retryable && (
+                              <button
+                                className="secondaryButton"
+                                type="button"
+                                onClick={() => handleRetryJob(job.id)}
+                              >
+                                <Glyph icon="refresh" />
+                                {t('retryJob')}
+                              </button>
+                            )}
+                            {job.cancellable && (
+                              <button
+                                className="ghostButton"
+                                type="button"
+                                onClick={() => handleCancelJob(job.id)}
+                              >
+                                <Glyph icon="close" />
+                                {t('cancelJob')}
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    message={t('noRuntimeJobs')}
+                    icon="check_circle"
+                  />
+                )}
+
+                {runtimeSnapshot.notes.length ? (
+                  <div className="runtimeNotes">
+                    {runtimeSnapshot.notes.map((note) => (
+                      <p className="muted" key={note}>
+                        {note}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </Surface>
         </>
       )}
     </div>

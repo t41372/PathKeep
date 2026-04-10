@@ -1,11 +1,31 @@
+import { useEffect, useState } from 'react'
 import { useApp } from '../../lib/app-context'
-import { FieldBlock, Surface, ToggleRow } from '../../components/ui'
+import {
+  DataRow,
+  EmptyState,
+  InfoStat,
+  StatusTag,
+  Surface,
+  ToggleRow,
+  FieldBlock,
+} from '../../components/ui'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
 import { backend } from '../../lib/backend'
+import { formatDateTime } from '../../lib/format'
+import {
+  enrichmentPluginBoundaryLabel,
+  enrichmentPluginDescription,
+  enrichmentPluginLabel,
+  upsertEnrichmentPluginPreference,
+} from '../../lib/intelligence-runtime'
+import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
 
 export function AiProvidersSettings() {
   const {
     t,
+    resolvedLanguage,
+    initialized,
+    unlocked,
     draftConfig,
     updateAiSettings,
     addAiProvider,
@@ -22,6 +42,35 @@ export function AiProvidersSettings() {
   const aiConfig = draftConfig.ai
   const llmProviders = aiConfig.llmProviders
   const embeddingProviders = aiConfig.embeddingProviders
+  const [runtimeSnapshot, setRuntimeSnapshot] =
+    useState<IntelligenceRuntimeSnapshot | null>(null)
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!initialized || !unlocked) return
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const snapshot = await backend.loadIntelligenceRuntime()
+        if (!cancelled) {
+          setRuntimeSnapshot(snapshot)
+          setRuntimeError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRuntimeSnapshot(null)
+          setRuntimeError(
+            error instanceof Error ? error.message : String(error),
+          )
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [initialized, unlocked])
 
   async function handleStoreProviderSecret(providerId: string) {
     const apiKey = providerSecrets[providerId]?.trim()
@@ -70,6 +119,27 @@ export function AiProvidersSettings() {
     remove: t('removeProvider'),
   }
 
+  const pluginCards =
+    runtimeSnapshot?.plugins.map((plugin) => ({
+      ...plugin,
+      enabled:
+        aiConfig.enrichmentPlugins.find(
+          (preference) => preference.pluginId === plugin.pluginId,
+        )?.enabled ?? plugin.enabled,
+    })) ??
+    aiConfig.enrichmentPlugins.map((plugin) => ({
+      pluginId: plugin.pluginId,
+      sourceKind:
+        plugin.pluginId === 'readable-content-refetch' ? 'network' : 'local',
+      enabled: plugin.enabled,
+      storedRecords: 0,
+      queuedJobs: 0,
+      runningJobs: 0,
+      failedJobs: 0,
+      lastCompletedAt: null,
+      lastError: null,
+    }))
+
   return (
     <div className="settingsTabContent">
       <section className="pageIntro">
@@ -115,6 +185,13 @@ export function AiProvidersSettings() {
                 updateAiSettings({ autoIndexAfterBackup: checked })
               }
             />
+            <ToggleRow
+              label={t('enrichmentEnabled')}
+              checked={aiConfig.enrichmentEnabled}
+              onChange={(checked) =>
+                updateAiSettings({ enrichmentEnabled: checked })
+              }
+            />
 
             <FieldBlock label={t('selectedLlmProvider')}>
               <select
@@ -153,6 +230,114 @@ export function AiProvidersSettings() {
                 ))}
               </select>
             </FieldBlock>
+          </>
+        )}
+      </Surface>
+
+      <Surface
+        eyebrow={t('enrichmentRuntimeTitle')}
+        title={t('enrichmentRuntimeTitle')}
+        icon="hub"
+      >
+        <p className="muted">{t('enrichmentBoundaryDescription')}</p>
+
+        {!initialized || !unlocked ? (
+          <EmptyState message={t('unlockToInspectRuntime')} icon="lock" />
+        ) : runtimeError ? (
+          <EmptyState message={runtimeError} icon="error" />
+        ) : (
+          <>
+            <div className="runtimeSummaryGrid">
+              <InfoStat
+                label={t('queuedJobs')}
+                value={runtimeSnapshot?.queue.queued ?? 0}
+              />
+              <InfoStat
+                label={t('runningStatus')}
+                value={runtimeSnapshot?.queue.running ?? 0}
+              />
+              <InfoStat
+                label={t('failedJobs')}
+                value={runtimeSnapshot?.queue.failed ?? 0}
+              />
+              <InfoStat
+                label={t('completedJobs')}
+                value={runtimeSnapshot?.queue.succeeded ?? 0}
+              />
+            </div>
+
+            <div className="pluginRuntimeGrid">
+              {pluginCards.map((plugin) => (
+                <article className="pluginRuntimeCard" key={plugin.pluginId}>
+                  <div className="pluginRuntimeHeader">
+                    <div>
+                      <div className="pluginRuntimeTitleRow">
+                        <strong>
+                          {enrichmentPluginLabel(plugin.pluginId, t)}
+                        </strong>
+                        <StatusTag
+                          tone={
+                            plugin.sourceKind === 'network' ? 'info' : 'neutral'
+                          }
+                        >
+                          {enrichmentPluginBoundaryLabel(plugin.sourceKind, t)}
+                        </StatusTag>
+                      </div>
+                      <p className="muted">
+                        {enrichmentPluginDescription(plugin.pluginId, t)}
+                      </p>
+                    </div>
+                    <ToggleRow
+                      checked={plugin.enabled}
+                      label={t('providerEnabled')}
+                      onChange={(checked) =>
+                        updateAiSettings({
+                          enrichmentPlugins: upsertEnrichmentPluginPreference(
+                            aiConfig.enrichmentPlugins,
+                            plugin.pluginId,
+                            checked,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="runtimeStatGrid">
+                    <DataRow label={t('storedRecords')}>
+                      {plugin.storedRecords}
+                    </DataRow>
+                    <DataRow label={t('queuedJobs')}>
+                      {plugin.queuedJobs}
+                    </DataRow>
+                    <DataRow label={t('failedJobs')}>
+                      {plugin.failedJobs}
+                    </DataRow>
+                    <DataRow label={t('lastCompleted')}>
+                      {formatDateTime(
+                        plugin.lastCompletedAt,
+                        resolvedLanguage,
+                      ) ?? t('notAvailable')}
+                    </DataRow>
+                  </div>
+
+                  {plugin.lastError ? (
+                    <DataRow label={t('lastErrorLabel')}>
+                      <StatusTag tone="danger">{plugin.lastError}</StatusTag>
+                    </DataRow>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+
+            {runtimeSnapshot?.notes.length ? (
+              <div className="runtimeNotes">
+                {runtimeSnapshot.notes.map((note) => (
+                  <p className="muted" key={note}>
+                    {note}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </>
         )}
       </Surface>

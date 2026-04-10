@@ -20,13 +20,14 @@ use vault_core::{
     AiProviderSecretInput, AiSearchRequest, AiSearchResponse, AppConfig, AppSnapshot, ArchiveMode,
     ExplainInsightRequest, ExportRequest, HealthReport, HistoryQuery, HistoryQueryResponse,
     ImportBatchDetail, InsightExplanation, InsightSnapshot, InsightStatus, InsightThreadDetail,
-    KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult, RunInsightsReport,
-    RunInsightsRequest, S3CredentialInput, SchedulePlan, TakeoutInspection, TakeoutRequest,
-    ai_index_status, answer_history_question, archive_status, build_ai_index, doctor,
-    ensure_archive_initialized, explain_insight, export_history, import_takeout, insight_status,
-    inspect_takeout, list_history, load_config, load_import_batches, load_insight_thread_detail,
-    load_insights, load_recent_runs, preview_ai_integrations, preview_import_batch,
-    preview_remote_backup, project_paths, rekey_archive, revert_import_batch, run_backup,
+    IntelligenceRuntimeSnapshot, KeyringStatusReport, RemoteBackupPreview, RemoteBackupResult,
+    RunInsightsReport, RunInsightsRequest, S3CredentialInput, SchedulePlan, TakeoutInspection,
+    TakeoutRequest, ai_index_status, answer_history_question, archive_status, build_ai_index,
+    cancel_intelligence_job, doctor, ensure_archive_initialized, explain_insight, export_history,
+    import_takeout, insight_status, inspect_takeout, list_history, load_config,
+    load_import_batches, load_insight_thread_detail, load_insights, load_intelligence_runtime,
+    load_recent_runs, preview_ai_integrations, preview_import_batch, preview_remote_backup,
+    project_paths, rekey_archive, retry_intelligence_job, revert_import_batch, run_backup,
     run_insights, run_remote_backup, save_config, semantic_search_history,
 };
 use vault_platform::{
@@ -673,6 +674,35 @@ pub fn explain_insight_now(
     let mut config = load_config(&paths)?;
     hydrate_derived_config_state(&mut config);
     explain_insight(&paths, &config, session_database_key, request)
+}
+
+pub fn load_intelligence_runtime_snapshot(
+    session_database_key: Option<&str>,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    load_intelligence_runtime(&paths, &config, session_database_key)
+}
+
+pub fn retry_intelligence_job_now(
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    retry_intelligence_job(&paths, &config, session_database_key, job_id)
+}
+
+pub fn cancel_intelligence_job_now(
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = project_paths()?;
+    let mut config = load_config(&paths)?;
+    hydrate_derived_config_state(&mut config);
+    cancel_intelligence_job(&paths, &config, session_database_key, job_id)
 }
 
 #[tool_router]

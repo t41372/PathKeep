@@ -1,7 +1,7 @@
 # 里程碑
 
 > 從 [vision-and-requirements.md](vision-and-requirements.md) 抽出。
-> 
+>
 > ⚡ **原子化待辦清單和工作進度追蹤** → 見 [plan/README.md](plan/README.md)
 
 ---
@@ -65,3 +65,11 @@
 - 多平台完整驗證
 
 📋 詳細待辦 → [plan/m4-full-polish/README.md](plan/m4-full-polish/README.md)
+
+## M5 — Intelligence Runtime & Extensions
+
+- 把從 M4 truthfully deferred 的 enrichment runtime / queue / sandbox boundary 正式做成可觀察、可控、可重建的系統
+- 補齊 richer deterministic intelligence，不依賴 LLM 也能產生更強的 evidence-first 洞察
+- 讓 plugin、queue、rebuild、clear derived data、evidence controls 都有一致的操作面和驗收標準
+
+📋 詳細待辦 → [plan/m5-runtime-and-extensions/README.md](plan/m5-runtime-and-extensions/README.md)

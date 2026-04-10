@@ -43,6 +43,9 @@ const { autostartMocks, mockBackend, strongholdMocks } = vi.hoisted(() => ({
     loadInsights: vi.fn(),
     loadThreadDetail: vi.fn(),
     explainInsight: vi.fn(),
+    loadIntelligenceRuntime: vi.fn(),
+    retryIntelligenceJob: vi.fn(),
+    cancelIntelligenceJob: vi.fn(),
     previewAiIntegrations: vi.fn(),
     resetLocalSecretVault: vi.fn(),
     openPathInFileManager: vi.fn(),
@@ -144,6 +147,11 @@ const baseSnapshot = {
       mcpEnabled: true,
       skillEnabled: true,
       autoIndexAfterBackup: true,
+      enrichmentEnabled: true,
+      enrichmentPlugins: [
+        { pluginId: 'title-normalization', enabled: true },
+        { pluginId: 'readable-content-refetch', enabled: true },
+      ],
       llmProviderId: 'llm-preview',
       embeddingProviderId: 'embedding-preview',
       retrievalTopK: 8,
@@ -358,6 +366,61 @@ const insightThreadDetail = {
   ],
 }
 
+const intelligenceRuntimeSnapshot = {
+  queue: {
+    queued: 1,
+    running: 0,
+    succeeded: 8,
+    failed: 1,
+    cancelled: 0,
+    lastActivityAt: '2026-04-03T12:26:00.000Z',
+  },
+  plugins: [
+    {
+      pluginId: 'title-normalization',
+      sourceKind: 'local',
+      enabled: true,
+      storedRecords: 24,
+      queuedJobs: 0,
+      runningJobs: 0,
+      failedJobs: 0,
+      lastCompletedAt: '2026-04-03T12:25:00.000Z',
+      lastError: null,
+    },
+    {
+      pluginId: 'readable-content-refetch',
+      sourceKind: 'network',
+      enabled: true,
+      storedRecords: 8,
+      queuedJobs: 1,
+      runningJobs: 0,
+      failedJobs: 1,
+      lastCompletedAt: '2026-04-03T12:24:00.000Z',
+      lastError: '429 from upstream host',
+    },
+  ],
+  recentJobs: [
+    {
+      id: 11,
+      jobType: 'enrichment-plugin',
+      pluginId: 'readable-content-refetch',
+      state: 'failed',
+      historyId: 2,
+      profileId: 'chrome:Default',
+      url: 'https://github.com/example/repo/issues/1',
+      title: 'Issue one',
+      attempt: 2,
+      createdAt: '2026-04-03T12:24:00.000Z',
+      startedAt: '2026-04-03T12:24:20.000Z',
+      finishedAt: '2026-04-03T12:24:40.000Z',
+      lastError: '429 from upstream host',
+      retryable: true,
+      cancellable: false,
+    },
+  ],
+  notes: [],
+}
+
 function makeSnapshot(overrides: Record<string, unknown> = {}) {
   return { ...structuredClone(baseSnapshot), ...overrides }
 }
@@ -531,6 +594,34 @@ describe('AppNew integration', () => {
       citations: structuredClone(insightThreadDetail.visits),
       notes: [],
     })
+    mockBackend.loadIntelligenceRuntime.mockResolvedValue(
+      structuredClone(intelligenceRuntimeSnapshot),
+    )
+    mockBackend.retryIntelligenceJob.mockImplementation((jobId: number) =>
+      Promise.resolve({
+        ...structuredClone(intelligenceRuntimeSnapshot),
+        recentJobs: intelligenceRuntimeSnapshot.recentJobs.map((job) =>
+          job.id === jobId
+            ? { ...job, state: 'queued', retryable: false, cancellable: true }
+            : job,
+        ),
+      }),
+    )
+    mockBackend.cancelIntelligenceJob.mockImplementation((jobId: number) =>
+      Promise.resolve({
+        ...structuredClone(intelligenceRuntimeSnapshot),
+        recentJobs: intelligenceRuntimeSnapshot.recentJobs.map((job) =>
+          job.id === jobId
+            ? {
+                ...job,
+                state: 'cancelled',
+                retryable: true,
+                cancellable: false,
+              }
+            : job,
+        ),
+      }),
+    )
     mockBackend.previewAiIntegrations.mockResolvedValue({
       mcpCommand: '/bin/mcp',
       manualSteps: [],
@@ -713,6 +804,28 @@ describe('AppNew integration', () => {
     await screen.findByText('Repeated revisits.')
   })
 
+  test('shows runtime queue and retries a failed enrichment job', async () => {
+    const user = userEvent.setup()
+    render(<AppNew />)
+    await screen.findByText('Overview')
+    await user.click(navBtn('Insights'))
+    await waitFor(() => expect(mockBackend.loadInsights).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(mockBackend.loadIntelligenceRuntime).toHaveBeenCalled(),
+    )
+    await screen.findByRole('heading', { name: 'Runtime queue' })
+    await screen.findByText('Issue one')
+    await user.click(mainBtn(/Retry job/))
+    await waitFor(() =>
+      expect(mockBackend.retryIntelligenceJob).toHaveBeenCalledWith(11),
+    )
+    await screen.findByRole('button', { name: /Cancel job/ })
+    await user.click(mainBtn(/Cancel job/))
+    await waitFor(() =>
+      expect(mockBackend.cancelIntelligenceJob).toHaveBeenCalledWith(11),
+    )
+  })
+
   test('thread detail', async () => {
     const user = userEvent.setup()
     render(<AppNew />)
@@ -763,6 +876,42 @@ describe('AppNew integration', () => {
     )
     await user.click(mainBtn(/Upload now/))
     await waitFor(() => expect(mockBackend.runRemoteBackup).toHaveBeenCalled())
+  })
+
+  test('shows enrichment runtime controls in AI settings', async () => {
+    const user = userEvent.setup()
+    render(<AppNew />)
+    await screen.findByText('Overview')
+    await user.click(navBtn('Settings'))
+    await screen.findByRole('heading', { name: 'General' })
+    await user.click(screen.getByRole('button', { name: /AI Providers/ }))
+    await screen.findByRole('heading', { name: 'AI Providers' })
+    await waitFor(() =>
+      expect(mockBackend.loadIntelligenceRuntime).toHaveBeenCalled(),
+    )
+    await screen.findByRole('heading', { name: 'Enrichment runtime' })
+    expect(screen.getByText('Title normalization')).toBeInTheDocument()
+    expect(screen.getByText('Readable content refetch')).toBeInTheDocument()
+  })
+
+  test('shows unlock guidance for enrichment runtime when archive is locked', async () => {
+    const user = userEvent.setup()
+    mockBackend.getAppSnapshot.mockResolvedValue(
+      makeSnapshot({
+        archiveStatus: {
+          ...structuredClone(baseSnapshot.archiveStatus),
+          unlocked: false,
+        },
+      }),
+    )
+    render(<AppNew />)
+    await screen.findByText('Overview')
+    await user.click(navBtn('Settings'))
+    await screen.findByRole('heading', { name: 'General' })
+    await user.click(screen.getByRole('button', { name: /AI Providers/ }))
+    await screen.findByText(
+      'Unlock the archive to inspect queue-backed runtime details.',
+    )
   })
 
   /* ---------- Import ---------- */

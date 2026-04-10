@@ -2,11 +2,18 @@ use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
+    intelligence_runtime::{
+        ENRICHMENT_JOB_TYPE, EnrichmentJobPayload, built_in_enrichment_plugin,
+        built_in_enrichment_plugins, claim_enrichment_jobs, enqueue_enrichment_job,
+        enrichment_plugin_enabled, ensure_intelligence_runtime_schema,
+        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+    },
     models::{
         AppConfig, ExplainInsightRequest, InsightCard, InsightEvidenceItem, InsightExplanation,
         InsightProfileFacet, InsightQueryLadder, InsightSnapshot, InsightStatus,
         InsightThreadDetail, InsightThreadSummary, InsightTopicSummary, InsightWorkflowEdge,
-        InsightWorkflowMap, InsightWorkflowRole, RunInsightsReport, RunInsightsRequest,
+        InsightWorkflowMap, InsightWorkflowRole, READABLE_CONTENT_PLUGIN_ID, RunInsightsReport,
+        RunInsightsRequest, TITLE_NORMALIZATION_PLUGIN_ID,
     },
     utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, url_domain},
 };
@@ -226,12 +233,17 @@ struct EnrichmentResult {
 
 #[derive(Debug, Clone)]
 struct StoredEnrichment {
-    content_source: String,
     fetch_status: String,
     fetched_at: String,
     readable_title: Option<String>,
     readable_text: Option<String>,
     snippet_json: String,
+}
+
+#[derive(Debug, Default)]
+struct EnrichmentProcessingReport {
+    enriched_visits: usize,
+    failed_enrichments: usize,
 }
 
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
@@ -342,29 +354,8 @@ pub fn run_insights(
     let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
     hydrate_query_terms(&mut visits, &query_terms);
 
-    let eligible_ids = visits
-        .iter()
-        .filter(|visit| is_refetch_eligible(visit))
-        .map(|visit| visit.history_id)
-        .collect::<HashSet<_>>();
-    let mut enriched_visits = 0usize;
-    let mut failed_enrichments = 0usize;
-    let client = build_refetch_client()?;
-    for visit in &visits {
-        if !eligible_ids.contains(&visit.history_id) {
-            continue;
-        }
-        if enrichment_is_fresh(&connection, visit.history_id)? {
-            continue;
-        }
-        let enrichment = refetch_visit_content(&client, &visit.url);
-        store_enrichment(&connection, visit.history_id, "refetch", &enrichment)?;
-        if enrichment.status == "success" {
-            enriched_visits += 1;
-        } else {
-            failed_enrichments += 1;
-        }
-    }
+    schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
+    let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
 
     if embedding_provider.is_some() {
         // Embeddings are refreshed by the worker before analytics. Here we only consume them.
@@ -394,7 +385,12 @@ pub fn run_insights(
             .count() as f32
             / visits.len() as f32
     };
-    let notes = build_run_notes(embedding_provider.is_some(), enriched_visits, failed_enrichments);
+    let notes = build_run_notes(
+        embedding_provider.is_some(),
+        config.ai.enrichment_enabled,
+        enrichment_report.enriched_visits,
+        enrichment_report.failed_enrichments,
+    );
     connection.execute(
         "UPDATE insight_runs
          SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
@@ -404,8 +400,8 @@ pub fn run_insights(
         params![
             now_rfc3339(),
             visits.len() as i64,
-            enriched_visits as i64,
-            failed_enrichments as i64,
+            enrichment_report.enriched_visits as i64,
+            enrichment_report.failed_enrichments as i64,
             topics.len() as i64,
             threads.len() as i64,
             cards.len() as i64,
@@ -418,8 +414,8 @@ pub fn run_insights(
     Ok(RunInsightsReport {
         run_id,
         processed_visits: visits.len(),
-        enriched_visits,
-        failed_enrichments,
+        enriched_visits: enrichment_report.enriched_visits,
+        failed_enrichments: enrichment_report.failed_enrichments,
         topic_count: topics.len(),
         thread_count: threads.len(),
         card_count: cards.len(),
@@ -604,11 +600,14 @@ pub fn explain_insight(
 }
 
 fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
+    ensure_intelligence_runtime_schema(connection)?;
     connection.execute("DELETE FROM visit_insight_features", [])?;
     connection.execute("DELETE FROM insight_topics", [])?;
     connection.execute("DELETE FROM insight_threads", [])?;
     connection.execute("DELETE FROM insight_thread_members", [])?;
     connection.execute("DELETE FROM insight_cards", [])?;
+    connection
+        .execute("DELETE FROM intelligence_jobs WHERE job_type = ?1", [ENRICHMENT_JOB_TYPE])?;
     Ok(())
 }
 
@@ -728,23 +727,228 @@ fn is_refetch_eligible(visit: &VisitRecord) -> bool {
         && !visit.url.starts_with("https://chrome")
 }
 
-fn enrichment_is_fresh(connection: &Connection, history_id: i64) -> Result<bool> {
-    let record = best_enrichment_for_history(connection, history_id)?;
+fn schedule_enrichment_jobs(
+    connection: &Connection,
+    config: &AppConfig,
+    run_id: i64,
+    visits: &[VisitRecord],
+) -> Result<()> {
+    if !config.ai.enrichment_enabled {
+        return Ok(());
+    }
+
+    for visit in visits {
+        for plugin in built_in_enrichment_plugins() {
+            if !enrichment_plugin_enabled(config, plugin.id) {
+                continue;
+            }
+            if !plugin_is_eligible(plugin.id, visit) {
+                continue;
+            }
+            if plugin_enrichment_is_fresh(connection, visit.history_id, plugin.id)? {
+                continue;
+            }
+            enqueue_enrichment_job(
+                connection,
+                run_id,
+                plugin,
+                &EnrichmentJobPayload {
+                    history_id: visit.history_id,
+                    profile_id: visit.profile_id.clone(),
+                    url: visit.url.clone(),
+                    title: visit.title.clone(),
+                },
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn process_enrichment_jobs(
+    connection: &Connection,
+    config: &AppConfig,
+    visits: &[VisitRecord],
+) -> Result<EnrichmentProcessingReport> {
+    if !config.ai.enrichment_enabled {
+        return Ok(EnrichmentProcessingReport::default());
+    }
+
+    let allowed_plugin_ids = built_in_enrichment_plugins()
+        .iter()
+        .filter(|plugin| enrichment_plugin_enabled(config, plugin.id))
+        .map(|plugin| plugin.id.to_string())
+        .collect::<Vec<_>>();
+    if allowed_plugin_ids.is_empty() {
+        return Ok(EnrichmentProcessingReport::default());
+    }
+
+    let allowed_history_ids = visits.iter().map(|visit| visit.history_id).collect::<HashSet<_>>();
+    let claimed = claim_enrichment_jobs(
+        connection,
+        &allowed_plugin_ids,
+        &allowed_history_ids,
+        visits.len().max(1) * allowed_plugin_ids.len(),
+    )?;
+    if claimed.is_empty() {
+        return Ok(EnrichmentProcessingReport::default());
+    }
+
+    let visit_map = visits.iter().map(|visit| (visit.history_id, visit)).collect::<HashMap<_, _>>();
+    let mut report = EnrichmentProcessingReport::default();
+    let mut refetch_client = None::<Client>;
+
+    for job in claimed {
+        let Some(visit) = visit_map.get(&job.payload.history_id) else {
+            mark_intelligence_job_failed(
+                connection,
+                job.id,
+                "The queued visit no longer exists in the current insight window.",
+            )?;
+            report.failed_enrichments += 1;
+            continue;
+        };
+
+        let enrichment = match job.plugin_id.as_str() {
+            TITLE_NORMALIZATION_PLUGIN_ID => title_normalization_enrichment(visit),
+            READABLE_CONTENT_PLUGIN_ID => {
+                let client = match refetch_client.as_ref() {
+                    Some(client) => client,
+                    None => {
+                        refetch_client = Some(build_refetch_client()?);
+                        refetch_client.as_ref().expect("refetch client")
+                    }
+                };
+                refetch_visit_content(client, &visit.url)
+            }
+            _ => {
+                mark_intelligence_job_failed(
+                    connection,
+                    job.id,
+                    &format!("Unknown enrichment plugin {}", job.plugin_id),
+                )?;
+                report.failed_enrichments += 1;
+                continue;
+            }
+        };
+
+        store_enrichment(connection, visit.history_id, &job.plugin_id, &enrichment)?;
+        let artifact = json!({
+            "status": enrichment.status,
+            "snippetCount": enrichment.snippets.len(),
+            "textLength": enrichment
+                .readable_text
+                .as_ref()
+                .map(|value| value.len())
+                .unwrap_or(0),
+            "attempt": job.attempt,
+        });
+        if enrichment_is_terminal_failure(&enrichment) {
+            report.failed_enrichments += 1;
+            mark_intelligence_job_failed(
+                connection,
+                job.id,
+                &enrichment_failure_message(&enrichment),
+            )?;
+        } else {
+            if enrichment.status == "success" {
+                report.enriched_visits += 1;
+            }
+            mark_intelligence_job_succeeded(connection, job.id, &artifact)?;
+        }
+    }
+
+    Ok(report)
+}
+
+fn plugin_is_eligible(plugin_id: &str, visit: &VisitRecord) -> bool {
+    match plugin_id {
+        TITLE_NORMALIZATION_PLUGIN_ID => {
+            visit.title.as_deref().is_some_and(|value| !value.trim().is_empty())
+                || visit.url.starts_with("https://")
+                || visit.url.starts_with("http://")
+        }
+        READABLE_CONTENT_PLUGIN_ID => is_refetch_eligible(visit),
+        _ => false,
+    }
+}
+
+fn plugin_enrichment_is_fresh(
+    connection: &Connection,
+    history_id: i64,
+    plugin_id: &str,
+) -> Result<bool> {
+    let record = enrichment_for_history_and_source(connection, history_id, plugin_id)?;
     let Some(record) = record else {
         return Ok(false);
     };
-    if record.content_source == "capture" {
-        return Ok(record.fetch_status == "success"
-            && record.readable_text.as_deref().is_some_and(|value| !value.trim().is_empty()));
+    if record.fetch_status != "success" {
+        return Ok(false);
     }
-    let fetched_at = DateTime::parse_from_rfc3339(&record.fetched_at)
-        .ok()
-        .map(|value| value.with_timezone(&Utc));
-    let still_fresh =
-        fetched_at.map(|value| Utc::now() - value <= Duration::days(7)).unwrap_or(false);
-    Ok(record.fetch_status == "success"
-        && still_fresh
-        && record.readable_text.as_deref().is_some_and(|value| !value.trim().is_empty()))
+    let definition = built_in_enrichment_plugin(plugin_id);
+
+    match plugin_id {
+        TITLE_NORMALIZATION_PLUGIN_ID => {
+            Ok(record.readable_title.as_deref().is_some_and(|value| !value.trim().is_empty()))
+        }
+        READABLE_CONTENT_PLUGIN_ID => {
+            let fetched_at = DateTime::parse_from_rfc3339(&record.fetched_at)
+                .ok()
+                .map(|value| value.with_timezone(&Utc));
+            let still_fresh = fetched_at
+                .zip(definition.and_then(|plugin| plugin.freshness_window_days))
+                .map(|(value, days)| Utc::now() - value <= Duration::days(days))
+                .unwrap_or(false);
+            Ok(still_fresh
+                && record.readable_text.as_deref().is_some_and(|value| !value.trim().is_empty()))
+        }
+        _ => Ok(false),
+    }
+}
+
+fn title_normalization_enrichment(visit: &VisitRecord) -> EnrichmentResult {
+    let readable_title = visit
+        .title
+        .as_deref()
+        .map(normalize_whitespace)
+        .filter(|value| !value.is_empty())
+        .or_else(|| normalized_title_from_url(&visit.url));
+    let status = if readable_title.is_some() { "success" } else { "empty" };
+    let snippets = readable_title.clone().into_iter().collect::<Vec<_>>();
+    EnrichmentResult {
+        status: status.to_string(),
+        final_url: Some(visit.url.clone()),
+        language: None,
+        readable_title,
+        readable_text: None,
+        snippets,
+        extraction: json!({
+            "strategy": if visit.title.is_some() { "browser-title" } else { "url-fallback" },
+        }),
+    }
+}
+
+fn normalized_title_from_url(url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let last_segment = parsed
+        .path_segments()
+        .and_then(|segments| segments.filter(|segment| !segment.is_empty()).next_back())
+        .map(percent_decode)?;
+    let candidate = normalize_whitespace(&last_segment.replace(['-', '_'], " "));
+    if candidate.is_empty() { None } else { Some(candidate) }
+}
+
+fn enrichment_is_terminal_failure(enrichment: &EnrichmentResult) -> bool {
+    matches!(enrichment.status.as_str(), "fetch-error" | "decode-error" | "unsupported-content")
+}
+
+fn enrichment_failure_message(enrichment: &EnrichmentResult) -> String {
+    enrichment
+        .extraction
+        .get("error")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("Enrichment failed with status {}", enrichment.status))
 }
 
 fn build_refetch_client() -> Result<Client> {
@@ -874,6 +1078,35 @@ fn store_enrichment(
     Ok(())
 }
 
+fn enrichment_for_history_and_source(
+    connection: &Connection,
+    history_id: i64,
+    content_source: &str,
+) -> Result<Option<StoredEnrichment>> {
+    let mut statement = connection.prepare(
+        "SELECT content_source, fetch_status, fetched_at, final_url, language, readable_title,
+                readable_text, snippet_json
+         FROM visit_content_enrichments
+         WHERE history_id = ?1 AND content_source = ?2
+         ORDER BY fetched_at DESC
+         LIMIT 1",
+    )?;
+    statement
+        .query_row(params![history_id, content_source], |row| {
+            let _: Option<String> = row.get(3)?;
+            let _: Option<String> = row.get(4)?;
+            Ok(StoredEnrichment {
+                fetch_status: row.get(1)?,
+                fetched_at: row.get(2)?,
+                readable_title: row.get(5)?,
+                readable_text: row.get(6)?,
+                snippet_json: row.get(7)?,
+            })
+        })
+        .optional()
+        .map_err(Into::into)
+}
+
 fn best_enrichment_for_history(
     connection: &Connection,
     history_id: i64,
@@ -883,14 +1116,21 @@ fn best_enrichment_for_history(
                 readable_text, snippet_json
          FROM visit_content_enrichments
          WHERE history_id = ?1
-         ORDER BY CASE content_source WHEN 'capture' THEN 0 ELSE 1 END, fetched_at DESC",
+         ORDER BY
+           CASE fetch_status WHEN 'success' THEN 0 WHEN 'empty' THEN 1 ELSE 2 END,
+           CASE content_source
+             WHEN 'capture' THEN 0
+             WHEN 'readable-content-refetch' THEN 1
+             WHEN 'title-normalization' THEN 2
+             ELSE 3
+           END,
+           fetched_at DESC",
     )?;
     statement
         .query_row([history_id], |row| {
             let _: Option<String> = row.get(3)?;
             let _: Option<String> = row.get(4)?;
             Ok(StoredEnrichment {
-                content_source: row.get(0)?,
                 fetch_status: row.get(1)?,
                 fetched_at: row.get(2)?,
                 readable_title: row.get(5)?,
@@ -1854,6 +2094,7 @@ fn revisited_pages(visits: &[VisitRecord]) -> Vec<&VisitRecord> {
 
 fn build_run_notes(
     embeddings_available: bool,
+    enrichment_enabled: bool,
     enriched_visits: usize,
     failed_enrichments: usize,
 ) -> Vec<String> {
@@ -1863,10 +2104,15 @@ fn build_run_notes(
     } else {
         "Insight run fell back to lexical and structural signals because no embedding provider was ready.".to_string()
     });
-    notes.push(format!("Enriched {enriched_visits} visits with readable content."));
+    notes.push(if enrichment_enabled {
+        format!("Enrichment runtime completed {enriched_visits} successful plugin jobs.")
+    } else {
+        "Enrichment runtime is disabled, so this run used canonical archive signals only."
+            .to_string()
+    });
     if failed_enrichments > 0 {
         notes.push(format!(
-            "{failed_enrichments} visit refetch attempts failed or returned unsupported content."
+            "{failed_enrichments} enrichment jobs failed or returned unsupported content."
         ));
     }
     notes
