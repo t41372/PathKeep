@@ -55,7 +55,7 @@ test('walks through onboarding, first backup, explorer, and audit in browser pre
 
   const auditPage = page.getByTestId('audit-page')
   await expect(auditPage).toBeVisible()
-  await expect(auditPage.getByText('MANIFEST CHAIN')).toBeVisible()
+  await expect(auditPage.getByText('RUN TIMELINE')).toBeVisible()
   await auditPage.getByRole('button', { name: 'Artifacts' }).click()
   await expect(auditPage.getByText(/ARTIFACTS · \d+ files/)).toBeVisible()
 })

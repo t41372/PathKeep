@@ -196,6 +196,22 @@ describe('backend facade', () => {
     expect(firstHistoryPage.total).toBe(2)
     expect(firstHistoryPage.items).toHaveLength(1)
     expect(firstHistoryPage.nextCursor).toBeTruthy()
+    const secondHistoryPage = await backend.queryHistory({
+      q: null,
+      domain: null,
+      profileId: null,
+      browserKind: null,
+      startTimeMs: null,
+      endTimeMs: null,
+      sort: 'newest',
+      limit: 1,
+      cursor: firstHistoryPage.nextCursor,
+    })
+    expect(secondHistoryPage).toMatchObject({
+      total: 2,
+      items: [expect.objectContaining({ id: 2 })],
+      nextCursor: null,
+    })
     await expect(
       backend.queryHistory({
         q: null,
@@ -206,11 +222,16 @@ describe('backend facade', () => {
         endTimeMs: null,
         sort: 'newest',
         limit: 1,
-        cursor: firstHistoryPage.nextCursor,
+        cursor: `${secondHistoryPage.items[0].visitTime}|${secondHistoryPage.items[0].id}`,
       }),
     ).resolves.toMatchObject({
       total: 2,
-      items: [expect.objectContaining({ id: 2 })],
+      items: [],
+      page: 3,
+      pageSize: 1,
+      pageCount: 2,
+      hasPrevious: true,
+      hasNext: false,
       nextCursor: null,
     })
     await expect(

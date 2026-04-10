@@ -23,6 +23,8 @@
 > **2026-04-09 審核結論**：M4 仍未整體完成。release / support / remote backup / truthful intelligence v1 已簽收；尚未簽收的是兩塊真正會決定「設計文檔是否全完成」的剩餘工作：`WORK-M4-J` 的 60-year performance proof，以及 `WORK-M4-I` 的 advanced intelligence shipping（plugin sandbox / queue family / revisit surfaces）。`bun run verify` 現在已可在這台機器上重新跑到全綠；`WORK-M4-J` 仍不能 close out 的原因不再是 CI / build gate，而是 checked-in bundle 仍屬 synthetic shell-scaling 證據，尚未補到一次真實 large-profile replay。
 >
 > **2026-04-09 reprioritization 註記（user sweep）**：實際試用後又暴露出一批比「60-year synthetic perf signoff」更直接的 shipping blocker：Explorer 搜索卡死、分頁 UX、Import / Audit trust IA、collapsed sidebar 與 desktop feel。因此 `WORK-M4-J` 先改為 Recall / shell / trust-critical UX stabilize block；對應的 deterministic insight、retention honesty 與 site-adapter 工作收斂到 `WORK-M4-I`。macOS biometric / consented analytics / manual update check 另開 `WORK-M4-K`，bundle rename / release flow / size / code health 則另開 `WORK-M4-L`。
+>
+> **2026-04-09 recall/trust closeout 註記**：`WORK-M4-J` 已完成，Explorer 現在正式支援 first / last / jump pagination、翻頁保留 scroll position，topbar 搜索不再把 app 打掛；Import 也改成預設折疊說明、detected profiles + native picker 的 trust-first flow，Audit 則從難以理解的 manifest 面板改成 run-centric timeline / diff review。shell 同步修掉全頁 overscroll bounce 與 collapsed sidebar 失真。M4 剩餘主線現在收斂到 `WORK-M4-I` 的 deterministic insights / retention honesty / site adapters，再往後才是 `WORK-M4-K` 與 `WORK-M4-L`。
 
 ---
 
