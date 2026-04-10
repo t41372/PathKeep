@@ -26,6 +26,8 @@
 
 **2026-04-09 truth closeout (`WORK-QC-D`)**：這輪沒有把 M4 補寫成「全部 advanced intelligence 都已完成」。相反地，repo 現在明確凍結了 honest boundary：`readable-content-refetch` 仍是唯一 shipping plugin；plugin sandbox、獨立 enrichment queue family、revisit / resurfacing 類 intelligence 仍未 shipping。隱私 / data-sovereignty review 與 60-year support envelope 已補成正式文檔，見 [intelligence-60-year-envelope.md](intelligence-60-year-envelope.md)。
 
+**2026-04-09 closeout (`WORK-M4-I`)**：deterministic intelligence 主線現已補齊可 shipping 的第一輪：Insights 正式顯示 `open-loop` / `revisit` highlights 與 Chromium query-evolution ladders；Onboarding / Dashboard 的 profile boundary 會誠實標示 browser-retention boundary；`readable-content-refetch` 也加入第一批高價值 site adapters（YouTube / Vimeo 影片 metadata parse）。這仍然**不**代表 plugin sandbox、獨立 enrichment queue family、或長期 horizon intelligence 已全部完成。
+
 ---
 
 ## WBS
@@ -50,8 +52,8 @@
 
 - [ ] `M4-ER-AI-001` 擴展 topic timeline 和 periodic summary，支援更長時間窗口和 richer evidence。
 - [x] `M4-ER-AI-002` 實作 storage analytics 和 archive growth insight，顯示來源、成長趨勢、可清理空間。
-- [ ] `M4-ER-AI-003` 實作 revisit / resurfacing 類功能，例如 forgotten pages、returning topics、session patterns。
-- [ ] `M4-ER-AI-004` 評估並實作至少一項高價值個人 intelligence 功能，但必須符合 optional、evidence-first 原則。
+- [x] `M4-ER-AI-003` 實作 revisit / resurfacing 類功能，例如 forgotten pages、returning topics、session patterns。（2026-04-09，`WORK-M4-I`：先正式 shipping deterministic `open-loop` / `revisit` cards 與 query ladder surface；更長 horizon 的 returning topics / session-pattern families 仍可後續加法補強）
+- [x] `M4-ER-AI-004` 評估並實作至少一項高價值個人 intelligence 功能，但必須符合 optional、evidence-first 原則。（2026-04-09，`WORK-M4-I`：query-evolution ladder 以 Chromium search-term evidence 正式落地，保持 non-LLM、evidence-first 與 Explorer deep-link contract）
 - [x] `M4-ER-AI-005` 對已交付的 advanced insight / enrichment slice 補上 disable / rebuild / delete controls 和資料來源說明。
 
 ### Remote Backup

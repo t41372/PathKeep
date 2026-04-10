@@ -11,31 +11,11 @@
 
 ### M1 — Solid Archive
 
-- [ ] **WORK-M1-D** — Snapshot Restore, Retention, And Rekey Audit Shipping
-  - 讀先：
-    `docs/features/archive.md`
-    `docs/architecture/desktop-command-surface.md`
-    `docs/plan/m1-solid-archive/schema-backup-and-ledger.md`
-    `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
-    `docs/plan/program/research-and-decisions.md`
-  - 目標：把目前只停在 deferred / partial support 的 snapshot restore preview / execute、retention / prune、以及 richer rekey audit summary 拉回真正可 shipping 的 recoverability contract，而不是永遠停在 truth-closeout 文檔上。
-  - 驗收：`bun run verify`
-
 ### M2 — Recall & Trust
 
 ### M3 — Intelligence
 
 ### M4 — Full Polish
-
-- [ ] **WORK-M4-K** — Security, Privacy, And Update Boundary
-  - 讀先：
-    `docs/architecture/decisions/005-app-lock-session-boundary.md`
-    `docs/features/archive.md`
-    `docs/design/screens-and-nav.md`
-    `docs/standards.md`
-    `RELEASE.md`
-  - 目標：先以決策文檔誠實重開 macOS biometric 與 consented analytics 兩個 accepted-contract 變更，再落地 macOS-only biometric unlock、frontend-only analytics consent boundary，以及 Settings manual update check / release availability surface。
-  - 驗收：`bun run verify`
 
 - [ ] **WORK-M4-L** — Package Rename, Release Flow, Size Audit, And Code Health
   - 讀先：

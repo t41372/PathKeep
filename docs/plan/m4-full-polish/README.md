@@ -26,6 +26,8 @@
 >
 > **2026-04-09 recall/trust closeout 註記**：`WORK-M4-J` 已完成，Explorer 現在正式支援 first / last / jump pagination、翻頁保留 scroll position，topbar 搜索不再把 app 打掛；Import 也改成預設折疊說明、detected profiles + native picker 的 trust-first flow，Audit 則從難以理解的 manifest 面板改成 run-centric timeline / diff review。shell 同步修掉全頁 overscroll bounce 與 collapsed sidebar 失真。M4 剩餘主線現在收斂到 `WORK-M4-I` 的 deterministic insights / retention honesty / site adapters，再往後才是 `WORK-M4-K` 與 `WORK-M4-L`。
 
+> **2026-04-09 deterministic intelligence closeout 註記**：`WORK-M4-I` 已完成。PathKeep 現在正式 shipping deterministic `open-loop` / `revisit` highlights、Chromium query-evolution ladders、Onboarding / Dashboard 的 browser-retention honesty，以及 `readable-content-refetch` 內建的 YouTube / Vimeo video metadata adapters。這輪仍沒有把 M4 寫成「plugin sandbox / enrichment queue / long-horizon intelligence 全部完成」；剩餘 M4 主線現在收斂到 `WORK-M4-K` 與 `WORK-M4-L`。
+
 ---
 
 ## M4 的完成定義
@@ -53,6 +55,6 @@
 - [~] `M4-001` enrichment 和 remote backup 完成基本可用版本。
   - remote backup PME、derived-state v1 與 `readable-content-refetch` 已交付；plugin sandbox、獨立 queue family 與更多 core plugins 仍未 shipping。
 - [~] `M4-002` advanced insights 和 storage analytics 完成。
-  - storage analytics、scoped insights、semantic / assistant truth boundary 已交付；revisit / resurfacing 與 long-horizon advanced intelligence 仍未 shipping，也尚未完成 60-year perf signoff。
+  - storage analytics、scoped insights、semantic / assistant truth boundary、deterministic revisit / open-loop / query ladders、browser-retention honesty 與 video site adapters 已交付；plugin sandbox、獨立 enrichment queue family 與更長 horizon 的 intelligence families 仍未完成。
 - [x] `M4-003` macOS / Windows / Linux 都完成至少一輪真正的發版前驗證。
 - [x] `M4-004` README、CONTRIBUTING、release pipeline 和 docs 皆對齊最終產品。
