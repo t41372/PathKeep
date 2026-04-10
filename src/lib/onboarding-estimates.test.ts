@@ -14,6 +14,10 @@ const profiles: BrowserProfile[] = [
     historyBytes: 100,
     faviconsBytes: 10,
     supportingBytes: 5,
+    retentionBoundary: {
+      kind: 'browser-managed',
+      localDays: null,
+    },
   },
   {
     profileId: 'firefox:default-release',
@@ -26,6 +30,10 @@ const profiles: BrowserProfile[] = [
     historyBytes: 60,
     faviconsBytes: 15,
     supportingBytes: 5,
+    retentionBoundary: {
+      kind: 'browser-managed',
+      localDays: null,
+    },
   },
   {
     profileId: 'safari:main',
@@ -38,6 +46,10 @@ const profiles: BrowserProfile[] = [
     historyBytes: 500,
     faviconsBytes: 20,
     supportingBytes: 5,
+    retentionBoundary: {
+      kind: 'macos-safari',
+      localDays: 365,
+    },
   },
 ]
 

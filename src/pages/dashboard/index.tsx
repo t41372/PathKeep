@@ -8,6 +8,7 @@ import {
   Skeleton,
 } from '../../components/primitives/skeleton'
 import { backend } from '../../lib/backend'
+import { browserRetentionMeta } from '../../lib/browser-retention'
 import {
   calendarDayKey,
   formatBytes,
@@ -35,7 +36,7 @@ import {
   runTypeKey,
   sourceKindFromProfileScope,
 } from '../../lib/trust-review'
-import type { InsightSnapshot } from '../../lib/types'
+import type { BrowserProfile, InsightSnapshot } from '../../lib/types'
 
 function isBackupReadyProfile(profile: {
   profileId: string
@@ -64,6 +65,7 @@ export function DashboardPage() {
   const { dashboard, error, loading, refreshKey, snapshot } = useShellData()
   const { language, t, ns } = useI18n()
   const { activeProfileId } = useProfileScope()
+  const commonT = ns('common')
   const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
   const [insights, setInsights] = useState<InsightSnapshot | null>(null)
@@ -190,6 +192,36 @@ export function DashboardPage() {
       .join(' · ')
   }
 
+  function renderProfileBoundary(profile: BrowserProfile) {
+    const retention = browserRetentionMeta(profile, commonT)
+
+    return (
+      <div key={profile.profileId} className="otd-item">
+        <div className={`browser-icon ${browserIconClass(profile.profileId)}`}>
+          {browserIconLetter(profile.profileId)}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div className="otd-title">
+            {profile.browserName} / {profile.profileName}
+          </div>
+          <div className="otd-meta mono">
+            {profile.historyExists
+              ? t('dashboard.historyDetected')
+              : t('dashboard.historyMissing')}
+          </div>
+          {profile.historyExists ? (
+            <>
+              <div className="otd-meta">{retention.label}</div>
+              <div className="mono-support">
+                {retention.body} {commonT('browserRetentionArchiveBoundary')}
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
   const storageSegments = [
     {
       label: t('dashboard.archiveDatabase'),
@@ -302,25 +334,7 @@ export function DashboardPage() {
               </div>
               <div className="panel-body">
                 {selectedProfiles.length > 0 ? (
-                  selectedProfiles.map((profile) => (
-                    <div key={profile.profileId} className="otd-item">
-                      <div
-                        className={`browser-icon ${browserIconClass(profile.profileId)}`}
-                      >
-                        {browserIconLetter(profile.profileId)}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div className="otd-title">
-                          {profile.browserName} / {profile.profileName}
-                        </div>
-                        <div className="otd-meta mono">
-                          {profile.historyExists
-                            ? t('dashboard.historyDetected')
-                            : t('dashboard.historyMissing')}
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                  selectedProfiles.map(renderProfileBoundary)
                 ) : (
                   <p className="dashboard-next-action">
                     {t('dashboard.zeroStateNoBrowsers')}
@@ -515,25 +529,7 @@ export function DashboardPage() {
               </span>
             </div>
             <div className="panel-body">
-              {selectedProfiles.map((profile) => (
-                <div key={profile.profileId} className="otd-item">
-                  <div
-                    className={`browser-icon ${browserIconClass(profile.profileId)}`}
-                  >
-                    {browserIconLetter(profile.profileId)}
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="otd-title">
-                      {profile.browserName} / {profile.profileName}
-                    </div>
-                    <div className="otd-meta mono">
-                      {profile.historyExists
-                        ? t('dashboard.historyDetected')
-                        : t('dashboard.historyMissing')}
-                    </div>
-                  </div>
-                </div>
-              ))}
+              {selectedProfiles.map(renderProfileBoundary)}
             </div>
           </div>
 

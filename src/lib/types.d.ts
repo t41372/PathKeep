@@ -414,6 +414,12 @@ export interface BrowserProfile {
   historyBytes: number
   faviconsBytes: number
   supportingBytes: number
+  retentionBoundary: BrowserRetentionBoundary
+}
+
+export interface BrowserRetentionBoundary {
+  kind: 'browser-managed' | 'macos-safari'
+  localDays?: number | null
 }
 
 export interface BackupRunOverview {

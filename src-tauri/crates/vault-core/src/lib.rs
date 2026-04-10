@@ -3,6 +3,7 @@ pub mod ai_queue;
 pub mod ai_sidecar;
 pub mod app_lock;
 pub mod archive;
+mod browser_retention;
 pub mod chrome;
 pub mod config;
 pub mod git_audit;

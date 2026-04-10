@@ -24,6 +24,10 @@ const safariProfile: BrowserProfile = {
   historyBytes: 18 * 1024 * 1024,
   faviconsBytes: 0,
   supportingBytes: 2 * 1024 * 1024,
+  retentionBoundary: {
+    kind: 'macos-safari',
+    localDays: 365,
+  },
 }
 
 const scheduleStatus: ScheduleStatus = {

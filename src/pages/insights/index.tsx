@@ -41,6 +41,26 @@ import type {
 
 const topicColors = ['#FF7832', '#4ECDC4', '#FFE66D', '#FF6B6B', '#89CFF0']
 
+function queryStageLabel(
+  stage: string,
+  t: (key: string, values?: Record<string, number | string>) => string,
+) {
+  switch (stage) {
+    case 'compare':
+      return t('queryStageCompare')
+    case 'site-restrict':
+      return t('queryStageSiteRestrict')
+    case 'error-driven':
+      return t('queryStageErrorDriven')
+    case 'narrowing':
+      return t('queryStageNarrowing')
+    case 'broadening':
+      return t('queryStageBroadening')
+    default:
+      return t('queryStageBroad')
+  }
+}
+
 export function InsightsPage() {
   const { language, ns } = useI18n()
   const { dashboard, refreshAppData, refreshKey, snapshot } = useShellData()
@@ -582,6 +602,69 @@ export function InsightsPage() {
               </span>
               <span>{insights.generatedAt.slice(0, 10)}</span>
             </div>
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('queryEvolution')}</span>
+            <span className="panel-action">
+              {insightsT('chromiumEnhanced')}
+            </span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            <p className="summary-text">
+              {insightsT('queryEvolutionDescription')}
+            </p>
+            {insights.queryLadders.length > 0 ? (
+              <div className="intelligence-result-list">
+                {insights.queryLadders.map((ladder) => {
+                  const params = new URLSearchParams()
+                  params.set(
+                    'q',
+                    ladder.steps[ladder.steps.length - 1] ?? ladder.rootTerm,
+                  )
+                  params.set('mode', 'keyword')
+                  if (ladder.profileId) {
+                    params.set('profileId', ladder.profileId)
+                  }
+
+                  return (
+                    <Link
+                      key={`${ladder.profileId}-${ladder.rootTerm}`}
+                      className="result-row"
+                      to={`/explorer?${params.toString()}`}
+                    >
+                      <div className="result-row__header">
+                        <strong>{ladder.rootTerm}</strong>
+                        <span className="mono-support">
+                          {insightsT('queryEvolutionSteps', {
+                            count: ladder.steps.length,
+                          })}
+                        </span>
+                      </div>
+                      <p>{ladder.steps.join(' -> ')}</p>
+                      <div className="result-row__meta">
+                        <span className="mono-support">
+                          {ladder.stages
+                            .map((stage) => queryStageLabel(stage, insightsT))
+                            .join(' · ')}
+                        </span>
+                        <span className="mono-support">
+                          {profileIdLabel(ladder.profileId)}
+                        </span>
+                      </div>
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState
+                description={insightsT('queryEvolutionEmptyDescription')}
+                eyebrow={insightsT('queryEvolution')}
+                title={insightsT('queryEvolutionEmptyTitle')}
+              />
+            )}
           </div>
         </div>
 

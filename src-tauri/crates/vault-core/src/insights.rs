@@ -1,3 +1,5 @@
+mod site_adapters;
+
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
     archive::{create_schema, open_archive_connection},
@@ -17,6 +19,7 @@ use reqwest::blocking::Client;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use scraper::{Html, Selector};
 use serde_json::{Value, json};
+use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
 const INSIGHT_PIPELINE_VERSION: &str = "insights-v1";
@@ -963,7 +966,7 @@ fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
 
     let snippets = blocks.iter().take(SNIPPET_LIMIT).cloned().collect::<Vec<_>>();
     let readable_text = truncate_text(&blocks.join("\n\n"), ENRICH_TEXT_LIMIT);
-    EnrichmentResult {
+    let generic_result = EnrichmentResult {
         status: if readable_text.is_empty() { "empty".to_string() } else { "success".to_string() },
         final_url,
         language,
@@ -975,7 +978,45 @@ fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
             "snippetCount": snippets.len(),
             "textLength": snippets.iter().map(|value| value.len()).sum::<usize>(),
         }),
+    };
+
+    if let Some(adapter) = adapt_site_content(url, &document) {
+        let readable_title =
+            adapter.readable_title.or_else(|| generic_result.readable_title.clone());
+        let readable_text = adapter
+            .readable_text
+            .map(|value| truncate_text(&value, ENRICH_TEXT_LIMIT))
+            .or_else(|| generic_result.readable_text.clone());
+        let snippets = if adapter.snippets.is_empty() {
+            generic_result.snippets.clone()
+        } else {
+            adapter.snippets.into_iter().take(SNIPPET_LIMIT).collect()
+        };
+
+        return EnrichmentResult {
+            status: if readable_text.as_deref().is_some_and(|value| !value.is_empty()) {
+                "success".to_string()
+            } else {
+                generic_result.status
+            },
+            final_url: generic_result.final_url,
+            language: generic_result.language,
+            readable_title,
+            readable_text,
+            snippets: snippets.clone(),
+            extraction: json!({
+                "contentType": content_type,
+                "snippetCount": snippets.len(),
+                "textLength": snippets.iter().map(|value| value.len()).sum::<usize>(),
+                "siteAdapter": {
+                    "id": adapter.adapter_id,
+                    "metadata": adapter.metadata,
+                },
+            }),
+        };
     }
+
+    generic_result
 }
 
 fn store_enrichment(
@@ -1735,7 +1776,7 @@ fn build_query_ladders(
     let mut current: Option<InsightQueryLadder> = None;
     let mut previous_query: Option<(String, i64)> = None;
     for visit in visits {
-        let Some((_, query_term, stage)) = features.get(&visit.history_id) else {
+        let Some((_, query_term, _)) = features.get(&visit.history_id) else {
             continue;
         };
         let Some(query_term) = query_term.clone() else {
@@ -1751,28 +1792,37 @@ fn build_query_ladders(
                 ) >= 0.2
         });
         if !continues {
-            if let Some(current) = current.take() {
+            if let Some(current) = current.take()
+                && current.steps.len() > 1
+            {
                 ladders.push(current);
             }
             current = Some(InsightQueryLadder {
                 root_term: query_term.clone(),
                 profile_id: visit.profile_id.clone(),
                 steps: vec![query_term.clone()],
-                stages: vec![stage.clone()],
+                stages: vec![classify_query_stage(Some(&query_term), None)],
                 count: 1,
                 chromium_only: true,
             });
         } else if let Some(current) = &mut current {
-            current.steps.push(query_term.clone());
-            current.stages.push(stage.clone());
+            let previous = current.steps.last().cloned();
+            if current.steps.last() != Some(&query_term) {
+                current.steps.push(query_term.clone());
+                current.stages.push(classify_query_stage(Some(&query_term), previous.as_deref()));
+            }
             current.count += 1;
         }
         previous_query = Some((query_term, visit.visit_time));
     }
-    if let Some(current) = current {
+    if let Some(current) = current
+        && current.steps.len() > 1
+    {
         ladders.push(current);
     }
-    ladders.sort_by(|left, right| right.count.cmp(&left.count));
+    ladders.sort_by(|left, right| {
+        right.steps.len().cmp(&left.steps.len()).then(right.count.cmp(&left.count))
+    });
     ladders.truncate(6);
     ladders
 }
@@ -1973,7 +2023,7 @@ fn evidence_from_visit(visit: &VisitRecord, note: Option<String>) -> InsightEvid
         history_id: visit.history_id,
         profile_id: visit.profile_id.clone(),
         url: visit.url.clone(),
-        title: visit.title.clone().or_else(|| visit.readable_title.clone()),
+        title: visit.readable_title.clone().or_else(|| visit.title.clone()),
         visited_at: visit.visited_at.clone(),
         note,
     }
@@ -2319,7 +2369,7 @@ fn build_topic_label(topic: &TopicAccumulator, visits: &[VisitRecord]) -> String
         .iter()
         .rev()
         .find_map(|index| {
-            visits[*index].title.clone().or_else(|| visits[*index].readable_title.clone())
+            visits[*index].readable_title.clone().or_else(|| visits[*index].title.clone())
         })
         .unwrap_or_else(|| top_keyword.clone());
     if title.to_lowercase().contains(&top_keyword) {
@@ -2367,7 +2417,7 @@ fn build_thread_title(thread: &ThreadAccumulator, visits: &[VisitRecord]) -> Str
         return query;
     }
     if let Some(title) = thread.visit_indexes.iter().rev().find_map(|index| {
-        visits[*index].title.clone().or_else(|| visits[*index].readable_title.clone())
+        visits[*index].readable_title.clone().or_else(|| visits[*index].title.clone())
     }) {
         return title;
     }
@@ -2510,8 +2560,9 @@ mod tests {
         let visit_one = (Utc::now() - Duration::days(10)).to_rfc3339();
         let visit_two = (Utc::now() - Duration::days(10) + Duration::minutes(12)).to_rfc3339();
         let visit_three = (Utc::now() - Duration::days(8)).to_rfc3339();
-        let visit_four = (Utc::now() - Duration::days(2)).to_rfc3339();
-        let visit_five = (Utc::now() - Duration::days(365)).to_rfc3339();
+        let visit_four = (Utc::now() - Duration::days(8) + Duration::minutes(28)).to_rfc3339();
+        let visit_five = (Utc::now() - Duration::days(2)).to_rfc3339();
+        let visit_six = (Utc::now() - Duration::days(365)).to_rfc3339();
         connection
             .execute(
                 "INSERT INTO visit_events
@@ -2520,8 +2571,9 @@ mod tests {
                  (1, 'chrome:Default', 1, 1, 'https://example.com/docs/archive', 'Archive docs', ?1, NULL, 805306368, 24000, 1, NULL, 'https://google.com', NULL, 'a', 'a', ?6),
                  (2, 'chrome:Default', 2, 2, 'https://github.com/example/repo/issues/1', 'Issue one', ?2, 1, 805306368, 12000, 1, NULL, NULL, NULL, 'b', 'b', ?7),
                  (3, 'chrome:Default', 3, 3, 'https://www.google.com/search?q=archive+tool+compare', 'Google Search', ?3, NULL, 805306368, 6000, 1, NULL, NULL, NULL, 'c', 'c', ?8),
-                 (4, 'chrome:Default', 4, 4, 'https://example.com/pricing', 'Pricing', ?4, NULL, 805306368, 8000, 1, NULL, NULL, NULL, 'd', 'd', ?9),
-                 (5, 'chrome:Default', 5, 5, 'https://example.com/on-this-day', 'On this day', ?5, NULL, 805306368, 5000, 1, NULL, NULL, NULL, 'e', 'e', ?10)",
+                 (4, 'chrome:Default', 4, 4, 'https://www.google.com/search?q=archive+tool+compare+github', 'Google Search Refined', ?4, NULL, 805306368, 8000, 1, NULL, NULL, NULL, 'd', 'd', ?9),
+                 (5, 'chrome:Default', 5, 5, 'https://example.com/pricing', 'Pricing', ?5, NULL, 805306368, 5000, 1, NULL, NULL, NULL, 'e', 'e', ?10),
+                 (6, 'chrome:Default', 6, 6, 'https://example.com/on-this-day', 'On this day', ?11, NULL, 805306368, 5000, 1, NULL, NULL, NULL, 'f', 'f', ?12)",
                 params![
                     iso_to_chrome_time_micros(&visit_one).expect("visit one chrome time"),
                     iso_to_chrome_time_micros(&visit_two).expect("visit two chrome time"),
@@ -2533,6 +2585,8 @@ mod tests {
                     visit_three,
                     visit_four,
                     visit_five,
+                    iso_to_chrome_time_micros(&visit_six).expect("visit six chrome time"),
+                    visit_six,
                 ],
             )
             .expect("insert visits");
@@ -2548,7 +2602,8 @@ mod tests {
                    keyword_id,
                    recorded_at
                  )
-                 VALUES (
+                 VALUES
+                 (
                    3,
                    'archive tool compare',
                    'archive tool compare',
@@ -2557,8 +2612,18 @@ mod tests {
                    'chrome:Default',
                    1,
                    ?1
+                 ),
+                 (
+                   4,
+                   'archive tool compare github',
+                   'archive tool compare github',
+                   (SELECT id FROM source_profiles WHERE profile_key = 'chrome:Default'),
+                   0,
+                   'chrome:Default',
+                   2,
+                   ?2
                  )",
-                [visit_three],
+                params![visit_three, visit_four],
             )
             .expect("insert search term");
     }
@@ -2604,6 +2669,8 @@ mod tests {
         assert!(!snapshot.threads.is_empty());
         assert!(!snapshot.canonical.on_this_day.is_empty());
         assert!(!snapshot.canonical.top_domains.is_empty());
+        assert!(!snapshot.query_ladders.is_empty());
+        assert!(snapshot.query_ladders[0].steps.len() > 1);
         assert!(snapshot.workflow_map.chromium_enhanced);
     }
 

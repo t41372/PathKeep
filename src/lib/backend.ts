@@ -220,6 +220,10 @@ const mockSnapshot: AppSnapshot = {
       historyBytes: 58 * 1024 * 1024,
       faviconsBytes: 14 * 1024 * 1024,
       supportingBytes: 6 * 1024 * 1024,
+      retentionBoundary: {
+        kind: 'browser-managed',
+        localDays: null,
+      },
     },
     {
       profileId: 'chrome:Profile 2',
@@ -238,6 +242,10 @@ const mockSnapshot: AppSnapshot = {
       historyBytes: 312 * 1024 * 1024,
       faviconsBytes: 20 * 1024 * 1024,
       supportingBytes: 14 * 1024 * 1024,
+      retentionBoundary: {
+        kind: 'browser-managed',
+        localDays: null,
+      },
     },
     {
       profileId: 'chrome:Profile 5',
@@ -256,6 +264,10 @@ const mockSnapshot: AppSnapshot = {
       historyBytes: 24 * 1024 * 1024,
       faviconsBytes: 8 * 1024 * 1024,
       supportingBytes: 3 * 1024 * 1024,
+      retentionBoundary: {
+        kind: 'browser-managed',
+        localDays: null,
+      },
     },
     {
       profileId: 'safari:default',
@@ -272,6 +284,10 @@ const mockSnapshot: AppSnapshot = {
       historyBytes: 18 * 1024 * 1024,
       faviconsBytes: 0,
       supportingBytes: 2 * 1024 * 1024,
+      retentionBoundary: {
+        kind: 'macos-safari',
+        localDays: 365,
+      },
     },
   ],
   recentRuns: [],

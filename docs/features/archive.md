@@ -26,6 +26,7 @@
   3. 解析並寫入 archive 數據庫。
   4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
+- Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - 備份是**增量的**：只新增/更新有變化的記錄。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
@@ -263,6 +264,7 @@
 - `readable-content-refetch` 目前掛在 insights rebuild flow，而不是獨立的 canonical ingest pipeline；它只能寫入 derived enrichment / insight tables，不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
 - manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild；derived refresh 仍然是 explicit follow-up，由 Insights / Settings 的 rebuild surface 觸發，避免大型真實 profile 把核心 archive run 拖成整段不可操作。
 - v1 的 freshness window 是 7 天；refetch client 採 10 秒 timeout、最多 5 次 redirect，`fetch-error`、`decode-error`、`unsupported-content`、`empty` 都視為 non-blocking derived failure，會留在 run notes / rebuild report，而不會讓核心 archive run 失敗。
+- `readable-content-refetch` v1 目前也包含一小組 built-in site adapters，先正式支援影片站 metadata parse（`youtube.com` / `youtu.be` / `vimeo.com`）。這些 adapter 只會回寫 derived enrichment metadata（如影片標題、頻道 / 作者、時長、描述、發布時間），不會改寫 canonical archive facts，也不代表 day-one 已有完整的多 plugin sandbox / queue family。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
 - 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。
 

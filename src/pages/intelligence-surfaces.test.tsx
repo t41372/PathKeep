@@ -250,6 +250,7 @@ describe('intelligence surfaces', () => {
   test('renders localized dashboard intelligence and trust callouts', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
     const dashboardT = createNamespaceTranslator('zh-TW', 'dashboard')
+    const commonT = createNamespaceTranslator('zh-TW', 'common')
 
     enableAi(snapshot)
     snapshot.config.rememberDatabaseKeyInKeyring = true
@@ -269,6 +270,10 @@ describe('intelligence surfaces', () => {
       historyBytes: 18 * 1024 * 1024,
       faviconsBytes: 0,
       supportingBytes: 2 * 1024 * 1024,
+      retentionBoundary: {
+        kind: 'macos-safari',
+        localDays: 365,
+      },
     })
     snapshot.config.selectedProfileIds.push('safari:Personal')
 
@@ -294,6 +299,14 @@ describe('intelligence surfaces', () => {
     expect(
       screen.getAllByRole('link', { name: dashboardT('reviewImportBatches') }),
     ).toHaveLength(2)
+    expect(
+      screen.getByText(commonT('browserRetentionManagedLabel')),
+    ).toBeVisible()
+    expect(
+      screen.getAllByText((content) =>
+        content.includes(commonT('browserRetentionArchiveBoundary')),
+      ).length,
+    ).toBeGreaterThan(0)
   })
 
   test('renders dashboard on-this-day and periodic summary cards without leaking raw i18n keys', async () => {
@@ -504,7 +517,7 @@ describe('intelligence surfaces', () => {
     await waitFor(() => expect(querySpy).toHaveBeenCalledTimes(2))
   })
 
-  test('renders insights snapshot and explainability flow', async () => {
+  test('renders insights snapshot, query ladders, and explainability flow', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const insightsT = createNamespaceTranslator('en', 'insights')
@@ -596,7 +609,20 @@ describe('intelligence surfaces', () => {
           ],
         },
       ],
-      queryLadders: [],
+      queryLadders: [
+        {
+          rootTerm: 'archive tool',
+          profileId: 'chrome:Default',
+          steps: [
+            'archive tool',
+            'archive tool compare',
+            'site:github.com archive tool',
+          ],
+          stages: ['broad', 'compare', 'site-restrict'],
+          count: 3,
+          chromiumOnly: true,
+        },
+      ],
       workflowMap: {
         profileId: 'chrome:Default',
         roles: [],
@@ -645,6 +671,12 @@ describe('intelligence surfaces', () => {
       (await screen.findAllByText(insightsT('insightCards'))).length,
     ).toBeGreaterThan(0)
     expect(await screen.findByText('Semantic recall drift')).toBeVisible()
+    expect(await screen.findByText(insightsT('queryEvolution'))).toBeVisible()
+    expect(
+      screen.getByText(
+        'archive tool -> archive tool compare -> site:github.com archive tool',
+      ),
+    ).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: insightsT('explain') }))
 

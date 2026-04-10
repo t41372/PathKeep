@@ -1,4 +1,5 @@
 use crate::{
+    browser_retention::retention_boundary_for_browser,
     config::ProjectPaths,
     models::BrowserProfile,
     utils::{file_sha256_hex, now_rfc3339},
@@ -262,6 +263,7 @@ fn discover_chromium_profiles(
                 history_bytes,
                 favicons_bytes,
                 supporting_bytes,
+                retention_boundary: retention_boundary_for_browser(definition.family),
             });
         }
     }
@@ -434,6 +436,7 @@ fn fallback_chromium_profiles(
             history_bytes,
             favicons_bytes,
             supporting_bytes,
+            retention_boundary: retention_boundary_for_browser(definition.family),
         });
     }
     Ok(profiles)
@@ -471,6 +474,7 @@ fn direct_root_chromium_profile(
         history_bytes,
         favicons_bytes,
         supporting_bytes,
+        retention_boundary: retention_boundary_for_browser(definition.family),
     })
 }
 
@@ -516,6 +520,7 @@ fn discover_firefox_profiles(definition: FirefoxBrowserDefinition) -> Result<Vec
                 history_bytes,
                 favicons_bytes,
                 supporting_bytes,
+                retention_boundary: retention_boundary_for_browser("firefox"),
             });
         }
     }
@@ -641,6 +646,7 @@ fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
         history_bytes,
         favicons_bytes,
         supporting_bytes,
+        retention_boundary: retention_boundary_for_browser("safari"),
     }))
 }
 
@@ -948,6 +954,7 @@ mod tests {
             history_bytes: 10,
             favicons_bytes: 0,
             supporting_bytes: 7,
+            retention_boundary: retention_boundary_for_browser("firefox"),
         };
 
         let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot");

@@ -423,6 +423,61 @@ describe('ShellDataProvider', () => {
     expect(keyringSpy).toHaveBeenCalledTimes(1)
   })
 
+  test('keeps the locked snapshot when the keyring returns no database key', async () => {
+    const { dashboard, snapshot } = await seedSnapshot()
+    const rememberedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        rememberDatabaseKeyInKeyring: true,
+      },
+      archiveStatus: {
+        ...snapshot.archiveStatus,
+        encrypted: true,
+        unlocked: false,
+      },
+      keyringStatus: {
+        ...snapshot.keyringStatus,
+        available: true,
+        storedSecret: true,
+      },
+    }
+
+    const keyringSpy = vi
+      .spyOn(backend, 'keyringGetDatabaseKey')
+      .mockResolvedValue(null)
+    const sessionSpy = vi
+      .spyOn(backend, 'setSessionDatabaseKey')
+      .mockResolvedValue(undefined)
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(rememberedSnapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(
+      snapshot.appLockStatus,
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(keyringSpy).toHaveBeenCalledTimes(1)
+    expect(sessionSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false')
+  })
+
   test('uses the paint fallback and surfaces refresh errors without breaking follow-up saves', async () => {
     const user = userEvent.setup()
     const translator = createTranslator('en')

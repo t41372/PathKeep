@@ -7,6 +7,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { backend } from '../../lib/backend'
+import { browserRetentionMeta } from '../../lib/browser-retention'
 import { formatBytes } from '../../lib/format'
 import { estimateOnboardingStorage } from '../../lib/onboarding-estimates'
 import type { SchedulePlan } from '../../lib/types'
@@ -336,6 +337,7 @@ export function OnboardingPage() {
                   const selected = snapshot.config.selectedProfileIds.includes(
                     profile.profileId,
                   )
+                  const retention = browserRetentionMeta(profile, commonT)
                   const toggleProfile = () => {
                     const nextSelected = selected
                       ? snapshot.config.selectedProfileIds.filter(
@@ -412,6 +414,30 @@ export function OnboardingPage() {
                                   profile.historyFileName,
                                 )}
                         </span>
+                        {profile.historyExists ? (
+                          <>
+                            <span
+                              className="mono dim"
+                              style={{
+                                fontSize: '10px',
+                                marginTop: '2px',
+                                display: 'block',
+                              }}
+                            >
+                              {retention.label}
+                            </span>
+                            <span
+                              className="mono dim"
+                              style={{
+                                fontSize: '10px',
+                                marginTop: '2px',
+                                display: 'block',
+                              }}
+                            >
+                              {commonT('browserRetentionArchiveBoundary')}
+                            </span>
+                          </>
+                        ) : null}
                       </div>
                     </label>
                   )

@@ -57,6 +57,7 @@
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
 - Schedule 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
+- Onboarding 與 Dashboard 的 browser profile surface 現在也屬於 trust-critical review surface：除了 `history found / missing` 之外，還要顯示 browser-retention honesty，明講 browser-managed local history 可能在下一次 backup 前消失，而 PathKeep 只有在成功 backup 後才開始提供 append-only 保存。
 
 ---
 

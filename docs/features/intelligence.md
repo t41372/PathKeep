@@ -184,6 +184,7 @@
 
 - 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。
 - On This Day、Site Analytics、Periodic Summary、Topic Timeline 都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
+- deterministic intelligence baseline 也屬於正式 shipping surface：`open-loop` / `revisit` cards 與 `query ladders` 必須在沒有 embedding / LLM 時仍可用；`query ladders` 只在 Chromium search term evidence 形成至少 2-step refinement 時顯示，並能 deep-link 回 Explorer 的 canonical query。
 - 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 Insights / Dashboard intelligence 區塊變空白。
 - explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
 - zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
@@ -195,6 +196,7 @@
 - storage analytics 目前用四個 slice 呈現磁碟分佈：`core`、`audit`、`exports`、`rebuildable`。`rebuildable` 代表 staging / quarantine 一類可重建或可清理資產，不能和 canonical archive facts 混為一談。
 - Settings 頁必須提供 enrichment / derived-state panel，顯示 `readable-content-refetch` 的 version、queue、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。
 - `readable-content-refetch` 是目前唯一正式落地的 enrichment plugin，預設啟用、freshness window 7 天。停用後，insight rebuild 必須誠實說明已回退到 canonical archive + lexical / structural signals，而不是假裝仍有 readable content coverage。
+- `readable-content-refetch` 目前也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。這仍屬同一個 plugin 的 derived parse，不代表 repo 已經有獨立的 plugin sandbox 或多 queue family。
 - derived intelligence refresh 仍是 explicit action；manual backup / import 完成後不應同步綁住 UI 等待 insights rebuild。若使用者要最新 derived state，從 Insights / Settings 主動觸發 rebuild，並在 UI 上看到明確 progress / notes。
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。

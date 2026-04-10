@@ -441,6 +441,13 @@ pub struct AiQueueStatus {
     pub recent_jobs: Vec<AiQueueJob>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserRetentionBoundary {
+    pub kind: String,
+    pub local_days: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserProfile {
@@ -458,6 +465,7 @@ pub struct BrowserProfile {
     pub history_bytes: u64,
     pub favicons_bytes: u64,
     pub supporting_bytes: u64,
+    pub retention_boundary: BrowserRetentionBoundary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

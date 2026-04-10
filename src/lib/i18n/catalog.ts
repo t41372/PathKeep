@@ -313,6 +313,19 @@ const zhCnM3Namespaces = {
     noSiteAnalyticsTitle: '还没有网站统计',
     noSiteAnalyticsDescription:
       '首次生成洞察并包含浏览数据后，这里会显示你最常访问的网站。',
+    queryEvolution: '搜索演化',
+    queryEvolutionDescription:
+      '把最近的搜索改写整理成可追溯的 deterministic ladder。',
+    queryEvolutionEmptyTitle: '还没有搜索演化',
+    queryEvolutionEmptyDescription:
+      'Chromium 搜索词被归档后，这里才会显示搜索改写路径。',
+    queryEvolutionSteps: '{count} 步',
+    queryStageBroad: '宽泛',
+    queryStageNarrowing: '收窄',
+    queryStageBroadening: '放宽',
+    queryStageCompare: '比较',
+    queryStageSiteRestrict: '站点限定',
+    queryStageErrorDriven: '错误驱动',
     periodicSummary: '阶段总结',
     periodicSummaryFallbackWindow:
       '当前时间范围共捕获了 {visits} 条访问记录，覆盖 {domains} 个网站域名。',
@@ -634,6 +647,19 @@ const zhTwM3Namespaces = {
     noSiteAnalyticsTitle: '還沒有網站統計',
     noSiteAnalyticsDescription:
       '首次產生洞察並包含瀏覽資料後，這裡會顯示你最常造訪的網站。',
+    queryEvolution: '搜尋演化',
+    queryEvolutionDescription:
+      '把最近的搜尋改寫整理成可追溯的 deterministic ladder。',
+    queryEvolutionEmptyTitle: '還沒有搜尋演化',
+    queryEvolutionEmptyDescription:
+      'Chromium 搜尋詞被歸檔後，這裡才會顯示搜尋改寫路徑。',
+    queryEvolutionSteps: '{count} 步',
+    queryStageBroad: '寬泛',
+    queryStageNarrowing: '收窄',
+    queryStageBroadening: '放寬',
+    queryStageCompare: '比較',
+    queryStageSiteRestrict: '站點限定',
+    queryStageErrorDriven: '錯誤驅動',
     periodicSummary: '階段總結',
     periodicSummaryFallbackWindow:
       '目前時間範圍共捕獲了 {visits} 筆瀏覽紀錄，涵蓋 {domains} 個網站網域。',
@@ -704,6 +730,14 @@ const catalog: Record<
       profileAllProfiles: 'All profiles',
       profileScope: 'Profile scope',
       profileSwitchLabel: 'Switch profile scope',
+      browserRetentionManagedLabel: 'Browser-managed retention',
+      browserRetentionManagedBody:
+        'This browser controls how long local history stays available. Older visits can disappear before PathKeep backs them up.',
+      browserRetentionSafariLabel: 'Up to {days} days on this Mac',
+      browserRetentionSafariBody:
+        'Safari history on this Mac is shorter-lived than your archive. Older visits can age out even if PathKeep never deletes them.',
+      browserRetentionArchiveBoundary:
+        'PathKeep only preserves visits after a backup, then keeps an append-only copy.',
       pending: 'Pending',
       current: 'Current',
       complete: 'Complete',
@@ -1792,6 +1826,19 @@ const catalog: Record<
       noSiteAnalyticsTitle: 'No site data yet',
       noSiteAnalyticsDescription:
         'Site stats will appear after the first insights analysis.',
+      queryEvolution: 'QUERY EVOLUTION',
+      queryEvolutionDescription:
+        'Recent search refinements grouped into deterministic ladders.',
+      queryEvolutionEmptyTitle: 'No query ladders yet',
+      queryEvolutionEmptyDescription:
+        'Search refinements appear after Chromium query terms are archived.',
+      queryEvolutionSteps: '{count} steps',
+      queryStageBroad: 'Broad',
+      queryStageNarrowing: 'Narrowing',
+      queryStageBroadening: 'Broadening',
+      queryStageCompare: 'Compare',
+      queryStageSiteRestrict: 'Site restrict',
+      queryStageErrorDriven: 'Error driven',
       periodicSummary: 'SUMMARY',
       periodicSummaryFallbackWindow:
         'Captured {visits} visits across {domains} domains in the current window.',
@@ -1975,6 +2022,14 @@ const catalog: Record<
       profileAllProfiles: '全部浏览器',
       profileScope: '筛选范围',
       profileSwitchLabel: '切换浏览器筛选',
+      browserRetentionManagedLabel: '浏览器自行管理保留期',
+      browserRetentionManagedBody:
+        '这个浏览器会自己决定本地历史能保留多久。较早的记录可能会在 PathKeep 备份前就消失。',
+      browserRetentionSafariLabel: '这台 Mac 上最多约 {days} 天',
+      browserRetentionSafariBody:
+        '这台 Mac 上的 Safari 历史比你的归档更短命。较早的记录可能会自然过期，即使 PathKeep 从未删除它们。',
+      browserRetentionArchiveBoundary:
+        'PathKeep 只会保留备份时看到的记录，之后会以 append-only 方式持续保存。',
       pending: '待处理',
       current: '当前',
       complete: '已完成',
@@ -2857,6 +2912,14 @@ const catalog: Record<
       profileAllProfiles: '所有瀏覽器',
       profileScope: '篩選範圍',
       profileSwitchLabel: '切換瀏覽器篩選',
+      browserRetentionManagedLabel: '瀏覽器自行管理保留期',
+      browserRetentionManagedBody:
+        '這個瀏覽器會自行決定本地歷史能保留多久。較早的紀錄可能會在 PathKeep 備份前就消失。',
+      browserRetentionSafariLabel: '這台 Mac 上最多約 {days} 天',
+      browserRetentionSafariBody:
+        '這台 Mac 上的 Safari 歷史比你的封存更短命。較早的紀錄可能會自然過期，即使 PathKeep 從未刪除它們。',
+      browserRetentionArchiveBoundary:
+        'PathKeep 只會保留備份時看見的紀錄，之後會以 append-only 方式持續保存。',
       pending: '待處理',
       current: '目前',
       complete: '已完成',
