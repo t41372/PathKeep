@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useApp } from '../lib/app-context'
 import { formatDateTime } from '../lib/format'
 import { Glyph, StatusTag, Surface } from '../components/ui'
 import { backend } from '../lib/backend'
-import type { BackupReport, HealthReport } from '../lib/types'
+import type {
+  BackupReport,
+  HealthReport,
+  IntelligenceRuntimeSnapshot,
+} from '../lib/types'
 
 export function DashboardPage() {
   const {
@@ -23,6 +27,8 @@ export function DashboardPage() {
     null,
   )
   const [doctorReport, setDoctorReport] = useState<HealthReport | null>(null)
+  const [runtimeSnapshot, setRuntimeSnapshot] =
+    useState<IntelligenceRuntimeSnapshot | null>(null)
 
   // ------ derived health status ------
   const healthTone = !initialized
@@ -48,11 +54,28 @@ export function DashboardPage() {
   const recentRuns = snapshot?.recentRuns.slice(0, 5) ?? []
   const profileCount = snapshot?.config.selectedProfileIds.length ?? 0
 
+  useEffect(() => {
+    if (!initialized || !unlocked) return
+
+    let cancelled = false
+    void (async () => {
+      const next = await backend.loadIntelligenceRuntime()
+      if (!cancelled) setRuntimeSnapshot(next)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [initialized, unlocked])
+
   // ------ handlers ------
   async function handleBackupNow() {
     await runTask(t('runBackupNow'), async () => {
       const report = await backend.runBackupNow()
       setLastBackupReport(report)
+      if (initialized && unlocked) {
+        setRuntimeSnapshot(await backend.loadIntelligenceRuntime())
+      }
       if (report.dueSkipped) {
         setNotice(report.reason ?? t('backupSkipped'))
       } else {
@@ -116,6 +139,18 @@ export function DashboardPage() {
                   : '—'}
               </span>
               <span className="statLabel">{t('insightCoverage')}</span>
+            </div>
+            <div className="statCard">
+              <span className="statValue">
+                {runtimeSnapshot?.queue.queued ?? '—'}
+              </span>
+              <span className="statLabel">{t('queuedJobs')}</span>
+            </div>
+            <div className="statCard">
+              <span className="statValue">
+                {runtimeSnapshot?.queue.failed ?? '—'}
+              </span>
+              <span className="statLabel">{t('failedJobs')}</span>
             </div>
           </div>
         </Surface>

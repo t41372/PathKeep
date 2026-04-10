@@ -682,6 +682,10 @@ describe('AppNew integration', () => {
     render(<AppNew />)
     await screen.findByText('Overview')
     expect(screen.getAllByText('Archive healthy').length).toBeGreaterThan(0)
+    await waitFor(() =>
+      expect(mockBackend.loadIntelligenceRuntime).toHaveBeenCalled(),
+    )
+    expect(screen.getByText('Queued jobs')).toBeInTheDocument()
 
     await user.click(mainBtn(/Run backup now/))
     await waitFor(() => expect(mockBackend.runBackupNow).toHaveBeenCalled())
