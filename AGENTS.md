@@ -19,7 +19,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 1. 讀 `docs/plan/STATUS.md` — 找到第一個 `[ ]` work block
 2. 讀該 work block 的「讀先」列表裡的文檔（只讀列出的；如果列出的內容互相衝突、引用失效、或不足以完成工作，只補讀直接相關檔案並先修文檔）
 3. 執行整個 work block 的範圍；work block 的粒度約等於半個 milestone，可包含多個子任務
-4. 跑驗收命令：`bun run check && bun run build`
+4. 如果改了代碼，跑驗收命令：`bun run check && bun run build`
    - `bun run check` 已內含 desktop contract slice（`src/main.tsx`、`src/lib/ipc/bridge.ts`）的 targeted unit / coverage / mutation gate；不要把它誤讀成前端 shell / route / sidebar 也已驗收
 
 ### 收工（每完成一個 work block）
@@ -70,7 +70,6 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 ### UI 相關
 
-- 看 `reference/PathKeep — Desktop UI Design/` — 嚴格對齊設計稿
 - 看 `docs/design/screens-and-nav.md` — 畫面結構和導航規格
 - 看 `docs/design/ux-principles.md` — PME 模型
 - 看 `docs/design/design-tokens.md` — token 與 theme contract 的 source of truth
@@ -89,7 +88,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 - 先讀對應的 `docs/features/` 子文檔
 - 如果「讀先」文檔之間打架：先修文檔，讓 source of truth 恢復一致，再寫代碼
 - 新功能沒有 i18n 就不算完成：至少同步補齊翻譯 key、locale / pseudo-locale smoke、以及相關 literal guard / coverage
-- 完成後跑 `bun run check`，通過才提交
+- 代碼改動，完成後跑 `bun run check`，通過才提交
 
 ---
 
@@ -139,7 +138,7 @@ reference/
 1. **Trust & Transparency** — 所有操作走 PME 流程（Preview → Manual → Execute），沒有黑盒執行
 2. **Data Sovereignty** — 數據不上傳雲端，AI 也用本地或用戶自配的 provider
 3. **Longevity** — 設計壽命 20 年，選 SQLite/plaintext，不鎖死用戶
-4. **Intelligence Is Optional** — 沒有 AI provider 時 PathKeep 仍完整可用，AI 是增值層
+4. **Intelligence Is Optional** — 沒有 LLM 或 Embedding provider 時 PathKeep 仍完整可用，AI 是增值層
 5. **Recoverability** — 所有操作可回滾，用戶不因我們的 bug 永久丟失數據
 6. **Internationalization Is A Shipping Contract** — user-visible copy、honesty note、loading label、preview fixture text 都不是最後才補的 polish，而是開發當下就要交付的產品契約
 
@@ -195,4 +194,4 @@ bun run format           # Prettier 格式化
 
 ---
 
-_這份文檔是 living document。發現過期或不準確，直接修正它。_
+_這份文檔是 living document。發現過期或不準確，直接修正它 (AGENTS.md)。_
