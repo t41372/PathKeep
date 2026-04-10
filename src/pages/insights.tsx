@@ -55,7 +55,7 @@ export function InsightsPage() {
     (thread) => thread.threadId === selectedThreadId,
   )
     ? selectedThreadId
-    : insightSnapshot?.threads[0]?.threadId ?? null
+    : (insightSnapshot?.threads[0]?.threadId ?? null)
 
   // Load insights on mount/filter change
   useEffect(() => {

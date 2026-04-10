@@ -1,15 +1,17 @@
-import type { AiProviderConfig, AiRequestFormat } from '../lib/types'
+import type {
+  AiProviderConfig,
+  AiProviderPurpose,
+  AiRequestFormat,
+} from '../lib/types'
 import { FieldBlock, ToggleRow } from './ui'
 
-export const aiRequestFormats: AiRequestFormat[] = [
+const aiRequestFormats: AiRequestFormat[] = [
   'openai',
   'anthropic',
   'google',
   'ollama',
   'lm-studio',
 ]
-
-export type AiProviderPurpose = 'llm' | 'embedding'
 
 export function AiProviderEditorList({
   addLabel,

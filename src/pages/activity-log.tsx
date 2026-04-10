@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useApp } from '../lib/app-context'
 import { formatDateTime } from '../lib/format'
 import { EmptyState, Glyph, StatusTag, Surface } from '../components/ui'
@@ -24,20 +24,12 @@ export function ActivityLogPage() {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
 
   const recentRuns = snapshot?.recentRuns ?? []
-
-  useEffect(() => {
-    if (!recentRuns.length) {
-      setSelectedRunId(null)
-      return
-    }
-    const stillExists = recentRuns.some((run) => run.id === selectedRunId)
-    if (!stillExists) {
-      setSelectedRunId(recentRuns[0].id)
-    }
-  }, [recentRuns, selectedRunId])
+  const activeRunId = recentRuns.some((run) => run.id === selectedRunId)
+    ? selectedRunId
+    : (recentRuns[0]?.id ?? null)
 
   const selectedRun =
-    recentRuns.find((run) => run.id === selectedRunId) ?? recentRuns[0] ?? null
+    recentRuns.find((run) => run.id === activeRunId) ?? recentRuns[0] ?? null
 
   async function handleBackupRun() {
     await runTask(t('runBackupNow'), async () => {
@@ -131,7 +123,7 @@ export function ActivityLogPage() {
             {recentRuns.map((run) => (
               <button
                 key={run.id}
-                className={`runCard ${selectedRunId === run.id ? 'selected' : ''}`}
+                className={`runCard ${activeRunId === run.id ? 'selected' : ''}`}
                 type="button"
                 onClick={() => setSelectedRunId(run.id)}
               >

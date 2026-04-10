@@ -32,26 +32,19 @@ export function ImportPage() {
   const [batchDetail, setBatchDetail] = useState<ImportBatchDetail | null>(null)
 
   const batches = snapshot?.recentImportBatches ?? []
+  const activeBatchId = batches.some((batch) => batch.id === selectedBatchId)
+    ? selectedBatchId
+    : (batches[0]?.id ?? null)
+  const activeBatchDetail =
+    batchDetail?.batch.id === activeBatchId ? batchDetail : null
 
   useEffect(() => {
-    if (!batches.length) {
-      setSelectedBatchId(null)
-      setBatchDetail(null)
-      return
-    }
-    const stillExists = batches.some((b) => b.id === selectedBatchId)
-    if (!stillExists) {
-      setSelectedBatchId(batches[0].id)
-    }
-  }, [batches, selectedBatchId])
-
-  useEffect(() => {
-    if (selectedBatchId == null) return
+    if (activeBatchId == null) return
     let cancelled = false
 
     void (async () => {
       try {
-        const detail = await backend.previewImportBatch(selectedBatchId)
+        const detail = await backend.previewImportBatch(activeBatchId)
         if (!cancelled) setBatchDetail(detail)
       } catch (taskError) {
         if (!cancelled) {
@@ -65,7 +58,7 @@ export function ImportPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedBatchId, setError])
+  }, [activeBatchId, setError])
 
   async function handleTakeout(dryRun: boolean) {
     if (!takeoutPath) {
@@ -228,7 +221,7 @@ export function ImportPage() {
                 {batches.map((batch) => (
                   <button
                     key={batch.id}
-                    className={`batchRow ${selectedBatchId === batch.id ? 'selected' : ''}`}
+                    className={`batchRow ${activeBatchId === batch.id ? 'selected' : ''}`}
                     type="button"
                     onClick={() => setSelectedBatchId(batch.id)}
                   >
@@ -254,32 +247,34 @@ export function ImportPage() {
                 ))}
               </div>
 
-              {batchDetail && (
+              {activeBatchDetail && (
                 <div className="batchDetailPanel">
                   <div className="batchDetailHeader">
                     <StatusTag
                       tone={
-                        batchDetail.batch.status === 'imported'
+                        activeBatchDetail.batch.status === 'imported'
                           ? 'success'
                           : 'info'
                       }
                     >
-                      {batchDetail.batch.status}
+                      {activeBatchDetail.batch.status}
                     </StatusTag>
-                    {batchDetail.batch.status === 'imported' && (
+                    {activeBatchDetail.batch.status === 'imported' && (
                       <button
                         className="dangerButton"
                         type="button"
-                        onClick={() => handleRevertBatch(batchDetail.batch.id)}
+                        onClick={() =>
+                          handleRevertBatch(activeBatchDetail.batch.id)
+                        }
                       >
                         <Glyph icon="undo" />
                         {t('revertBatch')}
                       </button>
                     )}
                   </div>
-                  {batchDetail.previewEntries.length > 0 && (
+                  {activeBatchDetail.previewEntries.length > 0 && (
                     <PreviewEntryList
-                      entries={batchDetail.previewEntries}
+                      entries={activeBatchDetail.previewEntries}
                       language={resolvedLanguage}
                     />
                   )}

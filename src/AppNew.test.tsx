@@ -2,59 +2,63 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-const { autostartMocks, mockBackend, strongholdMocks } = vi.hoisted(() => ({
-  autostartMocks: {
-    disable: vi.fn(),
-    enable: vi.fn(),
-    isEnabled: vi.fn().mockResolvedValue(false),
-  },
-  mockBackend: {
-    getAppBuildInfo: vi.fn(),
-    getAppSnapshot: vi.fn(),
-    saveConfig: vi.fn(),
-    initializeArchive: vi.fn(),
-    rekeyArchive: vi.fn(),
-    setSessionDatabaseKey: vi.fn(),
-    clearSessionDatabaseKey: vi.fn(),
-    runBackupNow: vi.fn(),
-    queryHistory: vi.fn(),
-    exportHistory: vi.fn(),
-    previewRemoteBackup: vi.fn(),
-    runRemoteBackup: vi.fn(),
-    inspectTakeout: vi.fn(),
-    importTakeout: vi.fn(),
-    previewImportBatch: vi.fn(),
-    revertImportBatch: vi.fn(),
-    previewSchedule: vi.fn(),
-    applySchedule: vi.fn(),
-    doctor: vi.fn(),
-    keyringStatus: vi.fn(),
-    keyringGetDatabaseKey: vi.fn(),
-    keyringStoreDatabaseKey: vi.fn(),
-    keyringClearDatabaseKey: vi.fn(),
-    storeS3Credentials: vi.fn(),
-    clearS3Credentials: vi.fn(),
-    storeAiProviderApiKey: vi.fn(),
-    clearAiProviderApiKey: vi.fn(),
-    buildAiIndex: vi.fn(),
-    searchAiHistory: vi.fn(),
-    askAiAssistant: vi.fn(),
-    runInsightsNow: vi.fn(),
-    loadInsights: vi.fn(),
-    loadThreadDetail: vi.fn(),
-    explainInsight: vi.fn(),
-    loadIntelligenceRuntime: vi.fn(),
-    retryIntelligenceJob: vi.fn(),
-    cancelIntelligenceJob: vi.fn(),
-    previewAiIntegrations: vi.fn(),
-    resetLocalSecretVault: vi.fn(),
-    openPathInFileManager: vi.fn(),
-  },
-  strongholdMocks: {
-    readDatabaseKeyStronghold: vi.fn().mockResolvedValue(null),
-    storeDatabaseKeyStronghold: vi.fn().mockResolvedValue(undefined),
-  },
-}))
+const { autostartMocks, clipboardMocks, mockBackend, strongholdMocks } =
+  vi.hoisted(() => ({
+    autostartMocks: {
+      disable: vi.fn(),
+      enable: vi.fn(),
+      isEnabled: vi.fn().mockResolvedValue(false),
+    },
+    clipboardMocks: {
+      writeText: vi.fn().mockResolvedValue(undefined),
+    },
+    mockBackend: {
+      getAppBuildInfo: vi.fn(),
+      getAppSnapshot: vi.fn(),
+      saveConfig: vi.fn(),
+      initializeArchive: vi.fn(),
+      rekeyArchive: vi.fn(),
+      setSessionDatabaseKey: vi.fn(),
+      clearSessionDatabaseKey: vi.fn(),
+      runBackupNow: vi.fn(),
+      queryHistory: vi.fn(),
+      exportHistory: vi.fn(),
+      previewRemoteBackup: vi.fn(),
+      runRemoteBackup: vi.fn(),
+      inspectTakeout: vi.fn(),
+      importTakeout: vi.fn(),
+      previewImportBatch: vi.fn(),
+      revertImportBatch: vi.fn(),
+      previewSchedule: vi.fn(),
+      applySchedule: vi.fn(),
+      doctor: vi.fn(),
+      keyringStatus: vi.fn(),
+      keyringGetDatabaseKey: vi.fn(),
+      keyringStoreDatabaseKey: vi.fn(),
+      keyringClearDatabaseKey: vi.fn(),
+      storeS3Credentials: vi.fn(),
+      clearS3Credentials: vi.fn(),
+      storeAiProviderApiKey: vi.fn(),
+      clearAiProviderApiKey: vi.fn(),
+      buildAiIndex: vi.fn(),
+      searchAiHistory: vi.fn(),
+      askAiAssistant: vi.fn(),
+      runInsightsNow: vi.fn(),
+      loadInsights: vi.fn(),
+      loadThreadDetail: vi.fn(),
+      explainInsight: vi.fn(),
+      loadIntelligenceRuntime: vi.fn(),
+      retryIntelligenceJob: vi.fn(),
+      cancelIntelligenceJob: vi.fn(),
+      previewAiIntegrations: vi.fn(),
+      resetLocalSecretVault: vi.fn(),
+      openPathInFileManager: vi.fn(),
+    },
+    strongholdMocks: {
+      readDatabaseKeyStronghold: vi.fn().mockResolvedValue(null),
+      storeDatabaseKeyStronghold: vi.fn().mockResolvedValue(undefined),
+    },
+  }))
 
 vi.mock('./lib/backend', () => ({ backend: mockBackend }))
 vi.mock('./lib/stronghold', () => ({
@@ -458,7 +462,7 @@ describe('AppNew integration', () => {
     })
     Object.defineProperty(window.navigator, 'clipboard', {
       writable: true,
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      value: { writeText: clipboardMocks.writeText },
     })
 
     Object.values(mockBackend).forEach((m) => m.mockReset())
@@ -1549,9 +1553,7 @@ describe('AppNew integration', () => {
     const copyBtns = allButtons.filter((b) => b.textContent?.includes('Copy'))
     if (copyBtns.length > 0) {
       await user.click(copyBtns[0])
-      await waitFor(() =>
-        expect(window.navigator.clipboard.writeText).toHaveBeenCalled(),
-      )
+      await waitFor(() => expect(clipboardMocks.writeText).toHaveBeenCalled())
     }
   })
 
@@ -1740,8 +1742,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/Remote/))
     // Type access key ID and secret
     const allInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (allInputs.length >= 2) {
       await user.type(allInputs[0], 'AKID123')
       await user.type(allInputs[1], 'SECRET456')
@@ -1833,8 +1835,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/AI Providers/))
     // Find API key input and save/clear buttons in the provider editor
     const keyInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (keyInputs.length > 0) {
       await user.type(keyInputs[0], 'sk-test-key')
       const saveBtns = screen
@@ -2531,8 +2533,8 @@ describe('AppNew integration', () => {
     await user.click(navBtn('Settings'))
     // Click all copy buttons (ghostButton with content_copy icon)
     const copyBtns = Array.from(
-      document.querySelectorAll('.pathActions .ghostButton'),
-    ) as HTMLElement[]
+      document.querySelectorAll<HTMLElement>('.pathActions .ghostButton'),
+    )
     for (const btn of copyBtns) {
       await user.click(btn)
     }
@@ -2592,8 +2594,8 @@ describe('AppNew integration', () => {
     }
     // Fill credentials and save
     const passwordInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (passwordInputs.length >= 2) {
       await user.type(passwordInputs[0], 'AKID')
       await user.type(passwordInputs[1], 'SECRET')
@@ -2668,8 +2670,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/Security/))
     // Type a new password and click rotate
     const pwInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (pwInputs.length > 0) {
       await user.type(pwInputs[0], 'new-password')
     }
@@ -3212,8 +3214,8 @@ describe('AppNew integration', () => {
     await user.click(mainBtn(/Security/))
     // Type a password and try to unlock
     const pwInputs = Array.from(
-      document.querySelectorAll('input[type="password"]'),
-    ) as HTMLInputElement[]
+      document.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    )
     if (pwInputs.length > 0) {
       await user.type(pwInputs[0], 'wrong-password')
     }
