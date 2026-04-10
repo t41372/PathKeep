@@ -174,6 +174,7 @@
   - 使用隨機數據庫金鑰，由用戶主密碼經 Argon2id 導出的金鑰包裝。
   - 包裝後的 secret 存入 Stronghold vault（Tauri 提供的加密安全存儲，類似於 macOS Keychain 但跨平台）。
 - 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
+- 若使用者選擇記住 database key，PathKeep 只在啟動後的第一個 unlocked app session 讀取一次 keyring，之後把 active session key 保留在記憶體直到使用者手動鎖定 archive 或結束 app；不得在每次 shell refresh / status hydrate 時反覆重讀 keyring 並造成原生授權提示。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
 - keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。

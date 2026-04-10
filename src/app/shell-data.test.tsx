@@ -350,6 +350,79 @@ describe('ShellDataProvider', () => {
     )
   })
 
+  test('auto-unlocks a remembered archive key once and reuses the session key afterwards', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const rememberedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        rememberDatabaseKeyInKeyring: true,
+      },
+      archiveStatus: {
+        ...snapshot.archiveStatus,
+        encrypted: true,
+        unlocked: false,
+      },
+      keyringStatus: {
+        ...snapshot.keyringStatus,
+        available: true,
+        storedSecret: true,
+      },
+    }
+    const unlockedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: rememberedSnapshot.config,
+      keyringStatus: rememberedSnapshot.keyringStatus,
+    }
+
+    const keyringSpy = vi
+      .spyOn(backend, 'keyringGetDatabaseKey')
+      .mockResolvedValue('vault-passphrase')
+    const sessionSpy = vi
+      .spyOn(backend, 'setSessionDatabaseKey')
+      .mockResolvedValue(undefined)
+    const getAppSnapshotSpy = vi
+      .spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(rememberedSnapshot)
+      .mockResolvedValue(unlockedSnapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(
+      snapshot.appLockStatus,
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(keyringSpy).toHaveBeenCalledTimes(1)
+    expect(sessionSpy).toHaveBeenCalledWith('vault-passphrase')
+    const snapshotCallsAfterBoot = getAppSnapshotSpy.mock.calls.length
+    expect(snapshotCallsAfterBoot).toBeGreaterThanOrEqual(2)
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(getAppSnapshotSpy.mock.calls.length).toBeGreaterThan(
+        snapshotCallsAfterBoot,
+      ),
+    )
+    expect(keyringSpy).toHaveBeenCalledTimes(1)
+  })
+
   test('uses the paint fallback and surfaces refresh errors without breaking follow-up saves', async () => {
     const user = userEvent.setup()
     const translator = createTranslator('en')

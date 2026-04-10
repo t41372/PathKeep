@@ -10,7 +10,7 @@ use serde::Serialize;
 #[cfg(not(any(test, coverage)))]
 use std::process::Command;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
 };
@@ -54,6 +54,29 @@ fn provider_keyring_user(provider_id: &str) -> String {
 #[cfg(not(coverage))]
 fn legacy_keyring_entries(user: &str) -> Vec<Entry> {
     LEGACY_KEYRING_SERVICES.iter().filter_map(|service| Entry::new(service, user).ok()).collect()
+}
+
+#[cfg(all(not(coverage), target_os = "macos"))]
+fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
+    use_native_store(cfg!(target_os = "linux")).ok();
+    Entry::search(&HashMap::from([("service", service), ("user", user)]))
+        .map(|entries| !entries.is_empty())
+        .unwrap_or(false)
+}
+
+#[cfg(all(not(coverage), not(target_os = "macos")))]
+fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
+    use_native_store(cfg!(target_os = "linux")).ok();
+    Entry::new(service, user).ok().and_then(|entry| entry.get_password().ok()).is_some()
+}
+
+#[cfg(not(coverage))]
+fn keyring_entry_exists(user: &str) -> bool {
+    if keyring_entry_exists_for_service(KEYRING_SERVICE, user) {
+        return true;
+    }
+
+    LEGACY_KEYRING_SERVICES.iter().any(|service| keyring_entry_exists_for_service(service, user))
 }
 
 pub fn preview_schedule(
@@ -346,14 +369,7 @@ pub fn keyring_status() -> KeyringStatusReport {
 
     let backend = keyring_backend_name();
     let available = use_native_store(cfg!(target_os = "linux")).is_ok();
-    let stored_secret = if available {
-        match keyring_entry(KEYRING_DATABASE_USER) {
-            Ok(entry) => entry.get_password().is_ok(),
-            Err(_) => false,
-        }
-    } else {
-        false
-    };
+    let stored_secret = available && keyring_entry_exists(KEYRING_DATABASE_USER);
 
     KeyringStatusReport {
         available,
@@ -507,7 +523,19 @@ pub fn keyring_clear_s3_credentials() -> Result<()> {
 }
 
 pub fn s3_credentials_saved() -> bool {
-    keyring_get_s3_credentials().ok().flatten().is_some()
+    #[cfg(coverage)]
+    {
+        keyring_get_s3_credentials().ok().flatten().is_some()
+    }
+
+    #[cfg(not(coverage))]
+    {
+        if let Some(path) = test_keyring_dir() {
+            return test_keyring_path(&path, KEYRING_S3_USER).exists();
+        }
+
+        keyring_entry_exists_for_service(KEYRING_SERVICE, KEYRING_S3_USER)
+    }
 }
 
 #[cfg(coverage)]
@@ -570,7 +598,20 @@ pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
 }
 
 pub fn provider_api_key_saved(provider_id: &str) -> bool {
-    keyring_get_provider_api_key(provider_id).ok().flatten().is_some()
+    #[cfg(coverage)]
+    {
+        keyring_get_provider_api_key(provider_id).ok().flatten().is_some()
+    }
+
+    #[cfg(not(coverage))]
+    {
+        let user = provider_keyring_user(provider_id);
+        if let Some(path) = test_keyring_dir() {
+            return test_keyring_path(&path, &user).exists();
+        }
+
+        keyring_entry_exists_for_service(KEYRING_SERVICE, &user)
+    }
 }
 
 fn macos_schedule_plan(

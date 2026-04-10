@@ -50,6 +50,16 @@ function isAppLockError(error: unknown) {
   )
 }
 
+function shouldAttemptKeyringAutoUnlock(snapshot: AppSnapshot) {
+  return (
+    snapshot.archiveStatus.encrypted &&
+    !snapshot.archiveStatus.unlocked &&
+    snapshot.config.rememberDatabaseKeyInKeyring &&
+    snapshot.keyringStatus.available &&
+    snapshot.keyringStatus.storedSecret
+  )
+}
+
 export function ShellDataProvider({ children }: { children: ReactNode }) {
   const { setLanguagePreference, t } = useI18nContext()
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
@@ -63,6 +73,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const idleTimerRef = useRef<number | null>(null)
+  const attemptedKeyringAutoUnlockRef = useRef(false)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
 
   function showBusyOverlay(next: BusyOverlayState) {
@@ -191,10 +202,26 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        const [nextSnapshot, nextDashboard] = await Promise.all([
-          backend.getAppSnapshot(),
-          backend.loadDashboardSnapshot(),
-        ])
+        let nextSnapshot = await backend.getAppSnapshot()
+        if (
+          !attemptedKeyringAutoUnlockRef.current &&
+          shouldAttemptKeyringAutoUnlock(nextSnapshot)
+        ) {
+          attemptedKeyringAutoUnlockRef.current = true
+          try {
+            const key = await backend.keyringGetDatabaseKey()
+            if (key) {
+              await backend.setSessionDatabaseKey(key)
+              nextSnapshot = await backend.getAppSnapshot()
+            }
+          } catch {
+            // Auto-unlock is best-effort; keep the locked snapshot and let the
+            // user fall back to the explicit unlock controls if keychain access
+            // is denied or unavailable for this session.
+          }
+        }
+
+        const nextDashboard = await backend.loadDashboardSnapshot()
         setLanguagePreference(nextSnapshot.config.preferredLanguage, {
           persist: false,
         })
