@@ -92,10 +92,27 @@ const mockSnapshot: AppSnapshot = {
     quarantineDir:
       '~/Library/Application Support/com.yi-ting.pathkeep/quarantine',
     scheduleDir: '~/Library/Application Support/com.yi-ting.pathkeep/schedule',
+    logsDir: '~/Library/Application Support/com.yi-ting.pathkeep/logs',
+    rustLogPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/logs/rust.log',
+    frontendLogPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/logs/frontend.log',
+    crashReportsDir:
+      '~/Library/Application Support/com.yi-ting.pathkeep/diagnostics/crash-reports',
     strongholdPath:
       '~/Library/Application Support/com.yi-ting.pathkeep/vault.hold',
     strongholdSaltPath:
       '~/Library/Application Support/com.yi-ting.pathkeep/stronghold-salt.txt',
+  },
+  runtimeDiagnostics: {
+    logDirectory: '~/Library/Application Support/com.yi-ting.pathkeep/logs',
+    rustLogPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/logs/rust.log',
+    frontendLogPath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/logs/frontend.log',
+    crashReportsDirectory:
+      '~/Library/Application Support/com.yi-ting.pathkeep/diagnostics/crash-reports',
+    latestCrashReport: null,
   },
   config: {
     initialized: false,

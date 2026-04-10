@@ -504,27 +504,14 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
 mod tests {
     use super::*;
     use crate::{
-        config::ProjectPaths,
+        config::{ProjectPaths, project_paths_with_root},
         models::{AppConfig, ArchiveMode},
         utils::test_env_lock,
     };
     use tempfile::tempdir;
 
     fn sample_paths(root: &std::path::Path) -> ProjectPaths {
-        ProjectPaths {
-            app_root: root.to_path_buf(),
-            config_path: root.join("config.json"),
-            archive_database_path: root.join("archive/history-vault.sqlite"),
-            audit_repo_path: root.join("audit"),
-            manifests_dir: root.join("audit/manifests"),
-            exports_dir: root.join("exports"),
-            raw_snapshots_dir: root.join("raw-snapshots"),
-            staging_dir: root.join("staging"),
-            quarantine_dir: root.join("quarantine"),
-            schedule_dir: root.join("schedule"),
-            stronghold_path: root.join("vault.hold"),
-            stronghold_salt_path: root.join("stronghold-salt.txt"),
-        }
+        project_paths_with_root(root)
     }
 
     #[test]

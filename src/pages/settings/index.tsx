@@ -15,7 +15,7 @@ import {
 } from '../../lib/enrichment'
 import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
 import { aiStatusMeta } from '../../lib/intelligence'
-import { formatBytes } from '../../lib/format'
+import { formatBytes, formatDateTime } from '../../lib/format'
 import {
   hasSafariAccessIssue,
   keyringNeedsReview,
@@ -1149,6 +1149,77 @@ export function SettingsPage() {
               {t('settings.openDirectory')}
             </button>
           </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.logsDirectory')}</span>
+            <span className="config-value mono">
+              {snapshot.directories.logsDir}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(snapshot.directories.logsDir)
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          <div className="config-row">
+            <span className="config-label">{t('settings.crashReports')}</span>
+            <span className="config-value mono">
+              {snapshot.directories.crashReportsDir}
+            </span>
+            <button
+              className="btn-tiny"
+              type="button"
+              onClick={() => {
+                void backend.openPathInFileManager(
+                  snapshot.directories.crashReportsDir,
+                )
+              }}
+            >
+              {t('settings.openDirectory')}
+            </button>
+          </div>
+          {snapshot.runtimeDiagnostics.latestCrashReport ? (
+            <StatusCallout
+              tone="warning"
+              title={t('settings.latestCrashTitle')}
+              body={t('settings.latestCrashBody', {
+                source:
+                  snapshot.runtimeDiagnostics.latestCrashReport.source ===
+                  'rust-panic'
+                    ? t('settings.latestCrashSourceRust')
+                    : t('settings.latestCrashSourceFrontend'),
+                time:
+                  formatDateTime(
+                    snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
+                    language,
+                  ) ?? snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
+                message: snapshot.runtimeDiagnostics.latestCrashReport.message,
+              })}
+              actions={
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => {
+                    void backend.openPathInFileManager(
+                      snapshot.runtimeDiagnostics.latestCrashReport?.path ??
+                        snapshot.directories.crashReportsDir,
+                    )
+                  }}
+                >
+                  {t('settings.openCrashReport')}
+                </button>
+              }
+            />
+          ) : (
+            <StatusCallout
+              tone="info"
+              title={t('settings.latestCrashClearTitle')}
+              body={t('settings.latestCrashClearBody')}
+            />
+          )}
           <div className="config-row">
             <span className="config-label">{t('settings.mcpServer')}</span>
             <span className="config-value">

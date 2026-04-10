@@ -527,6 +527,37 @@ describe('App shell', () => {
     },
   )
 
+  test('shows crash diagnostics paths on the settings route', async () => {
+    await seedArchiveRun()
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.runtimeDiagnostics.latestCrashReport = {
+        source: 'rust-panic',
+        recordedAt: '2026-04-10T12:34:00Z',
+        fatal: true,
+        message: 'panic in worker bridge',
+        location: 'src-tauri/src/lib.rs:42',
+        path: '/tmp/pathkeep-crash/rust-panic-latest.json',
+      }
+    })
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/settings'],
+    })
+
+    render(<App router={router} />)
+
+    const page = await screen.findByTestId('settings-page')
+    expect(
+      await within(page).findByText(settingsT('logsDirectory')),
+    ).toBeVisible()
+    expect(within(page).getByText(settingsT('crashReports'))).toBeVisible()
+    expect(within(page).getByText(settingsT('latestCrashTitle'))).toBeVisible()
+    expect(
+      within(page).getByRole('button', {
+        name: settingsT('openCrashReport'),
+      }),
+    ).toBeVisible()
+  })
+
   test('walks the settings remote backup PME and derived-state controls', async () => {
     await seedArchiveRun()
     const user = userEvent.setup()

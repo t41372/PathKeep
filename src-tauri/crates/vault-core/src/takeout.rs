@@ -1197,7 +1197,7 @@ mod tests {
     use super::*;
     use crate::{
         archive::{create_schema, load_audit_run_detail, load_recent_runs},
-        config::ensure_paths,
+        config::{ensure_paths, project_paths_with_root},
         models::{AppConfig, ArchiveMode},
     };
     use std::io::Write;
@@ -1205,20 +1205,7 @@ mod tests {
     use zip::write::SimpleFileOptions;
 
     fn sample_paths(root: &Path) -> ProjectPaths {
-        ProjectPaths {
-            app_root: root.to_path_buf(),
-            config_path: root.join("config.json"),
-            archive_database_path: root.join("archive/history-vault.sqlite"),
-            audit_repo_path: root.join("audit"),
-            manifests_dir: root.join("audit/manifests"),
-            exports_dir: root.join("exports"),
-            raw_snapshots_dir: root.join("raw-snapshots"),
-            staging_dir: root.join("staging"),
-            quarantine_dir: root.join("quarantine"),
-            schedule_dir: root.join("schedule"),
-            stronghold_path: root.join("vault.hold"),
-            stronghold_salt_path: root.join("stronghold-salt.txt"),
-        }
+        project_paths_with_root(root)
     }
 
     fn initialized_plaintext_config() -> AppConfig {

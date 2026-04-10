@@ -5,12 +5,20 @@ const { createRootMock, renderMock } = vi.hoisted(() => ({
   renderMock: vi.fn(),
 }))
 
+const { installRuntimeDiagnosticsMock } = vi.hoisted(() => ({
+  installRuntimeDiagnosticsMock: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('react-dom/client', () => ({
   createRoot: createRootMock,
 }))
 
 vi.mock('./app', () => ({
   default: () => <div>App shell</div>,
+}))
+
+vi.mock('./lib/runtime-diagnostics', () => ({
+  installRuntimeDiagnostics: installRuntimeDiagnosticsMock,
 }))
 
 describe('main entrypoint', () => {
@@ -20,6 +28,7 @@ describe('main entrypoint', () => {
     document.documentElement.removeAttribute('data-theme')
     window.localStorage.clear()
     renderMock.mockReset()
+    installRuntimeDiagnosticsMock.mockReset().mockResolvedValue(undefined)
     createRootMock.mockReset().mockReturnValue({
       render: renderMock,
     })
@@ -30,6 +39,7 @@ describe('main entrypoint', () => {
 
     expect(createRootMock).toHaveBeenCalledWith(document.getElementById('root'))
     expect(renderMock).toHaveBeenCalledTimes(1)
+    expect(installRuntimeDiagnosticsMock).toHaveBeenCalledTimes(1)
   })
 
   test('restores a persisted theme preference before rendering', async () => {

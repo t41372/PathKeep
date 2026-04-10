@@ -2850,6 +2850,7 @@ mod tests {
     use super::*;
     use crate::{
         archive::{ensure_archive_initialized, open_archive_connection},
+        config::project_paths_with_root,
         models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSettings, ArchiveMode},
         utils::iso_to_chrome_time_micros,
     };
@@ -2857,20 +2858,7 @@ mod tests {
 
     fn test_paths() -> ProjectPaths {
         let dir = tempdir().expect("tempdir");
-        ProjectPaths {
-            app_root: dir.path().to_path_buf(),
-            config_path: dir.path().join("config.json"),
-            archive_database_path: dir.path().join("archive/history-vault.sqlite"),
-            audit_repo_path: dir.path().join("audit"),
-            manifests_dir: dir.path().join("audit/manifests"),
-            exports_dir: dir.path().join("exports"),
-            raw_snapshots_dir: dir.path().join("raw-snapshots"),
-            staging_dir: dir.path().join("staging"),
-            quarantine_dir: dir.path().join("quarantine"),
-            schedule_dir: dir.path().join("schedule"),
-            stronghold_path: dir.path().join("vault.hold"),
-            stronghold_salt_path: dir.path().join("stronghold-salt.txt"),
-        }
+        project_paths_with_root(dir.path())
     }
 
     fn test_config() -> AppConfig {

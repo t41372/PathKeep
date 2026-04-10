@@ -11,12 +11,14 @@ use tauri::{AppHandle, Emitter, State};
 #[cfg(not(test))]
 use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(test))]
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+#[cfg(not(test))]
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
-    AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, HistoryQuery,
-    RetentionPruneRequest, RunInsightsRequest, S3CredentialInput, SchedulePlan, ScheduleStatus,
-    SecurityStatus, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
-    UnlockAppSessionRequest,
+    AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, FrontendErrorReportRequest,
+    HistoryQuery, RetentionPruneRequest, RunInsightsRequest, S3CredentialInput, SchedulePlan,
+    ScheduleStatus, SecurityStatus, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
+    TakeoutRequest, UnlockAppSessionRequest,
 };
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
@@ -53,6 +55,9 @@ fn run_app() -> Result<()> {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
+            vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
+            install_panic_hook(&paths);
+            app.handle().plugin(build_logging_plugin(&paths))?;
             let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;
             vault_core::hydrate_app_lock_config(&paths, &mut config)
                 .map_err(tauri::Error::Anyhow)?;
@@ -129,6 +134,7 @@ fn run_app() -> Result<()> {
             retry_intelligence_job,
             cancel_intelligence_job,
             preview_ai_integrations,
+            record_frontend_error,
             reset_local_secret_vault,
             open_path_in_file_manager,
             open_external_url
@@ -143,6 +149,68 @@ fn run_app() -> Result<()> {
 }
 
 #[cfg(not(test))]
+fn build_logging_plugin<R: tauri::Runtime>(
+    paths: &vault_core::ProjectPaths,
+) -> tauri::plugin::TauriPlugin<R> {
+    let frontend_logs = paths.logs_dir.clone();
+    let rust_logs = paths.logs_dir.clone();
+
+    tauri_plugin_log::Builder::new()
+        .clear_targets()
+        .level(tauri_plugin_log::log::LevelFilter::Info)
+        .level_for("pathkeep_desktop", tauri_plugin_log::log::LevelFilter::Debug)
+        .level_for("vault_core", tauri_plugin_log::log::LevelFilter::Debug)
+        .level_for("vault_worker", tauri_plugin_log::log::LevelFilter::Debug)
+        .rotation_strategy(RotationStrategy::KeepSome(5))
+        .timezone_strategy(TimezoneStrategy::UseLocal)
+        .target(
+            Target::new(TargetKind::Folder { path: rust_logs, file_name: Some("rust".into()) })
+                .filter(|metadata| {
+                    !metadata.target().starts_with(tauri_plugin_log::WEBVIEW_TARGET)
+                }),
+        )
+        .target(
+            Target::new(TargetKind::Folder {
+                path: frontend_logs,
+                file_name: Some("frontend".into()),
+            })
+            .filter(|metadata| metadata.target().starts_with(tauri_plugin_log::WEBVIEW_TARGET)),
+        )
+        .target(Target::new(TargetKind::Webview))
+        .build()
+}
+
+#[cfg(not(test))]
+fn install_panic_hook(paths: &vault_core::ProjectPaths) {
+    use std::sync::OnceLock;
+
+    static PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
+    if PANIC_HOOK_INSTALLED.get().is_some() {
+        return;
+    }
+
+    let panic_paths = paths.clone();
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        match vault_core::record_rust_panic(&panic_paths, panic_info) {
+            Ok(summary) => {
+                log::error!(
+                    target: "crash",
+                    "Captured rust panic at {}: {}",
+                    summary.path,
+                    summary.message
+                );
+            }
+            Err(error) => {
+                eprintln!("PathKeep failed to persist a panic report: {error:#}");
+            }
+        }
+        previous_hook(panic_info);
+    }));
+    let _ = PANIC_HOOK_INSTALLED.set(());
+}
+
+#[cfg(not(test))]
 #[tauri::command]
 fn app_build_info() -> vault_core::AppBuildInfo {
     worker_bridge::app_build_info_impl()
@@ -152,6 +220,15 @@ fn app_build_info() -> vault_core::AppBuildInfo {
 #[tauri::command]
 fn app_snapshot(state: State<'_, SessionState>) -> Result<vault_core::AppSnapshot, String> {
     worker_bridge::app_snapshot_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn record_frontend_error(
+    request: FrontendErrorReportRequest,
+) -> Result<vault_core::CrashReportSummary, String> {
+    let paths = vault_core::project_paths().map_err(|error| error.to_string())?;
+    vault_core::record_frontend_error(&paths, &request).map_err(|error| error.to_string())
 }
 
 #[cfg(not(test))]

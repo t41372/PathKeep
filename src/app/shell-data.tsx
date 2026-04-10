@@ -74,6 +74,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const idleTimerRef = useRef<number | null>(null)
   const attemptedKeyringAutoUnlockRef = useRef(false)
+  const surfacedCrashReportPathRef = useRef<string | null>(null)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
 
   function showBusyOverlay(next: BusyOverlayState) {
@@ -286,6 +287,20 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshAppData()
   }, [refreshAppData])
+
+  useEffect(() => {
+    const crashReportPath =
+      snapshot?.runtimeDiagnostics.latestCrashReport?.path ?? null
+    if (
+      !crashReportPath ||
+      surfacedCrashReportPathRef.current === crashReportPath ||
+      notice !== null
+    ) {
+      return
+    }
+    surfacedCrashReportPathRef.current = crashReportPath
+    setNotice(t('shell.runtimeCrashNotice'))
+  }, [notice, snapshot?.runtimeDiagnostics.latestCrashReport?.path, t])
 
   useEffect(() => {
     if (

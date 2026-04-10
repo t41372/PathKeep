@@ -211,6 +211,7 @@
 - prune snapshot artifact 時，PathKeep 會把對應 artifact path 從未來的 review surface 移除，但不刪除原本的 run summary / manifest / audit trail。
 - 如果用戶已配置 GPG 簽名 commit，就沿用。
 - support / release 診斷預設只導出 metadata-first 事實：run id、audit path、manifest path、platform state、build info、checksum 結果；不自動包含 canonical archive facts、raw snapshots、API keys 或 master password。
+- packaged desktop build 必須持久化 Rust log、frontend log 與 latest crash report。panic / uncaught frontend failure 不可只留在 ephemeral console；Settings 至少要能顯示 log / crash-report 路徑並提供 open folder 動作。
 
 ---
 

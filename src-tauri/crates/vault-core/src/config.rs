@@ -5,7 +5,10 @@ use crate::{
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const CURRENT_APP_QUALIFIER: &str = "com";
 const CURRENT_APP_ORGANIZATION: &str = "yi-ting";
@@ -24,13 +27,26 @@ pub struct ProjectPaths {
     pub staging_dir: PathBuf,
     pub quarantine_dir: PathBuf,
     pub schedule_dir: PathBuf,
+    pub logs_dir: PathBuf,
+    pub rust_log_path: PathBuf,
+    pub frontend_log_path: PathBuf,
+    pub crash_reports_dir: PathBuf,
+    pub rust_panic_report_path: PathBuf,
+    pub frontend_error_report_path: PathBuf,
     pub stronghold_path: PathBuf,
     pub stronghold_salt_path: PathBuf,
 }
 
 pub fn project_paths() -> Result<ProjectPaths> {
     let root = project_root()?;
-    Ok(ProjectPaths {
+    Ok(project_paths_with_root(&root))
+}
+
+pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
+    let root = root.to_path_buf();
+    let logs_dir = root.join("logs");
+    let crash_reports_dir = root.join("diagnostics").join("crash-reports");
+    ProjectPaths {
         config_path: root.join("config.json"),
         archive_database_path: root.join("archive").join("history-vault.sqlite"),
         audit_repo_path: root.join("audit"),
@@ -40,10 +56,16 @@ pub fn project_paths() -> Result<ProjectPaths> {
         staging_dir: root.join("staging"),
         quarantine_dir: root.join("quarantine"),
         schedule_dir: root.join("schedule"),
+        logs_dir: logs_dir.clone(),
+        rust_log_path: logs_dir.join("rust.log"),
+        frontend_log_path: logs_dir.join("frontend.log"),
+        crash_reports_dir: crash_reports_dir.clone(),
+        rust_panic_report_path: crash_reports_dir.join("rust-panic-latest.json"),
+        frontend_error_report_path: crash_reports_dir.join("frontend-error-latest.json"),
         stronghold_path: root.join("vault.hold"),
         stronghold_salt_path: root.join("stronghold-salt.txt"),
         app_root: root,
-    })
+    }
 }
 
 fn project_root() -> Result<PathBuf> {
@@ -67,6 +89,8 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
         &paths.staging_dir,
         &paths.quarantine_dir,
         &paths.schedule_dir,
+        &paths.logs_dir,
+        &paths.crash_reports_dir,
     ] {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
@@ -128,20 +152,7 @@ mod tests {
     #[test]
     fn ensure_paths_and_config_roundtrip() {
         let dir = tempdir().expect("tempdir");
-        let paths = ProjectPaths {
-            app_root: dir.path().to_path_buf(),
-            config_path: dir.path().join("config.json"),
-            archive_database_path: dir.path().join("archive/history-vault.sqlite"),
-            audit_repo_path: dir.path().join("audit"),
-            manifests_dir: dir.path().join("audit/manifests"),
-            exports_dir: dir.path().join("exports"),
-            raw_snapshots_dir: dir.path().join("raw-snapshots"),
-            staging_dir: dir.path().join("staging"),
-            quarantine_dir: dir.path().join("quarantine"),
-            schedule_dir: dir.path().join("schedule"),
-            stronghold_path: dir.path().join("vault.hold"),
-            stronghold_salt_path: dir.path().join("stronghold-salt.txt"),
-        };
+        let paths = project_paths_with_root(dir.path());
 
         ensure_paths(&paths).expect("ensure paths");
         assert!(paths.stronghold_salt_path.exists());
@@ -166,20 +177,7 @@ mod tests {
     #[test]
     fn load_config_returns_defaults_when_missing_and_errors_on_invalid_json() {
         let dir = tempdir().expect("tempdir");
-        let paths = ProjectPaths {
-            app_root: dir.path().to_path_buf(),
-            config_path: dir.path().join("config.json"),
-            archive_database_path: dir.path().join("archive/history-vault.sqlite"),
-            audit_repo_path: dir.path().join("audit"),
-            manifests_dir: dir.path().join("audit/manifests"),
-            exports_dir: dir.path().join("exports"),
-            raw_snapshots_dir: dir.path().join("raw-snapshots"),
-            staging_dir: dir.path().join("staging"),
-            quarantine_dir: dir.path().join("quarantine"),
-            schedule_dir: dir.path().join("schedule"),
-            stronghold_path: dir.path().join("vault.hold"),
-            stronghold_salt_path: dir.path().join("stronghold-salt.txt"),
-        };
+        let paths = project_paths_with_root(dir.path());
 
         let default_config = load_config(&paths).expect("missing config should default");
         assert!(!default_config.initialized);
@@ -192,20 +190,7 @@ mod tests {
     #[test]
     fn load_config_accepts_legacy_lowercase_archive_mode_values() {
         let dir = tempdir().expect("tempdir");
-        let paths = ProjectPaths {
-            app_root: dir.path().to_path_buf(),
-            config_path: dir.path().join("config.json"),
-            archive_database_path: dir.path().join("archive/history-vault.sqlite"),
-            audit_repo_path: dir.path().join("audit"),
-            manifests_dir: dir.path().join("audit/manifests"),
-            exports_dir: dir.path().join("exports"),
-            raw_snapshots_dir: dir.path().join("raw-snapshots"),
-            staging_dir: dir.path().join("staging"),
-            quarantine_dir: dir.path().join("quarantine"),
-            schedule_dir: dir.path().join("schedule"),
-            stronghold_path: dir.path().join("vault.hold"),
-            stronghold_salt_path: dir.path().join("stronghold-salt.txt"),
-        };
+        let paths = project_paths_with_root(dir.path());
 
         fs::write(
             &paths.config_path,

@@ -202,6 +202,10 @@ export interface AppDirectories {
   stagingDir: string
   quarantineDir: string
   scheduleDir: string
+  logsDir: string
+  rustLogPath: string
+  frontendLogPath: string
+  crashReportsDir: string
   strongholdPath: string
   strongholdSaltPath: string
 }
@@ -212,6 +216,23 @@ export interface AppBuildInfo {
   gitCommitShort: string
   gitCommitFull: string
   gitDirty: boolean
+}
+
+export interface CrashReportSummary {
+  source: string
+  recordedAt: string
+  fatal: boolean
+  message: string
+  location?: string | null
+  path: string
+}
+
+export interface RuntimeDiagnostics {
+  logDirectory: string
+  rustLogPath: string
+  frontendLogPath: string
+  crashReportsDirectory: string
+  latestCrashReport?: CrashReportSummary | null
 }
 
 export interface ArchiveStatus {
@@ -674,6 +695,7 @@ export interface RetentionPruneResult {
 
 export interface AppSnapshot {
   directories: AppDirectories
+  runtimeDiagnostics: RuntimeDiagnostics
   config: AppConfig
   archiveStatus: ArchiveStatus
   appLockStatus: AppLockStatus

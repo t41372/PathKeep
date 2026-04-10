@@ -638,6 +638,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let recent_import_batches =
         load_import_batches(&paths, &config, session_database_key).unwrap_or_default();
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
+    let runtime_diagnostics = vault_core::load_runtime_diagnostics(&paths)?;
 
     Ok(AppSnapshot {
         directories: vault_core::AppDirectories {
@@ -651,9 +652,14 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
             staging_dir: paths.staging_dir.display().to_string(),
             quarantine_dir: paths.quarantine_dir.display().to_string(),
             schedule_dir: paths.schedule_dir.display().to_string(),
+            logs_dir: paths.logs_dir.display().to_string(),
+            rust_log_path: paths.rust_log_path.display().to_string(),
+            frontend_log_path: paths.frontend_log_path.display().to_string(),
+            crash_reports_dir: paths.crash_reports_dir.display().to_string(),
             stronghold_path: paths.stronghold_path.display().to_string(),
             stronghold_salt_path: paths.stronghold_salt_path.display().to_string(),
         },
+        runtime_diagnostics,
         config,
         archive_status,
         app_lock_status,

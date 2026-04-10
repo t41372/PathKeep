@@ -111,6 +111,10 @@ const EMPTY_DIRECTORIES: AppSnapshot['directories'] = {
   stagingDir: '',
   quarantineDir: '',
   scheduleDir: '',
+  logsDir: '',
+  rustLogPath: '',
+  frontendLogPath: '',
+  crashReportsDir: '',
   strongholdPath: '',
   strongholdSaltPath: '',
 }

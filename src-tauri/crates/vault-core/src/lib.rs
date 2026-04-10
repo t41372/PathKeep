@@ -7,6 +7,7 @@ mod browser_retention;
 pub mod chrome;
 pub mod config;
 pub mod deterministic;
+pub mod diagnostics;
 pub mod git_audit;
 pub mod insights;
 pub mod intelligence_runtime;
@@ -35,6 +36,7 @@ pub use archive::{
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};
+pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
 pub use insights::{
     clear_derived_intelligence_state, explain_insight, insight_status, load_insight_thread_detail,
     load_insights, run_insights,

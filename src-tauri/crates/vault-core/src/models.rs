@@ -370,6 +370,10 @@ pub struct AppDirectories {
     pub staging_dir: String,
     pub quarantine_dir: String,
     pub schedule_dir: String,
+    pub logs_dir: String,
+    pub rust_log_path: String,
+    pub frontend_log_path: String,
+    pub crash_reports_dir: String,
     pub stronghold_path: String,
     pub stronghold_salt_path: String,
 }
@@ -382,6 +386,39 @@ pub struct AppBuildInfo {
     pub git_commit_short: String,
     pub git_commit_full: String,
     pub git_dirty: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CrashReportSummary {
+    pub source: String,
+    pub recorded_at: String,
+    pub fatal: bool,
+    pub message: String,
+    pub location: Option<String>,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDiagnostics {
+    pub log_directory: String,
+    pub rust_log_path: String,
+    pub frontend_log_path: String,
+    pub crash_reports_directory: String,
+    pub latest_crash_report: Option<CrashReportSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendErrorReportRequest {
+    pub source: String,
+    pub message: String,
+    pub stack: Option<String>,
+    pub url: Option<String>,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+    pub fatal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -708,6 +745,7 @@ pub struct RetentionPruneResult {
 #[serde(rename_all = "camelCase")]
 pub struct AppSnapshot {
     pub directories: AppDirectories,
+    pub runtime_diagnostics: RuntimeDiagnostics,
     pub config: AppConfig,
     pub archive_status: ArchiveStatus,
     pub app_lock_status: AppLockStatus,

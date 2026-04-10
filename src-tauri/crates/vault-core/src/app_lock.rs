@@ -403,26 +403,16 @@ pub fn clear_app_lock_passcode(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::ProjectPaths, models::AppLockConfig};
+    use crate::{
+        config::{ProjectPaths, project_paths_with_root},
+        models::AppLockConfig,
+    };
     use tempfile::tempdir;
 
     fn temp_paths() -> ProjectPaths {
         let dir = tempdir().expect("tempdir");
         let root = dir.keep();
-        ProjectPaths {
-            app_root: root.clone(),
-            config_path: root.join("config.json"),
-            archive_database_path: root.join("archive/history-vault.sqlite"),
-            audit_repo_path: root.join("audit"),
-            manifests_dir: root.join("audit/manifests"),
-            exports_dir: root.join("exports"),
-            raw_snapshots_dir: root.join("raw-snapshots"),
-            staging_dir: root.join("staging"),
-            quarantine_dir: root.join("quarantine"),
-            schedule_dir: root.join("schedule"),
-            stronghold_path: root.join("vault.hold"),
-            stronghold_salt_path: root.join("stronghold-salt.txt"),
-        }
+        project_paths_with_root(&root)
     }
 
     #[test]
