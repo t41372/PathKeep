@@ -513,6 +513,49 @@ export interface AuditRunDetail {
   artifacts: AuditArtifact[]
 }
 
+export interface SnapshotRestoreRequest {
+  snapshotPath: string
+}
+
+export interface SnapshotRestorePreview {
+  snapshotPath: string
+  snapshotKind: string
+  sourceRunId?: number | null
+  sourceProfileId?: string | null
+  sourceBrowserName?: string | null
+  createdAt?: string | null
+  reason?: string | null
+  executeSupported: boolean
+  estimatedVisits: number
+  estimatedUrls: number
+  estimatedDownloads: number
+  warnings: string[]
+}
+
+export interface RetentionBucket {
+  id: string
+  bytes: number
+  itemCount: number
+  paths: string[]
+}
+
+export interface RetentionPreview {
+  buckets: RetentionBucket[]
+  warnings: string[]
+}
+
+export interface RetentionPruneRequest {
+  bucketIds: string[]
+}
+
+export interface RetentionPruneResult {
+  runId?: number | null
+  deletedBytes: number
+  deletedFiles: number
+  buckets: RetentionBucket[]
+  warnings: string[]
+}
+
 export interface AppSnapshot {
   directories: AppDirectories
   config: AppConfig
@@ -768,6 +811,9 @@ export interface SecurityStatus {
   strongholdPath: string
   rememberDatabaseKeyInKeyring: boolean
   lastSuccessfulBackupAt?: string | null
+  lastRekeyAt?: string | null
+  lastRekeyRunId?: number | null
+  lastRekeySnapshotPath?: string | null
   keyringStatus: KeyringStatusReport
   warnings: string[]
 }

@@ -11,6 +11,7 @@ use rmcp::{
     schemars::JsonSchema,
     tool, tool_handler, tool_router,
 };
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::mpsc, thread, time::Duration};
 use tokio::runtime::Runtime;
@@ -701,6 +702,41 @@ pub fn rekey_archive_database(
     app_snapshot(request.new_key.as_deref().or(old_key))
 }
 
+pub fn preview_snapshot_restore_plan(
+    session_database_key: Option<&str>,
+    request: &vault_core::SnapshotRestoreRequest,
+) -> Result<vault_core::SnapshotRestorePreview> {
+    let paths = project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::preview_snapshot_restore(&paths, &config, session_database_key, request)
+}
+
+pub fn run_snapshot_restore_plan(
+    session_database_key: Option<&str>,
+    request: &vault_core::SnapshotRestoreRequest,
+) -> Result<vault_core::BackupReport> {
+    let paths = project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::run_snapshot_restore(&paths, &config, session_database_key, request)
+}
+
+pub fn preview_retention_plan(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::RetentionPreview> {
+    let paths = project_paths()?;
+    let config = load_unlocked_config(&paths).unwrap_or_default();
+    vault_core::preview_retention(&paths, &config, session_database_key)
+}
+
+pub fn run_retention_plan(
+    session_database_key: Option<&str>,
+    request: &vault_core::RetentionPruneRequest,
+) -> Result<vault_core::RetentionPruneResult> {
+    let paths = project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::run_retention_prune(&paths, &config, session_database_key, request)
+}
+
 pub fn run_backup_now(
     session_database_key: Option<&str>,
     due_only: bool,
@@ -1000,6 +1036,44 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
         "locked"
     };
 
+    let (last_rekey_at, last_rekey_run_id, last_rekey_snapshot_path) = if archive.initialized
+        && archive.unlocked
+    {
+        let connection = archive::open_archive_connection(&paths, &config, session_database_key)?;
+        archive::create_schema(&connection)?;
+        connection
+            .query_row(
+                "SELECT
+                       runs.id,
+                       runs.finished_at,
+                       (
+                         SELECT snapshots.file_path
+                         FROM snapshots
+                         WHERE snapshots.run_id = runs.id
+                           AND snapshots.reason = 'before-rekey'
+                         ORDER BY snapshots.id DESC
+                         LIMIT 1
+                       )
+                     FROM runs
+                     WHERE runs.run_type = 'rekey'
+                     ORDER BY runs.id DESC
+                     LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+            .map(|(run_id, finished_at, snapshot_path)| (finished_at, Some(run_id), snapshot_path))
+            .unwrap_or((None, None, None))
+    } else {
+        (None, None, None)
+    };
+
     Ok(vault_core::SecurityStatus {
         initialized: archive.initialized,
         mode: mode.to_string(),
@@ -1009,6 +1083,9 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
         stronghold_path: paths.stronghold_path.display().to_string(),
         remember_database_key_in_keyring: config.remember_database_key_in_keyring,
         last_successful_backup_at: archive.last_successful_backup_at,
+        last_rekey_at,
+        last_rekey_run_id,
+        last_rekey_snapshot_path,
         keyring_status: keyring,
         warnings,
     })

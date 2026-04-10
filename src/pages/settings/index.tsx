@@ -30,6 +30,8 @@ import type {
   RemoteBackupPreview,
   RemoteBackupResult,
   RemoteBackupVerification,
+  RetentionPreview,
+  RetentionPruneResult,
   RunInsightsReport,
   ScheduleStatus,
   SecurityStatus,
@@ -107,6 +109,15 @@ export function SettingsPage() {
   const [appLockAction, setAppLockAction] = useState<string | null>(null)
   const [aiDraft, setAiDraft] = useState<AiSettings | null>(null)
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
+  const [retentionPreview, setRetentionPreview] =
+    useState<RetentionPreview | null>(null)
+  const [retentionSelection, setRetentionSelection] = useState<
+    Record<string, boolean>
+  >({})
+  const [retentionResult, setRetentionResult] =
+    useState<RetentionPruneResult | null>(null)
+  const [retentionAction, setRetentionAction] = useState<string | null>(null)
+  const [retentionError, setRetentionError] = useState<string | null>(null)
   const [aiIntegrationPreview, setAiIntegrationPreview] =
     useState<AiIntegrationPreview | null>(null)
   const [aiIntegrationError, setAiIntegrationError] = useState<string | null>(
@@ -157,6 +168,39 @@ export function SettingsPage() {
     setAppLockDraft(snapshot.config.appLock)
     setAppLockRecoveryHint(snapshot.config.appLock.recoveryHint ?? '')
   }, [snapshot])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRetentionPreview = async () => {
+      try {
+        const preview = await backend.previewRetentionPrune()
+        if (!cancelled) {
+          setRetentionPreview(preview)
+          setRetentionSelection((current) => {
+            if (Object.keys(current).length > 0) {
+              return current
+            }
+            return Object.fromEntries(
+              preview.buckets.map((bucket) => [bucket.id, bucket.bytes > 0]),
+            )
+          })
+          setRetentionError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRetentionPreview(null)
+          setRetentionError(
+            error instanceof Error ? error.message : t('common.notAvailable'),
+          )
+        }
+      }
+    }
+
+    void loadRetentionPreview()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshAppData, snapshot?.config.initialized, t])
 
   const savedAiSettings = snapshot?.config.ai
   const snapshotAiSignature = useMemo(
@@ -253,6 +297,16 @@ export function SettingsPage() {
     remoteDraft?.bucket.trim() && remoteDraft.region.trim(),
   )
   const latestRemoteBundlePath = remoteResult?.bundlePath ?? null
+  const selectedRetentionBuckets = retentionPreview
+    ? retentionPreview.buckets.filter((bucket) => retentionSelection[bucket.id])
+    : []
+  const selectedRetentionBytes = selectedRetentionBuckets.reduce(
+    (total, bucket) => total + bucket.bytes,
+    0,
+  )
+  const retentionNeedsUnlock =
+    supportState.securityStatus?.encrypted === true &&
+    supportState.securityStatus.unlocked === false
   const currentAiSettings = aiDraft ?? snapshot.config.ai
   const currentAppLockSettings = appLockDraft ?? snapshot.config.appLock
   const aiIndexMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
@@ -319,6 +373,49 @@ export function SettingsPage() {
       },
     })
     setRemoteDraft(nextSnapshot.config.remoteBackup)
+  }
+
+  async function refreshRetentionPreview() {
+    try {
+      const preview = await backend.previewRetentionPrune()
+      setRetentionPreview(preview)
+      setRetentionSelection((current) =>
+        Object.keys(current).length > 0
+          ? current
+          : Object.fromEntries(
+              preview.buckets.map((bucket) => [bucket.id, bucket.bytes > 0]),
+            ),
+      )
+      setRetentionError(null)
+    } catch (error) {
+      setRetentionError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
+    }
+  }
+
+  async function handleRetentionPrune() {
+    if (selectedRetentionBuckets.length === 0) {
+      setRetentionError(t('settings.retentionNothingSelected'))
+      return
+    }
+
+    setRetentionAction(t('settings.retentionExecute'))
+    setRetentionError(null)
+    try {
+      const result = await backend.runRetentionPrune({
+        bucketIds: selectedRetentionBuckets.map((bucket) => bucket.id),
+      })
+      setRetentionResult(result)
+      await refreshAppData()
+      await refreshRetentionPreview()
+    } catch (error) {
+      setRetentionError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
+    } finally {
+      setRetentionAction(null)
+    }
   }
 
   function browserIcon(profileId: string): string {
@@ -866,6 +963,141 @@ export function SettingsPage() {
               {buildInfo?.gitCommitShort ?? t('common.notAvailable')}
             </span>
           </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{t('settings.retentionTitle')}</span>
+          <span className="panel-action">
+            {t('settings.retentionSelected', {
+              size: formatBytes(selectedRetentionBytes, language),
+            })}
+          </span>
+        </div>
+        <div className="panel-body">
+          <p className="dashboard-next-action">
+            {t('settings.retentionDescription')}
+          </p>
+
+          {retentionNeedsUnlock ? (
+            <StatusCallout
+              tone="warning"
+              title={t('settings.retentionUnlockTitle')}
+              body={t('settings.retentionUnlockBody')}
+              actions={
+                <Link className="btn-secondary" to="/security">
+                  {t('navigation.securityLabel')}
+                </Link>
+              }
+            />
+          ) : null}
+
+          {retentionPreview ? (
+            <div className="settings-field-grid">
+              {retentionPreview.buckets.map((bucket) => (
+                <label key={bucket.id} className="checkbox-row">
+                  <input
+                    checked={Boolean(retentionSelection[bucket.id])}
+                    type="checkbox"
+                    onChange={(event) => {
+                      setRetentionSelection((current) => ({
+                        ...current,
+                        [bucket.id]: event.target.checked,
+                      }))
+                    }}
+                  />
+                  <span>
+                    {bucket.id === 'snapshots'
+                      ? t('settings.retentionSnapshots')
+                      : bucket.id === 'exports'
+                        ? t('settings.retentionExports')
+                        : bucket.id === 'staging'
+                          ? t('settings.retentionStaging')
+                          : t('settings.retentionQuarantine')}
+                    {` · ${formatBytes(bucket.bytes, language)} · ${bucket.itemCount.toLocaleString(language)} ${t('settings.retentionItems')}`}
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <StatusCallout
+              tone="info"
+              title={t('settings.retentionLoadingTitle')}
+              body={t('common.loading')}
+            />
+          )}
+
+          {retentionPreview?.warnings.map((warning) => (
+            <div key={warning} className="warning-box">
+              <div className="warning-icon">⚠</div>
+              <div className="warning-text">{warning}</div>
+            </div>
+          ))}
+
+          <div className="wizard-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => {
+                void refreshRetentionPreview()
+              }}
+            >
+              {t('settings.retentionRefresh')}
+            </button>
+            <button
+              className="btn-danger"
+              type="button"
+              disabled={
+                retentionNeedsUnlock ||
+                retentionAction !== null ||
+                selectedRetentionBuckets.length === 0
+              }
+              onClick={() => {
+                void handleRetentionPrune()
+              }}
+            >
+              {retentionAction ?? t('settings.retentionExecute')}
+            </button>
+          </div>
+
+          {retentionResult ? (
+            <div
+              className="inline-note-list"
+              style={{ marginTop: 'var(--space-3)' }}
+            >
+              <div className="result-row">
+                <p>
+                  {t('settings.retentionDeletedBytes', {
+                    size: formatBytes(retentionResult.deletedBytes, language),
+                  })}
+                </p>
+              </div>
+              <div className="result-row">
+                <p>
+                  {t('settings.retentionDeletedFiles', {
+                    count: retentionResult.deletedFiles,
+                  })}
+                </p>
+              </div>
+              {retentionResult.runId ? (
+                <div className="result-row">
+                  <Link
+                    className="btn-secondary"
+                    to={`/audit?run=${retentionResult.runId}`}
+                  >
+                    {t('settings.retentionOpenAudit')}
+                  </Link>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {retentionError ? (
+            <p className="inline-error" role="alert">
+              {retentionError}
+            </p>
+          ) : null}
         </div>
       </div>
 

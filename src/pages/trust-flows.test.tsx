@@ -37,6 +37,7 @@ import { AuditPage } from './audit'
 import { ImportPage } from './import'
 import { SchedulePage } from './schedule'
 import { SecurityPage } from './security'
+import { SettingsPage } from './settings'
 
 const config: AppConfig = {
   initialized: false,
@@ -495,6 +496,92 @@ describe('trust flows', () => {
     )
 
     expect(await screen.findByText('加密 → 明文')).toBeVisible()
+  })
+
+  test('shows the latest rekey review path and audit shortcut on the security page', async () => {
+    await seedInitializedSnapshot()
+    await backend.rekeyArchive({ newMode: 'Plaintext', newKey: null })
+    const snapshot = await backend.getAppSnapshot()
+
+    renderTrustPage(<SecurityPage />, {
+      language: 'en',
+      route: '/security',
+      snapshot,
+    })
+
+    expect(await screen.findByText(/archive-before-rekey/)).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'Open last rekey review' }),
+    ).toHaveAttribute('href', expect.stringContaining('/audit?run='))
+  })
+
+  test('renders the retention prune panel in settings and executes the selected cleanup', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedInitializedSnapshot()
+    const previewSpy = vi
+      .spyOn(backend, 'previewRetentionPrune')
+      .mockResolvedValue({
+        buckets: [
+          {
+            id: 'snapshots',
+            bytes: 2048,
+            itemCount: 2,
+            paths: [snapshot.directories.rawSnapshotsDir],
+          },
+          {
+            id: 'exports',
+            bytes: 0,
+            itemCount: 0,
+            paths: [snapshot.directories.exportsDir],
+          },
+        ],
+        warnings: ['Snapshots stay local until you explicitly prune them.'],
+      })
+    const runSpy = vi.spyOn(backend, 'runRetentionPrune').mockResolvedValue({
+      runId: 44,
+      deletedBytes: 2048,
+      deletedFiles: 2,
+      buckets: [
+        {
+          id: 'snapshots',
+          bytes: 2048,
+          itemCount: 2,
+          paths: [snapshot.directories.rawSnapshotsDir],
+        },
+      ],
+      warnings: [],
+    })
+    const refreshSpy = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <I18nContext.Provider value={createI18nValue('en')}>
+          <ShellDataContext.Provider
+            value={{
+              ...createShellValue(snapshot, dashboard),
+              refreshAppData: refreshSpy,
+            }}
+          >
+            <SettingsPage />
+          </ShellDataContext.Provider>
+        </I18nContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('RETENTION & CLEANUP')).toBeVisible()
+    expect(await screen.findByText(/Snapshots stay local/)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Prune selected' }))
+
+    await waitFor(() =>
+      expect(runSpy).toHaveBeenCalledWith({ bucketIds: ['snapshots'] }),
+    )
+    expect(
+      await screen.findByRole('link', { name: 'Open prune review' }),
+    ).toHaveAttribute('href', '/audit?run=44')
+
+    previewSpy.mockRestore()
+    runSpy.mockRestore()
   })
 
   test('filters audit runs and shows delta against the previous visible run', async () => {

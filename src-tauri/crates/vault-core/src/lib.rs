@@ -26,8 +26,9 @@ pub use app_lock::{
 };
 pub use archive::{
     archive_status, doctor, ensure_archive_initialized, export_history, list_history,
-    load_audit_run_detail, load_dashboard_snapshot, load_recent_runs, rekey_archive,
-    repair_health_issues, run_backup, run_backup_with_progress,
+    load_audit_run_detail, load_dashboard_snapshot, load_recent_runs, preview_retention,
+    preview_snapshot_restore, rekey_archive, repair_health_issues, run_backup,
+    run_backup_with_progress, run_retention_prune, run_snapshot_restore,
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};

@@ -23,6 +23,7 @@ import type {
   AuditRunDetail,
   ImportBatchDetail,
   ImportBatchOverview,
+  SnapshotRestorePreview,
 } from '../../lib/types'
 
 interface AuditDetailState {
@@ -128,6 +129,11 @@ export function AuditPage() {
     artifactType: 'all',
   })
   const [detailTab, setDetailTab] = useState<AuditDetailTab>('summary')
+  const [restorePreview, setRestorePreview] =
+    useState<SnapshotRestorePreview | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null)
+  const [restoreBusy, setRestoreBusy] = useState(false)
 
   const runIdFromParams = Number(searchParams.get('run') ?? '')
   const runId =
@@ -355,6 +361,9 @@ export function AuditPage() {
 
   useEffect(() => {
     setDetailTab('summary')
+    setRestorePreview(null)
+    setRestoreError(null)
+    setRestoreNotice(null)
   }, [runId])
 
   useEffect(() => {
@@ -440,6 +449,58 @@ export function AuditPage() {
           : t('common.unavailable'),
       )
     }
+  }
+
+  async function handlePreviewRestore(snapshotPath: string) {
+    setRestoreBusy(true)
+    setRestoreError(null)
+    setRestoreNotice(null)
+    try {
+      const preview = await backend.previewSnapshotRestore({ snapshotPath })
+      setRestorePreview(preview)
+    } catch (nextError) {
+      setRestorePreview(null)
+      setRestoreError(
+        nextError instanceof Error
+          ? nextError.message
+          : t('common.unavailable'),
+      )
+    } finally {
+      setRestoreBusy(false)
+    }
+  }
+
+  async function handleExecuteRestore() {
+    if (!restorePreview?.executeSupported) {
+      return
+    }
+    setRestoreBusy(true)
+    setRestoreError(null)
+    setRestoreNotice(null)
+    try {
+      const report = await backend.runSnapshotRestore({
+        snapshotPath: restorePreview.snapshotPath,
+      })
+      await refreshAppData()
+      setRestoreNotice(t('audit.restoreRecorded'))
+      if (report.run?.id) {
+        selectRun(report.run.id)
+      }
+    } catch (nextError) {
+      setRestoreError(
+        nextError instanceof Error
+          ? nextError.message
+          : t('common.unavailable'),
+      )
+    } finally {
+      setRestoreBusy(false)
+    }
+  }
+
+  function restoreKindLabel(kind: string) {
+    return kind === 'archive-safety-snapshot'
+      ? t('audit.restoreKindArchiveSafety')
+      : t('audit.restoreKindRawSource')
   }
 
   if (shellLoading && !snapshot)
@@ -1095,6 +1156,20 @@ export function AuditPage() {
                         >
                           {t('common.copyAction')}
                         </button>
+                        {artifact.kind === 'snapshot' ? (
+                          <button
+                            className="btn-tiny"
+                            type="button"
+                            onClick={() => {
+                              void handlePreviewRestore(artifact.path)
+                            }}
+                          >
+                            {restoreBusy &&
+                            restorePreview?.snapshotPath === artifact.path
+                              ? t('common.loading')
+                              : t('audit.previewRestore')}
+                          </button>
+                        ) : null}
                       </div>
                       {copiedPath === artifact.path ? (
                         <span className="dim mono" style={{ fontSize: '10px' }}>
@@ -1108,6 +1183,148 @@ export function AuditPage() {
                     {t('common.notAvailable')}
                   </p>
                 )}
+                {restorePreview ? (
+                  <div
+                    className="panel"
+                    style={{ marginTop: 'var(--space-4)' }}
+                  >
+                    <div className="panel-header">
+                      <span className="panel-title">
+                        {t('audit.restorePreviewTitle')}
+                      </span>
+                      <span className="panel-action">
+                        {restorePreview.executeSupported
+                          ? t('audit.restoreReady')
+                          : t('audit.restoreManualOnly')}
+                      </span>
+                    </div>
+                    <div className="panel-body">
+                      <p className="dashboard-next-action">
+                        {t('audit.restorePreviewBody')}
+                      </p>
+                      <div className="manifest-grid">
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('audit.restoreKind')}
+                          </span>
+                          <span className="field-value">
+                            {restoreKindLabel(restorePreview.snapshotKind)}
+                          </span>
+                        </div>
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('audit.runSource')}
+                          </span>
+                          <span className="field-value mono">
+                            {restorePreview.sourceProfileId ??
+                              t('audit.archiveWide')}
+                          </span>
+                        </div>
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('audit.executedAt')}
+                          </span>
+                          <span className="field-value mono">
+                            {restorePreview.createdAt
+                              ? (formatDateTime(
+                                  restorePreview.createdAt,
+                                  language,
+                                ) ?? restorePreview.createdAt)
+                              : t('common.notAvailable')}
+                          </span>
+                        </div>
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('audit.restoreSnapshotPath')}
+                          </span>
+                          <span className="field-value mono">
+                            {restorePreview.snapshotPath}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="detail-divider" />
+                      <div className="manifest-stats">
+                        <div className="manifest-stat">
+                          <span className="dim">
+                            {t('audit.estimatedVisits')}
+                          </span>
+                          <span className="mono accent">
+                            {restorePreview.estimatedVisits}
+                          </span>
+                        </div>
+                        <div className="manifest-stat">
+                          <span className="dim">
+                            {t('audit.estimatedUrls')}
+                          </span>
+                          <span className="mono">
+                            {restorePreview.estimatedUrls}
+                          </span>
+                        </div>
+                        <div className="manifest-stat">
+                          <span className="dim">
+                            {t('audit.estimatedDownloads')}
+                          </span>
+                          <span className="mono">
+                            {restorePreview.estimatedDownloads}
+                          </span>
+                        </div>
+                      </div>
+                      {restorePreview.warnings.length > 0 ? (
+                        <div
+                          className="warning-box"
+                          style={{ marginTop: 'var(--space-3)' }}
+                        >
+                          <div className="warning-icon">⚠</div>
+                          <div className="warning-text">
+                            {restorePreview.warnings.map((warning) => (
+                              <div key={warning}>{warning}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      <div
+                        className="wizard-actions"
+                        style={{ marginTop: 'var(--space-3)' }}
+                      >
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          onClick={() => {
+                            void backend.openPathInFileManager(
+                              restorePreview.snapshotPath,
+                            )
+                          }}
+                        >
+                          {t('common.openAction')}
+                        </button>
+                        <button
+                          className="btn-primary"
+                          type="button"
+                          disabled={
+                            !restorePreview.executeSupported || restoreBusy
+                          }
+                          onClick={() => {
+                            void handleExecuteRestore()
+                          }}
+                        >
+                          {restoreBusy
+                            ? t('common.loading')
+                            : t('audit.executeRestore')}
+                        </button>
+                      </div>
+                      {restoreNotice ? (
+                        <p className="mono-support" role="status">
+                          {restoreNotice}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {restoreError ? (
+                  <p className="inline-error" role="alert">
+                    {restoreError}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

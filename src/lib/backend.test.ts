@@ -11,7 +11,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 import { backend, backendTestHarness } from './backend'
-import type { AppConfig, SchedulePlan } from './types'
+import type { AppConfig, RetentionPruneResult, SchedulePlan } from './types'
 
 const config: AppConfig = {
   initialized: false,
@@ -138,11 +138,72 @@ describe('backend facade', () => {
     })
     await expect(backend.loadDashboardSnapshot()).resolves.toMatchObject({
       totalVisits: 2,
-      recentRuns: [expect.objectContaining({ status: 'success' })],
+      recentRuns: expect.arrayContaining([
+        expect.objectContaining({ status: 'success' }),
+      ]),
     })
     await expect(backend.loadAuditRunDetail(1848)).resolves.toMatchObject({
       run: expect.objectContaining({ id: 1848 }),
       artifacts: [expect.objectContaining({ kind: 'snapshot' })],
+    })
+    await expect(
+      backend.previewSnapshotRestore({
+        snapshotPath: '/tmp/run-1848.snapshot',
+      }),
+    ).resolves.toMatchObject({
+      snapshotKind: 'raw-source-checkpoint',
+      executeSupported: true,
+    })
+    await expect(
+      backend.previewSnapshotRestore({
+        snapshotPath: '/tmp/archive-before-rekey.snapshot.sqlite',
+      }),
+    ).resolves.toMatchObject({
+      snapshotKind: 'archive-safety-snapshot',
+      executeSupported: false,
+    })
+    const snapshotRestore = await backend.runSnapshotRestore({
+      snapshotPath: '/tmp/run-1848.snapshot',
+    })
+    expect(snapshotRestore).toMatchObject({
+      run: expect.objectContaining({ runType: 'snapshot_restore' }),
+    })
+    await expect(
+      backend.loadAuditRunDetail(snapshotRestore.run!.id),
+    ).resolves.toMatchObject({
+      artifacts: [
+        expect.objectContaining({
+          kind: 'snapshot',
+          reason: 'restored-source-checkpoint',
+        }),
+      ],
+    })
+    await expect(
+      backend.runSnapshotRestore({ snapshotPath: '/tmp/run-1848.snapshot' }),
+    ).resolves.toMatchObject({
+      run: expect.objectContaining({ runType: 'snapshot_restore' }),
+    })
+    await expect(
+      backend.runSnapshotRestore({
+        snapshotPath: '/tmp/archive-before-rekey.snapshot.sqlite',
+      }),
+    ).rejects.toThrow(
+      'Automatic restore is only supported for saved browser source checkpoints right now.',
+    )
+    await expect(backend.previewRetentionPrune()).resolves.toMatchObject({
+      buckets: expect.arrayContaining([
+        expect.objectContaining({ id: 'snapshots' }),
+        expect.objectContaining({ id: 'exports' }),
+      ]),
+    })
+    await expect(
+      backend.runRetentionPrune({ bucketIds: ['snapshots', 'exports'] }),
+    ).resolves.toMatchObject({
+      runId: expect.any(Number),
+      buckets: expect.arrayContaining([
+        expect.objectContaining({ id: 'snapshots' }),
+        expect.objectContaining({ id: 'exports' }),
+      ]),
     })
     await expect(
       backend.queryHistory({
@@ -300,9 +361,13 @@ describe('backend facade', () => {
     ).resolves.toMatchObject({
       batch: expect.objectContaining({ id: 1, status: 'imported' }),
     })
-    await expect(backend.loadAuditRunDetail(1851)).resolves.toMatchObject({
+    const snapshotAfterRestore = await backend.getAppSnapshot()
+    const latestRestoreRun = snapshotAfterRestore.recentRuns[0]
+    await expect(
+      backend.loadAuditRunDetail(latestRestoreRun.id),
+    ).resolves.toMatchObject({
       run: expect.objectContaining({
-        id: 1851,
+        id: latestRestoreRun.id,
         runType: 'restore',
       }),
     })
@@ -337,13 +402,16 @@ describe('backend facade', () => {
         expect.objectContaining({ name: 'import-artifacts' }),
       ]),
     })
-    await expect(backend.repairHealth()).resolves.toMatchObject({
-      runId: 1852,
+    const repair = await backend.repairHealth()
+    expect(repair).toMatchObject({
+      runId: expect.any(Number),
       repairedImportAudits: 1,
     })
-    await expect(backend.loadAuditRunDetail(1852)).resolves.toMatchObject({
+    await expect(
+      backend.loadAuditRunDetail(repair.runId!),
+    ).resolves.toMatchObject({
       run: expect.objectContaining({
-        id: 1852,
+        id: repair.runId,
         runType: 'doctor',
       }),
     })
@@ -1906,6 +1974,48 @@ describe('backend facade', () => {
     expect(firstPage.items).toHaveLength(50)
     expect(firstPage.total).toBe(75)
     expect(exportResult.count).toBe(75)
+  })
+
+  test('covers mock fallback branches for snapshot restore and retention prune without explicit args', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.recentRuns = []
+    })
+
+    await expect(
+      backend.previewSnapshotRestore({ snapshotPath: '' }),
+    ).resolves.toMatchObject({
+      snapshotPath: expect.stringContaining('/run-1'),
+      snapshotKind: 'raw-source-checkpoint',
+    })
+
+    await expect(
+      backendTestHarness.call('run_snapshot_restore'),
+    ).resolves.toMatchObject({
+      run: expect.objectContaining({
+        id: 1848,
+        runType: 'snapshot_restore',
+        profileScope: ['chrome:Default'],
+      }),
+    })
+
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.recentRuns = []
+    })
+
+    const prune = await backendTestHarness.call<RetentionPruneResult>(
+      'run_retention_prune',
+    )
+    expect(prune).toMatchObject({
+      runId: 1848,
+      deletedBytes: 0,
+      deletedFiles: 0,
+      buckets: [],
+    })
+    await expect(
+      backend.loadAuditRunDetail(Number(prune.runId)),
+    ).resolves.toMatchObject({
+      artifacts: [expect.objectContaining({ kind: 'retention' })],
+    })
   })
 
   test('throws when a mock command is not implemented in browser preview mode', async () => {

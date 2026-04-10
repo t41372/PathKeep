@@ -575,6 +575,61 @@ pub struct AuditRunDetail {
     pub artifacts: Vec<AuditArtifact>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRestoreRequest {
+    pub snapshot_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRestorePreview {
+    pub snapshot_path: String,
+    pub snapshot_kind: String,
+    pub source_run_id: Option<i64>,
+    pub source_profile_id: Option<String>,
+    pub source_browser_name: Option<String>,
+    pub created_at: Option<String>,
+    pub reason: Option<String>,
+    pub execute_supported: bool,
+    pub estimated_visits: usize,
+    pub estimated_urls: usize,
+    pub estimated_downloads: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionBucket {
+    pub id: String,
+    pub bytes: u64,
+    pub item_count: usize,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPreview {
+    pub buckets: Vec<RetentionBucket>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPruneRequest {
+    pub bucket_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPruneResult {
+    pub run_id: Option<i64>,
+    pub deleted_bytes: u64,
+    pub deleted_files: usize,
+    pub buckets: Vec<RetentionBucket>,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSnapshot {
@@ -920,6 +975,9 @@ pub struct SecurityStatus {
     pub stronghold_path: String,
     pub remember_database_key_in_keyring: bool,
     pub last_successful_backup_at: Option<String>,
+    pub last_rekey_at: Option<String>,
+    pub last_rekey_run_id: Option<i64>,
+    pub last_rekey_snapshot_path: Option<String>,
     pub keyring_status: KeyringStatusReport,
     pub warnings: Vec<String>,
 }

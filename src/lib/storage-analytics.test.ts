@@ -19,7 +19,7 @@ const storage = {
 describe('storage analytics helpers', () => {
   test('sums tracked and reclaimable storage bytes', () => {
     expect(totalTrackedStorageBytes(storage)).toBe(190)
-    expect(reclaimableStorageBytes(storage)).toBe(10)
+    expect(reclaimableStorageBytes(storage)).toBe(30)
   })
 
   test('returns stable storage slices and dominant category', () => {
@@ -65,7 +65,7 @@ describe('storage analytics helpers', () => {
       latestUrlGrowth: 3,
       latestDownloadGrowth: 1,
       totalTrackedBytes: 190,
-      reclaimableBytes: 10,
+      reclaimableBytes: 30,
       dominantSlice: { id: 'core', bytes: 150 },
     })
     expect(storageGrowthEvidence(null)).toEqual({

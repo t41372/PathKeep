@@ -14,8 +14,9 @@ use tauri_plugin_autostart::MacosLauncher;
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, HistoryQuery,
-    RunInsightsRequest, S3CredentialInput, SchedulePlan, ScheduleStatus, SecurityStatus,
-    SetAppLockPasscodeRequest, TakeoutRequest, UnlockAppSessionRequest,
+    RetentionPruneRequest, RunInsightsRequest, S3CredentialInput, SchedulePlan, ScheduleStatus,
+    SecurityStatus, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
+    UnlockAppSessionRequest,
 };
 #[cfg(not(test))]
 use vault_worker::RekeyRequest;
@@ -70,6 +71,10 @@ fn run_app() -> Result<()> {
             initialize_archive,
             preview_rekey_archive,
             rekey_archive,
+            preview_snapshot_restore,
+            run_snapshot_restore,
+            preview_retention_prune,
+            run_retention_prune,
             set_session_database_key,
             clear_session_database_key,
             set_app_lock_passcode,
@@ -179,6 +184,41 @@ fn preview_rekey_archive(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::RekeyPreview, String> {
     worker_bridge::preview_rekey_archive_impl(request, &state)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn preview_snapshot_restore(
+    request: SnapshotRestoreRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::SnapshotRestorePreview, String> {
+    worker_bridge::preview_snapshot_restore_impl(request, &state)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn run_snapshot_restore(
+    request: SnapshotRestoreRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::BackupReport, String> {
+    worker_bridge::run_snapshot_restore_impl(request, &state)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn preview_retention_prune(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RetentionPreview, String> {
+    worker_bridge::preview_retention_prune_impl(&state)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn run_retention_prune(
+    request: RetentionPruneRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RetentionPruneResult, String> {
+    worker_bridge::run_retention_prune_impl(request, &state)
 }
 
 #[cfg(not(test))]

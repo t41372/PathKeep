@@ -81,6 +81,40 @@ pub(crate) fn preview_rekey_archive_impl(
     worker_result(vault_worker::preview_rekey_archive(session_key(state).as_deref(), &request))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn preview_snapshot_restore_impl(
+    request: vault_core::SnapshotRestoreRequest,
+    state: &SessionState,
+) -> Result<vault_core::SnapshotRestorePreview, String> {
+    worker_result(vault_worker::preview_snapshot_restore_plan(
+        session_key(state).as_deref(),
+        &request,
+    ))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn run_snapshot_restore_impl(
+    request: vault_core::SnapshotRestoreRequest,
+    state: &SessionState,
+) -> Result<vault_core::BackupReport, String> {
+    worker_result(vault_worker::run_snapshot_restore_plan(session_key(state).as_deref(), &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn preview_retention_prune_impl(
+    state: &SessionState,
+) -> Result<vault_core::RetentionPreview, String> {
+    worker_result(vault_worker::preview_retention_plan(session_key(state).as_deref()))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn run_retention_prune_impl(
+    request: vault_core::RetentionPruneRequest,
+    state: &SessionState,
+) -> Result<vault_core::RetentionPruneResult, String> {
+    worker_result(vault_worker::run_retention_plan(session_key(state).as_deref(), &request))
+}
+
 pub(crate) fn set_session_database_key_impl(
     database_key: String,
     state: &SessionState,
@@ -604,6 +638,34 @@ mod tests {
         let backup =
             run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
         assert_eq!(backup.run.expect("run").new_visits, 1);
+        let backup_run_id = app_snapshot_impl(session_key(&session).as_deref())
+            .expect("snapshot after backup")
+            .recent_runs[0]
+            .id;
+        let backup_detail = audit_run_detail_impl(backup_run_id, session_key(&session).as_deref())
+            .expect("backup audit detail");
+        let snapshot_path = backup_detail.artifacts[0].path.clone();
+        let restore_preview = preview_snapshot_restore_impl(
+            vault_core::SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
+            &session,
+        )
+        .expect("preview snapshot restore");
+        assert!(restore_preview.execute_supported);
+        let restore_run = run_snapshot_restore_impl(
+            vault_core::SnapshotRestoreRequest { snapshot_path },
+            &session,
+        )
+        .expect("run snapshot restore");
+        assert_eq!(restore_run.run.expect("snapshot restore run").run_type, "snapshot_restore");
+        let retention_preview =
+            preview_retention_prune_impl(&session).expect("preview retention prune");
+        assert!(retention_preview.buckets.iter().any(|bucket| bucket.id == "snapshots"));
+        let retention_result = run_retention_prune_impl(
+            vault_core::RetentionPruneRequest { bucket_ids: vec!["snapshots".to_string()] },
+            &session,
+        )
+        .expect("run retention prune");
+        assert!(retention_result.deleted_files > 0);
 
         let history = query_history_impl(
             HistoryQuery {

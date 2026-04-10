@@ -48,6 +48,9 @@ import type {
   RemoteBackupPreview,
   RemoteBackupResult,
   RemoteBackupVerification,
+  RetentionPreview,
+  RetentionPruneRequest,
+  RetentionPruneResult,
   RunInsightsReport,
   RunInsightsRequest,
   SchedulePlan,
@@ -55,6 +58,8 @@ import type {
   SecurityStatus,
   SetAppLockPasscodeRequest,
   S3CredentialInput,
+  SnapshotRestorePreview,
+  SnapshotRestoreRequest,
   TakeoutInspection,
   TakeoutRequest,
   UnlockAppSessionRequest,
@@ -1046,6 +1051,25 @@ function buildMockAuditRunDetail(
     throw new Error(`Mock backend does not know audit run ${runId}`)
   }
 
+  const artifactPath =
+    run.runType === 'rekey'
+      ? `${state.snapshot.directories.rawSnapshotsDir}/rekey/archive-before-rekey-${run.id}.sqlite`
+      : run.runType === 'snapshot_restore'
+        ? `${state.snapshot.directories.rawSnapshotsDir}/chrome:Default/2026-04-09T10-00-00.000Z`
+        : run.runType === 'retention_prune'
+          ? state.snapshot.directories.appRoot
+          : `${state.snapshot.directories.rawSnapshotsDir}/run-${run.id}`
+  const artifactReason =
+    run.runType === 'rekey'
+      ? 'before-rekey'
+      : run.runType === 'snapshot_restore'
+        ? 'restored-source-checkpoint'
+        : run.runType === 'retention_prune'
+          ? 'pruned-retention-buckets'
+          : 'periodic-checkpoint'
+  const artifactKind =
+    run.runType === 'retention_prune' ? 'retention' : 'snapshot'
+
   return {
     run,
     trigger: run.trigger ?? 'manual',
@@ -1064,12 +1088,12 @@ function buildMockAuditRunDetail(
     manifestHash: run.manifestHash ?? `preview-manifest-${run.id}`,
     artifacts: [
       {
-        kind: 'snapshot',
-        path: `${state.snapshot.directories.rawSnapshotsDir}/run-${run.id}`,
+        kind: artifactKind,
+        path: artifactPath,
         checksum: `snapshot-${run.id}`,
         sizeBytes: 4096,
         createdAt: run.finishedAt ?? run.startedAt,
-        reason: 'periodic-checkpoint',
+        reason: artifactReason,
       },
     ],
   }
@@ -1259,6 +1283,8 @@ function buildMockSecurityStatus(state: MockBackendState): SecurityStatus {
   const warnings = state.snapshot.archiveStatus.warning
     ? [state.snapshot.archiveStatus.warning]
     : []
+  const lastRekeyRun =
+    state.snapshot.recentRuns.find((run) => run.runType === 'rekey') ?? null
 
   if (
     state.snapshot.config.archiveMode === 'Encrypted' &&
@@ -1288,6 +1314,11 @@ function buildMockSecurityStatus(state: MockBackendState): SecurityStatus {
     rememberDatabaseKeyInKeyring:
       state.snapshot.config.rememberDatabaseKeyInKeyring,
     lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
+    lastRekeyAt: lastRekeyRun?.finishedAt ?? null,
+    lastRekeyRunId: lastRekeyRun?.id ?? null,
+    lastRekeySnapshotPath: lastRekeyRun
+      ? `${state.snapshot.directories.rawSnapshotsDir}/rekey/archive-before-rekey-${lastRekeyRun.id}.sqlite`
+      : null,
     keyringStatus: structuredClone(state.snapshot.keyringStatus),
     warnings,
   }
@@ -1335,6 +1366,74 @@ function buildMockRekeyPreview(
       'Swap the rewritten database into place only after the export succeeds.',
     ],
     warnings,
+  }
+}
+
+function buildMockSnapshotRestorePreview(
+  state: MockBackendState,
+  request: SnapshotRestoreRequest,
+): SnapshotRestorePreview {
+  const snapshotPath =
+    request.snapshotPath ||
+    `${state.snapshot.directories.rawSnapshotsDir}/run-1`
+  const archiveSnapshot = snapshotPath.endsWith('.sqlite')
+  return {
+    snapshotPath,
+    snapshotKind: archiveSnapshot
+      ? 'archive-safety-snapshot'
+      : 'raw-source-checkpoint',
+    sourceRunId: state.snapshot.recentRuns[0]?.id ?? null,
+    sourceProfileId: archiveSnapshot ? null : 'chrome:Default',
+    sourceBrowserName: archiveSnapshot ? null : 'Google Chrome',
+    createdAt: new Date().toISOString(),
+    reason: archiveSnapshot ? 'before-rekey' : 'periodic-checkpoint',
+    executeSupported: !archiveSnapshot,
+    estimatedVisits: archiveSnapshot ? 0 : 2,
+    estimatedUrls: archiveSnapshot ? 0 : 1,
+    estimatedDownloads: archiveSnapshot ? 0 : 0,
+    warnings: archiveSnapshot
+      ? [
+          'This snapshot is a full archive safety copy. PathKeep currently automates restore only for saved browser source checkpoints; keep this file for manual recovery review.',
+        ]
+      : [
+          'Snapshot restore replays the saved browser checkpoint into the current archive. Existing visible archive facts stay in place and duplicate rows are skipped.',
+        ],
+  }
+}
+
+function buildMockRetentionPreview(state: MockBackendState): RetentionPreview {
+  const dashboard = buildMockDashboardSnapshot(state)
+  return {
+    buckets: [
+      {
+        id: 'snapshots',
+        bytes: dashboard.storage.snapshotBytes,
+        itemCount: 3,
+        paths: [state.snapshot.directories.rawSnapshotsDir],
+      },
+      {
+        id: 'exports',
+        bytes: dashboard.storage.exportBytes,
+        itemCount: 2,
+        paths: [state.snapshot.directories.exportsDir],
+      },
+      {
+        id: 'staging',
+        bytes: dashboard.storage.stagingBytes,
+        itemCount: Math.sign(dashboard.storage.stagingBytes),
+        paths: [state.snapshot.directories.stagingDir],
+      },
+      {
+        id: 'quarantine',
+        bytes: dashboard.storage.quarantineBytes,
+        itemCount: Math.sign(dashboard.storage.quarantineBytes),
+        paths: [state.snapshot.directories.quarantineDir],
+      },
+    ],
+    warnings: [
+      'Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.',
+      'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.',
+    ],
   }
 }
 
@@ -1836,12 +1935,28 @@ async function call<T>(
     }
     case 'rekey_archive': {
       const request = args?.request as RekeyRequest
+      const finishedAt = new Date().toISOString()
+      const run = prependMockRun(mockState, {
+        id: (mockState.snapshot.recentRuns[0]?.id ?? 1847) + 1,
+        startedAt: finishedAt,
+        finishedAt,
+        status: 'success',
+        runType: 'rekey',
+        trigger: 'manual',
+        profileScope: [],
+        manifestHash: `preview-manifest-rekey-${finishedAt}`,
+        profilesProcessed: 0,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      })
       mockState.snapshot.config.archiveMode = request.newMode
       mockState.snapshot.archiveStatus.encrypted =
         request.newMode === 'Encrypted'
       mockState.snapshot.archiveStatus.unlocked =
         request.newMode === 'Plaintext' ||
         Boolean(request.newKey && request.newKey.trim())
+      void run
       return structuredClone(mockState.snapshot) as T
     }
     case 'preview_rekey_archive':
@@ -1849,6 +1964,97 @@ async function call<T>(
         mockState,
         structuredClone(args?.request as RekeyRequest),
       ) as T
+    case 'preview_snapshot_restore':
+      return buildMockSnapshotRestorePreview(
+        mockState,
+        structuredClone(args?.request as SnapshotRestoreRequest),
+      ) as T
+    case 'run_snapshot_restore': {
+      const request = structuredClone(
+        args?.request as SnapshotRestoreRequest,
+      ) ?? {
+        snapshotPath: `${mockState.snapshot.directories.rawSnapshotsDir}/run-1`,
+      }
+      const preview = buildMockSnapshotRestorePreview(mockState, request)
+      if (!preview.executeSupported) {
+        throw new Error(
+          'Automatic restore is only supported for saved browser source checkpoints right now.',
+        )
+      }
+      const profileId = preview.sourceProfileId!
+      const finishedAt = new Date().toISOString()
+      const run = prependMockRun(mockState, {
+        id: (mockState.snapshot.recentRuns[0]?.id ?? 1847) + 1,
+        startedAt: finishedAt,
+        finishedAt,
+        status: 'success',
+        runType: 'snapshot_restore',
+        trigger: 'manual',
+        profileScope: [profileId],
+        manifestHash: `preview-manifest-snapshot-${finishedAt}`,
+        profilesProcessed: 1,
+        newVisits: preview.estimatedVisits,
+        newUrls: preview.estimatedUrls,
+        newDownloads: preview.estimatedDownloads,
+      })
+      return {
+        dueSkipped: false,
+        reason: null,
+        run,
+        profiles: [
+          {
+            profileId,
+            newVisits: preview.estimatedVisits,
+            newUrls: preview.estimatedUrls,
+            newDownloads: preview.estimatedDownloads,
+            rawRows: preview.estimatedVisits + preview.estimatedUrls,
+            checkpointCreated: false,
+            notes: [],
+          },
+        ],
+        manifestPath: `${mockState.snapshot.directories.manifestsDir}/2026-04-09/run-${run.id}-snapshot-restore.json`,
+        gitCommit: null,
+        warnings: [],
+        remoteBackup: null,
+      } as T
+    }
+    case 'preview_retention_prune':
+      return buildMockRetentionPreview(mockState) as T
+    case 'run_retention_prune': {
+      const request = args?.request as RetentionPruneRequest | undefined
+      const preview = buildMockRetentionPreview(mockState)
+      const selected = preview.buckets.filter((bucket) =>
+        request?.bucketIds?.includes(bucket.id),
+      )
+      const finishedAt = new Date().toISOString()
+      const run = prependMockRun(mockState, {
+        id: (mockState.snapshot.recentRuns[0]?.id ?? 1847) + 1,
+        startedAt: finishedAt,
+        finishedAt,
+        status: 'success',
+        runType: 'retention_prune',
+        trigger: 'manual',
+        profileScope: [],
+        manifestHash: `preview-manifest-prune-${finishedAt}`,
+        profilesProcessed: 0,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      })
+      return {
+        runId: run.id,
+        deletedBytes: selected.reduce(
+          (total, bucket) => total + bucket.bytes,
+          0,
+        ),
+        deletedFiles: selected.reduce(
+          (total, bucket) => total + bucket.itemCount,
+          0,
+        ),
+        buckets: selected,
+        warnings: preview.warnings,
+      } as T
+    }
     case 'set_session_database_key':
       mockState.snapshot.archiveStatus.unlocked = true
       return undefined as T
@@ -2450,6 +2656,14 @@ export const backend = {
     call<AppSnapshot>('rekey_archive', { request }),
   previewRekeyArchive: (request: RekeyRequest) =>
     call<RekeyPreview>('preview_rekey_archive', { request }),
+  previewSnapshotRestore: (request: SnapshotRestoreRequest) =>
+    call<SnapshotRestorePreview>('preview_snapshot_restore', { request }),
+  runSnapshotRestore: (request: SnapshotRestoreRequest) =>
+    call<BackupReport>('run_snapshot_restore', { request }),
+  previewRetentionPrune: () =>
+    call<RetentionPreview>('preview_retention_prune'),
+  runRetentionPrune: (request: RetentionPruneRequest) =>
+    call<RetentionPruneResult>('run_retention_prune', { request }),
   setSessionDatabaseKey: (databaseKey: string) =>
     call<void>('set_session_database_key', { databaseKey }),
   clearSessionDatabaseKey: () => call<void>('clear_session_database_key'),

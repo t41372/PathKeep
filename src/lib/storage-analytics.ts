@@ -17,7 +17,12 @@ export function totalTrackedStorageBytes(storage: StorageSummary): number {
 }
 
 export function reclaimableStorageBytes(storage: StorageSummary): number {
-  return storage.exportBytes + storage.stagingBytes + storage.quarantineBytes
+  return (
+    storage.snapshotBytes +
+    storage.exportBytes +
+    storage.stagingBytes +
+    storage.quarantineBytes
+  )
 }
 
 export function storageAnalyticsSlices(

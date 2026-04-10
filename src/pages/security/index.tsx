@@ -311,6 +311,14 @@ export function SecurityPage() {
               </span>
             </div>
             <div className="config-row">
+              <span className="config-label">{t('security.lastRekey')}</span>
+              <span className="config-value mono">
+                {status.lastRekeyAt
+                  ? formatRelativeTime(status.lastRekeyAt, language)
+                  : t('common.notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
               <span className="config-label">{t('security.stronghold')}</span>
               <span className="config-value mono dim">
                 {status.strongholdPath}
@@ -322,7 +330,42 @@ export function SecurityPage() {
                 {status.databasePath}
               </span>
             </div>
+            {status.lastRekeySnapshotPath ? (
+              <div className="config-row">
+                <span className="config-label">
+                  {t('security.lastRekeySnapshot')}
+                </span>
+                <span className="config-value mono dim">
+                  {status.lastRekeySnapshotPath}
+                </span>
+                <button
+                  className="btn-tiny"
+                  type="button"
+                  onClick={() => {
+                    void backend.openPathInFileManager(
+                      status.lastRekeySnapshotPath ?? '',
+                    )
+                  }}
+                >
+                  {t('common.openAction')}
+                </button>
+              </div>
+            ) : null}
           </div>
+
+          {status.lastRekeyRunId ? (
+            <div
+              className="wizard-actions"
+              style={{ marginTop: 'var(--space-3)' }}
+            >
+              <Link
+                className="btn-secondary"
+                to={`/audit?run=${status.lastRekeyRunId}`}
+              >
+                {t('security.openLastRekeyAudit')}
+              </Link>
+            </div>
+          ) : null}
 
           {status.warnings.map((warning) => (
             <div key={warning} className="warning-box">

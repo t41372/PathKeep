@@ -5,16 +5,18 @@ pub(crate) use self::schema::export_archive_database;
 pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, run_migrations};
 use crate::{
-    chrome::{ProfileSnapshot, discover_profiles, stage_profile_snapshot},
+    chrome::{FileFingerprint, ProfileSnapshot, discover_profiles, stage_profile_snapshot},
     config::{ProjectPaths, ensure_paths, save_config},
     git_audit,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupProgressEvent, BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat,
         ExportRequest, ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry,
-        HistoryQuery, HistoryQueryResponse, StorageSummary,
+        HistoryQuery, HistoryQueryResponse, RetentionBucket, RetentionPreview,
+        RetentionPruneRequest, RetentionPruneResult, SnapshotRestorePreview,
+        SnapshotRestoreRequest, StorageSummary,
     },
-    utils::{now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain},
+    utils::{file_sha256_hex, now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain},
 };
 use anyhow::{Context, Result};
 use browser_history_parser::{
@@ -32,6 +34,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use tempfile::tempdir;
 
 const LIST_HISTORY_SQL: &str = r#"
 SELECT
@@ -236,6 +239,15 @@ struct BackupManifest {
 struct ManifestRow {
     id: i64,
     hash: String,
+}
+
+#[derive(Debug, Clone)]
+struct SnapshotRecord {
+    run_id: i64,
+    profile_scope: Vec<String>,
+    file_path: String,
+    created_at: String,
+    reason: Option<String>,
 }
 
 #[derive(Debug)]
@@ -510,6 +522,336 @@ pub fn load_audit_run_detail(
     })
 }
 
+pub fn preview_snapshot_restore(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &SnapshotRestoreRequest,
+) -> Result<SnapshotRestorePreview> {
+    ensure_paths(paths)?;
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    let snapshot = load_snapshot_record(&connection, &request.snapshot_path)?
+        .with_context(|| format!("snapshot {} was not found", request.snapshot_path))?;
+    let snapshot_path = PathBuf::from(&snapshot.file_path);
+
+    if snapshot_path.is_file() {
+        return Ok(SnapshotRestorePreview {
+            snapshot_path: snapshot.file_path,
+            snapshot_kind: "archive-safety-snapshot".to_string(),
+            source_run_id: Some(snapshot.run_id),
+            source_profile_id: snapshot.profile_scope.first().cloned(),
+            source_browser_name: None,
+            created_at: Some(snapshot.created_at),
+            reason: snapshot.reason,
+            execute_supported: false,
+            estimated_visits: 0,
+            estimated_urls: 0,
+            estimated_downloads: 0,
+            warnings: vec![
+                "This snapshot is a full archive safety copy. PathKeep currently automates restore only for saved browser source checkpoints; keep this file for manual recovery review.".to_string(),
+            ],
+        });
+    }
+
+    let checkpoint = load_checkpoint_profile_snapshot(&connection, &snapshot_path, &snapshot)?;
+    let parsed = parse_profile_snapshot(&checkpoint, config, &Watermark::default())?;
+
+    Ok(SnapshotRestorePreview {
+        snapshot_path: snapshot.file_path,
+        snapshot_kind: "raw-source-checkpoint".to_string(),
+        source_run_id: Some(snapshot.run_id),
+        source_profile_id: Some(checkpoint.profile.profile_id.clone()),
+        source_browser_name: Some(checkpoint.profile.browser_name.clone()),
+        created_at: Some(snapshot.created_at),
+        reason: snapshot.reason,
+        execute_supported: true,
+        estimated_visits: parsed.history.visits.len(),
+        estimated_urls: parsed.history.urls.len(),
+        estimated_downloads: parsed.history.downloads.len(),
+        warnings: vec![
+            "Snapshot restore replays the saved browser checkpoint into the current archive. Existing visible archive facts stay in place and duplicate rows are skipped.".to_string(),
+        ],
+    })
+}
+
+pub fn run_snapshot_restore(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &SnapshotRestoreRequest,
+) -> Result<BackupReport> {
+    ensure_paths(paths)?;
+    if !config.initialized {
+        anyhow::bail!("archive has not been initialized");
+    }
+
+    let mut connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    let snapshot = load_snapshot_record(&connection, &request.snapshot_path)?
+        .with_context(|| format!("snapshot {} was not found", request.snapshot_path))?;
+    let snapshot_path = PathBuf::from(&snapshot.file_path);
+    if snapshot_path.is_file() {
+        anyhow::bail!(
+            "automatic restore is only supported for saved browser source checkpoints right now"
+        );
+    }
+
+    let checkpoint = load_checkpoint_profile_snapshot(&connection, &snapshot_path, &snapshot)?;
+    let started_at = now_rfc3339();
+    let timezone = current_timezone_name();
+    let profile_scope = vec![checkpoint.profile.profile_id.clone()];
+
+    connection.execute(
+        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+         VALUES ('snapshot_restore', 'manual', ?1, ?2, 'running', ?3, '[]', '{}', 0)",
+        params![started_at, timezone, serde_json::to_string(&profile_scope)?],
+    )?;
+    let run_id = connection.last_insert_rowid();
+    let parent_manifest = latest_manifest_row(&connection)?;
+
+    let mut snapshot_artifacts = Vec::new();
+    let restore_result = (|| -> Result<BackupProfileSummary> {
+        let transaction = connection.transaction()?;
+        let profile_summary = process_profile_snapshot(
+            &transaction,
+            run_id,
+            paths,
+            config,
+            &checkpoint,
+            &mut snapshot_artifacts,
+            false,
+            false,
+        )?;
+        transaction.commit()?;
+        Ok(profile_summary)
+    })();
+
+    let profile_summary = match restore_result {
+        Ok(profile_summary) => profile_summary,
+        Err(error) => {
+            finalize_failed_run(&connection, run_id, &[], &[], &error)?;
+            return Err(error);
+        }
+    };
+
+    record_snapshot_reference(
+        &connection,
+        run_id,
+        &snapshot_path,
+        "restored-source-checkpoint",
+        &snapshot.created_at,
+    )?;
+
+    let finished_at = now_rfc3339();
+    let summary = backup_run_summary(
+        "snapshot_restore",
+        run_id,
+        &started_at,
+        &finished_at,
+        "manual",
+        &profile_scope,
+        std::slice::from_ref(&profile_summary),
+    );
+    let row_counts = archive_row_counts(&connection)?;
+    let manifest = BackupManifest {
+        created_at: finished_at.clone(),
+        run_id,
+        timezone: timezone.clone(),
+        due_only: false,
+        database_path: paths.archive_database_path.display().to_string(),
+        summary: summary.clone(),
+        profiles: vec![profile_summary.clone()],
+        warnings: Vec::new(),
+        source_hashes: BTreeMap::from([(
+            checkpoint.profile.profile_id.clone(),
+            snapshot_source_hashes(&checkpoint),
+        )]),
+        snapshots: snapshot_artifacts,
+        row_counts: row_counts.clone(),
+        parent_manifest_hash: parent_manifest.as_ref().map(|row| row.hash.clone()),
+    };
+    let manifest_json = serde_json::to_string_pretty(&manifest)?;
+    let manifest_hash = sha256_hex(manifest_json.as_bytes());
+    let manifest_path =
+        write_manifest_artifact(paths, run_id, &finished_at, &manifest_hash, &manifest_json)?;
+    persist_manifest_row(
+        &connection,
+        run_id,
+        parent_manifest.as_ref(),
+        &manifest_hash,
+        &manifest_path,
+        &finished_at,
+        &row_counts,
+    )?;
+    finalize_successful_run(&connection, run_id, &finished_at, &summary, &[], &manifest_hash)?;
+
+    let git_commit = if config.git_enabled {
+        git_audit::ensure_repo(&paths.audit_repo_path)?;
+        git_audit::commit_all(&paths.audit_repo_path, &format!("snapshot restore run {run_id}"))?
+    } else {
+        None
+    };
+
+    Ok(BackupReport {
+        due_skipped: false,
+        reason: None,
+        run: Some(BackupRunOverview { manifest_hash: Some(manifest_hash), ..summary }),
+        profiles: vec![profile_summary],
+        manifest_path: Some(manifest_path.display().to_string()),
+        git_commit,
+        warnings: Vec::new(),
+        remote_backup: None,
+    })
+}
+
+pub fn preview_retention(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<RetentionPreview> {
+    ensure_paths(paths)?;
+    let snapshot_bucket = retention_snapshot_bucket(paths, config, key)?;
+    let export_bucket = retention_directory_bucket("exports", &paths.exports_dir);
+    let staging_bucket = retention_directory_bucket("staging", &paths.staging_dir);
+    let quarantine_bucket = retention_directory_bucket("quarantine", &paths.quarantine_dir);
+
+    Ok(RetentionPreview {
+        buckets: vec![snapshot_bucket, export_bucket, staging_bucket, quarantine_bucket],
+        warnings: vec![
+            "Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.".to_string(),
+            "Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.".to_string(),
+        ],
+    })
+}
+
+pub fn run_retention_prune(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &RetentionPruneRequest,
+) -> Result<RetentionPruneResult> {
+    ensure_paths(paths)?;
+    if !config.initialized {
+        anyhow::bail!("initialize the archive before pruning retention artifacts");
+    }
+    if request.bucket_ids.is_empty() {
+        return Ok(RetentionPruneResult {
+            warnings: vec![
+                "Choose at least one retention bucket before executing prune.".to_string(),
+            ],
+            ..RetentionPruneResult::default()
+        });
+    }
+
+    let preview = preview_retention(paths, config, key)?;
+    let selected = preview
+        .buckets
+        .iter()
+        .filter(|bucket| request.bucket_ids.iter().any(|id| id == &bucket.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        return Ok(RetentionPruneResult {
+            warnings: vec!["No matching retention buckets were selected for prune.".to_string()],
+            ..RetentionPruneResult::default()
+        });
+    }
+
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    let started_at = now_rfc3339();
+    let timezone = current_timezone_name();
+    connection.execute(
+        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+         VALUES ('retention_prune', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
+        params![started_at, timezone],
+    )?;
+    let run_id = connection.last_insert_rowid();
+
+    let mut deleted_bytes = 0u64;
+    let mut deleted_files = 0usize;
+    for bucket in &selected {
+        match bucket.id.as_str() {
+            "snapshots" => {
+                let (bytes, files) = prune_snapshot_bucket(&connection, paths)?;
+                deleted_bytes += bytes;
+                deleted_files += files;
+            }
+            "exports" => {
+                let (bytes, files) = remove_directory_contents(&paths.exports_dir)?;
+                deleted_bytes += bytes;
+                deleted_files += files;
+            }
+            "staging" => {
+                let (bytes, files) = remove_directory_contents(&paths.staging_dir)?;
+                deleted_bytes += bytes;
+                deleted_files += files;
+            }
+            "quarantine" => {
+                let (bytes, files) = remove_directory_contents(&paths.quarantine_dir)?;
+                deleted_bytes += bytes;
+                deleted_files += files;
+            }
+            _ => {}
+        }
+    }
+
+    let finished_at = now_rfc3339();
+    let manifest_payload = json!({
+        "runType": "retention_prune",
+        "runId": run_id,
+        "createdAt": finished_at,
+        "deletedBytes": deleted_bytes,
+        "deletedFiles": deleted_files,
+        "buckets": selected,
+    });
+    let (manifest_hash, manifest_path) =
+        persist_structured_manifest(&connection, paths, run_id, &finished_at, &manifest_payload)?;
+    let stats = stats_with_archive_totals(
+        &connection,
+        json!({
+            "deletedBytes": deleted_bytes,
+            "deletedFiles": deleted_files,
+            "buckets": request.bucket_ids,
+            "manifestHash": manifest_hash,
+        }),
+    )?;
+    connection.execute(
+        "UPDATE runs
+         SET finished_at = ?1,
+             status = 'success',
+             stats_json = ?2,
+             warnings_json = ?3,
+             error_message = NULL
+         WHERE id = ?4",
+        params![
+            finished_at,
+            serde_json::to_string(&stats)?,
+            serde_json::to_string(&preview.warnings)?,
+            run_id,
+        ],
+    )?;
+
+    if config.git_enabled {
+        git_audit::ensure_repo(&paths.audit_repo_path)?;
+        let _ = git_audit::commit_all(
+            &paths.audit_repo_path,
+            &format!("retention prune run {run_id}"),
+        )?;
+    }
+
+    let _ = manifest_path;
+
+    Ok(RetentionPruneResult {
+        run_id: Some(run_id),
+        deleted_bytes,
+        deleted_files,
+        buckets: selected,
+        warnings: preview.warnings,
+    })
+}
+
 pub fn run_backup(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -637,6 +979,8 @@ where
                 config,
                 &snapshot,
                 &mut snapshot_artifacts,
+                true,
+                true,
             )
             .with_context(|| format!("processing profile {}", profile.profile_id))?;
             source_hashes.insert(profile.profile_id.clone(), snapshot_source_hashes(&snapshot));
@@ -666,6 +1010,7 @@ where
 
     let finished_at = now_rfc3339();
     let summary = backup_run_summary(
+        "backup",
         run_id,
         &started_at,
         &finished_at,
@@ -1080,8 +1425,10 @@ pub fn rekey_archive(
         anyhow::bail!("archive database does not exist");
     }
 
+    let started_at = now_rfc3339();
+    let timezone = current_timezone_name();
     let source = open_archive_connection(paths, current_config, old_key)?;
-    let _snapshot_path = create_rekey_snapshot(paths)?;
+    let snapshot_path = create_rekey_snapshot(paths)?;
     let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
     let backup_path = paths.archive_database_path.with_extension("backup.sqlite");
     if temp_path.exists() {
@@ -1094,20 +1441,93 @@ pub fn rekey_archive(
         ArchiveMode::Encrypted => Some(new_key.context("new encryption key is required")?),
         ArchiveMode::Plaintext => None,
     };
-    export_archive_database(&source, &temp_path, target_key)?;
-    fs::rename(&paths.archive_database_path, &backup_path)?;
-    if let Err(error) = fs::rename(&temp_path, &paths.archive_database_path) {
-        let _ = fs::rename(&backup_path, &paths.archive_database_path);
-        let _ = fs::remove_file(&temp_path);
-        return Err(error).context("replacing archive database after rekey export");
-    }
-    let _ = fs::remove_file(&backup_path);
-
     let mut next_config = current_config.clone();
     next_config.initialized = true;
-    next_config.archive_mode = new_mode;
-    save_config(paths, &next_config)?;
-    archive_status(paths, &next_config, new_key.or(old_key))
+    next_config.archive_mode = new_mode.clone();
+    let result = (|| -> Result<ArchiveStatus> {
+        export_archive_database(&source, &temp_path, target_key)?;
+        fs::rename(&paths.archive_database_path, &backup_path)?;
+        if let Err(error) = fs::rename(&temp_path, &paths.archive_database_path) {
+            let _ = fs::rename(&backup_path, &paths.archive_database_path);
+            let _ = fs::remove_file(&temp_path);
+            return Err(error).context("replacing archive database after rekey export");
+        }
+        let _ = fs::remove_file(&backup_path);
+        save_config(paths, &next_config)?;
+        archive_status(paths, &next_config, new_key.or(old_key))
+    })();
+
+    let (status_label, run_config, run_key, run_error) = match &result {
+        Ok(_) => ("success", &next_config, new_key.or(old_key), None),
+        Err(error) => ("failed", current_config, old_key, Some(format!("{error:#}"))),
+    };
+
+    if let Ok(connection) = open_archive_connection(paths, run_config, run_key) {
+        if create_schema(&connection).is_ok() {
+            let _ = (|| -> Result<()> {
+                connection.execute(
+                    "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                     VALUES ('rekey', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
+                    params![started_at, timezone],
+                )?;
+                let run_id = connection.last_insert_rowid();
+                record_snapshot_reference(
+                    &connection,
+                    run_id,
+                    &snapshot_path,
+                    "before-rekey",
+                    &started_at,
+                )?;
+                let finished_at = now_rfc3339();
+                let manifest_payload = json!({
+                    "runType": "rekey",
+                    "runId": run_id,
+                    "createdAt": finished_at,
+                    "fromMode": current_config.archive_mode,
+                    "toMode": new_mode.clone(),
+                    "snapshotPath": snapshot_path.display().to_string(),
+                    "status": status_label,
+                    "error": run_error.clone(),
+                });
+                let (manifest_hash, _manifest_path) = persist_structured_manifest(
+                    &connection,
+                    paths,
+                    run_id,
+                    &finished_at,
+                    &manifest_payload,
+                )?;
+                let stats = stats_with_archive_totals(
+                    &connection,
+                    json!({
+                        "fromMode": current_config.archive_mode,
+                        "toMode": new_mode.clone(),
+                        "snapshotPath": snapshot_path.display().to_string(),
+                        "manifestHash": manifest_hash,
+                    }),
+                )?;
+                connection.execute(
+                    "UPDATE runs
+                     SET finished_at = ?1,
+                         status = ?2,
+                         stats_json = ?3,
+                         warnings_json = ?4,
+                         error_message = ?5
+                     WHERE id = ?6",
+                    params![
+                        finished_at,
+                        status_label,
+                        serde_json::to_string(&stats)?,
+                        serde_json::to_string(&Vec::<String>::new())?,
+                        run_error.clone(),
+                        run_id,
+                    ],
+                )?;
+                Ok(())
+            })();
+        }
+    }
+
+    result
 }
 
 fn create_rekey_snapshot(paths: &ProjectPaths) -> Result<PathBuf> {
@@ -1451,12 +1871,18 @@ fn process_profile_snapshot(
     config: &AppConfig,
     snapshot: &ProfileSnapshot,
     snapshot_artifacts: &mut Vec<SnapshotArtifact>,
+    allow_checkpoint: bool,
+    use_watermark: bool,
 ) -> Result<BackupProfileSummary> {
     let source_profile_id = upsert_source_profile(archive, &snapshot.profile)?;
     let schema_payload = collect_schema_payload(&snapshot.history_path)?;
     let schema_string = serde_json::to_string(&schema_payload)?;
     let schema_hash = sha256_hex(schema_string.as_bytes());
-    let watermark = load_watermark(archive, &snapshot.profile.profile_id)?;
+    let watermark = if use_watermark {
+        load_watermark(archive, &snapshot.profile.profile_id)?
+    } else {
+        Watermark::default()
+    };
     let parsed_snapshot = parse_profile_snapshot(snapshot, config, &watermark)
         .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
 
@@ -1591,7 +2017,7 @@ fn process_profile_snapshot(
         insert_favicon(archive, run_id, source_profile_id, favicon, &payload.hash)?;
     }
 
-    if should_checkpoint(&watermark, &schema_hash, config.checkpoint_days) {
+    if allow_checkpoint && should_checkpoint(&watermark, &schema_hash, config.checkpoint_days) {
         let artifact = create_snapshot_artifact(
             archive,
             run_id,
@@ -2246,6 +2672,370 @@ fn create_snapshot_artifact(
     })
 }
 
+fn load_snapshot_record(
+    connection: &Connection,
+    snapshot_path: &str,
+) -> Result<Option<SnapshotRecord>> {
+    connection
+        .query_row(
+            "SELECT snapshots.run_id, runs.profile_scope_json, snapshots.file_path, snapshots.created_at, snapshots.reason
+             FROM snapshots
+             JOIN runs
+               ON runs.id = snapshots.run_id
+             WHERE snapshots.file_path = ?1
+             LIMIT 1",
+            [snapshot_path],
+            |row| {
+                Ok(SnapshotRecord {
+                    run_id: row.get(0)?,
+                    profile_scope: decode_profile_scope(row.get::<_, Option<String>>(1)?.as_deref()),
+                    file_path: row.get(2)?,
+                    created_at: row.get(3)?,
+                    reason: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn load_checkpoint_profile_snapshot(
+    connection: &Connection,
+    snapshot_path: &Path,
+    snapshot: &SnapshotRecord,
+) -> Result<ProfileSnapshot> {
+    let profile_id = snapshot
+        .profile_scope
+        .first()
+        .cloned()
+        .or_else(|| checkpoint_profile_id_from_path(snapshot_path))
+        .context("snapshot restore requires a recorded profile scope")?;
+    let history_path = snapshot_path.join("History");
+    if !history_path.exists() {
+        anyhow::bail!(
+            "snapshot {} is not a saved browser source checkpoint",
+            snapshot_path.display()
+        );
+    }
+    let favicons_path = snapshot_path.join("Favicons");
+    let profile = load_snapshot_browser_profile(
+        connection,
+        &profile_id,
+        &history_path,
+        favicons_path.exists(),
+    )?;
+    let source_hashes = snapshot_file_fingerprints(
+        &history_path,
+        favicons_path.exists().then_some(favicons_path.as_path()),
+    )?;
+    Ok(ProfileSnapshot {
+        profile,
+        temp_dir: tempdir().context("allocating restore snapshot tempdir")?,
+        history_path,
+        favicons_path: favicons_path.exists().then_some(favicons_path),
+        source_hashes,
+    })
+}
+
+fn checkpoint_profile_id_from_path(snapshot_path: &Path) -> Option<String> {
+    snapshot_path.parent()?.file_name()?.to_str().map(str::to_string)
+}
+
+fn load_snapshot_browser_profile(
+    connection: &Connection,
+    profile_id: &str,
+    history_path: &Path,
+    has_favicons: bool,
+) -> Result<crate::models::BrowserProfile> {
+    let row = connection
+        .query_row(
+            "SELECT browser_kind, browser_version, profile_name, profile_path, user_name
+             FROM source_profiles
+             WHERE profile_key = ?1
+             LIMIT 1",
+            [profile_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    let (browser_kind, browser_version, profile_name, profile_path, user_name) = row
+        .unwrap_or_else(|| {
+            let browser_kind = profile_id.split(':').next().unwrap_or("archive").to_string();
+            (
+                browser_kind.clone(),
+                None,
+                profile_id.to_string(),
+                snapshot_path_parent_display(history_path),
+                None,
+            )
+        });
+    let history_bytes = file_size(history_path);
+    let favicons_path = history_path.parent().map(|parent| parent.join("Favicons"));
+    let favicons_bytes = favicons_path
+        .as_ref()
+        .filter(|path| path.exists())
+        .map(|path| file_size(path))
+        .unwrap_or_default();
+    Ok(crate::models::BrowserProfile {
+        profile_id: profile_id.to_string(),
+        profile_name,
+        browser_family: browser_family_for_profile(&browser_kind),
+        browser_name: browser_name_for_profile(&browser_kind),
+        user_name,
+        profile_path,
+        history_path: Some(history_path.display().to_string()),
+        favicons_path: has_favicons.then(|| {
+            history_path.parent().unwrap_or(history_path).join("Favicons").display().to_string()
+        }),
+        history_exists: true,
+        browser_version,
+        history_file_name: history_file_name_for_profile(&browser_kind),
+        history_bytes,
+        favicons_bytes,
+        supporting_bytes: 0,
+        retention_boundary: crate::browser_retention::retention_boundary_for_browser(&browser_kind),
+    })
+}
+
+fn snapshot_path_parent_display(path: &Path) -> String {
+    path.parent().unwrap_or(path).display().to_string()
+}
+
+fn browser_family_for_profile(browser_kind: &str) -> String {
+    match browser_kind {
+        "firefox" | "librewolf" | "floorp" | "waterfox" => "firefox".to_string(),
+        "safari" => "safari".to_string(),
+        _ => "chromium".to_string(),
+    }
+}
+
+fn browser_name_for_profile(browser_kind: &str) -> String {
+    match browser_kind {
+        "edge" => "Microsoft Edge".to_string(),
+        "brave" => "Brave".to_string(),
+        "vivaldi" => "Vivaldi".to_string(),
+        "arc" => "Arc".to_string(),
+        "firefox" => "Firefox".to_string(),
+        "librewolf" => "LibreWolf".to_string(),
+        "floorp" => "Floorp".to_string(),
+        "waterfox" => "Waterfox".to_string(),
+        "safari" => "Safari".to_string(),
+        _ => "Google Chrome".to_string(),
+    }
+}
+
+fn history_file_name_for_profile(browser_kind: &str) -> String {
+    if matches!(browser_kind, "firefox" | "librewolf" | "floorp" | "waterfox") {
+        "places.sqlite".to_string()
+    } else if browser_kind == "safari" {
+        "History.db".to_string()
+    } else {
+        "History".to_string()
+    }
+}
+
+fn snapshot_file_fingerprints(
+    history_path: &Path,
+    favicons_path: Option<&Path>,
+) -> Result<Vec<FileFingerprint>> {
+    let mut fingerprints = vec![FileFingerprint {
+        path: history_path.display().to_string(),
+        sha256: file_sha256_hex(history_path)?,
+    }];
+    if let Some(favicons_path) = favicons_path
+        && favicons_path.exists()
+    {
+        fingerprints.push(FileFingerprint {
+            path: favicons_path.display().to_string(),
+            sha256: file_sha256_hex(favicons_path)?,
+        });
+    }
+    Ok(fingerprints)
+}
+
+fn record_snapshot_reference(
+    connection: &Connection,
+    run_id: i64,
+    path: &Path,
+    reason: &str,
+    created_at: &str,
+) -> Result<()> {
+    let (file_size, checksum) = snapshot_artifact_bytes_and_checksum(path)?;
+    connection.execute(
+        "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            run_id,
+            path.display().to_string(),
+            file_size as i64,
+            checksum,
+            reason,
+            created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn snapshot_artifact_bytes_and_checksum(path: &Path) -> Result<(u64, Option<String>)> {
+    if !path.exists() {
+        return Ok((0, None));
+    }
+    if path.is_file() {
+        return Ok((file_size(path), Some(file_sha256_hex(path)?)));
+    }
+    let file_hashes = collect_path_file_hashes(path, path)?;
+    let checksum = sha256_hex(serde_json::to_string(&file_hashes)?.as_bytes());
+    let size = file_hashes.iter().map(|(_, _, bytes)| *bytes).sum();
+    Ok((size, Some(checksum)))
+}
+
+fn collect_path_file_hashes(root: &Path, path: &Path) -> Result<Vec<(String, String, u64)>> {
+    let mut entries = Vec::new();
+    let Ok(children) = fs::read_dir(path) else {
+        return Ok(entries);
+    };
+    for child in children.flatten() {
+        let child_path = child.path();
+        if child_path.is_dir() {
+            entries.extend(collect_path_file_hashes(root, &child_path)?);
+            continue;
+        }
+        let relative_path =
+            child_path.strip_prefix(root).unwrap_or(&child_path).display().to_string();
+        let bytes = file_size(&child_path);
+        entries.push((relative_path, file_sha256_hex(&child_path)?, bytes));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(entries)
+}
+
+fn retention_snapshot_bucket(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<RetentionBucket> {
+    let item_count = if config.initialized {
+        match open_archive_connection(paths, config, key) {
+            Ok(connection) => {
+                create_schema(&connection)?;
+                connection
+                    .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get::<_, i64>(0))
+                    .unwrap_or_default()
+                    .max(0) as usize
+            }
+            Err(_) => count_path_entries(&paths.raw_snapshots_dir),
+        }
+    } else {
+        count_path_entries(&paths.raw_snapshots_dir)
+    };
+
+    Ok(RetentionBucket {
+        id: "snapshots".to_string(),
+        bytes: directory_size(&paths.raw_snapshots_dir),
+        item_count,
+        paths: vec![paths.raw_snapshots_dir.display().to_string()],
+    })
+}
+
+fn retention_directory_bucket(id: &str, path: &Path) -> RetentionBucket {
+    RetentionBucket {
+        id: id.to_string(),
+        bytes: directory_size(path),
+        item_count: count_path_entries(path),
+        paths: vec![path.display().to_string()],
+    }
+}
+
+fn count_path_entries(path: &Path) -> usize {
+    if !path.exists() {
+        return 0;
+    }
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| {
+            let child_path = entry.path();
+            if child_path.is_dir() { 1 + count_path_entries(&child_path) } else { 1 }
+        })
+        .sum()
+}
+
+fn remove_directory_contents(path: &Path) -> Result<(u64, usize)> {
+    if !path.exists() {
+        return Ok((0, 0));
+    }
+    let mut deleted_bytes = 0u64;
+    let mut deleted_files = 0usize;
+    for entry in fs::read_dir(path)?.flatten() {
+        let (bytes, files) = remove_path(&entry.path())?;
+        deleted_bytes += bytes;
+        deleted_files += files;
+    }
+    fs::create_dir_all(path)?;
+    Ok((deleted_bytes, deleted_files))
+}
+
+fn remove_path(path: &Path) -> Result<(u64, usize)> {
+    if !path.exists() {
+        return Ok((0, 0));
+    }
+    if path.is_file() {
+        let bytes = file_size(path);
+        fs::remove_file(path)?;
+        return Ok((bytes, 1));
+    }
+
+    let mut deleted_bytes = 0u64;
+    let mut deleted_files = 0usize;
+    for entry in fs::read_dir(path)?.flatten() {
+        let (bytes, files) = remove_path(&entry.path())?;
+        deleted_bytes += bytes;
+        deleted_files += files;
+    }
+    fs::remove_dir_all(path)?;
+    Ok((deleted_bytes, deleted_files))
+}
+
+fn prune_snapshot_bucket(connection: &Connection, paths: &ProjectPaths) -> Result<(u64, usize)> {
+    let deleted = remove_directory_contents(&paths.raw_snapshots_dir)?;
+    connection.execute("DELETE FROM snapshots", [])?;
+    Ok(deleted)
+}
+
+fn persist_structured_manifest(
+    connection: &Connection,
+    paths: &ProjectPaths,
+    run_id: i64,
+    finished_at: &str,
+    payload: &Value,
+) -> Result<(String, PathBuf)> {
+    let manifest_json = serde_json::to_string_pretty(payload)?;
+    let manifest_hash = sha256_hex(manifest_json.as_bytes());
+    let row_counts = archive_row_counts(connection)?;
+    let parent_manifest = latest_manifest_row(connection)?;
+    let manifest_path =
+        write_manifest_artifact(paths, run_id, finished_at, &manifest_hash, &manifest_json)?;
+    persist_manifest_row(
+        connection,
+        run_id,
+        parent_manifest.as_ref(),
+        &manifest_hash,
+        &manifest_path,
+        finished_at,
+        &row_counts,
+    )?;
+    Ok((manifest_hash, manifest_path))
+}
+
 fn latest_manifest_row(connection: &Connection) -> Result<Option<ManifestRow>> {
     connection
         .query_row(
@@ -2352,6 +3142,7 @@ fn finalize_failed_run(
 }
 
 fn backup_run_summary(
+    run_type: &str,
     run_id: i64,
     started_at: &str,
     finished_at: &str,
@@ -2364,7 +3155,7 @@ fn backup_run_summary(
         started_at: started_at.to_string(),
         finished_at: Some(finished_at.to_string()),
         status: "success".to_string(),
-        run_type: "backup".to_string(),
+        run_type: run_type.to_string(),
         trigger: trigger.to_string(),
         profile_scope: profile_scope.to_vec(),
         manifest_hash: None,
@@ -3050,7 +3841,7 @@ mod tests {
     use super::*;
     use crate::{
         config::ProjectPaths,
-        models::{ArchiveMode, TakeoutRequest},
+        models::{ArchiveMode, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest},
         utils::{restore_test_env_var, test_env_lock},
     };
     use rusqlite::Connection;
@@ -3670,6 +4461,124 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_restore_preview_and_run_record_the_saved_checkpoint() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = seed_chrome_fixture(dir.path());
+        let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+        unsafe {
+            std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["chrome:Default".to_string()],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let backup = run_backup(&paths, &config, None, false).expect("run backup");
+        let snapshot_path: String = Connection::open(&paths.archive_database_path)
+            .expect("open archive")
+            .query_row(
+                "SELECT file_path
+                 FROM snapshots
+                 ORDER BY id DESC
+                 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("latest snapshot path");
+
+        let preview = preview_snapshot_restore(
+            &paths,
+            &config,
+            None,
+            &SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
+        )
+        .expect("preview snapshot restore");
+        assert!(preview.execute_supported);
+        assert_eq!(preview.snapshot_kind, "raw-source-checkpoint");
+        assert_eq!(preview.estimated_visits, 2);
+        assert_eq!(preview.estimated_urls, 1);
+
+        let restored = run_snapshot_restore(
+            &paths,
+            &config,
+            None,
+            &SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
+        )
+        .expect("run snapshot restore");
+        let restore_run = restored.run.expect("restore run");
+        assert_eq!(restore_run.run_type, "snapshot_restore");
+        assert_eq!(restore_run.status, "success");
+        assert!(backup.manifest_path.as_ref().is_some_and(|path| Path::new(path).exists()));
+
+        let detail =
+            load_audit_run_detail(&paths, &config, None, restore_run.id).expect("restore detail");
+        assert!(
+            detail
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.reason.as_deref() == Some("restored-source-checkpoint"))
+        );
+
+        restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+    }
+
+    #[test]
+    fn retention_preview_and_prune_clear_local_artifacts_and_record_a_run() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = seed_chrome_fixture(dir.path());
+        let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+        unsafe {
+            std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["chrome:Default".to_string()],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        run_backup(&paths, &config, None, false).expect("run backup");
+        fs::create_dir_all(&paths.exports_dir).expect("create exports dir");
+        fs::write(paths.exports_dir.join("export.jsonl"), "[]").expect("write export fixture");
+
+        let preview = preview_retention(&paths, &config, None).expect("preview retention");
+        assert!(preview.buckets.iter().any(|bucket| bucket.id == "snapshots" && bucket.bytes > 0));
+        assert!(preview.buckets.iter().any(|bucket| bucket.id == "exports" && bucket.bytes > 0));
+
+        let result = run_retention_prune(
+            &paths,
+            &config,
+            None,
+            &RetentionPruneRequest {
+                bucket_ids: vec!["snapshots".to_string(), "exports".to_string()],
+            },
+        )
+        .expect("run retention prune");
+        assert!(result.run_id.is_some());
+        assert!(result.deleted_bytes > 0);
+        assert_eq!(directory_size(&paths.raw_snapshots_dir), 0);
+        assert_eq!(directory_size(&paths.exports_dir), 0);
+
+        let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+        let snapshot_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
+            .expect("snapshot count");
+        assert_eq!(snapshot_count, 0);
+        let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
+        assert!(recent_runs.iter().any(|run| run.run_type == "retention_prune"));
+
+        restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+    }
+
+    #[test]
     fn rekey_archive_keeps_a_safety_snapshot() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
@@ -3689,6 +4598,26 @@ mod tests {
         assert!(status.encrypted);
         assert_eq!(snapshots.len(), 1);
         assert!(snapshots[0].path().is_file());
+
+        let encrypted_config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
+        let recent_runs = load_recent_runs(&paths, &encrypted_config, Some("vault-passphrase"))
+            .expect("recent runs after rekey");
+        let rekey_run =
+            recent_runs.iter().find(|run| run.run_type == "rekey").expect("rekey run in ledger");
+        let detail = load_audit_run_detail(
+            &paths,
+            &encrypted_config,
+            Some("vault-passphrase"),
+            rekey_run.id,
+        )
+        .expect("rekey audit detail");
+        assert!(detail.manifest_path.is_some());
+        assert!(
+            detail
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.reason.as_deref() == Some("before-rekey"))
+        );
     }
 
     #[test]
