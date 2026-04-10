@@ -1,22 +1,29 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { PreviewEntryList } from '../../components/ui'
 import { backend } from '../../lib/backend'
 import { formatBytes, formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
   auditSeverity,
   auditSeverityKey,
+  importBatchStatusKey,
+  importBatchStatusTone,
   runStatusKey,
   runTypeKey,
   runTriggerKey,
   sourceKindFromProfileScope,
 } from '../../lib/trust-review'
-import type { AuditRunDetail } from '../../lib/types'
+import type {
+  AuditRunDetail,
+  ImportBatchDetail,
+  ImportBatchOverview,
+} from '../../lib/types'
 
 interface AuditDetailState {
   runId: number | null
@@ -34,11 +41,62 @@ interface AuditFilterState {
 
 type AuditDetailTab = 'summary' | 'artifacts' | 'warnings'
 
+function parseAuditTimestamp(value?: string | null) {
+  if (!value) return Number.NaN
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function resolveBatchEventTime(
+  batch: ImportBatchOverview,
+  runType: string,
+): number {
+  if (runType === 'rollback') {
+    return parseAuditTimestamp(
+      batch.revertedAt ?? batch.importedAt ?? batch.createdAt,
+    )
+  }
+
+  return parseAuditTimestamp(
+    batch.importedAt ?? batch.revertedAt ?? batch.createdAt,
+  )
+}
+
+function pickRelatedImportBatch(
+  detail: AuditRunDetail | null,
+  recentImportBatches: ImportBatchOverview[],
+) {
+  if (!detail) return null
+  const runType = detail.run.runType ?? 'backup'
+  if (!['import', 'rollback', 'restore'].includes(runType)) return null
+
+  const runProfileId = detail.profileScope[0] ?? null
+  const runTimestamp = parseAuditTimestamp(
+    detail.run.finishedAt ?? detail.run.startedAt,
+  )
+  const sameProfileBatches = recentImportBatches.filter(
+    (batch) => !runProfileId || batch.profileId === runProfileId,
+  )
+
+  return (
+    sameProfileBatches.slice().sort((left, right) => {
+      const leftDistance = Math.abs(
+        resolveBatchEventTime(left, runType) - runTimestamp,
+      )
+      const rightDistance = Math.abs(
+        resolveBatchEventTime(right, runType) - runTimestamp,
+      )
+      return leftDistance - rightDistance
+    })[0] ?? null
+  )
+}
+
 export function AuditPage() {
   const {
     error: shellError,
     loading: shellLoading,
     refreshKey,
+    refreshAppData,
     runBackup,
     snapshot,
   } = useShellData()
@@ -53,6 +111,15 @@ export function AuditPage() {
   const [detailCache, setDetailCache] = useState<
     Record<number, AuditRunDetail>
   >({})
+  const [relatedBatchDetail, setRelatedBatchDetail] =
+    useState<ImportBatchDetail | null>(null)
+  const [relatedBatchError, setRelatedBatchError] = useState<string | null>(
+    null,
+  )
+  const [batchActionError, setBatchActionError] = useState<string | null>(null)
+  const [batchActionNotice, setBatchActionNotice] = useState<string | null>(
+    null,
+  )
   const [filters, setFilters] = useState<AuditFilterState>({
     runType: 'all',
     severity: 'all',
@@ -67,6 +134,14 @@ export function AuditPage() {
     Number.isFinite(runIdFromParams) && runIdFromParams > 0
       ? runIdFromParams
       : (snapshot?.recentRuns[0]?.id ?? null)
+  const selectRun = useCallback(
+    (nextRunId: number) => {
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.set('run', String(nextRunId))
+      setSearchParams(nextParams)
+    },
+    [searchParams, setSearchParams],
+  )
 
   useEffect(() => {
     if (!runId) return
@@ -250,6 +325,14 @@ export function AuditPage() {
     indexedRuns.length > 0 &&
     Object.keys(detailCache).length < indexedRuns.length
   const detailSeverity = detail ? auditSeverity(detail) : null
+  const relatedImportBatch = useMemo(
+    () => pickRelatedImportBatch(detail, snapshot?.recentImportBatches ?? []),
+    [detail, snapshot?.recentImportBatches],
+  )
+  const loadingRelatedBatch =
+    Boolean(relatedImportBatch) &&
+    relatedBatchDetail?.batch.id !== relatedImportBatch?.id &&
+    !relatedBatchError
 
   function sourceLabel(sourceKind: string) {
     if (sourceKind === 'chrome') return t('audit.sourceChrome')
@@ -267,14 +350,50 @@ export function AuditPage() {
     if (filteredRuns.some((run) => run.id === runId)) {
       return
     }
-    const nextParams = new URLSearchParams(searchParams)
-    nextParams.set('run', String(filteredRuns[0].id))
-    setSearchParams(nextParams)
-  }, [filteredRuns, runId, searchParams, setSearchParams])
+    selectRun(filteredRuns[0].id)
+  }, [filteredRuns, runId, selectRun])
 
   useEffect(() => {
     setDetailTab('summary')
   }, [runId])
+
+  useEffect(() => {
+    setBatchActionError(null)
+    setBatchActionNotice(null)
+  }, [runId])
+
+  useEffect(() => {
+    if (!relatedImportBatch) {
+      setRelatedBatchDetail(null)
+      setRelatedBatchError(null)
+      return
+    }
+
+    let cancelled = false
+    const loadRelatedBatch = async () => {
+      try {
+        setRelatedBatchError(null)
+        const response = await backend.previewImportBatch(relatedImportBatch.id)
+        if (!cancelled) {
+          setRelatedBatchDetail(response)
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setRelatedBatchDetail(null)
+          setRelatedBatchError(
+            nextError instanceof Error
+              ? nextError.message
+              : t('audit.importPreviewUnavailable'),
+          )
+        }
+      }
+    }
+
+    void loadRelatedBatch()
+    return () => {
+      cancelled = true
+    }
+  }, [relatedImportBatch, t])
 
   async function handleCopyPath(path: string) {
     try {
@@ -284,6 +403,42 @@ export function AuditPage() {
       setCopiedPath(path)
     } catch {
       setCopiedPath(`error:${path}`)
+    }
+  }
+
+  async function handleRelatedBatchMutation(action: 'revert' | 'restore') {
+    if (!relatedBatchDetail) return
+    const message =
+      action === 'revert'
+        ? t('import.revertConfirm')
+        : t('import.restoreConfirm')
+
+    if (typeof window !== 'undefined' && 'confirm' in window) {
+      if (!window.confirm(message)) {
+        return
+      }
+    }
+
+    setBatchActionError(null)
+    setBatchActionNotice(null)
+    try {
+      const response =
+        action === 'revert'
+          ? await backend.revertImportBatch(relatedBatchDetail.batch.id)
+          : await backend.restoreImportBatch(relatedBatchDetail.batch.id)
+      setRelatedBatchDetail(response)
+      setBatchActionNotice(
+        action === 'revert'
+          ? t('audit.revertRecorded')
+          : t('audit.restoreRecorded'),
+      )
+      await refreshAppData()
+    } catch (nextError) {
+      setBatchActionError(
+        nextError instanceof Error
+          ? nextError.message
+          : t('common.unavailable'),
+      )
     }
   }
 
@@ -489,6 +644,7 @@ export function AuditPage() {
           <span className="panel-action">{t('audit.verifyIntegrity')}</span>
         </div>
         <div className="panel-body">
+          <p className="dashboard-next-action">{t('audit.timelineBody')}</p>
           {filteredRuns.length === 0 ? (
             <p className="dashboard-next-action">{t('audit.noMatchingRuns')}</p>
           ) : (
@@ -497,11 +653,16 @@ export function AuditPage() {
               role="group"
               aria-label={t('audit.manifestChain')}
             >
-              {filteredRuns.slice(0, 4).map((run, index) => {
+              {filteredRuns.map((run, index) => {
                 const indexedDetail = detailCache[run.id]
                 const severity = indexedDetail
                   ? auditSeverity(indexedDetail)
                   : 'clear'
+                const triggerLabel = t(
+                  runTriggerKey(
+                    run.trigger ?? indexedDetail?.trigger ?? 'manual',
+                  ),
+                )
 
                 return (
                   <div key={run.id} style={{ display: 'contents' }}>
@@ -513,23 +674,15 @@ export function AuditPage() {
                     <button
                       aria-label={`#${run.id} · ${t(runTypeKey(run.runType ?? 'backup'))} · ${t(runTriggerKey(run.trigger ?? indexedDetail?.trigger ?? 'manual'))} · ${t(runStatusKey(run.status))} · ${t(auditSeverityKey(severity))}`}
                       aria-pressed={run.id === runId}
-                      className={`chain-block ${index >= 3 ? 'older' : ''}`}
+                      className={`chain-block ${run.id === runId ? '' : 'older'}`}
                       type="button"
-                      onClick={() => {
-                        const nextParams = new URLSearchParams(searchParams)
-                        nextParams.set('run', String(run.id))
-                        setSearchParams(nextParams)
-                      }}
+                      onClick={() => selectRun(run.id)}
                     >
                       <div className="chain-hash mono">#{run.id}</div>
                       <div className="chain-meta dim">
                         <div>
                           {t(runTypeKey(run.runType ?? 'backup'))} ·{' '}
-                          {t(
-                            runTriggerKey(
-                              run.trigger ?? indexedDetail?.trigger ?? 'manual',
-                            ),
-                          )}
+                          {triggerLabel}
                         </div>
                         <div>
                           {t(auditSeverityKey(severity))} ·{' '}
@@ -537,21 +690,23 @@ export function AuditPage() {
                             count: run.profilesProcessed,
                           })}
                         </div>
+                        <div>
+                          {t('audit.deltaNewVisits')}: {run.newVisits} ·{' '}
+                          {t('audit.deltaNewUrls')}: {run.newUrls}
+                        </div>
                         <div className="mono">
-                          {run.manifestHash
-                            ? `sha256:${run.manifestHash.slice(0, 8)}...`
-                            : t('common.pending')}
+                          {formatDateTime(
+                            run.finishedAt ?? run.startedAt,
+                            language,
+                          ) ??
+                            run.finishedAt ??
+                            run.startedAt}
                         </div>
                       </div>
                     </button>
                   </div>
                 )
               })}
-              {filteredRuns.length > 4 && (
-                <div className="chain-link dim" aria-hidden="true">
-                  → ···
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -635,6 +790,11 @@ export function AuditPage() {
 
             {detailTab === 'summary' ? (
               <>
+                <StatusCallout
+                  tone="info"
+                  title={t('audit.reviewGuideTitle')}
+                  body={t('audit.reviewGuideBody')}
+                />
                 <div className="manifest-grid">
                   <div className="manifest-field">
                     <span className="field-label">{t('audit.runId')}</span>
@@ -644,6 +804,12 @@ export function AuditPage() {
                     <span className="field-label">{t('audit.runType')}</span>
                     <span className="field-value">
                       {t(runTypeKey(detail.run.runType ?? 'backup'))}
+                    </span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">{t('common.status')}</span>
+                    <span className="field-value">
+                      {t(runStatusKey(detail.run.status))}
                     </span>
                   </div>
                   <div className="manifest-field">
@@ -658,6 +824,14 @@ export function AuditPage() {
                     <span className="field-value mono">
                       {formatDateTime(detail.run.startedAt, language) ??
                         detail.run.startedAt}
+                    </span>
+                  </div>
+                  <div className="manifest-field">
+                    <span className="field-label">
+                      {t('audit.triggerLabel')}
+                    </span>
+                    <span className="field-value">
+                      {t(runTriggerKey(detail.trigger ?? detail.run.trigger))}
                     </span>
                   </div>
                   <div className="manifest-field">
@@ -695,6 +869,175 @@ export function AuditPage() {
                     <span className="dim">{t('audit.profiles')}</span>
                     <span className="mono">{detail.run.profilesProcessed}</span>
                   </div>
+                  {relatedBatchDetail ? (
+                    <>
+                      <div className="manifest-stat">
+                        <span className="dim">{t('audit.visibleRecords')}</span>
+                        <span className="mono">
+                          {relatedBatchDetail.batch.visibleItems}
+                        </span>
+                      </div>
+                      <div className="manifest-stat">
+                        <span className="dim">
+                          {t('audit.revertedRecords')}
+                        </span>
+                        <span className="mono">
+                          {Math.max(
+                            0,
+                            relatedBatchDetail.batch.importedItems -
+                              relatedBatchDetail.batch.visibleItems,
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+                <div className="detail-divider" />
+                <div className="audit-review-section">
+                  <div className="audit-review-header">
+                    <span className="mono-kicker">
+                      {t('audit.changedRecordsTitle')}
+                    </span>
+                    <span className="panel-action">
+                      {relatedImportBatch
+                        ? t('audit.importBatchLabel', {
+                            id: String(relatedImportBatch.id),
+                          })
+                        : t('audit.changePreviewUnavailableShort')}
+                    </span>
+                  </div>
+                  <p className="dashboard-next-action">
+                    {t('audit.changedRecordsBody')}
+                  </p>
+                  {loadingRelatedBatch ? (
+                    <p className="dim">{t('common.loading')}</p>
+                  ) : relatedBatchError ? (
+                    <StatusCallout
+                      tone="warning"
+                      title={t('audit.importPreviewUnavailable')}
+                      body={relatedBatchError}
+                    />
+                  ) : relatedBatchDetail ? (
+                    <>
+                      <div className="manifest-grid">
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('import.candidateRows')}
+                          </span>
+                          <span className="field-value mono">
+                            {relatedBatchDetail.batch.candidateItems.toLocaleString(
+                              language,
+                            )}
+                          </span>
+                        </div>
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('import.importedRows')}
+                          </span>
+                          <span className="field-value mono">
+                            {relatedBatchDetail.batch.importedItems.toLocaleString(
+                              language,
+                            )}
+                          </span>
+                        </div>
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('import.duplicateRows')}
+                          </span>
+                          <span className="field-value mono">
+                            {relatedBatchDetail.batch.duplicateItems.toLocaleString(
+                              language,
+                            )}
+                          </span>
+                        </div>
+                        <div className="manifest-field">
+                          <span className="field-label">
+                            {t('import.visibleRows')}
+                          </span>
+                          <span className="field-value mono">
+                            {relatedBatchDetail.batch.visibleItems.toLocaleString(
+                              language,
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="detail-divider" />
+                      <PreviewEntryList
+                        entries={relatedBatchDetail.previewEntries}
+                        language={language}
+                        statusLabel={(status) =>
+                          t(importBatchStatusKey(status))
+                        }
+                        statusTone={importBatchStatusTone}
+                      />
+                      <div className="wizard-actions">
+                        <Link
+                          className="btn-secondary"
+                          to={`/import?batch=${relatedBatchDetail.batch.id}`}
+                        >
+                          {t('audit.openImportReview')}
+                        </Link>
+                        {relatedBatchDetail.batch.auditPath ? (
+                          <button
+                            className="btn-secondary"
+                            type="button"
+                            onClick={() => {
+                              void backend.openPathInFileManager(
+                                relatedBatchDetail.batch.auditPath ?? '',
+                              )
+                            }}
+                          >
+                            {t('audit.openImportArtifact')}
+                          </button>
+                        ) : null}
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          onClick={() => {
+                            void handleRelatedBatchMutation('revert')
+                          }}
+                          disabled={
+                            relatedBatchDetail.batch.status === 'reverted'
+                          }
+                        >
+                          {t('import.revertBatch')}
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          onClick={() => {
+                            void handleRelatedBatchMutation('restore')
+                          }}
+                          disabled={
+                            relatedBatchDetail.batch.status !== 'reverted'
+                          }
+                        >
+                          {t('import.restoreBatch')}
+                        </button>
+                      </div>
+                      <p className="mono-support">
+                        {t(
+                          importBatchStatusKey(relatedBatchDetail.batch.status),
+                        )}
+                      </p>
+                      {batchActionNotice ? (
+                        <p className="mono-support" role="status">
+                          {batchActionNotice}
+                        </p>
+                      ) : null}
+                      {batchActionError ? (
+                        <p className="inline-error" role="alert">
+                          {batchActionError}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <StatusCallout
+                      tone="info"
+                      title={t('audit.changePreviewUnavailableTitle')}
+                      body={t('audit.changePreviewUnavailableBody')}
+                    />
+                  )}
                 </div>
               </>
             ) : null}

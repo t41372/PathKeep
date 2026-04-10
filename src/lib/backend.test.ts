@@ -662,6 +662,74 @@ describe('backend facade', () => {
     })
   })
 
+  test('supports explicit mock history page jumps with stable page metadata', async () => {
+    const baseTime = Date.now()
+    backendTestHarness.mutateState((state) => {
+      state.history.items = Array.from({ length: 75 }, (_, index) => ({
+        id: index + 1,
+        profileId: 'chrome:Default',
+        url: `https://example.com/sqlite/${index + 1}`,
+        title: `SQLite note ${index + 1}`,
+        domain: 'example.com',
+        visitedAt: new Date(baseTime - index * 60_000).toISOString(),
+        visitTime: baseTime - index * 60_000,
+        durationMs: 5_000,
+        transition: 805306368,
+        sourceVisitId: index + 1,
+        appId: null,
+      }))
+    })
+
+    const middlePage = await backend.queryHistory({
+      q: 'sqlite',
+      domain: null,
+      profileId: null,
+      browserKind: null,
+      startTimeMs: null,
+      endTimeMs: null,
+      sort: 'newest',
+      limit: 10,
+      page: 3,
+    })
+    expect(middlePage).toMatchObject({
+      total: 75,
+      page: 3,
+      pageSize: 10,
+      pageCount: 8,
+      hasPrevious: true,
+      hasNext: true,
+    })
+    expect(middlePage.items[0]).toMatchObject({ id: 21 })
+
+    await expect(
+      backend.queryHistory({
+        q: 'sqlite',
+        domain: null,
+        profileId: null,
+        browserKind: null,
+        startTimeMs: null,
+        endTimeMs: null,
+        sort: 'newest',
+        limit: 10,
+        page: 8,
+      }),
+    ).resolves.toMatchObject({
+      total: 75,
+      page: 8,
+      pageSize: 10,
+      pageCount: 8,
+      hasPrevious: true,
+      hasNext: false,
+      items: [
+        expect.objectContaining({ id: 71 }),
+        expect.objectContaining({ id: 72 }),
+        expect.objectContaining({ id: 73 }),
+        expect.objectContaining({ id: 74 }),
+        expect.objectContaining({ id: 75 }),
+      ],
+    })
+  })
+
   test('guards browser preview archive surfaces while app lock is active', async () => {
     await expect(
       backend.saveConfig({

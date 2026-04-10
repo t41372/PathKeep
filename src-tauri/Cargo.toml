@@ -53,6 +53,7 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.8.5", features = [] }
 tauri-plugin-autostart = "2.5.1"
+tauri-plugin-dialog = "2.4.3"
 tauri-plugin-stronghold = "2.3.1"
 vault-core = { version = "0.1.0", path = "crates/vault-core" }
 vault-platform = { version = "0.1.0", path = "crates/vault-platform" }

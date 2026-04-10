@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -249,14 +250,20 @@ export function ExplorerPage() {
   const end = searchParams.get('end')
   const sort =
     (searchParams.get('sort') as 'newest' | 'oldest' | null) ?? 'newest'
+  const explicitPage = (() => {
+    const raw = searchParams.get('page')
+    if (!raw) return null
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  })()
   const cursor = searchParams.get('cursor')
   const semanticCursor = searchParams.get('semanticCursor')
-  const [historyCursorTrail, setHistoryCursorTrail] = useState<
-    Record<string, string[]>
-  >({})
   const [semanticCursorTrail, setSemanticCursorTrail] = useState<
     Record<string, string[]>
   >({})
+  const [historyPageInput, setHistoryPageInput] = useState('1')
+  const historyScrollPositionsRef = useRef<Record<string, number>>({})
+  const pendingHistoryScrollKeyRef = useRef<string | null>(null)
 
   const currentQuery = useMemo(
     () => ({
@@ -268,7 +275,8 @@ export function ExplorerPage() {
       endTimeMs: end ? endOfDayMs(end) : null,
       sort,
       limit: keywordPageSize,
-      cursor,
+      page: explicitPage,
+      cursor: explicitPage ? null : cursor,
       regexMode,
     }),
     [
@@ -277,6 +285,7 @@ export function ExplorerPage() {
       deferredQuery,
       domain,
       end,
+      explicitPage,
       profileId,
       regexMode,
       sort,
@@ -326,7 +335,6 @@ export function ExplorerPage() {
       }),
     [deferredQuery, domain, mode, profileId],
   )
-  const historyTrail = historyCursorTrail[historyQuerySignature] ?? []
   const semanticTrail = semanticCursorTrail[semanticQuerySignature] ?? []
 
   const archiveReady = Boolean(
@@ -487,10 +495,33 @@ export function ExplorerPage() {
     archiveReady &&
     !historyBlockedByInvalidRegex &&
     queryState.requestKey !== requestKey
+  const historyPage = results?.page ?? explicitPage ?? 1
+  const historyPageCount = results?.pageCount ?? 1
   const selectedEntry =
     results?.items.find((item) => item.id === selectedId) ??
     results?.items[0] ??
     null
+
+  useEffect(() => {
+    setHistoryPageInput(String(historyPage))
+  }, [historyPage])
+
+  useEffect(() => {
+    const pendingKey = pendingHistoryScrollKeyRef.current
+    if (!pendingKey) return
+    if (pendingKey !== `${historyQuerySignature}|${historyPage}`) return
+    const scrollContainer = document.querySelector('.workspace-scroll')
+    if (!(scrollContainer instanceof HTMLElement)) {
+      pendingHistoryScrollKeyRef.current = null
+      return
+    }
+    const nextScrollTop = historyScrollPositionsRef.current[pendingKey]
+    if (typeof nextScrollTop === 'number') {
+      scrollContainer.scrollTop = nextScrollTop
+    }
+    pendingHistoryScrollKeyRef.current = null
+  }, [historyPage, historyQuerySignature])
+
   const browserKinds = Array.from(
     new Set(
       (snapshot?.config.selectedProfileIds ?? []).map(
@@ -572,50 +603,81 @@ export function ExplorerPage() {
     if (!value) next.delete(key)
     else next.set(key, value)
     if (resetPagination) {
+      next.delete('page')
       next.delete('cursor')
       next.delete('semanticCursor')
-      setHistoryCursorTrail((current) => ({
-        ...current,
-        [historyQuerySignature]: [],
-      }))
       setSemanticCursorTrail((current) => ({
         ...current,
         [semanticQuerySignature]: [],
       }))
+      pendingHistoryScrollKeyRef.current = null
     }
     setSearchParams(next)
-  }
-
-  function goToHistoryPage(nextCursor: string | null) {
-    updateParam('cursor', nextCursor, { resetPagination: false })
   }
 
   function goToSemanticPage(nextCursor: string | null) {
     updateParam('semanticCursor', nextCursor, { resetPagination: false })
   }
 
+  function historyPageKey(targetPage: number) {
+    return `${historyQuerySignature}|${targetPage}`
+  }
+
+  function queueHistoryScrollRestore(targetPage: number) {
+    const scrollContainer = document.querySelector('.workspace-scroll')
+    if (!(scrollContainer instanceof HTMLElement)) {
+      pendingHistoryScrollKeyRef.current = null
+      return
+    }
+    const key = historyPageKey(targetPage)
+    historyScrollPositionsRef.current[key] = scrollContainer.scrollTop
+    pendingHistoryScrollKeyRef.current = key
+  }
+
+  function goToHistoryPage(nextPage: number) {
+    const normalizedPage = Math.max(1, nextPage)
+    queueHistoryScrollRestore(normalizedPage)
+    const next = new URLSearchParams(searchParams)
+    if (normalizedPage <= 1) {
+      next.delete('page')
+    } else {
+      next.set('page', String(normalizedPage))
+    }
+    next.delete('cursor')
+    setSearchParams(next)
+  }
+
+  function handleFirstHistoryPage() {
+    if (historyPage <= 1) return
+    goToHistoryPage(1)
+  }
+
+  function handleLastHistoryPage() {
+    if (historyPage >= historyPageCount) return
+    goToHistoryPage(historyPageCount)
+  }
+
   function handleNextHistoryPage() {
-    if (!results?.nextCursor) return
-    setHistoryCursorTrail((current) => ({
-      ...current,
-      [historyQuerySignature]: [
-        ...(current[historyQuerySignature] ?? []),
-        cursor ?? '',
-      ],
-    }))
-    goToHistoryPage(results.nextCursor)
+    if (!results?.hasNext) return
+    goToHistoryPage(historyPage + 1)
   }
 
   function handlePreviousHistoryPage() {
-    const previousCursor = historyTrail[historyTrail.length - 1] || null
-    setHistoryCursorTrail((current) => ({
-      ...current,
-      [historyQuerySignature]: (current[historyQuerySignature] ?? []).slice(
-        0,
-        -1,
-      ),
-    }))
-    goToHistoryPage(previousCursor)
+    if (!results?.hasPrevious) return
+    goToHistoryPage(historyPage - 1)
+  }
+
+  function handleHistoryPageJump() {
+    if (!results) return
+    const parsed = Number.parseInt(historyPageInput, 10)
+    if (!Number.isFinite(parsed)) {
+      setHistoryPageInput(String(historyPage))
+      return
+    }
+    const nextPage = Math.min(historyPageCount, Math.max(1, parsed))
+    setHistoryPageInput(String(nextPage))
+    if (nextPage === historyPage) return
+    goToHistoryPage(nextPage)
   }
 
   function handleNextSemanticPage() {
@@ -716,22 +778,20 @@ export function ExplorerPage() {
   }
 
   function clearDateRange() {
-    setHistoryCursorTrail((current) => ({
-      ...current,
-      [historyQuerySignature]: [],
-    }))
     setSemanticCursorTrail((current) => ({
       ...current,
       [semanticQuerySignature]: [],
     }))
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
+      next.delete('page')
       next.delete('start')
       next.delete('end')
       next.delete('cursor')
       next.delete('semanticCursor')
       return next
     })
+    pendingHistoryScrollKeyRef.current = null
   }
 
   function applyDateShortcut(days: number) {
@@ -739,19 +799,17 @@ export function ExplorerPage() {
     const startDate = new Date(endDate)
     startDate.setDate(endDate.getDate() - (days - 1))
     const next = new URLSearchParams(searchParams)
+    next.delete('page')
     next.set('start', toLocalDateString(startDate))
     next.set('end', toLocalDateString(endDate))
     next.delete('cursor')
     next.delete('semanticCursor')
-    setHistoryCursorTrail((current) => ({
-      ...current,
-      [historyQuerySignature]: [],
-    }))
     setSemanticCursorTrail((current) => ({
       ...current,
       [semanticQuerySignature]: [],
     }))
     setSearchParams(next)
+    pendingHistoryScrollKeyRef.current = null
   }
 
   function activeDateShortcut() {
@@ -871,7 +929,7 @@ export function ExplorerPage() {
           <span className="timeline-label">
             {results
               ? explorerT('historyPageSummary', {
-                  page: historyTrail.length + 1,
+                  page: historyPage,
                   loaded: results.items.length,
                   total: results.total,
                 })
@@ -1539,7 +1597,7 @@ export function ExplorerPage() {
             <div className="record-group">
               <div className="record-group-header">
                 {explorerT('resultsSummary', {
-                  page: historyTrail.length + 1,
+                  page: historyPage,
                   loaded: results?.items.length ?? 0,
                   total: results?.total ?? 0,
                 })}
@@ -1587,8 +1645,16 @@ export function ExplorerPage() {
                 <button
                   className="btn-secondary"
                   type="button"
+                  onClick={handleFirstHistoryPage}
+                  disabled={!results?.hasPrevious}
+                >
+                  {explorerT('firstPage')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
                   onClick={handlePreviousHistoryPage}
-                  disabled={historyTrail.length === 0}
+                  disabled={!results?.hasPrevious}
                 >
                   {explorerT('previousPage')}
                 </button>
@@ -1596,9 +1662,45 @@ export function ExplorerPage() {
                   className="btn-secondary"
                   type="button"
                   onClick={handleNextHistoryPage}
-                  disabled={!results?.nextCursor}
+                  disabled={!results?.hasNext}
                 >
                   {explorerT('nextPage')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handleLastHistoryPage}
+                  disabled={!results?.hasNext}
+                >
+                  {explorerT('lastPage')}
+                </button>
+                <label className="history-page-jump">
+                  <span className="history-page-jump__label">
+                    {explorerT('pageNumberLabel')}
+                  </span>
+                  <input
+                    className="history-page-jump__input"
+                    inputMode="numeric"
+                    min={1}
+                    type="number"
+                    value={historyPageInput}
+                    onChange={(event) =>
+                      setHistoryPageInput(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleHistoryPageJump()
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handleHistoryPageJump}
+                >
+                  {explorerT('jumpToPage')}
                 </button>
               </div>
             </div>

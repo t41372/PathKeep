@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -12,6 +12,7 @@ import {
   importBatchStatusTone,
 } from '../../lib/trust-review'
 import type {
+  BrowserProfile,
   HealthReport,
   ImportBatchDetail,
   ImportBatchOverview,
@@ -26,9 +27,15 @@ type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
 export function ImportPage() {
   const { refreshAppData, snapshot } = useShellData()
   const { language, t } = useI18n()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [method, setMethod] = useState<ImportMethod>('takeout')
   const [step, setStep] = useState<WizardStep>('select')
   const [sourcePath, setSourcePath] = useState('')
+  const [workflowExpanded, setWorkflowExpanded] = useState(false)
+  const [manualPathExpanded, setManualPathExpanded] = useState(false)
+  const [selectedBrowserProfileId, setSelectedBrowserProfileId] = useState<
+    string | null
+  >(null)
   const [inspection, setInspection] = useState<TakeoutInspection | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<TakeoutInspection | null>(
@@ -54,6 +61,30 @@ export function ImportPage() {
     (wizardStep) => wizardStep.key === step,
   )
   const recentImportBatches = snapshot?.recentImportBatches
+  const batchIdFromParams = (() => {
+    const raw = searchParams.get('batch')
+    if (!raw) return null
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  })()
+  const detectedBrowserProfiles = useMemo(
+    () =>
+      [...(snapshot?.browserProfiles ?? [])]
+        .filter((profile) => profile.historyExists && profile.historyPath)
+        .sort((left, right) =>
+          `${left.browserFamily}:${left.profileName}`.localeCompare(
+            `${right.browserFamily}:${right.profileName}`,
+          ),
+        ),
+    [snapshot?.browserProfiles],
+  )
+  const selectedBrowserProfile = useMemo(
+    () =>
+      detectedBrowserProfiles.find(
+        (profile) => profile.profileId === selectedBrowserProfileId,
+      ) ?? null,
+    [detectedBrowserProfiles, selectedBrowserProfileId],
+  )
 
   useEffect(() => {
     const recentBatches = recentImportBatches ?? []
@@ -63,8 +94,25 @@ export function ImportPage() {
       return
     }
 
-    setSelectedBatchId((current) => current ?? recentBatches[0]?.id ?? null)
-  }, [recentImportBatches])
+    const requestedBatchId =
+      batchIdFromParams &&
+      recentBatches.some((batch) => batch.id === batchIdFromParams)
+        ? batchIdFromParams
+        : null
+
+    setSelectedBatchId(
+      (current) => requestedBatchId ?? current ?? recentBatches[0]?.id ?? null,
+    )
+  }, [batchIdFromParams, recentImportBatches])
+
+  useEffect(() => {
+    if (!selectedBatchId) return
+    const currentBatch = searchParams.get('batch')
+    if (currentBatch === String(selectedBatchId)) return
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('batch', String(selectedBatchId))
+    setSearchParams(nextParams, { replace: true })
+  }, [searchParams, selectedBatchId, setSearchParams])
 
   useEffect(() => {
     if (!selectedBatchId) {
@@ -100,6 +148,30 @@ export function ImportPage() {
       cancelled = true
     }
   }, [selectedBatchId, t])
+
+  useEffect(() => {
+    if (method !== 'browser') return
+    if (selectedBrowserProfileId || sourcePath.trim()) return
+    const firstProfile = detectedBrowserProfiles[0]
+    if (!firstProfile?.historyPath) return
+    setSelectedBrowserProfileId(firstProfile.profileId)
+    setSourcePath(firstProfile.historyPath)
+  }, [detectedBrowserProfiles, method, selectedBrowserProfileId, sourcePath])
+
+  const activeBatchDetail = useMemo(
+    () =>
+      selectedBatchDetail ??
+      (importResult?.importBatch
+        ? {
+            batch: importResult.importBatch,
+            previewEntries: importResult.previewEntries,
+            recognizedFiles: importResult.recognizedFiles,
+            quarantinedFiles: importResult.quarantinedFiles,
+            notes: importResult.notes,
+          }
+        : null),
+    [importResult, selectedBatchDetail],
+  )
 
   const workflowSteps = useMemo(
     () => [
@@ -138,7 +210,7 @@ export function ImportPage() {
         id: 'verify',
         title: t('import.workflowVerifyTitle'),
         status:
-          selectedBatchDetail !== null || importResult !== null
+          activeBatchDetail !== null || importResult !== null
             ? ('complete' as const)
             : ('pending' as const),
         summary: t('import.workflowVerifySummary'),
@@ -148,14 +220,14 @@ export function ImportPage() {
         id: 'finish',
         title: t('import.workflowFinishTitle'),
         status:
-          selectedBatchDetail !== null && healthReport !== null
+          activeBatchDetail !== null && healthReport !== null
             ? ('complete' as const)
             : ('pending' as const),
         summary: t('import.workflowFinishSummary'),
         reason: t('import.workflowFinishReason'),
       },
     ],
-    [healthReport, importResult, inspection, selectedBatchDetail, step, t],
+    [activeBatchDetail, healthReport, importResult, inspection, step, t],
   )
 
   async function handleScan() {
@@ -177,6 +249,77 @@ export function ImportPage() {
     }
   }
 
+  function applySourcePath(
+    nextPath: string,
+    options?: { browserProfileId?: string | null },
+  ) {
+    setSourcePath(nextPath)
+    setInspection(null)
+    setImportResult(null)
+    setActionError(null)
+    setStep('select')
+    setSelectedBrowserProfileId(options?.browserProfileId ?? null)
+  }
+
+  function handleMethodChange(nextMethod: ImportMethod) {
+    if (nextMethod === method) return
+    setMethod(nextMethod)
+    setStep('select')
+    setInspection(null)
+    setImportResult(null)
+    setActionError(null)
+    setManualPathExpanded(false)
+    if (nextMethod === 'browser') {
+      const firstProfile = detectedBrowserProfiles[0]
+      if (firstProfile?.historyPath) {
+        setSelectedBrowserProfileId(firstProfile.profileId)
+        setSourcePath(firstProfile.historyPath)
+      } else {
+        setSelectedBrowserProfileId(null)
+        setSourcePath('')
+        setManualPathExpanded(true)
+      }
+      return
+    }
+
+    setSelectedBrowserProfileId(null)
+    setSourcePath('')
+  }
+
+  function handleSelectBrowserProfile(profile: BrowserProfile) {
+    if (!profile.historyPath) return
+    applySourcePath(profile.historyPath, {
+      browserProfileId: profile.profileId,
+    })
+  }
+
+  async function handleBrowseSource(options: { directory: boolean }) {
+    setActionError(null)
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        directory: options.directory,
+        multiple: false,
+        title: options.directory
+          ? t('import.chooseTakeoutFolder')
+          : method === 'takeout'
+            ? t('import.chooseTakeoutFile')
+            : t('import.chooseHistoryFile'),
+      })
+      if (typeof selected !== 'string' || !selected.trim()) return
+      applySourcePath(selected)
+      if (method === 'browser') {
+        setManualPathExpanded(false)
+      }
+    } catch (nextError) {
+      setActionError(
+        nextError instanceof Error
+          ? nextError.message
+          : t('import.filePickerUnavailable'),
+      )
+    }
+  }
+
   async function handleImport() {
     if (!sourcePath.trim()) return
     setActionError(null)
@@ -189,6 +332,9 @@ export function ImportPage() {
       setStep('done')
       if (result.importBatch) {
         setSelectedBatchId(result.importBatch.id)
+        setSelectedBatchDetail(
+          await backend.previewImportBatch(result.importBatch.id),
+        )
       }
     } catch (nextError) {
       setActionError(
@@ -298,29 +444,47 @@ export function ImportPage() {
       />
 
       <div className="panel">
-        <div className="panel-header">
+        <div className="panel-header panel-header--toggle">
           <span className="panel-title">{t('import.workflowLabel')}</span>
+          <button
+            aria-expanded={workflowExpanded}
+            className="btn-ghost"
+            type="button"
+            onClick={() => setWorkflowExpanded((current) => !current)}
+          >
+            {workflowExpanded
+              ? t('import.hideWorkflow')
+              : t('import.showWorkflow')}
+          </button>
         </div>
-        <div className="panel-body">
-          <OperationWorkflow
-            actionLabel={t('import.workflowLabel')}
-            labels={{
-              why: t('common.whyThisStepMatters'),
-              files: t('common.filesLabel'),
-              commands: t('common.commandsLabel'),
-              checklist: t('common.checklistLabel'),
-              copy: t('common.copyAction'),
-              current: t('common.current'),
-              complete: t('common.complete'),
-              pending: t('common.pending'),
-            }}
-            language={language}
-            onCopy={async (value) => {
-              await navigator.clipboard.writeText(value)
-            }}
-            steps={workflowSteps}
-          />
-        </div>
+        {workflowExpanded ? (
+          <div className="panel-body">
+            <OperationWorkflow
+              actionLabel={t('import.workflowLabel')}
+              labels={{
+                why: t('common.whyThisStepMatters'),
+                files: t('common.filesLabel'),
+                commands: t('common.commandsLabel'),
+                checklist: t('common.checklistLabel'),
+                copy: t('common.copyAction'),
+                current: t('common.current'),
+                complete: t('common.complete'),
+                pending: t('common.pending'),
+              }}
+              language={language}
+              onCopy={async (value) => {
+                await navigator.clipboard.writeText(value)
+              }}
+              steps={workflowSteps}
+            />
+          </div>
+        ) : (
+          <div className="panel-body panel-body--compact">
+            <p className="dashboard-next-action">
+              {t('import.workflowCollapsedHint')}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="import-container">
@@ -329,7 +493,7 @@ export function ImportPage() {
             className={`import-card ${method === 'takeout' ? 'active-import' : ''}`}
             type="button"
             aria-pressed={method === 'takeout'}
-            onClick={() => setMethod('takeout')}
+            onClick={() => handleMethodChange('takeout')}
           >
             <div className="import-card-icon">↓</div>
             <div className="import-card-title">
@@ -343,7 +507,7 @@ export function ImportPage() {
             className={`import-card ${method === 'browser' ? 'active-import' : ''}`}
             type="button"
             aria-pressed={method === 'browser'}
-            onClick={() => setMethod('browser')}
+            onClick={() => handleMethodChange('browser')}
           >
             <div className="import-card-icon">⊕</div>
             <div className="import-card-title">
@@ -401,27 +565,146 @@ export function ImportPage() {
                     ? t('import.takeoutSelectBody')
                     : t('import.browserSelectBody')}
                 </div>
-                <label
-                  className="field-stack"
-                  style={{
-                    marginTop: 'var(--space-4)',
-                    border: 'none',
-                    background: 'transparent',
-                    padding: 0,
-                  }}
-                >
-                  <span className="mono-kicker">{t('import.sourcePath')}</span>
-                  <input
-                    type="text"
-                    value={sourcePath}
-                    onChange={(event) => setSourcePath(event.target.value)}
-                    placeholder={
-                      method === 'takeout'
-                        ? t('import.takeoutPathPlaceholder')
-                        : t('import.browserPathPlaceholder')
-                    }
-                  />
-                </label>
+                {method === 'browser' ? (
+                  <div
+                    className="import-source-stack"
+                    style={{ marginTop: 'var(--space-4)' }}
+                  >
+                    <div className="row-between">
+                      <span className="mono-kicker">
+                        {t('import.detectedBrowserProfiles')}
+                      </span>
+                      <span className="mono-support">
+                        {t('import.detectedBrowserProfilesCount', {
+                          count:
+                            detectedBrowserProfiles.length.toLocaleString(
+                              language,
+                            ),
+                        })}
+                      </span>
+                    </div>
+                    {detectedBrowserProfiles.length > 0 ? (
+                      <div className="import-profile-list">
+                        {detectedBrowserProfiles.map((profile) => (
+                          <button
+                            key={profile.profileId}
+                            className={`result-row import-profile-card ${
+                              selectedBrowserProfileId === profile.profileId
+                                ? 'result-row--active'
+                                : ''
+                            }`}
+                            type="button"
+                            onClick={() => handleSelectBrowserProfile(profile)}
+                          >
+                            <div className="result-row__header">
+                              <strong>
+                                {profile.browserName} · {profile.profileName}
+                              </strong>
+                              <span className="status-badge">
+                                {t('import.browserProfileReady')}
+                              </span>
+                            </div>
+                            <div className="result-row__meta">
+                              <span className="mono-support">
+                                {profile.profileId}
+                              </span>
+                              <span className="mono-support">
+                                {profile.historyFileName}
+                              </span>
+                            </div>
+                            <p className="mono-support">
+                              {profile.historyPath}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <StatusCallout
+                        tone="warning"
+                        title={t('import.noDetectedBrowserProfilesTitle')}
+                        body={t('import.noDetectedBrowserProfilesBody')}
+                      />
+                    )}
+                  </div>
+                ) : null}
+                <div className="import-source-actions">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void handleBrowseSource({ directory: false })
+                    }}
+                  >
+                    {method === 'takeout'
+                      ? t('import.chooseTakeoutFile')
+                      : t('import.chooseHistoryFile')}
+                  </button>
+                  {method === 'takeout' ? (
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        void handleBrowseSource({ directory: true })
+                      }}
+                    >
+                      {t('import.chooseTakeoutFolder')}
+                    </button>
+                  ) : (
+                    <button
+                      aria-expanded={manualPathExpanded}
+                      className="btn-ghost"
+                      type="button"
+                      onClick={() =>
+                        setManualPathExpanded((current) => !current)
+                      }
+                    >
+                      {manualPathExpanded
+                        ? t('import.hideManualPath')
+                        : t('import.showManualPath')}
+                    </button>
+                  )}
+                </div>
+                {sourcePath.trim() ? (
+                  <div className="import-source-summary">
+                    <span className="mono-kicker">
+                      {t('import.selectedSource')}
+                    </span>
+                    <span className="mono-support">{sourcePath}</span>
+                    {method === 'browser' && selectedBrowserProfile ? (
+                      <span className="mono-support">
+                        {selectedBrowserProfile.browserName} ·{' '}
+                        {selectedBrowserProfile.profileName}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {(method === 'takeout' ||
+                  manualPathExpanded ||
+                  detectedBrowserProfiles.length === 0) && (
+                  <label
+                    className="field-stack import-manual-path"
+                    style={{ marginTop: 'var(--space-4)' }}
+                  >
+                    <span className="mono-kicker">
+                      {t('import.sourcePath')}
+                    </span>
+                    <input
+                      type="text"
+                      value={sourcePath}
+                      onChange={(event) => {
+                        applySourcePath(event.target.value)
+                        if (method === 'browser') {
+                          setManualPathExpanded(true)
+                        }
+                      }}
+                      placeholder={
+                        method === 'takeout'
+                          ? t('import.takeoutPathPlaceholder')
+                          : t('import.browserPathPlaceholder')
+                      }
+                    />
+                  </label>
+                )}
                 <div className="wizard-actions">
                   <button
                     className="btn-primary"
@@ -855,7 +1138,7 @@ export function ImportPage() {
               </p>
               {loadingBatch ? (
                 <p className="dim">{t('common.loading')}</p>
-              ) : selectedBatchDetail ? (
+              ) : activeBatchDetail ? (
                 <>
                   <div className="manifest-grid">
                     <div className="manifest-field">
@@ -863,7 +1146,7 @@ export function ImportPage() {
                         {t('import.candidateRows')}
                       </span>
                       <span className="field-value mono">
-                        {selectedBatchDetail.batch.candidateItems.toLocaleString(
+                        {activeBatchDetail.batch.candidateItems.toLocaleString(
                           language,
                         )}
                       </span>
@@ -873,7 +1156,7 @@ export function ImportPage() {
                         {t('import.importedRows')}
                       </span>
                       <span className="field-value mono">
-                        {selectedBatchDetail.batch.importedItems.toLocaleString(
+                        {activeBatchDetail.batch.importedItems.toLocaleString(
                           language,
                         )}
                       </span>
@@ -883,7 +1166,7 @@ export function ImportPage() {
                         {t('import.duplicateRows')}
                       </span>
                       <span className="field-value mono">
-                        {selectedBatchDetail.batch.duplicateItems.toLocaleString(
+                        {activeBatchDetail.batch.duplicateItems.toLocaleString(
                           language,
                         )}
                       </span>
@@ -893,16 +1176,16 @@ export function ImportPage() {
                         {t('import.visibleRows')}
                       </span>
                       <span className="field-value mono">
-                        {selectedBatchDetail.batch.visibleItems.toLocaleString(
+                        {activeBatchDetail.batch.visibleItems.toLocaleString(
                           language,
                         )}
                       </span>
                     </div>
                   </div>
                   <div className="detail-divider" />
-                  {selectedBatchDetail.previewEntries.length > 0 ? (
+                  {activeBatchDetail.previewEntries.length > 0 ? (
                     <PreviewEntryList
-                      entries={selectedBatchDetail.previewEntries}
+                      entries={activeBatchDetail.previewEntries}
                       language={language}
                       statusLabel={(status) => t(importBatchStatusKey(status))}
                       statusTone={importBatchStatusTone}
@@ -910,14 +1193,14 @@ export function ImportPage() {
                   ) : (
                     <p className="dim">{t('import.noPreviewRows')}</p>
                   )}
-                  {selectedBatchDetail.batch.auditPath ? (
+                  {activeBatchDetail.batch.auditPath ? (
                     <div className="code-actions">
                       <button
                         className="btn-tiny"
                         type="button"
                         onClick={() => {
                           void backend.openPathInFileManager(
-                            selectedBatchDetail.batch.auditPath ?? '',
+                            activeBatchDetail.batch.auditPath ?? '',
                           )
                         }}
                       >
@@ -931,13 +1214,13 @@ export function ImportPage() {
                       type="button"
                       onClick={() => {
                         void handleBatchMutation(
-                          selectedBatchDetail.batch,
+                          activeBatchDetail.batch,
                           'revert',
                         )
                       }}
-                      disabled={selectedBatchDetail.batch.status === 'reverted'}
+                      disabled={activeBatchDetail.batch.status === 'reverted'}
                       aria-disabled={
-                        selectedBatchDetail.batch.status === 'reverted'
+                        activeBatchDetail.batch.status === 'reverted'
                       }
                     >
                       {t('import.revertBatch')}
@@ -947,13 +1230,13 @@ export function ImportPage() {
                       type="button"
                       onClick={() => {
                         void handleBatchMutation(
-                          selectedBatchDetail.batch,
+                          activeBatchDetail.batch,
                           'restore',
                         )
                       }}
-                      disabled={selectedBatchDetail.batch.status !== 'reverted'}
+                      disabled={activeBatchDetail.batch.status !== 'reverted'}
                       aria-disabled={
-                        selectedBatchDetail.batch.status !== 'reverted'
+                        activeBatchDetail.batch.status !== 'reverted'
                       }
                     >
                       {t('import.restoreBatch')}

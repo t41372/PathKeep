@@ -52,6 +52,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-dialog": "^2.4.3",
     "@tauri-apps/plugin-stronghold": "^2.3.1",
     "clsx": "^2.1.1",
     "react": "^19.2.4",

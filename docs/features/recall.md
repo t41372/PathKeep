@@ -126,8 +126,10 @@
   - 當前狀態（completed / reverted / partial）
 - Audit Ledger / Dashboard recent runs 必須直接反映 unified run ledger 的真實 `run_type`，至少涵蓋 `backup`、`import`、`rollback`、`doctor`；不得再用 trigger-only 或 backup-only 的近似資料冒充 run type。
 - Audit Ledger 必須支援至少按 run type、severity、profile / source scope、artifact type 篩選，並能把目前選中的 run 和上一筆可見 run 做 summary delta，避免使用者在回滾或信任某次 run 前失去比較基準。
+- Audit Ledger 的主入口必須是 run timeline，而不是只有 manifest 路徑或 hash；使用者要能一眼看出「這次是哪種 run、何時發生、改了多少資料、接下來可以做什麼」。
 - 用戶能展開某次 run，預覽它寫入的所有記錄。
 - Audit / import batch detail 必須顯示 visible / reverted item 數量、warnings 與 audit artifact 路徑，讓使用者能先確認再 rollback 或 restore。
+- import / rollback / restore 類 run 若已有對應 import batch preview，Audit Ledger 必須直接顯示 record-level change preview，並提供回到 `/import?batch=<id>` 的 review deep-link。
 - 用戶能**回滾整次 run**：
   - 該 run 寫入的所有記錄標記為 reverted（軟刪除，不物理刪除）。
   - Reverted 的記錄從正常搜尋和瀏覽中隱藏，但保留在底層以備審計。

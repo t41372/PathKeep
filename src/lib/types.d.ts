@@ -529,6 +529,7 @@ export interface HistoryQuery {
   endTimeMs?: number | null
   sort?: 'newest' | 'oldest' | null
   limit?: number | null
+  page?: number | null
   cursor?: string | null
   regexMode?: boolean
 }
@@ -550,6 +551,11 @@ export interface HistoryEntry {
 export interface HistoryQueryResponse {
   total: number
   items: HistoryEntry[]
+  page: number
+  pageSize: number
+  pageCount: number
+  hasPrevious: boolean
+  hasNext: boolean
   nextCursor?: string | null
 }
 

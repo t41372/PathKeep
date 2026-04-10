@@ -745,6 +745,35 @@ pub fn list_history(
         format!("{}|{}", entry.visit_time, entry.id)
     }
 
+    fn page_count(total: usize, page_size: usize) -> usize {
+        if total == 0 || page_size == 0 { 1 } else { ((total - 1) / page_size) + 1 }
+    }
+
+    fn build_history_response(
+        total: usize,
+        page_size: usize,
+        page: usize,
+        start_index: usize,
+        items: Vec<HistoryEntry>,
+    ) -> HistoryQueryResponse {
+        let normalized_page_size = page_size.max(1);
+        let normalized_page_count = page_count(total, normalized_page_size);
+        let normalized_page = page.clamp(1, normalized_page_count);
+        let has_previous = start_index > 0;
+        let has_next = start_index + items.len() < total;
+
+        HistoryQueryResponse {
+            total,
+            page: normalized_page,
+            page_size: normalized_page_size,
+            page_count: normalized_page_count,
+            has_previous,
+            has_next,
+            next_cursor: has_next.then(|| items.last().map(encode_history_cursor)).flatten(),
+            items,
+        }
+    }
+
     fn build_fts_query(raw: &str) -> Option<String> {
         let tokens = raw
             .split_whitespace()
@@ -758,6 +787,8 @@ pub fn list_history(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
+    let limit_usize = limit as usize;
+    let requested_page = query.page.map(|page| usize::try_from(page.max(1)).unwrap_or(usize::MAX));
     let profile_id = query.profile_id.clone();
     let browser_kind = query.browser_kind.clone();
     let start_time_ms = query.start_time_ms;
@@ -782,8 +813,8 @@ pub fn list_history(
         .filter(|value| !value.trim().is_empty())
         .map(|value| format!("%{value}%"));
     let sort = query.sort.clone().unwrap_or_else(|| "newest".to_string());
-    let (cursor_visit_time, cursor_id) =
-        parse_history_cursor(query.cursor.as_deref()).unwrap_or((0, 0));
+    let cursor = parse_history_cursor(query.cursor.as_deref());
+    let (cursor_visit_time, cursor_id) = cursor.unwrap_or((0, 0));
 
     if let Some(regex) = regex {
         // Regex search is a manual, post-filtered mode that keeps the canonical
@@ -813,32 +844,30 @@ pub fn list_history(
             })
             .collect::<Vec<_>>();
         let total = filtered_items.len();
-        let mut items = filtered_items
-            .into_iter()
-            .filter(|entry| {
-                if query.cursor.is_none() {
-                    return true;
-                }
-                if sort == "oldest" {
-                    return entry.visit_time > cursor_visit_time
-                        || (entry.visit_time == cursor_visit_time && entry.id > cursor_id);
-                }
-                entry.visit_time < cursor_visit_time
-                    || (entry.visit_time == cursor_visit_time && entry.id < cursor_id)
-            })
-            .take(limit as usize + 1)
-            .collect::<Vec<_>>();
-        let has_more = items.len() > limit as usize;
-        if has_more {
-            items.truncate(limit as usize);
-        }
+        let normalized_page_count = page_count(total, limit_usize);
+        let page = requested_page.unwrap_or(1).min(normalized_page_count);
+        let start_index = if requested_page.is_some() {
+            page.saturating_sub(1) * limit_usize
+        } else if let Some((cursor_visit_time, cursor_id)) = cursor {
+            filtered_items
+                .iter()
+                .position(|entry| {
+                    if sort == "oldest" {
+                        entry.visit_time > cursor_visit_time
+                            || (entry.visit_time == cursor_visit_time && entry.id > cursor_id)
+                    } else {
+                        entry.visit_time < cursor_visit_time
+                            || (entry.visit_time == cursor_visit_time && entry.id < cursor_id)
+                    }
+                })
+                .unwrap_or(total)
+        } else {
+            0
+        };
+        let items =
+            filtered_items.into_iter().skip(start_index).take(limit_usize).collect::<Vec<_>>();
 
-        return Ok(HistoryQueryResponse {
-            total,
-            next_cursor: has_more
-                .then(|| encode_history_cursor(items.last().expect("paginated item"))),
-            items,
-        });
+        return Ok(build_history_response(total, limit_usize, page, start_index, items));
     }
 
     if q.is_some() && fts_query.is_none() {
@@ -863,6 +892,14 @@ pub fn list_history(
             .expect("history count fits in usize");
 
         let mut statement = connection.prepare(LIST_HISTORY_FTS_SQL)?;
+        let normalized_page_count = page_count(total, limit_usize);
+        let page = requested_page.unwrap_or(1).min(normalized_page_count);
+        let start_index = page.saturating_sub(1) * limit_usize;
+        let page_limit = if requested_page.is_some() {
+            i64::try_from(page.saturating_mul(limit_usize).saturating_add(1)).unwrap_or(i64::MAX)
+        } else {
+            i64::from(limit) + 1
+        };
         let rows = statement.query_map(
             named_params! {
                 ":ftsQuery": fts_query,
@@ -872,24 +909,37 @@ pub fn list_history(
                 ":startTimeMs": start_time_ms,
                 ":endTimeMs": end_time_ms,
                 ":sort": sort,
-                ":cursorVisitTime": query.cursor.as_ref().map(|_| cursor_visit_time),
-                ":cursorId": query.cursor.as_ref().map(|_| cursor_id),
-                ":pageLimit": limit + 1,
+                ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_visit_time) },
+                ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_id) },
+                ":pageLimit": page_limit,
             },
             history_entry_from_row,
         )?;
-        let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        let has_more = items.len() > limit as usize;
-        if has_more {
-            items.truncate(limit as usize);
-        }
+        let items = if requested_page.is_some() {
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .skip(start_index)
+                .take(limit_usize)
+                .collect::<Vec<_>>()
+        } else {
+            let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            if window_items.len() > limit_usize {
+                window_items.truncate(limit_usize);
+            }
+            window_items
+        };
 
-        return Ok(HistoryQueryResponse {
+        return Ok(build_history_response(
             total,
-            next_cursor: has_more
-                .then(|| encode_history_cursor(items.last().expect("paginated item"))),
+            limit_usize,
+            page,
+            if requested_page.is_some() {
+                start_index
+            } else {
+                if cursor.is_some() { limit_usize } else { 0 }
+            },
             items,
-        });
+        ));
     }
 
     let total: usize = connection
@@ -909,6 +959,14 @@ pub fn list_history(
         .expect("history count fits in usize");
 
     let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
+    let normalized_page_count = page_count(total, limit_usize);
+    let page = requested_page.unwrap_or(1).min(normalized_page_count);
+    let start_index = page.saturating_sub(1) * limit_usize;
+    let page_limit = if requested_page.is_some() {
+        i64::try_from(page.saturating_mul(limit_usize).saturating_add(1)).unwrap_or(i64::MAX)
+    } else {
+        i64::from(limit) + 1
+    };
     let rows = statement.query_map(
         named_params! {
             ":profileId": profile_id,
@@ -918,23 +976,37 @@ pub fn list_history(
             ":startTimeMs": start_time_ms,
             ":endTimeMs": end_time_ms,
             ":sort": sort,
-            ":cursorVisitTime": query.cursor.as_ref().map(|_| cursor_visit_time),
-            ":cursorId": query.cursor.as_ref().map(|_| cursor_id),
-            ":pageLimit": limit + 1,
+            ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_visit_time) },
+            ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_id) },
+            ":pageLimit": page_limit,
         },
         history_entry_from_row,
     )?;
-    let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-    let has_more = items.len() > limit as usize;
-    if has_more {
-        items.truncate(limit as usize);
-    }
+    let items = if requested_page.is_some() {
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .skip(start_index)
+            .take(limit_usize)
+            .collect::<Vec<_>>()
+    } else {
+        let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        if window_items.len() > limit_usize {
+            window_items.truncate(limit_usize);
+        }
+        window_items
+    };
 
-    Ok(HistoryQueryResponse {
+    Ok(build_history_response(
         total,
-        next_cursor: has_more.then(|| encode_history_cursor(items.last().expect("paginated item"))),
+        limit_usize,
+        page,
+        if requested_page.is_some() {
+            start_index
+        } else {
+            if cursor.is_some() { limit_usize } else { 0 }
+        },
         items,
-    })
+    ))
 }
 
 fn collect_history_for_export(
@@ -962,7 +1034,16 @@ fn collect_history_for_export(
         export_query.cursor = Some(next_cursor);
     };
 
-    Ok(HistoryQueryResponse { total, items, next_cursor: None })
+    Ok(HistoryQueryResponse {
+        total,
+        page: 1,
+        page_size: items.len(),
+        page_count: 1,
+        has_previous: false,
+        has_next: false,
+        items,
+        next_cursor: None,
+    })
 }
 
 pub fn export_history(

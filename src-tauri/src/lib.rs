@@ -48,6 +48,7 @@ fn write_payload<W: Write>(writer: &mut W, payload: Option<String>) -> Result<()
 fn run_app() -> Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
             let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;

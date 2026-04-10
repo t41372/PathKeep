@@ -594,6 +594,7 @@ pub struct HistoryQuery {
     pub end_time_ms: Option<i64>,
     pub sort: Option<String>,
     pub limit: Option<u32>,
+    pub page: Option<u32>,
     pub cursor: Option<String>,
     pub regex_mode: Option<bool>,
 }
@@ -609,6 +610,7 @@ impl Default for HistoryQuery {
             end_time_ms: None,
             sort: Some("newest".to_string()),
             limit: Some(150),
+            page: None,
             cursor: None,
             regex_mode: Some(false),
         }
@@ -631,12 +633,32 @@ pub struct HistoryEntry {
     pub app_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {
     pub total: usize,
     pub items: Vec<HistoryEntry>,
+    pub page: usize,
+    pub page_size: usize,
+    pub page_count: usize,
+    pub has_previous: bool,
+    pub has_next: bool,
     pub next_cursor: Option<String>,
+}
+
+impl Default for HistoryQueryResponse {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            items: Vec::new(),
+            page: 1,
+            page_size: 0,
+            page_count: 1,
+            has_previous: false,
+            has_next: false,
+            next_cursor: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -27,14 +27,34 @@
 
 ### M4 — Full Polish
 
+- [ ] **WORK-M4-K** — Security, Privacy, And Update Boundary
+  - 讀先：
+    `docs/architecture/decisions/005-app-lock-session-boundary.md`
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/standards.md`
+    `RELEASE.md`
+  - 目標：先以決策文檔誠實重開 macOS biometric 與 consented analytics 兩個 accepted-contract 變更，再落地 macOS-only biometric unlock、frontend-only analytics consent boundary，以及 Settings manual update check / release availability surface。
+  - 驗收：`bun run verify`
+
+- [ ] **WORK-M4-L** — Package Rename, Release Flow, Size Audit, And Code Health
+  - 讀先：
+    `AGENTS.md`
+    `RELEASE.md`
+    `docs/standards.md`
+    `docs/plan/m4-full-polish/README.md`
+    `docs/plan/program/repo-baseline.md`
+  - 目標：把 bundle / keyring / data-root namespace 正式改成 `com.yi-ting.pathkeep`，建立真實 version bump / release runbook，並補上 artifact size attribution 與前後端 code health audit，避免發版準備只停在現有 private-release workflow。
+  - 驗收：`bun run verify`
+
 ---
 
 ## 依賴關係圖
 
 ```
 WORK-M0-A ──┐
-WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B → WORK-M4-C / WORK-M4-D / WORK-M4-E / WORK-M4-F / WORK-M4-G / WORK-M4-H → WORK-QC-D → WORK-M4-J → WORK-M4-I
-                     └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────→ WORK-QC-C → WORK-M1-C → WORK-M1-D
+WORK-M0-B ──┴── WORK-M1-A → WORK-M1-B → WORK-M2-A → WORK-M2-B → WORK-M3-A → WORK-M3-B → WORK-QC-A → WORK-QC-B → WORK-M4-A → WORK-M4-B → WORK-M4-C / WORK-M4-D / WORK-M4-E / WORK-M4-F / WORK-M4-G / WORK-M4-H → WORK-QC-D → WORK-M4-J → WORK-M4-I → WORK-M4-K → WORK-M4-L
+                     └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────→ WORK-QC-C → WORK-M1-C → WORK-M1-D
 ```
 
 ---

@@ -280,6 +280,11 @@ const mockSnapshot: AppSnapshot = {
 
 const mockHistory: HistoryQueryResponse = {
   total: 2,
+  page: 1,
+  pageSize: 50,
+  pageCount: 1,
+  hasPrevious: false,
+  hasNext: false,
   items: [
     {
       id: 1,
@@ -308,6 +313,7 @@ const mockHistory: HistoryQueryResponse = {
       appId: null,
     },
   ],
+  nextCursor: null,
 }
 
 function mockEvidenceFromHistoryItem(
@@ -1504,6 +1510,7 @@ function filterMockHistory(
   const endTimeMs = query?.endTimeMs ?? null
   const sort = query?.sort ?? 'newest'
   const limit = Math.max(1, Math.min(query?.limit ?? 150, 1000))
+  const requestedPage = Math.max(1, Math.floor(query?.page ?? 1))
   const cursor = parseMockHistoryCursor(query?.cursor)
   const regex = query?.regexMode && rawQuery ? new RegExp(rawQuery, 'i') : null
 
@@ -1531,9 +1538,10 @@ function filterMockHistory(
         : right.visitTime - left.visitTime,
     )
 
-  const pagedItems = filteredItems
-    .filter((item) => {
-      if (!cursor) return true
+  const pageCount = Math.max(1, Math.ceil(filteredItems.length / limit))
+  const cursorStartIndex = (() => {
+    if (!cursor) return 0
+    const nextIndex = filteredItems.findIndex((item) => {
       if (sort === 'oldest') {
         return (
           item.visitTime > cursor.visitTime ||
@@ -1545,17 +1553,30 @@ function filterMockHistory(
         (item.visitTime === cursor.visitTime && item.id < cursor.id)
       )
     })
-    .slice(0, limit + 1)
-
-  const hasMore = pagedItems.length > limit
-  const items = hasMore ? pagedItems.slice(0, limit) : pagedItems
+    return nextIndex === -1 ? filteredItems.length : nextIndex
+  })()
+  const page =
+    query?.page != null
+      ? Math.min(requestedPage, pageCount)
+      : Math.max(1, Math.floor(cursorStartIndex / limit) + 1)
+  const startIndex =
+    query?.page != null ? (page - 1) * limit : Math.max(0, cursorStartIndex)
+  const items = filteredItems.slice(startIndex, startIndex + limit)
+  const hasNext = startIndex + limit < filteredItems.length
+  const hasPrevious = startIndex > 0
 
   return {
     total: filteredItems.length,
     items,
-    nextCursor: hasMore
-      ? encodeMockHistoryCursor(items[items.length - 1])
-      : null,
+    page,
+    pageSize: limit,
+    pageCount,
+    hasPrevious,
+    hasNext,
+    nextCursor:
+      hasNext && items.length > 0
+        ? encodeMockHistoryCursor(items[items.length - 1])
+        : null,
   }
 }
 

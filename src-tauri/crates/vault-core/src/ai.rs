@@ -2164,6 +2164,7 @@ fn lexical_history_results(
             end_time_ms: None,
             sort: Some("newest".to_string()),
             limit: Some(request.limit.unwrap_or(12).max(1)),
+            page: None,
             cursor: None,
             regex_mode: Some(false),
         },

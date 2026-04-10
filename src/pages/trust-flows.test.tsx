@@ -258,6 +258,47 @@ describe('trust flows', () => {
     confirmSpy.mockRestore()
   })
 
+  test('keeps the workflow collapsed by default and prioritizes detected browser profiles over manual paths', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    expect(screen.getByText(importT('workflowCollapsedHint'))).toBeVisible()
+    expect(
+      screen.queryByText(importT('workflowPreviewTitle')),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('showWorkflow') }),
+    )
+    expect(
+      await screen.findByText(importT('workflowPreviewTitle')),
+    ).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+
+    expect(
+      await screen.findByText(importT('detectedBrowserProfiles')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: /Google Chrome · Primary/i }),
+    ).toBeVisible()
+    expect(
+      screen.queryByPlaceholderText('/path/to/History'),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('showManualPath') }),
+    )
+    expect(screen.getByPlaceholderText('/path/to/History')).toBeVisible()
+  })
+
   test('renders Windows scheduler guidance and keeps PME tabs keyboard reachable', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()

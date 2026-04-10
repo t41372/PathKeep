@@ -17,8 +17,8 @@
 | **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                           |
 | **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                                                              |
 | **AI Assistant**       | 自然語言問答介面                                                                                                                                 |
-| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）                                                                                       |
-| **Audit Ledger**       | Manifest chain、run 歷史、diff 視圖、schema 變化紀錄                                                                                             |
+| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）、recent batch review、`?batch=` deep-link、revert / restore                           |
+| **Audit Ledger**       | Run timeline、summary delta、import change preview、artifact / warning review、rollback / restore quick jump                                     |
 | **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                               |
 | **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；目前以 passcode 解鎖為主，biometric 僅顯示 truthful capability / degradation；鎖定時所有資料存取完全阻斷 |
 | **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                          |
@@ -70,8 +70,9 @@
 
 - Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Insights / Assistant）、`OPERATIONS`（Import / Audit / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
 - 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
-- Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`。
+- Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
+- Import recent batch review 允許 `/import?batch=<id>` deep-link；Audit / Dashboard 可以直接把使用者帶回指定 batch 的 review surface。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
 - Onboarding shell header 必須有明確的 `Exit setup` 動作；離開後保留目前已選的 storage / profile / security 決策，避免把使用者困在 setup route。
 - Schedule / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings 也要能透過 callout / quick action 直接跳回這些修復頁，而不是把排障資訊藏在單一路由裡。

@@ -21,6 +21,8 @@
 > **2026-04-09 shell-scaling 註記**：shell 已切成 route-level chunks，checked-in artifact bundle [`artifacts/perf/2026-04-09-large-archive-shell-scaling/`](../../../artifacts/perf/2026-04-09-large-archive-shell-scaling/) 也已重新補回可重跑的 `bun run perf:artifact:shell` 入口。當前 bundle 會從最新 production build 生成 `context.md`、`shell-payload-summary.json`、`route-chunk-breakdown.md`、synthetic `sqlite-query-plan.txt`，以及誠實標記的 placeholder `webview-trace.json` / `rust-sample.txt`；目前可重跑的 shell-scale 證據是 base shell 約 `580261` bytes、heaviest first route 約 `629465` bytes（`settings`）。這仍**不等於**已完成真實 large-profile replay。
 >
 > **2026-04-09 審核結論**：M4 仍未整體完成。release / support / remote backup / truthful intelligence v1 已簽收；尚未簽收的是兩塊真正會決定「設計文檔是否全完成」的剩餘工作：`WORK-M4-J` 的 60-year performance proof，以及 `WORK-M4-I` 的 advanced intelligence shipping（plugin sandbox / queue family / revisit surfaces）。`bun run verify` 現在已可在這台機器上重新跑到全綠；`WORK-M4-J` 仍不能 close out 的原因不再是 CI / build gate，而是 checked-in bundle 仍屬 synthetic shell-scaling 證據，尚未補到一次真實 large-profile replay。
+>
+> **2026-04-09 reprioritization 註記（user sweep）**：實際試用後又暴露出一批比「60-year synthetic perf signoff」更直接的 shipping blocker：Explorer 搜索卡死、分頁 UX、Import / Audit trust IA、collapsed sidebar 與 desktop feel。因此 `WORK-M4-J` 先改為 Recall / shell / trust-critical UX stabilize block；對應的 deterministic insight、retention honesty 與 site-adapter 工作收斂到 `WORK-M4-I`。macOS biometric / consented analytics / manual update check 另開 `WORK-M4-K`，bundle rename / release flow / size / code health 則另開 `WORK-M4-L`。
 
 ---
 

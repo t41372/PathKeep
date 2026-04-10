@@ -262,6 +262,120 @@ describe('App shell', () => {
     expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
   })
 
+  test('supports explicit page jumps in explorer results and preserves the shell scroll position', async () => {
+    const user = userEvent.setup()
+    const baseTime = Date.now()
+
+    await backend.initializeArchive(initializedConfig, 'vault-passphrase')
+    backendTestHarness.mutateState((state) => {
+      state.history.items = Array.from({ length: 375 }, (_, index) => ({
+        id: index + 1,
+        profileId: 'chrome:Default',
+        url: `https://example.com/sqlite/${index + 1}`,
+        title: `SQLite note ${index + 1}`,
+        domain: 'example.com',
+        visitedAt: new Date(baseTime - index * 60_000).toISOString(),
+        visitTime: baseTime - index * 60_000,
+        durationMs: 5_000,
+        transition: 805306368,
+        sourceVisitId: index + 1,
+        appId: null,
+      }))
+    })
+
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/explorer?q=sqlite&page=3'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(router.state.location.search).toContain('page=3'),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Page number',
+        }),
+      ).toHaveValue(3),
+    )
+    await waitFor(() =>
+      expect(document.querySelectorAll('.record-item')).toHaveLength(50),
+    )
+
+    const scrollContainer = document.querySelector('.workspace-scroll')
+    expect(scrollContainer).toBeInstanceOf(HTMLElement)
+    expectHtmlElement(scrollContainer).scrollTop = 240
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    await waitFor(() =>
+      expect(router.state.location.search).toContain('page=4'),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Page number',
+        }),
+      ).toHaveValue(4),
+    )
+    expect(expectHtmlElement(scrollContainer).scrollTop).toBe(240)
+
+    const pageInput = screen.getByRole('spinbutton', {
+      name: 'Page number',
+    })
+    await user.clear(pageInput)
+    await user.type(pageInput, '8')
+    await user.click(screen.getByRole('button', { name: 'Go' }))
+
+    await waitFor(() =>
+      expect(router.state.location.search).toContain('page=8'),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('spinbutton', {
+          name: 'Page number',
+        }),
+      ).toHaveValue(8),
+    )
+    await waitFor(() =>
+      expect(document.querySelectorAll('.record-item')).toHaveLength(25),
+    )
+    expect(screen.getByRole('button', { name: 'Last page' })).toBeDisabled()
+  })
+
+  test('submitting the topbar search navigates into explorer without crashing', async () => {
+    const user = userEvent.setup()
+
+    await seedArchiveRun()
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('app-shell')).toBeInTheDocument()
+
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search history' }),
+      'sqlite',
+    )
+    await user.keyboard('{Enter}')
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/explorer'),
+    )
+    await waitFor(() =>
+      expect(router.state.location.search).toContain('q=sqlite'),
+    )
+    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.querySelectorAll('.record-item').length).toBeGreaterThan(
+        0,
+      ),
+    )
+  })
+
   test('switches archive mode from the onboarding security step', async () => {
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
