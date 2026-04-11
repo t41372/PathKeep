@@ -139,6 +139,8 @@ jobs:
           toolchain: 1.94.1
           targets: ${{ matrix.rust_targets }}
 
+      - uses: arduino/setup-protoc@v3
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install dependencies

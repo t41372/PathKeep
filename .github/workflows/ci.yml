@@ -52,6 +52,7 @@ jobs:
         with:
           toolchain: 1.94.1
           components: clippy,rustfmt,llvm-tools-preview
+      - uses: arduino/setup-protoc@v3
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -83,6 +84,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
+      - uses: arduino/setup-protoc@v3
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -114,6 +116,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
+      - uses: arduino/setup-protoc@v3
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -131,6 +134,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
+      - uses: arduino/setup-protoc@v3
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
