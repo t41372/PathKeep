@@ -1,96 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
-import { PreviewEntryList } from '../../components/ui'
-import { backend } from '../../lib/backend-client'
-import { formatBytes, formatDateTime } from '../../lib/format'
+import { StatusCallout } from '../../components/primitives/status-callout'
+import { formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
   auditSeverity,
   auditSeverityKey,
-  importBatchStatusKey,
-  importBatchStatusTone,
   runStatusKey,
-  runTypeKey,
   runTriggerKey,
+  runTypeKey,
   sourceKindFromProfileScope,
 } from '../../lib/trust-review'
-import type {
-  AuditRunDetail,
-  ImportBatchDetail,
-  ImportBatchOverview,
-  SnapshotRestorePreview,
-} from '../../lib/types'
-
-interface AuditDetailState {
-  runId: number | null
-  detail: AuditRunDetail | null
-  error: string | null
-}
-
-interface AuditFilterState {
-  runType: string
-  severity: 'all' | 'clear' | 'warning' | 'blocked'
-  sourceKind: string
-  profileId: string
-  artifactType: string
-}
-
-type AuditDetailTab = 'summary' | 'artifacts' | 'warnings'
-
-function parseAuditTimestamp(value?: string | null) {
-  if (!value) return Number.NaN
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : Number.NaN
-}
-
-function resolveBatchEventTime(
-  batch: ImportBatchOverview,
-  runType: string,
-): number {
-  if (runType === 'rollback') {
-    return parseAuditTimestamp(
-      batch.revertedAt ?? batch.importedAt ?? batch.createdAt,
-    )
-  }
-
-  return parseAuditTimestamp(
-    batch.importedAt ?? batch.revertedAt ?? batch.createdAt,
-  )
-}
-
-function pickRelatedImportBatch(
-  detail: AuditRunDetail | null,
-  recentImportBatches: ImportBatchOverview[],
-) {
-  if (!detail) return null
-  const runType = detail.run.runType ?? 'backup'
-  if (!['import', 'rollback', 'restore'].includes(runType)) return null
-
-  const runProfileId = detail.profileScope[0] ?? null
-  const runTimestamp = parseAuditTimestamp(
-    detail.run.finishedAt ?? detail.run.startedAt,
-  )
-  const sameProfileBatches = recentImportBatches.filter(
-    (batch) => !runProfileId || batch.profileId === runProfileId,
-  )
-
-  return (
-    sameProfileBatches.slice().sort((left, right) => {
-      const leftDistance = Math.abs(
-        resolveBatchEventTime(left, runType) - runTimestamp,
-      )
-      const rightDistance = Math.abs(
-        resolveBatchEventTime(right, runType) - runTimestamp,
-      )
-      return leftDistance - rightDistance
-    })[0] ?? null
-  )
-}
+import { useAuditData } from './hooks/use-audit-data'
+import { AuditRunDetailPanel } from './panels/run-detail'
+import type { AuditFilterState } from './types'
 
 export function AuditPage() {
   const {
@@ -103,27 +30,6 @@ export function AuditPage() {
   } = useShellData()
   const { language, t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [detailState, setDetailState] = useState<AuditDetailState>({
-    runId: null,
-    detail: null,
-    error: null,
-  })
-  const [copyFeedback, setCopyFeedback] = useState<{
-    path: string
-    tone: 'success' | 'error'
-  } | null>(null)
-  const [detailCache, setDetailCache] = useState<
-    Record<number, AuditRunDetail>
-  >({})
-  const [relatedBatchDetail, setRelatedBatchDetail] =
-    useState<ImportBatchDetail | null>(null)
-  const [relatedBatchError, setRelatedBatchError] = useState<string | null>(
-    null,
-  )
-  const [batchActionError, setBatchActionError] = useState<string | null>(null)
-  const [batchActionNotice, setBatchActionNotice] = useState<string | null>(
-    null,
-  )
   const [filters, setFilters] = useState<AuditFilterState>({
     runType: 'all',
     severity: 'all',
@@ -131,12 +37,6 @@ export function AuditPage() {
     profileId: 'all',
     artifactType: 'all',
   })
-  const [detailTab, setDetailTab] = useState<AuditDetailTab>('summary')
-  const [restorePreview, setRestorePreview] =
-    useState<SnapshotRestorePreview | null>(null)
-  const [restoreError, setRestoreError] = useState<string | null>(null)
-  const [restoreNotice, setRestoreNotice] = useState<string | null>(null)
-  const [restoreBusy, setRestoreBusy] = useState(false)
 
   const runIdFromParams = Number(searchParams.get('run') ?? '')
   const runId =
@@ -151,70 +51,52 @@ export function AuditPage() {
     },
     [searchParams, setSearchParams],
   )
+  const labels = useMemo(
+    () => ({
+      commonUnavailable: t('common.unavailable'),
+      copyFailed: t('audit.copyFailed'),
+      importPreviewUnavailable: t('audit.importPreviewUnavailable'),
+      restoreConfirm: t('import.restoreConfirm'),
+      restoreRecorded: t('audit.restoreRecorded'),
+      revertConfirm: t('import.revertConfirm'),
+      revertRecorded: t('audit.revertRecorded'),
+      runDetailUnavailable: t('audit.runDetailUnavailable'),
+    }),
+    [t],
+  )
+  const {
+    batchActionError,
+    batchActionNotice,
+    copyFeedback,
+    detail,
+    detailCache,
+    detailSeverity,
+    detailTab,
+    error,
+    handleCopyPath,
+    handleExecuteRestore,
+    handlePreviewRestore,
+    handleRelatedBatchMutation,
+    loading,
+    loadingRelatedBatch,
+    relatedBatchDetail,
+    relatedBatchError,
+    relatedImportBatch,
+    restoreBusy,
+    restoreError,
+    restoreNotice,
+    restorePreview,
+    setDetailTab,
+  } = useAuditData({
+    labels,
+    recentImportBatches: snapshot?.recentImportBatches ?? [],
+    recentRuns: snapshot?.recentRuns ?? [],
+    refreshAppData,
+    refreshKey,
+    runId,
+    selectRun,
+  })
 
-  useEffect(() => {
-    if (!runId) return
-    let cancelled = false
-    const loadDetail = async () => {
-      try {
-        const response = await backend.loadAuditRunDetail(runId)
-        if (!cancelled) setDetailState({ runId, detail: response, error: null })
-      } catch (nextError) {
-        if (!cancelled)
-          setDetailState({
-            runId,
-            detail: null,
-            error:
-              nextError instanceof Error
-                ? nextError.message
-                : t('audit.runDetailUnavailable'),
-          })
-      }
-    }
-    void loadDetail()
-    return () => {
-      cancelled = true
-    }
-  }, [refreshKey, runId, t])
-
-  useEffect(() => {
-    const runs = snapshot?.recentRuns ?? []
-    if (!runs.length) {
-      setDetailCache({})
-      return
-    }
-
-    let cancelled = false
-    const loadRunIndex = async () => {
-      const entries = await Promise.allSettled(
-        runs.map(
-          async (run) =>
-            [run.id, await backend.loadAuditRunDetail(run.id)] as const,
-        ),
-      )
-      if (cancelled) {
-        return
-      }
-      const nextCache: Record<number, AuditRunDetail> = {}
-      for (const entry of entries) {
-        if (entry.status !== 'fulfilled') {
-          continue
-        }
-        const [nextRunId, nextDetail] = entry.value
-        nextCache[nextRunId] = nextDetail
-      }
-      setDetailCache(nextCache)
-    }
-
-    void loadRunIndex()
-    return () => {
-      cancelled = true
-    }
-  }, [refreshKey, snapshot?.recentRuns])
-
-  const detail = detailState.runId === runId ? detailState.detail : null
-  const error = detailState.runId === runId ? detailState.error : null
-  const loading = Boolean(runId) && detailState.runId !== runId
   const indexedRuns = useMemo(() => snapshot?.recentRuns ?? [], [snapshot])
   const profileOptions = useMemo(() => {
     const nextProfiles = new Set<string>()
@@ -262,22 +144,22 @@ export function AuditPage() {
       indexedRuns.filter((run) => {
         const runType = run.runType ?? 'backup'
         const nextDetail = detailCache[run.id]
-        if (filters.runType !== 'all') {
-          if (runType !== filters.runType) {
-            return false
-          }
+        if (filters.runType !== 'all' && runType !== filters.runType) {
+          return false
         }
-        if (filters.severity !== 'all') {
-          if (!nextDetail || auditSeverity(nextDetail) !== filters.severity) {
-            return false
-          }
+        if (
+          filters.severity !== 'all' &&
+          (!nextDetail || auditSeverity(nextDetail) !== filters.severity)
+        ) {
+          return false
         }
         const profileScope = nextDetail?.profileScope ?? run.profileScope ?? []
         const sourceKinds = sourceKindFromProfileScope(profileScope)
-        if (filters.sourceKind !== 'all') {
-          if (!sourceKinds.includes(filters.sourceKind)) {
-            return false
-          }
+        if (
+          filters.sourceKind !== 'all' &&
+          !sourceKinds.includes(filters.sourceKind)
+        ) {
+          return false
         }
         if (filters.profileId !== 'all') {
           const matchesProfile =
@@ -288,15 +170,14 @@ export function AuditPage() {
             return false
           }
         }
-        if (filters.artifactType !== 'all') {
-          if (
-            !nextDetail ||
+        if (
+          filters.artifactType !== 'all' &&
+          (!nextDetail ||
             !nextDetail.artifacts.some(
               (artifact) => artifact.kind === filters.artifactType,
-            )
-          ) {
-            return false
-          }
+            ))
+        ) {
+          return false
         }
         return true
       }),
@@ -331,15 +212,6 @@ export function AuditPage() {
   const filtersLoading =
     indexedRuns.length > 0 &&
     Object.keys(detailCache).length < indexedRuns.length
-  const detailSeverity = detail ? auditSeverity(detail) : null
-  const relatedImportBatch = useMemo(
-    () => pickRelatedImportBatch(detail, snapshot?.recentImportBatches ?? []),
-    [detail, snapshot?.recentImportBatches],
-  )
-  const loadingRelatedBatch =
-    Boolean(relatedImportBatch) &&
-    relatedBatchDetail?.batch.id !== relatedImportBatch?.id &&
-    !relatedBatchError
 
   function sourceLabel(sourceKind: string) {
     if (sourceKind === 'chrome') return t('audit.sourceChrome')
@@ -360,158 +232,21 @@ export function AuditPage() {
     selectRun(filteredRuns[0].id)
   }, [filteredRuns, runId, selectRun])
 
-  useEffect(() => {
-    setDetailTab('summary')
-    setRestorePreview(null)
-    setRestoreError(null)
-    setRestoreNotice(null)
-  }, [runId])
-
-  useEffect(() => {
-    setBatchActionError(null)
-    setBatchActionNotice(null)
-  }, [runId])
-
-  useEffect(() => {
-    if (!relatedImportBatch) {
-      setRelatedBatchDetail(null)
-      setRelatedBatchError(null)
-      return
-    }
-
-    let cancelled = false
-    const loadRelatedBatch = async () => {
-      try {
-        setRelatedBatchError(null)
-        const response = await backend.previewImportBatch(relatedImportBatch.id)
-        if (!cancelled) {
-          setRelatedBatchDetail(response)
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setRelatedBatchDetail(null)
-          setRelatedBatchError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('audit.importPreviewUnavailable'),
-          )
-        }
-      }
-    }
-
-    void loadRelatedBatch()
-    return () => {
-      cancelled = true
-    }
-  }, [relatedImportBatch, t])
-
-  async function handleCopyPath(path: string) {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error(t('audit.copyFailed'))
-      }
-      await navigator.clipboard.writeText(path)
-      setCopyFeedback({ path, tone: 'success' })
-    } catch {
-      setCopyFeedback({ path, tone: 'error' })
-    }
-  }
-
-  async function handleRelatedBatchMutation(action: 'revert' | 'restore') {
-    if (!relatedBatchDetail) return
-    const message =
-      action === 'revert'
-        ? t('import.revertConfirm')
-        : t('import.restoreConfirm')
-
-    if (typeof window !== 'undefined' && 'confirm' in window) {
-      if (!window.confirm(message)) {
-        return
-      }
-    }
-
-    setBatchActionError(null)
-    setBatchActionNotice(null)
-    try {
-      const response =
-        action === 'revert'
-          ? await backend.revertImportBatch(relatedBatchDetail.batch.id)
-          : await backend.restoreImportBatch(relatedBatchDetail.batch.id)
-      setRelatedBatchDetail(response)
-      setBatchActionNotice(
-        action === 'revert'
-          ? t('audit.revertRecorded')
-          : t('audit.restoreRecorded'),
-      )
-      await refreshAppData()
-    } catch (nextError) {
-      setBatchActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    }
-  }
-
-  async function handlePreviewRestore(snapshotPath: string) {
-    setRestoreBusy(true)
-    setRestoreError(null)
-    setRestoreNotice(null)
-    try {
-      const preview = await backend.previewSnapshotRestore({ snapshotPath })
-      setRestorePreview(preview)
-    } catch (nextError) {
-      setRestorePreview(null)
-      setRestoreError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    } finally {
-      setRestoreBusy(false)
-    }
-  }
-
-  async function handleExecuteRestore() {
-    if (!restorePreview?.executeSupported) {
-      return
-    }
-    setRestoreBusy(true)
-    setRestoreError(null)
-    setRestoreNotice(null)
-    try {
-      const report = await backend.runSnapshotRestore({
-        snapshotPath: restorePreview.snapshotPath,
-      })
-      await refreshAppData()
-      setRestoreNotice(t('audit.restoreRecorded'))
-      if (report.run?.id) {
-        selectRun(report.run.id)
-      }
-    } catch (nextError) {
-      setRestoreError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    } finally {
-      setRestoreBusy(false)
-    }
-  }
-
   function restoreKindLabel(kind: string) {
     return kind === 'archive-safety-snapshot'
       ? t('audit.restoreKindArchiveSafety')
       : t('audit.restoreKindRawSource')
   }
 
-  if (shellLoading && !snapshot)
+  if (shellLoading && !snapshot) {
     return (
       <section className="page-shell">
         <LoadingState label={t('audit.loadingLedger')} />
       </section>
     )
-  if (shellError && !snapshot)
+  }
+
+  if (shellError && !snapshot) {
     return (
       <section className="page-shell">
         <ErrorState
@@ -520,6 +255,7 @@ export function AuditPage() {
         />
       </section>
     )
+  }
 
   if (!snapshot?.config.initialized) {
     return (
@@ -820,578 +556,30 @@ export function AuditPage() {
           description={error}
         />
       ) : detail ? (
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">
-              {t('audit.manifestDetail', { runId: detail.run.id })}
-            </span>
-            {detailSeverity ? (
-              <span className="panel-action">
-                {t(auditSeverityKey(detailSeverity))}
-              </span>
-            ) : null}
-          </div>
-          <div className="panel-body">
-            <div className="pme-tabs">
-              {(
-                [
-                  ['summary', t('audit.summaryTab')],
-                  ['artifacts', t('audit.artifactsTab')],
-                  ['warnings', t('audit.warningsTab')],
-                ] as const
-              ).map(([tab, label]) => (
-                <button
-                  key={tab}
-                  className={`pme-tab ${detailTab === tab ? 'active' : ''}`}
-                  type="button"
-                  onClick={() => setDetailTab(tab)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {detailTab === 'summary' ? (
-              <>
-                <StatusCallout
-                  tone="info"
-                  title={t('audit.reviewGuideTitle')}
-                  body={t('audit.reviewGuideBody')}
-                />
-                <div className="manifest-grid">
-                  <div className="manifest-field">
-                    <span className="field-label">{t('audit.runId')}</span>
-                    <span className="field-value mono">#{detail.run.id}</span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">{t('audit.runType')}</span>
-                    <span className="field-value">
-                      {t(runTypeKey(detail.run.runType ?? 'backup'))}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">{t('common.status')}</span>
-                    <span className="field-value">
-                      {t(runStatusKey(detail.run.status))}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">{t('audit.runSource')}</span>
-                    <span className="field-value">
-                      {detail.profileScope.join(' · ') ||
-                        t('audit.archiveWide')}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">{t('audit.executedAt')}</span>
-                    <span className="field-value mono">
-                      {formatDateTime(detail.run.startedAt, language) ??
-                        detail.run.startedAt}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('audit.triggerLabel')}
-                    </span>
-                    <span className="field-value">
-                      {t(runTriggerKey(detail.trigger ?? detail.run.trigger))}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('audit.manifestHash')}
-                    </span>
-                    <span className="field-value mono">
-                      {detail.manifestHash ?? t('common.notAvailable')}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('audit.manifestPath')}
-                    </span>
-                    <span className="field-value mono">
-                      {detail.manifestPath ?? t('common.notAvailable')}
-                    </span>
-                  </div>
-                </div>
-                <div className="detail-divider" />
-                <div className="manifest-stats">
-                  <div className="manifest-stat">
-                    <span className="dim">{t('audit.newVisits')}</span>
-                    <span className="mono accent">+{detail.run.newVisits}</span>
-                  </div>
-                  <div className="manifest-stat">
-                    <span className="dim">{t('audit.newUrls')}</span>
-                    <span className="mono">{detail.run.newUrls}</span>
-                  </div>
-                  <div className="manifest-stat">
-                    <span className="dim">{t('audit.downloads')}</span>
-                    <span className="mono">{detail.run.newDownloads}</span>
-                  </div>
-                  <div className="manifest-stat">
-                    <span className="dim">{t('audit.profiles')}</span>
-                    <span className="mono">{detail.run.profilesProcessed}</span>
-                  </div>
-                  {relatedBatchDetail ? (
-                    <>
-                      <div className="manifest-stat">
-                        <span className="dim">{t('audit.visibleRecords')}</span>
-                        <span className="mono">
-                          {relatedBatchDetail.batch.visibleItems}
-                        </span>
-                      </div>
-                      <div className="manifest-stat">
-                        <span className="dim">
-                          {t('audit.revertedRecords')}
-                        </span>
-                        <span className="mono">
-                          {Math.max(
-                            0,
-                            relatedBatchDetail.batch.importedItems -
-                              relatedBatchDetail.batch.visibleItems,
-                          )}
-                        </span>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-                <div className="detail-divider" />
-                <div className="audit-review-section">
-                  <div className="audit-review-header">
-                    <span className="mono-kicker">
-                      {t('audit.changedRecordsTitle')}
-                    </span>
-                    <span className="panel-action">
-                      {relatedImportBatch
-                        ? t('audit.importBatchLabel', {
-                            id: String(relatedImportBatch.id),
-                          })
-                        : t('audit.changePreviewUnavailableShort')}
-                    </span>
-                  </div>
-                  <p className="dashboard-next-action">
-                    {t('audit.changedRecordsBody')}
-                  </p>
-                  {loadingRelatedBatch ? (
-                    <p className="dim">{t('common.loading')}</p>
-                  ) : relatedBatchError ? (
-                    <StatusCallout
-                      tone="warning"
-                      title={t('audit.importPreviewUnavailable')}
-                      body={relatedBatchError}
-                    />
-                  ) : relatedBatchDetail ? (
-                    <>
-                      <div className="manifest-grid">
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('import.candidateRows')}
-                          </span>
-                          <span className="field-value mono">
-                            {relatedBatchDetail.batch.candidateItems.toLocaleString(
-                              language,
-                            )}
-                          </span>
-                        </div>
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('import.importedRows')}
-                          </span>
-                          <span className="field-value mono">
-                            {relatedBatchDetail.batch.importedItems.toLocaleString(
-                              language,
-                            )}
-                          </span>
-                        </div>
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('import.duplicateRows')}
-                          </span>
-                          <span className="field-value mono">
-                            {relatedBatchDetail.batch.duplicateItems.toLocaleString(
-                              language,
-                            )}
-                          </span>
-                        </div>
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('import.visibleRows')}
-                          </span>
-                          <span className="field-value mono">
-                            {relatedBatchDetail.batch.visibleItems.toLocaleString(
-                              language,
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="detail-divider" />
-                      <PreviewEntryList
-                        entries={relatedBatchDetail.previewEntries}
-                        language={language}
-                        statusLabel={(status) =>
-                          t(importBatchStatusKey(status))
-                        }
-                        statusTone={importBatchStatusTone}
-                      />
-                      <div className="wizard-actions">
-                        <Link
-                          className="btn-secondary"
-                          to={`/import?batch=${relatedBatchDetail.batch.id}`}
-                        >
-                          {t('audit.openImportReview')}
-                        </Link>
-                        {relatedBatchDetail.batch.auditPath ? (
-                          <button
-                            className="btn-secondary"
-                            type="button"
-                            onClick={() => {
-                              void backend.openPathInFileManager(
-                                relatedBatchDetail.batch.auditPath ?? '',
-                              )
-                            }}
-                          >
-                            {t('audit.openImportArtifact')}
-                          </button>
-                        ) : null}
-                        <button
-                          className="btn-secondary"
-                          type="button"
-                          onClick={() => {
-                            void handleRelatedBatchMutation('revert')
-                          }}
-                          disabled={
-                            relatedBatchDetail.batch.status === 'reverted'
-                          }
-                        >
-                          {t('import.revertBatch')}
-                        </button>
-                        <button
-                          className="btn-secondary"
-                          type="button"
-                          onClick={() => {
-                            void handleRelatedBatchMutation('restore')
-                          }}
-                          disabled={
-                            relatedBatchDetail.batch.status !== 'reverted'
-                          }
-                        >
-                          {t('import.restoreBatch')}
-                        </button>
-                      </div>
-                      <p className="mono-support">
-                        {t(
-                          importBatchStatusKey(relatedBatchDetail.batch.status),
-                        )}
-                      </p>
-                      {batchActionNotice ? (
-                        <p className="mono-support" role="status">
-                          {batchActionNotice}
-                        </p>
-                      ) : null}
-                      {batchActionError ? (
-                        <p className="inline-error" role="alert">
-                          {batchActionError}
-                        </p>
-                      ) : null}
-                    </>
-                  ) : (
-                    <StatusCallout
-                      tone="info"
-                      title={t('audit.changePreviewUnavailableTitle')}
-                      body={t('audit.changePreviewUnavailableBody')}
-                    />
-                  )}
-                </div>
-              </>
-            ) : null}
-
-            {detailTab === 'artifacts' ? (
-              <div style={{ marginTop: 'var(--space-3)' }}>
-                <span
-                  className="mono-kicker"
-                  style={{ marginBottom: 'var(--space-2)', display: 'block' }}
-                >
-                  {t('audit.artifacts', { count: detail.artifacts.length })}
-                </span>
-                {detail.artifacts.length > 0 ? (
-                  detail.artifacts.map((artifact) => (
-                    <div
-                      key={`${artifact.kind}:${artifact.path}`}
-                      style={{ marginBottom: 'var(--space-2)' }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span className="mono" style={{ fontSize: '11px' }}>
-                          {artifact.kind} — {artifact.path}
-                        </span>
-                        <span className="dim mono" style={{ fontSize: '10px' }}>
-                          {formatBytes(artifact.sizeBytes ?? 0, language)}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          gap: 'var(--space-2)',
-                          marginTop: 'var(--space-1)',
-                        }}
-                      >
-                        <button
-                          className="btn-tiny"
-                          type="button"
-                          onClick={() => {
-                            void backend.openPathInFileManager(artifact.path)
-                          }}
-                        >
-                          {t('common.openAction')}
-                        </button>
-                        <button
-                          className="btn-tiny"
-                          type="button"
-                          onClick={() => {
-                            void handleCopyPath(artifact.path)
-                          }}
-                        >
-                          {t('common.copyAction')}
-                        </button>
-                        {artifact.kind === 'snapshot' ? (
-                          <button
-                            className="btn-tiny"
-                            type="button"
-                            onClick={() => {
-                              void handlePreviewRestore(artifact.path)
-                            }}
-                          >
-                            {restoreBusy &&
-                            restorePreview?.snapshotPath === artifact.path
-                              ? t('common.loading')
-                              : t('audit.previewRestore')}
-                          </button>
-                        ) : null}
-                      </div>
-                      {copyFeedback?.path === artifact.path ? (
-                        <span className="dim mono" style={{ fontSize: '10px' }}>
-                          {copyFeedback.tone === 'success'
-                            ? t('audit.copied')
-                            : t('audit.copyFailed')}
-                        </span>
-                      ) : null}
-                    </div>
-                  ))
-                ) : (
-                  <p className="dashboard-next-action">
-                    {t('common.notAvailable')}
-                  </p>
-                )}
-                {restorePreview ? (
-                  <div
-                    className="panel"
-                    style={{ marginTop: 'var(--space-4)' }}
-                  >
-                    <div className="panel-header">
-                      <span className="panel-title">
-                        {t('audit.restorePreviewTitle')}
-                      </span>
-                      <span className="panel-action">
-                        {restorePreview.executeSupported
-                          ? t('audit.restoreReady')
-                          : t('audit.restoreManualOnly')}
-                      </span>
-                    </div>
-                    <div className="panel-body">
-                      <p className="dashboard-next-action">
-                        {t('audit.restorePreviewBody')}
-                      </p>
-                      <div className="manifest-grid">
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('audit.restoreKind')}
-                          </span>
-                          <span className="field-value">
-                            {restoreKindLabel(restorePreview.snapshotKind)}
-                          </span>
-                        </div>
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('audit.runSource')}
-                          </span>
-                          <span className="field-value mono">
-                            {restorePreview.sourceProfileId ??
-                              t('audit.archiveWide')}
-                          </span>
-                        </div>
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('audit.executedAt')}
-                          </span>
-                          <span className="field-value mono">
-                            {restorePreview.createdAt
-                              ? (formatDateTime(
-                                  restorePreview.createdAt,
-                                  language,
-                                ) ?? restorePreview.createdAt)
-                              : t('common.notAvailable')}
-                          </span>
-                        </div>
-                        <div className="manifest-field">
-                          <span className="field-label">
-                            {t('audit.restoreSnapshotPath')}
-                          </span>
-                          <span className="field-value mono">
-                            {restorePreview.snapshotPath}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="detail-divider" />
-                      <div className="manifest-stats">
-                        <div className="manifest-stat">
-                          <span className="dim">
-                            {t('audit.estimatedVisits')}
-                          </span>
-                          <span className="mono accent">
-                            {restorePreview.estimatedVisits}
-                          </span>
-                        </div>
-                        <div className="manifest-stat">
-                          <span className="dim">
-                            {t('audit.estimatedUrls')}
-                          </span>
-                          <span className="mono">
-                            {restorePreview.estimatedUrls}
-                          </span>
-                        </div>
-                        <div className="manifest-stat">
-                          <span className="dim">
-                            {t('audit.estimatedDownloads')}
-                          </span>
-                          <span className="mono">
-                            {restorePreview.estimatedDownloads}
-                          </span>
-                        </div>
-                      </div>
-                      {restorePreview.warnings.length > 0 ? (
-                        <div
-                          className="warning-box"
-                          style={{ marginTop: 'var(--space-3)' }}
-                        >
-                          <div className="warning-icon">⚠</div>
-                          <div className="warning-text">
-                            {restorePreview.warnings.map((warning) => (
-                              <div key={warning}>{warning}</div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                      <div
-                        className="wizard-actions"
-                        style={{ marginTop: 'var(--space-3)' }}
-                      >
-                        <button
-                          className="btn-secondary"
-                          type="button"
-                          onClick={() => {
-                            void backend.openPathInFileManager(
-                              restorePreview.snapshotPath,
-                            )
-                          }}
-                        >
-                          {t('common.openAction')}
-                        </button>
-                        <button
-                          className="btn-primary"
-                          type="button"
-                          disabled={
-                            !restorePreview.executeSupported || restoreBusy
-                          }
-                          onClick={() => {
-                            void handleExecuteRestore()
-                          }}
-                        >
-                          {restoreBusy
-                            ? t('common.loading')
-                            : t('audit.executeRestore')}
-                        </button>
-                      </div>
-                      {restoreNotice ? (
-                        <p className="mono-support" role="status">
-                          {restoreNotice}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-                {restoreError ? (
-                  <p className="inline-error" role="alert">
-                    {restoreError}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {detailTab === 'warnings' ? (
-              detail.warnings.length > 0 ? (
-                <div
-                  className="warning-box"
-                  style={{ marginTop: 'var(--space-3)' }}
-                >
-                  <div className="warning-icon">⚠</div>
-                  <div className="warning-text">
-                    {detail.warnings.map((warning) => (
-                      <div key={warning}>{warning}</div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p
-                  className="dashboard-next-action"
-                  style={{ marginTop: 'var(--space-3)' }}
-                >
-                  {t('audit.noWarnings')}
-                </p>
-              )
-            ) : null}
-
-            <div
-              className="wizard-actions"
-              style={{ marginTop: 'var(--space-4)' }}
-            >
-              {detail.manifestPath && (
-                <>
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void backend.openPathInFileManager(detail.manifestPath!)
-                    }}
-                  >
-                    {t('audit.viewManifest')}
-                  </button>
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void handleCopyPath(detail.manifestPath!)
-                    }}
-                  >
-                    {t('audit.copyPath')}
-                  </button>
-                </>
-              )}
-            </div>
-            {detail.manifestPath &&
-              copyFeedback?.path === detail.manifestPath && (
-                <span className="dim mono" style={{ fontSize: '10px' }}>
-                  {copyFeedback.tone === 'success'
-                    ? t('audit.copied')
-                    : t('audit.copyFailed')}
-                </span>
-              )}
-          </div>
-        </div>
+        <AuditRunDetailPanel
+          batchActionError={batchActionError}
+          batchActionNotice={batchActionNotice}
+          copyFeedback={copyFeedback}
+          detail={detail}
+          detailSeverity={detailSeverity}
+          detailTab={detailTab}
+          handleCopyPath={handleCopyPath}
+          handleExecuteRestore={handleExecuteRestore}
+          handlePreviewRestore={handlePreviewRestore}
+          handleRelatedBatchMutation={handleRelatedBatchMutation}
+          language={language}
+          loadingRelatedBatch={loadingRelatedBatch}
+          relatedBatchDetail={relatedBatchDetail}
+          relatedBatchError={relatedBatchError}
+          relatedImportBatch={relatedImportBatch}
+          restoreBusy={restoreBusy}
+          restoreError={restoreError}
+          restoreKindLabel={restoreKindLabel}
+          restoreNotice={restoreNotice}
+          restorePreview={restorePreview}
+          setDetailTab={setDetailTab}
+          t={t}
+        />
       ) : (
         <EmptyState
           description={t('audit.detailEmptyBody')}
