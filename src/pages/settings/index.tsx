@@ -1,3 +1,18 @@
+/**
+ * This module renders the Settings route, the app-level control tower for diagnostics, app lock, analytics consent, updater review, retention, remote backup PME, and derived runtime review.
+ *
+ * Why this file exists:
+ * - Settings carries a lot of front-end surface area, so the file needs narrative comments that explain why each helper and section exists instead of reading like an accidental mega-component.
+ * - When the app adds a new repair or review surface, this route is often where it lands first, which makes readability and guardrails especially important.
+ *
+ * Main declarations:
+ * - `SettingsPage`
+ *
+ * Source-of-truth notes:
+ * - The route purpose and navigation grammar come from `docs/design/screens-and-nav.md`.
+ * - Preview / Manual / Execute / Verify behavior, warning grammar, and loading honesty come from `docs/design/ux-principles.md`.
+ */
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -58,38 +73,32 @@ import type {
   RetentionPreview,
   RetentionPruneResult,
   RunInsightsReport,
-  ScheduleStatus,
-  SecurityStatus,
   UpdateAvailability,
   UpdateInstallState,
 } from '../../lib/types'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
+import {
+  appendAiProviderDraft,
+  browserIcon,
+  browserIconClass,
+  buildRetentionSelection,
+  cloneAiSettings,
+  mergeAiProviderSecretState,
+  patchAiProviderDraft,
+  removeAiProviderDraft,
+  selectAiProviderDraft,
+  serializeAiSettings,
+  type SupportState,
+} from './helpers'
 
-interface SupportState {
-  scheduleStatus: ScheduleStatus | null
-  securityStatus: SecurityStatus | null
-}
-
-function cloneAiProviderConfig(provider: AiProviderConfig): AiProviderConfig {
-  return {
-    ...provider,
-    modelCatalog: [...provider.modelCatalog],
-  }
-}
-
-function cloneAiSettings(settings: AiSettings): AiSettings {
-  return {
-    ...settings,
-    llmProviders: settings.llmProviders.map(cloneAiProviderConfig),
-    embeddingProviders: settings.embeddingProviders.map(cloneAiProviderConfig),
-  }
-}
-
-function serializeAiSettings(settings: AiSettings | null | undefined) {
-  return settings ? JSON.stringify(settings) : null
-}
-
+/**
+ * Renders the Settings route.
+ *
+ * This page is intentionally explicit because it acts as PathKeep's control
+ * tower: diagnostics, app lock, updater review, analytics consent, AI
+ * providers, retention, and remote-backup PME all converge here.
+ */
 export function SettingsPage() {
   const {
     appLockStatus,
@@ -171,6 +180,13 @@ export function SettingsPage() {
     useState(0)
   const lastSyncedAiSignatureRef = useRef<string | null>(null)
 
+  /**
+   * Reloads the derived intelligence runtime snapshot shown by the Settings
+   * review panels.
+   *
+   * Multiple actions depend on the same runtime truth, so we keep the refresh
+   * path named instead of duplicating it across button handlers.
+   */
   async function refreshIntelligenceRuntimeState() {
     try {
       const runtime = await backend.loadIntelligenceRuntime()
@@ -186,6 +202,13 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false
+
+    /**
+     * Loads the schedule/security support state that feeds Settings callouts.
+     *
+     * The page treats these as review surfaces, not hidden diagnostics, so the
+     * fetch lives near route state instead of being buried in JSX.
+     */
     const loadSupportState = async () => {
       try {
         const [scheduleStatus, securityStatus] = await Promise.all([
@@ -211,6 +234,11 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false
+
+    /**
+     * Loads the derived intelligence runtime snapshot during hydration and
+     * whenever a shell refresh invalidates the current review data.
+     */
     const loadRuntime = async () => {
       try {
         const runtime = await backend.loadIntelligenceRuntime()
@@ -261,19 +289,19 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false
+
+    /**
+     * Loads the local retention preview so the prune UI always starts from a
+     * truthful view of reclaimable artifacts.
+     */
     const loadRetentionPreview = async () => {
       try {
         const preview = await backend.previewRetentionPrune()
         if (!cancelled) {
           setRetentionPreview(preview)
-          setRetentionSelection((current) => {
-            if (Object.keys(current).length > 0) {
-              return current
-            }
-            return Object.fromEntries(
-              preview.buckets.map((bucket) => [bucket.id, bucket.bytes > 0]),
-            )
-          })
+          setRetentionSelection((current) =>
+            buildRetentionSelection(preview, current),
+          )
           setRetentionError(null)
         }
       } catch (error) {
@@ -325,6 +353,13 @@ export function SettingsPage() {
     }
 
     let cancelled = false
+
+    /**
+     * Explains how load preview works.
+     *
+     * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+     */
+
     const loadPreview = async () => {
       try {
         const preview = await backend.previewAiIntegrations()
@@ -473,36 +508,46 @@ export function SettingsPage() {
     appLockStatus?.biometricState === 'touch-id-available' ||
     appLockStatus?.biometricState === 'touch-id-unavailable'
 
+  /**
+   * Applies an updater to the working AI settings draft.
+   *
+   * The Settings route keeps AI configuration editable for a while before it is
+   * persisted, so this helper centralizes the "start from the current draft or
+   * clone the saved config" rule.
+   */
   function updateAiDraft(updater: (current: AiSettings) => AiSettings) {
     setAiDraft((current) =>
       updater(current ?? cloneAiSettings(snapshot!.config.ai)),
     )
   }
 
+  /**
+   * Replaces the AI draft with a clean clone of a known-good settings object
+   * and updates the dirty-check signature at the same time.
+   */
   function syncAiDraft(settings: AiSettings) {
     const nextDraft = cloneAiSettings(settings)
     setAiDraft(nextDraft)
     lastSyncedAiSignatureRef.current = serializeAiSettings(nextDraft)
   }
 
+  /**
+   * Mirrors secret-storage changes back into the in-memory provider draft so
+   * the UI immediately reflects whether a provider now has a saved API key.
+   */
   function updateAiProviderSecretState(
     providerId: string,
     apiKeySaved: boolean,
   ) {
-    updateAiDraft((current) => {
-      const updateProviders = (providers: AiProviderConfig[]) =>
-        providers.map((provider) =>
-          provider.id === providerId ? { ...provider, apiKeySaved } : provider,
-        )
-
-      return {
-        ...current,
-        llmProviders: updateProviders(current.llmProviders),
-        embeddingProviders: updateProviders(current.embeddingProviders),
-      }
-    })
+    updateAiDraft((current) =>
+      mergeAiProviderSecretState(current, providerId, apiKeySaved),
+    )
   }
 
+  /**
+   * Persists the remote-backup draft while preserving the credential-saved flag
+   * that only the backend can authoritatively decide.
+   */
   async function persistRemoteConfig() {
     if (!snapshot || !remoteDraft) {
       return
@@ -518,24 +563,33 @@ export function SettingsPage() {
     setRemoteDraft(nextSnapshot.config.remoteBackup)
   }
 
+  /**
+   * Reloads the retention preview after a prune or config refresh.
+   *
+   * This helper also reapplies the selection merge rule so newly discovered
+   * buckets default from their size while existing choices stay intact.
+   */
   async function refreshRetentionPreview() {
     try {
       const preview = await backend.previewRetentionPrune()
       setRetentionPreview(preview)
       setRetentionSelection((current) =>
-        Object.keys(current).length > 0
-          ? current
-          : Object.fromEntries(
-              preview.buckets.map((bucket) => [bucket.id, bucket.bytes > 0]),
-            ),
+        buildRetentionSelection(preview, current),
       )
       setRetentionError(null)
     } catch (error) {
+      setRetentionPreview(null)
       setRetentionError(
         error instanceof Error ? error.message : t('common.notAvailable'),
       )
     }
   }
+
+  /**
+   * Handles retention prune.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleRetentionPrune() {
     if (selectedRetentionBuckets.length === 0) {
@@ -561,20 +615,10 @@ export function SettingsPage() {
     }
   }
 
-  function browserIcon(profileId: string): string {
-    const kind = profileId.split(':')[0]
-    if (kind === 'chrome') return 'C'
-    if (kind === 'arc') return 'A'
-    if (kind === 'firefox') return 'F'
-    if (kind === 'safari') return 'S'
-    return kind[0]?.toUpperCase() ?? '?'
-  }
-
-  function browserIconClass(profileId: string): string {
-    const kind = profileId.split(':')[0]
-    return `browser-icon ${kind}`
-  }
-
+  /**
+   * Adds or removes a browser profile from the archive-selection list shown in
+   * Settings.
+   */
   async function toggleProfile(profileId: string) {
     if (saving || !snapshot) return
     setSaving(true)
@@ -587,6 +631,12 @@ export function SettingsPage() {
       setSaving(false)
     }
   }
+
+  /**
+   * Handles language change.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleLanguageChange(nextLanguage: string) {
     if (!snapshot) {
@@ -614,6 +664,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles save remote config.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleSaveRemoteConfig() {
     if (!remoteDraft) {
       return
@@ -627,6 +683,12 @@ export function SettingsPage() {
       setRemoteAction(null)
     }
   }
+
+  /**
+   * Handles store credentials.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleStoreCredentials() {
     if (!accessKeyId.trim() || !secretAccessKey.trim()) {
@@ -647,6 +709,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles clear credentials.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleClearCredentials() {
     setRemoteAction(t('settings.clearingRemoteCredentials'))
     try {
@@ -656,6 +724,12 @@ export function SettingsPage() {
       setRemoteAction(null)
     }
   }
+
+  /**
+   * Handles preview remote.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handlePreviewRemote() {
     setRemoteAction(t('settings.previewingRemoteBackup'))
@@ -669,6 +743,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles execute remote.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleExecuteRemote() {
     setRemoteAction(t('settings.executingRemoteBackup'))
     try {
@@ -681,6 +761,12 @@ export function SettingsPage() {
       setRemoteAction(null)
     }
   }
+
+  /**
+   * Handles verify remote.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleVerifyRemote() {
     if (!latestRemoteBundlePath) {
@@ -698,6 +784,12 @@ export function SettingsPage() {
       setRemoteAction(null)
     }
   }
+
+  /**
+   * Handles enrichment plugin toggle.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleEnrichmentPluginToggle(pluginId: string) {
     if (!snapshot) {
@@ -732,6 +824,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles deterministic module toggle.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleDeterministicModuleToggle(moduleId: string) {
     if (!snapshot) {
       return
@@ -761,6 +859,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles rebuild derived state.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleRebuildDerivedState() {
     setDerivedAction(t('settings.rebuildingDerivedState'))
     try {
@@ -774,6 +878,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles clear derived state.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleClearDerivedState() {
     setDerivedAction(t('settings.clearingDerivedState'))
     try {
@@ -786,6 +896,12 @@ export function SettingsPage() {
       setDerivedAction(null)
     }
   }
+
+  /**
+   * Handles retry intelligence runtime job.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleRetryIntelligenceRuntimeJob(jobId: number) {
     setDerivedAction(settingsNs('retryRuntimeJob'))
@@ -802,6 +918,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles cancel intelligence runtime job.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleCancelIntelligenceRuntimeJob(jobId: number) {
     setDerivedAction(settingsNs('cancelRuntimeJob'))
     try {
@@ -816,6 +938,12 @@ export function SettingsPage() {
       setDerivedAction(null)
     }
   }
+
+  /**
+   * Handles save app lock config.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleSaveAppLockConfig() {
     if (!snapshot || !appLockDraft) {
@@ -845,6 +973,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles set app lock passcode.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleSetAppLockPasscode() {
     setAppLockAction(t('settings.appLockSavingPasscode'))
     try {
@@ -858,6 +992,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles clear app lock passcode.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleClearAppLockPasscode() {
     setAppLockAction(t('settings.appLockClearingPasscode'))
     try {
@@ -869,6 +1009,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles lock now.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleLockNow() {
     setAppLockAction(t('settings.appLockLockingNow'))
     try {
@@ -877,6 +1023,12 @@ export function SettingsPage() {
       setAppLockAction(null)
     }
   }
+
+  /**
+   * Handles save analytics consent.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleSaveAnalyticsConsent() {
     if (!snapshot) {
@@ -910,6 +1062,12 @@ export function SettingsPage() {
       setAnalyticsAction(null)
     }
   }
+
+  /**
+   * Handles check for updates.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleCheckForUpdates() {
     if (!snapshot) {
@@ -998,6 +1156,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles download and install update.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleDownloadAndInstallUpdate() {
     if (!snapshot || !pendingUpdate) {
       return
@@ -1030,6 +1194,12 @@ export function SettingsPage() {
     )
   }
 
+  /**
+   * Handles relaunch for update.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleRelaunchForUpdate() {
     if (!snapshot) {
       return
@@ -1048,11 +1218,23 @@ export function SettingsPage() {
     await relaunchAfterUpdate()
   }
 
+  /**
+   * Renders the handle open release route.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleOpenReleasePage() {
     await backend.openExternalUrl(
       updateAvailability?.downloadUrl ?? RELEASES_PAGE_URL,
     )
   }
+
+  /**
+   * Handles ai toggle.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   function handleAiToggle() {
     updateAiDraft((current) => ({
@@ -1060,6 +1242,12 @@ export function SettingsPage() {
       enabled: !current.enabled,
     }))
   }
+
+  /**
+   * Provides make default to descendant components.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   function makeDefaultProvider(
     purpose: 'llm' | 'embedding',
@@ -1118,6 +1306,12 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles save ai config.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   async function handleSaveAiConfig() {
     if (!snapshot || !aiDraft) return
     setSaving(true)
@@ -1132,59 +1326,71 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * Handles reset ai config.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
+
   function handleResetAiConfig() {
     syncAiDraft(snapshot!.config.ai)
   }
 
+  /**
+   * Appends a new provider draft to the correct provider list.
+   */
   function handleAddProvider(purpose: 'llm' | 'embedding') {
     const newProvider = makeDefaultProvider(purpose, 'ollama')
-    const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
-    updateAiDraft((current) => ({
-      ...current,
-      [key]: [...current[key], newProvider],
-    }))
+    updateAiDraft((current) =>
+      appendAiProviderDraft(current, purpose, newProvider),
+    )
   }
 
+  /**
+   * Applies a partial patch to one provider draft without mutating unrelated
+   * entries.
+   */
   function handleUpdateProvider(
     purpose: 'llm' | 'embedding',
     providerId: string,
     patch: Partial<AiProviderConfig>,
   ) {
-    const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
-    updateAiDraft((current) => ({
-      ...current,
-      [key]: current[key].map((provider) =>
-        provider.id === providerId ? { ...provider, ...patch } : provider,
-      ),
-    }))
+    updateAiDraft((current) =>
+      patchAiProviderDraft(current, purpose, providerId, patch),
+    )
   }
 
+  /**
+   * Removes a provider draft and clears the selected provider ID if that draft
+   * was currently active.
+   */
   function handleRemoveProvider(
     purpose: 'llm' | 'embedding',
     providerId: string,
   ) {
-    const key = purpose === 'llm' ? 'llmProviders' : 'embeddingProviders'
-    const idKey = purpose === 'llm' ? 'llmProviderId' : 'embeddingProviderId'
-    updateAiDraft((current) => {
-      const nextProviders = current[key].filter((p) => p.id !== providerId)
-      return {
-        ...current,
-        [key]: nextProviders,
-        [idKey]: current[idKey] === providerId ? null : current[idKey],
-      }
-    })
+    updateAiDraft((current) =>
+      removeAiProviderDraft(current, purpose, providerId),
+    )
   }
 
+  /**
+   * Marks one provider draft as the currently selected provider for its
+   * purpose.
+   */
   function handleSelectProvider(
     purpose: 'llm' | 'embedding',
     providerId: string,
   ) {
-    const idKey = purpose === 'llm' ? 'llmProviderId' : 'embeddingProviderId'
-    updateAiDraft((current) => ({
-      ...current,
-      [idKey]: providerId,
-    }))
+    updateAiDraft((current) =>
+      selectAiProviderDraft(current, purpose, providerId),
+    )
   }
+
+  /**
+   * Handles save ai api key.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleSaveAiApiKey(providerId: string) {
     const key = aiApiKeys[providerId]
@@ -1202,6 +1408,12 @@ export function SettingsPage() {
       setSaving(false)
     }
   }
+
+  /**
+   * Handles clear ai api key.
+   *
+   * Keeping this as a named declaration makes the giant Settings route easier to review, test, and evolve without burying intent in another anonymous callback.
+   */
 
   async function handleClearAiApiKey(providerId: string) {
     setSaving(true)
