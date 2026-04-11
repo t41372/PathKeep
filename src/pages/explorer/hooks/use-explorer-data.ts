@@ -1,4 +1,10 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
 import { backend } from '../../../lib/backend-client'
 import type {
   AiQueueStatus,
@@ -55,6 +61,19 @@ export function useExplorerData({
   setRecentSearches,
   start,
 }: UseExplorerDataOptions) {
+  const historyRequestRef = useRef({
+    currentQuery,
+    end,
+    mode,
+    persistRecentSearch,
+    queryFailedTitle: labels.queryFailedTitle,
+    setRecentSearches,
+    start,
+  })
+  const semanticRequestRef = useRef({
+    semanticQuery,
+    semanticRecallDegradedTitle: labels.semanticRecallDegradedTitle,
+  })
   const [queryState, setQueryState] = useState({
     requestKey: null as string | null,
     results: null as Awaited<ReturnType<typeof backend.queryHistory>> | null,
@@ -78,12 +97,27 @@ export function useExplorerData({
   )
   const [actionError, setActionError] = useState<string | null>(null)
 
+  historyRequestRef.current = {
+    currentQuery,
+    end,
+    mode,
+    persistRecentSearch,
+    queryFailedTitle: labels.queryFailedTitle,
+    setRecentSearches,
+    start,
+  }
+  semanticRequestRef.current = {
+    semanticQuery,
+    semanticRecallDegradedTitle: labels.semanticRecallDegradedTitle,
+  }
+
   useEffect(() => {
     if (!archiveReady || historyBlockedByInvalidRegex) return
     let cancelled = false
     const loadResults = async () => {
+      const request = historyRequestRef.current
       try {
-        const response = await backend.queryHistory(currentQuery)
+        const response = await backend.queryHistory(request.currentQuery)
         if (cancelled) return
         setQueryState({ requestKey, results: response, error: null })
         setSelectedId((current) =>
@@ -91,25 +125,25 @@ export function useExplorerData({
             ? current
             : (response.items[0]?.id ?? null),
         )
-        persistRecentSearch({
-          q: currentQuery.q,
-          mode,
-          regex: currentQuery.regexMode ? '1' : null,
-          domain: currentQuery.domain,
-          profileId: currentQuery.profileId,
-          browserKind: currentQuery.browserKind,
-          start,
-          end,
-          sort: currentQuery.sort ?? 'newest',
+        request.persistRecentSearch({
+          q: request.currentQuery.q,
+          mode: request.mode,
+          regex: request.currentQuery.regexMode ? '1' : null,
+          domain: request.currentQuery.domain,
+          profileId: request.currentQuery.profileId,
+          browserKind: request.currentQuery.browserKind,
+          start: request.start,
+          end: request.end,
+          sort: request.currentQuery.sort ?? 'newest',
         })
-        setRecentSearches(loadRecentSearches())
+        request.setRecentSearches(loadRecentSearches())
       } catch (error) {
         if (cancelled) return
         setQueryState({
           requestKey,
           results: null,
           error:
-            error instanceof Error ? error.message : labels.queryFailedTitle,
+            error instanceof Error ? error.message : request.queryFailedTitle,
         })
       }
     }
@@ -136,7 +170,8 @@ export function useExplorerData({
   }, [archiveReady, refreshKey])
 
   useEffect(() => {
-    if (!archiveReady || mode === 'keyword' || !semanticQuery.query) {
+    const request = semanticRequestRef.current
+    if (!archiveReady || mode === 'keyword' || !request.semanticQuery.query) {
       setSemanticState({
         requestKey: semanticRequestKey,
         results: null,
@@ -146,8 +181,11 @@ export function useExplorerData({
     }
     let cancelled = false
     const loadSemanticResults = async () => {
+      const currentRequest = semanticRequestRef.current
       try {
-        const response = await backend.searchAiHistory(semanticQuery)
+        const response = await backend.searchAiHistory(
+          currentRequest.semanticQuery,
+        )
         if (cancelled) return
         setSemanticState({
           requestKey: semanticRequestKey,
@@ -165,7 +203,7 @@ export function useExplorerData({
           error:
             error instanceof Error
               ? error.message
-              : labels.semanticRecallDegradedTitle,
+              : currentRequest.semanticRecallDegradedTitle,
         })
       }
     }
