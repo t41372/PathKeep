@@ -205,9 +205,15 @@ src/styles/tokens.css     # CSS variable 定義（從 prototype 直接搬過來�
   --info: #60a5fa;
 
   /* Typography */
-  --font-mono:
-    'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', monospace;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Noto Sans', Ubuntu,
+    Cantarell, 'Helvetica Neue', Arial, sans-serif;
+  --font-body: var(--font-ui);
+  --font-code:
+    ui-monospace, 'SFMono-Regular', 'SF Mono', 'Cascadia Mono', 'Cascadia Code',
+    Consolas, 'Liberation Mono', Menlo, monospace;
+  --font-mono: var(--font-ui); /* legacy alias only */
 
   /* Spacing (4px grid) */
   --space-1: 4px;
@@ -244,8 +250,9 @@ export const tokens = {
     error: 'var(--error)',
   },
   font: {
-    mono: 'var(--font-mono)',
+    ui: 'var(--font-ui)',
     body: 'var(--font-body)',
+    code: 'var(--font-code)',
   },
   space: {
     1: 'var(--space-1)',

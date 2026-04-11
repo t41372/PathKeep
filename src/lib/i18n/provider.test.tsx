@@ -44,13 +44,16 @@ describe('i18n provider and hooks', () => {
     expect(screen.getByTestId('preference')).toHaveTextContent('en')
     expect(screen.getByTestId('nav-dashboard')).toHaveTextContent('Dashboard')
     expect(screen.getByTestId('context-language')).toHaveTextContent('en')
+    expect(document.documentElement.lang).toBe('en-US')
 
     await user.click(screen.getByRole('button', { name: 'transient' }))
     expect(screen.getByTestId('language')).toHaveTextContent('zh-CN')
+    expect(document.documentElement.lang).toBe('zh-CN')
     expect(window.localStorage.getItem(i18nStorageKey)).toBe('en')
 
     await user.click(screen.getByRole('button', { name: 'persist' }))
     expect(screen.getByTestId('language')).toHaveTextContent('zh-TW')
+    expect(document.documentElement.lang).toBe('zh-TW')
     expect(window.localStorage.getItem(i18nStorageKey)).toBe('zh-TW')
   })
 

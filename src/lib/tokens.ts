@@ -19,8 +19,9 @@ export const tokens = {
     info: 'var(--info)',
   },
   font: {
-    mono: 'var(--font-mono)',
+    ui: 'var(--font-ui)',
     body: 'var(--font-body)',
+    code: 'var(--font-code)',
   },
   space: {
     1: 'var(--space-1)',

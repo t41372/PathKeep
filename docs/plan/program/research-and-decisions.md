@@ -20,6 +20,7 @@
 - [x] `PG-RD-UX-003` 從 prototype 的 `style.css` 抽取正式 design token 表，明確暗色主題、淺色主題、字體、間距、狀態色和資料密度規範。見 [design-tokens.md](../../design/design-tokens.md)。（2026-04-06）
 - [x] `PG-RD-UX-004` 定義 PME（Preview / Manual / Execute）在各類操作上的共用 interaction grammar：stepper、artifact viewer、copy command、verify result、rollback hint。見 [ux-principles.md](../../design/ux-principles.md) 與 [screens-and-nav.md](../../design/screens-and-nav.md)。（2026-04-06，WORK-M1-B）
 - [x] `PG-RD-UX-005` 決定 Dashboard / Explorer / Audit Ledger / Assistant 之間的導航策略與 deep-link 規則。見 [screens-and-nav.md](../../design/screens-and-nav.md)。（2026-04-06，WORK-M1-B）
+- [x] `PG-RD-UX-006` 重新審核 desktop typography shipping policy，處理「prototype mono-heavy shell + remote Google Fonts import + locale/lang 不同步」造成的可讀性與跨語言 fallback 風險。結論：PathKeep 預設改採 curated system UI stack、`zh-CN` / `zh-TW` locale-aware fallback、`html[lang]` 首屏與 runtime 同步，以及 monospace-only-for-evidence；不再把 monospace 當整個 shell 的預設設計語言。見 [typography-and-font-fallback.md](../../design/typography-and-font-fallback.md)、[design-tokens.md](../../design/design-tokens.md) 與 [ux-principles.md](../../design/ux-principles.md)。（2026-04-10，user-requested typography closeout）
 
 ---
 

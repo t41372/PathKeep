@@ -26,6 +26,7 @@ describe('main entrypoint', () => {
     vi.resetModules()
     document.body.innerHTML = '<div id="root"></div>'
     document.documentElement.removeAttribute('data-theme')
+    document.documentElement.lang = 'en'
     window.localStorage.clear()
     renderMock.mockReset()
     installRuntimeDiagnosticsMock.mockReset().mockResolvedValue(undefined)
@@ -48,6 +49,7 @@ describe('main entrypoint', () => {
     await import('./main.tsx')
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(document.documentElement.lang).toBe('en-US')
     expect(renderMock).toHaveBeenCalledTimes(1)
   })
 
@@ -57,15 +59,18 @@ describe('main entrypoint', () => {
     await import('./main.tsx')
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(document.documentElement.lang).toBe('en-US')
     expect(renderMock).toHaveBeenCalledTimes(1)
   })
 
   test('ignores unsupported persisted theme values', async () => {
     window.localStorage.setItem('pathkeep.theme', 'sepia')
+    window.localStorage.setItem('pathkeep-language-preference', 'zh-TW')
 
     await import('./main.tsx')
 
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+    expect(document.documentElement.lang).toBe('zh-TW')
     expect(renderMock).toHaveBeenCalledTimes(1)
   })
 
@@ -79,8 +84,23 @@ describe('main entrypoint', () => {
     await import('./main.tsx')
 
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+    expect(document.documentElement.lang).toBe('en-US')
     expect(renderMock).toHaveBeenCalledTimes(1)
 
     getItemSpy.mockRestore()
+  })
+
+  test('restores the system language before rendering when no explicit locale is stored', async () => {
+    Object.defineProperty(navigator, 'languages', {
+      configurable: true,
+      value: ['zh-Hant-TW'],
+    })
+
+    window.localStorage.setItem('pathkeep-language-preference', 'system')
+
+    await import('./main.tsx')
+
+    expect(document.documentElement.lang).toBe('zh-TW')
+    expect(renderMock).toHaveBeenCalledTimes(1)
   })
 })

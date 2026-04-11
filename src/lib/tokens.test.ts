@@ -8,7 +8,8 @@ describe('design tokens', () => {
 
   test('maps token helpers to CSS variables', () => {
     expect(tokens.color.accent).toBe('var(--accent)')
-    expect(tokens.font.mono).toBe('var(--font-mono)')
+    expect(tokens.font.ui).toBe('var(--font-ui)')
+    expect(tokens.font.code).toBe('var(--font-code)')
     expect(tokens.space[4]).toBe('var(--space-4)')
     expect(tokens.density.sidebar).toBe('var(--layout-sidebar-width)')
   })

@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -34,9 +32,17 @@
   --info: #60a5fa;
 
   /* Typography */
-  --font-mono:
-    'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', monospace;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Noto Sans', Ubuntu,
+    Cantarell, 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-body: var(--font-ui);
+  --font-code:
+    ui-monospace, 'SFMono-Regular', 'SF Mono', 'Cascadia Mono', 'Cascadia Code',
+    Consolas, 'Liberation Mono', Menlo, monospace;
+  /* Compatibility alias for legacy shell rules; new UI should prefer --font-ui. */
+  --font-mono: var(--font-ui);
 
   /* Spacing */
   --space-1: 4px;
@@ -58,6 +64,28 @@
   /* Shape + motion */
   --radius: 0px;
   --transition: 120ms ease;
+}
+
+:root:lang(zh-CN) {
+  --font-ui:
+    'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC',
+    'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans', ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, Roboto, Ubuntu, Cantarell, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-body: var(--font-ui);
+  --font-mono: var(--font-ui);
+}
+
+:root:lang(zh-TW) {
+  --font-ui:
+    'Segoe UI Variable Text', 'Segoe UI', 'PingFang TC', 'Hiragino Sans CNS',
+    'Microsoft JhengHei UI', 'Microsoft JhengHei', 'Noto Sans CJK TC',
+    'Source Han Sans TC', 'Noto Sans TC', 'Noto Sans', ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, Roboto, Ubuntu, Cantarell, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-body: var(--font-ui);
+  --font-mono: var(--font-ui);
 }
 
 :root[data-theme='light'] {
