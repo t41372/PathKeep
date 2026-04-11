@@ -58,7 +58,7 @@
 - `src-tauri/src/lib.rs`
 - `src-tauri/src/main.rs`
 - `src-tauri/src/session.rs`
-- `src-tauri/src/worker_bridge.rs`
+- `src-tauri/src/worker_bridge/`
 
 這條 gate 的目的是誠實保護桌面命令邊界，而不是假裝 `vault-core` / `vault-worker` / parser 巨型模組都已達到 repo-wide 100% coverage。那些 deeper crates 目前由 workspace Rust tests、targeted Rust acceptance tests，以及下方的 deep checks 補強。
 
