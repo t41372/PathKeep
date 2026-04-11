@@ -111,6 +111,7 @@
   5. 用戶確認後，才正式寫入 archive。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
 - dry-run / preview 必須回報 candidate item 數量、preview entries、warnings、quarantine 結果，以及可回看的 audit artifact 路徑。
+- 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
@@ -159,8 +160,9 @@
   - Preview：先顯示 `bundlePath`、`objectKey`、`uploadUrl`、warnings 與 preview curl command。
   - Manual：保留 manual upload steps、retention reminder 與 restore checklist，避免把遠端物件存儲變成黑盒。
   - Execute：只有在 config 已 review 且 credential 已儲存時才允許上傳；成功 / 失敗都要回寫 last uploaded object key、時間與錯誤訊息。
-  - Verify：對實際生成的 bundle 重算 checksums、檢查 bundle version / required entries、並做本地 restore readiness 驗證，不能只把 upload 成功當作 restore 成功。
-- v1 bundle format 是 `pathkeep.remote-backup.v1` zip，至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`；如果本地已有 audit manifests / scheduler artifacts，也應一併打包。manifest 需記錄 `createdAt`、`appVersion`、`archiveMode`、`objectKey`，以及每個 entry 的 `sha256` / `sizeBytes`。
+  - Verify：對實際生成的 bundle 重算 checksums、檢查 bundle version / required entries、核對 zip entry set、驗證 detached manifest checksum，並做本地 restore readiness 驗證，不能只把 upload 成功當作 restore 成功。
+- v1 bundle format 是 `pathkeep.remote-backup.v1` zip，至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json` 與 `metadata/bundle-manifest.sha256`；如果本地已有 audit manifests / scheduler artifacts，也應一併打包。manifest 需記錄 `createdAt`、`appVersion`、`archiveMode`、`objectKey`，以及每個 entry 的 `sha256` / `sizeBytes`。
+- remote verify 的 manifest hash / entry-set 檢查屬於 **corruption / drift detection**，不是 detached signing 或 cryptographic authenticity proof；v1 仍不宣稱已提供 remote-trust attestation。
 - Verify 對 plaintext archive bundle 必須提出明確 warning；encrypted archive 的 verify / restore 則必須要求使用者先用相同資料庫金鑰解鎖 PathKeep。
 - v1 的 retention / prune / retry 仍是 manual-first：PathKeep 提供 guidance 與 upload / verify trace，但不在使用者尚未信任 bundle format 與 restore workflow 前自動清理遠端物件。
 - remote backup 的 support / diagnostics 預設只收集 metadata：bundle path、object key、bundle version、checksum / restore-readiness 結果、app version、run id。不得把 credentials、secret values 或 bundle 內容默認視為 support payload。
@@ -183,6 +185,7 @@
 - keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
 - rekey execute 必須留下可 review 的 audit summary：至少包含 `rekey` run、safety snapshot path、manifest artifact、以及 Security / Audit 可直接打開的 review surface，而不是只改完 config 就結束。
+- 即使 archive 目前重新上鎖，Security 仍必須保留最近一次 rekey review 的時間、run id 與 safety snapshot path，避免 recoverability 線索只在 unlocked session 內短暫可見。
 - **密碼遺忘等於數據丟失**：UI 中必須有明確、醒目的警告，要求用戶把密碼妥善保存，並且告知風險。
 
 ---
@@ -285,6 +288,7 @@
 - App Lock 是 **UI session lock**：啟動時、手動鎖定時，以及可配置的閒置逾時（預設 5 分鐘，可調 1–60 分鐘）後出現。
 - 目前 shipped unlock path 是 **app-lock passcode + macOS Touch ID**。
 - Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 仍維持 capability / degradation state，不可假裝已有 native biometric parity。
+- biometric toggle 是 authoritative user preference：若使用者在 Settings 關閉 biometric unlock，lock screen 不得再顯示 Touch ID / biometric CTA，backend 也不得繞過設定直接允許 biometric unlock。
 - 目前不 shipping 獨立 PIN mode；passcode 是唯一正式的解鎖憑證。
 - Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode prompt，以及帶 recovery hint / open-config-path 動作的 recovery callout。
 - 鎖定時必須阻斷 shell rendering、desktop query/read commands，以及 MCP 的 history query surface；不能只靠前端遮罩。安全例外 surface 只保留 lock status、unlock、config-path recovery 與非資料型 diagnostics。

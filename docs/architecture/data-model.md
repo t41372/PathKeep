@@ -145,9 +145,10 @@
 
 ### Remote backup bundle contract
 
-- M4-A 的 remote backup artifact 是 `pathkeep.remote-backup.v1` zip bundle，不是直接把 live archive path 指向 object storage。bundle 至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`，並在存在時附帶 `audit/manifests/` 與 scheduler artifacts。
+- M4-A 的 remote backup artifact 是 `pathkeep.remote-backup.v1` zip bundle，不是直接把 live archive path 指向 object storage。bundle 至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`、`metadata/bundle-manifest.sha256`，並在存在時附帶 `audit/manifests/` 與 scheduler artifacts。
 - `bundle-manifest.json` 是 bundle 內的 restore contract：必須記錄 `bundleVersion`、`appVersion`、`createdAt`、`archiveMode`、`bucket`、`objectKey` 與每個 entry 的 `relativePath` / `sha256` / `sizeBytes`。
-- Verify 不只檢查 zip 能不能打開；它還必須驗證 bundle version、required entries、每個 manifest file 的 checksum / size，並嘗試用本機 restore path 打開打包後的 SQLite archive。encrypted bundle 驗證需要 session key；plaintext bundle 要留下明確 warning。
+- Verify 不只檢查 zip 能不能打開；它還必須驗證 bundle version、required entries、manifest 宣告的 entry set 是否與實際 zip entry set 一致、detached manifest checksum 是否吻合、每個 manifest file 的 checksum / size，並嘗試用本機 restore path 打開打包後的 SQLite archive。encrypted bundle 驗證需要 session key；plaintext bundle 要留下明確 warning。
+- `bundle-manifest.sha256` 與 entry-set 檢查在 v1 的定位是 corruption / drift detection，不是 detached signing 或 remote authenticity attestation；PathKeep 目前仍不宣稱 bundle 已具備 cryptographic publisher proof。
 - remote object lifecycle 在 v1 仍是 manual-first。PathKeep 可以記錄 `lastUploadedAt`、`lastUploadedObjectKey`、`lastError` 與 verify report，但不在未完成 restore rehearsal 前自動 prune bucket 內容。
 
 ---

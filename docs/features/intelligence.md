@@ -191,6 +191,7 @@
 - deterministic intelligence baseline 也屬於正式 shipping surface：`open-loop` / `revisit` cards 與 `query ladders` 必須在沒有 embedding / LLM 時仍可用；`query ladders` 只在 Chromium search term evidence 形成至少 2-step refinement 時顯示，並能 deep-link 回 Explorer 的 canonical query。
 - 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 Insights / Dashboard intelligence 區塊變空白。
 - explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
+- 切換共享 profile scope、重新整理 insights，或 explain request 失敗時，Insights 必須先清空上一個 scope / 上一次 explain 的 cards、selected insight、explanation 與相關 error，再等待新的結果；不能把舊 evidence 殘留在新的 scoped view。
 - zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
 - Insights page 必須顯示目前是否套用了共享 profile scope；若有套用，UI 要明講這是 scoped view，而不是假裝所有 KPI 都已 per-profile 重算。
 
@@ -205,7 +206,8 @@
 - built-in enrichment runtime 目前仍是 first-party only：Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - derived intelligence refresh 仍是 explicit action；manual backup / import 完成後不應同步綁住 UI 等待 insights rebuild。若使用者要最新 derived state，從 Insights / Settings 主動觸發 rebuild，並在 UI 上看到明確 progress / notes。
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
-- full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
+- full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；derived clear / rebuild 與 deterministic module runtime 狀態更新必須以同一個 archive transaction 落地，避免只清掉一半或留下不一致的 stale trace。這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
+- source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
@@ -218,6 +220,7 @@
 - **仍維持 archive-wide 的資料**：Dashboard KPIs、storage analytics、growth signal。
 - Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view，部分統計仍為 archive-wide」，避免用戶誤解。
 - 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致。
+- 從 Insights 回 Explorer 的 drilldown，包括 On This Day、Site Analytics、Topic Timeline、Reference Pages 與 explain citations，都必須保留目前 `profileId`；不能從 scoped view 悄悄掉回 archive-wide 搜尋。
 - 導航規則 → `docs/design/screens-and-nav.md` §Profile-Scoped Insights
 
 ### V1.5+ 洞察功能

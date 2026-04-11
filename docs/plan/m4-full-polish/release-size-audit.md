@@ -18,8 +18,10 @@ The script reads:
 
 ## Output
 
-- `artifacts/release/<date>-size-audit/size-attribution.json`
-- `artifacts/release/<date>-size-audit/summary.md`
+- `artifacts/release/<timestamp>-size-audit/size-attribution.json`
+- `artifacts/release/<timestamp>-size-audit/summary.md`
+
+The audit script now walks the Vite manifest graph from each entrypoint, follows `imports` / `dynamicImports` / `css` / `assets`, and dedupes shared files before attributing totals. Same-day runs use full timestamped directories so evidence never overwrites an earlier local snapshot from the same date.
 
 The generated bundle is expected to answer four questions:
 

@@ -100,6 +100,7 @@
 - Topbar 在 App Lock 已啟用時提供 `Lock now` 動作；手動鎖定也走同一個 `/lock` route。
 - Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode input、recovery hint callout，以及打開 config path 的 recovery 動作。
 - 若平台是 macOS 且 Touch ID 目前不可用，lock screen 仍顯示 Touch ID CTA / note，但按鈕必須 disabled，並明講會回退到 passcode。
+- 若使用者已在 Settings 關閉 biometric unlock，lock screen 不得再顯示 Touch ID / biometric CTA；capability 可用不代表可以繞過設定直接解鎖。
 - 若平台不是 macOS，lock screen 繼續顯示 generic biometric honesty copy，不假裝有 native parity。
 - 鎖定狀態下不僅 UI 隱藏，後端 query 與 MCP history query 也必須被阻擋 — 避免透過 dev tools / MCP 繞過。
 - Settings 的 App Lock panel：enable / disable toggle、idle timeout duration、biometric toggle、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
