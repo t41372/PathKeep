@@ -26,6 +26,27 @@ function resolveDesktopBridgeEnv(env: NodeJS.ProcessEnv) {
 
 test.describe.configure({ mode: 'serial' })
 
+test('treats unreachable bridge health checks as not-ready', async ({
+  request,
+}) => {
+  const status = await (async () => {
+    try {
+      const health = await request.get('http://127.0.0.1:9/health', {
+        timeout: 1_000,
+      })
+      if (!health.ok()) {
+        return 'not-ready'
+      }
+      const payload = (await health.json()) as BridgeHealth
+      return payload.runtime ?? 'not-ready'
+    } catch {
+      return 'not-ready'
+    }
+  })()
+
+  expect(status).toBe('not-ready')
+})
+
 test('connects chrome to the live desktop command bridge', async ({
   page,
   request,

@@ -70,7 +70,7 @@ export async function downloadAndInstallAppUpdate(
   pendingUpdate: PendingAppUpdate,
   onStateChange?: (state: UpdateInstallState) => void,
 ) {
-  if (!hasTauriGuestApi()) {
+  if (!hasDesktopCommandTransport()) {
     const unsupported = {
       phase: 'unsupported',
       version: pendingUpdate.version,
@@ -83,10 +83,13 @@ export async function downloadAndInstallAppUpdate(
   }
 
   let lastProgressPhase: UpdateInstallState['phase'] | null = null
-  const unsubscribe = await subscribeToUpdaterProgress((state) => {
-    lastProgressPhase = state.phase
-    onStateChange?.(state)
-  })
+  let unsubscribe = () => {}
+  if (hasTauriGuestApi()) {
+    unsubscribe = await subscribeToUpdaterProgress((state) => {
+      lastProgressPhase = state.phase
+      onStateChange?.(state)
+    })
+  }
 
   try {
     const result = await backend.downloadAndInstallAppUpdate(
@@ -115,7 +118,7 @@ export async function downloadAndInstallAppUpdate(
 }
 
 export async function relaunchAfterUpdate() {
-  if (!hasTauriGuestApi()) {
+  if (!hasDesktopCommandTransport()) {
     return false
   }
 

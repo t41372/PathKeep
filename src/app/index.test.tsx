@@ -319,6 +319,40 @@ describe('App shell', () => {
     expect(screen.getByText(shellT('unlockTouchIdUnavailable'))).toBeVisible()
   })
 
+  test('hides biometric unlock when Settings has it turned off', async () => {
+    await seedArchiveRun()
+    backendTestHarness.mutateState((state) => {
+      state.biometricState = 'touch-id-available'
+      state.appLockPasscode = '2468'
+      state.snapshot.config.appLock = {
+        ...state.snapshot.config.appLock,
+        enabled: true,
+        biometricEnabled: false,
+        passcodeConfigured: true,
+      }
+      state.snapshot.appLockStatus = {
+        ...state.snapshot.appLockStatus,
+        locked: true,
+        lockReason: 'startup',
+        biometricAvailable: true,
+        biometricEnabled: false,
+      }
+    })
+
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/lock'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('lock-page')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: shellT('unlockWithTouchId'),
+      }),
+    ).not.toBeInTheDocument()
+  })
+
   test('supports explicit page jumps in explorer results and preserves the shell scroll position', async () => {
     const user = userEvent.setup()
     const baseTime = Date.now()
@@ -903,6 +937,37 @@ describe('App shell', () => {
     await waitFor(() => {
       expect(downloadAndInstallSpy).toHaveBeenCalledTimes(1)
     })
+  })
+
+  test('recovers the updater panel when check now fails', async () => {
+    await seedArchiveRun()
+    const user = userEvent.setup()
+    vi.spyOn(updateLib, 'checkForAppUpdate').mockRejectedValue(
+      new Error('Bridge disconnected'),
+    )
+
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/settings'],
+    })
+
+    render(<App router={router} />)
+
+    const settingsPage = await screen.findByTestId('settings-page')
+    const updatePanel = expectHtmlElement(
+      within(settingsPage)
+        .getByText(settingsT('updateTitle'))
+        .closest('.panel'),
+    )
+    const checkButton = within(updatePanel).getByRole('button', {
+      name: settingsT('updateCheckNow'),
+    })
+
+    await user.click(checkButton)
+
+    expect(
+      await within(updatePanel).findByText('Bridge disconnected'),
+    ).toBeVisible()
+    await waitFor(() => expect(checkButton).toBeEnabled())
   })
 
   test('keeps sidebar information architecture grouped by section', () => {

@@ -932,58 +932,70 @@ export function SettingsPage() {
       },
       buildInfo,
     )
-    const result = await checkForAppUpdate(buildInfo?.version)
-    setUpdateAvailability(result.availability)
-    setPendingUpdate(result.pendingUpdate)
-    if (!result.availability.supported) {
-      setUpdateInstallState({
-        phase: 'unsupported',
-        downloadedBytes: null,
-        contentLength: null,
-        message:
-          result.availability.error ?? t('settings.updateUnsupportedBody'),
-      })
-    } else if (result.availability.error) {
+    try {
+      const result = await checkForAppUpdate(buildInfo?.version)
+      setUpdateAvailability(result.availability)
+      setPendingUpdate(result.pendingUpdate)
+      if (!result.availability.supported) {
+        setUpdateInstallState({
+          phase: 'unsupported',
+          downloadedBytes: null,
+          contentLength: null,
+          message:
+            result.availability.error ?? t('settings.updateUnsupportedBody'),
+        })
+      } else if (result.availability.error) {
+        setUpdateInstallState({
+          phase: 'error',
+          downloadedBytes: null,
+          contentLength: null,
+          message: result.availability.error,
+        })
+      } else if (result.availability.available) {
+        setUpdateInstallState({
+          phase: 'available',
+          downloadedBytes: null,
+          contentLength: null,
+          message: t('settings.updateAvailableBody', {
+            version: result.availability.version ?? t('common.notAvailable'),
+          }),
+        })
+      } else {
+        setUpdateInstallState({
+          phase: 'uptodate',
+          downloadedBytes: null,
+          contentLength: null,
+          message: t('settings.updateUpToDateBody'),
+        })
+      }
+      await trackAnalyticsEvent(
+        snapshot.config.analytics,
+        {
+          type: 'update-lifecycle',
+          screen: 'settings',
+          action: 'check',
+          status: result.availability.available
+            ? 'available'
+            : result.availability.error
+              ? 'error'
+              : result.availability.supported
+                ? 'uptodate'
+                : 'unsupported',
+          version: result.availability.version ?? null,
+        },
+        buildInfo,
+      )
+    } catch (error) {
+      setUpdateAvailability(null)
+      setPendingUpdate(null)
       setUpdateInstallState({
         phase: 'error',
         downloadedBytes: null,
         contentLength: null,
-        message: result.availability.error,
-      })
-    } else if (result.availability.available) {
-      setUpdateInstallState({
-        phase: 'available',
-        downloadedBytes: null,
-        contentLength: null,
-        message: t('settings.updateAvailableBody', {
-          version: result.availability.version ?? t('common.notAvailable'),
-        }),
-      })
-    } else {
-      setUpdateInstallState({
-        phase: 'uptodate',
-        downloadedBytes: null,
-        contentLength: null,
-        message: t('settings.updateUpToDateBody'),
+        message:
+          error instanceof Error ? error.message : t('common.unavailable'),
       })
     }
-    await trackAnalyticsEvent(
-      snapshot.config.analytics,
-      {
-        type: 'update-lifecycle',
-        screen: 'settings',
-        action: 'check',
-        status: result.availability.available
-          ? 'available'
-          : result.availability.error
-            ? 'error'
-            : result.availability.supported
-              ? 'uptodate'
-              : 'unsupported',
-        version: result.availability.version ?? null,
-      },
-      buildInfo,
-    )
   }
 
   async function handleDownloadAndInstallUpdate() {

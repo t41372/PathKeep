@@ -1,20 +1,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const cwd = process.cwd()
-const distDir = path.join(cwd, 'dist')
-const manifestPath = path.join(distDir, '.vite', 'manifest.json')
-const releaseDownloadDir = path.join(cwd, 'dist', 'release')
-const bundleDir = path.join(cwd, 'src-tauri', 'target', 'release', 'bundle')
-const generatedAt = new Date().toISOString()
-const artifactDir = path.join(
-  cwd,
-  'artifacts',
-  'release',
-  `${generatedAt.slice(0, 10)}-size-audit`,
-)
-
-async function exists(target) {
+export async function exists(target) {
   try {
     await fs.access(target)
     return true
@@ -23,12 +11,12 @@ async function exists(target) {
   }
 }
 
-async function fileSize(target) {
+export async function fileSize(target) {
   const stats = await fs.stat(target)
   return stats.size
 }
 
-async function walkFiles(root) {
+export async function walkFiles(root) {
   const entries = await fs.readdir(root, { withFileTypes: true })
   const files = []
   for (const entry of entries) {
@@ -42,36 +30,106 @@ async function walkFiles(root) {
   return files
 }
 
-async function collectWebBreakdown() {
+export function artifactDirectoryName(generatedAt) {
+  return `${generatedAt.replace(/[:.]/g, '-')}-size-audit`
+}
+
+function entryKeysForAudit(manifest) {
+  const entryKeys = Object.entries(manifest)
+    .filter(
+      ([, value]) => value?.file && (value.isEntry || value.isDynamicEntry),
+    )
+    .map(([manifestKey]) => manifestKey)
+
+  return entryKeys.length > 0
+    ? entryKeys
+    : Object.entries(manifest)
+        .filter(([, value]) => value?.file)
+        .map(([manifestKey]) => manifestKey)
+}
+
+function collectManifestAssets(
+  manifest,
+  manifestKey,
+  seenManifestKeys = new Set(),
+  assets = new Set(),
+) {
+  if (seenManifestKeys.has(manifestKey)) {
+    return assets
+  }
+
+  seenManifestKeys.add(manifestKey)
+  const entry = manifest[manifestKey]
+  if (!entry) {
+    return assets
+  }
+
+  if (entry.file) {
+    assets.add(entry.file)
+  }
+  for (const asset of [...(entry.css ?? []), ...(entry.assets ?? [])]) {
+    assets.add(asset)
+  }
+  for (const dependency of [
+    ...(entry.imports ?? []),
+    ...(entry.dynamicImports ?? []),
+  ]) {
+    collectManifestAssets(manifest, dependency, seenManifestKeys, assets)
+  }
+
+  return assets
+}
+
+async function sizeAssetSet(distDir, assets) {
+  const entries = await Promise.all(
+    [...assets]
+      .sort((left, right) => left.localeCompare(right))
+      .map(async (asset) => ({
+        asset,
+        sizeBytes: await fileSize(path.join(distDir, asset)),
+      })),
+  )
+
+  return {
+    totalBytes: entries.reduce((sum, asset) => sum + asset.sizeBytes, 0),
+    assets: entries,
+  }
+}
+
+export async function collectWebBreakdown({ distDir, manifestPath }) {
   if (!(await exists(manifestPath))) {
     return {
       totalBytes: 0,
       entries: [],
+      uniqueAssets: [],
     }
   }
 
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   const entries = []
-  for (const [manifestKey, value] of Object.entries(manifest)) {
-    if (!value?.file) continue
-    const assets = [value.file, ...(value.css ?? [])]
-    const sizes = await Promise.all(
-      assets.map(async (asset) => ({
-        asset,
-        sizeBytes: await fileSize(path.join(distDir, asset)),
-      })),
-    )
+  const totalAssetSet = new Set()
+
+  for (const manifestKey of entryKeysForAudit(manifest)) {
+    const assetSet = collectManifestAssets(manifest, manifestKey)
+    for (const asset of assetSet) {
+      totalAssetSet.add(asset)
+    }
+
+    const sized = await sizeAssetSet(distDir, assetSet)
     entries.push({
       manifestKey,
-      entryAsset: value.file,
-      assets: sizes,
-      totalBytes: sizes.reduce((sum, asset) => sum + asset.sizeBytes, 0),
+      entryAsset: manifest[manifestKey]?.file ?? null,
+      assets: sized.assets,
+      totalBytes: sized.totalBytes,
     })
   }
 
+  const uniqueAssets = await sizeAssetSet(distDir, totalAssetSet)
+
   return {
-    totalBytes: entries.reduce((sum, entry) => sum + entry.totalBytes, 0),
+    totalBytes: uniqueAssets.totalBytes,
     entries,
+    uniqueAssets: uniqueAssets.assets,
   }
 }
 
@@ -151,80 +209,121 @@ function summarizeByCategory(entries) {
     }))
 }
 
-const web = await collectWebBreakdown()
-const releaseFiles = (await collectReleaseFiles(releaseDownloadDir)).map(
-  (file) => ({
+export async function generateReleaseSizeAudit({
+  cwd = process.cwd(),
+  generatedAt = new Date().toISOString(),
+} = {}) {
+  const distDir = path.join(cwd, 'dist')
+  const manifestPath = path.join(distDir, '.vite', 'manifest.json')
+  const releaseDownloadDir = path.join(cwd, 'dist', 'release')
+  const bundleDir = path.join(cwd, 'src-tauri', 'target', 'release', 'bundle')
+  const artifactDir = path.join(
+    cwd,
+    'artifacts',
+    'release',
+    artifactDirectoryName(generatedAt),
+  )
+
+  const web = await collectWebBreakdown({ distDir, manifestPath })
+  const releaseFiles = (await collectReleaseFiles(releaseDownloadDir)).map(
+    (file) => ({
+      ...file,
+      category: categorizeReleaseAsset(file.relativePath),
+    }),
+  )
+  const localBundles = (await collectReleaseFiles(bundleDir)).map((file) => ({
     ...file,
-    category: categorizeReleaseAsset(file.relativePath),
-  }),
-)
-const localBundles = (await collectReleaseFiles(bundleDir)).map((file) => ({
-  ...file,
-  category: categorizeLocalBundleArtifact(file.relativePath),
-}))
+    category: categorizeLocalBundleArtifact(file.relativePath),
+  }))
 
-await fs.mkdir(artifactDir, { recursive: true })
+  await fs.mkdir(artifactDir, { recursive: true })
 
-const summary = {
-  generatedAt,
-  web,
-  releaseAssets: releaseFiles,
-  localBundleArtifacts: localBundles,
-  releaseAssetCategories: summarizeByCategory(releaseFiles),
-  localBundleCategories: summarizeByCategory(localBundles),
+  const summary = {
+    generatedAt,
+    web,
+    releaseAssets: releaseFiles,
+    localBundleArtifacts: localBundles,
+    releaseAssetCategories: summarizeByCategory(releaseFiles),
+    localBundleCategories: summarizeByCategory(localBundles),
+  }
+
+  const summaryMarkdown = [
+    '# Release Size Audit',
+    '',
+    `- Generated at: ${generatedAt}`,
+    `- Web total bytes: ${web.totalBytes}`,
+    `- Unique web assets: ${web.uniqueAssets.length}`,
+    `- Downloaded release assets: ${releaseFiles.length}`,
+    `- Local bundle artifacts: ${localBundles.length}`,
+    '',
+    '## Web Entries',
+    ...web.entries.map(
+      (entry) =>
+        `- ${entry.manifestKey}: ${entry.totalBytes} bytes (${entry.assets
+          .map((asset) => `${asset.asset}=${asset.sizeBytes}`)
+          .join(', ')})`,
+    ),
+    '',
+    '## Unique Web Assets',
+    ...(web.uniqueAssets.length > 0
+      ? web.uniqueAssets.map(
+          (asset) => `- ${asset.asset}: ${asset.sizeBytes} bytes`,
+        )
+      : ['- None found in dist/.vite/manifest.json']),
+    '',
+    '## Release Asset Categories',
+    ...(summary.releaseAssetCategories.length > 0
+      ? summary.releaseAssetCategories.map(
+          (entry) =>
+            `- ${entry.category}: ${entry.count} files, ${entry.totalBytes} bytes`,
+        )
+      : ['- None found in dist/release']),
+    '',
+    '## Release Assets',
+    ...(releaseFiles.length > 0
+      ? releaseFiles.map(
+          (file) =>
+            `- [${file.category}] ${file.relativePath}: ${file.sizeBytes} bytes`,
+        )
+      : ['- None found in dist/release']),
+    '',
+    '## Local Bundle Categories',
+    ...(summary.localBundleCategories.length > 0
+      ? summary.localBundleCategories.map(
+          (entry) =>
+            `- ${entry.category}: ${entry.count} files, ${entry.totalBytes} bytes`,
+        )
+      : ['- None found in src-tauri/target/release/bundle']),
+    '',
+    '## Local Bundle Artifacts',
+    ...(localBundles.length > 0
+      ? localBundles.map(
+          (file) =>
+            `- [${file.category}] ${file.relativePath}: ${file.sizeBytes} bytes`,
+        )
+      : ['- None found in src-tauri/target/release/bundle']),
+  ].join('\n')
+
+  await fs.writeFile(
+    path.join(artifactDir, 'size-attribution.json'),
+    `${JSON.stringify(summary, null, 2)}\n`,
+  )
+  await fs.writeFile(
+    path.join(artifactDir, 'summary.md'),
+    `${summaryMarkdown}\n`,
+  )
+
+  return {
+    artifactDir,
+    summary,
+  }
 }
 
-const summaryMarkdown = [
-  '# Release Size Audit',
-  '',
-  `- Generated at: ${generatedAt}`,
-  `- Web total bytes: ${web.totalBytes}`,
-  `- Downloaded release assets: ${releaseFiles.length}`,
-  `- Local bundle artifacts: ${localBundles.length}`,
-  '',
-  '## Web Entries',
-  ...web.entries.map(
-    (entry) =>
-      `- ${entry.manifestKey}: ${entry.totalBytes} bytes (${entry.assets.map((asset) => `${asset.asset}=${asset.sizeBytes}`).join(', ')})`,
-  ),
-  '',
-  '## Release Asset Categories',
-  ...(summary.releaseAssetCategories.length > 0
-    ? summary.releaseAssetCategories.map(
-        (entry) =>
-          `- ${entry.category}: ${entry.count} files, ${entry.totalBytes} bytes`,
-      )
-    : ['- None found in dist/release']),
-  '',
-  '## Release Assets',
-  ...(releaseFiles.length > 0
-    ? releaseFiles.map(
-        (file) =>
-          `- [${file.category}] ${file.relativePath}: ${file.sizeBytes} bytes`,
-      )
-    : ['- None found in dist/release']),
-  '',
-  '## Local Bundle Categories',
-  ...(summary.localBundleCategories.length > 0
-    ? summary.localBundleCategories.map(
-        (entry) =>
-          `- ${entry.category}: ${entry.count} files, ${entry.totalBytes} bytes`,
-      )
-    : ['- None found in src-tauri/target/release/bundle']),
-  '',
-  '## Local Bundle Artifacts',
-  ...(localBundles.length > 0
-    ? localBundles.map(
-        (file) =>
-          `- [${file.category}] ${file.relativePath}: ${file.sizeBytes} bytes`,
-      )
-    : ['- None found in src-tauri/target/release/bundle']),
-].join('\n')
+const scriptPath = fileURLToPath(import.meta.url)
 
-await fs.writeFile(
-  path.join(artifactDir, 'size-attribution.json'),
-  `${JSON.stringify(summary, null, 2)}\n`,
-)
-await fs.writeFile(path.join(artifactDir, 'summary.md'), `${summaryMarkdown}\n`)
-
-console.log(`Release size audit written to ${path.relative(cwd, artifactDir)}.`)
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  const { artifactDir } = await generateReleaseSizeAudit()
+  console.log(
+    `Release size audit written to ${path.relative(process.cwd(), artifactDir)}.`,
+  )
+}

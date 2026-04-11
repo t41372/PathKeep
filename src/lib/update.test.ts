@@ -106,6 +106,7 @@ describe('update helpers', () => {
   })
 
   test('subscribes to updater progress and returns the desktop install result', async () => {
+    hasDesktopCommandTransportMock.mockReturnValue(true)
     hasTauriGuestApiMock.mockReturnValue(true)
     const states: string[] = []
     const unsubscribe = vi.fn()
@@ -150,7 +151,31 @@ describe('update helpers', () => {
     expect(result.contentLength).toBe(100)
   })
 
-  test('keeps relaunch behind the tauri guest boundary', async () => {
+  test('allows desktop-bridge installs without updater progress events', async () => {
+    hasDesktopCommandTransportMock.mockReturnValue(true)
+    hasTauriGuestApiMock.mockReturnValue(false)
+    backend.downloadAndInstallAppUpdate.mockResolvedValue({
+      phase: 'installed',
+      version: '0.2.0',
+      downloadedBytes: 100,
+      contentLength: 100,
+      message: 'Installed through the desktop bridge.',
+    })
+
+    const result = await downloadAndInstallAppUpdate({
+      currentVersion: '0.1.0',
+      version: '0.2.0',
+      notes: null,
+      publishedAt: null,
+      downloadUrl: 'https://example.com/latest.json',
+    })
+
+    expect(subscribeToUpdaterProgress).not.toHaveBeenCalled()
+    expect(backend.downloadAndInstallAppUpdate).toHaveBeenCalledWith('0.2.0')
+    expect(result.phase).toBe('installed')
+  })
+
+  test('keeps relaunch behind the desktop command boundary', async () => {
     expect(initialUpdateInstallState()).toEqual({
       phase: 'idle',
       version: null,
@@ -162,7 +187,7 @@ describe('update helpers', () => {
     expect(await relaunchAfterUpdate()).toBe(false)
     expect(backend.relaunchAfterUpdate).not.toHaveBeenCalled()
 
-    hasTauriGuestApiMock.mockReturnValue(true)
+    hasDesktopCommandTransportMock.mockReturnValue(true)
     expect(await relaunchAfterUpdate()).toBe(true)
     expect(backend.relaunchAfterUpdate).toHaveBeenCalledTimes(1)
   })

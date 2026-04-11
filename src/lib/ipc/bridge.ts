@@ -18,16 +18,24 @@ export async function invokeCommand<TResponse>(
     )
   }
 
-  const response = await fetch(
-    `${bridgeUrl}/commands/${encodeURIComponent(command)}`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
+  let response: Response
+  try {
+    response = await fetch(
+      `${bridgeUrl}/commands/${encodeURIComponent(command)}`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    },
-  )
+    )
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : ''
+    throw new Error(
+      `PathKeep desktop command "${command}" could not reach the local desktop bridge at ${bridgeUrl}.${detail}`,
+    )
+  }
 
   const raw = await response.text()
   const data = raw.length > 0 ? (JSON.parse(raw) as unknown) : null

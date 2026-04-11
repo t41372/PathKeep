@@ -122,4 +122,30 @@ describe('ipc bridge', () => {
       'PathKeep desktop command "app_snapshot" failed with HTTP 502.',
     )
   })
+
+  test('shapes unreachable desktop bridge failures into PathKeep-specific errors', async () => {
+    isTauriMock.mockReturnValue(false)
+    vi.stubEnv('VITE_PATHKEEP_DEV_IPC_URL', 'http://127.0.0.1:43117')
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'))
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toMatchObject({
+      message:
+        'PathKeep desktop command "app_snapshot" could not reach the local desktop bridge at http://127.0.0.1:43117. fetch failed',
+    })
+  })
+
+  test('omits fetch detail when the desktop bridge rejection is not an Error object', async () => {
+    isTauriMock.mockReturnValue(false)
+    vi.stubEnv('VITE_PATHKEEP_DEV_IPC_URL', 'http://127.0.0.1:43117')
+    fetchMock.mockRejectedValueOnce('socket closed')
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toMatchObject({
+      message:
+        'PathKeep desktop command "app_snapshot" could not reach the local desktop bridge at http://127.0.0.1:43117.',
+    })
+  })
 })
