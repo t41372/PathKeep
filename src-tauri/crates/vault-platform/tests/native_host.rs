@@ -27,13 +27,18 @@ fn sample_paths(root: &Path) -> ProjectPaths {
     vault_core::config::project_paths_with_root(root)
 }
 
-fn wait_for_file(path: &Path) {
-    for _ in 0..50 {
-        if path.exists() {
-            return;
+fn wait_for_capture(path: &Path, expectations: &[&str]) -> String {
+    for _ in 0..250 {
+        if let Ok(contents) = fs::read_to_string(path) {
+            if expectations.iter().all(|expected| contents.contains(expected)) {
+                return contents;
+            }
         }
+
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+
+    fs::read_to_string(path).expect("read capture")
 }
 
 fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
@@ -101,14 +106,17 @@ fn launcher_smoke_uses_path_shims_for_host_invocation() {
         open_path_in_file_manager(target_dir.display().to_string()).expect("open path");
     let opened_url =
         open_external_url("https://example.com/pathkeep".to_string()).expect("open url");
-    wait_for_file(&capture_path);
+    let target_dir_display = target_dir.display().to_string();
+    let captured = wait_for_capture(
+        &capture_path,
+        &[target_dir_display.as_str(), "https://example.com/pathkeep"],
+    );
 
     restore_env("PATH", original_path);
 
-    let captured = fs::read_to_string(&capture_path).expect("read capture");
     assert_eq!(opened_dir, target_dir.display().to_string());
     assert_eq!(opened_url, "https://example.com/pathkeep");
-    assert!(captured.contains(&target_dir.display().to_string()));
+    assert!(captured.contains(target_dir_display.as_str()));
     assert!(captured.contains("https://example.com/pathkeep"));
 }
 
