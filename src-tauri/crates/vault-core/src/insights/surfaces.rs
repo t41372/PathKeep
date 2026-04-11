@@ -1,3 +1,5 @@
+//! Shell-facing deterministic-insight surface builders.
+
 use super::{
     VisitRecord, canonical_visit_key, evidence_from_visit, is_chromium_profile, url_domain,
 };

@@ -1,3 +1,9 @@
+//! Crash-report and runtime-diagnostics helpers.
+//!
+//! Diagnostics in PathKeep are local-first artifacts. This module records
+//! frontend and Rust failures into structured files and assembles the shell's
+//! runtime diagnostics snapshot from those local reports.
+
 use crate::{
     config::{ProjectPaths, ensure_paths},
     models::{CrashReportSummary, FrontendErrorReportRequest, RuntimeDiagnostics},
@@ -9,6 +15,7 @@ use std::{backtrace::Backtrace, fs, path::Path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// On-disk crash report payload used for frontend and Rust failures.
 struct StoredCrashReport {
     source: String,
     recorded_at: String,
@@ -23,6 +30,7 @@ struct StoredCrashReport {
     column: Option<u32>,
 }
 
+/// Loads runtime diagnostics paths plus the latest persisted crash report.
 pub fn load_runtime_diagnostics(paths: &ProjectPaths) -> Result<RuntimeDiagnostics> {
     ensure_paths(paths)?;
     Ok(RuntimeDiagnostics {
@@ -34,6 +42,7 @@ pub fn load_runtime_diagnostics(paths: &ProjectPaths) -> Result<RuntimeDiagnosti
     })
 }
 
+/// Records one frontend error report and returns its shell-facing summary.
 pub fn record_frontend_error(
     paths: &ProjectPaths,
     request: &FrontendErrorReportRequest,
@@ -56,6 +65,7 @@ pub fn record_frontend_error(
     Ok(to_summary(report))
 }
 
+/// Records one Rust panic into the local crash-report area.
 pub fn record_rust_panic(
     paths: &ProjectPaths,
     panic_info: &std::panic::PanicHookInfo<'_>,

@@ -1,3 +1,10 @@
+//! Deterministic intelligence runtime read models.
+//!
+//! This module summarizes background queue/plugin/module state for the
+//! Settings/runtime surfaces. It reads persisted intelligence jobs and turns
+//! them into a shell-friendly snapshot without recomputing the underlying
+//! insight data.
+
 use crate::{
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
@@ -57,8 +64,11 @@ CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
 );
 "#;
 
+/// Queue job type identifier used for enrichment plugin jobs.
 pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
+/// Source-kind identifier for local-only enrichment plugins.
 pub(crate) const LOCAL_PLUGIN_SOURCE_KIND: &str = "local";
+/// Source-kind identifier for network-backed enrichment plugins.
 pub(crate) const NETWORK_PLUGIN_SOURCE_KIND: &str = "network";
 
 #[derive(Debug, Clone, Copy)]
@@ -153,31 +163,37 @@ const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 5] = [
     },
 ];
 
+/// Ensures the persistent intelligence runtime tables exist.
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
     Ok(())
 }
 
+/// Returns the built-in enrichment plugin catalog.
 pub(crate) fn built_in_enrichment_plugins() -> &'static [EnrichmentPluginDefinition] {
     &BUILT_IN_ENRICHMENT_PLUGINS
 }
 
+/// Looks up one built-in enrichment plugin definition by ID.
 pub(crate) fn built_in_enrichment_plugin(
     plugin_id: &str,
 ) -> Option<&'static EnrichmentPluginDefinition> {
     built_in_enrichment_plugins().iter().find(|plugin| plugin.id == plugin_id)
 }
 
+/// Returns the built-in deterministic module catalog.
 pub(crate) fn built_in_deterministic_modules() -> &'static [DeterministicModuleDefinition] {
     &BUILT_IN_DETERMINISTIC_MODULES
 }
 
+/// Looks up one built-in deterministic module definition by ID.
 pub(crate) fn built_in_deterministic_module(
     module_id: &str,
 ) -> Option<&'static DeterministicModuleDefinition> {
     built_in_deterministic_modules().iter().find(|module| module.id == module_id)
 }
 
+/// Returns whether one deterministic module is enabled in the current config.
 pub(crate) fn deterministic_module_enabled(config: &AppConfig, module_id: &str) -> bool {
     config
         .deterministic
@@ -188,6 +204,7 @@ pub(crate) fn deterministic_module_enabled(config: &AppConfig, module_id: &str) 
         .unwrap_or(false)
 }
 
+/// Returns whether one enrichment plugin is enabled in the current config.
 pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> bool {
     if !config.ai.enrichment_enabled {
         return false;
@@ -202,6 +219,7 @@ pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> 
         .unwrap_or(false)
 }
 
+/// Enqueues one enrichment job for a history row when plugin/runtime rules allow it.
 pub(crate) fn enqueue_enrichment_job(
     connection: &Connection,
     run_id: i64,
@@ -258,6 +276,7 @@ pub(crate) fn enqueue_enrichment_job(
     Ok(())
 }
 
+/// Persists runtime bookkeeping updates for deterministic modules.
 pub(crate) fn persist_deterministic_module_runtime_updates(
     connection: &Connection,
     updates: &[DeterministicModuleRuntimeUpdate],
@@ -302,6 +321,7 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
     Ok(())
 }
 
+/// Marks every deterministic module as stale so the next rebuild can refresh them.
 pub(crate) fn mark_all_deterministic_modules_stale(
     connection: &Connection,
     reason: &str,
@@ -325,6 +345,7 @@ pub(crate) fn mark_all_deterministic_modules_stale(
     persist_deterministic_module_runtime_updates(connection, &updates)
 }
 
+/// Claims a batch of runnable enrichment jobs.
 pub(crate) fn claim_enrichment_jobs(
     connection: &Connection,
     allowed_plugin_ids: &[String],
@@ -400,6 +421,7 @@ pub(crate) fn claim_enrichment_jobs(
     Ok(claimed)
 }
 
+/// Marks one intelligence job as succeeded.
 pub(crate) fn mark_intelligence_job_succeeded(
     connection: &Connection,
     job_id: i64,
@@ -416,6 +438,7 @@ pub(crate) fn mark_intelligence_job_succeeded(
     Ok(())
 }
 
+/// Marks one intelligence job as failed.
 pub(crate) fn mark_intelligence_job_failed(
     connection: &Connection,
     job_id: i64,
@@ -431,6 +454,7 @@ pub(crate) fn mark_intelligence_job_failed(
     Ok(())
 }
 
+/// Requeues any stuck running enrichment jobs globally.
 pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result<usize> {
     ensure_intelligence_runtime_schema(connection)?;
     let now = now_rfc3339();
@@ -444,6 +468,7 @@ pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result
     Ok(updated)
 }
 
+/// Requeues any stuck running enrichment jobs that belong to one run.
 pub(crate) fn requeue_running_enrichment_jobs_for_run(
     connection: &Connection,
     run_id: i64,
@@ -460,6 +485,7 @@ pub(crate) fn requeue_running_enrichment_jobs_for_run(
     Ok(updated)
 }
 
+/// Loads the combined runtime snapshot for deterministic intelligence jobs.
 pub fn load_intelligence_runtime(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -499,6 +525,7 @@ pub fn load_intelligence_runtime(
     Ok(IntelligenceRuntimeSnapshot { queue, plugins, modules, recent_jobs, notes })
 }
 
+/// Retries one deterministic intelligence job if its current state allows it.
 pub fn retry_intelligence_job(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -526,6 +553,7 @@ pub fn retry_intelligence_job(
     load_intelligence_runtime(paths, config, key)
 }
 
+/// Cancels one deterministic intelligence job if its current state allows it.
 pub fn cancel_intelligence_job(
     paths: &ProjectPaths,
     config: &AppConfig,

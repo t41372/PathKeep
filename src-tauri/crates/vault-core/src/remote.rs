@@ -1,3 +1,10 @@
+//! Remote-backup bundle creation and verification.
+//!
+//! Remote backup is deliberately treated as a follow-up copy of local archival
+//! artifacts, not a new source of truth. This module builds portable bundles,
+//! uploads them through explicit shell tooling, and verifies restore readiness
+//! without pretending a remote store can validate everything for us.
+
 use crate::{
     archive::{apply_cipher_key, export_archive_database, open_archive_connection},
     config::{ProjectPaths, ensure_paths, save_config},
@@ -31,6 +38,7 @@ const REQUIRED_BUNDLE_ENTRIES: &[&str] = &[
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Bundle manifest written into every remote-backup zip.
 struct BundleManifest {
     bundle_version: String,
     app_version: String,
@@ -43,12 +51,14 @@ struct BundleManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// One file entry recorded in a remote-backup bundle manifest.
 struct BundleManifestFile {
     relative_path: String,
     sha256: String,
     size_bytes: u64,
 }
 
+/// Builds the preview payload for the next remote-backup upload.
 pub fn preview_remote_backup(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -95,6 +105,7 @@ pub fn preview_remote_backup(
     })
 }
 
+/// Creates and uploads a remote-backup bundle using the supplied credentials.
 pub fn run_remote_backup(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -154,6 +165,7 @@ pub fn run_remote_backup(
     })
 }
 
+/// Verifies a remote-backup bundle's integrity and restore readiness.
 pub fn verify_remote_backup(
     bundle_path: &Path,
     key: Option<&str>,

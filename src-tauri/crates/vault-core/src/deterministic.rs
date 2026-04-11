@@ -1,3 +1,10 @@
+//! Deterministic visit analysis and taxonomy.
+//!
+//! These helpers classify visits without relying on probabilistic models. They
+//! normalize URLs, extract query terms, score evidence tiers, and apply the
+//! accepted deterministic taxonomy packs and overrides used by the insights
+//! system.
+
 use reqwest::Url;
 
 const SEARCH_QUERY_KEYS: &[&str] =
@@ -13,6 +20,7 @@ const LATIN_STOP_WORDS: &[&str] = &[
 const TAXONOMY_VERSION: &str = "m5-taxonomy-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// URL normalized for deterministic analysis and taxonomy matching.
 pub struct NormalizedVisitUrl {
     pub canonical_url: String,
     pub host: String,
@@ -26,6 +34,7 @@ pub struct NormalizedVisitUrl {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Strength of deterministic evidence supporting a derived interpretation.
 pub enum EvidenceTier {
     TierA,
     TierB,
@@ -34,6 +43,7 @@ pub enum EvidenceTier {
 }
 
 impl EvidenceTier {
+    /// Returns the serialized tier identifier used in read models.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::TierA => "tier-a",
@@ -44,12 +54,14 @@ impl EvidenceTier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Explanation of why one visit received a particular evidence tier.
 pub struct VisitEvidenceAssessment {
     pub tier: EvidenceTier,
     pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// High-level domain taxonomy used by deterministic insights.
 pub enum DomainCategory {
     Ai,
     Community,
@@ -70,6 +82,7 @@ pub enum DomainCategory {
 }
 
 impl DomainCategory {
+    /// Returns the serialized domain-category identifier used in read models.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Ai => "ai",
@@ -92,6 +105,7 @@ impl DomainCategory {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// High-level page taxonomy used by deterministic insights.
 pub enum PageCategory {
     ArticlePage,
     CategoryPage,
@@ -111,6 +125,7 @@ pub enum PageCategory {
 }
 
 impl PageCategory {
+    /// Returns the serialized page-category identifier used in read models.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ArticlePage => "article-page",
@@ -132,6 +147,7 @@ impl PageCategory {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// High-level interaction taxonomy used by deterministic insights.
 pub enum InteractionKind {
     Compare,
     Discover,
@@ -146,6 +162,7 @@ pub enum InteractionKind {
 }
 
 impl InteractionKind {
+    /// Returns the serialized interaction-kind identifier used in read models.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Compare => "compare",
@@ -162,6 +179,7 @@ impl InteractionKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Source of the final deterministic taxonomy decision.
 pub enum TaxonomyDecisionSource {
     UserOverride,
     ExactDomainRule,
@@ -173,6 +191,7 @@ pub enum TaxonomyDecisionSource {
 }
 
 impl TaxonomyDecisionSource {
+    /// Returns the serialized taxonomy-source identifier used in read models.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::UserOverride => "user-override",
@@ -186,6 +205,7 @@ impl TaxonomyDecisionSource {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Final deterministic taxonomy classification for one visit.
 pub struct TaxonomyClassification {
     pub domain_category: DomainCategory,
     pub page_category: PageCategory,
@@ -199,6 +219,7 @@ pub struct TaxonomyClassification {
 }
 
 impl Default for TaxonomyClassification {
+    /// Returns the explicit unknown fallback classification.
     fn default() -> Self {
         Self {
             domain_category: DomainCategory::Unknown,
@@ -215,6 +236,7 @@ impl Default for TaxonomyClassification {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Target type for one deterministic taxonomy override rule.
 pub enum TaxonomyOverrideTarget {
     ExactDomain,
     Host,
@@ -222,6 +244,7 @@ pub enum TaxonomyOverrideTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// User-provided taxonomy override used ahead of built-in rules.
 pub struct TaxonomyOverride {
     pub target: TaxonomyOverrideTarget,
     pub value: String,
@@ -232,6 +255,7 @@ pub struct TaxonomyOverride {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Raw visit fields needed for deterministic analysis.
 pub struct VisitAnalysisInput<'a> {
     pub url: &'a str,
     pub title: Option<&'a str>,
@@ -242,6 +266,7 @@ pub struct VisitAnalysisInput<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Full deterministic analysis output for one visit.
 pub struct DeterministicVisitAnalysis {
     pub normalized_url: Option<NormalizedVisitUrl>,
     pub evidence: VisitEvidenceAssessment,
@@ -758,6 +783,7 @@ const RULE_PACKS: &[TaxonomyRulePack] = &[
     },
 ];
 
+/// Normalizes a raw visit URL into a deterministic matching form.
 pub fn normalize_visit_url(raw_url: &str) -> Option<NormalizedVisitUrl> {
     let mut parsed = Url::parse(raw_url).ok()?;
     let host = parsed.host_str()?.trim().trim_end_matches('.').to_ascii_lowercase();
@@ -808,6 +834,7 @@ pub fn normalize_visit_url(raw_url: &str) -> Option<NormalizedVisitUrl> {
     })
 }
 
+/// Produces deterministic evidence and taxonomy analysis for one visit.
 pub fn analyze_visit(
     input: VisitAnalysisInput<'_>,
     overrides: &[TaxonomyOverride],
@@ -835,6 +862,7 @@ pub fn analyze_visit(
     DeterministicVisitAnalysis { normalized_url, evidence, taxonomy }
 }
 
+/// Tokenizes text for deterministic grouping and similarity checks.
 pub fn tokenize_text(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut word = String::new();
@@ -861,14 +889,17 @@ pub fn tokenize_text(input: &str) -> Vec<String> {
     tokens
 }
 
+/// Extracts a search query term from a URL when one is present.
 pub fn extract_search_query_from_url(url: &str) -> Option<String> {
     normalize_visit_url(url).and_then(|value| value.search_query)
 }
 
+/// Returns the registrable domain for a full URL when one can be derived.
 pub fn registrable_domain_for_url(url: &str) -> Option<String> {
     normalize_visit_url(url).map(|value| value.registrable_domain)
 }
 
+/// Returns the registrable domain for a host, honoring common multi-label suffixes.
 pub fn registrable_domain_for_host(host: &str) -> String {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if host.is_empty() {

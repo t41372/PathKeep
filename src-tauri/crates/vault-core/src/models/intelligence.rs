@@ -1,23 +1,47 @@
+//! AI, enrichment, and deterministic-intelligence models.
+//!
+//! This file is large because it holds the cross-cutting transport models for
+//! optional AI features, enrichment plugins, deterministic modules, queue
+//! status, and insight snapshots. The types stay data-oriented on purpose so
+//! the worker, Tauri shell, and tests can share one honest contract.
+
 use serde::{Deserialize, Serialize};
 
+/// Built-in enrichment plugin ID for title normalization.
 pub const TITLE_NORMALIZATION_PLUGIN_ID: &str = "title-normalization";
+/// Built-in enrichment plugin ID for readable-content refetch.
 pub const READABLE_CONTENT_PLUGIN_ID: &str = "readable-content-refetch";
+/// Current version string for the title-normalization plugin.
 pub const TITLE_NORMALIZATION_PLUGIN_VERSION: &str = "m5-v1";
+/// Current version string for the readable-content plugin.
 pub const READABLE_CONTENT_PLUGIN_VERSION: &str = "m4-v1";
+/// Built-in deterministic module ID for grouped search/query sessions.
 pub const QUERY_GROUPS_MODULE_ID: &str = "query-groups";
+/// Built-in deterministic module ID for long-lived research threads.
 pub const THREADS_MODULE_ID: &str = "threads";
+/// Built-in deterministic module ID for reference-page summaries.
 pub const REFERENCE_PAGES_MODULE_ID: &str = "reference-pages";
+/// Built-in deterministic module ID for source-effectiveness summaries.
 pub const SOURCE_EFFECTIVENESS_MODULE_ID: &str = "source-effectiveness";
+/// Built-in deterministic module ID for template summaries.
 pub const TEMPLATE_SUMMARIES_MODULE_ID: &str = "template-summaries";
+/// Current version string for the query-groups module.
 pub const QUERY_GROUPS_MODULE_VERSION: &str = "m5b-v1";
+/// Current version string for the threads module.
 pub const THREADS_MODULE_VERSION: &str = "m5b-v1";
+/// Current version string for the reference-pages module.
 pub const REFERENCE_PAGES_MODULE_VERSION: &str = "m5b-v1";
+/// Current version string for the source-effectiveness module.
 pub const SOURCE_EFFECTIVENESS_MODULE_VERSION: &str = "m5b-v1";
+/// Current version string for the template-summaries module.
 pub const TEMPLATE_SUMMARIES_MODULE_VERSION: &str = "m5b-v1";
+
+/// Default for whether optional enrichment plugins are enabled at all.
 fn default_enrichment_enabled() -> bool {
     true
 }
 
+/// Returns the accepted default on/off preferences for built-in enrichment plugins.
 pub fn default_enrichment_plugin_preferences() -> Vec<EnrichmentPluginPreference> {
     vec![
         EnrichmentPluginPreference {
@@ -31,6 +55,7 @@ pub fn default_enrichment_plugin_preferences() -> Vec<EnrichmentPluginPreference
     ]
 }
 
+/// Merges persisted enrichment plugin preferences with current built-in defaults.
 pub fn merge_enrichment_plugin_preferences(
     current: &[EnrichmentPluginPreference],
 ) -> Vec<EnrichmentPluginPreference> {
@@ -47,6 +72,7 @@ pub fn merge_enrichment_plugin_preferences(
     merged
 }
 
+/// Returns the accepted default runtime state for built-in enrichment plugins.
 pub fn default_enrichment_plugin_states() -> Vec<EnrichmentPluginState> {
     vec![
         EnrichmentPluginState {
@@ -62,6 +88,7 @@ pub fn default_enrichment_plugin_states() -> Vec<EnrichmentPluginState> {
     ]
 }
 
+/// Merges persisted enrichment plugin state with current built-in defaults.
 pub fn merge_enrichment_plugin_states(
     current: &[EnrichmentPluginState],
 ) -> Vec<EnrichmentPluginState> {
@@ -92,8 +119,10 @@ pub fn merge_enrichment_plugin_states(
 
     merged
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Runtime state for one enrichment plugin.
 pub struct EnrichmentPluginState {
     pub id: String,
     pub enabled: bool,
@@ -102,11 +131,13 @@ pub struct EnrichmentPluginState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+/// Enrichment settings stored in app config.
 pub struct EnrichmentSettings {
     pub plugins: Vec<EnrichmentPluginState>,
 }
 
 impl Default for EnrichmentSettings {
+    /// Returns enrichment settings with all built-in plugins represented.
     fn default() -> Self {
         Self { plugins: default_enrichment_plugin_states() }
     }
@@ -114,12 +145,14 @@ impl Default for EnrichmentSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Runtime state for one deterministic module.
 pub struct DeterministicModuleState {
     pub id: String,
     pub enabled: bool,
     pub version: String,
 }
 
+/// Returns the accepted default runtime state for built-in deterministic modules.
 pub fn default_deterministic_module_states() -> Vec<DeterministicModuleState> {
     vec![
         DeterministicModuleState {
@@ -150,6 +183,7 @@ pub fn default_deterministic_module_states() -> Vec<DeterministicModuleState> {
     ]
 }
 
+/// Merges persisted deterministic module state with current built-in defaults.
 pub fn merge_deterministic_module_states(
     current: &[DeterministicModuleState],
 ) -> Vec<DeterministicModuleState> {
@@ -183,17 +217,20 @@ pub fn merge_deterministic_module_states(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+/// Deterministic-intelligence settings stored in app config.
 pub struct DeterministicSettings {
     pub modules: Vec<DeterministicModuleState>,
 }
 
 impl Default for DeterministicSettings {
+    /// Returns deterministic settings with all built-in modules represented.
     fn default() -> Self {
         Self { modules: default_deterministic_module_states() }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Wire format used to talk to an AI provider.
 pub enum AiRequestFormat {
     #[serde(rename = "openai")]
     #[default]
@@ -209,6 +246,7 @@ pub enum AiRequestFormat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Role an AI provider plays inside PathKeep.
 pub enum AiProviderPurpose {
     #[serde(rename = "llm")]
     #[default]
@@ -219,6 +257,7 @@ pub enum AiProviderPurpose {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+/// Stored configuration for one LLM or embedding provider.
 pub struct AiProviderConfig {
     pub id: String,
     pub name: String,
@@ -236,6 +275,7 @@ pub struct AiProviderConfig {
 }
 
 impl Default for AiProviderConfig {
+    /// Returns the accepted defaults for a newly added provider row.
     fn default() -> Self {
         Self {
             id: String::new(),
@@ -257,6 +297,7 @@ impl Default for AiProviderConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+/// User-facing on/off preference for one enrichment plugin.
 pub struct EnrichmentPluginPreference {
     pub plugin_id: String,
     pub enabled: bool,
@@ -264,6 +305,7 @@ pub struct EnrichmentPluginPreference {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+/// Full optional-AI settings stored in app config.
 pub struct AiSettings {
     pub enabled: bool,
     pub assistant_enabled: bool,
@@ -286,6 +328,7 @@ pub struct AiSettings {
 }
 
 impl Default for AiSettings {
+    /// Returns the accepted defaults for optional AI features.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -307,8 +350,10 @@ impl Default for AiSettings {
         }
     }
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Shell-facing semantic-index readiness snapshot.
 pub struct AiIndexStatus {
     pub enabled: bool,
     pub assistant_enabled: bool,
@@ -334,6 +379,7 @@ pub struct AiIndexStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Capability report for one configured AI provider.
 pub struct AiProviderCapabilityReport {
     pub supports_chat: bool,
     pub supports_embeddings: bool,
@@ -344,6 +390,7 @@ pub struct AiProviderCapabilityReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for testing one provider connection.
 pub struct AiProviderConnectionTestRequest {
     pub provider_id: String,
     pub purpose: AiProviderPurpose,
@@ -351,6 +398,7 @@ pub struct AiProviderConnectionTestRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for one provider connection probe.
 pub struct AiProviderConnectionTestReport {
     pub provider_id: String,
     pub purpose: String,
@@ -367,6 +415,7 @@ pub struct AiProviderConnectionTestReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
+/// Lifecycle state for one persistent AI queue job.
 pub enum AiQueueJobState {
     #[default]
     Queued,
@@ -380,6 +429,7 @@ pub enum AiQueueJobState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
+/// Kind of work represented by one AI queue job.
 pub enum AiQueueJobType {
     #[default]
     IndexBuild,
@@ -389,6 +439,7 @@ pub enum AiQueueJobType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Shell-facing read model for one persistent AI queue job.
 pub struct AiQueueJob {
     pub id: i64,
     pub job_type: String,
@@ -409,6 +460,7 @@ pub struct AiQueueJob {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Shell-facing aggregate AI queue status.
 pub struct AiQueueStatus {
     pub paused: bool,
     pub concurrency: u32,
@@ -417,8 +469,10 @@ pub struct AiQueueStatus {
     pub failed: u32,
     pub recent_jobs: Vec<AiQueueJob>,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Report returned when derived intelligence state is cleared.
 pub struct ClearDerivedIntelligenceReport {
     pub cleared_enrichment_rows: usize,
     pub cleared_feature_rows: usize,
@@ -433,8 +487,10 @@ pub struct ClearDerivedIntelligenceReport {
     pub cleared_run_rows: usize,
     pub notes: Vec<String>,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Secret-storage payload for one provider API key.
 pub struct AiProviderSecretInput {
     pub provider_id: String,
     pub api_key: String,
@@ -442,6 +498,7 @@ pub struct AiProviderSecretInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for building or clearing the semantic index.
 pub struct AiIndexRequest {
     pub provider_id: Option<String>,
     pub full_rebuild: bool,
@@ -451,6 +508,7 @@ pub struct AiIndexRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for an index build/clear run.
 pub struct AiIndexReport {
     pub job_id: Option<i64>,
     pub run_id: Option<i64>,
@@ -466,6 +524,7 @@ pub struct AiIndexReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for semantic-plus-lexical history search.
 pub struct AiSearchRequest {
     pub query: String,
     pub profile_id: Option<String>,
@@ -475,6 +534,7 @@ pub struct AiSearchRequest {
 }
 
 impl Default for AiSearchRequest {
+    /// Returns the default search request used by empty shell forms.
     fn default() -> Self {
         Self { query: String::new(), profile_id: None, domain: None, limit: Some(8), cursor: None }
     }
@@ -482,6 +542,7 @@ impl Default for AiSearchRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// One semantic/lexical search hit returned by AI history search.
 pub struct AiSearchEntry {
     pub history_id: i64,
     pub profile_id: String,
@@ -495,6 +556,7 @@ pub struct AiSearchEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Full response for semantic-plus-lexical history search.
 pub struct AiSearchResponse {
     pub total: usize,
     pub provider_id: String,
@@ -506,6 +568,7 @@ pub struct AiSearchResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for a first-party assistant question.
 pub struct AiAssistantRequest {
     pub question: String,
     pub profile_id: Option<String>,
@@ -514,6 +577,7 @@ pub struct AiAssistantRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Citation for one visit used in an assistant answer or insight.
 pub struct AiCitation {
     pub history_id: i64,
     pub profile_id: String,
@@ -525,6 +589,7 @@ pub struct AiCitation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for an assistant answer.
 pub struct AiAssistantResponse {
     pub state: String,
     pub answer: String,
@@ -538,6 +603,7 @@ pub struct AiAssistantResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// High-level readiness summary for deterministic insights.
 pub struct InsightStatus {
     pub ready: bool,
     pub last_run_at: Option<String>,
@@ -553,6 +619,7 @@ pub struct InsightStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Lightweight evidence row reused across insight surfaces.
 pub struct InsightEvidenceItem {
     pub history_id: i64,
     pub profile_id: String,
@@ -564,6 +631,7 @@ pub struct InsightEvidenceItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// One dashboard-style insight card.
 pub struct InsightCard {
     pub card_id: String,
     pub kind: String,
@@ -578,6 +646,7 @@ pub struct InsightCard {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Summary of one grouped query/research session.
 pub struct InsightQueryGroupSummary {
     pub query_group_id: String,
     pub profile_id: String,
@@ -600,6 +669,7 @@ pub struct InsightQueryGroupSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Summary of one deterministic topic cluster.
 pub struct InsightTopicSummary {
     pub topic_id: String,
     pub label: String,
@@ -616,6 +686,7 @@ pub struct InsightTopicSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Summary of one deterministic research thread.
 pub struct InsightThreadSummary {
     pub thread_id: String,
     pub title: String,
@@ -636,6 +707,7 @@ pub struct InsightThreadSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Detailed thread view with grouped queries and visit evidence.
 pub struct InsightThreadDetail {
     pub summary: InsightThreadSummary,
     pub query_groups: Vec<InsightQueryGroupSummary>,
@@ -644,6 +716,7 @@ pub struct InsightThreadDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Ladder-style summary of how a query session evolved.
 pub struct InsightQueryLadder {
     pub query_group_id: Option<String>,
     pub root_term: String,
@@ -658,6 +731,7 @@ pub struct InsightQueryLadder {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Summary of one repeatedly revisited reference page.
 pub struct InsightReferencePageSummary {
     pub reference_page_id: String,
     pub profile_id: Option<String>,
@@ -677,6 +751,7 @@ pub struct InsightReferencePageSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Summary of one domain/source's effectiveness in a research flow.
 pub struct InsightSourceEffectivenessSummary {
     pub source_id: String,
     pub profile_id: Option<String>,
@@ -694,6 +769,7 @@ pub struct InsightSourceEffectivenessSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// One natural-language summary block generated from deterministic insights.
 pub struct InsightTemplateSummary {
     pub summary_id: String,
     pub kind: String,
@@ -706,6 +782,7 @@ pub struct InsightTemplateSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// One workflow role node used in the insight workflow map.
 pub struct InsightWorkflowRole {
     pub role: String,
     pub count: usize,
@@ -713,6 +790,7 @@ pub struct InsightWorkflowRole {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// One workflow edge used in the insight workflow map.
 pub struct InsightWorkflowEdge {
     pub from_role: String,
     pub to_role: String,
@@ -721,6 +799,7 @@ pub struct InsightWorkflowEdge {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Workflow-map summary over deterministic insight roles and transitions.
 pub struct InsightWorkflowMap {
     pub profile_id: Option<String>,
     pub roles: Vec<InsightWorkflowRole>,
@@ -730,6 +809,7 @@ pub struct InsightWorkflowMap {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// One profile facet surfaced by deterministic insights.
 pub struct InsightProfileFacet {
     pub key: String,
     pub label: String,
@@ -740,6 +820,7 @@ pub struct InsightProfileFacet {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Simple domain frequency stat used in canonical summaries.
 pub struct InsightDomainStat {
     pub domain: String,
     pub visit_count: usize,
@@ -747,6 +828,7 @@ pub struct InsightDomainStat {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Canonical summary over the visit window that insights analyzed.
 pub struct InsightCanonicalSummary {
     pub window_visit_count: usize,
     pub window_unique_domains: usize,
@@ -756,6 +838,7 @@ pub struct InsightCanonicalSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Full deterministic insight snapshot returned to the shell.
 pub struct InsightSnapshot {
     pub generated_at: String,
     pub window_days: u32,
@@ -777,6 +860,7 @@ pub struct InsightSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for rebuilding deterministic insights.
 pub struct RunInsightsRequest {
     pub profile_id: Option<String>,
     pub window_days: Option<u32>,
@@ -786,6 +870,7 @@ pub struct RunInsightsRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for a deterministic insights rebuild.
 pub struct RunInsightsReport {
     pub run_id: i64,
     pub processed_visits: usize,
@@ -805,6 +890,7 @@ pub struct RunInsightsReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for explaining one insight.
 pub struct ExplainInsightRequest {
     pub insight_id: String,
     pub insight_kind: String,
@@ -814,6 +900,7 @@ pub struct ExplainInsightRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Explanation payload for one insight.
 pub struct InsightExplanation {
     pub explanation: String,
     pub used_llm: bool,
@@ -823,6 +910,7 @@ pub struct InsightExplanation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Aggregate queue counters for deterministic intelligence jobs.
 pub struct IntelligenceQueueStatus {
     pub queued: usize,
     pub running: usize,
@@ -834,6 +922,7 @@ pub struct IntelligenceQueueStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Runtime status for one enrichment plugin.
 pub struct EnrichmentPluginStatus {
     pub plugin_id: String,
     pub source_kind: String,
@@ -848,6 +937,7 @@ pub struct EnrichmentPluginStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Shell-facing overview of one recent intelligence job.
 pub struct IntelligenceJobOverview {
     pub id: i64,
     pub job_type: String,
@@ -868,6 +958,7 @@ pub struct IntelligenceJobOverview {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Runtime status for one deterministic module.
 pub struct DeterministicModuleRuntimeStatus {
     pub module_id: String,
     pub enabled: bool,
@@ -884,6 +975,7 @@ pub struct DeterministicModuleRuntimeStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Combined runtime snapshot for intelligence queues, plugins, and modules.
 pub struct IntelligenceRuntimeSnapshot {
     pub queue: IntelligenceQueueStatus,
     pub plugins: Vec<EnrichmentPluginStatus>,

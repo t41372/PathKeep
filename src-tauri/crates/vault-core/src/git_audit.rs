@@ -1,3 +1,9 @@
+//! Optional git-backed audit helper.
+//!
+//! Some archive artifacts can be mirrored into a local git repository for
+//! reviewability. This module keeps the git interaction narrow: initialize the
+//! repo, write files, and make a straightforward commit when requested.
+
 use anyhow::{Context, Result};
 use std::{
     ffi::OsStr,
@@ -6,6 +12,7 @@ use std::{
     process::Command,
 };
 
+/// Ensures the local audit repository exists and has baseline git config.
 pub fn ensure_repo(repo_path: &Path) -> Result<()> {
     fs::create_dir_all(repo_path).with_context(|| format!("creating {}", repo_path.display()))?;
     if !repo_path.join(".git").exists() {
@@ -34,6 +41,7 @@ pub fn ensure_repo(repo_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Writes one audit artifact into the local audit repository.
 pub fn write_audit_file(repo_path: &Path, relative_path: &str, contents: &str) -> Result<PathBuf> {
     let full_path = repo_path.join(relative_path);
     ensure_parent_dir(&full_path)?;
@@ -42,8 +50,10 @@ pub fn write_audit_file(repo_path: &Path, relative_path: &str, contents: &str) -
 }
 
 #[rustfmt::skip]
+/// Creates parent directories for one audit file path if they are missing.
 fn ensure_parent_dir(path: &Path) -> Result<()> { if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; } Ok(()) }
 
+/// Stages and commits all current audit-repo changes, returning the new commit hash.
 pub fn commit_all(repo_path: &Path, message: &str) -> Result<Option<String>> {
     ensure_repo(repo_path)?;
     run_git(repo_path, ["add", "."])?;
@@ -64,10 +74,12 @@ pub fn commit_all(repo_path: &Path, message: &str) -> Result<Option<String>> {
     Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
 }
 
+/// Runs one `git` command inside the audit repository.
 fn run_git<const N: usize>(repo_path: &Path, args: [&str; N]) -> Result<()> {
     run_repo_command(OsStr::new("git"), repo_path, args)
 }
 
+/// Runs an arbitrary command inside the audit repository and normalizes failures.
 fn run_repo_command<S: AsRef<OsStr>, const N: usize>(
     program: S,
     repo_path: &Path,

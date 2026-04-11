@@ -1,3 +1,9 @@
+//! Persistent AI queue storage.
+//!
+//! Optional AI work is long-running and failure-prone, so it uses a durable
+//! queue in the canonical archive. This module owns queue schema, lifecycle
+//! transitions, retries, heartbeats, and read models.
+
 use crate::{
     models::{
         AiAssistantRequest, AiIndexRequest, AiQueueJob, AiQueueJobState, AiQueueJobType,
@@ -36,6 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_jobs_state_available
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Payload stored for assistant-question jobs.
 pub struct AssistantJobPayload {
     pub request: AiAssistantRequest,
     pub llm_provider_id: String,
@@ -44,6 +51,7 @@ pub struct AssistantJobPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Aggregate queued/running/failed counts for a subset of AI job types.
 pub struct QueueJobCounts {
     pub queued: u32,
     pub running: u32,
@@ -52,12 +60,14 @@ pub struct QueueJobCounts {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+/// Typed payload stored inside one persistent AI queue row.
 pub enum AiJobPayload {
     Index { request: AiIndexRequest },
     Assistant { payload: AssistantJobPayload },
 }
 
 #[derive(Debug, Clone)]
+/// Raw queue row loaded from SQLite before it becomes a public read model.
 pub struct StoredAiJob {
     pub id: i64,
     pub job_type: AiQueueJobType,
@@ -67,6 +77,7 @@ pub struct StoredAiJob {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Failure bookkeeping used when transitioning a queue job to failed state.
 pub struct AiJobFailure {
     pub error_code: Option<String>,
     pub error_message: String,
@@ -75,11 +86,13 @@ pub struct AiJobFailure {
     pub summary: Option<String>,
 }
 
+/// Ensures the persistent AI queue tables exist.
 pub fn ensure_ai_queue_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(AI_QUEUE_SCHEMA_SQL)?;
     Ok(())
 }
 
+/// Enqueues a semantic-index build job and returns its persisted row.
 pub fn enqueue_index_job(
     connection: &Connection,
     request: &AiIndexRequest,
@@ -96,6 +109,7 @@ pub fn enqueue_index_job(
     )
 }
 
+/// Enqueues an assistant-question job and returns its persisted row.
 pub fn enqueue_assistant_job(
     connection: &Connection,
     request: &AiAssistantRequest,
@@ -119,6 +133,7 @@ pub fn enqueue_assistant_job(
     )
 }
 
+/// Loads the shell-facing AI queue status read model.
 pub fn load_ai_queue_status(
     connection: &Connection,
     paused: bool,
@@ -151,6 +166,7 @@ pub fn load_ai_queue_status(
     })
 }
 
+/// Loads queued/running/failed counts for a selected set of AI job types.
 pub fn load_queue_job_counts(
     connection: &Connection,
     job_types: &[AiQueueJobType],
@@ -163,6 +179,7 @@ pub fn load_queue_job_counts(
     })
 }
 
+/// Claims the next runnable AI job, recovering stale running jobs first.
 pub fn claim_next_ai_job(
     connection: &Connection,
     stale_after_seconds: i64,
@@ -218,6 +235,7 @@ pub fn claim_next_ai_job(
     Ok(None)
 }
 
+/// Claims a specific queued AI job by ID when the state permits it.
 pub fn claim_ai_job_by_id(
     connection: &Connection,
     job_id: i64,
@@ -274,6 +292,7 @@ pub fn claim_ai_job_by_id(
     Ok(None)
 }
 
+/// Updates the heartbeat timestamp for one running AI job.
 pub fn heartbeat_ai_job(connection: &Connection, job_id: i64) -> Result<()> {
     ensure_ai_queue_schema(connection)?;
     connection.execute(
@@ -285,6 +304,7 @@ pub fn heartbeat_ai_job(connection: &Connection, job_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Marks a running AI job as succeeded and stores any result metadata.
 pub fn mark_ai_job_succeeded(
     connection: &Connection,
     job_id: i64,
@@ -309,6 +329,7 @@ pub fn mark_ai_job_succeeded(
     load_ai_job(connection, job_id)
 }
 
+/// Marks a running AI job as failed and decides whether it should retry.
 pub fn mark_ai_job_failed(
     connection: &Connection,
     job_id: i64,
@@ -361,6 +382,7 @@ pub fn mark_ai_job_failed(
     load_ai_job(connection, job_id)
 }
 
+/// Requeues one failed or canceled AI job when replay is allowed.
 pub fn replay_ai_job(connection: &Connection, job_id: i64, paused: bool) -> Result<AiQueueJob> {
     ensure_ai_queue_schema(connection)?;
     let job = load_ai_job(connection, job_id)?;
@@ -401,6 +423,7 @@ pub fn replay_ai_job(connection: &Connection, job_id: i64, paused: bool) -> Resu
     load_ai_job(connection, job_id)
 }
 
+/// Cancels one queued or paused AI job and returns its new read model.
 pub fn cancel_ai_job(connection: &Connection, job_id: i64) -> Result<AiQueueJob> {
     ensure_ai_queue_schema(connection)?;
     let job = load_ai_job(connection, job_id)?;
@@ -419,6 +442,7 @@ pub fn cancel_ai_job(connection: &Connection, job_id: i64) -> Result<AiQueueJob>
     load_ai_job(connection, job_id)
 }
 
+/// Moves queued jobs into the paused state.
 pub fn pause_queued_jobs(connection: &Connection) -> Result<usize> {
     ensure_ai_queue_schema(connection)?;
     Ok(connection.execute(
@@ -430,6 +454,7 @@ pub fn pause_queued_jobs(connection: &Connection) -> Result<usize> {
     )?)
 }
 
+/// Moves paused jobs back into the queued state.
 pub fn resume_paused_jobs(connection: &Connection) -> Result<usize> {
     ensure_ai_queue_schema(connection)?;
     Ok(connection.execute(
@@ -442,6 +467,7 @@ pub fn resume_paused_jobs(connection: &Connection) -> Result<usize> {
     )?)
 }
 
+/// Loads one AI job read model by ID.
 pub fn load_ai_job(connection: &Connection, job_id: i64) -> Result<AiQueueJob> {
     ensure_ai_queue_schema(connection)?;
     connection
@@ -457,6 +483,7 @@ pub fn load_ai_job(connection: &Connection, job_id: i64) -> Result<AiQueueJob> {
         .with_context(|| format!("loading AI job {job_id}"))
 }
 
+/// Loads and deserializes the typed payload for one AI job.
 pub fn load_ai_job_payload(connection: &Connection, job_id: i64) -> Result<AiJobPayload> {
     ensure_ai_queue_schema(connection)?;
     connection

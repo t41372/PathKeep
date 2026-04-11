@@ -1,3 +1,5 @@
+//! Topic-summary helpers for deterministic insights.
+
 use super::VisitRecord;
 use crate::{
     deterministic::tokenize_text,

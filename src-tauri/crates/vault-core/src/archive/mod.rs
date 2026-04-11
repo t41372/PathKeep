@@ -318,6 +318,7 @@ struct ParsedProfileSnapshot {
     last_favicon_marker: Option<i64>,
 }
 
+/// Runs one backup using a no-op progress callback.
 pub fn run_backup(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -327,6 +328,7 @@ pub fn run_backup(
     run_backup_with_progress(paths, config, key, due_only, |_| {})
 }
 
+/// Runs one canonical backup and emits progress events through the supplied callback.
 pub fn run_backup_with_progress<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -1237,6 +1239,7 @@ fn sync_url_bounds(archive: &Transaction<'_>, url_id: i64, bounds: &UrlVisitBoun
     Ok(())
 }
 
+/// Counts visible archive totals without including reverted visits.
 pub(crate) fn count_visible_archive_totals(
     connection: &Connection,
 ) -> Result<ArchiveVisibleTotals> {
@@ -1967,6 +1970,7 @@ fn serialize_payload<T: Serialize>(value: &T) -> Result<SerializedPayload> {
     Ok(SerializedPayload { json, hash })
 }
 
+/// Merges run-local stats with current visible archive totals.
 pub(crate) fn stats_with_archive_totals(connection: &Connection, stats: Value) -> Result<Value> {
     let totals = count_visible_archive_totals(connection)?;
     let mut object = match stats {
@@ -2054,6 +2058,7 @@ fn ms_to_chromium_time(value_ms: i64) -> i64 {
     unix_micros_to_chrome_time(value_ms.saturating_mul(1_000))
 }
 
+/// Computes the stable fingerprint used to deduplicate canonical visit events.
 pub(crate) fn visit_event_fingerprint(
     source_kind: &str,
     url: &str,

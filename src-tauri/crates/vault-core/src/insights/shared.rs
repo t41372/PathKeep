@@ -1,3 +1,5 @@
+//! Shared deterministic-insight helper functions.
+
 use super::VisitRecord;
 use crate::deterministic::{EvidenceTier, PageCategory};
 use chrono::DateTime;

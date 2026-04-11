@@ -1,3 +1,5 @@
+//! SQLite persistence helpers for deterministic insights.
+
 use super::{INSIGHT_PIPELINE_VERSION, VisitRecord, evidence_from_visit};
 use crate::models::{
     InsightQueryGroupSummary, InsightReferencePageSummary, InsightSourceEffectivenessSummary,

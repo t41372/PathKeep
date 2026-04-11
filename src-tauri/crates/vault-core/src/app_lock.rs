@@ -1,3 +1,10 @@
+//! App Lock session-boundary domain.
+//!
+//! App Lock is a UI/session privacy feature, not the same thing as archive
+//! encryption. This module owns that distinction by managing lock state,
+//! passcode hashes, biometric integration hooks, and the rules for when the UI
+//! must refuse archive access until the session is unlocked again.
+
 use crate::{
     config::{ProjectPaths, ensure_paths, save_config},
     models::{
@@ -141,6 +148,7 @@ fn biometric_unavailable_error(state: AppLockBiometricState) -> &'static str {
     }
 }
 
+/// Validates an App Lock config using an explicit biometric capability snapshot.
 pub fn validate_app_lock_config_with_biometric(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -165,6 +173,7 @@ pub fn validate_app_lock_config_with_biometric(
     Ok(())
 }
 
+/// Returns the shell-facing App Lock status using an explicit biometric snapshot.
 pub fn app_lock_status_with_biometric(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -244,6 +253,7 @@ fn derive_passcode_hash(passcode: &str, salt_hex: &str) -> Result<String> {
     Ok(hex::encode(digest))
 }
 
+/// Hydrates transient App Lock config fields from persisted secret/state files.
 pub fn hydrate_app_lock_config(paths: &ProjectPaths, config: &mut AppConfig) -> Result<()> {
     config.app_lock.idle_timeout_minutes = config.app_lock.idle_timeout_minutes.clamp(1, 60);
     let secret = load_app_lock_secret(paths)?;
@@ -252,14 +262,17 @@ pub fn hydrate_app_lock_config(paths: &ProjectPaths, config: &mut AppConfig) -> 
     Ok(())
 }
 
+/// Validates an App Lock config against the current platform's biometric capability.
 pub fn validate_app_lock_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     validate_app_lock_config_with_biometric(paths, config, default_biometric_state())
 }
 
+/// Returns the current App Lock status using the default platform biometric state.
 pub fn app_lock_status(paths: &ProjectPaths, config: &AppConfig) -> Result<AppLockStatus> {
     app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
+/// Initializes the session state used by App Lock when the app starts.
 pub fn initialize_app_lock_session(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     if !config.app_lock.enabled {
         clear_app_lock_state(paths)?;
@@ -277,6 +290,7 @@ pub fn initialize_app_lock_session(paths: &ProjectPaths, config: &AppConfig) -> 
     )
 }
 
+/// Returns an error when the current App Lock session is still locked.
 pub fn ensure_app_lock_unlocked(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     let status = app_lock_status(paths, config)?;
     if status.locked {
@@ -285,6 +299,7 @@ pub fn ensure_app_lock_unlocked(paths: &ProjectPaths, config: &AppConfig) -> Res
     Ok(())
 }
 
+/// Locks the current App Lock session and returns the updated status.
 pub fn lock_app_session(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -306,6 +321,7 @@ pub fn lock_app_session(
     app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
+/// Unlocks the session using either passcode or an injected biometric callback.
 pub fn unlock_app_session_with_biometric<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -358,6 +374,7 @@ where
     app_lock_status_with_biometric(paths, config, biometric_state)
 }
 
+/// Unlocks the session using the default non-biometric fallback behavior.
 pub fn unlock_app_session(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -368,6 +385,7 @@ pub fn unlock_app_session(
     })
 }
 
+/// Stores a new App Lock passcode and returns the updated status.
 pub fn set_app_lock_passcode(
     paths: &ProjectPaths,
     config: &mut AppConfig,
@@ -392,6 +410,7 @@ pub fn set_app_lock_passcode(
     app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
+/// Clears the App Lock passcode, disables App Lock, and returns the updated status.
 pub fn clear_app_lock_passcode(
     paths: &ProjectPaths,
     config: &mut AppConfig,

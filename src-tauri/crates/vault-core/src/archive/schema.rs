@@ -1,3 +1,9 @@
+//! Archive schema bootstrap and migration pipeline.
+//!
+//! This module owns the canonical SQLite schema, migration ledger, and the
+//! rules for opening the archive database in plaintext or encrypted mode. All
+//! higher-level archive flows assume these migrations have already run.
+
 use crate::{
     ai::ensure_ai_schema,
     config::{ProjectPaths, ensure_paths},
@@ -256,6 +262,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 3, sql: MIGRATION_003_HISTORY_SEARCH_FTS_SQL },
 ];
 
+/// Opens the canonical archive connection in plaintext or encrypted mode.
 pub fn open_archive_connection(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -273,11 +280,13 @@ pub fn open_archive_connection(
     Ok(connection)
 }
 
+/// Applies the archive cipher key to an already-open SQLite connection.
 pub(crate) fn apply_cipher_key(connection: &Connection, key: &str) -> Result<()> {
     connection.pragma_update(None, "key", key)?;
     Ok(())
 }
 
+/// Exports the current archive database to a portable file path.
 pub(crate) fn export_archive_database(
     source: &Connection,
     target_path: &Path,
@@ -302,6 +311,7 @@ pub(crate) fn export_archive_database(
     Ok(())
 }
 
+/// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
     ensure_import_batch_schema(connection)?;
@@ -312,6 +322,7 @@ pub fn create_schema(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Returns the schema version currently recorded in the archive metadata.
 pub fn current_version(connection: &Connection) -> Result<i64> {
     if !table_exists(connection, "schema_migrations")? {
         return Ok(0);
@@ -323,6 +334,7 @@ pub fn current_version(connection: &Connection) -> Result<i64> {
     Ok(version)
 }
 
+/// Applies any pending schema migrations and compatibility upgrades.
 pub fn run_migrations(connection: &Connection) -> Result<()> {
     run_migrations_with_specs(connection, MIGRATIONS)
 }

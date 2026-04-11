@@ -1,3 +1,9 @@
+//! Project-path and config persistence helpers.
+//!
+//! The rest of the backend assumes a stable directory layout. This module is
+//! the source of truth for that layout and for reading/writing the serialized
+//! app config under the project root.
+
 use crate::{
     models::{AppConfig, normalize_app_config},
     utils::now_rfc3339,
@@ -16,6 +22,7 @@ const CURRENT_APP_NAME: &str = "pathkeep";
 const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Canonical absolute paths for all backend-managed project artifacts.
 pub struct ProjectPaths {
     pub app_root: PathBuf,
     pub config_path: PathBuf,
@@ -37,11 +44,13 @@ pub struct ProjectPaths {
     pub stronghold_salt_path: PathBuf,
 }
 
+/// Resolves the current project paths using the active project root.
 pub fn project_paths() -> Result<ProjectPaths> {
     let root = project_root()?;
     Ok(project_paths_with_root(&root))
 }
 
+/// Builds the full project path layout for a specific root directory.
 pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
     let root = root.to_path_buf();
     let logs_dir = root.join("logs");
@@ -68,6 +77,7 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
     }
 }
 
+/// Resolves the active project root, honoring test and development overrides.
 fn project_root() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV) {
         return Ok(PathBuf::from(path));
@@ -78,6 +88,7 @@ fn project_root() -> Result<PathBuf> {
     Ok(dirs.data_local_dir().to_path_buf())
 }
 
+/// Ensures the expected project directory layout exists on disk.
 pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     for dir in [
         &paths.app_root,
@@ -102,6 +113,7 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     Ok(())
 }
 
+/// Loads the persisted app config, normalizing newly added runtime defaults.
 pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
     if !paths.config_path.exists() {
         let mut config = AppConfig::default();
@@ -116,6 +128,7 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
     Ok(config)
 }
 
+/// Saves the app config to disk after normalizing runtime defaults.
 pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     ensure_paths(paths)?;
     let content = serde_json::to_string_pretty(config)?;

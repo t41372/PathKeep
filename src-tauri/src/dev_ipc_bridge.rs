@@ -35,9 +35,13 @@ use vault_core::{
 };
 use vault_worker::RekeyRequest;
 
+/// Env var flag that enables the localhost dev IPC bridge.
 pub(crate) const DEV_IPC_BRIDGE_ENABLED_ENV: &str = "PATHKEEP_ENABLE_DEV_IPC_BRIDGE";
+/// Env var override for the localhost dev IPC bridge port.
 pub(crate) const DEV_IPC_BRIDGE_PORT_ENV: &str = "PATHKEEP_DEV_IPC_PORT";
+/// Env var override for allowed CORS origins on the dev IPC bridge.
 pub(crate) const DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV: &str = "PATHKEEP_DEV_IPC_ALLOWED_ORIGINS";
+/// Default localhost port used by the dev IPC bridge.
 pub(crate) const DEFAULT_DEV_IPC_BRIDGE_PORT: u16 = 43_117;
 
 #[derive(Clone)]

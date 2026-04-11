@@ -1,3 +1,5 @@
+//! Query-group clustering helpers for deterministic insights.
+
 use super::{
     InsightEvidenceItem, VisitRecord, canonical_visit_key, chrome_gap_hours, chrome_gap_minutes,
     classify_query_stage, evidence_from_visit, token_similarity,

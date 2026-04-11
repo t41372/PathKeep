@@ -1,3 +1,9 @@
+//! Google Takeout inspection and import pipeline.
+//!
+//! Takeout import is handled as an explicit archive flow with preview,
+//! quarantine, audit detail, and reversible visibility changes. This module
+//! owns that pipeline end to end.
+
 use crate::{
     archive::{
         create_schema, open_archive_connection, stats_with_archive_totals, visit_event_fingerprint,
@@ -68,6 +74,7 @@ struct ImportBatchRecord {
     notes: Vec<String>,
 }
 
+/// Inspects a Takeout source and builds a preview-only import report.
 pub fn inspect_takeout(
     _paths: &ProjectPaths,
     request: &TakeoutRequest,
@@ -148,6 +155,7 @@ pub fn inspect_takeout(
     Ok(inspection)
 }
 
+/// Imports a Takeout source into the canonical archive.
 pub fn import_takeout(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -235,6 +243,7 @@ pub fn import_takeout(
     Ok(inspection)
 }
 
+/// Loads recent import batches, newest first.
 pub fn load_import_batches(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -271,6 +280,7 @@ pub fn load_import_batches(
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Loads one import batch detail, repairing its audit artifact if needed.
 pub fn preview_import_batch(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -297,6 +307,7 @@ pub fn preview_import_batch(
     load_import_batch_detail(&connection, batch_id)
 }
 
+/// Reverts one import batch by hiding its visits from the visible archive surface.
 pub fn revert_import_batch(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -356,6 +367,7 @@ pub fn revert_import_batch(
     preview_import_batch(paths, config, key, batch_id)
 }
 
+/// Restores a previously reverted import batch to the visible archive surface.
 pub fn restore_import_batch(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -842,6 +854,7 @@ fn upsert_takeout_profile(
         .map_err(Into::into)
 }
 
+/// Ensures an import batch has an audit artifact that matches its current state.
 pub(crate) fn ensure_import_batch_audit_artifact(
     paths: &ProjectPaths,
     config: &AppConfig,

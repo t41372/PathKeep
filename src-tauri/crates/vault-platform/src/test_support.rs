@@ -5,13 +5,20 @@
 
 use std::path::PathBuf;
 
+/// Default keyring service name used by PathKeep tests and local backends.
 pub const DEFAULT_KEYRING_SERVICE: &str = "com.yi-ting.pathkeep";
+/// Default scheduler label used by PathKeep tests and preview plans.
 pub const DEFAULT_SCHEDULE_LABEL: &str = "com.yi-ting.pathkeep.backup";
 
+/// Env var override for the file-backed test keyring directory.
 pub const TEST_KEYRING_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_KEYRING_DIR";
+/// Env var override for the test keyring service name.
 pub const TEST_KEYRING_SERVICE_ENV: &str = "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE";
+/// Env var override for the test schedule label.
 pub const TEST_SCHEDULE_LABEL_ENV: &str = "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL";
+/// Env var override for the test LaunchAgents directory.
 pub const TEST_LAUNCH_AGENTS_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR";
+/// Env var override for stubbed launchctl success/failure in tests.
 pub const TEST_LAUNCHCTL_SUCCESS_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCHCTL_SUCCESS";
 
 const LEGACY_TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";

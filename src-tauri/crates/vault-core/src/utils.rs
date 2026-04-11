@@ -1,3 +1,9 @@
+//! Small cross-cutting utility helpers.
+//!
+//! These helpers are intentionally boring and dependency-light: timestamps,
+//! hashes, SQLite-to-JSON shaping, and URL/domain normalization that multiple
+//! backend modules rely on.
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::types::ValueRef;
@@ -11,16 +17,19 @@ use std::{
 
 const CHROME_UNIX_EPOCH_OFFSET_MICROS: i64 = 11_644_473_600_000_000;
 
+/// Returns the current UTC timestamp in RFC3339 form.
 pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Computes a lowercase hex SHA-256 digest for arbitrary bytes.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(hasher.finalize())
 }
 
+/// Streams one file from disk and returns its lowercase hex SHA-256 digest.
 pub fn file_sha256_hex(path: &Path) -> Result<String> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut reader = BufReader::new(file);
@@ -38,6 +47,7 @@ pub fn file_sha256_hex(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// Converts a Chromium microsecond timestamp into RFC3339.
 pub fn chrome_time_to_rfc3339(value: i64) -> String {
     let unix_micros = value.saturating_sub(CHROME_UNIX_EPOCH_OFFSET_MICROS);
     let secs = unix_micros.div_euclid(1_000_000);
@@ -47,20 +57,24 @@ pub fn chrome_time_to_rfc3339(value: i64) -> String {
         .to_rfc3339()
 }
 
+/// Converts RFC3339 back into Chromium's microseconds-since-1601 format.
 pub fn iso_to_chrome_time_micros(value: &str) -> Option<i64> {
     let parsed = DateTime::parse_from_rfc3339(value).ok()?;
     let micros = parsed.timestamp_micros();
     Some(unix_micros_to_chrome_time(micros))
 }
 
+/// Converts Unix microseconds into Chromium's epoch format.
 pub fn unix_micros_to_chrome_time(value: i64) -> i64 {
     value.saturating_add(CHROME_UNIX_EPOCH_OFFSET_MICROS)
 }
 
+/// Extracts a normalized domain/host string from a URL-like input.
 pub fn url_domain(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or(url).trim().to_string()
 }
 
+/// Converts one SQLite value into a JSON value for diagnostics and audit payloads.
 pub fn sqlite_value_to_json(value: ValueRef<'_>) -> Value {
     match value {
         ValueRef::Null => Value::Null,
@@ -71,6 +85,7 @@ pub fn sqlite_value_to_json(value: ValueRef<'_>) -> Value {
     }
 }
 
+/// Converts an entire SQLite row into a JSON object keyed by column name.
 pub fn sqlite_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     let mut object = Map::new();
     for index in 0..row.as_ref().column_count() {
@@ -81,6 +96,7 @@ pub fn sqlite_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     Ok(Value::Object(object))
 }
 
+/// Base64-encodes SQLite blob bytes for JSON transport.
 fn base64_blob(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut output = String::new();

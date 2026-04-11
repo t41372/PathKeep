@@ -1,3 +1,5 @@
+//! Site-specific enrichment adapters used by deterministic insights.
+
 use crate::utils::url_domain;
 use scraper::{Html, Selector};
 use serde_json::{Value, json};
@@ -13,6 +15,7 @@ pub(crate) struct SiteAdapterResult {
     pub metadata: Value,
 }
 
+/// Applies any known site-specific readability adapter to fetched HTML content.
 pub(crate) fn adapt_site_content(url: &str, document: &Html) -> Option<SiteAdapterResult> {
     let domain = url_domain(url);
     if domain.contains("youtube.com") || domain.contains("youtu.be") {

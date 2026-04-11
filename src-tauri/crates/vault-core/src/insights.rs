@@ -1,3 +1,10 @@
+//! Deterministic intelligence and enrichment pipeline.
+//!
+//! This module transforms canonical visits plus optional enrichment into
+//! deterministic insights such as grouped queries, threads, reference pages,
+//! source effectiveness, and summaries. It keeps the derived-state story
+//! explicit: everything here can be rebuilt from canonical facts.
+
 mod grouping;
 mod runtime;
 mod shared;
@@ -366,6 +373,7 @@ struct InterruptedInsightRecovery {
     requeued_enrichment_jobs: usize,
 }
 
+/// Ensures all deterministic-insight schema tables and indexes exist.
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INSIGHT_SCHEMA_SQL)?;
     ensure_visit_insight_feature_column(connection, "burst_id", "TEXT")?;
@@ -482,6 +490,7 @@ fn ensure_table_column(
     Ok(())
 }
 
+/// Chooses the best text payload to embed for one enriched visit.
 pub(crate) fn preferred_embedding_content(
     connection: &Connection,
     history_id: i64,

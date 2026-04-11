@@ -1,3 +1,9 @@
+//! Semantic-index sidecar storage.
+//!
+//! The canonical archive keeps a mirror of semantic indexing state, but the
+//! heavier vector search storage lives in sidecar tables/files that can be
+//! rebuilt. This module owns that sidecar representation and query path.
+
 use crate::{config::ProjectPaths, utils::sha256_hex};
 use anyhow::{Context, Result};
 use arrow_array::{
@@ -166,14 +172,17 @@ pub async fn search_provider_embeddings(
     Ok(Some(rows))
 }
 
+/// Returns the total bytes currently consumed by sidecar vector storage.
 pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
     directory_size(&sidecar_root(paths))
 }
 
+/// Returns the root directory where sidecar vector tables live.
 pub fn sidecar_root(paths: &ProjectPaths) -> PathBuf {
     paths.app_root.join("sidecars").join("semantic-index")
 }
 
+/// Derives the stable sidecar table name for one provider/model pair.
 pub fn provider_table_name(provider_id: &str, model: &str) -> String {
     let provider = provider_id
         .chars()
