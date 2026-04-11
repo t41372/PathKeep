@@ -30,6 +30,8 @@ Use these for milestone closeout, risky refactors, and release rehearsal:
 bun run mutation:js
 bun run mutation:rust
 bun run mutation:rust:full
+bun run test:desktop-bridge:rust
+bun run test:e2e:desktop-bridge
 bun run verify
 ```
 
@@ -43,6 +45,8 @@ What they mean:
 
 - `bun run mutation:rust`: current honest Rust mutation contract for `browser-history-parser` plus the `vault-core/src/ai.rs` status/helper slice (`ai_index_status`, `ai_queue_status`, `reconcile_ai_queue_controls`, `provider_capabilities`, `provider_connection_failure_report`, `test_provider_connection`).
 - `bun run mutation:rust:full`: exploratory whole-workspace cargo-mutants sweep used to discover future backlog or deferred rationale; it is not the default signed-off contract.
+- `bun run test:desktop-bridge:rust`: targeted Rust unit coverage for the feature-gated dev desktop bridge command dispatcher.
+- `bun run test:e2e:desktop-bridge`: Chrome + Playwright smoke that drives the frontend through the dev-only desktop command bridge and proves browser automation can reach real Rust responses.
 
 ## Focused Commands
 
@@ -59,6 +63,7 @@ bun run check:rust
 
 - The desktop-contract slice only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`.
 - Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects.
+- Chrome desktop-bridge smoke verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
 - Platform validation for macOS / Windows / Linux lives in [RELEASE.md](./RELEASE.md) and [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).
 - User-facing support diagnostics and redaction rules live in [SUPPORT.md](./SUPPORT.md).
 

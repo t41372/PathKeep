@@ -5,6 +5,10 @@ edition = "2024"
 description = "Audit-first desktop archive for browser history"
 license = "GPL-3.0-only"
 
+[features]
+default = []
+devtools-bridge = ["dep:axum", "dep:tower-http"]
+
 [lib]
 name = "pathkeep_desktop"
 path = "src/lib.rs"
@@ -48,6 +52,7 @@ zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dependencies]
 anyhow.workspace = true
+axum = { version = "0.8.6", optional = true }
 chrono.workspace = true
 log = "0.4.28"
 serde.workspace = true
@@ -58,6 +63,8 @@ tauri-plugin-dialog = "2.4.3"
 tauri-plugin-log = "2.8.0"
 tauri-plugin-stronghold = "2.3.1"
 tauri-plugin-updater = "2.10.1"
+tokio.workspace = true
+tower-http = { version = "0.6.6", optional = true, features = ["cors"] }
 url = "2.5.7"
 vault-core = { version = "0.1.0", path = "crates/vault-core" }
 vault-platform = { version = "0.1.0", path = "crates/vault-platform" }

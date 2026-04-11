@@ -85,6 +85,7 @@
 | -------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Platform Rust native sweep       | `bun run test:platform:rust`                                             | 直接驗證 host keyring / scheduler / launcher / discovery / biometric capability | Linux job 會在隔離 `dbus-run-session` 內啟動 `gnome-keyring-daemon`；Windows 測試已準備好供 runner 接手。 |
 | Platform desktop slice           | `bun run test:platform:desktop`                                          | debug desktop build + updater / launcher desktop command slice                  | 這是 desktop command truth，不等於 browser preview e2e。                                                  |
+| Chrome desktop bridge smoke      | `bun run test:e2e:desktop-bridge`                                        | 啟動 feature-gated desktop bridge，讓 Chrome / Playwright 驗證真實 Rust command | local / manual / pre-closeout gate；不是 mainline blocking path。                                         |
 | JS mutation sweep                | `bun run mutation:js` / GitHub `Mutation` workflow `javascript-mutation` | 對 living M0-M3 JS quality surface 做 repo-level mutation gate                  | 目前 break threshold 是 80。屬於 scheduled / manual deep check；進 M4 與 release closeout 前必須能跑通。  |
 | Rust mutation contract           | `bun run mutation:rust` / GitHub `Mutation` workflow `rust-mutation`     | `browser-history-parser` + `vault-core` AI status/helper slice                  | 不在每次 PR blocking path；屬於 scheduled / manual / pre-release gate。                                   |
 | Exploratory Rust mutation sweep  | `bun run mutation:rust:full`                                             | whole-workspace cargo-mutants discovery run                                     | 用於 backlog / deferred rationale，不是目前的 signed-off gate。                                           |
@@ -98,6 +99,7 @@
 ## Honest Boundaries
 
 - `bun run test:e2e` 是 browser preview smoke，不是 Tauri desktop、worker process、scheduler artifact、keyring 或 filesystem side effect 的最終驗收。
+- `bun run test:e2e:desktop-bridge` 證明 Chrome / Playwright 能透過 dev-only localhost bridge 打到真實 desktop command façade，但它仍不是完整的 Tauri WebView / plugin guest API signoff。
 - `bun run check:platform` 才是目前對 macOS / Linux host-native scheduler、keyring、launcher 與 updater desktop slice 的 blocking signoff；preview e2e 不能拿來替這些能力背書。
 - schedule / security / import / intelligence 這些高風險 surface 的 desktop truth，仍要靠 Rust tests、worker bridge tests、Tauri command tests 與對應的 PME / product docs 對齊。
 - `coverage:js` / `mutation:js` 的 quality surface 已恢復到 living M0-M3 modules，但還不是整個前端 UI 的 100% signoff。`WORK-QC-B` 已把剩餘的 prototype gap、doc parity 與 trust-critical flow debt 收斂回 docs / tests；更廣的 release-level AX 與 desktop validation 留在 M4。

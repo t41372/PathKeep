@@ -1,4 +1,5 @@
-import { invoke, isTauri } from '@tauri-apps/api/core'
+import { invokeCommand } from './ipc/bridge'
+import { hasDesktopCommandTransport } from './runtime'
 import type {
   AiAssistantRequest,
   AiAssistantResponse,
@@ -62,8 +63,8 @@ type BackendArgs = Record<string, unknown> | undefined
 
 // Keep the browser-preview fixture surface out of the live app import graph.
 async function call<T>(command: string, args?: BackendArgs): Promise<T> {
-  if (isTauri()) {
-    return invoke<T>(command, args)
+  if (hasDesktopCommandTransport()) {
+    return invokeCommand<T>(command, args)
   }
 
   const { backendTestHarness } = await import('./backend')

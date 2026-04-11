@@ -1,6 +1,6 @@
-import { isTauri } from '@tauri-apps/api/core'
 import { backend } from './backend-client'
 import { subscribeToUpdaterProgress } from './ipc/updater-progress'
+import { hasDesktopCommandTransport, hasTauriGuestApi } from './runtime'
 import type {
   AppUpdateCheckResult,
   PendingAppUpdate,
@@ -50,7 +50,7 @@ export function initialUpdateInstallState(): UpdateInstallState {
 export async function checkForAppUpdate(
   currentVersion?: string | null,
 ): Promise<AppUpdateCheckResult> {
-  if (!isTauri()) {
+  if (!hasDesktopCommandTransport()) {
     return previewAvailability(currentVersion)
   }
 
@@ -70,7 +70,7 @@ export async function downloadAndInstallAppUpdate(
   pendingUpdate: PendingAppUpdate,
   onStateChange?: (state: UpdateInstallState) => void,
 ) {
-  if (!isTauri()) {
+  if (!hasTauriGuestApi()) {
     const unsupported = {
       phase: 'unsupported',
       version: pendingUpdate.version,
@@ -115,7 +115,7 @@ export async function downloadAndInstallAppUpdate(
 }
 
 export async function relaunchAfterUpdate() {
-  if (!isTauri()) {
+  if (!hasTauriGuestApi()) {
     return false
   }
 

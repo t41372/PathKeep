@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './app'
 import { installRuntimeDiagnostics } from './lib/runtime-diagnostics'
+import { resolveAppRuntime } from './lib/runtime'
 
 // Restore persisted theme preference before first paint
 try {
@@ -13,6 +14,11 @@ try {
 } catch {
   // localStorage may be unavailable
 }
+
+document.documentElement.setAttribute(
+  'data-pathkeep-runtime',
+  resolveAppRuntime(),
+)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

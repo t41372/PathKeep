@@ -1,6 +1,6 @@
-import { isTauri } from '@tauri-apps/api/core'
 import { attachConsole, error as logError } from '@tauri-apps/plugin-log'
 import { invokeCommand } from './ipc/bridge'
+import { hasDesktopCommandTransport, hasTauriGuestApi } from './runtime'
 
 interface FrontendErrorReportRequest {
   source: string
@@ -17,16 +17,17 @@ let errorHandler: ((event: ErrorEvent) => void) | null = null
 let rejectionHandler: ((event: PromiseRejectionEvent) => void) | null = null
 
 export async function installRuntimeDiagnostics() {
-  if (diagnosticsInstalled || !isTauri()) {
-    diagnosticsInstalled = diagnosticsInstalled || isTauri()
+  if (diagnosticsInstalled || !hasDesktopCommandTransport()) {
     return
   }
   diagnosticsInstalled = true
 
-  try {
-    await attachConsole()
-  } catch {
-    // Logs should still reach the file targets even if console forwarding fails.
+  if (hasTauriGuestApi()) {
+    try {
+      await attachConsole()
+    } catch {
+      // Logs should still reach the file targets even if console forwarding fails.
+    }
   }
 
   errorHandler = (event) => {
@@ -62,10 +63,13 @@ export async function installRuntimeDiagnostics() {
 
 async function persistFrontendError(request: FrontendErrorReportRequest) {
   const summary = `[${request.source}] ${request.message}`
-  await Promise.allSettled([
-    logError(summary),
+  const writes: Promise<unknown>[] = [
     invokeCommand('record_frontend_error', { request }),
-  ])
+  ]
+  if (hasTauriGuestApi()) {
+    writes.unshift(logError(summary))
+  }
+  await Promise.allSettled(writes)
 }
 
 function describeUnhandledReason(reason: unknown) {
