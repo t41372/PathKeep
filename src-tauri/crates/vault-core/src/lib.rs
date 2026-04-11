@@ -1,3 +1,17 @@
+//! Canonical backend domain crate for PathKeep.
+//!
+//! `vault-core` owns the source-of-truth backend rules: archive schema and
+//! recoverability, browser/profile read models, optional AI and deterministic
+//! intelligence, remote backup verification, and the shared serde models that
+//! the desktop shell consumes.
+//!
+//! What this crate does not own:
+//!
+//! - native OS integrations such as keyrings or schedulers
+//! - Tauri command naming and transport concerns
+//! - worker orchestration glue that combines multiple subsystems for one UI
+//!   action
+
 pub mod ai;
 pub mod ai_queue;
 pub mod ai_sidecar;

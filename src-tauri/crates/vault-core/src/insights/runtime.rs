@@ -1,0 +1,720 @@
+//! Insights runtime and read-model surface.
+//!
+//! This module keeps the Settings/Insights-facing entrypoints together:
+//! readiness/status, rebuild execution, snapshot loading, thread detail, clear,
+//! and explanation.
+//!
+//! It intentionally delegates the heavy feature engineering and grouping work to
+//! the rest of `insights.rs` and its existing submodules. The goal here is to
+//! keep the user-facing orchestration readable without blending it into lower
+//! level storage or enrichment helpers.
+
+use super::*;
+
+/// Reports whether derived insight state exists and when it last ran successfully.
+pub fn insight_status(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<InsightStatus> {
+    if !config.initialized || !paths.archive_database_path.exists() {
+        return Ok(InsightStatus::default());
+    }
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_insight_schema(&connection)?;
+    let runs = connection
+        .query_row("SELECT COUNT(*) FROM insight_runs", [], |row: &Row<'_>| row.get::<_, i64>(0))
+        .unwrap_or(0);
+    let cards = connection
+        .query_row("SELECT COUNT(*) FROM insight_cards", [], |row: &Row<'_>| row.get::<_, i64>(0))
+        .unwrap_or(0);
+    let topics = connection
+        .query_row("SELECT COUNT(*) FROM insight_topics", [], |row: &Row<'_>| row.get::<_, i64>(0))
+        .unwrap_or(0);
+    let threads = connection
+        .query_row("SELECT COUNT(*) FROM insight_threads", [], |row: &Row<'_>| row.get::<_, i64>(0))
+        .unwrap_or(0);
+    let query_groups = connection
+        .query_row("SELECT COUNT(*) FROM insight_query_groups", [], |row: &Row<'_>| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(0);
+    let reference_pages = connection
+        .query_row("SELECT COUNT(*) FROM insight_reference_pages", [], |row: &Row<'_>| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(0);
+    let latest = connection
+        .query_row(
+            "SELECT finished_at, content_coverage, warning
+             FROM insight_runs
+             WHERE status = 'success'
+             ORDER BY id DESC
+             LIMIT 1",
+            [],
+            |row: &Row<'_>| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, f32>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(InsightStatus {
+        ready: cards > 0 || topics > 0 || threads > 0,
+        last_run_at: latest.as_ref().and_then(|value| value.0.clone()),
+        runs: runs.max(0) as usize,
+        cards: cards.max(0) as usize,
+        topics: topics.max(0) as usize,
+        threads: threads.max(0) as usize,
+        query_groups: query_groups.max(0) as usize,
+        reference_pages: reference_pages.max(0) as usize,
+        content_coverage: latest.as_ref().map(|value| value.1).unwrap_or_default(),
+        warning: latest.and_then(|value| value.2),
+    })
+}
+
+/// Rebuilds derived insight state for one profile/window scope.
+pub fn run_insights(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    embedding_provider: Option<&AiProviderRuntime>,
+    request: &RunInsightsRequest,
+) -> Result<RunInsightsReport> {
+    let mut connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_ai_schema(&connection)?;
+    ensure_insight_schema(&connection)?;
+    ensure_intelligence_runtime_schema(&connection)?;
+
+    let recovery = recover_interrupted_insight_runs(&connection)?;
+
+    if request.full_rebuild {
+        let transaction = connection.transaction()?;
+        clear_derived_insight_state(&transaction)?;
+        transaction.commit()?;
+    }
+
+    let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
+    let profile_scope = request.profile_id.clone().unwrap_or_else(|| "all".to_string());
+    let started_at = now_rfc3339();
+    connection.execute(
+        "INSERT INTO insight_runs (started_at, status, mode, profile_scope, window_days, notes_json)
+         VALUES (?1, 'running', 'manual', ?2, ?3, '[]')",
+        params![started_at, profile_scope, window_days as i64],
+    )?;
+    let run_id = connection.last_insert_rowid();
+    let run_result = (|| -> Result<RunInsightsReport> {
+        let analysis_limit = request.limit.unwrap_or(DEFAULT_ANALYSIS_LIMIT as u32) as usize;
+        let mut visits =
+            load_visits(&connection, request.profile_id.as_deref(), window_days, analysis_limit)?;
+        let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
+        hydrate_query_terms(&mut visits, &query_terms);
+
+        schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
+        let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
+
+        let enrichments = load_best_enrichment_map(&connection, &visits)?;
+        let embeddings = load_embedding_map(&connection, embedding_provider, &visits)?;
+        hydrate_enrichment_and_embeddings(&mut visits, &enrichments, &embeddings);
+        compute_feature_scores(&mut visits);
+
+        let module_enabled = |module_id: &str| {
+            config
+                .deterministic
+                .modules
+                .iter()
+                .find(|candidate| candidate.id == module_id)
+                .map(|candidate| candidate.enabled)
+                .unwrap_or(false)
+        };
+        let bursts = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            build_bursts(&mut visits)
+        } else {
+            Vec::new()
+        };
+        let (mut query_groups, _query_ladders) = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            build_query_groups(&mut visits)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let thread_records = if module_enabled(THREADS_MODULE_ID) {
+            build_thread_records(&mut visits, &mut query_groups)
+        } else {
+            Vec::new()
+        };
+        let query_group_summaries = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            query_group_summaries_from_records(&query_groups, &visits)
+        } else {
+            Vec::new()
+        };
+        let thread_summaries = if module_enabled(THREADS_MODULE_ID) {
+            thread_summaries_from_records(&thread_records)
+        } else {
+            Vec::new()
+        };
+        let topics = if module_enabled(THREADS_MODULE_ID) {
+            build_topic_summaries(&visits, &query_group_summaries, &thread_summaries, window_days)
+        } else {
+            Vec::new()
+        };
+        let reference_pages = if module_enabled(REFERENCE_PAGES_MODULE_ID) {
+            build_reference_pages(&visits, request.profile_id.as_deref().unwrap_or("all"))
+        } else {
+            Vec::new()
+        };
+        let source_effectiveness = if module_enabled(SOURCE_EFFECTIVENESS_MODULE_ID) {
+            build_source_effectiveness(
+                &visits,
+                request.profile_id.as_deref().unwrap_or("all"),
+                &reference_pages,
+            )
+        } else {
+            Vec::new()
+        };
+        let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+            build_template_summaries(
+                &visits,
+                &query_group_summaries,
+                &thread_summaries,
+                &reference_pages,
+                &source_effectiveness,
+                request.profile_id.as_deref(),
+            )
+        } else {
+            Vec::new()
+        };
+        let cards = build_insight_cards(
+            &template_summaries,
+            &thread_summaries,
+            &reference_pages,
+            window_days,
+            request.profile_id.as_deref(),
+        );
+
+        let transaction = connection.transaction()?;
+
+        persist_features(&transaction, &visits)?;
+        persist_bursts(&transaction, &bursts)?;
+        persist_query_groups(&transaction, &query_groups, &visits)?;
+        persist_topic_summaries(
+            &transaction,
+            request.profile_id.as_deref().unwrap_or("all"),
+            window_days,
+            &topics,
+        )?;
+        persist_thread_records(&transaction, &thread_records, &visits)?;
+        persist_reference_pages(
+            &transaction,
+            request.profile_id.as_deref().unwrap_or("all"),
+            &reference_pages,
+        )?;
+        persist_source_effectiveness(
+            &transaction,
+            request.profile_id.as_deref().unwrap_or("all"),
+            &source_effectiveness,
+        )?;
+        persist_cards(&transaction, &cards, request.profile_id.as_deref(), window_days)?;
+
+        let finished_at = now_rfc3339();
+        let module_updates = built_in_deterministic_modules()
+            .iter()
+            .map(|module| DeterministicModuleRuntimeUpdate {
+                module_id: module.id.to_string(),
+                status: if config
+                    .deterministic
+                    .modules
+                    .iter()
+                    .find(|candidate| candidate.id == module.id)
+                    .map(|candidate| candidate.enabled)
+                    .unwrap_or(false)
+                {
+                    "ready".to_string()
+                } else {
+                    "disabled".to_string()
+                },
+                last_run_id: Some(run_id),
+                last_built_at: Some(finished_at.clone()),
+                last_invalidated_at: None,
+                stale_reason: None,
+                notes: vec![format!(
+                    "Module {} rebuilt as part of deterministic insights v2.",
+                    module.id
+                )],
+            })
+            .collect::<Vec<_>>();
+        persist_deterministic_module_runtime_updates(&transaction, &module_updates)?;
+
+        let content_coverage = if visits.is_empty() {
+            0.0
+        } else {
+            visits
+                .iter()
+                .filter(|visit| {
+                    visit.readable_text.as_deref().is_some_and(|value| !value.is_empty())
+                })
+                .count() as f32
+                / visits.len() as f32
+        };
+        let mut notes = build_run_notes(
+            embedding_provider.is_some(),
+            config.ai.enrichment_enabled,
+            enrichment_report.enriched_visits,
+            enrichment_report.failed_enrichments,
+            enrichment_report.queued_network_jobs,
+            &recovery,
+        );
+        notes.extend(build_taxonomy_review_notes(&visits));
+        transaction.execute(
+            "UPDATE insight_runs
+             SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
+                 failed_enrichments = ?4, query_group_count = ?5, topic_count = ?6,
+                 thread_count = ?7, reference_page_count = ?8, source_count = ?9,
+                 template_summary_count = ?10, card_count = ?11, content_coverage = ?12,
+                 warning = NULL, notes_json = ?13
+             WHERE id = ?14",
+            params![
+                finished_at,
+                visits.len() as i64,
+                enrichment_report.enriched_visits as i64,
+                enrichment_report.failed_enrichments as i64,
+                query_group_summaries.len() as i64,
+                topics.len() as i64,
+                thread_summaries.len() as i64,
+                reference_pages.len() as i64,
+                source_effectiveness.len() as i64,
+                template_summaries.len() as i64,
+                cards.len() as i64,
+                content_coverage,
+                serde_json::to_string(&notes)?,
+                run_id,
+            ],
+        )?;
+        transaction.commit()?;
+
+        Ok(RunInsightsReport {
+            run_id,
+            processed_visits: visits.len(),
+            enriched_visits: enrichment_report.enriched_visits,
+            failed_enrichments: enrichment_report.failed_enrichments,
+            query_group_count: query_group_summaries.len(),
+            topic_count: topics.len(),
+            thread_count: thread_summaries.len(),
+            reference_page_count: reference_pages.len(),
+            source_count: source_effectiveness.len(),
+            template_summary_count: template_summaries.len(),
+            card_count: cards.len(),
+            content_coverage,
+            last_run_at: started_at.clone(),
+            notes,
+        })
+    })();
+
+    match run_result {
+        Ok(report) => Ok(report),
+        Err(error) => {
+            let failure_warning = format!("Insight refresh stopped before completion: {}", error);
+            let failure_notes = vec![
+                "PathKeep kept the canonical archive unchanged.".to_string(),
+                "Any interrupted enrichment work was re-queued for a later refresh.".to_string(),
+            ];
+            let _ = connection.execute(
+                "UPDATE insight_runs
+                 SET finished_at = ?1, status = 'failed', warning = ?2, notes_json = ?3
+                 WHERE id = ?4",
+                params![
+                    now_rfc3339(),
+                    failure_warning,
+                    serde_json::to_string(&failure_notes)?,
+                    run_id,
+                ],
+            );
+            let _ = requeue_running_enrichment_jobs_for_run(&connection, run_id);
+            Err(error)
+        }
+    }
+}
+
+/// Loads the persisted insight snapshot for one scope/window.
+pub fn load_insights(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &RunInsightsRequest,
+) -> Result<InsightSnapshot> {
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_insight_schema(&connection)?;
+    let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
+    let profile_scope = request.profile_id.clone().unwrap_or_else(|| "all".to_string());
+    let module_enabled = |module_id: &str| {
+        config
+            .deterministic
+            .modules
+            .iter()
+            .find(|candidate| candidate.id == module_id)
+            .map(|candidate| candidate.enabled)
+            .unwrap_or(false)
+    };
+
+    let mut cards = load_cards(&connection, &profile_scope, window_days)?;
+    let query_groups = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+        load_query_groups(&connection, request.profile_id.as_deref(), window_days)?
+    } else {
+        Vec::new()
+    };
+    let topics = if module_enabled(THREADS_MODULE_ID) {
+        load_topics(&connection, &profile_scope, window_days)?
+    } else {
+        Vec::new()
+    };
+    let threads = if module_enabled(THREADS_MODULE_ID) {
+        load_threads(&connection, request.profile_id.as_deref(), window_days)?
+    } else {
+        Vec::new()
+    };
+    let reference_pages = if module_enabled(REFERENCE_PAGES_MODULE_ID) {
+        load_reference_pages(&connection, &profile_scope)?
+    } else {
+        Vec::new()
+    };
+    let source_effectiveness = if module_enabled(SOURCE_EFFECTIVENESS_MODULE_ID) {
+        load_source_effectiveness(&connection, &profile_scope)?
+    } else {
+        Vec::new()
+    };
+    let visits = load_visits(
+        &connection,
+        request.profile_id.as_deref(),
+        window_days,
+        DEFAULT_ANALYSIS_LIMIT,
+    )?;
+    let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
+    let features = load_feature_rows(&connection, request.profile_id.as_deref())?;
+    let query_ladders = if !module_enabled(QUERY_GROUPS_MODULE_ID) {
+        Vec::new()
+    } else if query_groups.is_empty() {
+        build_query_ladders(&visits, &features)
+    } else {
+        query_groups
+            .iter()
+            .filter(|group| group.steps.len() > 1)
+            .map(|group| InsightQueryLadder {
+                query_group_id: Some(group.query_group_id.clone()),
+                root_term: group.root_query.clone(),
+                profile_id: group.profile_id.clone(),
+                steps: group.steps.clone(),
+                stages: group.stages.clone(),
+                count: group.visit_count,
+                confidence: group.confidence,
+                evidence_tier: group.evidence_tier.clone(),
+                chromium_only: group.chromium_enhanced,
+            })
+            .collect()
+    };
+    let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+        build_template_summaries(
+            &visits,
+            &query_groups,
+            &threads,
+            &reference_pages,
+            &source_effectiveness,
+            request.profile_id.as_deref(),
+        )
+    } else {
+        Vec::new()
+    };
+    cards.retain(|card| match card.kind.as_str() {
+        "open-loop" => module_enabled(THREADS_MODULE_ID),
+        "reference-page" => module_enabled(REFERENCE_PAGES_MODULE_ID),
+        "query-groups" | "reference-pages" | "source-effectiveness" => {
+            module_enabled(TEMPLATE_SUMMARIES_MODULE_ID)
+        }
+        _ => true,
+    });
+    let workflow_map = build_workflow_map(&visits, &features, request.profile_id.as_deref());
+    let profile_facets = build_profile_facets(&visits, &topics, &threads);
+    let canonical = build_canonical_summary(&visits, on_this_day);
+    let status = insight_status(paths, config, key)?;
+    let notes = connection
+        .query_row(
+            "SELECT notes_json
+             FROM insight_runs
+             WHERE status = 'success' AND profile_scope = ?1 AND window_days = ?2
+             ORDER BY id DESC LIMIT 1",
+            params![profile_scope, window_days as i64],
+            |row: &Row<'_>| row.get::<_, String>(0),
+        )
+        .optional()?
+        .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+        .unwrap_or_default();
+
+    Ok(InsightSnapshot {
+        generated_at: now_rfc3339(),
+        window_days,
+        profile_id: request.profile_id.clone(),
+        status,
+        cards,
+        query_groups,
+        topics,
+        threads,
+        query_ladders,
+        reference_pages,
+        source_effectiveness,
+        template_summaries,
+        workflow_map,
+        profile_facets,
+        canonical,
+        notes,
+    })
+}
+
+/// Loads one persisted thread detail and its visit/query-group evidence.
+pub fn load_insight_thread_detail(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    thread_id: &str,
+) -> Result<InsightThreadDetail> {
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_insight_schema(&connection)?;
+    let summary = connection.query_row(
+        "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
+                query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
+                dominant_topic_id, chromium_enhanced, evidence_json
+         FROM insight_threads WHERE thread_id = ?1",
+        [thread_id],
+        thread_summary_from_row,
+    )?;
+    let mut statement = connection.prepare(
+        "SELECT visit_events.id, visit_events.profile_id, visit_events.url, visit_events.title, visit_events.visit_time
+         FROM insight_thread_members
+         JOIN visit_events ON visit_events.id = insight_thread_members.history_id
+         WHERE insight_thread_members.thread_id = ?1
+         ORDER BY insight_thread_members.ordinal ASC",
+    )?;
+    let visits = statement
+        .query_map([thread_id], |row: &Row<'_>| {
+            let url: String = row.get(2)?;
+            Ok(InsightEvidenceItem {
+                history_id: row.get(0)?,
+                profile_id: row.get(1)?,
+                url: url.clone(),
+                title: row.get(3)?,
+                visited_at: chrome_time_to_rfc3339(row.get(4)?),
+                note: Some(url_domain(&url)),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let query_groups = load_thread_query_groups(&connection, thread_id)?;
+    Ok(InsightThreadDetail { summary, query_groups, visits })
+}
+
+/// Clears all rebuildable intelligence tables while keeping canonical facts intact.
+pub fn clear_derived_intelligence_state(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<ClearDerivedIntelligenceReport> {
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    ensure_insight_schema(&connection)?;
+    ensure_intelligence_runtime_schema(&connection)?;
+
+    let report = ClearDerivedIntelligenceReport {
+        cleared_enrichment_rows: table_row_count(&connection, "visit_content_enrichments")?,
+        cleared_feature_rows: table_row_count(&connection, "visit_insight_features")?,
+        cleared_burst_rows: table_row_count(&connection, "insight_bursts")?,
+        cleared_query_group_rows: table_row_count(&connection, "insight_query_groups")?,
+        cleared_topic_rows: table_row_count(&connection, "insight_topics")?,
+        cleared_thread_rows: table_row_count(&connection, "insight_threads")?,
+        cleared_reference_page_rows: table_row_count(&connection, "insight_reference_pages")?,
+        cleared_source_rows: table_row_count(&connection, "insight_source_effectiveness")?,
+        cleared_module_rows: table_row_count(&connection, "deterministic_module_runtime")?,
+        cleared_card_rows: table_row_count(&connection, "insight_cards")?,
+        cleared_run_rows: table_row_count(&connection, "insight_runs")?,
+        notes: vec![
+            "Only derived enrichment and insight tables were cleared.".to_string(),
+            "Canonical archive visits, manifests, and rollback state were left untouched."
+                .to_string(),
+        ],
+    };
+
+    clear_derived_insight_state(&connection)?;
+    Ok(report)
+}
+
+/// Produces an explainability payload for one persisted insight surface.
+pub fn explain_insight(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &ExplainInsightRequest,
+) -> Result<InsightExplanation> {
+    let snapshot = load_insights(
+        paths,
+        config,
+        key,
+        &RunInsightsRequest {
+            profile_id: request.profile_id.clone(),
+            window_days: request.window_days,
+            full_rebuild: false,
+            limit: None,
+        },
+    )?;
+
+    match request.insight_kind.as_str() {
+        "thread" => {
+            let detail = load_insight_thread_detail(paths, config, key, &request.insight_id)?;
+            let explanation = format!(
+                "{} spans {} visits across {} query groups between {} and {}. It reopened {} times and has an open-loop score of {:.2}, which suggests the task was revisited rather than completed in a single pass.",
+                detail.summary.title,
+                detail.summary.visit_count,
+                detail.summary.query_group_count,
+                detail.summary.first_seen_at,
+                detail.summary.last_seen_at,
+                detail.summary.reopen_count,
+                detail.summary.open_loop_score,
+            );
+            Ok(InsightExplanation {
+                explanation,
+                used_llm: false,
+                citations: detail.visits.into_iter().take(6).collect(),
+                notes: vec![
+                    "Explanation is generated from persisted thread structure.".to_string(),
+                ],
+            })
+        }
+        "query-group" => {
+            let group = snapshot
+                .query_groups
+                .iter()
+                .find(|group| group.query_group_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("query group {} was not found", request.insight_id))?;
+            Ok(InsightExplanation {
+                explanation: format!(
+                    "\"{}\" evolved through {} steps with {} visits and confidence {:.2}.",
+                    group.root_query, group.step_count, group.visit_count, group.confidence
+                ),
+                used_llm: false,
+                citations: group.evidence,
+                notes: vec![
+                    "Explanation is generated from deterministic query-group evidence.".to_string(),
+                ],
+            })
+        }
+        "reference-page" => {
+            let page = snapshot
+                .reference_pages
+                .iter()
+                .find(|page| page.reference_page_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("reference page {} was not found", request.insight_id))?;
+            Ok(InsightExplanation {
+                explanation: format!(
+                    "{} resurfaced across {} query groups and {} threads.",
+                    page.title.clone().unwrap_or_else(|| page.url.clone()),
+                    page.query_group_count,
+                    page.thread_count,
+                ),
+                used_llm: false,
+                citations: page.evidence,
+                notes: vec![
+                    "Explanation is generated from deterministic reference-page reuse.".to_string(),
+                ],
+            })
+        }
+        "template-summary" => {
+            let summary = snapshot
+                .template_summaries
+                .iter()
+                .find(|summary| summary.summary_id == request.insight_id)
+                .cloned()
+                .with_context(|| {
+                    format!("template summary {} was not found", request.insight_id)
+                })?;
+            Ok(InsightExplanation {
+                explanation: summary.body,
+                used_llm: false,
+                citations: summary.evidence,
+                notes: vec![
+                    "Explanation is generated from deterministic summary templates.".to_string(),
+                ],
+            })
+        }
+        "topic" => {
+            let topic = snapshot
+                .topics
+                .iter()
+                .find(|topic| topic.topic_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("topic {} was not found", request.insight_id))?;
+            let explanation = format!(
+                "{} appears {} times in the last {} days. The current trend score is {:.2} and burst score is {:.2}, so it is {} within this window.",
+                topic.label,
+                topic.visit_count,
+                topic.window_days,
+                topic.trend_slope,
+                topic.burst_score,
+                if topic.trend_slope >= 0.12 { "gaining momentum" } else { "stable or cooling" },
+            );
+            Ok(InsightExplanation {
+                explanation,
+                used_llm: false,
+                citations: topic.evidence,
+                notes: vec!["Explanation is generated from topic aggregates.".to_string()],
+            })
+        }
+        _ => {
+            let card = snapshot
+                .cards
+                .iter()
+                .find(|card| card.card_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("card {} was not found", request.insight_id))?;
+            Ok(InsightExplanation {
+                explanation: format!("{} {}", card.title, card.summary),
+                used_llm: false,
+                citations: card.evidence,
+                notes: vec![
+                    "Explanation is generated from the precomputed card summary.".to_string(),
+                ],
+            })
+        }
+    }
+}
+
+/// Clears persisted derived intelligence tables and marks runtime modules stale.
+fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
+    connection.execute("DELETE FROM visit_content_enrichments", [])?;
+    ensure_intelligence_runtime_schema(connection)?;
+    connection.execute("DELETE FROM visit_insight_features", [])?;
+    connection.execute("DELETE FROM insight_bursts", [])?;
+    connection.execute("DELETE FROM insight_query_groups", [])?;
+    connection.execute("DELETE FROM insight_query_group_members", [])?;
+    connection.execute("DELETE FROM insight_topics", [])?;
+    connection.execute("DELETE FROM insight_threads", [])?;
+    connection.execute("DELETE FROM insight_thread_members", [])?;
+    connection.execute("DELETE FROM insight_reference_pages", [])?;
+    connection.execute("DELETE FROM insight_source_effectiveness", [])?;
+    connection.execute("DELETE FROM insight_cards", [])?;
+    connection.execute("DELETE FROM insight_runs", [])?;
+    connection
+        .execute("DELETE FROM intelligence_jobs WHERE job_type = ?1", [ENRICHMENT_JOB_TYPE])?;
+    crate::intelligence_runtime::mark_all_deterministic_modules_stale(
+        connection,
+        "Derived intelligence state was cleared manually.",
+    )?;
+    Ok(())
+}
+
+/// Counts the rows in one derived-intelligence table for clear-report bookkeeping.
+fn table_row_count(connection: &Connection, table_name: &str) -> Result<usize> {
+    let sql = format!("SELECT COUNT(*) FROM {table_name}");
+    Ok(connection.query_row(&sql, [], |row: &Row<'_>| row.get::<_, i64>(0))?.max(0) as usize)
+}
