@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
@@ -17,7 +18,35 @@ import {
   type WorkflowStep,
 } from './components/ui'
 import { formatDateTime, formatDuration } from './lib/format'
+import {
+  createNamespaceTranslator,
+  createTranslator,
+  type ResolvedLanguage,
+} from './lib/i18n'
+import { I18nContext, type I18nContextValue } from './lib/i18n/context'
 import type { AiProviderConfig } from './lib/types'
+
+function renderWithI18n(ui: ReactNode, language: ResolvedLanguage = 'en') {
+  const namespaceCache = new Map<
+    string,
+    ReturnType<typeof createNamespaceTranslator>
+  >()
+  const value: I18nContextValue = {
+    language,
+    preference: language,
+    setLanguagePreference: vi.fn(),
+    t: createTranslator(language),
+    ns: (namespace) => {
+      const cached = namespaceCache.get(namespace)
+      if (cached) return cached
+      const translator = createNamespaceTranslator(language, namespace)
+      namespaceCache.set(namespace, translator)
+      return translator
+    },
+  }
+
+  return render(<I18nContext.Provider value={value}>{ui}</I18nContext.Provider>)
+}
 
 describe('App helpers', () => {
   test('formats date and duration edge cases', () => {
@@ -33,7 +62,7 @@ describe('App helpers', () => {
     const toggleSpy = vi.fn()
     const pathSpy = vi.fn()
 
-    render(
+    renderWithI18n(
       <div>
         <Surface
           actions={<button type="button">Act</button>}
@@ -112,7 +141,7 @@ describe('App helpers', () => {
       },
     ]
 
-    render(
+    renderWithI18n(
       <OperationWorkflow
         actionLabel="Workflow"
         labels={{
@@ -124,8 +153,8 @@ describe('App helpers', () => {
           current: 'Current',
           complete: 'Complete',
           pending: 'Pending',
+          command: (index) => `Command ${index}`,
         }}
-        language="en"
         onCopy={copySpy}
         steps={steps}
       />,
@@ -198,15 +227,21 @@ describe('App helpers', () => {
       notes: 'Notes',
       apiKey: 'API key',
       apiKeyPlaceholder: 'sk-...',
-      keyStored: 'Saved',
-      yes: 'Yes',
-      no: 'No',
+      keySaved: 'Saved',
+      keyNotSaved: 'Not saved',
       saveKey: 'Save key',
       clearKey: 'Clear key',
       remove: 'Remove',
+      requestFormatLabels: {
+        openai: 'OpenAI-compatible',
+        anthropic: 'Anthropic-compatible',
+        google: 'Google AI Studio',
+        ollama: 'Ollama',
+        'lm-studio': 'LM Studio',
+      },
     }
 
-    const { rerender } = render(
+    const { rerender } = renderWithI18n(
       <AiProviderEditorList
         addLabel="Add provider"
         apiKeys={{ 'llm-preview': 'secret', 'embedding-preview': '' }}
@@ -231,7 +266,10 @@ describe('App helpers', () => {
     expect(removeSpy).toHaveBeenCalledWith('llm-preview')
     await user.type(screen.getByDisplayValue('Preview LLM'), ' updated')
     expect(updateSpy).toHaveBeenCalled()
-    await user.selectOptions(screen.getByDisplayValue('openai'), 'google')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Request format' }),
+      'google',
+    )
     await user.clear(screen.getByDisplayValue('https://api.example.com/v1'))
     await user.type(
       screen.getByPlaceholderText('https://api.example.com/v1'),
@@ -378,15 +416,21 @@ describe('App helpers', () => {
       notes: 'Notes',
       apiKey: 'API key',
       apiKeyPlaceholder: 'sk-...',
-      keyStored: 'Key stored',
-      yes: 'Yes',
-      no: 'No',
+      keySaved: 'Saved',
+      keyNotSaved: 'Not saved',
       saveKey: 'Save key',
       clearKey: 'Clear key',
       remove: 'Remove provider',
+      requestFormatLabels: {
+        openai: 'OpenAI-compatible',
+        anthropic: 'Anthropic-compatible',
+        google: 'Google AI Studio',
+        ollama: 'Ollama',
+        'lm-studio': 'LM Studio',
+      },
     }
 
-    render(
+    renderWithI18n(
       <div>
         <PathRow label="Readonly path" value="/tmp/no-actions" />
         <AiProviderEditorList

@@ -53,7 +53,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className="sidebar"
-      aria-label={t('navigation.coreSection')}
+      aria-label={t('navigation.primaryNavigation')}
       data-collapsed={collapsed ? 'true' : 'false'}
     >
       <div className="sidebar-header">

@@ -64,12 +64,12 @@ export function AiProviderEditorList({
     notes: string
     apiKey: string
     apiKeyPlaceholder: string
-    keyStored: string
-    yes: string
-    no: string
+    keySaved: string
+    keyNotSaved: string
     saveKey: string
     clearKey: string
     remove: string
+    requestFormatLabels: Record<AiRequestFormat, string>
   }
 }) {
   return (
@@ -148,7 +148,7 @@ export function AiProviderEditorList({
                     >
                       {aiRequestFormats.map((format) => (
                         <option key={format} value={format}>
-                          {format}
+                          {translations.requestFormatLabels[format]}
                         </option>
                       ))}
                     </select>
@@ -290,9 +290,11 @@ export function AiProviderEditorList({
 
               <div className="providerSecretRow">
                 <FieldBlock
-                  label={`${translations.apiKey} · ${translations.keyStored}: ${
-                    provider.apiKeySaved ? translations.yes : translations.no
-                  }`}
+                  label={
+                    provider.apiKeySaved
+                      ? `${translations.apiKey} · ${translations.keySaved}`
+                      : `${translations.apiKey} · ${translations.keyNotSaved}`
+                  }
                   control={
                     <input
                       autoComplete="off"

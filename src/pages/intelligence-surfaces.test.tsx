@@ -723,6 +723,9 @@ describe('intelligence surfaces', () => {
     const input = await screen.findByPlaceholderText(
       assistantT('inputPlaceholder'),
     )
+    expect(
+      screen.getByRole('button', { name: assistantT('sendAction') }),
+    ).toBeVisible()
     await user.type(input, '总结最近的证据{enter}')
 
     expect(
@@ -751,6 +754,14 @@ describe('intelligence surfaces', () => {
 
     expect(startInput).toHaveValue('2026-04-01')
     expect(endInput).toHaveValue('2026-04-07')
+    expect(
+      screen.getByRole('button', {
+        name: explorerT('removeFilter', {
+          label: explorerT('filterStart'),
+          value: '2026-04-01',
+        }),
+      }),
+    ).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'Clear range' }))
 

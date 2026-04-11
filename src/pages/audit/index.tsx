@@ -108,7 +108,10 @@ export function AuditPage() {
     detail: null,
     error: null,
   })
-  const [copiedPath, setCopiedPath] = useState<string | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<{
+    path: string
+    tone: 'success' | 'error'
+  } | null>(null)
   const [detailCache, setDetailCache] = useState<
     Record<number, AuditRunDetail>
   >({})
@@ -406,12 +409,13 @@ export function AuditPage() {
 
   async function handleCopyPath(path: string) {
     try {
-      if (!navigator.clipboard?.writeText)
-        throw new Error('Clipboard unavailable')
+      if (!navigator.clipboard?.writeText) {
+        throw new Error(t('audit.copyFailed'))
+      }
       await navigator.clipboard.writeText(path)
-      setCopiedPath(path)
+      setCopyFeedback({ path, tone: 'success' })
     } catch {
-      setCopiedPath(`error:${path}`)
+      setCopyFeedback({ path, tone: 'error' })
     }
   }
 
@@ -1171,9 +1175,11 @@ export function AuditPage() {
                           </button>
                         ) : null}
                       </div>
-                      {copiedPath === artifact.path ? (
+                      {copyFeedback?.path === artifact.path ? (
                         <span className="dim mono" style={{ fontSize: '10px' }}>
-                          {t('audit.copied')}
+                          {copyFeedback.tone === 'success'
+                            ? t('audit.copied')
+                            : t('audit.copyFailed')}
                         </span>
                       ) : null}
                     </div>
@@ -1378,11 +1384,14 @@ export function AuditPage() {
                 </>
               )}
             </div>
-            {detail.manifestPath && copiedPath === detail.manifestPath && (
-              <span className="dim mono" style={{ fontSize: '10px' }}>
-                {t('audit.copied')}
-              </span>
-            )}
+            {detail.manifestPath &&
+              copyFeedback?.path === detail.manifestPath && (
+                <span className="dim mono" style={{ fontSize: '10px' }}>
+                  {copyFeedback.tone === 'success'
+                    ? t('audit.copied')
+                    : t('audit.copyFailed')}
+                </span>
+              )}
           </div>
         </div>
       ) : (

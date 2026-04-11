@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { TakeoutPreviewEntry } from '../lib/types'
+import { useI18n } from '../lib/i18n'
 import type { ResolvedLanguage } from '../lib/i18n'
 import { formatDateTime } from '../lib/format'
 
@@ -146,17 +147,28 @@ export function PathRow({
   onOpen?: () => void
   onCopy?: () => void
 }) {
+  const { t } = useI18n()
   const actionBar =
     actions ??
     (onOpen || onCopy ? (
       <>
         {onOpen && (
-          <button className="ghostButton" type="button" onClick={onOpen}>
+          <button
+            aria-label={t('common.openPath')}
+            className="ghostButton"
+            type="button"
+            onClick={onOpen}
+          >
             <Glyph icon="folder_open" />
           </button>
         )}
         {onCopy && (
-          <button className="ghostButton" type="button" onClick={onCopy}>
+          <button
+            aria-label={t('common.copyAction')}
+            className="ghostButton"
+            type="button"
+            onClick={onCopy}
+          >
             <Glyph icon="content_copy" />
           </button>
         )}
@@ -300,7 +312,6 @@ export type WorkflowStep = {
 export function OperationWorkflow({
   actionLabel,
   labels,
-  language,
   onCopy,
   steps,
 }: {
@@ -314,8 +325,8 @@ export function OperationWorkflow({
     current: string
     complete: string
     pending: string
+    command: (index: number) => string
   }
-  language: ResolvedLanguage
   onCopy: (value: string) => Promise<void>
   steps: WorkflowStep[]
 }) {
@@ -399,9 +410,7 @@ export function OperationWorkflow({
                     {step.commands.map((command) => (
                       <article className="codeArtifact" key={command}>
                         <div className="artifactHeader">
-                          <strong>
-                            {formatDateTime(new Date().toISOString(), language)}
-                          </strong>
+                          <strong>{labels.command(index + 1)}</strong>
                           <button
                             className="ghostButton"
                             type="button"
