@@ -20,7 +20,7 @@ use crate::{
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -113,6 +113,33 @@ pub(crate) struct ClaimedEnrichmentJob {
     pub plugin_id: String,
     pub attempt: usize,
     pub payload: EnrichmentJobPayload,
+}
+
+#[derive(Debug, Clone)]
+struct QueuedEnrichmentJobSnapshot {
+    id: i64,
+    plugin_id: String,
+    attempt: i64,
+    payload_json: String,
+    priority: i64,
+    created_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct EnrichmentQueueCursor {
+    priority: i64,
+    created_at: String,
+    id: i64,
+}
+
+impl QueuedEnrichmentJobSnapshot {
+    fn cursor(&self) -> EnrichmentQueueCursor {
+        EnrichmentQueueCursor {
+            priority: self.priority,
+            created_at: self.created_at.clone(),
+            id: self.id,
+        }
+    }
 }
 
 const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = [
@@ -353,72 +380,124 @@ pub(crate) fn claim_enrichment_jobs(
     limit: usize,
 ) -> Result<Vec<ClaimedEnrichmentJob>> {
     ensure_intelligence_runtime_schema(connection)?;
+    if allowed_plugin_ids.is_empty() || allowed_history_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let target_count = limit.max(1);
+    let page_size = target_count.max(64);
     let mut claimed = Vec::new();
-    let scan_limit = (limit.max(1) * 4) as i64;
-    let mut seen_ids = std::collections::HashSet::<i64>::new();
+    let mut cursor = None::<EnrichmentQueueCursor>;
 
     loop {
-        let mut statement = connection.prepare(
-            "SELECT id, plugin_id, attempt, payload_json
-             FROM intelligence_jobs
-             WHERE job_type = ?1 AND state = 'queued'
-             ORDER BY priority ASC, created_at ASC, id ASC
-             LIMIT ?2",
+        let candidates = queued_enrichment_candidates_page(
+            connection,
+            allowed_plugin_ids,
+            cursor.as_ref(),
+            page_size,
         )?;
-        let candidate_rows = statement
-            .query_map(params![ENRICHMENT_JOB_TYPE, scan_limit], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut saw_new_candidate = false;
+        if candidates.is_empty() {
+            break;
+        }
 
-        for (id, plugin_id, attempt, payload_json) in candidate_rows {
-            if !seen_ids.insert(id) {
-                continue;
-            }
-            saw_new_candidate = true;
-
-            let Some(plugin_id) = plugin_id else {
-                continue;
-            };
-            if !allowed_plugin_ids.iter().any(|candidate| candidate == &plugin_id) {
-                continue;
-            }
-            let payload = serde_json::from_str::<EnrichmentJobPayload>(&payload_json)
-                .with_context(|| format!("parsing enrichment payload for job {id}"))?;
+        cursor = candidates.last().map(QueuedEnrichmentJobSnapshot::cursor);
+        for candidate in candidates {
+            let payload = serde_json::from_str::<EnrichmentJobPayload>(&candidate.payload_json)
+                .with_context(|| format!("parsing enrichment payload for job {}", candidate.id))?;
             if !allowed_history_ids.contains(&payload.history_id) {
                 continue;
             }
 
-            let now = now_rfc3339();
-            connection.execute(
-                "UPDATE intelligence_jobs
-                 SET state = 'running', attempt = attempt + 1, started_at = ?1, updated_at = ?1
-                 WHERE id = ?2",
-                params![now, id],
-            )?;
+            let claimed_at = now_rfc3339();
+            if !try_claim_enrichment_job(connection, candidate.id, &claimed_at)? {
+                continue;
+            }
             claimed.push(ClaimedEnrichmentJob {
-                id,
-                plugin_id,
-                attempt: attempt.max(0) as usize + 1,
+                id: candidate.id,
+                plugin_id: candidate.plugin_id,
+                attempt: candidate.attempt.max(0) as usize + 1,
                 payload,
             });
-            if claimed.len() >= limit.max(1) {
-                break;
+            if claimed.len() >= target_count {
+                return Ok(claimed);
             }
-        }
-
-        if claimed.len() >= limit.max(1) || !saw_new_candidate {
-            break;
         }
     }
 
     Ok(claimed)
+}
+
+fn queued_enrichment_candidates_page(
+    connection: &Connection,
+    allowed_plugin_ids: &[String],
+    after: Option<&EnrichmentQueueCursor>,
+    limit: usize,
+) -> Result<Vec<QueuedEnrichmentJobSnapshot>> {
+    let placeholders =
+        std::iter::repeat_n("?", allowed_plugin_ids.len()).collect::<Vec<_>>().join(", ");
+    let mut query = format!(
+        "SELECT id, plugin_id, attempt, payload_json, priority, created_at
+         FROM intelligence_jobs
+         WHERE job_type = ?
+           AND state = 'queued'
+           AND plugin_id IN ({placeholders})"
+    );
+    let mut bindings = Vec::<SqlValue>::with_capacity(allowed_plugin_ids.len() + 5);
+    bindings.push(SqlValue::from(ENRICHMENT_JOB_TYPE.to_string()));
+    bindings.extend(allowed_plugin_ids.iter().cloned().map(SqlValue::from));
+
+    if let Some(after) = after {
+        query.push_str(
+            " AND (
+                priority > ?
+                OR (priority = ? AND (created_at > ? OR (created_at = ? AND id > ?)))
+              )",
+        );
+        bindings.push(SqlValue::from(after.priority));
+        bindings.push(SqlValue::from(after.priority));
+        bindings.push(SqlValue::from(after.created_at.clone()));
+        bindings.push(SqlValue::from(after.created_at.clone()));
+        bindings.push(SqlValue::from(after.id));
+    }
+
+    query.push_str(" ORDER BY priority ASC, created_at ASC, id ASC LIMIT ?");
+    bindings.push(SqlValue::from(limit.max(1) as i64));
+
+    let mut statement = connection.prepare(&query)?;
+    statement
+        .query_map(params_from_iter(bindings.iter()), |row| {
+            Ok(QueuedEnrichmentJobSnapshot {
+                id: row.get(0)?,
+                plugin_id: row.get(1)?,
+                attempt: row.get(2)?,
+                payload_json: row.get(3)?,
+                priority: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn try_claim_enrichment_job(
+    connection: &Connection,
+    job_id: i64,
+    claimed_at: &str,
+) -> Result<bool> {
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'running',
+             attempt = attempt + 1,
+             started_at = ?1,
+             finished_at = NULL,
+             updated_at = ?1,
+             last_error = NULL,
+             cancellation_reason = NULL
+         WHERE id = ?2
+           AND state = 'queued'",
+        params![claimed_at, job_id],
+    )?;
+    Ok(updated == 1)
 }
 
 /// Marks one intelligence job as succeeded.
@@ -1002,25 +1081,33 @@ mod tests {
             .expect("payload")
         };
 
+        for history_id in 1..=6 {
+            connection
+                .execute(
+                    "INSERT INTO intelligence_jobs
+                     (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key,
+                      payload_json, artifact_json, created_at, scheduled_at, updated_at)
+                     VALUES (?1, ?2, ?3, 'queued', 10, 0, ?4, ?5, '{}', ?6, ?6, ?6)",
+                    params![
+                        ENRICHMENT_JOB_TYPE,
+                        TITLE_NORMALIZATION_PLUGIN_ID,
+                        history_id,
+                        format!("job-blocked-{history_id}"),
+                        payload(history_id),
+                        now,
+                    ],
+                )
+                .expect("insert blocked queued job");
+        }
         connection
             .execute(
                 "INSERT INTO intelligence_jobs
                  (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
                   artifact_json, created_at, scheduled_at, updated_at)
-                 VALUES
-                    (?1, 'disabled-plugin', 11, 'queued', 10, 0, 'job-1', ?2, '{}', ?5, ?5, ?5),
-                    (?1, 'disabled-plugin', 12, 'queued', 10, 0, 'job-2', ?3, '{}', ?5, ?5, ?5),
-                    (?1, ?4, 13, 'queued', 10, 0, 'job-3', ?6, '{}', ?5, ?5, ?5)",
-                params![
-                    ENRICHMENT_JOB_TYPE,
-                    payload(1),
-                    payload(2),
-                    TITLE_NORMALIZATION_PLUGIN_ID,
-                    now,
-                    payload(99),
-                ],
+                 VALUES (?1, ?2, 99, 'queued', 10, 0, 'job-target', ?3, '{}', ?4, ?4, ?4)",
+                params![ENRICHMENT_JOB_TYPE, TITLE_NORMALIZATION_PLUGIN_ID, payload(99), now,],
             )
-            .expect("insert queued jobs");
+            .expect("insert target job");
 
         let claimed = claim_enrichment_jobs(
             &connection,
@@ -1034,12 +1121,74 @@ mod tests {
         assert_eq!(claimed[0].payload.history_id, 99);
         let state = connection
             .query_row(
-                "SELECT state FROM intelligence_jobs WHERE dedupe_key = 'job-3'",
+                "SELECT state FROM intelligence_jobs WHERE dedupe_key = 'job-target'",
                 [],
                 |row| row.get::<_, String>(0),
             )
             .expect("job state");
         assert_eq!(state, "running");
+    }
+
+    #[test]
+    fn compare_and_set_claim_skips_jobs_taken_by_another_connection() {
+        let root = tempdir().expect("tempdir");
+        let database_path = root.path().join("queue.sqlite");
+        let connection = Connection::open(&database_path).expect("open queue db");
+        ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+        let competing_connection =
+            Connection::open(&database_path).expect("open competing queue db");
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, updated_at)
+                 VALUES (?1, ?2, 11, 'queued', 10, 0, 'job-race', ?3, '{}', ?4, ?4, ?4)",
+                params![
+                    ENRICHMENT_JOB_TYPE,
+                    TITLE_NORMALIZATION_PLUGIN_ID,
+                    serde_json::to_string(&EnrichmentJobPayload {
+                        history_id: 42,
+                        profile_id: "chrome:Default".to_string(),
+                        url: "https://example.com/race".to_string(),
+                        title: Some("Race".to_string()),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert queued job");
+
+        let snapshot = queued_enrichment_candidates_page(
+            &connection,
+            &[TITLE_NORMALIZATION_PLUGIN_ID.to_string()],
+            None,
+            1,
+        )
+        .expect("queued candidate page");
+        assert_eq!(snapshot.len(), 1);
+
+        let claimed_at = now_rfc3339();
+        assert!(
+            try_claim_enrichment_job(&competing_connection, snapshot[0].id, &claimed_at)
+                .expect("competing claim"),
+            "the first claimer should win"
+        );
+        assert!(
+            !try_claim_enrichment_job(&connection, snapshot[0].id, &claimed_at)
+                .expect("stale snapshot claim"),
+            "stale snapshots must not double-claim the same job"
+        );
+
+        let (state, attempt) = connection
+            .query_row(
+                "SELECT state, attempt FROM intelligence_jobs WHERE dedupe_key = 'job-race'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .expect("job state after competing claims");
+        assert_eq!(state, "running");
+        assert_eq!(attempt, 1);
     }
 
     #[test]
