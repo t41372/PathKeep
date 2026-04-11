@@ -1,3 +1,18 @@
+/**
+ * This module contains route-level hooks that support the Audit surface.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `useAuditData`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { backend } from '../../../lib/backend-client'
 import { auditSeverity } from '../../../lib/trust-review'
@@ -14,6 +29,11 @@ import {
   type AuditDetailTab,
 } from '../types'
 
+/**
+ * Collects the inputs needed by `UseAuditData`.
+ *
+ * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface UseAuditDataOptions {
   labels: {
     commonUnavailable: string
@@ -33,6 +53,11 @@ interface UseAuditDataOptions {
   selectRun: (runId: number) => void
 }
 
+/**
+ * Provides the `useAuditData` hook.
+ *
+ * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function useAuditData({
   labels,
   recentImportBatches,
@@ -73,6 +98,11 @@ export function useAuditData({
   useEffect(() => {
     if (!runId) return
     let cancelled = false
+    /**
+     * Loads detail.
+     *
+     * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadDetail = async () => {
       try {
         const response = await backend.loadAuditRunDetail(runId)
@@ -102,6 +132,11 @@ export function useAuditData({
     }
 
     let cancelled = false
+    /**
+     * Loads run index.
+     *
+     * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadRunIndex = async () => {
       const entries = await Promise.allSettled(
         recentRuns.map(
@@ -162,6 +197,11 @@ export function useAuditData({
     }
 
     let cancelled = false
+    /**
+     * Loads related batch.
+     *
+     * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadRelatedBatch = async () => {
       try {
         setRelatedBatchError(null)
@@ -186,6 +226,11 @@ export function useAuditData({
     }
   }, [labels.importPreviewUnavailable, relatedImportBatch])
 
+  /**
+   * Handles copy path.
+   *
+   * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleCopyPath(path: string) {
     try {
       if (!navigator.clipboard?.writeText) {
@@ -198,6 +243,11 @@ export function useAuditData({
     }
   }
 
+  /**
+   * Handles related batch mutation.
+   *
+   * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRelatedBatchMutation(action: 'revert' | 'restore') {
     if (!relatedBatchDetail) return
     const message =
@@ -228,6 +278,11 @@ export function useAuditData({
     }
   }
 
+  /**
+   * Handles preview restore.
+   *
+   * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handlePreviewRestore(snapshotPath: string) {
     setRestoreBusy(true)
     setRestoreError(null)
@@ -245,6 +300,11 @@ export function useAuditData({
     }
   }
 
+  /**
+   * Handles execute restore.
+   *
+   * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleExecuteRestore() {
     if (!restorePreview?.executeSupported) {
       return

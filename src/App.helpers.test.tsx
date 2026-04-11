@@ -1,3 +1,18 @@
+/**
+ * This module implements the App.helpers front-end surface.
+ *
+ * Why this file exists:
+ * - It is part of the active `src/` tree and should explain its own role without forcing the next reader to scan unrelated files first.
+ * - When this file changes, the surrounding comments should keep the intent, boundaries, and main declarations easy to see at a glance.
+ *
+ * Main declarations:
+ * - `renderWithI18n`
+ *
+ * Source-of-truth notes:
+ * - Keep the implementation aligned with the accepted product, design, and architecture documents.
+ * - Prefer explicit structure over cleverness so the codebase stays navigable as the front-end keeps growing.
+ */
+
 import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -26,6 +41,11 @@ import {
 import { I18nContext, type I18nContextValue } from './lib/i18n/context'
 import type { AiProviderConfig } from './lib/types'
 
+/**
+ * Explains how render with i18n works.
+ *
+ * Keeping this declaration named and documented is part of making the front-end codebase navigable without a separate documentation site.
+ */
 function renderWithI18n(ui: ReactNode, language: ResolvedLanguage = 'en') {
   const namespaceCache = new Map<
     string,

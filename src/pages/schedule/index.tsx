@@ -1,3 +1,18 @@
+/**
+ * This module renders the Schedule route and keeps the Preview / Manual / Execute / Verify grammar readable across platforms.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `SchedulePage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useState } from 'react'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { ErrorState } from '../../components/primitives/error-state'
@@ -14,6 +29,11 @@ import {
 import { scheduleInstallTone } from '../../lib/trust-review'
 import type { ApplyResult, SchedulePlan, ScheduleStatus } from '../../lib/types'
 
+/**
+ * Captures the state shape used by `ScheduleLoad`.
+ *
+ * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface ScheduleLoadState {
   requestKey: number
   plan: SchedulePlan | null
@@ -21,13 +41,28 @@ interface ScheduleLoadState {
   error: string | null
 }
 
+/**
+ * Enumerates the tabs available on this front-end surface.
+ *
+ * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 type PmeTab = 'preview' | 'manual' | 'execute' | 'verify'
 
+/**
+ * Captures the state shape used by `ScheduleExecution`.
+ *
+ * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface ScheduleExecutionState {
   mode: 'apply' | 'remove'
   result: ApplyResult
 }
 
+/**
+ * Waits for next paint.
+ *
+ * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function waitForNextPaint() {
   return new Promise<void>((resolve) => {
     if (
@@ -39,6 +74,11 @@ function waitForNextPaint() {
     }
 
     let settled = false
+    /**
+     * Explains how finish works.
+     *
+     * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const finish = () => {
       if (settled) return
       settled = true
@@ -50,12 +90,22 @@ function waitForNextPaint() {
   })
 }
 
+/**
+ * Explains how join command works.
+ *
+ * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function joinCommand(command: string[]) {
   return command
     .map((part) => (part.includes(' ') ? `"${part}"` : part))
     .join(' ')
 }
 
+/**
+ * Renders the schedule route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Schedule expectations in the design docs.
+ */
 export function SchedulePage() {
   const { refreshAppData, refreshKey, snapshot } = useShellData()
   const { language, t } = useI18n()
@@ -75,6 +125,11 @@ export function SchedulePage() {
 
   useEffect(() => {
     let cancelled = false
+    /**
+     * Loads schedule.
+     *
+     * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadSchedule = async () => {
       try {
         const [nextPlan, nextStatus] = await Promise.all([
@@ -139,6 +194,11 @@ export function SchedulePage() {
               ? t('schedule.manualReviewDescription')
               : t('schedule.notInstalledDescription')
 
+  /**
+   * Handles apply.
+   *
+   * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleApply() {
     if (!plan) return
 
@@ -162,6 +222,11 @@ export function SchedulePage() {
     }
   }
 
+  /**
+   * Handles remove.
+   *
+   * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRemove() {
     if (!plan) return
 

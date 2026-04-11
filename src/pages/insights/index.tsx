@@ -1,3 +1,18 @@
+/**
+ * This module renders the Insights route and keeps deterministic, evidence-first insight surfaces aligned with shared profile scope.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `InsightsPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -47,6 +62,11 @@ import type {
 
 const topicColors = ['#FF7832', '#4ECDC4', '#FFE66D', '#FF6B6B', '#89CFF0']
 
+/**
+ * Explains how query stage label works.
+ *
+ * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function queryStageLabel(
   stage: string,
   t: (key: string, values?: Record<string, number | string>) => string,
@@ -67,6 +87,11 @@ function queryStageLabel(
   }
 }
 
+/**
+ * Renders the insights route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Insights expectations in the design docs.
+ */
 export function InsightsPage() {
   const { language, ns } = useI18n()
   const { dashboard, refreshAppData, refreshKey, snapshot } = useShellData()
@@ -101,6 +126,11 @@ export function InsightsPage() {
     setSelectedInsight(null)
     setExplanation(null)
     setLoadError(null)
+    /**
+     * Explains how load works.
+     *
+     * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const load = async () => {
       try {
         const result = await backend.loadInsights({
@@ -132,6 +162,11 @@ export function InsightsPage() {
 
   useEffect(() => {
     let cancelled = false
+    /**
+     * Loads runtime.
+     *
+     * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadRuntime = async () => {
       try {
         const nextRuntime = await backend.loadIntelligenceRuntime()
@@ -180,6 +215,11 @@ export function InsightsPage() {
     [dashboard],
   )
 
+  /**
+   * Handles refresh insights.
+   *
+   * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRefreshInsights() {
     setAction(insightsT('refreshingAction'))
     setLoadError(null)
@@ -208,6 +248,11 @@ export function InsightsPage() {
     }
   }
 
+  /**
+   * Handles retry runtime job.
+   *
+   * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRetryRuntimeJob(jobId: number) {
     setAction(settingsT('retryRuntimeJob'))
     try {
@@ -223,6 +268,11 @@ export function InsightsPage() {
     }
   }
 
+  /**
+   * Handles cancel runtime job.
+   *
+   * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleCancelRuntimeJob(jobId: number) {
     setAction(settingsT('cancelRuntimeJob'))
     try {
@@ -238,6 +288,11 @@ export function InsightsPage() {
     }
   }
 
+  /**
+   * Handles explain.
+   *
+   * Keeping this as a named declaration makes the Insights surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleExplain(input: {
     id: string
     kind: string

@@ -1,6 +1,26 @@
+/**
+ * This test file protects the front-end helper and contract logic in Update.
+ *
+ * Why this file exists:
+ * - Pure helpers are where we keep UI policy testable without booting the whole shell.
+ * - When these tests fail, they usually point at a contract drift that would otherwise show up as subtle route regressions.
+ *
+ * Main declarations:
+ * - This file is mostly internal implementation detail.
+ *
+ * Source-of-truth notes:
+ * - Helper behavior should stay aligned with the same design, feature, and architecture docs that guide the UI surfaces consuming it.
+ * - Prefer focused behavioral assertions over snapshotting implementation detail.
+ */
+
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { UpdateInstallState } from './types'
 
+/**
+ * Exposes the legacy preview-aware backend facade consumed by older routes and tests.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 const backend = vi.hoisted(() => ({
   checkForAppUpdate: vi.fn(),
   downloadAndInstallAppUpdate: vi.fn(),

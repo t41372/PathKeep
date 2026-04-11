@@ -1,3 +1,18 @@
+/**
+ * This module renders the Audit Ledger route, where runs, artifacts, warnings, and rollback hints stay reviewable instead of hidden behind success toasts.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `AuditPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -19,6 +34,11 @@ import { useAuditData } from './hooks/use-audit-data'
 import { AuditRunDetailPanel } from './panels/run-detail'
 import type { AuditFilterState } from './types'
 
+/**
+ * Renders the audit route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Audit expectations in the design docs.
+ */
 export function AuditPage() {
   const {
     error: shellError,
@@ -213,6 +233,11 @@ export function AuditPage() {
     indexedRuns.length > 0 &&
     Object.keys(detailCache).length < indexedRuns.length
 
+  /**
+   * Explains how source label works.
+   *
+   * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function sourceLabel(sourceKind: string) {
     if (sourceKind === 'chrome') return t('audit.sourceChrome')
     if (sourceKind === 'firefox') return t('audit.sourceFirefox')
@@ -232,6 +257,11 @@ export function AuditPage() {
     selectRun(filteredRuns[0].id)
   }, [filteredRuns, runId, selectRun])
 
+  /**
+   * Explains how restore kind label works.
+   *
+   * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function restoreKindLabel(kind: string) {
     return kind === 'archive-safety-snapshot'
       ? t('audit.restoreKindArchiveSafety')

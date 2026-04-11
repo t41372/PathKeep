@@ -1,3 +1,18 @@
+/**
+ * This module renders part of the sidebar navigation surface for the desktop shell.
+ *
+ * Why this file exists:
+ * - Shared components keep the shell visually and behaviorally consistent instead of making each route invent its own state grammar.
+ * - If a primitive or chrome component changes, multiple workflows can shift at once, so the rationale belongs close to the code.
+ *
+ * Main declarations:
+ * - `Sidebar`
+ *
+ * Source-of-truth notes:
+ * - Visual language comes from `docs/design/design-tokens.md` and the route/shell structure in `docs/design/screens-and-nav.md`.
+ * - Loading, empty, error, permission, and callout behavior must stay aligned with `docs/design/ux-principles.md`.
+ */
+
 import { sidebarSections } from '../../app/router'
 import { useShellData } from '../../app/shell-data-context'
 import { formatBytes } from '../../lib/format'
@@ -9,11 +24,21 @@ import {
 import { BrandMark } from '../brand-mark'
 import { SidebarNavItem } from './nav-item'
 
+/**
+ * Describes the props accepted by `Sidebar`.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
 }
 
+/**
+ * Explains how sidebar works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { language, t } = useI18n()
   const { buildInfo, dashboard, snapshot } = useShellData()
@@ -38,6 +63,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     ? (activeProfile?.profileName ?? profileIdLabel(activeProfileId))
     : t('common.profileAllProfiles')
 
+  /**
+   * Explains how toggle theme works.
+   *
+   * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+   */
   function toggleTheme() {
     const html = document.documentElement
     const current = html.getAttribute('data-theme')

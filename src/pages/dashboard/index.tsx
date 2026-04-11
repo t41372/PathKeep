@@ -1,3 +1,18 @@
+/**
+ * This module renders the Dashboard route, which summarizes archive health, recent runs, scoped callouts, and quick links into the rest of the app.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `DashboardPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -38,6 +53,11 @@ import {
 } from '../../lib/trust-review'
 import type { BrowserProfile, InsightSnapshot } from '../../lib/types'
 
+/**
+ * Returns whether backup ready profile.
+ *
+ * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function isBackupReadyProfile(profile: {
   profileId: string
   historyExists: boolean
@@ -45,6 +65,11 @@ function isBackupReadyProfile(profile: {
   return profile.historyExists
 }
 
+/**
+ * Explains how browser icon class works.
+ *
+ * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function browserIconClass(profileId: string) {
   if (profileId.startsWith('chrome:')) return 'chrome'
   if (profileId.startsWith('arc:')) return 'arc'
@@ -53,6 +78,11 @@ function browserIconClass(profileId: string) {
   return ''
 }
 
+/**
+ * Explains how browser icon letter works.
+ *
+ * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function browserIconLetter(profileId: string) {
   if (profileId.startsWith('chrome:')) return 'C'
   if (profileId.startsWith('arc:')) return 'A'
@@ -61,6 +91,11 @@ function browserIconLetter(profileId: string) {
   return '?'
 }
 
+/**
+ * Renders the dashboard route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Dashboard expectations in the design docs.
+ */
 export function DashboardPage() {
   const { dashboard, error, loading, refreshKey, snapshot } = useShellData()
   const { language, t, ns } = useI18n()
@@ -81,6 +116,11 @@ export function DashboardPage() {
     let cancelled = false
     setInsightsLoading(true)
 
+    /**
+     * Explains how load works.
+     *
+     * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const load = async () => {
       try {
         const nextInsights = await backend.loadInsights({
@@ -178,6 +218,11 @@ export function DashboardPage() {
     ? resolveInsightPeriodicSummary(activeInsights, insightsT)
     : []
 
+  /**
+   * Explains how run source summary works.
+   *
+   * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function runSourceSummary(profileScope: string[] | undefined) {
     const sourceKinds = sourceKindFromProfileScope(profileScope ?? [])
     return sourceKinds
@@ -192,6 +237,11 @@ export function DashboardPage() {
       .join(' · ')
   }
 
+  /**
+   * Explains how render profile boundary works.
+   *
+   * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function renderProfileBoundary(profile: BrowserProfile) {
     const retention = browserRetentionMeta(profile, commonT)
 

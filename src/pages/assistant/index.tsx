@@ -1,3 +1,18 @@
+/**
+ * This module renders the AI Assistant route and keeps it grounded in explicit evidence, queue state, and shared profile scope.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `AssistantPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -25,6 +40,11 @@ import type {
   AiQueueStatus,
 } from '../../lib/types'
 
+/**
+ * Defines the typed shape for conversation message.
+ *
+ * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface ConversationMessage {
   id: string
   role: 'user' | 'assistant'
@@ -32,10 +52,20 @@ interface ConversationMessage {
   response?: AiAssistantResponse
 }
 
+/**
+ * Explains how message id works.
+ *
+ * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function messageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/**
+ * Explains how render paragraphs works.
+ *
+ * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function renderParagraphs(content: string) {
   return content
     .split('\n')
@@ -54,6 +84,11 @@ function renderParagraphs(content: string) {
     ))
 }
 
+/**
+ * Renders the assistant route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Assistant expectations in the design docs.
+ */
 export function AssistantPage() {
   const { language, ns, t } = useI18n()
   const { refreshAppData, refreshKey, snapshot } = useShellData()
@@ -127,6 +162,11 @@ export function AssistantPage() {
     [queueStatus],
   )
 
+  /**
+   * Merges assistant message into an existing collection without losing stable identifiers.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function upsertAssistantMessage(
     jobId: number | undefined | null,
     response: AiAssistantResponse,
@@ -166,11 +206,21 @@ export function AssistantPage() {
     })
   }
 
+  /**
+   * Refreshes queue.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function refreshQueue() {
     const status = await backend.loadAiQueueStatus()
     setQueueStatus(status)
   }
 
+  /**
+   * Handles refresh queue.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRefreshQueue() {
     setQueueAction(assistantT('loadingQueueAction'))
     setPageError(null)
@@ -187,6 +237,11 @@ export function AssistantPage() {
     }
   }
 
+  /**
+   * Handles provider probe.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleProviderProbe() {
     if (!llmProvider) return
     setQueueAction(assistantT('testingProviderAction'))
@@ -208,6 +263,11 @@ export function AssistantPage() {
     }
   }
 
+  /**
+   * Handles load queued job.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleLoadQueuedJob(jobId: number) {
     setQueueAction(assistantT('loadingQueuedAnswerAction'))
     setPageError(null)
@@ -226,6 +286,11 @@ export function AssistantPage() {
     }
   }
 
+  /**
+   * Handles drain queue.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleDrainQueue(jobId?: number | null) {
     setQueueAction(assistantT('runningQueuedJobsAction'))
     setPageError(null)
@@ -248,6 +313,11 @@ export function AssistantPage() {
     }
   }
 
+  /**
+   * Handles cancel job.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleCancelJob(jobId: number) {
     setQueueAction(assistantT('cancellingAssistantJobAction'))
     setPageError(null)
@@ -267,6 +337,11 @@ export function AssistantPage() {
     }
   }
 
+  /**
+   * Handles send.
+   *
+   * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleSend() {
     const question = input.trim()
     if (!question || sending) return

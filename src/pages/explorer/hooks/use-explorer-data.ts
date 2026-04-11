@@ -1,3 +1,18 @@
+/**
+ * This module contains route-level hooks that support the Explorer surface.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `useExplorerData`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import {
   useEffect,
   useRef,
@@ -15,6 +30,11 @@ import type {
 import { loadRecentSearches } from '../helpers'
 import type { ExplorerMode, RecentSearchEntry } from '../types'
 
+/**
+ * Collects the inputs needed by `UseExplorerData`.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface UseExplorerDataOptions {
   archiveReady: boolean
   currentQuery: Parameters<typeof backend.queryHistory>[0]
@@ -39,11 +59,21 @@ interface UseExplorerDataOptions {
   start: string | null
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface QueueJobRequest {
   fullRebuild: boolean
   clearOnly: boolean
 }
 
+/**
+ * Provides the `useExplorerData` hook.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function useExplorerData({
   archiveReady,
   currentQuery,
@@ -114,6 +144,11 @@ export function useExplorerData({
   useEffect(() => {
     if (!archiveReady || historyBlockedByInvalidRegex) return
     let cancelled = false
+    /**
+     * Loads results.
+     *
+     * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadResults = async () => {
       const request = historyRequestRef.current
       try {
@@ -180,6 +215,11 @@ export function useExplorerData({
       return
     }
     let cancelled = false
+    /**
+     * Loads semantic results.
+     *
+     * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadSemanticResults = async () => {
       const currentRequest = semanticRequestRef.current
       try {
@@ -213,11 +253,21 @@ export function useExplorerData({
     }
   }, [archiveReady, mode, semanticQuery.query, semanticRequestKey])
 
+  /**
+   * Refreshes queue status.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function refreshQueueStatus() {
     const nextQueue = await backend.loadAiQueueStatus()
     setQueueStatus(nextQueue)
   }
 
+  /**
+   * Handles queue action.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleQueueAction(
     label: string,
     action: () => Promise<unknown>,
@@ -237,6 +287,11 @@ export function useExplorerData({
     }
   }
 
+  /**
+   * Handles index action.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleIndexAction(label: string, request: QueueJobRequest) {
     setIndexAction(label)
     setIntelligenceError(null)
@@ -260,6 +315,11 @@ export function useExplorerData({
     }
   }
 
+  /**
+   * Handles provider probe.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleProviderProbe() {
     if (!embeddingProviderId) return
     setIntelligenceError(null)
@@ -282,6 +342,11 @@ export function useExplorerData({
     }
   }
 
+  /**
+   * Handles export.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleExport(format: ExportFormat) {
     setActionError(null)
     try {
@@ -297,6 +362,11 @@ export function useExplorerData({
     }
   }
 
+  /**
+   * Handles copy export path.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleCopyExportPath(path: string) {
     try {
       if (!navigator.clipboard?.writeText) {
@@ -309,6 +379,11 @@ export function useExplorerData({
     }
   }
 
+  /**
+   * Handles visit.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleVisit(url: string) {
     setActionError(null)
     try {

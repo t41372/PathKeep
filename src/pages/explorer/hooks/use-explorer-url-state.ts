@@ -1,3 +1,18 @@
+/**
+ * This module contains route-level hooks that support the Explorer surface.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `useExplorerUrlState`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import {
   startTransition,
   useCallback,
@@ -25,12 +40,22 @@ import {
 } from '../helpers'
 import type { ExplorerMode, RecentSearchEntry, Translator } from '../types'
 
+/**
+ * Defines the typed shape for active filter.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface ActiveFilter {
   id: string
   label: string
   value: string
 }
 
+/**
+ * Collects the inputs needed by `UseExplorerUrlState`.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface UseExplorerUrlStateOptions {
   activeProfileId: ProfileScopeValue['activeProfileId']
   explorerT: Translator
@@ -38,6 +63,11 @@ interface UseExplorerUrlStateOptions {
   selectedProfileIds: string[]
 }
 
+/**
+ * Provides the `useExplorerUrlState` hook.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function useExplorerUrlState({
   activeProfileId,
   explorerT,
@@ -320,6 +350,11 @@ export function useExplorerUrlState({
       : null,
   ].filter((value): value is ActiveFilter => Boolean(value))
 
+  /**
+   * Explains how reset semantic pagination works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function resetSemanticPagination() {
     setSemanticCursorTrail((current) => ({
       ...current,
@@ -327,10 +362,20 @@ export function useExplorerUrlState({
     }))
   }
 
+  /**
+   * Explains how clear all filters works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function clearAllFilters() {
     setSearchParams(new URLSearchParams())
   }
 
+  /**
+   * Explains how update param works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function updateParam(
     key: string,
     value: string | null,
@@ -350,14 +395,29 @@ export function useExplorerUrlState({
     setSearchParams(next)
   }
 
+  /**
+   * Renders the go to semantic route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function goToSemanticPage(nextCursor: string | null) {
     updateParam('semanticCursor', nextCursor, { resetPagination: false })
   }
 
+  /**
+   * Explains how history page key works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function historyPageKey(targetPage: number) {
     return `${historyQuerySignature}|${targetPage}`
   }
 
+  /**
+   * Explains how queue history scroll restore works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function queueHistoryScrollRestore(targetPage: number) {
     const scrollContainer = document.querySelector('.workspace-scroll')
     if (!(scrollContainer instanceof HTMLElement)) {
@@ -369,6 +429,11 @@ export function useExplorerUrlState({
     pendingHistoryScrollKeyRef.current = key
   }
 
+  /**
+   * Renders the go to history route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function goToHistoryPage(nextPage: number) {
     const normalizedPage = Math.max(1, nextPage)
     queueHistoryScrollRestore(normalizedPage)
@@ -382,11 +447,21 @@ export function useExplorerUrlState({
     setSearchParams(next)
   }
 
+  /**
+   * Renders the handle first history route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function handleFirstHistoryPage(historyPage: number) {
     if (historyPage <= 1) return
     goToHistoryPage(1)
   }
 
+  /**
+   * Renders the handle last history route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function handleLastHistoryPage(
     historyPage: number,
     historyPageCount: number,
@@ -395,14 +470,29 @@ export function useExplorerUrlState({
     goToHistoryPage(historyPageCount)
   }
 
+  /**
+   * Renders the handle next history route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function handleNextHistoryPage(historyPage: number) {
     goToHistoryPage(historyPage + 1)
   }
 
+  /**
+   * Renders the handle previous history route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function handlePreviousHistoryPage(historyPage: number) {
     goToHistoryPage(historyPage - 1)
   }
 
+  /**
+   * Handles history page jump.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function handleHistoryPageJump(
     historyPage: number,
     historyPageCount: number,
@@ -418,6 +508,11 @@ export function useExplorerUrlState({
     goToHistoryPage(nextPage)
   }
 
+  /**
+   * Renders the handle next semantic route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function handleNextSemanticPage(nextCursor: string | null) {
     if (!nextCursor) return
     setSemanticCursorTrail((current) => ({
@@ -430,6 +525,11 @@ export function useExplorerUrlState({
     goToSemanticPage(nextCursor)
   }
 
+  /**
+   * Renders the handle previous semantic route.
+   *
+   * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+   */
   function handlePreviousSemanticPage() {
     const previousCursor = semanticTrail[semanticTrail.length - 1] || null
     setSemanticCursorTrail((current) => ({
@@ -442,6 +542,11 @@ export function useExplorerUrlState({
     goToSemanticPage(previousCursor)
   }
 
+  /**
+   * Explains how clear date range works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function clearDateRange() {
     resetSemanticPagination()
     setSearchParams((current) => {
@@ -456,6 +561,11 @@ export function useExplorerUrlState({
     pendingHistoryScrollKeyRef.current = null
   }
 
+  /**
+   * Explains how apply date shortcut works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function applyDateShortcut(days: number) {
     const endDate = new Date()
     const startDate = new Date(endDate)
@@ -471,6 +581,11 @@ export function useExplorerUrlState({
     pendingHistoryScrollKeyRef.current = null
   }
 
+  /**
+   * Explains how active date shortcut works.
+   *
+   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function activeDateShortcut() {
     if (!start || !end) return null
 

@@ -1,3 +1,21 @@
+/**
+ * This module implements the narrow, consented analytics boundary approved for the shipped front-end.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `CONFIGURED_ANALYTICS_ENDPOINT`
+ * - `shouldSendAnalytics`
+ * - `buildAnalyticsPayload`
+ * - `trackAnalyticsEvent`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 import { isTauri } from '@tauri-apps/api/core'
 import type {
   AnalyticsConfig,
@@ -6,6 +24,11 @@ import type {
   LanguagePreference,
 } from './types'
 
+/**
+ * Defines the typed shape for analytics payload.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 interface AnalyticsPayload {
   type: AnalyticsEvent['type']
   occurredAt: string
@@ -19,6 +42,11 @@ interface AnalyticsPayload {
   version?: string | null
 }
 
+/**
+ * Defines the typed shape for analytics runtime.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 interface AnalyticsRuntime {
   endpoint: string | null
   isDesktop: boolean
@@ -27,6 +55,11 @@ interface AnalyticsRuntime {
   now: () => string
 }
 
+/**
+ * Resolves analytics endpoint from the available inputs.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function resolveAnalyticsEndpoint(endpoint: unknown): string | null {
   if (typeof endpoint !== 'string') {
     return null
@@ -36,10 +69,20 @@ function resolveAnalyticsEndpoint(endpoint: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+/**
+ * Exposes the shared configured analytics endpoint declaration used by this module.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export const CONFIGURED_ANALYTICS_ENDPOINT = resolveAnalyticsEndpoint(
   import.meta.env.VITE_ANALYTICS_ENDPOINT,
 )
 
+/**
+ * Returns whether send analytics.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function shouldSendAnalytics(
   config: AnalyticsConfig | null | undefined,
   runtime: Pick<
@@ -56,6 +99,11 @@ export function shouldSendAnalytics(
   )
 }
 
+/**
+ * Builds analytics payload.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function buildAnalyticsPayload(
   event: AnalyticsEvent,
   buildInfo: Pick<AppBuildInfo, 'version'>,
@@ -93,6 +141,11 @@ export function buildAnalyticsPayload(
   }
 }
 
+/**
+ * Returns the default runtime.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function defaultRuntime(): AnalyticsRuntime {
   return {
     endpoint: CONFIGURED_ANALYTICS_ENDPOINT,
@@ -103,6 +156,11 @@ function defaultRuntime(): AnalyticsRuntime {
   }
 }
 
+/**
+ * Explains how track analytics event works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export async function trackAnalyticsEvent(
   config: AnalyticsConfig | null | undefined,
   event: AnalyticsEvent,

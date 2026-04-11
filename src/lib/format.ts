@@ -1,9 +1,38 @@
+/**
+ * This module formats timestamps, bytes, and durations into the human-readable evidence strings used across the shell.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `calendarDayKey`
+ * - `formatDateTime`
+ * - `formatDuration`
+ * - `formatBytes`
+ * - `formatRelativeTime`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 import { localeTag, type ResolvedLanguage } from './i18n'
 
+/**
+ * Explains how date part works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function datePart(parts: Intl.DateTimeFormatPart[], type: 'day' | 'month') {
   return parts.find((part) => part.type === type)?.value ?? null
 }
 
+/**
+ * Explains how calendar day key works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function calendarDayKey(
   value: Date | string | null | undefined,
   timeZone?: string,
@@ -33,6 +62,11 @@ export function calendarDayKey(
   return `${month}-${day}`
 }
 
+/**
+ * Formats date time for display.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function formatDateTime(
   value: string | null | undefined,
   language: ResolvedLanguage,
@@ -47,6 +81,11 @@ export function formatDateTime(
   }).format(new Date(value))
 }
 
+/**
+ * Formats duration for display.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function formatDuration(durationMs: number | null | undefined) {
   if (!durationMs || durationMs <= 0) {
     return '0s'
@@ -61,6 +100,11 @@ export function formatDuration(durationMs: number | null | undefined) {
   return `${minutes}m ${seconds}s`
 }
 
+/**
+ * Formats bytes for display.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function formatBytes(
   value: number | null | undefined,
   language: ResolvedLanguage = 'en',
@@ -90,6 +134,11 @@ export function formatBytes(
   return `${rounded} ${units[unitIndex]}`
 }
 
+/**
+ * Formats relative time for display.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function formatRelativeTime(
   value: string | null | undefined,
   language: ResolvedLanguage = 'en',

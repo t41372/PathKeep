@@ -1,3 +1,18 @@
+/**
+ * This module boots the front-end runtime and hands the first render over to the app shell.
+ *
+ * Why this file exists:
+ * - It is the narrow desktop-contract entry point that should stay boring, predictable, and easy to audit.
+ * - If startup behavior looks wrong, this file should answer when global CSS, runtime diagnostics, and the React root come online.
+ *
+ * Main declarations:
+ * - This file is mostly internal implementation detail.
+ *
+ * Source-of-truth notes:
+ * - The surrounding shell contract lives in `docs/design/screens-and-nav.md` and `docs/design/ux-principles.md`.
+ * - This file should avoid product logic; route and workflow orchestration belong in `src/app/` and `src/pages/`.
+ */
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'

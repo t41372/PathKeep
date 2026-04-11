@@ -1,3 +1,19 @@
+/**
+ * This module is the legacy preview-aware backend facade and deterministic browser-preview fixture surface used by older front-end consumers and tests.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `backendTestHarness`
+ * - `backend`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import {
   defaultEnrichmentSettings,
@@ -384,6 +400,11 @@ const mockHistory: HistoryQueryResponse = {
   nextCursor: null,
 }
 
+/**
+ * Explains how mock evidence from history item works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function mockEvidenceFromHistoryItem(
   item: HistoryQueryResponse['items'][number],
 ): InsightEvidenceItem {
@@ -397,6 +418,11 @@ function mockEvidenceFromHistoryItem(
   }
 }
 
+/**
+ * Builds mock canonical summary.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockCanonicalSummary(
   items: HistoryQueryResponse['items'],
 ): InsightCanonicalSummary {
@@ -903,6 +929,11 @@ const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
   notes: ['Browser preview mode shows a deterministic queue/runtime fixture.'],
 }
 
+/**
+ * Captures the state shape used by `MockBackend`.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 interface MockBackendState {
   snapshot: AppSnapshot
   history: HistoryQueryResponse
@@ -926,15 +957,30 @@ interface MockBackendState {
   derivedStateCleared: boolean
 }
 
+/**
+ * Explains how browser kind from profile id works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function browserKindFromProfileId(profileId: string) {
   const separatorIndex = profileId.indexOf(':')
   return separatorIndex === -1 ? profileId : profileId.slice(0, separatorIndex)
 }
 
+/**
+ * Explains how unique url count works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function uniqueUrlCount(items: HistoryQueryResponse['items']) {
   return new Set(items.map((item) => item.url)).size
 }
 
+/**
+ * Normalizes mock config into the canonical UI shape.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function normalizeMockConfig(
   config: AppConfig,
   s3Credentials: S3CredentialInput | null = null,
@@ -956,6 +1002,11 @@ function normalizeMockConfig(
   }
 }
 
+/**
+ * Explains how sync mock app lock state works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function syncMockAppLockState(state: MockBackendState) {
   const passcodeConfigured = Boolean(state.appLockPasscode)
   const enabled = state.snapshot.config.appLock.enabled
@@ -1007,6 +1058,11 @@ function syncMockAppLockState(state: MockBackendState) {
   }
 }
 
+/**
+ * Explains how ensure mock unlocked works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function ensureMockUnlocked(command: string, state: MockBackendState) {
   if (!state.snapshot.appLockStatus.locked) {
     return
@@ -1027,6 +1083,11 @@ function ensureMockUnlocked(command: string, state: MockBackendState) {
   )
 }
 
+/**
+ * Explains how validate mock app lock config works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function validateMockAppLockConfig(state: MockBackendState, config: AppConfig) {
   if (!config.appLock.enabled) {
     return
@@ -1054,17 +1115,32 @@ function validateMockAppLockConfig(state: MockBackendState, config: AppConfig) {
   }
 }
 
+/**
+ * Explains how remote bundle path works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function remoteBundlePath() {
   const timestamp = new Date().toISOString().replaceAll(':', '-')
   return `/tmp/pathkeep-remote-${timestamp}.zip`
 }
 
+/**
+ * Explains how remote object key works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function remoteObjectKey(config: AppConfig, bundlePath: string) {
   const prefix = config.remoteBackup.prefix.trim().replace(/^\/+|\/+$/g, '')
   const fileName = bundlePath.split('/').pop()!
   return prefix ? `${prefix}/${fileName}` : fileName
 }
 
+/**
+ * Explains how remote upload url works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function remoteUploadUrl(config: AppConfig, objectKey: string) {
   const trimmedObjectKey = objectKey.replace(/^\/+/, '')
   const endpoint = config.remoteBackup.endpoint?.trim()
@@ -1090,6 +1166,11 @@ function remoteUploadUrl(config: AppConfig, objectKey: string) {
   return `https://${config.remoteBackup.bucket}.s3.${config.remoteBackup.region}.amazonaws.com/${trimmedObjectKey}`
 }
 
+/**
+ * Explains how preview remote backup fixture works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function previewRemoteBackupFixture(
   state: MockBackendState,
 ): RemoteBackupPreview {
@@ -1131,6 +1212,11 @@ function previewRemoteBackupFixture(
   }
 }
 
+/**
+ * Explains how verify remote backup fixture works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function verifyRemoteBackupFixture(
   state: MockBackendState,
   bundlePath?: string,
@@ -1200,6 +1286,11 @@ function verifyRemoteBackupFixture(
   }
 }
 
+/**
+ * Explains how clear derived intelligence fixture works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function clearDerivedIntelligenceFixture(
   state: MockBackendState,
 ): ClearDerivedIntelligenceReport {
@@ -1251,6 +1342,11 @@ function clearDerivedIntelligenceFixture(
   }
 }
 
+/**
+ * Explains how run insights fixture works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function runInsightsFixture(
   state: MockBackendState,
   request?: RunInsightsRequest,
@@ -1316,6 +1412,11 @@ function runInsightsFixture(
   }
 }
 
+/**
+ * Loads insights fixture.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
   if (state.derivedStateCleared) {
     return {
@@ -1357,6 +1458,11 @@ function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
   }
 }
 
+/**
+ * Builds mock queue status.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockQueueStatus(state: MockBackendState): AiQueueStatus {
   return {
     paused: state.snapshot.config.ai.jobQueuePaused,
@@ -1370,6 +1476,11 @@ function buildMockQueueStatus(state: MockBackendState): AiQueueStatus {
   }
 }
 
+/**
+ * Explains how sync mock ai status works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function syncMockAiStatus(state: MockBackendState) {
   const queue = buildMockQueueStatus(state)
   state.snapshot.aiStatus.queuePaused = queue.paused
@@ -1380,6 +1491,11 @@ function syncMockAiStatus(state: MockBackendState) {
   state.snapshot.aiStatus.recentJobs = structuredClone(queue.recentJobs)
 }
 
+/**
+ * Explains how sync mock intelligence runtime works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function syncMockIntelligenceRuntime(state: MockBackendState) {
   const enabledById = new Map(
     resolveEnrichmentSettings(state.snapshot.config.enrichment).plugins.map(
@@ -1459,6 +1575,11 @@ function syncMockIntelligenceRuntime(state: MockBackendState) {
   ]
 }
 
+/**
+ * Builds mock dashboard snapshot.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockDashboardSnapshot(
   state: MockBackendState,
 ): DashboardSnapshot {
@@ -1510,6 +1631,11 @@ function buildMockDashboardSnapshot(
   }
 }
 
+/**
+ * Builds mock audit run detail.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockAuditRunDetail(
   state: MockBackendState,
   runId: number,
@@ -1567,6 +1693,11 @@ function buildMockAuditRunDetail(
   }
 }
 
+/**
+ * Explains how prepend mock run works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function prependMockRun(
   state: MockBackendState,
   run: BackupRunOverview,
@@ -1575,6 +1706,11 @@ function prependMockRun(
   return run
 }
 
+/**
+ * Normalizes mock platform into the canonical UI shape.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function normalizeMockPlatform(
   platform?: unknown,
 ): 'macos' | 'windows' | 'linux' {
@@ -1583,6 +1719,11 @@ function normalizeMockPlatform(
   return 'macos'
 }
 
+/**
+ * Builds mock schedule plan.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
   const resolvedPlatform = normalizeMockPlatform(platform)
   if (resolvedPlatform === 'windows') {
@@ -1695,6 +1836,11 @@ function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
   }
 }
 
+/**
+ * Builds mock schedule status.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockScheduleStatus(
   state: MockBackendState,
   platform?: unknown,
@@ -1735,6 +1881,11 @@ function buildMockScheduleStatus(
   }
 }
 
+/**
+ * Explains how override mock schedule works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function overrideMockSchedule(
   state: MockBackendState,
   plan: SchedulePlan,
@@ -1767,6 +1918,11 @@ function overrideMockSchedule(
   state.scheduleStatusOverrides[resolvedPlanPlatform] = resolvedStatus
 }
 
+/**
+ * Builds mock security status.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockSecurityStatus(state: MockBackendState): SecurityStatus {
   const warnings = state.snapshot.archiveStatus.warning
     ? [state.snapshot.archiveStatus.warning]
@@ -1812,6 +1968,11 @@ function buildMockSecurityStatus(state: MockBackendState): SecurityStatus {
   }
 }
 
+/**
+ * Builds mock rekey preview.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockRekeyPreview(
   state: MockBackendState,
   request: RekeyRequest,
@@ -1857,6 +2018,11 @@ function buildMockRekeyPreview(
   }
 }
 
+/**
+ * Builds mock snapshot restore preview.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockSnapshotRestorePreview(
   state: MockBackendState,
   request: SnapshotRestoreRequest,
@@ -1889,6 +2055,11 @@ function buildMockSnapshotRestorePreview(
   }
 }
 
+/**
+ * Builds mock retention preview.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockRetentionPreview(state: MockBackendState): RetentionPreview {
   const dashboard = buildMockDashboardSnapshot(state)
   return {
@@ -1925,6 +2096,11 @@ function buildMockRetentionPreview(state: MockBackendState): RetentionPreview {
   }
 }
 
+/**
+ * Builds mock takeout inspection.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function buildMockTakeoutInspection(
   state: MockBackendState,
   sourcePath: string,
@@ -2048,6 +2224,11 @@ function buildMockTakeoutInspection(
   }
 }
 
+/**
+ * Explains how mutate import batch works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function mutateImportBatch(
   state: MockBackendState,
   batchId: number,
@@ -2100,6 +2281,11 @@ function mutateImportBatch(
   return updatedDetail
 }
 
+/**
+ * Explains how filter mock history works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function filterMockHistory(
   state: MockBackendState,
   query: HistoryQuery | undefined,
@@ -2183,6 +2369,11 @@ function filterMockHistory(
   }
 }
 
+/**
+ * Parses mock history cursor into the shape this surface expects.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function parseMockHistoryCursor(cursor?: string | null) {
   if (!cursor) return null
   const [visitTime, id] = cursor.split('|')
@@ -2197,10 +2388,20 @@ function parseMockHistoryCursor(cursor?: string | null) {
   }
 }
 
+/**
+ * Explains how encode mock history cursor works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function encodeMockHistoryCursor(item: HistoryQueryResponse['items'][number]) {
   return `${item.visitTime}|${item.id}`
 }
 
+/**
+ * Explains how paginate mock ai search works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function paginateMockAiSearch(
   state: MockBackendState,
   request?: AiSearchRequest,
@@ -2230,6 +2431,11 @@ function paginateMockAiSearch(
   }
 }
 
+/**
+ * Creates mock state.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 function createMockState(): MockBackendState {
   const state: MockBackendState = {
     snapshot: structuredClone(mockSnapshot),
@@ -2297,6 +2503,11 @@ function createMockState(): MockBackendState {
 let mockState = createMockState()
 // Stryker restore all
 
+/**
+ * Explains how call works.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 async function call<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -3199,6 +3410,11 @@ async function call<T>(
   }
 }
 
+/**
+ * Exposes test-only hooks for mutating and resetting the browser-preview backend fixture state.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 export const backendTestHarness = {
   call,
   reset: () => {
@@ -3219,6 +3435,11 @@ export const backendTestHarness = {
   },
 }
 
+/**
+ * Exposes the legacy preview-aware backend facade consumed by older routes and tests.
+ *
+ * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
+ */
 export const backend = {
   getAppBuildInfo: () => call<AppBuildInfo>('app_build_info'),
   loadAppLockStatus: () => call<AppLockStatus>('app_lock_status'),

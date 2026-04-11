@@ -8,13 +8,19 @@
 - Only list debt that remains after M4 closeout.
 - Every item must point to its next owner or backlog destination.
 
+2026-04-11 frontend maintainability note:
+
+- Active `src/` files now carry module headers and declaration-level doc comments that fold the current design / trust contract back into the code.
+- `src/pages/settings/helpers.ts` now owns the pure AI-draft / retention-selection transforms that were previously buried inline inside the Settings route.
+- The stale duplicate `src/lib/i18n/messages.ts` mirror has been removed; `src/lib/i18n/catalog.ts` is the single live catalog source.
+
 ## Frontend Hotspots
 
-| Surface                        | Current truth                                                                                                                                              | Next owner                                                                                                                    |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/backend.ts`           | Browser-preview fixture + legacy compatibility helper. Still too large and too easy to accidentally grow.                                                  | Keep reference-only during M5; split preview fixtures / legacy helpers only when a new work block touches the shell contract. |
-| `src/pages/settings/index.tsx` | Settings is now the control tower for archive, app lock, analytics, updater, derived state, and diagnostics. The route is shipping, but the file is large. | Follow-up split by panel after M5 foundation work stabilizes the next Settings surfaces.                                      |
-| `src/lib/app-context.tsx`      | Reference-only legacy global state. No longer the live shell contract, but still present in tests / compatibility paths.                                   | Retire once remaining preview / legacy consumers are removed in a future cleanup block.                                       |
+| Surface                        | Current truth                                                                                                                                                                                                                       | Next owner                                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/backend.ts`           | Browser-preview fixture + legacy compatibility helper. The file is now heavily documented, but it is still too large and too easy to accidentally grow.                                                                             | Keep reference-only during M5; split preview fixtures / legacy helpers only when a new work block touches the shell contract. |
+| `src/pages/settings/index.tsx` | Settings is still the control tower for archive, app lock, analytics, updater, derived state, and diagnostics. `WORK-QC-K` extracted pure helper logic to `src/pages/settings/helpers.ts`, but the route file itself remains large. | Follow-up split by panel after M5 foundation work stabilizes the next Settings surfaces.                                      |
+| `src/lib/app-context.tsx`      | Reference-only legacy global state. No longer the live shell contract, but still present in tests / compatibility paths.                                                                                                            | Retire once remaining preview / legacy consumers are removed in a future cleanup block.                                       |
 
 ## Rust / Desktop Hotspots
 

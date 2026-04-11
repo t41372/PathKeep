@@ -1,3 +1,25 @@
+/**
+ * This module holds UI-facing intelligence helpers such as provider state, evidence links, and assistant response metadata.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `IntelligenceTone`
+ * - `selectedAiProvider`
+ * - `aiStatusMeta`
+ * - `scoreBand`
+ * - `evidenceHref`
+ * - `assistantHref`
+ * - `dedupeEvidence`
+ * - `assistantResponseMeta`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 import type {
   AiAssistantResponse,
   AiAssistantCitation,
@@ -7,9 +29,24 @@ import type {
   InsightEvidenceItem,
 } from './types'
 
+/**
+ * Defines the type-level contract for intelligence tone.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export type IntelligenceTone = 'success' | 'warning' | 'blocked' | 'info'
+/**
+ * Defines the type-level contract for translate.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
+/**
+ * Provides selected ai to descendant components.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function selectedAiProvider(
   config: AppConfig['ai'],
   purpose: 'embedding' | 'llm',
@@ -21,6 +58,11 @@ export function selectedAiProvider(
   return providers.find((provider) => provider.id === providerId) ?? null
 }
 
+/**
+ * Explains how ai status meta works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function aiStatusMeta(
   status: AiIndexStatus,
   t: Translate,
@@ -95,6 +137,11 @@ export function aiStatusMeta(
   }
 }
 
+/**
+ * Explains how score band works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function scoreBand(
   score: number | null | undefined,
   t: Translate,
@@ -108,6 +155,11 @@ export function scoreBand(
   return { label: t('weakMatch'), tone: 'info' }
 }
 
+/**
+ * Explains how evidence href works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function evidenceHref(evidence: {
   profileId?: string | null
   url?: string | null
@@ -123,12 +175,22 @@ export function evidenceHref(evidence: {
   return query ? `/explorer?${query}` : '/explorer'
 }
 
+/**
+ * Explains how assistant href works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function assistantHref(question: string) {
   const params = new URLSearchParams()
   params.set('question', question)
   return `/assistant?${params.toString()}`
 }
 
+/**
+ * Explains how dedupe evidence works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function dedupeEvidence<
   T extends AiAssistantCitation | InsightEvidenceItem,
 >(items: T[]) {
@@ -141,6 +203,11 @@ export function dedupeEvidence<
   })
 }
 
+/**
+ * Explains how assistant response meta works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function assistantResponseMeta(
   response: AiAssistantResponse,
   t: Translate,

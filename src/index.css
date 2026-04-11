@@ -1,3 +1,15 @@
+/*
+ * This stylesheet provides global browser resets and host-page guardrails before shell-specific CSS takes over.
+ *
+ * Why this file exists:
+ * - It handles page-level defaults that should apply no matter which route is active.
+ * - Keeping these rules separate prevents shell styling from also having to act like a reset layer.
+ *
+ * Source-of-truth notes:
+ * - Visual tokens still come from `docs/design/design-tokens.md` and `src/styles/tokens.css`.
+ * - Trust-critical layout and route presentation belong in `src/styles/app.css`, not here.
+ */
+
 @import './styles/tokens.css';
 @import './styles/app.css';
 

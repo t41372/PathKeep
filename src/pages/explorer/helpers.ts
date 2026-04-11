@@ -1,3 +1,27 @@
+/**
+ * This module renders the History Explorer route and keeps the keyword-first, deep-linkable recall workflow honest even when optional AI features degrade.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `recentSearchesStorageKey`
+ * - `keywordPageSize`
+ * - `semanticPageSize`
+ * - `dateShortcutWindows`
+ * - `endOfDayMs`
+ * - `toLocalDateString`
+ * - `isRecentSearchEntry`
+ * - `loadRecentSearches`
+ * - `browserLabel`
+ * - `activateRecordSelection`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import type { KeyboardEvent } from 'react'
 import type { RecentSearchEntry } from './types'
 
@@ -12,15 +36,30 @@ export const dateShortcutWindows = [
   { key: 'year', days: 365, labelKey: 'shortcutYear' },
 ] as const
 
+/**
+ * Explains how end of day ms works.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function endOfDayMs(value: string) {
   const timestamp = new Date(`${value}T23:59:59.999`).getTime()
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
+/**
+ * Explains how to local date string works.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function toLocalDateString(value: Date) {
   return value.toLocaleDateString('en-CA')
 }
 
+/**
+ * Returns whether recent search entry.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function isRecentSearchEntry(
   value: unknown,
 ): value is RecentSearchEntry {
@@ -33,6 +72,11 @@ export function isRecentSearchEntry(
   )
 }
 
+/**
+ * Loads recent searches.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function loadRecentSearches() {
   if (typeof window === 'undefined') return [] as RecentSearchEntry[]
   const raw = window.localStorage.getItem(recentSearchesStorageKey)
@@ -62,6 +106,11 @@ export function loadRecentSearches() {
   }
 }
 
+/**
+ * Explains how browser label works.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function browserLabel(kind: string) {
   if (kind === 'chrome') return 'Chrome'
   if (kind === 'arc') return 'Arc'
@@ -70,6 +119,11 @@ export function browserLabel(kind: string) {
   return kind
 }
 
+/**
+ * Explains how activate record selection works.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function activateRecordSelection(
   event: KeyboardEvent<HTMLDivElement>,
   onSelect: () => void,

@@ -1,3 +1,18 @@
+/**
+ * This module renders the Import route, including preview-first review, rollback/restore follow-through, and browser/takeout entry points.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `ImportPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -21,9 +36,24 @@ import type {
 import { OperationWorkflow, PreviewEntryList } from '../../components/ui'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
 
+/**
+ * Defines the type-level contract for import method.
+ *
+ * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 type ImportMethod = 'takeout' | 'browser'
+/**
+ * Defines the type-level contract for wizard step.
+ *
+ * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
 
+/**
+ * Renders the import route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Import expectations in the design docs.
+ */
 export function ImportPage() {
   const { refreshAppData, snapshot } = useShellData()
   const { language, t } = useI18n()
@@ -121,6 +151,11 @@ export function ImportPage() {
     }
 
     let cancelled = false
+    /**
+     * Loads batch.
+     *
+     * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadBatch = async () => {
       setSelectedBatchDetail(null)
       setActionError(null)
@@ -233,6 +268,11 @@ export function ImportPage() {
     [activeBatchDetail, healthReport, importResult, inspection, step, t],
   )
 
+  /**
+   * Handles scan.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleScan() {
     if (!sourcePath.trim()) return
     setActionError(null)
@@ -252,6 +292,14 @@ export function ImportPage() {
     }
   }
 
+  /**
+   * Applies a new import source path and resets any stale inspection state that
+   * no longer belongs to that source.
+   *
+   * This keeps the route honest: once the user changes the file or browser
+   * profile they are about to import, the previous preview should stop
+   * pretending it still matches.
+   */
   function applySourcePath(
     nextPath: string,
     options?: { browserProfileId?: string | null },
@@ -264,6 +312,13 @@ export function ImportPage() {
     setSelectedBrowserProfileId(options?.browserProfileId ?? null)
   }
 
+  /**
+   * Switches between the takeout-first and browser-path import flows.
+   *
+   * The two entry points share later review steps, but they start with
+   * different defaults and affordances, so changing method also resets the
+   * route back to a clean selection state.
+   */
   function handleMethodChange(nextMethod: ImportMethod) {
     if (nextMethod === method) return
     setMethod(nextMethod)
@@ -289,6 +344,11 @@ export function ImportPage() {
     setSourcePath('')
   }
 
+  /**
+   * Handles select browser profile.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function handleSelectBrowserProfile(profile: BrowserProfile) {
     if (!profile.historyPath) return
     applySourcePath(profile.historyPath, {
@@ -296,6 +356,11 @@ export function ImportPage() {
     })
   }
 
+  /**
+   * Handles browse source.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleBrowseSource(options: { directory: boolean }) {
     setActionError(null)
     try {
@@ -323,6 +388,11 @@ export function ImportPage() {
     }
   }
 
+  /**
+   * Handles import.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleImport() {
     if (!sourcePath.trim()) return
     setActionError(null)
@@ -360,6 +430,11 @@ export function ImportPage() {
     }
   }
 
+  /**
+   * Handles run doctor.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRunDoctor() {
     setActionError(null)
     try {
@@ -375,6 +450,11 @@ export function ImportPage() {
     }
   }
 
+  /**
+   * Handles repair health.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleRepairHealth() {
     setActionError(null)
     try {
@@ -397,6 +477,11 @@ export function ImportPage() {
     }
   }
 
+  /**
+   * Handles batch mutation.
+   *
+   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleBatchMutation(
     batch: ImportBatchOverview,
     action: 'revert' | 'restore',

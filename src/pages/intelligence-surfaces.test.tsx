@@ -1,3 +1,23 @@
+/**
+ * This test file protects the shipped behavior of the Intelligence Surfaces.test.tsx front-end surface.
+ *
+ * Why this file exists:
+ * - These assertions keep route-level trust, loading, and degraded-state promises from quietly regressing.
+ * - If a design or product contract changes, the corresponding test should move with it instead of letting the route drift.
+ *
+ * Main declarations:
+ * - `createI18nValue`
+ * - `createShellValue`
+ * - `renderSurface`
+ * - `ScopeSwitcher`
+ * - `seedArchiveState`
+ * - `enableAi`
+ *
+ * Source-of-truth notes:
+ * - Route behavior is defined jointly by `docs/design/screens-and-nav.md`, `docs/design/ux-principles.md`, and the relevant feature docs.
+ * - Tests should verify real user-facing promises such as deep links, scoped callouts, loading grammar, and repair entry points.
+ */
+
 import type { ReactNode } from 'react'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -112,6 +132,11 @@ const baseConfig: AppConfig = {
   },
 }
 
+/**
+ * Creates i18n value.
+ *
+ * Keeping this as a named declaration makes the Intelligence Surfaces.test.tsx surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function createI18nValue(language: ResolvedLanguage): I18nContextValue {
   const namespaceCache = new Map<string, ReturnType<typeof createTranslator>>()
 
@@ -133,6 +158,11 @@ function createI18nValue(language: ResolvedLanguage): I18nContextValue {
   }
 }
 
+/**
+ * Creates shell value.
+ *
+ * Keeping this as a named declaration makes the Intelligence Surfaces.test.tsx surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function createShellValue(
   snapshot: AppSnapshot,
   dashboard: DashboardSnapshot | null = null,
@@ -166,6 +196,11 @@ function createShellValue(
   }
 }
 
+/**
+ * Explains how render surface works.
+ *
+ * Keeping this as a named declaration makes the Intelligence Surfaces.test.tsx surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function renderSurface(
   ui: ReactNode,
   {
@@ -197,6 +232,11 @@ function renderSurface(
   )
 }
 
+/**
+ * Explains how scope switcher works.
+ *
+ * Keeping this as a named declaration makes the Intelligence Surfaces.test.tsx surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function ScopeSwitcher({ nextProfileId }: { nextProfileId: string }) {
   const { setActiveProfileId } = useProfileScope()
   return (
@@ -206,6 +246,11 @@ function ScopeSwitcher({ nextProfileId }: { nextProfileId: string }) {
   )
 }
 
+/**
+ * Explains how seed archive state works.
+ *
+ * Keeping this as a named declaration makes the Intelligence Surfaces.test.tsx surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 async function seedArchiveState() {
   await backend.initializeArchive(baseConfig, 'vault-passphrase')
   await backend.runBackupNow(false)
@@ -216,6 +261,11 @@ async function seedArchiveState() {
   return { snapshot, dashboard }
 }
 
+/**
+ * Explains how enable ai works.
+ *
+ * Keeping this as a named declaration makes the Intelligence Surfaces.test.tsx surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function enableAi(snapshot: AppSnapshot) {
   snapshot.config.ai = {
     ...snapshot.config.ai,

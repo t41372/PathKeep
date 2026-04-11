@@ -1,3 +1,18 @@
+/**
+ * This module renders the standalone lock screen that protects the shell when App Lock is enabled or an idle timeout expires.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `LockPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -7,6 +22,11 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 
+/**
+ * Explains how lock reason label works.
+ *
+ * Keeping this as a named declaration makes the Lock surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function lockReasonLabel(
   reason: string | null | undefined,
   t: (key: string, params?: Record<string, string | number>) => string,
@@ -21,6 +41,11 @@ function lockReasonLabel(
   }
 }
 
+/**
+ * Renders the lock route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Lock expectations in the design docs.
+ */
 export function LockPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -44,6 +69,11 @@ export function LockPage() {
     appLockStatus.biometricState === 'touch-id-available' ||
     appLockStatus.biometricState === 'touch-id-unavailable'
 
+  /**
+   * Handles unlock.
+   *
+   * Keeping this as a named declaration makes the Lock surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleUnlock(useBiometric = false) {
     setUnlocking(true)
     try {
