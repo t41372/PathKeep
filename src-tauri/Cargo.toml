@@ -30,7 +30,6 @@ directories = "6.0.0"
 futures = "0.3.31"
 getrandom = "0.3.4"
 hex = "0.4.3"
-keyring = "4.0.0-rc.3"
 keyring-core = "0.7.2"
 lancedb = "0.27.2"
 plist = "1.8.0"
@@ -70,5 +69,7 @@ tempfile.workspace = true
 [build-dependencies]
 tauri-build = { version = "2.5.1", features = [] }
 
-[patch.crates-io]
-cfg_block = { path = "vendor/cfg_block" }
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"

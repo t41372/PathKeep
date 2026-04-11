@@ -1,13 +1,15 @@
 mod biometric;
 
 use anyhow::{Context, Result};
+#[cfg(all(not(coverage), target_os = "macos"))]
+use apple_native_keyring_store::keychain::Store as NativeKeyringStore;
 use chrono::Utc;
+#[cfg(all(not(coverage), any(target_os = "linux", target_os = "freebsd")))]
+use dbus_secret_service_keyring_store::Store as NativeKeyringStore;
 #[cfg(not(any(test, coverage)))]
 use directories::UserDirs;
 #[cfg(not(coverage))]
-use keyring::use_native_store;
-#[cfg(not(coverage))]
-use keyring_core::Entry;
+use keyring_core::{Entry, get_default_store, set_default_store};
 use serde::Serialize;
 #[cfg(all(not(coverage), target_os = "macos"))]
 use std::collections::HashMap;
@@ -25,6 +27,8 @@ use vault_core::{
         ScheduleStatus,
     },
 };
+#[cfg(all(not(coverage), target_os = "windows"))]
+use windows_native_keyring_store::Store as NativeKeyringStore;
 
 const KEYRING_SERVICE: &str = "com.yi-ting.pathkeep";
 const KEYRING_DATABASE_USER: &str = "database-key";
@@ -47,6 +51,7 @@ pub use biometric::{app_lock_biometric_state, authenticate_app_lock_biometric};
 
 #[cfg(not(coverage))]
 fn keyring_entry(user: &str) -> Result<Entry> {
+    ensure_native_keyring_store()?;
     Ok(Entry::new(KEYRING_SERVICE, user)?)
 }
 
@@ -54,9 +59,35 @@ fn provider_keyring_user(provider_id: &str) -> String {
     format!("ai-provider::{provider_id}")
 }
 
+#[cfg(all(
+    not(coverage),
+    any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "freebsd",)
+))]
+fn ensure_native_keyring_store() -> Result<()> {
+    if get_default_store().is_none() {
+        set_default_store(
+            NativeKeyringStore::new().context("initializing native keyring backend")?,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(all(
+    not(coverage),
+    not(any(
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+    ))
+))]
+fn ensure_native_keyring_store() -> Result<()> {
+    anyhow::bail!("A native keyring backend is not available on this machine.")
+}
+
 #[cfg(all(not(coverage), target_os = "macos"))]
 fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     Entry::search(&HashMap::from([("service", service), ("user", user)]))
         .map(|entries| !entries.is_empty())
         .unwrap_or(false)
@@ -64,7 +95,7 @@ fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
 
 #[cfg(all(not(coverage), not(target_os = "macos")))]
 fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     Entry::new(service, user).ok().and_then(|entry| entry.get_password().ok()).is_some()
 }
 
@@ -344,7 +375,7 @@ pub fn keyring_status() -> KeyringStatusReport {
     }
 
     let backend = keyring_backend_name();
-    let available = use_native_store(cfg!(target_os = "linux")).is_ok();
+    let available = ensure_native_keyring_store().is_ok();
     let stored_secret = available && keyring_entry_exists(KEYRING_DATABASE_USER);
 
     KeyringStatusReport {
@@ -370,7 +401,7 @@ pub fn keyring_get_database_key() -> Result<Option<String>> {
         return test_keyring_get(&path, KEYRING_DATABASE_USER);
     }
 
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -389,7 +420,7 @@ pub fn keyring_set_database_key(key: &str) -> Result<()> {
         return test_keyring_set(&path, KEYRING_DATABASE_USER, key);
     }
 
-    use_native_store(cfg!(target_os = "linux")).context("initializing keyring backend")?;
+    ensure_native_keyring_store()?;
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     entry.set_password(key)?;
     Ok(())
@@ -406,7 +437,7 @@ pub fn keyring_clear_database_key() -> Result<()> {
         return test_keyring_clear(&path, KEYRING_DATABASE_USER);
     }
 
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     let _ = entry.delete_credential();
     Ok(())
@@ -427,7 +458,7 @@ pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
             .transpose();
     }
 
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_S3_USER)?;
     match entry.get_password() {
         Ok(value) => {
@@ -452,7 +483,7 @@ pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()>
         return test_keyring_set(&path, KEYRING_S3_USER, &serde_json::to_string(credentials)?);
     }
 
-    use_native_store(cfg!(target_os = "linux")).context("initializing keyring backend")?;
+    ensure_native_keyring_store()?;
     let entry = keyring_entry(KEYRING_S3_USER)?;
     entry.set_password(&serde_json::to_string(credentials)?)?;
     Ok(())
@@ -469,7 +500,7 @@ pub fn keyring_clear_s3_credentials() -> Result<()> {
         return test_keyring_clear(&path, KEYRING_S3_USER);
     }
 
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_S3_USER)?;
     let _ = entry.delete_credential();
     Ok(())
@@ -504,7 +535,7 @@ pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>>
         return test_keyring_get(&path, &user);
     }
 
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     let entry = keyring_entry(&user)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -525,7 +556,7 @@ pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<
         return test_keyring_set(&path, &user, api_key);
     }
 
-    use_native_store(cfg!(target_os = "linux")).context("initializing keyring backend")?;
+    ensure_native_keyring_store()?;
     let entry = keyring_entry(&user)?;
     entry.set_password(api_key)?;
     Ok(())
@@ -544,7 +575,7 @@ pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
         return test_keyring_clear(&path, &user);
     }
 
-    use_native_store(cfg!(target_os = "linux")).ok();
+    ensure_native_keyring_store().ok();
     let entry = keyring_entry(&user)?;
     let _ = entry.delete_credential();
     Ok(())

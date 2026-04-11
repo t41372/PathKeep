@@ -8,7 +8,6 @@ license.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 directories.workspace = true
-keyring.workspace = true
 keyring-core.workspace = true
 plist.workspace = true
 serde.workspace = true
@@ -16,10 +15,17 @@ serde_json.workspace = true
 vault-core = { version = "0.1.0", path = "../vault-core" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "0.2.3", features = ["keychain"] }
 block2 = "0.6.2"
 objc2 = "0.6.4"
 objc2-foundation = "0.3.2"
 objc2-local-authentication = "0.3.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "0.5.1"
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+dbus-secret-service-keyring-store = { version = "0.3.3", features = ["crypto-rust", "vendored"] }
 
 [dev-dependencies]
 tempfile.workspace = true

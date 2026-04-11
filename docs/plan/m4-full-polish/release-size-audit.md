@@ -43,3 +43,14 @@ The generated bundle is expected to answer four questions:
 - local installer bundle found: `dmg/PathKeep_0.1.0_aarch64.dmg` at `70884740` bytes
 - local support-file payload is still dominated by the unsigned app binary inside `macos/PathKeep.app/Contents/MacOS/pathkeep-desktop`
 - downloaded `dist/release/` assets were not present in this local run, so `latest.json` / checksums / manifest remain workflow-verified rather than locally downloaded
+
+## 2026-04-10 Backend Binary Audit Follow-Up
+
+- pre-fix unsigned release executable: `190M`
+- post-fix `cargo build --release --bin pathkeep-desktop` executable: `104M`
+- reduction: `86M` smaller, about `45%`
+- the pre-fix binary was not bloated by frontend payload; `dist/` stayed under `1M`, while the Mach-O executable itself carried the weight
+- the biggest avoidable regression was macOS building through the umbrella `keyring` crate, which transitively pulled `db-keystore` and `turso*` artifacts even though PathKeep only needed the native keychain backend on that platform
+- the other large avoidable factor was missing release-size optimizations; enabling stripped symbols plus thin LTO removed a large `__LINKEDIT` / dead-code tail from the final executable
+- the dominant remaining cost is still the optional intelligence stack that is linked into the default desktop binary: `lancedb` / `lance` / `datafusion` / `rig-core`, plus `bundled-sqlcipher-vendored-openssl`
+- current truth: a ~100 MB Rust desktop executable for this feature set is still heavy, but materially more honest than the previous ~190 MB binary; any further major drop now requires a deeper runtime-boundary decision, not just link-time cleanup
