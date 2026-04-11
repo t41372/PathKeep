@@ -695,6 +695,7 @@ interface MockBackendState {
   scheduleStatusOverrides: Partial<
     Record<'macos' | 'windows' | 'linux', ScheduleStatus>
   >
+  intelligenceRuntime: IntelligenceRuntimeSnapshot
   queueJobs: AiQueueJob[]
   nextAiJobId: number
   nextImportBatchId: number
@@ -1112,6 +1113,65 @@ function syncMockAiStatus(state: MockBackendState) {
   state.snapshot.aiStatus.runningJobs = queue.running
   state.snapshot.aiStatus.failedJobs = queue.failed
   state.snapshot.aiStatus.recentJobs = structuredClone(queue.recentJobs)
+}
+
+function syncMockIntelligenceRuntime(state: MockBackendState) {
+  const enabledById = new Map(
+    resolveEnrichmentSettings(state.snapshot.config.enrichment).plugins.map(
+      (plugin) => [plugin.id, plugin.enabled],
+    ),
+  )
+  const recentJobs = state.intelligenceRuntime.recentJobs
+  const activityTimes = recentJobs
+    .flatMap((job) => [job.finishedAt, job.startedAt, job.createdAt])
+    .filter((value): value is string => Boolean(value))
+  const lastActivityAt =
+    activityTimes.length > 0 ? (activityTimes.sort().at(-1) ?? null) : null
+
+  state.intelligenceRuntime.queue = {
+    queued: recentJobs.filter((job) => job.state === 'queued').length,
+    running: recentJobs.filter((job) => job.state === 'running').length,
+    succeeded: recentJobs.filter((job) => job.state === 'succeeded').length,
+    failed: recentJobs.filter((job) => job.state === 'failed').length,
+    cancelled: recentJobs.filter((job) => job.state === 'cancelled').length,
+    lastActivityAt,
+  }
+  state.intelligenceRuntime.plugins = state.intelligenceRuntime.plugins.map(
+    (plugin) => ({
+      ...plugin,
+      enabled: enabledById.get(plugin.pluginId) ?? plugin.enabled,
+      queuedJobs: recentJobs.filter(
+        (job) => job.pluginId === plugin.pluginId && job.state === 'queued',
+      ).length,
+      runningJobs: recentJobs.filter(
+        (job) => job.pluginId === plugin.pluginId && job.state === 'running',
+      ).length,
+      failedJobs: recentJobs.filter(
+        (job) => job.pluginId === plugin.pluginId && job.state === 'failed',
+      ).length,
+      lastCompletedAt:
+        recentJobs
+          .filter(
+            (job) =>
+              job.pluginId === plugin.pluginId &&
+              job.state === 'succeeded' &&
+              job.finishedAt,
+          )
+          .map((job) => job.finishedAt!)
+          .sort()
+          .at(-1) ?? null,
+      lastError:
+        recentJobs.find(
+          (job) => job.pluginId === plugin.pluginId && job.state === 'failed',
+        )?.lastError ?? null,
+    }),
+  )
+  state.intelligenceRuntime.notes = [
+    'Browser preview mode shows a deterministic queue/runtime fixture.',
+    enabledById.get(READABLE_CONTENT_REFETCH_PLUGIN_ID) === false
+      ? 'Readable content refetch is disabled, so queued network enrichment will stay paused until you re-enable it.'
+      : 'Built-in enrichment stays inside the first-party runtime boundary in browser preview mode.',
+  ]
 }
 
 function buildMockDashboardSnapshot(
@@ -1897,6 +1957,7 @@ function createMockState(): MockBackendState {
     importBatchDetails: {},
     schedulePlanOverrides: {},
     scheduleStatusOverrides: {},
+    intelligenceRuntime: structuredClone(mockIntelligenceRuntime),
     queueJobs: [
       {
         id: 2,
@@ -1944,6 +2005,7 @@ function createMockState(): MockBackendState {
   )
   syncMockAppLockState(state)
   syncMockAiStatus(state)
+  syncMockIntelligenceRuntime(state)
   return state
 }
 
@@ -2293,9 +2355,43 @@ async function call<T>(
     case 'explain_insight':
       return mockInsightExplanation as T
     case 'load_intelligence_runtime':
-    case 'retry_intelligence_job':
-    case 'cancel_intelligence_job':
-      return mockIntelligenceRuntime as T
+      return structuredClone(mockState.intelligenceRuntime) as T
+    case 'retry_intelligence_job': {
+      const jobId = Number(args?.jobId ?? 0)
+      mockState.intelligenceRuntime.recentJobs =
+        mockState.intelligenceRuntime.recentJobs.map((job) =>
+          job.id === jobId && job.retryable
+            ? {
+                ...job,
+                state: 'queued',
+                finishedAt: null,
+                lastError: null,
+                retryable: false,
+                cancellable: true,
+              }
+            : job,
+        )
+      syncMockIntelligenceRuntime(mockState)
+      return structuredClone(mockState.intelligenceRuntime) as T
+    }
+    case 'cancel_intelligence_job': {
+      const jobId = Number(args?.jobId ?? 0)
+      mockState.intelligenceRuntime.recentJobs =
+        mockState.intelligenceRuntime.recentJobs.map((job) =>
+          job.id === jobId && job.cancellable
+            ? {
+                ...job,
+                state: 'cancelled',
+                finishedAt: new Date().toISOString(),
+                lastError: null,
+                retryable: true,
+                cancellable: false,
+              }
+            : job,
+        )
+      syncMockIntelligenceRuntime(mockState)
+      return structuredClone(mockState.intelligenceRuntime) as T
+    }
     case 'inspect_takeout':
       return buildMockTakeoutInspection(
         mockState,
@@ -2793,6 +2889,7 @@ export const backendTestHarness = {
     )
     syncMockAppLockState(mockState)
     syncMockAiStatus(mockState)
+    syncMockIntelligenceRuntime(mockState)
   },
   seedSchedule: (plan: SchedulePlan, status?: ScheduleStatus) => {
     overrideMockSchedule(mockState, plan, status)

@@ -335,14 +335,21 @@ pub fn retry_intelligence_job(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
+    let state = load_job_state(&connection, job_id)?;
+    if !matches!(state.as_str(), "failed" | "cancelled") {
+        anyhow::bail!("Intelligence job {job_id} is in state '{state}' and cannot be retried.");
+    }
     let now = now_rfc3339();
-    connection.execute(
+    let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'queued', scheduled_at = ?1, updated_at = ?1, started_at = NULL,
              finished_at = NULL, last_error = NULL, cancellation_reason = NULL
          WHERE id = ?2",
         params![now, job_id],
     )?;
+    if updated == 0 {
+        anyhow::bail!("Intelligence job {job_id} could not be retried.");
+    }
     load_intelligence_runtime(paths, config, key)
 }
 
@@ -355,15 +362,31 @@ pub fn cancel_intelligence_job(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
+    let state = load_job_state(&connection, job_id)?;
+    if !matches!(state.as_str(), "queued" | "running") {
+        anyhow::bail!("Intelligence job {job_id} is in state '{state}' and cannot be cancelled.");
+    }
     let now = now_rfc3339();
-    connection.execute(
+    let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'cancelled', finished_at = ?1, updated_at = ?1,
-             cancellation_reason = 'cancelled from UI'
+             last_error = NULL, cancellation_reason = 'cancelled from UI'
          WHERE id = ?2",
         params![now, job_id],
     )?;
+    if updated == 0 {
+        anyhow::bail!("Intelligence job {job_id} could not be cancelled.");
+    }
     load_intelligence_runtime(paths, config, key)
+}
+
+fn load_job_state(connection: &Connection, job_id: i64) -> Result<String> {
+    connection
+        .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?
+        .with_context(|| format!("Intelligence job {job_id} was not found."))
 }
 
 fn empty_plugin_statuses(config: &AppConfig) -> Vec<EnrichmentPluginStatus> {
@@ -504,7 +527,7 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
 mod tests {
     use super::*;
     use crate::{
-        config::{ProjectPaths, project_paths_with_root},
+        config::{ProjectPaths, ensure_paths, project_paths_with_root},
         models::{AppConfig, ArchiveMode},
         utils::test_env_lock,
     };
@@ -512,6 +535,22 @@ mod tests {
 
     fn sample_paths(root: &std::path::Path) -> ProjectPaths {
         project_paths_with_root(root)
+    }
+
+    fn setup_runtime_archive() -> (tempfile::TempDir, ProjectPaths, AppConfig) {
+        let root = tempdir().expect("tempdir");
+        let paths = sample_paths(root.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+        create_schema(&connection).expect("core schema");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+        (root, paths, config)
     }
 
     #[test]
@@ -620,5 +659,64 @@ mod tests {
             )
             .expect("final state");
         assert_eq!(final_state, "queued");
+    }
+
+    #[test]
+    fn retry_and_cancel_require_valid_job_states() {
+        let (_root, paths, config) = setup_runtime_archive();
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, updated_at)
+                 VALUES
+                    (?1, ?2, 21, 'succeeded', 10, 1, 'job-succeeded', ?3, '{}', ?4, ?4, ?4),
+                    (?1, ?2, 22, 'queued', 10, 0, 'job-queued', ?3, '{}', ?4, ?4, ?4)",
+                params![
+                    ENRICHMENT_JOB_TYPE,
+                    TITLE_NORMALIZATION_PLUGIN_ID,
+                    serde_json::to_string(&EnrichmentJobPayload {
+                        history_id: 9,
+                        profile_id: "chrome:Default".to_string(),
+                        url: "https://example.com/docs".to_string(),
+                        title: Some("Docs".to_string()),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert jobs");
+
+        let retry_error = retry_intelligence_job(&paths, &config, None, 1)
+            .expect_err("retry should reject succeeded jobs");
+        assert!(retry_error.to_string().contains("cannot be retried"));
+
+        let cancel_error = cancel_intelligence_job(&paths, &config, None, 1)
+            .expect_err("cancel should reject succeeded jobs");
+        assert!(cancel_error.to_string().contains("cannot be cancelled"));
+
+        cancel_intelligence_job(&paths, &config, None, 2).expect("cancel queued job");
+        let cancelled_state = connection
+            .query_row("SELECT state FROM intelligence_jobs WHERE id = 2", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("cancelled state");
+        assert_eq!(cancelled_state, "cancelled");
+    }
+
+    #[test]
+    fn retry_and_cancel_fail_for_missing_jobs() {
+        let (_root, paths, config) = setup_runtime_archive();
+
+        let retry_error = retry_intelligence_job(&paths, &config, None, 404)
+            .expect_err("retry should fail for missing jobs");
+        assert!(retry_error.to_string().contains("404"));
+
+        let cancel_error = cancel_intelligence_job(&paths, &config, None, 404)
+            .expect_err("cancel should fail for missing jobs");
+        assert!(cancel_error.to_string().contains("404"));
     }
 }

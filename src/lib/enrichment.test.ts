@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import {
-  BUILT_IN_ENRICHMENT_VERSION,
+  READABLE_CONTENT_REFETCH_VERSION,
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
+  TITLE_NORMALIZATION_PLUGIN_ID,
+  TITLE_NORMALIZATION_VERSION,
   defaultEnrichmentSettings,
   enrichmentPluginEnabled,
   enrichmentPluginState,
@@ -13,9 +15,14 @@ describe('enrichment helpers', () => {
     expect(defaultEnrichmentSettings()).toEqual({
       plugins: [
         {
+          id: TITLE_NORMALIZATION_PLUGIN_ID,
+          enabled: true,
+          version: TITLE_NORMALIZATION_VERSION,
+        },
+        {
           id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
           enabled: true,
-          version: BUILT_IN_ENRICHMENT_VERSION,
+          version: READABLE_CONTENT_REFETCH_VERSION,
         },
       ],
     })
@@ -40,6 +47,11 @@ describe('enrichment helpers', () => {
     ).toEqual({
       plugins: [
         {
+          id: TITLE_NORMALIZATION_PLUGIN_ID,
+          enabled: true,
+          version: TITLE_NORMALIZATION_VERSION,
+        },
+        {
           id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
           enabled: false,
           version: 'custom-version',
@@ -59,7 +71,7 @@ describe('enrichment helpers', () => {
         {
           id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
           enabled: false,
-          version: BUILT_IN_ENRICHMENT_VERSION,
+          version: READABLE_CONTENT_REFETCH_VERSION,
         },
       ],
     }
@@ -69,7 +81,7 @@ describe('enrichment helpers', () => {
     ).toEqual({
       id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
       enabled: false,
-      version: BUILT_IN_ENRICHMENT_VERSION,
+      version: READABLE_CONTENT_REFETCH_VERSION,
     })
     expect(
       enrichmentPluginEnabled(settings, READABLE_CONTENT_REFETCH_PLUGIN_ID),

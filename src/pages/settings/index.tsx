@@ -13,6 +13,13 @@ import {
   enrichmentPluginState,
   resolveEnrichmentSettings,
 } from '../../lib/enrichment'
+import {
+  enrichmentPluginBoundaryLabel,
+  enrichmentPluginDescription,
+  enrichmentPluginLabel,
+  intelligenceRuntimeJobStateLabel,
+  upsertEnrichmentPluginPreference,
+} from '../../lib/intelligence-runtime'
 import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
 import { aiStatusMeta } from '../../lib/intelligence'
 import { formatBytes, formatDateTime } from '../../lib/format'
@@ -39,6 +46,7 @@ import type {
   AiSettings,
   AppLockConfig,
   ClearDerivedIntelligenceReport,
+  IntelligenceRuntimeSnapshot,
   RemoteBackupConfig,
   RemoteBackupPreview,
   RemoteBackupResult,
@@ -85,6 +93,7 @@ export function SettingsPage() {
     clearAppLockPasscode,
     dashboard,
     lockAppSession,
+    refreshKey,
     refreshAppData,
     saveConfig,
     setAppLockPasscode,
@@ -114,6 +123,11 @@ export function SettingsPage() {
   const [clearReport, setClearReport] =
     useState<ClearDerivedIntelligenceReport | null>(null)
   const [derivedAction, setDerivedAction] = useState<string | null>(null)
+  const [intelligenceRuntime, setIntelligenceRuntime] =
+    useState<IntelligenceRuntimeSnapshot | null>(null)
+  const [intelligenceRuntimeError, setIntelligenceRuntimeError] = useState<
+    string | null
+  >(null)
   const [supportState, setSupportState] = useState<SupportState>({
     scheduleStatus: null,
     securityStatus: null,
@@ -153,6 +167,19 @@ export function SettingsPage() {
     useState(0)
   const lastSyncedAiSignatureRef = useRef<string | null>(null)
 
+  async function refreshIntelligenceRuntimeState() {
+    try {
+      const runtime = await backend.loadIntelligenceRuntime()
+      setIntelligenceRuntime(runtime)
+      setIntelligenceRuntimeError(null)
+    } catch (error) {
+      setIntelligenceRuntime(null)
+      setIntelligenceRuntimeError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     const loadSupportState = async () => {
@@ -177,6 +204,31 @@ export function SettingsPage() {
       cancelled = true
     }
   }, [snapshot?.config.preferredLanguage])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRuntime = async () => {
+      try {
+        const runtime = await backend.loadIntelligenceRuntime()
+        if (!cancelled) {
+          setIntelligenceRuntime(runtime)
+          setIntelligenceRuntimeError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setIntelligenceRuntime(null)
+          setIntelligenceRuntimeError(
+            error instanceof Error ? error.message : t('common.notAvailable'),
+          )
+        }
+      }
+    }
+
+    void loadRuntime()
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey, snapshot?.config.initialized, t])
 
   useEffect(() => {
     if (!snapshot) {
@@ -300,6 +352,33 @@ export function SettingsPage() {
     () => resolveEnrichmentSettings(snapshot?.config.enrichment),
     [snapshot?.config.enrichment],
   )
+  const commonNs = ns('common')
+  const settingsNs = ns('settings')
+  const intelligenceT = ns('intelligence')
+  const runtimePluginsById = useMemo(
+    () =>
+      new Map(
+        (intelligenceRuntime?.plugins ?? []).map((plugin) => [
+          plugin.pluginId,
+          plugin,
+        ]),
+      ),
+    [intelligenceRuntime?.plugins],
+  )
+  const reviewableEnrichmentPlugins = useMemo(() => {
+    const registryIds = enrichmentPluginRegistry.map((plugin) => plugin.id)
+    const extraIds = enrichmentSettings.plugins
+      .map((plugin) => plugin.id)
+      .filter((pluginId) => !registryIds.includes(pluginId))
+
+    return [...registryIds, ...extraIds].map((pluginId) => ({
+      definition: enrichmentPluginRegistry.find(
+        (plugin) => plugin.id === pluginId,
+      ),
+      runtime: runtimePluginsById.get(pluginId),
+      state: enrichmentPluginState(enrichmentSettings, pluginId),
+    }))
+  }, [enrichmentSettings, runtimePluginsById])
 
   if (!snapshot) {
     return (
@@ -310,7 +389,6 @@ export function SettingsPage() {
   }
 
   const profiles = snapshot.browserProfiles
-  const intelligenceT = ns('intelligence')
   const selectedIds = new Set(snapshot.config.selectedProfileIds)
   const safariNeedsAccess = hasSafariAccessIssue(profiles)
   const platform = normalizePlatform(supportState.scheduleStatus?.platform)
@@ -320,13 +398,6 @@ export function SettingsPage() {
     supportState.scheduleStatus?.installState === 'permission-warning' ||
     supportState.scheduleStatus?.installState === 'legacy-install-detected'
   const keyringWarning = keyringNeedsReview(supportState.securityStatus)
-  const readableRefetchPlugin = enrichmentPluginState(
-    enrichmentSettings,
-    READABLE_CONTENT_REFETCH_PLUGIN_ID,
-  )
-  const readableRefetchMeta = enrichmentPluginRegistry.find(
-    (plugin) => plugin.id === READABLE_CONTENT_REFETCH_PLUGIN_ID,
-  )
   const remoteConfigured = Boolean(
     remoteDraft?.bucket.trim() && remoteDraft.region.trim(),
   )
@@ -598,23 +669,34 @@ export function SettingsPage() {
     }
   }
 
-  async function handleReadableRefetchToggle() {
+  async function handleEnrichmentPluginToggle(pluginId: string) {
     if (!snapshot) {
       return
     }
 
-    const nextPlugins = enrichmentSettings.plugins.map((plugin) =>
-      plugin.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
-        ? { ...plugin, enabled: !plugin.enabled }
-        : plugin,
+    const currentPlugin = enrichmentPluginState(enrichmentSettings, pluginId)
+    const nextEnabled = !currentPlugin.enabled
+    const nextPlugins = resolveEnrichmentSettings(
+      snapshot.config.enrichment,
+    ).plugins.map((plugin) =>
+      plugin.id === pluginId ? { ...plugin, enabled: nextEnabled } : plugin,
     )
     setDerivedAction(t('settings.savingEnrichmentSettings'))
     try {
       await saveConfig({
         ...snapshot.config,
         enrichment: { plugins: nextPlugins },
+        ai: {
+          ...snapshot.config.ai,
+          enrichmentPlugins: upsertEnrichmentPluginPreference(
+            snapshot.config.ai.enrichmentPlugins,
+            pluginId,
+            nextEnabled,
+          ),
+        },
       })
       await refreshAppData()
+      await refreshIntelligenceRuntimeState()
     } finally {
       setDerivedAction(null)
     }
@@ -627,6 +709,7 @@ export function SettingsPage() {
       setRebuildReport(report)
       setClearReport(null)
       await refreshAppData()
+      await refreshIntelligenceRuntimeState()
     } finally {
       setDerivedAction(null)
     }
@@ -639,6 +722,37 @@ export function SettingsPage() {
       setClearReport(report)
       setRebuildReport(null)
       await refreshAppData()
+      await refreshIntelligenceRuntimeState()
+    } finally {
+      setDerivedAction(null)
+    }
+  }
+
+  async function handleRetryIntelligenceRuntimeJob(jobId: number) {
+    setDerivedAction(settingsNs('retryRuntimeJob'))
+    try {
+      const runtime = await backend.retryIntelligenceJob(jobId)
+      setIntelligenceRuntime(runtime)
+      setIntelligenceRuntimeError(null)
+    } catch (error) {
+      setIntelligenceRuntimeError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
+    } finally {
+      setDerivedAction(null)
+    }
+  }
+
+  async function handleCancelIntelligenceRuntimeJob(jobId: number) {
+    setDerivedAction(settingsNs('cancelRuntimeJob'))
+    try {
+      const runtime = await backend.cancelIntelligenceJob(jobId)
+      setIntelligenceRuntime(runtime)
+      setIntelligenceRuntimeError(null)
+    } catch (error) {
+      setIntelligenceRuntimeError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
     } finally {
       setDerivedAction(null)
     }
@@ -2242,72 +2356,218 @@ export function SettingsPage() {
               </div>
             }
           />
+          <StatusCallout
+            tone="info"
+            title={settingsNs('firstPartyRuntimeTitle')}
+            body={settingsNs('firstPartyRuntimeBody')}
+          />
+          <StatusCallout
+            tone={
+              intelligenceRuntimeError || intelligenceRuntime?.queue.failed
+                ? 'warning'
+                : 'info'
+            }
+            title={
+              intelligenceRuntimeError
+                ? settingsNs('runtimeUnavailableTitle')
+                : settingsNs('runtimeQueueTitle')
+            }
+            body={intelligenceRuntimeError ?? settingsNs('runtimeQueueBody')}
+            actions={
+              intelligenceRuntimeError ? undefined : (
+                <div className="settings-action-row">
+                  <span className="mono">
+                    {settingsNs('runtimeQueueSummary', {
+                      queued: intelligenceRuntime?.queue.queued ?? 0,
+                      running: intelligenceRuntime?.queue.running ?? 0,
+                      failed: intelligenceRuntime?.queue.failed ?? 0,
+                    })}
+                  </span>
+                </div>
+              )
+            }
+          />
 
-          <div className="result-row result-row--active">
-            <div className="result-row__header">
-              <strong>{t('settings.readableContentRefetch')}</strong>
-              <span className="mono">
-                {readableRefetchPlugin.enabled
-                  ? t('settings.enabled')
-                  : t('settings.disabled')}
-              </span>
-            </div>
-            <p>{t('settings.readableContentRefetchBody')}</p>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginVersion')}
-              </span>
-              <span className="config-value mono">
-                {readableRefetchPlugin.version}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('settings.pluginQueue')}</span>
-              <span className="config-value mono">
-                {readableRefetchMeta?.queue ?? t('common.notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginFreshness')}
-              </span>
-              <span className="config-value mono">
-                {readableRefetchMeta?.freshnessDays
-                  ? t('settings.daysFreshness', {
-                      days: readableRefetchMeta.freshnessDays,
-                    })
-                  : t('common.notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginDerivedTables')}
-              </span>
-              <span className="config-value mono">
-                {readableRefetchMeta?.derivedTables.join(', ')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginStorageImpact')}
-              </span>
-              <span className="config-value">
-                {t('settings.readableContentRefetchImpact')}
-              </span>
-            </div>
-            <div className="settings-action-row">
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={Boolean(derivedAction)}
-                onClick={() => {
-                  void handleReadableRefetchToggle()
-                }}
+          {reviewableEnrichmentPlugins.map((plugin) => {
+            const sourceKind =
+              plugin.runtime?.sourceKind ??
+              (plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
+                ? 'network'
+                : 'local')
+
+            return (
+              <div
+                key={plugin.state.id}
+                className="result-row result-row--active"
               >
-                {readableRefetchPlugin.enabled
-                  ? t('settings.disablePlugin')
-                  : t('settings.enablePlugin')}
-              </button>
+                <div className="result-row__header">
+                  <strong>
+                    {enrichmentPluginLabel(plugin.state.id, settingsNs)}
+                  </strong>
+                  <span className="mono">
+                    {plugin.state.enabled
+                      ? t('settings.enabled')
+                      : t('settings.disabled')}
+                  </span>
+                </div>
+                <p>
+                  {enrichmentPluginDescription(plugin.state.id, settingsNs)}
+                </p>
+                <div className="config-row">
+                  <span className="config-label">
+                    {settingsNs('pluginBoundary')}
+                  </span>
+                  <span className="config-value mono">
+                    {enrichmentPluginBoundaryLabel(sourceKind, settingsNs)}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {t('settings.pluginVersion')}
+                  </span>
+                  <span className="config-value mono">
+                    {plugin.state.version}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {t('settings.pluginQueue')}
+                  </span>
+                  <span className="config-value mono">
+                    {plugin.runtime
+                      ? settingsNs('pluginQueueCounts', {
+                          queued: plugin.runtime.queuedJobs,
+                          running: plugin.runtime.runningJobs,
+                          failed: plugin.runtime.failedJobs,
+                        })
+                      : commonNs('notAvailable')}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {t('settings.pluginFreshness')}
+                  </span>
+                  <span className="config-value mono">
+                    {plugin.definition?.freshnessDays
+                      ? t('settings.daysFreshness', {
+                          days: plugin.definition.freshnessDays,
+                        })
+                      : commonNs('notAvailable')}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {t('settings.pluginDerivedTables')}
+                  </span>
+                  <span className="config-value mono">
+                    {plugin.definition?.derivedTables.join(', ') ??
+                      commonNs('notAvailable')}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {settingsNs('pluginStoredRecords')}
+                  </span>
+                  <span className="config-value mono">
+                    {plugin.runtime?.storedRecords ?? 0}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {settingsNs('pluginLastCompleted')}
+                  </span>
+                  <span className="config-value mono">
+                    {plugin.runtime?.lastCompletedAt
+                      ? formatDateTime(plugin.runtime.lastCompletedAt, language)
+                      : commonNs('notAvailable')}
+                  </span>
+                </div>
+                <div className="config-row">
+                  <span className="config-label">
+                    {settingsNs('pluginLastError')}
+                  </span>
+                  <span className="config-value">
+                    {plugin.runtime?.lastError ?? commonNs('notAvailable')}
+                  </span>
+                </div>
+                <div className="settings-action-row">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={Boolean(derivedAction)}
+                    onClick={() => {
+                      void handleEnrichmentPluginToggle(plugin.state.id)
+                    }}
+                  >
+                    {plugin.state.enabled
+                      ? t('settings.disablePlugin')
+                      : t('settings.enablePlugin')}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+
+          <div className="settings-result-list">
+            <div className="result-row">
+              <div className="result-row__header">
+                <strong>{settingsNs('runtimeRecentJobs')}</strong>
+              </div>
+              {intelligenceRuntime?.recentJobs.length ? (
+                intelligenceRuntime.recentJobs.map((job) => (
+                  <div key={job.id} className="result-row">
+                    <div className="result-row__header">
+                      <strong>
+                        {enrichmentPluginLabel(
+                          job.pluginId ?? job.jobType,
+                          settingsNs,
+                        )}
+                      </strong>
+                      <span className="mono">
+                        {intelligenceRuntimeJobStateLabel(
+                          job.state,
+                          settingsNs,
+                        )}
+                      </span>
+                    </div>
+                    <p>
+                      {job.title ?? job.url ?? job.jobType} ·{' '}
+                      {settingsNs('runtimeJobAttempt', {
+                        attempt: job.attempt,
+                      })}
+                    </p>
+                    {job.lastError ? <p>{job.lastError}</p> : null}
+                    <div className="settings-action-row">
+                      {job.retryable ? (
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          disabled={Boolean(derivedAction)}
+                          onClick={() => {
+                            void handleRetryIntelligenceRuntimeJob(job.id)
+                          }}
+                        >
+                          {settingsNs('retryRuntimeJob')}
+                        </button>
+                      ) : null}
+                      {job.cancellable ? (
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          disabled={Boolean(derivedAction)}
+                          onClick={() => {
+                            void handleCancelIntelligenceRuntimeJob(job.id)
+                          }}
+                        >
+                          {settingsNs('cancelRuntimeJob')}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p>{settingsNs('runtimeNoJobs')}</p>
+              )}
             </div>
           </div>
 

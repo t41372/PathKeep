@@ -35,6 +35,23 @@ export function enrichmentPluginBoundaryLabel(
   return sourceKind === 'network' ? t('networkAccess') : t('localOnly')
 }
 
+export function intelligenceRuntimeJobStateLabel(state: string, t: Translator) {
+  switch (state) {
+    case 'queued':
+      return t('runtimeStateQueued')
+    case 'running':
+      return t('runtimeStateRunning')
+    case 'succeeded':
+      return t('runtimeStateSucceeded')
+    case 'failed':
+      return t('runtimeStateFailed')
+    case 'cancelled':
+      return t('runtimeStateCancelled')
+    default:
+      return state
+  }
+}
+
 export function upsertEnrichmentPluginPreference(
   preferences: EnrichmentPluginPreference[],
   pluginId: string,

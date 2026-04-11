@@ -1527,6 +1527,14 @@ const catalog: Record<
       derivedStateBoundaryTitle: 'What gets affected',
       derivedStateBoundaryBody:
         'These actions only affect enrichment and insights data. Your original history, audit logs, and undo history are never touched.',
+      firstPartyRuntimeTitle: 'Built-in plugins only',
+      firstPartyRuntimeBody:
+        'PathKeep only runs first-party enrichment plugins today. Third-party runtime access stays deferred until a separate sandbox and permission review lands.',
+      runtimeQueueTitle: 'Runtime queue',
+      runtimeQueueBody:
+        'Deterministic refresh rebuilds cards and features. Enrichment jobs fill optional derived evidence and can fail, be retried, or be cancelled without touching canonical history.',
+      runtimeQueueSummary:
+        '{queued} queued / {running} running / {failed} failed',
       rebuildDerivedState: 'Rebuild',
       clearDerivedState: 'Clear all',
       titleNormalizationPlugin: 'Title normalization',
@@ -1540,18 +1548,38 @@ const catalog: Record<
         'Fetches readable page content for visited pages so summaries and deterministic insights can cite fuller local evidence.',
       enrichmentPluginFallbackDescription:
         'Review the plugin boundary before enabling it for routine runs.',
+      pluginBoundary: 'Boundary',
       pluginVersion: 'Version',
       pluginQueue: 'Queue',
+      pluginQueueCounts:
+        '{queued} queued / {running} running / {failed} failed',
       pluginFreshness: 'Refresh after',
       daysFreshness: '{days} days',
       pluginDerivedTables: 'Data tables',
+      pluginStoredRecords: 'Stored rows',
       pluginStorageImpact: 'Disk usage',
+      pluginLastCompleted: 'Last completed',
+      pluginLastError: 'Last error',
       networkAccess: 'Network',
       localOnly: 'Local only',
       readableContentRefetchImpact:
         'Stores page text locally. Can be rebuilt anytime.',
       disablePlugin: 'Disable',
       enablePlugin: 'Enable',
+      runtimeRecentJobs: 'Recent runtime jobs',
+      runtimeNoJobs:
+        'Recent queue activity will appear here after a deterministic refresh.',
+      runtimeJobAttempt: 'Attempt {attempt}',
+      retryRuntimeJob: 'Retry',
+      cancelRuntimeJob: 'Cancel',
+      runtimeUnavailableTitle: 'Runtime status unavailable',
+      runtimeUnavailableBody:
+        'PathKeep could not load the enrichment runtime review surface right now.',
+      runtimeStateQueued: 'Queued',
+      runtimeStateRunning: 'Running',
+      runtimeStateSucceeded: 'Succeeded',
+      runtimeStateFailed: 'Failed',
+      runtimeStateCancelled: 'Cancelled',
       latestGrowthSignal: 'Recent activity',
       openAuditRun: 'View in audit log',
       latestGrowthSignalBody:
@@ -2864,6 +2892,14 @@ const catalog: Record<
       derivedStateBoundaryTitle: '影响范围',
       derivedStateBoundaryBody:
         '只影响分析和洞察数据。你的原始历史记录、审计日志和撤销功能不受影响。',
+      firstPartyRuntimeTitle: '仅限内建插件',
+      firstPartyRuntimeBody:
+        'PathKeep 目前只运行第一方增强插件。第三方运行时访问会继续延后，直到单独完成 sandbox 和权限评审。',
+      runtimeQueueTitle: '运行队列',
+      runtimeQueueBody:
+        '确定性刷新会重建卡片和特征；增强任务负责补可选的派生证据。它们失败、重试或取消都不会改动原始历史记录。',
+      runtimeQueueSummary:
+        '{queued} 个排队 / {running} 个运行 / {failed} 个失败',
       rebuildDerivedState: '重新生成',
       clearDerivedState: '清除所有',
       titleNormalizationPlugin: '标题规范化',
@@ -2877,17 +2913,35 @@ const catalog: Record<
         '抓取已访问页面的可读正文，让摘要和确定性洞察可以引用更完整的本地证据。',
       enrichmentPluginFallbackDescription:
         '启用前请先确认这个插件的边界是否适合日常运行。',
+      pluginBoundary: '边界',
       pluginVersion: '版本',
       pluginQueue: '队列',
+      pluginQueueCounts: '{queued} 个排队 / {running} 个运行 / {failed} 个失败',
       pluginFreshness: '刷新周期',
       daysFreshness: '{days} 天',
       pluginDerivedTables: '数据表',
+      pluginStoredRecords: '已存储行数',
       pluginStorageImpact: '磁盘占用',
+      pluginLastCompleted: '上次完成',
+      pluginLastError: '最近错误',
       networkAccess: '网络',
       localOnly: '仅本地',
       readableContentRefetchImpact: '在本地保存网页文本，可随时重新生成。',
       disablePlugin: '关闭',
       enablePlugin: '开启',
+      runtimeRecentJobs: '最近运行任务',
+      runtimeNoJobs: '下一次确定性刷新后，这里会显示最近的队列活动。',
+      runtimeJobAttempt: '第 {attempt} 次尝试',
+      retryRuntimeJob: '重试',
+      cancelRuntimeJob: '取消',
+      runtimeUnavailableTitle: '无法加载运行状态',
+      runtimeUnavailableBody:
+        'PathKeep 目前无法加载增强运行时的 review surface。',
+      runtimeStateQueued: '排队中',
+      runtimeStateRunning: '运行中',
+      runtimeStateSucceeded: '已完成',
+      runtimeStateFailed: '失败',
+      runtimeStateCancelled: '已取消',
       latestGrowthSignal: '最近活动',
       openAuditRun: '查看日志',
       latestGrowthSignalBody:
@@ -3853,6 +3907,14 @@ const catalog: Record<
       derivedStateBoundaryTitle: '影響範圍',
       derivedStateBoundaryBody:
         '只影響分析和洞察資料。你的原始歷史紀錄、稽核日誌和復原功能不受影響。',
+      firstPartyRuntimeTitle: '僅限內建插件',
+      firstPartyRuntimeBody:
+        'PathKeep 目前只執行第一方增強插件。第三方 runtime 存取會繼續延後，直到另外完成 sandbox 與權限評審。',
+      runtimeQueueTitle: '執行佇列',
+      runtimeQueueBody:
+        '確定性重新整理會重建卡片與特徵；增強工作則補齊可選的衍生證據。失敗、重試或取消都不會改動原始歷史紀錄。',
+      runtimeQueueSummary:
+        '{queued} 個排隊 / {running} 個執行中 / {failed} 個失敗',
       rebuildDerivedState: '重新產生',
       clearDerivedState: '清除全部',
       titleNormalizationPlugin: '標題正規化',
@@ -3866,17 +3928,36 @@ const catalog: Record<
         '擷取已造訪頁面的可讀正文，讓摘要和確定性洞察可以引用更完整的本機證據。',
       enrichmentPluginFallbackDescription:
         '啟用前請先確認這個插件的邊界是否適合日常執行。',
+      pluginBoundary: '邊界',
       pluginVersion: '版本',
       pluginQueue: '佇列',
+      pluginQueueCounts:
+        '{queued} 個排隊 / {running} 個執行中 / {failed} 個失敗',
       pluginFreshness: '重新整理週期',
       daysFreshness: '{days} 天',
       pluginDerivedTables: '資料表',
+      pluginStoredRecords: '已儲存列數',
       pluginStorageImpact: '磁碟用量',
+      pluginLastCompleted: '上次完成',
+      pluginLastError: '最近錯誤',
       networkAccess: '網路',
       localOnly: '僅限本機',
       readableContentRefetchImpact: '在本機儲存網頁文字，可隨時重新產生。',
       disablePlugin: '關閉',
       enablePlugin: '開啟',
+      runtimeRecentJobs: '最近執行工作',
+      runtimeNoJobs: '下一次確定性重新整理後，這裡會顯示最近的佇列活動。',
+      runtimeJobAttempt: '第 {attempt} 次嘗試',
+      retryRuntimeJob: '重試',
+      cancelRuntimeJob: '取消',
+      runtimeUnavailableTitle: '無法載入執行狀態',
+      runtimeUnavailableBody:
+        'PathKeep 目前無法載入增強 runtime 的 review surface。',
+      runtimeStateQueued: '排隊中',
+      runtimeStateRunning: '執行中',
+      runtimeStateSucceeded: '已完成',
+      runtimeStateFailed: '失敗',
+      runtimeStateCancelled: '已取消',
       latestGrowthSignal: '最近活動',
       openAuditRun: '查看日誌',
       latestGrowthSignalBody:

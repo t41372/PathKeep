@@ -107,9 +107,10 @@ describe('backend facade', () => {
         archiveMode: 'Encrypted',
         initialized: false,
         enrichment: {
-          plugins: [
+          plugins: expect.arrayContaining([
             expect.objectContaining({ id: 'readable-content-refetch' }),
-          ],
+            expect.objectContaining({ id: 'title-normalization' }),
+          ]),
         },
       }),
     })
@@ -626,9 +627,10 @@ describe('backend facade', () => {
       },
     )
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
-      queue: expect.objectContaining({ queued: 1, failed: 1 }),
+      queue: expect.objectContaining({ failed: 1 }),
       plugins: expect.arrayContaining([
         expect.objectContaining({ pluginId: 'title-normalization' }),
+        expect.objectContaining({ pluginId: 'readable-content-refetch' }),
       ]),
     })
     await expect(

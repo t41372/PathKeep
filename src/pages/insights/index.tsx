@@ -25,6 +25,10 @@ import {
   evidenceHref,
 } from '../../lib/intelligence'
 import {
+  enrichmentPluginLabel,
+  intelligenceRuntimeJobStateLabel,
+} from '../../lib/intelligence-runtime'
+import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
@@ -37,6 +41,7 @@ import type {
   InsightEvidenceItem,
   InsightExplanation,
   InsightSnapshot,
+  IntelligenceRuntimeSnapshot,
 } from '../../lib/types'
 
 const topicColors = ['#FF7832', '#4ECDC4', '#FFE66D', '#FF6B6B', '#89CFF0']
@@ -72,11 +77,16 @@ export function InsightsPage() {
   const [selectedCard, setSelectedCard] = useState<InsightCard | null>(null)
   const [action, setAction] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
+    null,
+  )
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
   const commonT = ns('common')
+  const settingsT = ns('settings')
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -105,6 +115,31 @@ export function InsightsPage() {
       cancelled = true
     }
   }, [activeProfileId, insightsT, refreshKey])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRuntime = async () => {
+      try {
+        const nextRuntime = await backend.loadIntelligenceRuntime()
+        if (!cancelled) {
+          setRuntime(nextRuntime)
+          setRuntimeError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRuntime(null)
+          setRuntimeError(
+            error instanceof Error ? error.message : commonT('notAvailable'),
+          )
+        }
+      }
+    }
+
+    void loadRuntime()
+    return () => {
+      cancelled = true
+    }
+  }, [commonT, refreshKey])
 
   const aiMeta = snapshot
     ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
@@ -143,13 +178,46 @@ export function InsightsPage() {
         fullRebuild: false,
         profileId: activeProfileId,
       })
+      const nextRuntime = await backend.loadIntelligenceRuntime()
       setInsights(nextInsights)
+      setRuntime(nextRuntime)
+      setRuntimeError(null)
       await refreshAppData()
     } catch (error) {
       setLoadError(
         error instanceof Error
           ? error.message
           : insightsT('refreshAttentionTitle'),
+      )
+    } finally {
+      setAction(null)
+    }
+  }
+
+  async function handleRetryRuntimeJob(jobId: number) {
+    setAction(settingsT('retryRuntimeJob'))
+    try {
+      const nextRuntime = await backend.retryIntelligenceJob(jobId)
+      setRuntime(nextRuntime)
+      setRuntimeError(null)
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error ? error.message : commonT('notAvailable'),
+      )
+    } finally {
+      setAction(null)
+    }
+  }
+
+  async function handleCancelRuntimeJob(jobId: number) {
+    setAction(settingsT('cancelRuntimeJob'))
+    try {
+      const nextRuntime = await backend.cancelIntelligenceJob(jobId)
+      setRuntime(nextRuntime)
+      setRuntimeError(null)
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error ? error.message : commonT('notAvailable'),
       )
     } finally {
       setAction(null)
@@ -289,6 +357,104 @@ export function InsightsPage() {
           progressValue={selectedCard ? 100 : 50}
         />
       ) : null}
+
+      <StatusCallout
+        tone={runtimeError || runtime?.queue.failed ? 'warning' : 'info'}
+        eyebrow={settingsT('runtimeQueueTitle')}
+        title={
+          runtimeError
+            ? settingsT('runtimeUnavailableTitle')
+            : settingsT('firstPartyRuntimeTitle')
+        }
+        body={
+          runtimeError
+            ? runtimeError
+            : `${settingsT('firstPartyRuntimeBody')} ${settingsT(
+                'runtimeQueueBody',
+              )}`
+        }
+        actions={
+          <div className="intelligence-actions">
+            <span className="mono">
+              {settingsT('runtimeQueueSummary', {
+                queued: runtime?.queue.queued ?? 0,
+                running: runtime?.queue.running ?? 0,
+                failed: runtime?.queue.failed ?? 0,
+              })}
+            </span>
+            <Link className="btn-secondary" to="/settings">
+              {settingsT('runtimeQueueTitle')}
+            </Link>
+          </div>
+        }
+      />
+
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{settingsT('runtimeRecentJobs')}</span>
+          <span className="panel-badge">
+            {settingsT('runtimeQueueSummary', {
+              queued: runtime?.queue.queued ?? 0,
+              running: runtime?.queue.running ?? 0,
+              failed: runtime?.queue.failed ?? 0,
+            })}
+          </span>
+        </div>
+        <div className="panel-body">
+          {runtime?.recentJobs.length ? (
+            <div className="settings-result-list">
+              {runtime.recentJobs.map((job) => (
+                <div key={job.id} className="result-row">
+                  <div className="result-row__header">
+                    <strong>
+                      {enrichmentPluginLabel(
+                        job.pluginId ?? job.jobType,
+                        settingsT,
+                      )}
+                    </strong>
+                    <span className="mono">
+                      {intelligenceRuntimeJobStateLabel(job.state, settingsT)}
+                    </span>
+                  </div>
+                  <p>
+                    {job.title ?? job.url ?? job.jobType} ·{' '}
+                    {settingsT('runtimeJobAttempt', { attempt: job.attempt })}
+                  </p>
+                  {job.lastError ? <p>{job.lastError}</p> : null}
+                  <div className="settings-action-row">
+                    {job.retryable ? (
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        disabled={Boolean(action)}
+                        onClick={() => {
+                          void handleRetryRuntimeJob(job.id)
+                        }}
+                      >
+                        {settingsT('retryRuntimeJob')}
+                      </button>
+                    ) : null}
+                    {job.cancellable ? (
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        disabled={Boolean(action)}
+                        onClick={() => {
+                          void handleCancelRuntimeJob(job.id)
+                        }}
+                      >
+                        {settingsT('cancelRuntimeJob')}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="summary-text">{settingsT('runtimeNoJobs')}</p>
+          )}
+        </div>
+      </div>
 
       <div className="insights-summary">
         <div className="insight-kpi">

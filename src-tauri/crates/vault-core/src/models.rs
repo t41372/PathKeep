@@ -3,6 +3,8 @@ use serde_json::Value;
 
 pub const TITLE_NORMALIZATION_PLUGIN_ID: &str = "title-normalization";
 pub const READABLE_CONTENT_PLUGIN_ID: &str = "readable-content-refetch";
+pub const TITLE_NORMALIZATION_PLUGIN_VERSION: &str = "m5-v1";
+pub const READABLE_CONTENT_PLUGIN_VERSION: &str = "m4-v1";
 
 fn default_enrichment_enabled() -> bool {
     true
@@ -37,7 +39,54 @@ pub fn merge_enrichment_plugin_preferences(
     merged
 }
 
+pub fn default_enrichment_plugin_states() -> Vec<EnrichmentPluginState> {
+    vec![
+        EnrichmentPluginState {
+            id: TITLE_NORMALIZATION_PLUGIN_ID.to_string(),
+            enabled: true,
+            version: TITLE_NORMALIZATION_PLUGIN_VERSION.to_string(),
+        },
+        EnrichmentPluginState {
+            id: READABLE_CONTENT_PLUGIN_ID.to_string(),
+            enabled: true,
+            version: READABLE_CONTENT_PLUGIN_VERSION.to_string(),
+        },
+    ]
+}
+
+pub fn merge_enrichment_plugin_states(
+    current: &[EnrichmentPluginState],
+) -> Vec<EnrichmentPluginState> {
+    let defaults = default_enrichment_plugin_states();
+    let mut merged = Vec::with_capacity(defaults.len());
+    for default in defaults {
+        if let Some(existing) = current.iter().find(|item| item.id == default.id) {
+            merged.push(EnrichmentPluginState {
+                id: default.id.clone(),
+                enabled: existing.enabled,
+                version: if existing.version.trim().is_empty() {
+                    default.version.clone()
+                } else {
+                    existing.version.clone()
+                },
+            });
+        } else {
+            merged.push(default);
+        }
+    }
+
+    for existing in current {
+        if merged.iter().any(|item| item.id == existing.id) {
+            continue;
+        }
+        merged.push(existing.clone());
+    }
+
+    merged
+}
+
 pub fn normalize_app_config(config: &mut AppConfig) {
+    config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);
     config.ai.enrichment_plugins =
         merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
 }
@@ -114,13 +163,7 @@ pub struct EnrichmentSettings {
 
 impl Default for EnrichmentSettings {
     fn default() -> Self {
-        Self {
-            plugins: vec![EnrichmentPluginState {
-                id: "readable-content-refetch".to_string(),
-                enabled: true,
-                version: "m4-v1".to_string(),
-            }],
-        }
+        Self { plugins: default_enrichment_plugin_states() }
     }
 }
 
@@ -1465,7 +1508,9 @@ pub struct IntelligenceRuntimeSnapshot {
 mod tests {
     use super::{
         AiSearchRequest, AppConfig, InsightStatus, READABLE_CONTENT_PLUGIN_ID,
-        TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences, normalize_app_config,
+        READABLE_CONTENT_PLUGIN_VERSION, TITLE_NORMALIZATION_PLUGIN_ID,
+        TITLE_NORMALIZATION_PLUGIN_VERSION, default_enrichment_plugin_states,
+        merge_enrichment_plugin_preferences, merge_enrichment_plugin_states, normalize_app_config,
     };
 
     #[test]
@@ -1499,11 +1544,37 @@ mod tests {
     }
 
     #[test]
+    fn enrichment_plugin_states_merge_with_defaults() {
+        let merged = merge_enrichment_plugin_states(&[super::EnrichmentPluginState {
+            id: READABLE_CONTENT_PLUGIN_ID.to_string(),
+            enabled: false,
+            version: String::new(),
+        }]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, TITLE_NORMALIZATION_PLUGIN_ID);
+        assert!(merged[0].enabled);
+        assert_eq!(merged[0].version, TITLE_NORMALIZATION_PLUGIN_VERSION);
+        assert_eq!(merged[1].id, READABLE_CONTENT_PLUGIN_ID);
+        assert!(!merged[1].enabled);
+        assert_eq!(merged[1].version, READABLE_CONTENT_PLUGIN_VERSION);
+    }
+
+    #[test]
+    fn enrichment_plugin_state_defaults_include_both_built_ins() {
+        let defaults = default_enrichment_plugin_states();
+        assert_eq!(defaults.len(), 2);
+        assert_eq!(defaults[0].id, TITLE_NORMALIZATION_PLUGIN_ID);
+        assert_eq!(defaults[1].id, READABLE_CONTENT_PLUGIN_ID);
+    }
+
+    #[test]
     fn normalize_app_config_restores_missing_runtime_defaults() {
         let mut config = AppConfig::default();
+        config.enrichment.plugins.clear();
         config.ai.enrichment_plugins.clear();
         normalize_app_config(&mut config);
 
+        assert_eq!(config.enrichment.plugins.len(), 2);
         assert_eq!(config.ai.enrichment_plugins.len(), 2);
         assert!(config.ai.enrichment_enabled);
     }

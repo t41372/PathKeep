@@ -19,17 +19,6 @@
 
 ### M5 — Deterministic Intelligence
 
-- [ ] **WORK-M5-B** — Query Groups, Threads, Reference Pages, And Module Registry [!blocked: depends on WORK-M5-A]
-  - 讀先：
-    `docs/features/deterministic-intelligence.md`
-    `docs/plan/m5-deterministic-intelligence/README.md`
-    `docs/plan/m5-deterministic-intelligence/groups-threads-and-surfaces.md`
-    `docs/plan/m4-full-polish/intelligence-60-year-envelope.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：把 query groups、query ladders、cross-day thread merge、open loops、source effectiveness、reference pages 與 deterministic module registry 做成 explainable、可重建、可 profile-scope、可 invalidate 的正式 shipping surface。
-  - 併入的 M4 deferred work：longer-horizon topic timeline / periodic summary、returning topics / session-pattern families，以及其對應 reference-page / thread surfaces。
-  - 驗收：`bun run check && bun run build`
-
 ---
 
 ## 依賴關係圖

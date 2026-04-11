@@ -23,11 +23,13 @@ import type {
   DashboardSnapshot,
   InsightExplanation,
   InsightSnapshot,
+  IntelligenceRuntimeSnapshot,
 } from '../lib/types'
 import { AssistantPage } from './assistant'
 import { DashboardPage } from './dashboard'
 import { ExplorerPage } from './explorer'
 import { InsightsPage } from './insights'
+import { SettingsPage } from './settings'
 
 const baseConfig: AppConfig = {
   initialized: false,
@@ -159,11 +161,13 @@ function renderSurface(
     dashboard = null,
     language = 'en' as ResolvedLanguage,
     route = '/',
+    shellValue,
     snapshot,
   }: {
     dashboard?: DashboardSnapshot | null
     language?: ResolvedLanguage
     route?: string
+    shellValue?: ShellDataContextValue
     snapshot: AppSnapshot
   },
 ) {
@@ -172,7 +176,7 @@ function renderSurface(
       <I18nContext.Provider value={createI18nValue(language)}>
         <ProfileScopeProvider>
           <ShellDataContext.Provider
-            value={createShellValue(snapshot, dashboard)}
+            value={shellValue ?? createShellValue(snapshot, dashboard)}
           >
             {ui}
           </ShellDataContext.Provider>
@@ -339,6 +343,217 @@ describe('intelligence surfaces', () => {
     ).toBeVisible()
     expect(screen.getByText(settingsT('disabled'))).toBeVisible()
     expect(screen.queryByText('settings.disabled')).not.toBeInTheDocument()
+  })
+
+  test('renders settings enrichment runtime review and syncs plugin toggles', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const runtimeSnapshot: IntelligenceRuntimeSnapshot = {
+      queue: {
+        queued: 1,
+        running: 0,
+        succeeded: 1,
+        failed: 1,
+        cancelled: 0,
+        lastActivityAt: '2026-04-10T16:30:00Z',
+      },
+      plugins: [
+        {
+          pluginId: 'title-normalization',
+          sourceKind: 'local',
+          enabled: true,
+          storedRecords: 42,
+          queuedJobs: 0,
+          runningJobs: 0,
+          failedJobs: 0,
+          lastCompletedAt: '2026-04-10T16:20:00Z',
+          lastError: null,
+        },
+        {
+          pluginId: 'readable-content-refetch',
+          sourceKind: 'network',
+          enabled: true,
+          storedRecords: 8,
+          queuedJobs: 1,
+          runningJobs: 0,
+          failedJobs: 1,
+          lastCompletedAt: '2026-04-10T15:40:00Z',
+          lastError: '429 from upstream host',
+        },
+      ],
+      recentJobs: [
+        {
+          id: 411,
+          jobType: 'enrichment-plugin',
+          pluginId: 'readable-content-refetch',
+          state: 'failed',
+          historyId: 2,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/article',
+          title: 'Article',
+          attempt: 2,
+          createdAt: '2026-04-10T15:35:00Z',
+          startedAt: '2026-04-10T15:36:00Z',
+          finishedAt: '2026-04-10T15:37:00Z',
+          lastError: '429 from upstream host',
+          retryable: true,
+          cancellable: false,
+        },
+      ],
+      notes: [
+        'Browser preview mode shows a deterministic queue/runtime fixture.',
+      ],
+    }
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      runtimeSnapshot,
+    )
+    const shellValue = createShellValue(snapshot, dashboard)
+    shellValue.saveConfig = vi.fn().mockResolvedValue(snapshot)
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      shellValue,
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(settingsT('firstPartyRuntimeTitle')),
+    ).toBeVisible()
+    expect(screen.getByText('Title normalization')).toBeVisible()
+    expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
+      0,
+    )
+    expect(
+      screen.getAllByText('1 queued / 0 running / 1 failed').length,
+    ).toBeGreaterThan(0)
+
+    await user.click(
+      screen.getAllByRole('button', { name: settingsT('disablePlugin') })[0],
+    )
+
+    await waitFor(() => expect(shellValue.saveConfig).toHaveBeenCalledTimes(1))
+    expect(shellValue.saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enrichment: {
+          plugins: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'title-normalization',
+              enabled: false,
+            }),
+          ]),
+        },
+        ai: expect.objectContaining({
+          enrichmentPlugins: expect.arrayContaining([
+            expect.objectContaining({
+              pluginId: 'title-normalization',
+              enabled: false,
+            }),
+          ]),
+        }),
+      }),
+    )
+  })
+
+  test('renders insights runtime queue controls and calls retry or cancel', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const runtimeSnapshot: IntelligenceRuntimeSnapshot = {
+      queue: {
+        queued: 1,
+        running: 0,
+        succeeded: 2,
+        failed: 1,
+        cancelled: 0,
+        lastActivityAt: '2026-04-10T16:30:00Z',
+      },
+      plugins: [
+        {
+          pluginId: 'title-normalization',
+          sourceKind: 'local',
+          enabled: true,
+          storedRecords: 20,
+          queuedJobs: 1,
+          runningJobs: 0,
+          failedJobs: 0,
+          lastCompletedAt: '2026-04-10T16:20:00Z',
+          lastError: null,
+        },
+      ],
+      recentJobs: [
+        {
+          id: 411,
+          jobType: 'enrichment-plugin',
+          pluginId: 'readable-content-refetch',
+          state: 'failed',
+          historyId: 2,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/article',
+          title: 'Article',
+          attempt: 2,
+          createdAt: '2026-04-10T15:35:00Z',
+          startedAt: '2026-04-10T15:36:00Z',
+          finishedAt: '2026-04-10T15:37:00Z',
+          lastError: '429 from upstream host',
+          retryable: true,
+          cancellable: false,
+        },
+        {
+          id: 412,
+          jobType: 'enrichment-plugin',
+          pluginId: 'title-normalization',
+          state: 'queued',
+          historyId: 4,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/docs',
+          title: 'Docs',
+          attempt: 1,
+          createdAt: '2026-04-10T15:40:00Z',
+          startedAt: null,
+          finishedAt: null,
+          lastError: null,
+          retryable: false,
+          cancellable: true,
+        },
+      ],
+      notes: [
+        'Browser preview mode shows a deterministic queue/runtime fixture.',
+      ],
+    }
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      runtimeSnapshot,
+    )
+    const retrySpy = vi
+      .spyOn(backend, 'retryIntelligenceJob')
+      .mockResolvedValue(runtimeSnapshot)
+    const cancelSpy = vi
+      .spyOn(backend, 'cancelIntelligenceJob')
+      .mockResolvedValue(runtimeSnapshot)
+
+    renderSurface(<InsightsPage />, {
+      language: 'en',
+      route: '/insights',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(settingsT('runtimeRecentJobs')),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: settingsT('retryRuntimeJob') }),
+    )
+    expect(retrySpy).toHaveBeenCalledWith(411)
+
+    await user.click(
+      screen.getByRole('button', { name: settingsT('cancelRuntimeJob') }),
+    )
+    expect(cancelSpy).toHaveBeenCalledWith(412)
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {

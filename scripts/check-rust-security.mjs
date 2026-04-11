@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +10,9 @@ import { fileURLToPath } from 'node:url'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const workspaceRoot = resolve(scriptDir, '..')
 const tauriRoot = resolve(workspaceRoot, 'src-tauri')
+const advisoryDbPath = resolve(tmpdir(), 'pathkeep-cargo-advisory-db')
+
+mkdirSync(advisoryDbPath, { recursive: true })
 
 const allowedAdvisories = new Map([
   [
@@ -121,7 +126,7 @@ function parseAuditJson(stdout, stderr) {
   return JSON.parse(combined.slice(start, end + 1))
 }
 
-const audit = spawnSync('cargo', ['audit', '--json'], {
+const audit = spawnSync('cargo', ['audit', '--json', '--db', advisoryDbPath], {
   cwd: tauriRoot,
   encoding: 'utf8',
 })

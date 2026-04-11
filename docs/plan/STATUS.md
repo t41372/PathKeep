@@ -12,21 +12,21 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [/] **WORK-M5-A** — Deterministic Evidence Contract, Foundation, And Taxonomy
+- [ ] **WORK-M5-B** — Query Groups, Threads, Reference Pages, And Module Registry
   - 讀先：
-    `docs/architecture/decisions/006-deterministic-intelligence-boundary.md`
     `docs/features/deterministic-intelligence.md`
-    `docs/features/intelligence.md`
-    `docs/architecture/data-model.md`
-    `docs/architecture/module-boundary-map.md`
-    `docs/architecture/tech-stack.md`
-  - 目標：凍結 honest evidence contract、URL normalization / registrable-domain / search-parser baseline、多維 taxonomy precedence、region rule packs、script-aware tokenization 與 unknown / override governance，避免 deterministic intelligence 再建立在 estimated dwell 或 session-duration 假設上。
-  - 進度：2026-04-10 已接受 `ADR-006`、解除 M5 blocker，並落地第一版 `vault-core::deterministic` normalization / search-parser foundation；其後已補上 taxonomy v2 precedence、China Mainland / US core packs、user override、script-aware tokenization、unknown review note 與 persisted evidence/taxonomy trace，且移除 deterministic importance 對 `duration_ms` 的依賴。其餘 plugin sandbox / queue family / closeout acceptance 仍待本 block 收尾。
-  - 併入的 M4 deferred work：plugin execution sandbox、dedicated enrichment queue family、favicon / title normalization、topic / entity extraction、periodic summarization plugin 與對應 acceptance contract。
+    `docs/plan/m5-deterministic-intelligence/README.md`
+    `docs/plan/m5-deterministic-intelligence/groups-threads-and-surfaces.md`
+    `docs/plan/m4-full-polish/intelligence-60-year-envelope.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 query groups、query ladders、cross-day thread merge、open loops、source effectiveness、reference pages 與 deterministic module registry 做成 explainable、可重建、可 profile-scope、可 invalidate 的正式 shipping surface。
+  - 併入的 M4 deferred work：longer-horizon topic timeline / periodic summary、returning topics / session-pattern families，以及其對應 reference-page / thread surfaces。
   - 驗收：`bun run check && bun run build`
 
 ---
 
 > 2026-04-10 unblock：使用者已對 `ADR-006` 明確 sign off，`WORK-M5-A` 因此從 proposal / blocked 轉為 active。M4 closeout 仍維持完成，但 2026-04-10 也補修了 onboarding archive-mode IPC 契約與 insights refresh queue regression。
+
+> 2026-04-10 closeout：`WORK-M5-A` 已完成，deterministic foundation / taxonomy、first-party-only enrichment runtime、dual built-in plugin defaults，以及 Settings / Insights queue review / retry / cancel surface 現在都已回寫到 source docs 與實作。
 
 > 做完了？→ 把完成的 work block append 到 [CHANGELOG.md](CHANGELOG.md)，同步 source docs，然後再從 [BACKLOG.md](BACKLOG.md) 補下一個 block。

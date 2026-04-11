@@ -672,8 +672,15 @@ describe('App shell', () => {
       ).toBeVisible()
     })
 
+    const readableContentCard = screen
+      .getAllByText(settingsT('readableContentPlugin'))[0]
+      .closest('.result-row')
+    if (!(readableContentCard instanceof HTMLElement)) {
+      throw new Error('Expected readable content plugin card to be present')
+    }
+
     await user.click(
-      within(settingsPage).getByRole('button', {
+      within(readableContentCard).getByRole('button', {
         name: settingsT('disablePlugin'),
       }),
     )

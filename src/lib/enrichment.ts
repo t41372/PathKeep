@@ -4,24 +4,34 @@ import type {
   EnrichmentSettings,
 } from './types'
 
+export const TITLE_NORMALIZATION_PLUGIN_ID = 'title-normalization'
 export const READABLE_CONTENT_REFETCH_PLUGIN_ID = 'readable-content-refetch'
-export const BUILT_IN_ENRICHMENT_VERSION = 'm4-v1'
+export const TITLE_NORMALIZATION_VERSION = 'm5-v1'
+export const READABLE_CONTENT_REFETCH_VERSION = 'm4-v1'
 
 export interface EnrichmentPluginDefinition {
   id: string
   version: string
   defaultEnabled: boolean
-  queue: 'insights'
+  queue: 'intelligence-runtime'
   derivedTables: string[]
-  freshnessDays: number
+  freshnessDays: number | null
 }
 
 export const enrichmentPluginRegistry: EnrichmentPluginDefinition[] = [
   {
-    id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
-    version: BUILT_IN_ENRICHMENT_VERSION,
+    id: TITLE_NORMALIZATION_PLUGIN_ID,
+    version: TITLE_NORMALIZATION_VERSION,
     defaultEnabled: true,
-    queue: 'insights',
+    queue: 'intelligence-runtime',
+    derivedTables: ['visit_content_enrichments', 'visit_insight_features'],
+    freshnessDays: null,
+  },
+  {
+    id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
+    version: READABLE_CONTENT_REFETCH_VERSION,
+    defaultEnabled: true,
+    queue: 'intelligence-runtime',
     derivedTables: [
       'visit_content_enrichments',
       'visit_insight_features',
@@ -81,7 +91,7 @@ export function enrichmentPluginState(
     ) ?? {
       id: pluginId,
       enabled: false,
-      version: BUILT_IN_ENRICHMENT_VERSION,
+      version: 'unknown',
     }
   )
 }

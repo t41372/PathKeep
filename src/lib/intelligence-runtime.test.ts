@@ -3,6 +3,7 @@ import {
   enrichmentPluginBoundaryLabel,
   enrichmentPluginDescription,
   enrichmentPluginLabel,
+  intelligenceRuntimeJobStateLabel,
   upsertEnrichmentPluginPreference,
 } from './intelligence-runtime'
 import { createTranslator } from './i18n'
@@ -26,6 +27,14 @@ describe('intelligence runtime helpers', () => {
     )
     expect(enrichmentPluginBoundaryLabel('network', t)).toBe('Network')
     expect(enrichmentPluginBoundaryLabel('local', t)).toBe('Local only')
+  })
+
+  test('maps intelligence runtime job states to labels', () => {
+    expect(intelligenceRuntimeJobStateLabel('queued', t)).toBe('Queued')
+    expect(intelligenceRuntimeJobStateLabel('running', t)).toBe('Running')
+    expect(intelligenceRuntimeJobStateLabel('failed', t)).toBe('Failed')
+    expect(intelligenceRuntimeJobStateLabel('cancelled', t)).toBe('Cancelled')
+    expect(intelligenceRuntimeJobStateLabel('unknown', t)).toBe('unknown')
   })
 
   test('upserts plugin preferences and keeps ordering stable', () => {

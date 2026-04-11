@@ -196,9 +196,11 @@
 
 - Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant slice，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
 - storage analytics 目前用四個 slice 呈現磁碟分佈：`core`、`audit`、`exports`、`rebuildable`。`rebuildable` 代表 staging / quarantine 一類可重建或可清理資產，不能和 canonical archive facts 混為一談。
-- Settings 頁必須提供 enrichment / derived-state panel，顯示 `readable-content-refetch` 的 version、queue、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。
-- `readable-content-refetch` 是目前唯一正式落地的 enrichment plugin，預設啟用、freshness window 7 天。停用後，insight rebuild 必須誠實說明已回退到 canonical archive + lexical / structural signals，而不是假裝仍有 readable content coverage。
-- `readable-content-refetch` 目前也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。這仍屬同一個 plugin 的 derived parse，不代表 repo 已經有獨立的 plugin sandbox 或多 queue family。
+- Settings 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、live queue / recent job review、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。
+- M5-A 起正式 shipping 的 built-in enrichment plugin 有兩個：`title-normalization`（local-only，版本 `m5-v1`）與 `readable-content-refetch`（network-backed，版本 `m4-v1`）。兩者都屬 derived-state runtime，不可改寫 canonical archive facts。
+- `title-normalization` 預設啟用，負責把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label。停用後，deterministic insights 仍可用，但必須誠實回退到 raw title / URL structural signals。
+- `readable-content-refetch` 預設啟用、freshness window 7 天，也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。
+- built-in enrichment runtime 目前仍是 first-party only：Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - derived intelligence refresh 仍是 explicit action；manual backup / import 完成後不應同步綁住 UI 等待 insights rebuild。若使用者要最新 derived state，從 Insights / Settings 主動觸發 rebuild，並在 UI 上看到明確 progress / notes。
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
@@ -303,4 +305,4 @@
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
 - v1 invalidation contract 先以 honest stale detection + manual rebuild 落地：import / rollback / visibility change / approved enrichment freshness 改變時，UI 必須把 index state 標成 stale。是否自動 re-enqueue rebuild 屬後續 work，不可假裝 day-one 已完成。
 - queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。
-- M4-A 目前把 `readable-content-refetch` 掛在 `insights` flow，而不是獨立 queue family；per-plugin retry / cancel / concurrency surface 仍屬後續工作，v1 不應假裝已有完整的 enrichment queue UX。
+- M5-A 現在已把 enrichment queue 收斂成 SQLite-backed `intelligence_jobs` family，並在 Settings / Insights 提供 recent job review、retry / cancel controls 與 first-party-only boundary copy；execution 仍是 manual-first，不假裝已有 autonomous background plugin worker。

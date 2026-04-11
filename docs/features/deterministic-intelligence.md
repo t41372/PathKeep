@@ -440,6 +440,7 @@ Optional helpers：
 - module 不可改寫 canonical facts
 - module 不可在 backup / import hot path 同步執行全量重建
 - third-party execution 仍屬 deferred，直到 sandbox ADR 存在
+- 2026-04-10 closeout：repo 現在正式 shipping first-party-only enrichment runtime registry（`title-normalization` + `readable-content-refetch`）與 queue review surface；這是 internal runtime boundary，不是 third-party plugin promise
 
 ---
 

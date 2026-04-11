@@ -3107,7 +3107,14 @@ mod tests {
     fn readable_content_plugin_can_be_disabled_and_cleared() {
         let paths = test_paths();
         let mut config = test_config();
-        config.enrichment.plugins[0].enabled = false;
+        if let Some(plugin) = config
+            .enrichment
+            .plugins
+            .iter_mut()
+            .find(|plugin| plugin.id == READABLE_CONTENT_PLUGIN_ID)
+        {
+            plugin.enabled = false;
+        }
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
         let connection = open_archive_connection(&paths, &config, None).expect("open archive");
         create_schema(&connection).expect("schema");
@@ -3194,7 +3201,14 @@ mod tests {
     fn run_insights_marks_runs_failed_when_job_payload_is_invalid() {
         let paths = test_paths();
         let mut config = test_config();
-        config.enrichment.plugins[0].enabled = false;
+        if let Some(plugin) = config
+            .enrichment
+            .plugins
+            .iter_mut()
+            .find(|plugin| plugin.id == READABLE_CONTENT_PLUGIN_ID)
+        {
+            plugin.enabled = false;
+        }
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
         let connection = open_archive_connection(&paths, &config, None).expect("open archive");
         create_schema(&connection).expect("schema");
@@ -3235,7 +3249,14 @@ mod tests {
     fn run_insights_recovers_interrupted_runs_and_requeues_stuck_jobs() {
         let paths = test_paths();
         let mut config = test_config();
-        config.enrichment.plugins[0].enabled = false;
+        if let Some(plugin) = config
+            .enrichment
+            .plugins
+            .iter_mut()
+            .find(|plugin| plugin.id == READABLE_CONTENT_PLUGIN_ID)
+        {
+            plugin.enabled = false;
+        }
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
         let connection = open_archive_connection(&paths, &config, None).expect("open archive");
         create_schema(&connection).expect("schema");
