@@ -253,10 +253,6 @@ CREATE INDEX IF NOT EXISTS idx_visit_insight_features_topic_id
   ON visit_insight_features(topic_id);
 CREATE INDEX IF NOT EXISTS idx_visit_insight_features_thread_id
   ON visit_insight_features(thread_id);
-CREATE INDEX IF NOT EXISTS idx_visit_insight_features_burst_id
-  ON visit_insight_features(burst_id);
-CREATE INDEX IF NOT EXISTS idx_visit_insight_features_query_group_id
-  ON visit_insight_features(query_group_id);
 CREATE INDEX IF NOT EXISTS idx_insight_bursts_profile_last_seen
   ON insight_bursts(profile_id, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_insight_query_groups_profile_last_seen
@@ -415,6 +411,19 @@ pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
         "insight_runs",
         "template_summary_count",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_visit_insight_feature_indexes(connection)?;
+    Ok(())
+}
+
+fn ensure_visit_insight_feature_indexes(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        r#"
+CREATE INDEX IF NOT EXISTS idx_visit_insight_features_burst_id
+  ON visit_insight_features(burst_id);
+CREATE INDEX IF NOT EXISTS idx_visit_insight_features_query_group_id
+  ON visit_insight_features(query_group_id);
+"#,
     )?;
     Ok(())
 }
@@ -2954,6 +2963,47 @@ mod tests {
         assert!(!snapshot.query_ladders.is_empty());
         assert!(snapshot.query_ladders[0].steps.len() > 1);
         assert!(snapshot.workflow_map.chromium_enhanced);
+    }
+
+    #[test]
+    fn ensure_insight_schema_upgrades_legacy_feature_rows_before_creating_m5b_indexes() {
+        let connection = Connection::open_in_memory().expect("db");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE visit_insight_features (
+  history_id INTEGER PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  topic_id TEXT,
+  thread_id TEXT,
+  page_type TEXT NOT NULL,
+  source_role TEXT NOT NULL,
+  query_term TEXT,
+  query_stage TEXT,
+  novelty_score REAL NOT NULL,
+  importance_score REAL NOT NULL,
+  explore_score REAL NOT NULL,
+  keywords_json TEXT NOT NULL,
+  entities_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  pipeline_version TEXT NOT NULL
+);
+"#,
+            )
+            .expect("legacy insight feature table");
+
+        ensure_insight_schema(&connection).expect("upgrade legacy schema");
+
+        let mut statement =
+            connection.prepare("PRAGMA table_info(visit_insight_features)").expect("table info");
+        let columns = statement
+            .query_map([], |row: &Row<'_>| row.get::<_, String>(1))
+            .expect("query columns")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect columns");
+
+        assert!(columns.iter().any(|column| column == "burst_id"));
+        assert!(columns.iter().any(|column| column == "query_group_id"));
     }
 
     #[test]

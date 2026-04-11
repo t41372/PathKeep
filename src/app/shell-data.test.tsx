@@ -571,6 +571,36 @@ describe('ShellDataProvider', () => {
     }
   })
 
+  test('surfaces initial refresh failures without leaking an unhandled rejection', async () => {
+    const { snapshot } = await seedSnapshot()
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(snapshot.appLockStatus)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'getAppSnapshot').mockRejectedValueOnce(
+      new Error('initial refresh failed'),
+    )
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('error')).toHaveTextContent(
+      'initial refresh failed',
+    )
+  })
+
   test('ignores follow-up dashboard refresh failures after saving config', async () => {
     const user = userEvent.setup()
     const { dashboard, snapshot } = await seedSnapshot()

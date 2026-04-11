@@ -285,7 +285,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   })
 
   useEffect(() => {
-    void refreshAppData()
+    void refreshAppData().catch(() => undefined)
   }, [refreshAppData])
 
   useEffect(() => {
