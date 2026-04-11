@@ -67,6 +67,7 @@ pub fn schedule_status(
         },
     )?;
     status.last_successful_backup_at =
-        vault_core::archive_status(&paths, &config, session_database_key)?.last_successful_backup_at;
+        vault_core::archive_status(&paths, &config, session_database_key)?
+            .last_successful_backup_at;
     Ok(status)
 }

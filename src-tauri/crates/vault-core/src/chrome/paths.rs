@@ -57,10 +57,7 @@ pub(super) fn should_discover_firefox(
 }
 
 /// Decides whether Safari discovery should run under the current override state.
-pub(super) fn should_discover_safari(
-    overrides_active: bool,
-    safari_override_active: bool,
-) -> bool {
+pub(super) fn should_discover_safari(overrides_active: bool, safari_override_active: bool) -> bool {
     !overrides_active || safari_override_active
 }
 

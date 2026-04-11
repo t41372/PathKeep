@@ -12,12 +12,14 @@
 mod doctor;
 mod history;
 mod maintenance;
-mod schema;
 mod read_models;
+mod schema;
 
+use self::read_models::{decode_profile_scope, directory_size, file_size};
 pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;
-use self::read_models::{decode_profile_scope, directory_size, file_size};
+pub use self::schema::{create_schema, open_archive_connection};
+pub use self::schema::{current_version, run_migrations};
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{export_history, list_history},
@@ -26,12 +28,10 @@ pub use self::{
         run_snapshot_restore,
     },
     read_models::{
-        archive_status, ensure_archive_initialized, load_audit_run_detail,
-        load_dashboard_snapshot, load_recent_runs,
+        archive_status, ensure_archive_initialized, load_audit_run_detail, load_dashboard_snapshot,
+        load_recent_runs,
     },
 };
-pub use self::schema::{create_schema, open_archive_connection};
-pub use self::schema::{current_version, run_migrations};
 use crate::{
     chrome::{FileFingerprint, ProfileSnapshot, discover_profiles, stage_profile_snapshot},
     config::{ProjectPaths, ensure_paths, save_config},

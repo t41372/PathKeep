@@ -23,14 +23,13 @@ use crate::context::{
 use anyhow::{Context, Result};
 use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
-    AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose,
-    AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig,
-    ExplainInsightRequest, InsightExplanation, InsightSnapshot, InsightThreadDetail,
-    IntelligenceRuntimeSnapshot, RunInsightsReport, RunInsightsRequest, ai_queue,
-    answer_history_question, build_ai_index, cancel_intelligence_job, explain_insight,
-    load_assistant_run_response, load_insight_thread_detail, load_insights,
-    load_intelligence_runtime, preview_ai_integrations, retry_intelligence_job,
-    run_insights, semantic_search_history, test_provider_connection,
+    AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
+    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, ExplainInsightRequest,
+    InsightExplanation, InsightSnapshot, InsightThreadDetail, IntelligenceRuntimeSnapshot,
+    RunInsightsReport, RunInsightsRequest, ai_queue, answer_history_question, build_ai_index,
+    cancel_intelligence_job, explain_insight, load_assistant_run_response,
+    load_insight_thread_detail, load_insights, load_intelligence_runtime, preview_ai_integrations,
+    retry_intelligence_job, run_insights, semantic_search_history, test_provider_connection,
 };
 
 /// Completes one claimed index job and writes the queue outcome back to SQLite.
@@ -397,8 +396,7 @@ pub fn load_ai_assistant_job(
                 .unwrap_or_else(|| vec!["Assistant job has not finished yet.".to_string()]),
         });
     };
-    let mut response =
-        load_assistant_run_response(&paths, &config, session_database_key, run_id)?;
+    let mut response = load_assistant_run_response(&paths, &config, session_database_key, run_id)?;
     response.job_id = Some(job.id);
     response.state = job.state;
     Ok(response)
@@ -503,9 +501,8 @@ pub fn test_ai_provider_connection_report(
         request.purpose.clone(),
     ) {
         Ok(provider) => tokio_runtime()?.block_on(test_provider_connection(&provider)),
-        Err(error) => Ok(vault_core::provider_connection_failure_report(
-            &provider_config,
-            &error.to_string(),
-        )),
+        Err(error) => {
+            Ok(vault_core::provider_connection_failure_report(&provider_config, &error.to_string()))
+        }
     }
 }

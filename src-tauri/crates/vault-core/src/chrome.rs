@@ -29,7 +29,9 @@ use std::{
 };
 use tempfile::TempDir;
 
-pub use self::{discovery::discover_profiles, paths::chrome_user_data_dir, staging::stage_profile_snapshot};
+pub use self::{
+    discovery::discover_profiles, paths::chrome_user_data_dir, staging::stage_profile_snapshot,
+};
 
 #[cfg(test)]
 use self::{

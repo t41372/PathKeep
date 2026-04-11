@@ -299,7 +299,6 @@ impl Tool for SearchHistoryTool {
     }
 }
 
-
 pub async fn test_provider_connection(
     provider: &AiProviderRuntime,
 ) -> Result<AiProviderConnectionTestReport> {
@@ -803,7 +802,6 @@ pub async fn answer_history_question(
         }
     }
 }
-
 
 fn validate_provider(
     provider: &AiProviderRuntime,

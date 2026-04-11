@@ -6,13 +6,17 @@
 //! the archive keeps an auditable trace.
 
 use crate::{
-    context::{ai_archive_connection, derive_ai_status, load_hydrated_config, load_unlocked_config, resolved_app_lock_status},
+    context::{
+        ai_archive_connection, derive_ai_status, load_hydrated_config, load_unlocked_config,
+        resolved_app_lock_status,
+    },
     intelligence::search_ai_history,
     security::read_database_key_from_keyring,
 };
 use anyhow::Result;
 #[cfg(not(any(test, coverage)))]
 use rmcp::ServiceExt;
+use rmcp::schemars;
 use rmcp::{
     ServerHandler,
     handler::server::{
@@ -22,7 +26,6 @@ use rmcp::{
     schemars::JsonSchema,
     tool, tool_handler, tool_router,
 };
-use rmcp::schemars;
 use serde::{Deserialize, Serialize};
 use vault_core::{AiIndexStatus, AiSearchRequest};
 

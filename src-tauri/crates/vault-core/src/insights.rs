@@ -51,6 +51,10 @@ use serde_json::{Value, json};
 use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
+pub use self::runtime::{
+    clear_derived_intelligence_state, explain_insight, insight_status, load_insight_thread_detail,
+    load_insights, run_insights,
+};
 use self::{
     grouping::{
         build_bursts, build_query_groups, build_threads as build_thread_records,
@@ -67,10 +71,6 @@ use self::{
         build_template_summaries,
     },
     topics::build_topics as build_topic_summaries,
-};
-pub use self::runtime::{
-    clear_derived_intelligence_state, explain_insight, insight_status,
-    load_insight_thread_detail, load_insights, run_insights,
 };
 
 const INSIGHT_PIPELINE_VERSION: &str = "insights-v2";

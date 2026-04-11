@@ -18,11 +18,7 @@
 //!   transport or provider errors whenever we can shape them honestly.
 
 use anyhow::{Context, Result};
-use std::{
-    sync::mpsc,
-    thread,
-    time::Duration,
-};
+use std::{sync::mpsc, thread, time::Duration};
 use tokio::runtime::Runtime;
 use vault_core::{
     AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchResponse,

@@ -21,10 +21,10 @@ use vault_core::{
     ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
     ImportBatchDetail, RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification,
     TakeoutInspection, TakeoutRequest, ai_queue, clear_derived_intelligence_state, doctor,
-    export_history, import_takeout, inspect_takeout, list_history,
-    load_audit_run_detail, load_dashboard_snapshot, preview_import_batch,
-    preview_remote_backup, repair_health_issues, restore_import_batch, revert_import_batch,
-    run_backup_with_progress, run_remote_backup, verify_remote_backup,
+    export_history, import_takeout, inspect_takeout, list_history, load_audit_run_detail,
+    load_dashboard_snapshot, preview_import_batch, preview_remote_backup, repair_health_issues,
+    restore_import_batch, revert_import_batch, run_backup_with_progress, run_remote_backup,
+    verify_remote_backup,
 };
 use vault_platform::keyring_get_s3_credentials;
 
@@ -182,7 +182,10 @@ pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<Dashboar
 }
 
 /// Loads audit detail for a specific run id.
-pub fn audit_run_detail(session_database_key: Option<&str>, run_id: i64) -> Result<vault_core::AuditRunDetail> {
+pub fn audit_run_detail(
+    session_database_key: Option<&str>,
+    run_id: i64,
+) -> Result<vault_core::AuditRunDetail> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     load_audit_run_detail(&paths, &config, session_database_key, run_id)

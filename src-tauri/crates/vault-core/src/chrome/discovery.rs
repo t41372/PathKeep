@@ -4,7 +4,6 @@
 //! It intentionally keeps discovery separate from staging/parsing so we can be
 //! honest about unreadable/missing profiles without mutating or opening them.
 
-use super::*;
 use super::paths::{
     chromium_override_active, chromium_root_candidates, default_safari_root,
     discovery_overrides_active_with, firefox_override_active, firefox_root_candidates,
@@ -12,6 +11,7 @@ use super::paths::{
     should_discover_safari,
 };
 use super::staging::profile_storage_bytes;
+use super::*;
 
 /// Discovers supported browser profiles across the current host roots and overrides.
 pub fn discover_profiles() -> Result<Vec<BrowserProfile>> {
