@@ -27,7 +27,7 @@ export default defineConfig({
         'src/**/*.test.tsx',
         'src/assets/**',
         'src/test/**',
-        'src/lib/types.d.ts',
+        'src/lib/types/**',
         'src/lib/app-context.tsx',
         'src/lib/i18n.ts',
       ],
