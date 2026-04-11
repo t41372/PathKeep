@@ -1,3 +1,5 @@
+#[cfg(feature = "devtools-bridge")]
+mod dev_ipc_bridge;
 mod file_manager;
 mod session;
 mod updater;
@@ -51,10 +53,13 @@ fn write_payload<W: Write>(writer: &mut W, payload: Option<String>) -> Result<()
 
 #[cfg(not(test))]
 fn run_app() -> Result<()> {
+    let session_state = SessionState::default();
+    let dev_bridge_state = session_state.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .setup(move |app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
@@ -68,9 +73,12 @@ fn run_app() -> Result<()> {
                 tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
             )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            #[cfg(feature = "devtools-bridge")]
+            dev_ipc_bridge::maybe_launch(app.handle().clone(), dev_bridge_state.clone())
+                .map_err(tauri::Error::Anyhow)?;
             Ok(())
         })
-        .manage(SessionState::default())
+        .manage(session_state)
         .invoke_handler(tauri::generate_handler![
             app_build_info,
             app_snapshot,

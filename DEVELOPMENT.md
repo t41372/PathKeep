@@ -37,6 +37,7 @@ sudo apt-get install -y \
 ```bash
 bun run dev
 bun run desktop:dev
+bun run desktop:dev:bridge
 bun run check
 bun run build
 ```
@@ -47,7 +48,29 @@ Use [TESTING.md](./TESTING.md) when you need deeper validation or release signof
 
 - `bun run dev` is the browser preview shell. It is useful for route / styling iteration but cannot validate real filesystem, keyring, scheduler, or installer behavior.
 - `bun run desktop:dev` is the real Tauri desktop surface. Use it for trust-critical flows, local data-path validation, and platform guidance review.
+- `bun run desktop:dev:bridge` starts the dev-only `devtools-bridge` feature and mirrors the typed desktop command surface to localhost so Chrome / Playwright / CDP tooling can drive the frontend against real Rust responses.
 - `bun run desktop:build:debug` is the fast local debug build used for release rehearsal and packaging smoke.
+
+## Chrome And Agent Loop
+
+For AI coding agent validation on macOS:
+
+```bash
+bun run desktop:dev:bridge
+bun run test:e2e:desktop-bridge
+```
+
+What this does:
+
+- Runs the frontend on a local port that Chrome can open directly.
+- Starts a feature-gated localhost bridge from the Tauri desktop process to the existing typed command surface.
+- Lets Playwright or Chrome DevTools exercise real Rust / worker / filesystem-aware read models without pretending that browser preview fixtures are desktop truth.
+
+Honest boundary:
+
+- The desktop bridge is dev-only and localhost-only.
+- It mirrors desktop commands, not every Tauri guest API. Stronghold guest bindings, updater progress events, and other WebView-only plugin surfaces still require the actual Tauri window for final signoff.
+- The runtime is intentionally tri-state: `browser-preview`, `browser-desktop-bridge`, or `tauri`.
 
 ## Repo Map
 

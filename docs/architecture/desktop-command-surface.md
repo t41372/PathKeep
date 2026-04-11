@@ -47,6 +47,13 @@
 - 新 preview / execute 流程要直接對齊 PME
 - 新 long-running 操作要以 unified `runs` ledger 為中心回報狀態
 
+## Dev Automation Mirror（2026-04-10 / `WORK-QC-H`）
+
+- repo 現在有一條 **feature-gated** `devtools-bridge` local mirror：`bun run desktop:dev:bridge` 會在保留 Tauri desktop runtime 的前提下，把現行 typed command surface 映射到 localhost，讓 Chrome / Playwright / CDP 能從真正的 Rust façade 讀資料與觸發命令。
+- 前端 runtime 也因此正式分成三種：`tauri`、`browser-desktop-bridge`、`browser-preview`。不要再把「不是 Tauri」直接等同於 static preview fixture。
+- 這條 mirror 只覆蓋 command façade，不承諾所有 WebView plugin guest API 都能從 Chrome 使用。像 Stronghold guest binding、updater progress event、或其他直接依賴 Tauri event/plugin 的 surface，仍需實際 Tauri window 驗證。
+- 這是 dev-only、localhost-only 的 automation boundary，不是產品 shipping API，也不應被擴寫成外部 remote control 介面。
+
 ## Implemented Command Map（2026-04-09 / `WORK-QC-C`）
 
 | 現行 Tauri command(s)                                                                                                                                                                                                                                                                                                                   | 對應 draft domain                                    | 主要 UI / consumer                          | Closeout note                                                                                                                                                                                                                                        |

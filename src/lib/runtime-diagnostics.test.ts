@@ -4,16 +4,18 @@ import {
   resetRuntimeDiagnosticsForTests,
 } from './runtime-diagnostics'
 
-const { attachConsoleMock, invokeCommandMock, isTauriMock, logErrorMock } =
-  vi.hoisted(() => ({
-    attachConsoleMock: vi.fn().mockResolvedValue(() => undefined),
-    invokeCommandMock: vi.fn().mockResolvedValue({ ok: true }),
-    isTauriMock: vi.fn(() => true),
-    logErrorMock: vi.fn().mockResolvedValue(undefined),
-  }))
-
-vi.mock('@tauri-apps/api/core', () => ({
-  isTauri: isTauriMock,
+const {
+  attachConsoleMock,
+  invokeCommandMock,
+  hasDesktopCommandTransportMock,
+  hasTauriGuestApiMock,
+  logErrorMock,
+} = vi.hoisted(() => ({
+  attachConsoleMock: vi.fn().mockResolvedValue(() => undefined),
+  invokeCommandMock: vi.fn().mockResolvedValue({ ok: true }),
+  hasDesktopCommandTransportMock: vi.fn(() => true),
+  hasTauriGuestApiMock: vi.fn(() => true),
+  logErrorMock: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@tauri-apps/plugin-log', () => ({
@@ -25,17 +27,23 @@ vi.mock('./ipc/bridge', () => ({
   invokeCommand: invokeCommandMock,
 }))
 
+vi.mock('./runtime', () => ({
+  hasDesktopCommandTransport: hasDesktopCommandTransportMock,
+  hasTauriGuestApi: hasTauriGuestApiMock,
+}))
+
 describe('runtime diagnostics', () => {
   beforeEach(() => {
     resetRuntimeDiagnosticsForTests()
-    isTauriMock.mockReturnValue(true)
+    hasDesktopCommandTransportMock.mockReturnValue(true)
+    hasTauriGuestApiMock.mockReturnValue(true)
     attachConsoleMock.mockReset().mockResolvedValue(() => undefined)
     invokeCommandMock.mockReset().mockResolvedValue({ ok: true })
     logErrorMock.mockReset().mockResolvedValue(undefined)
   })
 
-  test('skips Tauri-only diagnostics in browser preview mode', async () => {
-    isTauriMock.mockReturnValue(false)
+  test('skips diagnostics in browser preview mode', async () => {
+    hasDesktopCommandTransportMock.mockReturnValue(false)
 
     await installRuntimeDiagnostics()
     window.dispatchEvent(new ErrorEvent('error', { message: 'boom' }))
@@ -43,6 +51,23 @@ describe('runtime diagnostics', () => {
     expect(attachConsoleMock).not.toHaveBeenCalled()
     expect(logErrorMock).not.toHaveBeenCalled()
     expect(invokeCommandMock).not.toHaveBeenCalled()
+  })
+
+  test('records browser desktop bridge errors without requiring tauri guest plugins', async () => {
+    hasTauriGuestApiMock.mockReturnValue(false)
+
+    await installRuntimeDiagnostics()
+    window.dispatchEvent(new ErrorEvent('error', { message: 'bridge boom' }))
+    await Promise.resolve()
+
+    expect(attachConsoleMock).not.toHaveBeenCalled()
+    expect(logErrorMock).not.toHaveBeenCalled()
+    expect(invokeCommandMock).toHaveBeenCalledWith('record_frontend_error', {
+      request: expect.objectContaining({
+        source: 'window-error',
+        message: 'bridge boom',
+      }),
+    })
   })
 
   test('attaches console forwarding and records uncaught window errors', async () => {

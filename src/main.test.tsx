@@ -9,6 +9,10 @@ const { installRuntimeDiagnosticsMock } = vi.hoisted(() => ({
   installRuntimeDiagnosticsMock: vi.fn().mockResolvedValue(undefined),
 }))
 
+const { resolveAppRuntimeMock } = vi.hoisted(() => ({
+  resolveAppRuntimeMock: vi.fn(() => 'browser-preview'),
+}))
+
 vi.mock('react-dom/client', () => ({
   createRoot: createRootMock,
 }))
@@ -21,13 +25,19 @@ vi.mock('./lib/runtime-diagnostics', () => ({
   installRuntimeDiagnostics: installRuntimeDiagnosticsMock,
 }))
 
+vi.mock('./lib/runtime', () => ({
+  resolveAppRuntime: resolveAppRuntimeMock,
+}))
+
 describe('main entrypoint', () => {
   beforeEach(() => {
     vi.resetModules()
     document.body.innerHTML = '<div id="root"></div>'
     document.documentElement.removeAttribute('data-theme')
+    document.documentElement.removeAttribute('data-pathkeep-runtime')
     window.localStorage.clear()
     renderMock.mockReset()
+    resolveAppRuntimeMock.mockReset().mockReturnValue('browser-preview')
     installRuntimeDiagnosticsMock.mockReset().mockResolvedValue(undefined)
     createRootMock.mockReset().mockReturnValue({
       render: renderMock,
@@ -40,6 +50,9 @@ describe('main entrypoint', () => {
     expect(createRootMock).toHaveBeenCalledWith(document.getElementById('root'))
     expect(renderMock).toHaveBeenCalledTimes(1)
     expect(installRuntimeDiagnosticsMock).toHaveBeenCalledTimes(1)
+    expect(document.documentElement.dataset.pathkeepRuntime).toBe(
+      'browser-preview',
+    )
   })
 
   test('restores a persisted theme preference before rendering', async () => {
@@ -67,6 +80,16 @@ describe('main entrypoint', () => {
 
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
     expect(renderMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('tags the document with the active runtime for agent diagnostics', async () => {
+    resolveAppRuntimeMock.mockReturnValue('browser-desktop-bridge')
+
+    await import('./main.tsx')
+
+    expect(document.documentElement.dataset.pathkeepRuntime).toBe(
+      'browser-desktop-bridge',
+    )
   })
 
   test('keeps rendering if reading theme preference throws', async () => {

@@ -4,6 +4,8 @@
     "vite.config.ts",
     "eslint.config.js",
     "playwright.config.ts",
+    "playwright.desktop-bridge.config.ts",
+    "scripts/pathkeep-dev-desktop-bridge.d.ts",
     "vitest.config.ts",
     "vitest.desktop-contract.config.ts",
     "vitest.quality.config.ts"

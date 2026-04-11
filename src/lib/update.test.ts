@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { UpdateInstallState } from './types'
 
-const { isTauri } = vi.hoisted(() => ({
-  isTauri: vi.fn(() => false),
-}))
-
 const backend = vi.hoisted(() => ({
   checkForAppUpdate: vi.fn(),
   downloadAndInstallAppUpdate: vi.fn(),
   relaunchAfterUpdate: vi.fn(() => Promise.resolve(true)),
 }))
+
+const { hasDesktopCommandTransportMock, hasTauriGuestApiMock } = vi.hoisted(
+  () => ({
+    hasDesktopCommandTransportMock: vi.fn(() => false),
+    hasTauriGuestApiMock: vi.fn(() => false),
+  }),
+)
 
 const subscribeToUpdaterProgress = vi.hoisted(() =>
   vi.fn((listener: unknown) => {
@@ -18,16 +21,17 @@ const subscribeToUpdaterProgress = vi.hoisted(() =>
   }),
 )
 
-vi.mock('@tauri-apps/api/core', () => ({
-  isTauri,
-}))
-
 vi.mock('./backend-client', () => ({
   backend,
 }))
 
 vi.mock('./ipc/updater-progress', () => ({
   subscribeToUpdaterProgress,
+}))
+
+vi.mock('./runtime', () => ({
+  hasDesktopCommandTransport: hasDesktopCommandTransportMock,
+  hasTauriGuestApi: hasTauriGuestApiMock,
 }))
 
 import {
@@ -40,7 +44,8 @@ import {
 
 describe('update helpers', () => {
   beforeEach(() => {
-    isTauri.mockReturnValue(false)
+    hasDesktopCommandTransportMock.mockReturnValue(false)
+    hasTauriGuestApiMock.mockReturnValue(false)
     backend.checkForAppUpdate.mockReset()
     backend.downloadAndInstallAppUpdate.mockReset()
     backend.relaunchAfterUpdate.mockReset()
@@ -62,7 +67,7 @@ describe('update helpers', () => {
   })
 
   test('maps an available desktop update into release metadata', async () => {
-    isTauri.mockReturnValue(true)
+    hasDesktopCommandTransportMock.mockReturnValue(true)
     backend.checkForAppUpdate.mockResolvedValue({
       availability: {
         supported: true,
@@ -101,7 +106,7 @@ describe('update helpers', () => {
   })
 
   test('subscribes to updater progress and returns the desktop install result', async () => {
-    isTauri.mockReturnValue(true)
+    hasTauriGuestApiMock.mockReturnValue(true)
     const states: string[] = []
     const unsubscribe = vi.fn()
     subscribeToUpdaterProgress.mockImplementation((listener: unknown) => {
@@ -145,7 +150,7 @@ describe('update helpers', () => {
     expect(result.contentLength).toBe(100)
   })
 
-  test('keeps relaunch behind the desktop boundary', async () => {
+  test('keeps relaunch behind the tauri guest boundary', async () => {
     expect(initialUpdateInstallState()).toEqual({
       phase: 'idle',
       version: null,
@@ -157,7 +162,7 @@ describe('update helpers', () => {
     expect(await relaunchAfterUpdate()).toBe(false)
     expect(backend.relaunchAfterUpdate).not.toHaveBeenCalled()
 
-    isTauri.mockReturnValue(true)
+    hasTauriGuestApiMock.mockReturnValue(true)
     expect(await relaunchAfterUpdate()).toBe(true)
     expect(backend.relaunchAfterUpdate).toHaveBeenCalledTimes(1)
   })

@@ -13,6 +13,7 @@
 | 瀏覽器解析      | `browser-history-parser` — 計劃獨立發布的 Rust crate       | 通用的瀏覽器歷史紀錄解析，可供社區使用                                   |
 | 前端            | React 19 + TypeScript + Vite                               | 現代前端、型別安全                                                       |
 | 工具鏈          | Bun                                                        | JS 側的包管理與腳本                                                      |
+| 本地瀏覽器驗證  | Chrome + Playwright + feature-gated desktop bridge         | 讓 AI agent / local QA 直接在瀏覽器驗證真實 Rust command surface         |
 | 數據存儲        | SQLite（可選 SQLCipher 加密）                              | 本地優先、20 年持久性                                                    |
 | Secret storage  | `keyring-core` + platform-native stores                    | 保持 native keyring truth，避免把多餘的 fallback runtime 打進桌面 binary |
 | 全文搜尋        | SQLite FTS5                                                | 核心召回能力，不依賴外部服務                                             |
@@ -56,6 +57,11 @@
 
 - macOS（主要開發和測試平台）
 - Windows 和 Linux（第一天做好 platform adapter 設計，後續補齊完整實機驗證）
+
+2026-04-10 local automation note：
+
+- `devtools-bridge` 是 **開發期 feature-gated surface**，只在 `bun run desktop:dev:bridge` 或 `tauri dev --features devtools-bridge` 時啟用。
+- 這條 bridge 只把 typed desktop command facade 鏡射到 localhost，方便 Chrome / Playwright / CDP 調試；它不是 shipping API，也不應被當成 plugin sandbox 或 remote control surface。
 
 ## Module Boundary
 

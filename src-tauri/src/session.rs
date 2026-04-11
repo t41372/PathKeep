@@ -1,8 +1,8 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct SessionState {
-    database_key: Mutex<Option<String>>,
+    database_key: Arc<Mutex<Option<String>>>,
 }
 
 impl SessionState {
