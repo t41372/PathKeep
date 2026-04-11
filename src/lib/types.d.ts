@@ -25,6 +25,16 @@ export interface EnrichmentSettings {
   plugins: EnrichmentPluginState[]
 }
 
+export interface DeterministicModuleState {
+  id: string
+  enabled: boolean
+  version: string
+}
+
+export interface DeterministicSettings {
+  modules: DeterministicModuleState[]
+}
+
 export type AiRequestFormat =
   | 'openai'
   | 'anthropic'
@@ -137,6 +147,7 @@ export interface AppConfig {
   analytics: AnalyticsConfig
   remoteBackup: RemoteBackupConfig
   enrichment: EnrichmentSettings
+  deterministic: DeterministicSettings
   ai: AiSettings
 }
 
@@ -335,6 +346,8 @@ export interface InsightStatus {
   cards: number
   topics: number
   threads: number
+  queryGroups: number
+  referencePages: number
   contentCoverage: number
   warning?: string | null
 }
@@ -360,6 +373,26 @@ export interface InsightCard {
   evidence: InsightEvidenceItem[]
 }
 
+export interface InsightQueryGroupSummary {
+  queryGroupId: string
+  profileId: string
+  threadId?: string | null
+  title: string
+  rootQuery: string
+  latestQuery: string
+  firstSeenAt: string
+  lastSeenAt: string
+  visitCount: number
+  burstCount: number
+  stepCount: number
+  confidence: number
+  evidenceTier: string
+  chromiumEnhanced: boolean
+  steps: string[]
+  stages: string[]
+  evidence: InsightEvidenceItem[]
+}
+
 export interface InsightTopicSummary {
   topicId: string
   label: string
@@ -382,8 +415,11 @@ export interface InsightThreadSummary {
   firstSeenAt: string
   lastSeenAt: string
   visitCount: number
+  queryGroupCount: number
   reopenCount: number
   openLoopScore: number
+  confidence: number
+  evidenceTier: string
   dominantTopicId?: string | null
   chromiumEnhanced: boolean
   evidence: InsightEvidenceItem[]
@@ -391,16 +427,62 @@ export interface InsightThreadSummary {
 
 export interface InsightThreadDetail {
   summary: InsightThreadSummary
+  queryGroups: InsightQueryGroupSummary[]
   visits: InsightEvidenceItem[]
 }
 
 export interface InsightQueryLadder {
+  queryGroupId?: string | null
   rootTerm: string
   profileId: string
   steps: string[]
   stages: string[]
   count: number
+  confidence: number
+  evidenceTier: string
   chromiumOnly: boolean
+}
+
+export interface InsightReferencePageSummary {
+  referencePageId: string
+  profileId?: string | null
+  url: string
+  title?: string | null
+  domain: string
+  firstSeenAt: string
+  lastSeenAt: string
+  revisitCount: number
+  crossDayRevisits: number
+  queryGroupCount: number
+  threadCount: number
+  score: number
+  evidenceTier: string
+  evidence: InsightEvidenceItem[]
+}
+
+export interface InsightSourceEffectivenessSummary {
+  sourceId: string
+  profileId?: string | null
+  domain: string
+  sourceRole: string
+  queryGroupCount: number
+  threadCount: number
+  stableLandingCount: number
+  referencePageCount: number
+  reopenSupportCount: number
+  effectivenessScore: number
+  evidenceTier: string
+  evidence: InsightEvidenceItem[]
+}
+
+export interface InsightTemplateSummary {
+  summaryId: string
+  kind: string
+  title: string
+  body: string
+  confidence: number
+  profileId?: string | null
+  evidence: InsightEvidenceItem[]
 }
 
 export interface InsightWorkflowRole {
@@ -447,9 +529,13 @@ export interface InsightSnapshot {
   profileId?: string | null
   status: InsightStatus
   cards: InsightCard[]
+  queryGroups: InsightQueryGroupSummary[]
   topics: InsightTopicSummary[]
   threads: InsightThreadSummary[]
   queryLadders: InsightQueryLadder[]
+  referencePages: InsightReferencePageSummary[]
+  sourceEffectiveness: InsightSourceEffectivenessSummary[]
+  templateSummaries: InsightTemplateSummary[]
   workflowMap: InsightWorkflowMap
   profileFacets: InsightProfileFacet[]
   canonical: InsightCanonicalSummary
@@ -468,8 +554,12 @@ export interface RunInsightsReport {
   processedVisits: number
   enrichedVisits: number
   failedEnrichments: number
+  queryGroupCount: number
   topicCount: number
   threadCount: number
+  referencePageCount: number
+  sourceCount: number
+  templateSummaryCount: number
   cardCount: number
   contentCoverage: number
   lastRunAt: string
@@ -529,9 +619,24 @@ export interface IntelligenceJobOverview {
   cancellable: boolean
 }
 
+export interface DeterministicModuleRuntimeStatus {
+  moduleId: string
+  enabled: boolean
+  version: string
+  status: string
+  dependsOn: string[]
+  derivedTables: string[]
+  lastRunId?: number | null
+  lastBuiltAt?: string | null
+  lastInvalidatedAt?: string | null
+  staleReason?: string | null
+  notes: string[]
+}
+
 export interface IntelligenceRuntimeSnapshot {
   queue: IntelligenceQueueStatus
   plugins: EnrichmentPluginStatus[]
+  modules: DeterministicModuleRuntimeStatus[]
   recentJobs: IntelligenceJobOverview[]
   notes: string[]
 }
@@ -810,8 +915,13 @@ export interface RemoteBackupVerification {
 export interface ClearDerivedIntelligenceReport {
   clearedEnrichmentRows: number
   clearedFeatureRows: number
+  clearedBurstRows: number
+  clearedQueryGroupRows: number
   clearedTopicRows: number
   clearedThreadRows: number
+  clearedReferencePageRows: number
+  clearedSourceRows: number
+  clearedModuleRows: number
   clearedCardRows: number
   clearedRunRows: number
   notes: string[]

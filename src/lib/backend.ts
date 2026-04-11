@@ -156,6 +156,15 @@ const mockSnapshot: AppSnapshot = {
       lastError: null,
     },
     enrichment: defaultEnrichmentSettings(),
+    deterministic: {
+      modules: [
+        { id: 'query-groups', enabled: true, version: 'm5b-v1' },
+        { id: 'threads', enabled: true, version: 'm5b-v1' },
+        { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
+        { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
+        { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
+      ],
+    },
     ai: {
       enabled: false,
       assistantEnabled: false,
@@ -238,6 +247,8 @@ const mockSnapshot: AppSnapshot = {
     cards: 4,
     topics: 3,
     threads: 2,
+    queryGroups: 2,
+    referencePages: 2,
     contentCoverage: 0.64,
     warning: null,
   },
@@ -454,6 +465,40 @@ const mockInsightSnapshot: InsightSnapshot = {
       ],
     },
   ],
+  queryGroups: [
+    {
+      queryGroupId: 'query-group-001',
+      profileId: 'chrome:Default',
+      threadId: 'thread-001',
+      title: 'archive tool compare github',
+      rootQuery: 'archive tool',
+      latestQuery: 'archive tool compare github',
+      firstSeenAt: '2026-04-01T12:00:00.000Z',
+      lastSeenAt: '2026-04-03T16:00:00.000Z',
+      visitCount: 6,
+      burstCount: 2,
+      stepCount: 3,
+      confidence: 0.83,
+      evidenceTier: 'tier-a',
+      chromiumEnhanced: true,
+      steps: [
+        'archive tool',
+        'archive tool compare',
+        'archive tool compare github',
+      ],
+      stages: ['broad', 'compare', 'site-restrict'],
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Deterministic query group anchor',
+        },
+      ],
+    },
+  ],
   topics: [
     {
       topicId: 'topic-001',
@@ -500,8 +545,11 @@ const mockInsightSnapshot: InsightSnapshot = {
       firstSeenAt: '2026-04-01T12:00:00.000Z',
       lastSeenAt: '2026-04-03T16:00:00.000Z',
       visitCount: 6,
+      queryGroupCount: 1,
       reopenCount: 2,
       openLoopScore: 2.15,
+      confidence: 0.81,
+      evidenceTier: 'tier-a',
       dominantTopicId: 'topic-001',
       chromiumEnhanced: true,
       evidence: [
@@ -518,6 +566,7 @@ const mockInsightSnapshot: InsightSnapshot = {
   ],
   queryLadders: [
     {
+      queryGroupId: 'query-group-001',
       rootTerm: 'archive tool',
       profileId: 'chrome:Default',
       steps: [
@@ -527,7 +576,99 @@ const mockInsightSnapshot: InsightSnapshot = {
       ],
       stages: ['broad', 'compare', 'site-restrict'],
       count: 3,
+      confidence: 0.83,
+      evidenceTier: 'tier-a',
       chromiumOnly: true,
+    },
+  ],
+  referencePages: [
+    {
+      referencePageId: 'reference-001',
+      profileId: 'chrome:Default',
+      url: mockHistory.items[0].url,
+      title: mockHistory.items[0].title,
+      domain: mockHistory.items[0].domain,
+      firstSeenAt: '2026-04-01T12:10:00.000Z',
+      lastSeenAt: '2026-04-03T16:00:00.000Z',
+      revisitCount: 3,
+      crossDayRevisits: 2,
+      queryGroupCount: 1,
+      threadCount: 1,
+      score: 2.4,
+      evidenceTier: 'tier-b',
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Stable reference page',
+        },
+      ],
+    },
+  ],
+  sourceEffectiveness: [
+    {
+      sourceId: 'source-001',
+      profileId: 'chrome:Default',
+      domain: 'developer.chrome.com',
+      sourceRole: 'docs',
+      queryGroupCount: 1,
+      threadCount: 1,
+      stableLandingCount: 2,
+      referencePageCount: 1,
+      reopenSupportCount: 1,
+      effectivenessScore: 2.1,
+      evidenceTier: 'tier-b',
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Docs were a stable landing source',
+        },
+      ],
+    },
+  ],
+  templateSummaries: [
+    {
+      summaryId: 'summary-query-groups',
+      kind: 'query-groups',
+      title: 'Recent query refinement',
+      body: 'Archive tooling moved from broad comparison to a GitHub-restricted query.',
+      confidence: 0.83,
+      profileId: 'chrome:Default',
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Summary evidence',
+        },
+      ],
+    },
+    {
+      summaryId: 'summary-reference-pages',
+      kind: 'reference-pages',
+      title: 'Stable reference page',
+      body: 'The Chrome docs page kept resurfacing as a stable reference.',
+      confidence: 0.71,
+      profileId: 'chrome:Default',
+      evidence: [
+        {
+          historyId: 1,
+          profileId: 'chrome:Default',
+          url: mockHistory.items[0].url,
+          title: mockHistory.items[0].title,
+          visitedAt: mockHistory.items[0].visitedAt,
+          note: 'Summary evidence',
+        },
+      ],
     },
   ],
   workflowMap: {
@@ -567,6 +708,7 @@ const mockInsightSnapshot: InsightSnapshot = {
 
 const mockInsightThreadDetail: InsightThreadDetail = {
   summary: structuredClone(mockInsightSnapshot.threads[0]),
+  queryGroups: structuredClone(mockInsightSnapshot.queryGroups),
   visits: [
     {
       historyId: 1,
@@ -592,8 +734,12 @@ const mockInsightRunReport: RunInsightsReport = {
   processedVisits: 24,
   enrichedVisits: 8,
   failedEnrichments: 1,
+  queryGroupCount: mockInsightSnapshot.queryGroups.length,
   topicCount: mockInsightSnapshot.topics.length,
   threadCount: mockInsightSnapshot.threads.length,
+  referencePageCount: mockInsightSnapshot.referencePages.length,
+  sourceCount: mockInsightSnapshot.sourceEffectiveness.length,
+  templateSummaryCount: mockInsightSnapshot.templateSummaries.length,
   cardCount: mockInsightSnapshot.cards.length,
   contentCoverage: 0.64,
   lastRunAt: new Date().toISOString(),
@@ -639,6 +785,77 @@ const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
       failedJobs: 1,
       lastCompletedAt: new Date().toISOString(),
       lastError: '429 from upstream host',
+    },
+  ],
+  modules: [
+    {
+      moduleId: 'query-groups',
+      enabled: true,
+      version: 'm5b-v1',
+      status: 'ready',
+      dependsOn: [],
+      derivedTables: [
+        'insight_bursts',
+        'insight_query_groups',
+        'insight_query_group_members',
+      ],
+      lastRunId: 12,
+      lastBuiltAt: new Date().toISOString(),
+      lastInvalidatedAt: null,
+      staleReason: null,
+      notes: ['Latest deterministic rebuild completed successfully.'],
+    },
+    {
+      moduleId: 'threads',
+      enabled: true,
+      version: 'm5b-v1',
+      status: 'ready',
+      dependsOn: ['query-groups'],
+      derivedTables: ['insight_threads', 'insight_thread_members'],
+      lastRunId: 12,
+      lastBuiltAt: new Date().toISOString(),
+      lastInvalidatedAt: null,
+      staleReason: null,
+      notes: ['Thread merge uses query-family, anchor, and reopen evidence.'],
+    },
+    {
+      moduleId: 'reference-pages',
+      enabled: true,
+      version: 'm5b-v1',
+      status: 'stale',
+      dependsOn: ['query-groups', 'threads'],
+      derivedTables: ['insight_reference_pages'],
+      lastRunId: 11,
+      lastBuiltAt: new Date(Date.now() - 86_400_000).toISOString(),
+      lastInvalidatedAt: new Date().toISOString(),
+      staleReason: 'Visibility changed after the last deterministic rebuild.',
+      notes: ['Manual rebuild required before reference-page surfacing is fresh again.'],
+    },
+    {
+      moduleId: 'source-effectiveness',
+      enabled: true,
+      version: 'm5b-v1',
+      status: 'ready',
+      dependsOn: ['query-groups', 'threads', 'reference-pages'],
+      derivedTables: ['insight_source_effectiveness'],
+      lastRunId: 12,
+      lastBuiltAt: new Date().toISOString(),
+      lastInvalidatedAt: null,
+      staleReason: null,
+      notes: ['Source effectiveness stays inside deterministic evidence boundaries.'],
+    },
+    {
+      moduleId: 'template-summaries',
+      enabled: true,
+      version: 'm5b-v1',
+      status: 'ready',
+      dependsOn: ['query-groups', 'threads', 'reference-pages'],
+      derivedTables: ['insight_cards'],
+      lastRunId: 12,
+      lastBuiltAt: new Date().toISOString(),
+      lastInvalidatedAt: null,
+      staleReason: null,
+      notes: ['Template summaries are generated without LLM rewriting.'],
     },
   ],
   recentJobs: [
@@ -988,15 +1205,35 @@ function clearDerivedIntelligenceFixture(
     cards: 0,
     topics: 0,
     threads: 0,
+    queryGroups: 0,
+    referencePages: 0,
     contentCoverage: 0,
     warning: null,
   }
+  state.intelligenceRuntime.modules = state.intelligenceRuntime.modules.map(
+    (module) => ({
+      ...module,
+      status: module.enabled ? 'stale' : 'disabled',
+      lastInvalidatedAt: new Date().toISOString(),
+      staleReason: module.enabled
+        ? 'Derived intelligence state was cleared manually.'
+        : null,
+      notes: module.enabled
+        ? ['Manual rebuild required before this deterministic module is fresh again.']
+        : ['Disabled in Settings.'],
+    }),
+  )
 
   return {
     clearedEnrichmentRows: 8,
     clearedFeatureRows: 8,
+    clearedBurstRows: 4,
+    clearedQueryGroupRows: 2,
     clearedTopicRows: 2,
     clearedThreadRows: 1,
+    clearedReferencePageRows: 1,
+    clearedSourceRows: 1,
+    clearedModuleRows: 5,
     clearedCardRows: 2,
     clearedRunRows: 4,
     notes: [
@@ -1018,6 +1255,8 @@ function runInsightsFixture(
     cards: 4,
     topics: 3,
     threads: 2,
+    queryGroups: 2,
+    referencePages: 2,
     contentCoverage: enrichmentPluginEnabled(
       state.snapshot.config.enrichment,
       READABLE_CONTENT_REFETCH_PLUGIN_ID,
@@ -1026,6 +1265,19 @@ function runInsightsFixture(
       : 0.18,
     warning: null,
   }
+  state.intelligenceRuntime.modules = state.intelligenceRuntime.modules.map(
+    (module) => ({
+      ...module,
+      status: module.enabled ? 'ready' : 'disabled',
+      lastRunId: mockInsightRunReport.runId,
+      lastBuiltAt: new Date().toISOString(),
+      lastInvalidatedAt: null,
+      staleReason: null,
+      notes: module.enabled
+        ? ['Latest deterministic rebuild completed successfully.']
+        : ['Disabled in Settings.'],
+    }),
+  )
 
   return {
     ...mockInsightRunReport,
@@ -1062,8 +1314,13 @@ function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
       ...structuredClone(mockInsightSnapshot),
       status: structuredClone(state.snapshot.insightStatus),
       cards: [],
+      queryGroups: [],
       topics: [],
       threads: [],
+      queryLadders: [],
+      referencePages: [],
+      sourceEffectiveness: [],
+      templateSummaries: [],
       canonical: buildMockCanonicalSummary(state.history.items),
       notes: [
         'Derived insight state is currently empty. Run a rebuild to repopulate enrichment and insight tables.',
@@ -1121,6 +1378,12 @@ function syncMockIntelligenceRuntime(state: MockBackendState) {
       (plugin) => [plugin.id, plugin.enabled],
     ),
   )
+  const moduleEnabledById = new Map(
+    state.snapshot.config.deterministic.modules.map((module) => [
+      module.id,
+      module.enabled,
+    ]),
+  )
   const recentJobs = state.intelligenceRuntime.recentJobs
   const activityTimes = recentJobs
     .flatMap((job) => [job.finishedAt, job.startedAt, job.createdAt])
@@ -1164,6 +1427,18 @@ function syncMockIntelligenceRuntime(state: MockBackendState) {
         recentJobs.find(
           (job) => job.pluginId === plugin.pluginId && job.state === 'failed',
         )?.lastError ?? null,
+    }),
+  )
+  state.intelligenceRuntime.modules = state.intelligenceRuntime.modules.map(
+    (module) => ({
+      ...module,
+      enabled: moduleEnabledById.get(module.moduleId) ?? module.enabled,
+      status:
+        moduleEnabledById.get(module.moduleId) === false ? 'disabled' : module.status,
+      notes:
+        moduleEnabledById.get(module.moduleId) === false
+          ? ['Disabled in Settings.']
+          : module.notes,
     }),
   )
   state.intelligenceRuntime.notes = [
