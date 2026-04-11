@@ -61,7 +61,10 @@ export function resolveInsightPeriodicSummary(
   t: InsightTranslator,
   limit = 2,
 ) {
-  const paragraphs = uniqueNonEmpty(snapshot.cards.map((card) => card.summary))
+  const paragraphs = uniqueNonEmpty([
+    ...snapshot.templateSummaries.map((summary) => summary.body),
+    ...snapshot.cards.map((card) => card.summary),
+  ])
   const cappedLimit = resolveLimit(limit, 2)
   const rankedDomains = resolveInsightTopDomains(snapshot, 3).map(
     (item) => item.domain,

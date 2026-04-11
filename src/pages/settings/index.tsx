@@ -14,10 +14,14 @@ import {
   resolveEnrichmentSettings,
 } from '../../lib/enrichment'
 import {
+  deterministicModuleDescription,
+  deterministicModuleLabel,
+  deterministicModuleStatusLabel,
   enrichmentPluginBoundaryLabel,
   enrichmentPluginDescription,
   enrichmentPluginLabel,
   intelligenceRuntimeJobStateLabel,
+  upsertDeterministicModuleState,
   upsertEnrichmentPluginPreference,
 } from '../../lib/intelligence-runtime'
 import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
@@ -379,6 +383,33 @@ export function SettingsPage() {
       state: enrichmentPluginState(enrichmentSettings, pluginId),
     }))
   }, [enrichmentSettings, runtimePluginsById])
+  const runtimeModulesById = useMemo(
+    () =>
+      new Map(
+        (intelligenceRuntime?.modules ?? []).map((module) => [
+          module.moduleId,
+          module,
+        ]),
+      ),
+    [intelligenceRuntime?.modules],
+  )
+  const reviewableDeterministicModules = useMemo(() => {
+    const configuredModules = snapshot?.config.deterministic.modules ?? []
+    const configIds = configuredModules.map((module) => module.id)
+    const extraIds = [...runtimeModulesById.keys()].filter(
+      (moduleId) => !configIds.includes(moduleId),
+    )
+
+    return [...configIds, ...extraIds].map((moduleId) => ({
+      runtime: runtimeModulesById.get(moduleId),
+      state:
+        configuredModules.find((module) => module.id === moduleId) ?? {
+          id: moduleId,
+          enabled: true,
+          version: 'm5b-v1',
+        },
+    }))
+  }, [runtimeModulesById, snapshot?.config.deterministic.modules])
 
   if (!snapshot) {
     return (
@@ -691,6 +722,34 @@ export function SettingsPage() {
           enrichmentPlugins: upsertEnrichmentPluginPreference(
             snapshot.config.ai.enrichmentPlugins,
             pluginId,
+            nextEnabled,
+          ),
+        },
+      })
+      await refreshAppData()
+      await refreshIntelligenceRuntimeState()
+    } finally {
+      setDerivedAction(null)
+    }
+  }
+
+  async function handleDeterministicModuleToggle(moduleId: string) {
+    if (!snapshot) {
+      return
+    }
+
+    const currentModule =
+      snapshot.config.deterministic.modules.find((module) => module.id === moduleId) ??
+      null
+    const nextEnabled = !(currentModule?.enabled ?? true)
+    setDerivedAction(t('settings.savingDeterministicModules'))
+    try {
+      await saveConfig({
+        ...snapshot.config,
+        deterministic: {
+          modules: upsertDeterministicModuleState(
+            snapshot.config.deterministic.modules,
+            moduleId,
             nextEnabled,
           ),
         },
@@ -2387,6 +2446,104 @@ export function SettingsPage() {
               )
             }
           />
+
+          {reviewableDeterministicModules.map((module) => (
+            <div key={module.state.id} className="result-row result-row--active">
+              <div className="result-row__header">
+                <strong>
+                  {deterministicModuleLabel(module.state.id, settingsNs)}
+                </strong>
+                <span className="mono">
+                  {module.runtime
+                    ? deterministicModuleStatusLabel(
+                        module.runtime.status,
+                        settingsNs,
+                      )
+                    : module.state.enabled
+                      ? settingsNs('deterministicModuleIdle')
+                      : settingsNs('deterministicModuleDisabled')}
+                </span>
+              </div>
+              <p>
+                {deterministicModuleDescription(module.state.id, settingsNs)}
+              </p>
+              <div className="config-row">
+                <span className="config-label">
+                  {settingsNs('deterministicModuleVersion')}
+                </span>
+                <span className="config-value mono">
+                  {module.state.version}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {settingsNs('deterministicModuleDependsOn')}
+                </span>
+                <span className="config-value mono">
+                  {module.runtime?.dependsOn.length
+                    ? module.runtime.dependsOn
+                        .map((moduleId) =>
+                          deterministicModuleLabel(moduleId, settingsNs),
+                        )
+                        .join(', ')
+                    : commonNs('notAvailable')}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {settingsNs('deterministicModuleTables')}
+                </span>
+                <span className="config-value mono">
+                  {module.runtime?.derivedTables.join(', ') ??
+                    commonNs('notAvailable')}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {settingsNs('deterministicModuleLastBuilt')}
+                </span>
+                <span className="config-value mono">
+                  {module.runtime?.lastBuiltAt
+                    ? formatDateTime(module.runtime.lastBuiltAt, language) ??
+                      module.runtime.lastBuiltAt
+                    : commonNs('notAvailable')}
+                </span>
+              </div>
+              {module.runtime?.staleReason ? (
+                <div className="config-row">
+                  <span className="config-label">
+                    {settingsNs('deterministicModuleStaleReason')}
+                  </span>
+                  <span className="config-value">
+                    {module.runtime.staleReason}
+                  </span>
+                </div>
+              ) : null}
+              {module.runtime?.notes.length ? (
+                <div className="intelligence-note-list">
+                  {module.runtime.notes.map((note) => (
+                    <p key={`${module.state.id}-${note}`} className="mono-support">
+                      {note}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+              <div className="settings-action-row">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={Boolean(derivedAction)}
+                  onClick={() => {
+                    void handleDeterministicModuleToggle(module.state.id)
+                  }}
+                >
+                  {module.state.enabled
+                    ? t('settings.disablePlugin')
+                    : t('settings.enablePlugin')}
+                </button>
+              </div>
+            </div>
+          ))}
 
           {reviewableEnrichmentPlugins.map((plugin) => {
             const sourceKind =

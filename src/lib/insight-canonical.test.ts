@@ -20,6 +20,8 @@ const baseSnapshot: InsightSnapshot = {
     cards: 2,
     topics: 1,
     threads: 1,
+    queryGroups: 1,
+    referencePages: 1,
     contentCoverage: 0.8,
     warning: null,
   },
@@ -47,9 +49,23 @@ const baseSnapshot: InsightSnapshot = {
       evidence: [],
     },
   ],
+  templateSummaries: [
+    {
+      summaryId: 'summary-1',
+      kind: 'query-groups',
+      title: 'Recent query refinement',
+      body: 'Template summaries should be preferred before card summaries.',
+      confidence: 0.81,
+      profileId: 'chrome:Default',
+      evidence: [],
+    },
+  ],
+  queryGroups: [],
   topics: [],
   threads: [],
   queryLadders: [],
+  referencePages: [],
+  sourceEffectiveness: [],
   workflowMap: {
     profileId: 'chrome:Default',
     roles: [],
@@ -115,14 +131,15 @@ describe('insight canonical helpers', () => {
 
   test('prefers card summaries and falls back to canonical rollups when needed', () => {
     expect(resolveInsightPeriodicSummary(baseSnapshot, t)).toEqual([
+      'Template summaries should be preferred before card summaries.',
       'You revisited semantic search material several times.',
-      'SQLite and search indexing dominated this window.',
     ])
 
     expect(
       resolveInsightPeriodicSummary(
         {
           ...baseSnapshot,
+          templateSummaries: [],
           cards: [
             { ...baseSnapshot.cards[0], summary: '  ' },
             { ...baseSnapshot.cards[1], summary: 'Repeated summary' },
@@ -142,6 +159,7 @@ describe('insight canonical helpers', () => {
         {
           ...baseSnapshot,
           cards: [],
+          templateSummaries: [],
           canonical: {
             ...baseSnapshot.canonical,
             topDomains: [],

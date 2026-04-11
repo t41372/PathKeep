@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -76,6 +76,15 @@ const baseConfig: AppConfig = {
         enabled: true,
         version: 'm4-v1',
       },
+    ],
+  },
+  deterministic: {
+    modules: [
+      { id: 'query-groups', enabled: true, version: 'm5b-v1' },
+      { id: 'threads', enabled: true, version: 'm5b-v1' },
+      { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
+      { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
+      { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
     ],
   },
   ai: {
@@ -339,7 +348,7 @@ describe('intelligence surfaces', () => {
     expect(await screen.findByText(insightsT('periodicSummary'))).toBeVisible()
     expect(
       screen.getByText(
-        'Archive tooling is gaining momentum across docs, repo issues, and comparison pages.',
+        'Archive tooling moved from broad comparison to a GitHub-restricted query.',
       ),
     ).toBeVisible()
     expect(screen.getByText(settingsT('disabled'))).toBeVisible()
@@ -381,6 +390,34 @@ describe('intelligence surfaces', () => {
           failedJobs: 1,
           lastCompletedAt: '2026-04-10T15:40:00Z',
           lastError: '429 from upstream host',
+        },
+      ],
+      modules: [
+        {
+          moduleId: 'query-groups',
+          enabled: true,
+          version: 'm5b-v1',
+          status: 'ready',
+          dependsOn: [],
+          derivedTables: ['insight_bursts', 'insight_query_groups'],
+          lastRunId: 12,
+          lastBuiltAt: '2026-04-10T16:25:00Z',
+          lastInvalidatedAt: null,
+          staleReason: null,
+          notes: ['Latest deterministic rebuild completed successfully.'],
+        },
+        {
+          moduleId: 'reference-pages',
+          enabled: true,
+          version: 'm5b-v1',
+          status: 'stale',
+          dependsOn: ['query-groups', 'threads'],
+          derivedTables: ['insight_reference_pages'],
+          lastRunId: 11,
+          lastBuiltAt: '2026-04-09T16:25:00Z',
+          lastInvalidatedAt: '2026-04-10T16:28:00Z',
+          staleReason: 'Visibility changed after the last deterministic rebuild.',
+          notes: ['Manual rebuild required before this deterministic module is fresh again.'],
         },
       ],
       recentJobs: [
@@ -425,6 +462,8 @@ describe('intelligence surfaces', () => {
       await screen.findByText(settingsT('firstPartyRuntimeTitle')),
     ).toBeVisible()
     expect(screen.getByText('Title normalization')).toBeVisible()
+    expect(screen.getByText('Query groups')).toBeVisible()
+    expect(screen.getByText('Reference pages')).toBeVisible()
     expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
       0,
     )
@@ -432,8 +471,14 @@ describe('intelligence surfaces', () => {
       screen.getAllByText('1 queued / 0 running / 1 failed').length,
     ).toBeGreaterThan(0)
 
+    const titleNormalizationRow = screen
+      .getByText('Title normalization')
+      .closest('.result-row')
+    expect(titleNormalizationRow).not.toBeNull()
     await user.click(
-      screen.getAllByRole('button', { name: settingsT('disablePlugin') })[0],
+      within(titleNormalizationRow!).getByRole('button', {
+        name: settingsT('disablePlugin'),
+      }),
     )
 
     await waitFor(() => expect(shellValue.saveConfig).toHaveBeenCalledTimes(1))
@@ -483,6 +528,21 @@ describe('intelligence surfaces', () => {
           failedJobs: 0,
           lastCompletedAt: '2026-04-10T16:20:00Z',
           lastError: null,
+        },
+      ],
+      modules: [
+        {
+          moduleId: 'threads',
+          enabled: true,
+          version: 'm5b-v1',
+          status: 'ready',
+          dependsOn: ['query-groups'],
+          derivedTables: ['insight_threads', 'insight_thread_members'],
+          lastRunId: 12,
+          lastBuiltAt: '2026-04-10T16:25:00Z',
+          lastInvalidatedAt: null,
+          staleReason: null,
+          notes: ['Thread merge uses query-family and reopen evidence.'],
         },
       ],
       recentJobs: [
@@ -759,6 +819,8 @@ describe('intelligence surfaces', () => {
         cards: 1,
         topics: 1,
         threads: 1,
+        queryGroups: 1,
+        referencePages: 1,
         contentCoverage: 0.76,
         warning: null,
       },
@@ -781,6 +843,40 @@ describe('intelligence surfaces', () => {
               title: 'Recall drift notes',
               visitedAt: '2026-04-07T08:00:00Z',
               note: 'Frequently reopened across the last week.',
+            },
+          ],
+        },
+      ],
+      queryGroups: [
+        {
+          queryGroupId: 'query-group-1',
+          profileId: 'chrome:Default',
+          threadId: 'thread-1',
+          title: 'archive tool compare',
+          rootQuery: 'archive tool',
+          latestQuery: 'site:github.com archive tool',
+          firstSeenAt: '2026-04-06T18:00:00Z',
+          lastSeenAt: '2026-04-07T09:15:00Z',
+          visitCount: 4,
+          burstCount: 2,
+          stepCount: 3,
+          confidence: 0.81,
+          evidenceTier: 'tier-a',
+          chromiumEnhanced: true,
+          steps: [
+            'archive tool',
+            'archive tool compare',
+            'site:github.com archive tool',
+          ],
+          stages: ['broad', 'compare', 'site-restrict'],
+          evidence: [
+            {
+              historyId: 43,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/search-quality',
+              title: 'Search quality',
+              visitedAt: '2026-04-06T18:30:00Z',
+              note: 'Query group anchor',
             },
           ],
         },
@@ -818,8 +914,11 @@ describe('intelligence surfaces', () => {
           firstSeenAt: '2026-03-18T10:00:00Z',
           lastSeenAt: '2026-04-07T09:15:00Z',
           visitCount: 6,
+          queryGroupCount: 1,
           reopenCount: 2,
           openLoopScore: 0.82,
+          confidence: 0.78,
+          evidenceTier: 'tier-a',
           dominantTopicId: 'topic-1',
           chromiumEnhanced: true,
           evidence: [
@@ -836,6 +935,7 @@ describe('intelligence surfaces', () => {
       ],
       queryLadders: [
         {
+          queryGroupId: 'query-group-1',
           rootTerm: 'archive tool',
           profileId: 'chrome:Default',
           steps: [
@@ -845,7 +945,81 @@ describe('intelligence surfaces', () => {
           ],
           stages: ['broad', 'compare', 'site-restrict'],
           count: 3,
+          confidence: 0.81,
+          evidenceTier: 'tier-a',
           chromiumOnly: true,
+        },
+      ],
+      referencePages: [
+        {
+          referencePageId: 'reference-1',
+          profileId: 'chrome:Default',
+          url: 'https://example.com/search-quality',
+          title: 'Search quality',
+          domain: 'example.com',
+          firstSeenAt: '2026-04-06T18:30:00Z',
+          lastSeenAt: '2026-04-07T09:15:00Z',
+          revisitCount: 2,
+          crossDayRevisits: 1,
+          queryGroupCount: 1,
+          threadCount: 1,
+          score: 1.8,
+          evidenceTier: 'tier-b',
+          evidence: [
+            {
+              historyId: 43,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/search-quality',
+              title: 'Search quality',
+              visitedAt: '2026-04-06T18:30:00Z',
+              note: 'Reference page evidence',
+            },
+          ],
+        },
+      ],
+      sourceEffectiveness: [
+        {
+          sourceId: 'source-1',
+          profileId: 'chrome:Default',
+          domain: 'example.com',
+          sourceRole: 'docs',
+          queryGroupCount: 1,
+          threadCount: 1,
+          stableLandingCount: 1,
+          referencePageCount: 1,
+          reopenSupportCount: 1,
+          effectivenessScore: 1.6,
+          evidenceTier: 'tier-b',
+          evidence: [
+            {
+              historyId: 43,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/search-quality',
+              title: 'Search quality',
+              visitedAt: '2026-04-06T18:30:00Z',
+              note: 'Source effectiveness evidence',
+            },
+          ],
+        },
+      ],
+      templateSummaries: [
+        {
+          summaryId: 'summary-query-groups',
+          kind: 'query-groups',
+          title: 'Recent query refinement',
+          body: 'Archive tool research narrowed into a GitHub-restricted query.',
+          confidence: 0.81,
+          profileId: 'chrome:Default',
+          evidence: [
+            {
+              historyId: 43,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/search-quality',
+              title: 'Search quality',
+              visitedAt: '2026-04-06T18:30:00Z',
+              note: 'Template summary evidence',
+            },
+          ],
         },
       ],
       workflowMap: {
@@ -895,15 +1069,23 @@ describe('intelligence surfaces', () => {
     expect(
       (await screen.findAllByText(insightsT('insightCards'))).length,
     ).toBeGreaterThan(0)
+    expect(await screen.findByText(insightsT('queryGroups'))).toBeVisible()
+    expect(await screen.findByText(insightsT('referencePages'))).toBeVisible()
+    expect(
+      await screen.findByText(insightsT('deterministicModules')),
+    ).toBeVisible()
+    expect(await screen.findByText('Archive tool research narrowed into a GitHub-restricted query.')).toBeVisible()
     expect(await screen.findByText('Semantic recall drift')).toBeVisible()
     expect(await screen.findByText(insightsT('queryEvolution'))).toBeVisible()
     expect(
-      screen.getByText(
+      screen.getAllByText(
         'archive tool -> archive tool compare -> site:github.com archive tool',
-      ),
-    ).toBeVisible()
+      ).length,
+    ).toBeGreaterThan(0)
 
-    await user.click(screen.getByRole('button', { name: insightsT('explain') }))
+    await user.click(
+      screen.getAllByRole('button', { name: insightsT('explain') })[0],
+    )
 
     expect(await screen.findByText(insightsT('explainability'))).toBeVisible()
     expect(
