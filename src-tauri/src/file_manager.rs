@@ -16,10 +16,31 @@ pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use tempfile::tempdir;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn restore_env_var(name: &str, value: Option<&OsStr>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
+    }
 
     #[test]
     fn wrapper_surfaces_validation_errors() {
@@ -35,6 +56,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn wrapper_opens_targets_through_platform_launcher() {
+        let _env_lock = lock_env();
         let dir = tempdir().expect("tempdir");
         let shim_dir = dir.path().join("bin");
         let target_dir = dir.path().join("target");
@@ -50,7 +72,7 @@ mod tests {
         let shim_path = shim_dir.join(program);
         fs::write(
             &shim_path,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", capture_path.display()),
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> {}\n", capture_path.display()),
         )
         .expect("write shim");
         let mut permissions = fs::metadata(&shim_path).expect("metadata").permissions();
@@ -84,19 +106,29 @@ mod tests {
         }
         let captured = fs::read_to_string(&capture_path).expect("read capture");
 
-        unsafe {
-            if let Some(value) = original_path {
-                std::env::set_var("PATH", value);
-            } else {
-                std::env::remove_var("PATH");
-            }
-        }
+        restore_env_var("PATH", original_path.as_deref());
 
         assert_eq!(opened, target_dir.display().to_string());
         assert_eq!(opened_url, "https://example.com/pathkeep");
-        assert!(
-            captured.contains(&target_dir.display().to_string())
-                || captured.contains("https://example.com/pathkeep")
-        );
+        assert!(captured.contains(&target_dir.display().to_string()));
+        assert!(captured.contains("https://example.com/pathkeep"));
+    }
+
+    #[test]
+    fn restore_env_var_handles_missing_and_present_values() {
+        let _env_lock = lock_env();
+        let env_name = "PATHKEEP_FILE_MANAGER_TEST_ENV";
+
+        unsafe {
+            std::env::set_var(env_name, "present");
+        }
+        restore_env_var(env_name, None);
+        assert!(std::env::var_os(env_name).is_none());
+
+        restore_env_var(env_name, Some(OsStr::new("restored")));
+        assert_eq!(std::env::var(env_name).expect("restored env value"), "restored");
+
+        restore_env_var(env_name, None);
+        assert!(std::env::var_os(env_name).is_none());
     }
 }
