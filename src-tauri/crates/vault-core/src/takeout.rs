@@ -189,7 +189,7 @@ pub fn import_takeout(
     let import_result = (|| -> Result<()> {
         for file in files {
             let Some(kind) = recognize_takeout_file(&file.path) else {
-                quarantine_file(paths, source, &file.path)?;
+                quarantine_takeout_file(paths, source, &file)?;
                 continue;
             };
             if kind == "takeout-index" {
@@ -1229,14 +1229,67 @@ fn read_zip_entry(source_zip: &Path, entry_name: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn quarantine_takeout_file(
+    paths: &ProjectPaths,
+    source_root: &Path,
+    file: &TakeoutFile,
+) -> Result<()> {
+    if file.from_zip {
+        let bytes = read_zip_entry(source_root, &file.path)?;
+        quarantine_bytes(paths, source_root, &file.path, &bytes)?;
+    } else {
+        quarantine_file(paths, source_root, &file.path)?;
+    }
+    Ok(())
+}
+
 fn quarantine_file(paths: &ProjectPaths, source_root: &Path, path: &str) -> Result<()> {
-    let destination = paths
-        .quarantine_dir
-        .join(source_root.file_stem().and_then(|name| name.to_str()).unwrap_or("takeout"))
-        .join(PathBuf::from(path).file_name().unwrap_or_default());
+    let destination = quarantine_destination(paths, source_root, path);
     ensure_parent_dir(&destination)?;
     copy_if_exists(path, &destination)?;
     Ok(())
+}
+
+fn quarantine_bytes(
+    paths: &ProjectPaths,
+    source_root: &Path,
+    path: &str,
+    bytes: &[u8],
+) -> Result<()> {
+    let destination = quarantine_destination(paths, source_root, path);
+    ensure_parent_dir(&destination)?;
+    fs::write(&destination, bytes).with_context(|| format!("writing {}", destination.display()))?;
+    Ok(())
+}
+
+fn quarantine_destination(paths: &ProjectPaths, source_root: &Path, path: &str) -> PathBuf {
+    paths
+        .quarantine_dir
+        .join(quarantine_source_name(source_root))
+        .join(quarantine_relative_path(source_root, path))
+}
+
+fn quarantine_source_name(source_root: &Path) -> &str {
+    source_root.file_stem().and_then(|name| name.to_str()).unwrap_or("takeout")
+}
+
+fn quarantine_relative_path(source_root: &Path, path: &str) -> PathBuf {
+    let candidate = Path::new(path)
+        .strip_prefix(source_root)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| PathBuf::from(path));
+    let sanitized = sanitized_relative_path(&candidate);
+    if sanitized.as_os_str().is_empty() { PathBuf::from("unknown") } else { sanitized }
+}
+
+fn sanitized_relative_path(path: &Path) -> PathBuf {
+    let mut sanitized = PathBuf::new();
+    for component in path.components() {
+        if let std::path::Component::Normal(part) = component {
+            sanitized.push(part);
+        }
+    }
+    sanitized
 }
 
 #[rustfmt::skip]
@@ -1684,7 +1737,7 @@ mod tests {
                     r#"{"BrowserHistory":[{"titleUrl":"https://example.com/zip","pageTitle":"Zip","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
                 ),
                 ("archive_browser.html", "<html></html>"),
-                ("notes.txt", "ignore me"),
+                ("nested/notes.txt", "ignore me"),
             ],
         );
         let files = gather_takeout_files(&zip_source).expect("gather zip files");
@@ -1700,6 +1753,20 @@ mod tests {
         assert_eq!(zip_inspection.candidate_items, 1);
         assert_eq!(zip_inspection.recognized_files.len(), 2);
         assert_eq!(zip_inspection.quarantined_files.len(), 1);
+
+        quarantine_takeout_file(
+            &paths,
+            &zip_source,
+            &TakeoutFile { path: "nested/notes.txt".to_string(), from_zip: true },
+        )
+        .expect("quarantine zip entry");
+        assert_eq!(
+            fs::read_to_string(
+                paths.quarantine_dir.join("takeout").join("nested").join("notes.txt")
+            )
+            .expect("read quarantined zip entry"),
+            "ignore me"
+        );
     }
 
     #[test]
@@ -1874,6 +1941,45 @@ mod tests {
                 .iter()
                 .any(|file| file.path.ends_with("archive_browser.html")
                     && file.status == "recognized")
+        );
+    }
+
+    #[test]
+    fn import_takeout_quarantines_unknown_zip_entries() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = initialized_plaintext_config();
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        let source = write_takeout_zip(
+            dir.path(),
+            &[
+                (
+                    "BrowserHistory.json",
+                    r#"{"BrowserHistory":[{"titleUrl":"https://example.com/imported","pageTitle":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+                ),
+                ("nested/notes.txt", "quarantine me"),
+            ],
+        );
+
+        let inspection = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect("import zipped takeout");
+
+        assert_eq!(inspection.imported_items, 1);
+        assert_eq!(
+            fs::read_to_string(
+                paths.quarantine_dir.join("takeout").join("nested").join("notes.txt")
+            )
+            .expect("read quarantined zip entry"),
+            "quarantine me"
         );
     }
 
