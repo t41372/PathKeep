@@ -2,6 +2,7 @@
 
 > Source of truth for the M0 product shell token layer.  
 > Visual direction comes from `reference/PathKeep — Desktop UI Design/style.css`, then gets normalized here for production CSS variables and TS token helpers.
+> Typography trade-off 與 fallback policy 見 [typography-and-font-fallback.md](./typography-and-font-fallback.md)。
 
 ---
 
@@ -12,8 +13,10 @@
 - Accent policy: one action color only (`--accent`)
 - Shape policy: brutalist, square geometry (`--radius: 0px`)
 - Typography policy:
-  - UI chrome and dense data labels use `--font-mono`
-  - supporting body copy uses `--font-body`
+  - primary UI chrome、dense labels 與 body copy 使用 `--font-ui` / `--font-body`
+  - true monospace 只保留給 path、ID、command 與純 evidence values，使用 `--font-code`
+  - `--font-mono` 僅保留為 legacy shell alias；新 UI 不再把 monospace 當預設字體
+  - runtime 不可再依賴 remote font import；`html[lang]` 必須與目前 locale 對齊
 
 ## Color Tokens
 

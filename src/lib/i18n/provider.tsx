@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { LanguagePreference } from '../types'
 import {
   createNamespaceTranslator,
   createTranslator,
+  localeTag,
   resolveLanguage,
 } from './catalog'
 import {
@@ -17,6 +18,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     readStoredPreference(),
   )
   const language = resolveLanguage(preference)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    document.documentElement.lang = localeTag(language)
+  }, [language])
 
   const value = useMemo<I18nContextValue>(() => {
     const t = createTranslator(language)

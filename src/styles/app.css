@@ -120,17 +120,18 @@
 }
 
 .logo-name {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
   color: var(--text-bright);
   text-transform: uppercase;
 }
 
 .logo-version {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
   color: var(--text-faint);
   letter-spacing: 0.04em;
 }
@@ -149,10 +150,10 @@
 }
 
 .nav-section-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   color: var(--text-faint);
   padding: var(--space-4) var(--space-4) var(--space-1) var(--space-4);
   text-transform: uppercase;
@@ -167,8 +168,9 @@
   background: none;
   border: none;
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   text-align: left;
   text-decoration: none;
@@ -197,13 +199,13 @@
 
 .nav-badge {
   margin-left: auto;
-  font-size: 9px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-faint);
   border: 1px solid var(--border);
   padding: 1px 4px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   text-transform: uppercase;
 }
 
@@ -228,7 +230,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -248,10 +250,10 @@
 }
 
 .sidebar-meta {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-faint);
   margin-top: var(--space-1);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .sidebar-profile-scope {
@@ -271,7 +273,7 @@
   background: none;
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 14px;
   width: 28px;
   height: 28px;
@@ -296,8 +298,8 @@
   background: none;
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
   cursor: pointer;
   transition: all var(--transition);
   flex-shrink: 0;
@@ -387,7 +389,7 @@
 }
 
 .crosshair-mark {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 14px;
   color: var(--text-faint);
   line-height: 1;
@@ -398,17 +400,17 @@
 }
 
 .page-title {
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 600;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 650;
   color: var(--text-bright);
   letter-spacing: 0.02em;
   margin: 0;
 }
 
 .page-subtitle {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-body);
+  font-size: 12px;
   color: var(--text-faint);
   margin: 2px 0 0;
 }
@@ -444,8 +446,9 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -494,8 +497,9 @@
   border: 1px solid transparent;
   background: none;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
 }
@@ -516,15 +520,15 @@
 .search-icon {
   color: var(--text-faint);
   font-size: 13px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .search-input {
   background: none;
   border: none;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-body);
+  font-size: 13px;
   outline: none;
   width: 100%;
 }
@@ -541,9 +545,9 @@
   background: none;
   border: 1px solid var(--accent);
   color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition);
 }
@@ -564,8 +568,9 @@
 .topbar-notice {
   margin-left: auto;
   color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 /* ═══ PAGE SHELL ═══ */
@@ -1033,11 +1038,13 @@
 
 .mono-cell {
   color: var(--text-bright);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
 }
 
 .mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
 }
 .dim {
   color: var(--text-muted);
@@ -1048,17 +1055,17 @@
 
 /* ═══ TAGS & BADGES ═══ */
 .tag {
-  font-size: 9px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   letter-spacing: 0.06em;
   padding: 2px 6px;
   border: 1px solid;
   display: inline-block;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .tag-sm {
-  font-size: 9px;
+  font-size: 10px;
   padding: 1px 4px;
 }
 .tag-backup {
@@ -3838,17 +3845,19 @@ button.stepper-step:disabled {
 
 /* ═══ EXISTING UTILITY CLASSES (PRESERVED) ═══ */
 .mono-kicker {
-  font-family: var(--font-mono);
-  letter-spacing: 0.08em;
+  font-family: var(--font-ui);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
   color: var(--text-faint);
 }
 
 .mono-support {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--text-muted);
 }
 

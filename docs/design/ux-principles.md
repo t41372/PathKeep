@@ -62,6 +62,8 @@
 - i18n 範圍不只正文，也包含 route title / subtitle、sidebar label、button 文案、error / warning / success callout、placeholder、aria-label、loading / skeleton label、busy overlay detail，以及 browser preview honesty copy。
 - sample / preview / disabled / empty state 不是例外；如果畫面會顯示給使用者看，它就屬於產品文案。
 - 設計和實作都必須預留 locale-length wrapping；至少要能承受 pseudo-locale、中文長句與較長的錯誤說明，不可因翻譯後溢出就回退成英文硬編碼。
+- `html[lang]` 必須跟著目前 locale 同步，讓瀏覽器能選到正確的 glyph variant 與 fallback font；不能只改 React 文案而讓 DOM 還停在預設語言。
+- UI typography 以可讀的 sans 為預設，monospace 只用於 path、ID、command、純 evidence values；不要把 terminal flavor 直接套進整個 shell chrome。
 
 ---
 
