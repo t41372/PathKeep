@@ -1,4 +1,5 @@
 mod site_adapters;
+mod m5b;
 
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
@@ -9,11 +10,12 @@ use crate::{
         analyze_visit, extract_search_query_from_url, tokenize_text,
     },
     intelligence_runtime::{
-        ENRICHMENT_JOB_TYPE, EnrichmentJobPayload, LOCAL_PLUGIN_SOURCE_KIND,
-        NETWORK_PLUGIN_SOURCE_KIND, built_in_enrichment_plugin, built_in_enrichment_plugins,
-        claim_enrichment_jobs, enqueue_enrichment_job, enrichment_plugin_enabled,
-        ensure_intelligence_runtime_schema, mark_intelligence_job_failed,
-        mark_intelligence_job_succeeded, requeue_running_enrichment_jobs,
+        DeterministicModuleRuntimeUpdate, ENRICHMENT_JOB_TYPE, EnrichmentJobPayload,
+        LOCAL_PLUGIN_SOURCE_KIND, NETWORK_PLUGIN_SOURCE_KIND, built_in_deterministic_modules,
+        built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_jobs,
+        enqueue_enrichment_job, enrichment_plugin_enabled, ensure_intelligence_runtime_schema,
+        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+        persist_deterministic_module_runtime_updates, requeue_running_enrichment_jobs,
         requeue_running_enrichment_jobs_for_run,
     },
     models::{
@@ -21,8 +23,11 @@ use crate::{
         InsightCard, InsightDomainStat, InsightEvidenceItem, InsightExplanation,
         InsightProfileFacet, InsightQueryLadder, InsightSnapshot, InsightStatus,
         InsightThreadDetail, InsightThreadSummary, InsightTopicSummary, InsightWorkflowEdge,
-        InsightWorkflowMap, InsightWorkflowRole, READABLE_CONTENT_PLUGIN_ID, RunInsightsReport,
-        RunInsightsRequest, TITLE_NORMALIZATION_PLUGIN_ID,
+        InsightWorkflowMap, InsightWorkflowRole,
+        QUERY_GROUPS_MODULE_ID, READABLE_CONTENT_PLUGIN_ID, REFERENCE_PAGES_MODULE_ID,
+        RunInsightsReport, RunInsightsRequest, SOURCE_EFFECTIVENESS_MODULE_ID,
+        TEMPLATE_SUMMARIES_MODULE_ID, THREADS_MODULE_ID,
+        TITLE_NORMALIZATION_PLUGIN_ID,
     },
     utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, url_domain},
 };
@@ -35,7 +40,18 @@ use serde_json::{Value, json};
 use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
-const INSIGHT_PIPELINE_VERSION: &str = "insights-v1";
+use self::m5b::{
+    build_bursts, build_cards as build_m5b_cards, build_query_groups,
+    build_reference_pages, build_source_effectiveness, build_template_summaries,
+    build_threads as build_m5b_threads, build_topics as build_m5b_topics, load_query_groups,
+    load_reference_pages, load_source_effectiveness, load_thread_query_groups,
+    persist_bursts, persist_query_groups, persist_reference_pages,
+    persist_source_effectiveness, persist_threads as persist_m5b_threads,
+    persist_topic_summaries, query_group_summaries_from_records,
+    thread_summaries_from_records,
+};
+
+const INSIGHT_PIPELINE_VERSION: &str = "insights-v2";
 const ENRICH_TEXT_LIMIT: usize = 12_000;
 const SNIPPET_LIMIT: usize = 3;
 const DEFAULT_WINDOW_DAYS: u32 = 30;
@@ -65,6 +81,8 @@ CREATE TABLE IF NOT EXISTS visit_content_enrichments (
 CREATE TABLE IF NOT EXISTS visit_insight_features (
   history_id INTEGER PRIMARY KEY,
   profile_id TEXT NOT NULL,
+  burst_id TEXT,
+  query_group_id TEXT,
   topic_id TEXT,
   thread_id TEXT,
   page_type TEXT NOT NULL,
@@ -86,6 +104,44 @@ CREATE TABLE IF NOT EXISTS visit_insight_features (
   entities_json TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   pipeline_version TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS insight_bursts (
+  burst_id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  visit_count INTEGER NOT NULL,
+  confidence REAL NOT NULL,
+  evidence_json TEXT NOT NULL,
+  pipeline_version TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS insight_query_groups (
+  query_group_id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  thread_id TEXT,
+  title TEXT NOT NULL,
+  root_query TEXT NOT NULL,
+  latest_query TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  visit_count INTEGER NOT NULL,
+  burst_count INTEGER NOT NULL,
+  step_count INTEGER NOT NULL,
+  confidence REAL NOT NULL,
+  evidence_tier TEXT NOT NULL,
+  chromium_enhanced INTEGER NOT NULL,
+  steps_json TEXT NOT NULL,
+  stages_json TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  pipeline_version TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS insight_query_group_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query_group_id TEXT NOT NULL,
+  history_id INTEGER NOT NULL,
+  ordinal INTEGER NOT NULL,
+  visited_at TEXT NOT NULL,
+  UNIQUE(query_group_id, history_id)
 );
 CREATE TABLE IF NOT EXISTS insight_topics (
   topic_id TEXT NOT NULL,
@@ -109,8 +165,11 @@ CREATE TABLE IF NOT EXISTS insight_threads (
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL,
   visit_count INTEGER NOT NULL,
+  query_group_count INTEGER NOT NULL DEFAULT 0,
   reopen_count INTEGER NOT NULL,
   open_loop_score REAL NOT NULL,
+  confidence REAL NOT NULL DEFAULT 0,
+  evidence_tier TEXT NOT NULL DEFAULT 'tier-c',
   dominant_topic_id TEXT,
   chromium_enhanced INTEGER NOT NULL,
   evidence_json TEXT NOT NULL,
@@ -124,6 +183,38 @@ CREATE TABLE IF NOT EXISTS insight_thread_members (
   ordinal INTEGER NOT NULL,
   visited_at TEXT NOT NULL,
   UNIQUE(thread_id, history_id)
+);
+CREATE TABLE IF NOT EXISTS insight_reference_pages (
+  reference_page_id TEXT PRIMARY KEY,
+  profile_scope TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT,
+  domain TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  revisit_count INTEGER NOT NULL,
+  cross_day_revisits INTEGER NOT NULL,
+  query_group_count INTEGER NOT NULL,
+  thread_count INTEGER NOT NULL,
+  score REAL NOT NULL,
+  evidence_tier TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  pipeline_version TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS insight_source_effectiveness (
+  source_id TEXT PRIMARY KEY,
+  profile_scope TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  source_role TEXT NOT NULL,
+  query_group_count INTEGER NOT NULL,
+  thread_count INTEGER NOT NULL,
+  stable_landing_count INTEGER NOT NULL,
+  reference_page_count INTEGER NOT NULL,
+  reopen_support_count INTEGER NOT NULL,
+  effectiveness_score REAL NOT NULL,
+  evidence_tier TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  pipeline_version TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS insight_cards (
   card_id TEXT PRIMARY KEY,
@@ -148,8 +239,12 @@ CREATE TABLE IF NOT EXISTS insight_runs (
   processed_visits INTEGER NOT NULL DEFAULT 0,
   enriched_visits INTEGER NOT NULL DEFAULT 0,
   failed_enrichments INTEGER NOT NULL DEFAULT 0,
+  query_group_count INTEGER NOT NULL DEFAULT 0,
   topic_count INTEGER NOT NULL DEFAULT 0,
   thread_count INTEGER NOT NULL DEFAULT 0,
+  reference_page_count INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL DEFAULT 0,
+  template_summary_count INTEGER NOT NULL DEFAULT 0,
   card_count INTEGER NOT NULL DEFAULT 0,
   content_coverage REAL NOT NULL DEFAULT 0,
   warning TEXT,
@@ -163,8 +258,20 @@ CREATE INDEX IF NOT EXISTS idx_visit_insight_features_topic_id
   ON visit_insight_features(topic_id);
 CREATE INDEX IF NOT EXISTS idx_visit_insight_features_thread_id
   ON visit_insight_features(thread_id);
+CREATE INDEX IF NOT EXISTS idx_visit_insight_features_burst_id
+  ON visit_insight_features(burst_id);
+CREATE INDEX IF NOT EXISTS idx_visit_insight_features_query_group_id
+  ON visit_insight_features(query_group_id);
+CREATE INDEX IF NOT EXISTS idx_insight_bursts_profile_last_seen
+  ON insight_bursts(profile_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_query_groups_profile_last_seen
+  ON insight_query_groups(profile_id, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_insight_threads_profile_last_seen
   ON insight_threads(profile_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_reference_pages_scope_score
+  ON insight_reference_pages(profile_scope, score DESC, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_source_effectiveness_scope_score
+  ON insight_source_effectiveness(profile_scope, effectiveness_score DESC);
 CREATE INDEX IF NOT EXISTS idx_insight_cards_scope_window
   ON insight_cards(profile_scope, window_days, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_insight_runs_scope_window
@@ -210,6 +317,8 @@ struct VisitRecord {
     novelty_score: f32,
     importance_score: f32,
     explore_score: f32,
+    burst_id: Option<String>,
+    query_group_id: Option<String>,
     topic_id: Option<String>,
     thread_id: Option<String>,
     vector: Option<Vec<f32>>,
@@ -285,6 +394,8 @@ struct InterruptedInsightRecovery {
 
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INSIGHT_SCHEMA_SQL)?;
+    ensure_visit_insight_feature_column(connection, "burst_id", "TEXT")?;
+    ensure_visit_insight_feature_column(connection, "query_group_id", "TEXT")?;
     ensure_visit_insight_feature_column(
         connection,
         "domain_category",
@@ -313,6 +424,38 @@ pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
     ensure_visit_insight_feature_column(connection, "taxonomy_pack", "TEXT")?;
     ensure_visit_insight_feature_column(connection, "taxonomy_version", "TEXT")?;
     ensure_visit_insight_feature_column(connection, "taxonomy_reason", "TEXT")?;
+    ensure_table_column(
+        connection,
+        "insight_threads",
+        "query_group_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(connection, "insight_threads", "confidence", "REAL NOT NULL DEFAULT 0")?;
+    ensure_table_column(
+        connection,
+        "insight_threads",
+        "evidence_tier",
+        "TEXT NOT NULL DEFAULT 'tier-c'",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_runs",
+        "query_group_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_runs",
+        "reference_page_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(connection, "insight_runs", "source_count", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_table_column(
+        connection,
+        "insight_runs",
+        "template_summary_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     Ok(())
 }
 
@@ -332,6 +475,23 @@ fn ensure_visit_insight_feature_column(
         &format!("ALTER TABLE visit_insight_features ADD COLUMN {column} {definition}"),
         [],
     )?;
+    Ok(())
+}
+
+fn ensure_table_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement
+        .query_map([], |row: &Row<'_>| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if columns.iter().any(|existing| existing == column) {
+        return Ok(());
+    }
+    connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
     Ok(())
 }
 
@@ -377,6 +537,20 @@ pub fn insight_status(
     let threads = connection
         .query_row("SELECT COUNT(*) FROM insight_threads", [], |row: &Row<'_>| row.get::<_, i64>(0))
         .unwrap_or(0);
+    let query_groups = connection
+        .query_row(
+            "SELECT COUNT(*) FROM insight_query_groups",
+            [],
+            |row: &Row<'_>| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    let reference_pages = connection
+        .query_row(
+            "SELECT COUNT(*) FROM insight_reference_pages",
+            [],
+            |row: &Row<'_>| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
     let latest = connection
         .query_row(
             "SELECT finished_at, content_coverage, warning
@@ -401,6 +575,8 @@ pub fn insight_status(
         cards: cards.max(0) as usize,
         topics: topics.max(0) as usize,
         threads: threads.max(0) as usize,
+        query_groups: query_groups.max(0) as usize,
+        reference_pages: reference_pages.max(0) as usize,
         content_coverage: latest.as_ref().map(|value| value.1).unwrap_or_default(),
         warning: latest.and_then(|value| value.2),
     })
@@ -453,16 +629,128 @@ pub fn run_insights(
         hydrate_enrichment_and_embeddings(&mut visits, &enrichments, &embeddings);
         compute_feature_scores(&mut visits);
 
-        let sessions = build_sessions(&visits);
-        let topics = assign_topics(&mut visits, window_days);
-        let threads = assign_threads(&mut visits, &sessions);
-        persist_features(&connection, &visits)?;
-        persist_topics(&connection, &topics, &visits, request.profile_id.as_deref(), window_days)?;
-        persist_threads(&connection, &threads, &visits)?;
+        let module_enabled = |module_id: &str| {
+            config
+                .deterministic
+                .modules
+                .iter()
+                .find(|candidate| candidate.id == module_id)
+                .map(|candidate| candidate.enabled)
+                .unwrap_or(false)
+        };
+        let bursts = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            build_bursts(&mut visits)
+        } else {
+            Vec::new()
+        };
+        let (mut query_groups, _query_ladders) = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            build_query_groups(&mut visits)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let thread_records = if module_enabled(THREADS_MODULE_ID) {
+            build_m5b_threads(&mut visits, &mut query_groups)
+        } else {
+            Vec::new()
+        };
+        let query_group_summaries = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            query_group_summaries_from_records(&query_groups, &visits)
+        } else {
+            Vec::new()
+        };
+        let thread_summaries = if module_enabled(THREADS_MODULE_ID) {
+            thread_summaries_from_records(&thread_records)
+        } else {
+            Vec::new()
+        };
+        let topics = if module_enabled(THREADS_MODULE_ID) {
+            build_m5b_topics(&visits, &query_group_summaries, &thread_summaries, window_days)
+        } else {
+            Vec::new()
+        };
+        let reference_pages = if module_enabled(REFERENCE_PAGES_MODULE_ID) {
+            build_reference_pages(&visits, request.profile_id.as_deref().unwrap_or("all"))
+        } else {
+            Vec::new()
+        };
+        let source_effectiveness = if module_enabled(SOURCE_EFFECTIVENESS_MODULE_ID) {
+            build_source_effectiveness(
+                &visits,
+                request.profile_id.as_deref().unwrap_or("all"),
+                &reference_pages,
+            )
+        } else {
+            Vec::new()
+        };
+        let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+            build_template_summaries(
+                &query_group_summaries,
+                &thread_summaries,
+                &reference_pages,
+                &source_effectiveness,
+                request.profile_id.as_deref(),
+            )
+        } else {
+            Vec::new()
+        };
+        let cards = build_m5b_cards(
+            &template_summaries,
+            &thread_summaries,
+            &reference_pages,
+            window_days,
+            request.profile_id.as_deref(),
+        );
 
-        let cards =
-            build_cards(&visits, &topics, &threads, window_days, request.profile_id.as_deref());
+        persist_features(&connection, &visits)?;
+        persist_bursts(&connection, &bursts)?;
+        persist_query_groups(&connection, &query_groups, &visits)?;
+        persist_topic_summaries(
+            &connection,
+            request.profile_id.as_deref().unwrap_or("all"),
+            window_days,
+            &topics,
+        )?;
+        persist_m5b_threads(&connection, &thread_records, &visits)?;
+        persist_reference_pages(
+            &connection,
+            request.profile_id.as_deref().unwrap_or("all"),
+            &reference_pages,
+        )?;
+        persist_source_effectiveness(
+            &connection,
+            request.profile_id.as_deref().unwrap_or("all"),
+            &source_effectiveness,
+        )?;
         persist_cards(&connection, &cards, request.profile_id.as_deref(), window_days)?;
+
+        let finished_at = now_rfc3339();
+        let module_updates = built_in_deterministic_modules()
+            .iter()
+            .map(|module| DeterministicModuleRuntimeUpdate {
+                module_id: module.id.to_string(),
+                status: if config
+                    .deterministic
+                    .modules
+                    .iter()
+                    .find(|candidate| candidate.id == module.id)
+                    .map(|candidate| candidate.enabled)
+                    .unwrap_or(false)
+                {
+                    "ready".to_string()
+                } else {
+                    "disabled".to_string()
+                },
+                last_run_id: Some(run_id),
+                last_built_at: Some(finished_at.clone()),
+                last_invalidated_at: None,
+                stale_reason: None,
+                notes: vec![format!(
+                    "Module {} rebuilt as part of deterministic insights v2.",
+                    module.id
+                )],
+            })
+            .collect::<Vec<_>>();
+        persist_deterministic_module_runtime_updates(&connection, &module_updates)?;
 
         let content_coverage = if visits.is_empty() {
             0.0
@@ -487,16 +775,22 @@ pub fn run_insights(
         connection.execute(
             "UPDATE insight_runs
              SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
-                 failed_enrichments = ?4, topic_count = ?5, thread_count = ?6, card_count = ?7,
-                 content_coverage = ?8, warning = NULL, notes_json = ?9
-             WHERE id = ?10",
+                 failed_enrichments = ?4, query_group_count = ?5, topic_count = ?6,
+                 thread_count = ?7, reference_page_count = ?8, source_count = ?9,
+                 template_summary_count = ?10, card_count = ?11, content_coverage = ?12,
+                 warning = NULL, notes_json = ?13
+             WHERE id = ?14",
             params![
-                now_rfc3339(),
+                finished_at,
                 visits.len() as i64,
                 enrichment_report.enriched_visits as i64,
                 enrichment_report.failed_enrichments as i64,
+                query_group_summaries.len() as i64,
                 topics.len() as i64,
-                threads.len() as i64,
+                thread_summaries.len() as i64,
+                reference_pages.len() as i64,
+                source_effectiveness.len() as i64,
+                template_summaries.len() as i64,
                 cards.len() as i64,
                 content_coverage,
                 serde_json::to_string(&notes)?,
@@ -509,8 +803,12 @@ pub fn run_insights(
             processed_visits: visits.len(),
             enriched_visits: enrichment_report.enriched_visits,
             failed_enrichments: enrichment_report.failed_enrichments,
+            query_group_count: query_group_summaries.len(),
             topic_count: topics.len(),
-            thread_count: threads.len(),
+            thread_count: thread_summaries.len(),
+            reference_page_count: reference_pages.len(),
+            source_count: source_effectiveness.len(),
+            template_summary_count: template_summaries.len(),
             card_count: cards.len(),
             content_coverage,
             last_run_at: started_at.clone(),
@@ -554,10 +852,42 @@ pub fn load_insights(
     ensure_insight_schema(&connection)?;
     let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
     let profile_scope = request.profile_id.clone().unwrap_or_else(|| "all".to_string());
+    let module_enabled = |module_id: &str| {
+        config
+            .deterministic
+            .modules
+            .iter()
+            .find(|candidate| candidate.id == module_id)
+            .map(|candidate| candidate.enabled)
+            .unwrap_or(false)
+    };
 
-    let cards = load_cards(&connection, &profile_scope, window_days)?;
-    let topics = load_topics(&connection, &profile_scope, window_days)?;
-    let threads = load_threads(&connection, request.profile_id.as_deref(), window_days)?;
+    let mut cards = load_cards(&connection, &profile_scope, window_days)?;
+    let query_groups = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+        load_query_groups(&connection, request.profile_id.as_deref(), window_days)?
+    } else {
+        Vec::new()
+    };
+    let topics = if module_enabled(THREADS_MODULE_ID) {
+        load_topics(&connection, &profile_scope, window_days)?
+    } else {
+        Vec::new()
+    };
+    let threads = if module_enabled(THREADS_MODULE_ID) {
+        load_threads(&connection, request.profile_id.as_deref(), window_days)?
+    } else {
+        Vec::new()
+    };
+    let reference_pages = if module_enabled(REFERENCE_PAGES_MODULE_ID) {
+        load_reference_pages(&connection, &profile_scope)?
+    } else {
+        Vec::new()
+    };
+    let source_effectiveness = if module_enabled(SOURCE_EFFECTIVENESS_MODULE_ID) {
+        load_source_effectiveness(&connection, &profile_scope)?
+    } else {
+        Vec::new()
+    };
     let visits = load_visits(
         &connection,
         request.profile_id.as_deref(),
@@ -566,7 +896,46 @@ pub fn load_insights(
     )?;
     let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
     let features = load_feature_rows(&connection, request.profile_id.as_deref())?;
-    let query_ladders = build_query_ladders(&visits, &features);
+    let query_ladders = if !module_enabled(QUERY_GROUPS_MODULE_ID) {
+        Vec::new()
+    } else if query_groups.is_empty() {
+        build_query_ladders(&visits, &features)
+    } else {
+        query_groups
+            .iter()
+            .filter(|group| group.steps.len() > 1)
+            .map(|group| InsightQueryLadder {
+                query_group_id: Some(group.query_group_id.clone()),
+                root_term: group.root_query.clone(),
+                profile_id: group.profile_id.clone(),
+                steps: group.steps.clone(),
+                stages: group.stages.clone(),
+                count: group.visit_count,
+                confidence: group.confidence,
+                evidence_tier: group.evidence_tier.clone(),
+                chromium_only: group.chromium_enhanced,
+            })
+            .collect()
+    };
+    let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+        build_template_summaries(
+            &query_groups,
+            &threads,
+            &reference_pages,
+            &source_effectiveness,
+            request.profile_id.as_deref(),
+        )
+    } else {
+        Vec::new()
+    };
+    cards.retain(|card| match card.kind.as_str() {
+        "open-loop" => module_enabled(THREADS_MODULE_ID),
+        "reference-page" => module_enabled(REFERENCE_PAGES_MODULE_ID),
+        "query-groups" | "reference-pages" | "source-effectiveness" => {
+            module_enabled(TEMPLATE_SUMMARIES_MODULE_ID)
+        }
+        _ => true,
+    });
     let workflow_map = build_workflow_map(&visits, &features, request.profile_id.as_deref());
     let profile_facets = build_profile_facets(&visits, &topics, &threads);
     let canonical = build_canonical_summary(&visits, on_this_day);
@@ -590,9 +959,13 @@ pub fn load_insights(
         profile_id: request.profile_id.clone(),
         status,
         cards,
+        query_groups,
         topics,
         threads,
         query_ladders,
+        reference_pages,
+        source_effectiveness,
+        template_summaries,
         workflow_map,
         profile_facets,
         canonical,
@@ -611,7 +984,8 @@ pub fn load_insight_thread_detail(
     ensure_insight_schema(&connection)?;
     let summary = connection.query_row(
         "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
-                reopen_count, open_loop_score, dominant_topic_id, chromium_enhanced, evidence_json
+                query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
+                dominant_topic_id, chromium_enhanced, evidence_json
          FROM insight_threads WHERE thread_id = ?1",
         [thread_id],
         thread_summary_from_row,
@@ -636,7 +1010,8 @@ pub fn load_insight_thread_detail(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(InsightThreadDetail { summary, visits })
+    let query_groups = load_thread_query_groups(&connection, thread_id)?;
+    Ok(InsightThreadDetail { summary, query_groups, visits })
 }
 
 pub fn clear_derived_intelligence_state(
@@ -651,8 +1026,13 @@ pub fn clear_derived_intelligence_state(
     let report = ClearDerivedIntelligenceReport {
         cleared_enrichment_rows: table_row_count(&connection, "visit_content_enrichments")?,
         cleared_feature_rows: table_row_count(&connection, "visit_insight_features")?,
+        cleared_burst_rows: table_row_count(&connection, "insight_bursts")?,
+        cleared_query_group_rows: table_row_count(&connection, "insight_query_groups")?,
         cleared_topic_rows: table_row_count(&connection, "insight_topics")?,
         cleared_thread_rows: table_row_count(&connection, "insight_threads")?,
+        cleared_reference_page_rows: table_row_count(&connection, "insight_reference_pages")?,
+        cleared_source_rows: table_row_count(&connection, "insight_source_effectiveness")?,
+        cleared_module_rows: table_row_count(&connection, "deterministic_module_runtime")?,
         cleared_card_rows: table_row_count(&connection, "insight_cards")?,
         cleared_run_rows: table_row_count(&connection, "insight_runs")?,
         notes: vec![
@@ -688,9 +1068,10 @@ pub fn explain_insight(
         "thread" => {
             let detail = load_insight_thread_detail(paths, config, key, &request.insight_id)?;
             let explanation = format!(
-                "{} spans {} visits between {} and {}. It reopened {} times and has an open-loop score of {:.2}, which suggests the task was revisited rather than completed in a single pass.",
+                "{} spans {} visits across {} query groups between {} and {}. It reopened {} times and has an open-loop score of {:.2}, which suggests the task was revisited rather than completed in a single pass.",
                 detail.summary.title,
                 detail.summary.visit_count,
+                detail.summary.query_group_count,
                 detail.summary.first_seen_at,
                 detail.summary.last_seen_at,
                 detail.summary.reopen_count,
@@ -702,6 +1083,62 @@ pub fn explain_insight(
                 citations: detail.visits.into_iter().take(6).collect(),
                 notes: vec![
                     "Explanation is generated from persisted thread structure.".to_string(),
+                ],
+            })
+        }
+        "query-group" => {
+            let group = snapshot
+                .query_groups
+                .iter()
+                .find(|group| group.query_group_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("query group {} was not found", request.insight_id))?;
+            Ok(InsightExplanation {
+                explanation: format!(
+                    "\"{}\" evolved through {} steps with {} visits and confidence {:.2}.",
+                    group.root_query, group.step_count, group.visit_count, group.confidence
+                ),
+                used_llm: false,
+                citations: group.evidence,
+                notes: vec![
+                    "Explanation is generated from deterministic query-group evidence.".to_string(),
+                ],
+            })
+        }
+        "reference-page" => {
+            let page = snapshot
+                .reference_pages
+                .iter()
+                .find(|page| page.reference_page_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("reference page {} was not found", request.insight_id))?;
+            Ok(InsightExplanation {
+                explanation: format!(
+                    "{} resurfaced across {} query groups and {} threads.",
+                    page.title.clone().unwrap_or_else(|| page.url.clone()),
+                    page.query_group_count,
+                    page.thread_count,
+                ),
+                used_llm: false,
+                citations: page.evidence,
+                notes: vec![
+                    "Explanation is generated from deterministic reference-page reuse.".to_string(),
+                ],
+            })
+        }
+        "template-summary" => {
+            let summary = snapshot
+                .template_summaries
+                .iter()
+                .find(|summary| summary.summary_id == request.insight_id)
+                .cloned()
+                .with_context(|| format!("template summary {} was not found", request.insight_id))?;
+            Ok(InsightExplanation {
+                explanation: summary.body,
+                used_llm: false,
+                citations: summary.evidence,
+                notes: vec![
+                    "Explanation is generated from deterministic summary templates.".to_string(),
                 ],
             })
         }
@@ -751,13 +1188,22 @@ fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
     connection.execute("DELETE FROM visit_content_enrichments", [])?;
     ensure_intelligence_runtime_schema(connection)?;
     connection.execute("DELETE FROM visit_insight_features", [])?;
+    connection.execute("DELETE FROM insight_bursts", [])?;
+    connection.execute("DELETE FROM insight_query_groups", [])?;
+    connection.execute("DELETE FROM insight_query_group_members", [])?;
     connection.execute("DELETE FROM insight_topics", [])?;
     connection.execute("DELETE FROM insight_threads", [])?;
     connection.execute("DELETE FROM insight_thread_members", [])?;
+    connection.execute("DELETE FROM insight_reference_pages", [])?;
+    connection.execute("DELETE FROM insight_source_effectiveness", [])?;
     connection.execute("DELETE FROM insight_cards", [])?;
     connection.execute("DELETE FROM insight_runs", [])?;
     connection
         .execute("DELETE FROM intelligence_jobs WHERE job_type = ?1", [ENRICHMENT_JOB_TYPE])?;
+    crate::intelligence_runtime::mark_all_deterministic_modules_stale(
+        connection,
+        "Derived intelligence state was cleared manually.",
+    )?;
     Ok(())
 }
 
@@ -896,6 +1342,8 @@ fn visit_record_from_row(row: &Row<'_>) -> rusqlite::Result<VisitRecord> {
         novelty_score: 0.0,
         importance_score: 0.0,
         explore_score: 0.0,
+        burst_id: None,
+        query_group_id: None,
         topic_id: None,
         thread_id: None,
         vector: None,
@@ -1820,16 +2268,18 @@ fn persist_features(connection: &Connection, visits: &[VisitRecord]) -> Result<(
     for visit in visits {
         connection.execute(
             "INSERT OR REPLACE INTO visit_insight_features
-             (history_id, profile_id, topic_id, thread_id, page_type, source_role,
+             (history_id, profile_id, burst_id, query_group_id, topic_id, thread_id, page_type, source_role,
               domain_category, page_category, interaction_kind, evidence_tier,
               taxonomy_source, taxonomy_pack, taxonomy_version, taxonomy_reason,
               query_term, query_stage, novelty_score, importance_score, explore_score,
               keywords_json, entities_json, updated_at, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                     ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 visit.history_id,
                 visit.profile_id,
+                visit.burst_id,
+                visit.query_group_id,
                 visit.topic_id,
                 visit.thread_id,
                 visit.page_type,
@@ -2155,13 +2605,15 @@ fn load_threads(
     let start = (Utc::now() - Duration::days(window_days as i64)).to_rfc3339();
     let sql = if profile_id.is_some() {
         "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
-                reopen_count, open_loop_score, dominant_topic_id, chromium_enhanced, evidence_json
+                query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
+                dominant_topic_id, chromium_enhanced, evidence_json
          FROM insight_threads
          WHERE profile_id = ?1 AND last_seen_at >= ?2
          ORDER BY last_seen_at DESC"
     } else {
         "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
-                reopen_count, open_loop_score, dominant_topic_id, chromium_enhanced, evidence_json
+                query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
+                dominant_topic_id, chromium_enhanced, evidence_json
          FROM insight_threads
          WHERE last_seen_at >= ?1
          ORDER BY last_seen_at DESC"
@@ -2184,11 +2636,14 @@ fn thread_summary_from_row(row: &Row<'_>) -> rusqlite::Result<InsightThreadSumma
         first_seen_at: row.get(4)?,
         last_seen_at: row.get(5)?,
         visit_count: row.get::<_, i64>(6)?.max(0) as usize,
-        reopen_count: row.get::<_, i64>(7)?.max(0) as usize,
-        open_loop_score: row.get(8)?,
-        dominant_topic_id: row.get(9)?,
-        chromium_enhanced: row.get::<_, i64>(10)? != 0,
-        evidence: serde_json::from_str::<Vec<InsightEvidenceItem>>(&row.get::<_, String>(11)?)
+        query_group_count: row.get::<_, i64>(7)?.max(0) as usize,
+        reopen_count: row.get::<_, i64>(8)?.max(0) as usize,
+        open_loop_score: row.get(9)?,
+        confidence: row.get(10)?,
+        evidence_tier: row.get(11)?,
+        dominant_topic_id: row.get(12)?,
+        chromium_enhanced: row.get::<_, i64>(13)? != 0,
+        evidence: serde_json::from_str::<Vec<InsightEvidenceItem>>(&row.get::<_, String>(14)?)
             .unwrap_or_default(),
     })
 }
@@ -2266,11 +2721,14 @@ fn build_query_ladders(
                 ladders.push(current);
             }
             current = Some(InsightQueryLadder {
+                query_group_id: None,
                 root_term: query_term.clone(),
                 profile_id: visit.profile_id.clone(),
                 steps: vec![query_term.clone()],
                 stages: vec![classify_query_stage(Some(&query_term), None)],
                 count: 1,
+                confidence: 0.45,
+                evidence_tier: "tier-c".to_string(),
                 chromium_only: true,
             });
         } else if let Some(current) = &mut current {

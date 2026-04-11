@@ -2,9 +2,13 @@ use crate::{
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
     models::{
-        AppConfig, EnrichmentPluginStatus, IntelligenceJobOverview, IntelligenceQueueStatus,
-        IntelligenceRuntimeSnapshot, READABLE_CONTENT_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_ID,
-        merge_enrichment_plugin_preferences,
+        AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus, IntelligenceJobOverview,
+        IntelligenceQueueStatus, IntelligenceRuntimeSnapshot, QUERY_GROUPS_MODULE_ID,
+        QUERY_GROUPS_MODULE_VERSION, READABLE_CONTENT_PLUGIN_ID, REFERENCE_PAGES_MODULE_ID,
+        REFERENCE_PAGES_MODULE_VERSION, SOURCE_EFFECTIVENESS_MODULE_ID,
+        SOURCE_EFFECTIVENESS_MODULE_VERSION, TEMPLATE_SUMMARIES_MODULE_ID,
+        TEMPLATE_SUMMARIES_MODULE_VERSION, THREADS_MODULE_ID, THREADS_MODULE_VERSION,
+        TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences,
     },
     utils::now_rfc3339,
 };
@@ -38,6 +42,19 @@ CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_state
   ON intelligence_jobs(job_type, state, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_plugin_state
   ON intelligence_jobs(plugin_id, state, updated_at DESC);
+CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
+  module_id TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  depends_on_json TEXT NOT NULL,
+  derived_tables_json TEXT NOT NULL,
+  last_run_id INTEGER,
+  last_built_at TEXT,
+  last_invalidated_at TEXT,
+  stale_reason TEXT,
+  notes_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+);
 "#;
 
 pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
@@ -50,6 +67,25 @@ pub(crate) struct EnrichmentPluginDefinition {
     pub source_kind: &'static str,
     pub freshness_window_days: Option<i64>,
     pub priority: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeterministicModuleDefinition {
+    pub id: &'static str,
+    pub version: &'static str,
+    pub depends_on: &'static [&'static str],
+    pub derived_tables: &'static [&'static str],
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DeterministicModuleRuntimeUpdate {
+    pub module_id: String,
+    pub status: String,
+    pub last_run_id: Option<i64>,
+    pub last_built_at: Option<String>,
+    pub last_invalidated_at: Option<String>,
+    pub stale_reason: Option<String>,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +120,43 @@ const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = [
     },
 ];
 
+const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 5] = [
+    DeterministicModuleDefinition {
+        id: QUERY_GROUPS_MODULE_ID,
+        version: QUERY_GROUPS_MODULE_VERSION,
+        depends_on: &[],
+        derived_tables: &[
+            "insight_bursts",
+            "insight_query_groups",
+            "insight_query_group_members",
+        ],
+    },
+    DeterministicModuleDefinition {
+        id: THREADS_MODULE_ID,
+        version: THREADS_MODULE_VERSION,
+        depends_on: &[QUERY_GROUPS_MODULE_ID],
+        derived_tables: &["insight_threads", "insight_thread_members"],
+    },
+    DeterministicModuleDefinition {
+        id: REFERENCE_PAGES_MODULE_ID,
+        version: REFERENCE_PAGES_MODULE_VERSION,
+        depends_on: &[QUERY_GROUPS_MODULE_ID, THREADS_MODULE_ID],
+        derived_tables: &["insight_reference_pages"],
+    },
+    DeterministicModuleDefinition {
+        id: SOURCE_EFFECTIVENESS_MODULE_ID,
+        version: SOURCE_EFFECTIVENESS_MODULE_VERSION,
+        depends_on: &[QUERY_GROUPS_MODULE_ID, THREADS_MODULE_ID, REFERENCE_PAGES_MODULE_ID],
+        derived_tables: &["insight_source_effectiveness"],
+    },
+    DeterministicModuleDefinition {
+        id: TEMPLATE_SUMMARIES_MODULE_ID,
+        version: TEMPLATE_SUMMARIES_MODULE_VERSION,
+        depends_on: &[QUERY_GROUPS_MODULE_ID, THREADS_MODULE_ID, REFERENCE_PAGES_MODULE_ID],
+        derived_tables: &["insight_cards"],
+    },
+];
+
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
     Ok(())
@@ -97,6 +170,26 @@ pub(crate) fn built_in_enrichment_plugin(
     plugin_id: &str,
 ) -> Option<&'static EnrichmentPluginDefinition> {
     built_in_enrichment_plugins().iter().find(|plugin| plugin.id == plugin_id)
+}
+
+pub(crate) fn built_in_deterministic_modules() -> &'static [DeterministicModuleDefinition] {
+    &BUILT_IN_DETERMINISTIC_MODULES
+}
+
+pub(crate) fn built_in_deterministic_module(
+    module_id: &str,
+) -> Option<&'static DeterministicModuleDefinition> {
+    built_in_deterministic_modules().iter().find(|module| module.id == module_id)
+}
+
+pub(crate) fn deterministic_module_enabled(config: &AppConfig, module_id: &str) -> bool {
+    config
+        .deterministic
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .map(|module| module.enabled)
+        .unwrap_or(false)
 }
 
 pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> bool {
@@ -167,6 +260,71 @@ pub(crate) fn enqueue_enrichment_job(
     }
 
     Ok(())
+}
+
+pub(crate) fn persist_deterministic_module_runtime_updates(
+    connection: &Connection,
+    updates: &[DeterministicModuleRuntimeUpdate],
+) -> Result<()> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = now_rfc3339();
+    for update in updates {
+        let Some(definition) = built_in_deterministic_module(&update.module_id) else {
+            continue;
+        };
+        connection.execute(
+            "INSERT INTO deterministic_module_runtime
+             (module_id, version, status, depends_on_json, derived_tables_json, last_run_id,
+              last_built_at, last_invalidated_at, stale_reason, notes_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(module_id) DO UPDATE SET
+               version = excluded.version,
+               status = excluded.status,
+               depends_on_json = excluded.depends_on_json,
+               derived_tables_json = excluded.derived_tables_json,
+               last_run_id = excluded.last_run_id,
+               last_built_at = excluded.last_built_at,
+               last_invalidated_at = excluded.last_invalidated_at,
+               stale_reason = excluded.stale_reason,
+               notes_json = excluded.notes_json,
+               updated_at = excluded.updated_at",
+            params![
+                update.module_id,
+                definition.version,
+                update.status,
+                serde_json::to_string(&definition.depends_on)?,
+                serde_json::to_string(&definition.derived_tables)?,
+                update.last_run_id,
+                update.last_built_at,
+                update.last_invalidated_at,
+                update.stale_reason,
+                serde_json::to_string(&update.notes)?,
+                now,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn mark_all_deterministic_modules_stale(
+    connection: &Connection,
+    reason: &str,
+) -> Result<()> {
+    let now = now_rfc3339();
+    let updates = built_in_deterministic_modules()
+        .iter()
+        .map(|module| DeterministicModuleRuntimeUpdate {
+            module_id: module.id.to_string(),
+            status: "stale".to_string(),
+            last_run_id: None,
+            last_built_at: None,
+            last_invalidated_at: Some(now.clone()),
+            stale_reason: Some(reason.to_string()),
+            notes: vec!["Deterministic rebuild is required before these summaries are fresh again."
+                .to_string()],
+        })
+        .collect::<Vec<_>>();
+    persist_deterministic_module_runtime_updates(connection, &updates)
 }
 
 pub(crate) fn claim_enrichment_jobs(
@@ -311,6 +469,7 @@ pub fn load_intelligence_runtime(
         return Ok(IntelligenceRuntimeSnapshot {
             queue: IntelligenceQueueStatus::default(),
             plugins: empty_plugin_statuses(config),
+            modules: empty_module_statuses(config),
             recent_jobs: Vec::new(),
             notes,
         });
@@ -322,8 +481,9 @@ pub fn load_intelligence_runtime(
 
     let queue = load_queue_status(&connection)?;
     let plugins = load_plugin_statuses(&connection, config)?;
+    let modules = load_module_statuses(&connection, config)?;
     let recent_jobs = load_recent_jobs(&connection)?;
-    Ok(IntelligenceRuntimeSnapshot { queue, plugins, recent_jobs, notes })
+    Ok(IntelligenceRuntimeSnapshot { queue, plugins, modules, recent_jobs, notes })
 }
 
 pub fn retry_intelligence_job(
@@ -397,6 +557,34 @@ fn empty_plugin_statuses(config: &AppConfig) -> Vec<EnrichmentPluginStatus> {
             source_kind: plugin.source_kind.to_string(),
             enabled: enrichment_plugin_enabled(config, plugin.id),
             ..EnrichmentPluginStatus::default()
+        })
+        .collect()
+}
+
+fn empty_module_statuses(config: &AppConfig) -> Vec<DeterministicModuleRuntimeStatus> {
+    built_in_deterministic_modules()
+        .iter()
+        .map(|module| DeterministicModuleRuntimeStatus {
+            module_id: module.id.to_string(),
+            enabled: deterministic_module_enabled(config, module.id),
+            version: module.version.to_string(),
+            status: if deterministic_module_enabled(config, module.id) {
+                "idle".to_string()
+            } else {
+                "disabled".to_string()
+            },
+            depends_on: module.depends_on.iter().map(|value| (*value).to_string()).collect(),
+            derived_tables: module
+                .derived_tables
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            notes: if deterministic_module_enabled(config, module.id) {
+                vec!["No deterministic rebuild has run yet for this module.".to_string()]
+            } else {
+                vec!["Disabled in Settings.".to_string()]
+            },
+            ..DeterministicModuleRuntimeStatus::default()
         })
         .collect()
 }
@@ -521,6 +709,103 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+fn load_module_statuses(
+    connection: &Connection,
+    config: &AppConfig,
+) -> Result<Vec<DeterministicModuleRuntimeStatus>> {
+    let mut statement = connection.prepare(
+        "SELECT module_id, version, status, depends_on_json, derived_tables_json, last_run_id,
+                last_built_at, last_invalidated_at, stale_reason, notes_json
+         FROM deterministic_module_runtime",
+    )?;
+    let stored = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut stored_map = std::collections::HashMap::new();
+    for row in stored {
+        stored_map.insert(row.0.clone(), row);
+    }
+
+    let mut statuses = Vec::with_capacity(built_in_deterministic_modules().len());
+    for module in built_in_deterministic_modules() {
+        let enabled = deterministic_module_enabled(config, module.id);
+        let Some(stored_row) = stored_map.remove(module.id) else {
+            statuses.push(DeterministicModuleRuntimeStatus {
+                module_id: module.id.to_string(),
+                enabled,
+                version: module.version.to_string(),
+                status: if enabled { "idle".to_string() } else { "disabled".to_string() },
+                depends_on: module.depends_on.iter().map(|value| (*value).to_string()).collect(),
+                derived_tables: module
+                    .derived_tables
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+                notes: if enabled {
+                    vec!["No successful deterministic rebuild has been recorded yet.".to_string()]
+                } else {
+                    vec!["Disabled in Settings.".to_string()]
+                },
+                ..DeterministicModuleRuntimeStatus::default()
+            });
+            continue;
+        };
+
+        let mut status = stored_row.2;
+        let mut stale_reason = stored_row.8;
+        let mut notes =
+            serde_json::from_str::<Vec<String>>(&stored_row.9).unwrap_or_default();
+        if !enabled {
+            status = "disabled".to_string();
+            notes.push("Disabled in Settings.".to_string());
+        } else if stored_row.1 != module.version {
+            status = "stale".to_string();
+            stale_reason =
+                Some("Module version changed since the last deterministic rebuild.".to_string());
+            notes.push(
+                "The stored module version does not match the current built-in rule pack."
+                    .to_string(),
+            );
+        } else if status == "ready" && stored_row.6.is_none() {
+            status = "stale".to_string();
+            stale_reason =
+                Some("Missing build timestamp for the latest deterministic output.".to_string());
+        }
+
+        statuses.push(DeterministicModuleRuntimeStatus {
+            module_id: module.id.to_string(),
+            enabled,
+            version: module.version.to_string(),
+            status,
+            depends_on: serde_json::from_str::<Vec<String>>(&stored_row.3)
+                .unwrap_or_else(|_| module.depends_on.iter().map(|value| (*value).to_string()).collect()),
+            derived_tables: serde_json::from_str::<Vec<String>>(&stored_row.4).unwrap_or_else(|_| {
+                module.derived_tables.iter().map(|value| (*value).to_string()).collect()
+            }),
+            last_run_id: stored_row.5,
+            last_built_at: stored_row.6,
+            last_invalidated_at: stored_row.7,
+            stale_reason,
+            notes,
+        });
+    }
+
+    Ok(statuses)
 }
 
 #[cfg(test)]
