@@ -1,29 +1,14 @@
 import { isTauri } from '@tauri-apps/api/core'
-import { relaunch } from '@tauri-apps/plugin-process'
-import { check } from '@tauri-apps/plugin-updater'
-import type { UpdateAvailability, UpdateInstallState } from './types'
+import { backend } from './backend-client'
+import { subscribeToUpdaterProgress } from './ipc/updater-progress'
+import type {
+  AppUpdateCheckResult,
+  PendingAppUpdate,
+  UpdateAvailability,
+  UpdateInstallState,
+} from './types'
 
-type RawInstallableUpdate = NonNullable<Awaited<ReturnType<typeof check>>>
-
-interface InstallableUpdate {
-  version: string
-  date?: string | null
-  body?: string | null
-  downloadAndInstall: RawInstallableUpdate['downloadAndInstall']
-}
-
-export interface PendingAppUpdate {
-  currentVersion?: string | null
-  version: string
-  notes?: string | null
-  publishedAt?: string | null
-  update: InstallableUpdate
-}
-
-export interface AppUpdateCheckResult {
-  availability: UpdateAvailability
-  pendingUpdate: PendingAppUpdate | null
-}
+export type { PendingAppUpdate }
 
 export const RELEASES_PAGE_URL =
   'https://github.com/t41372/BrowserHistoryBackup/releases'
@@ -55,6 +40,7 @@ function previewAvailability(
 export function initialUpdateInstallState(): UpdateInstallState {
   return {
     phase: 'idle',
+    version: null,
     downloadedBytes: null,
     contentLength: null,
     message: null,
@@ -68,71 +54,15 @@ export async function checkForAppUpdate(
     return previewAvailability(currentVersion)
   }
 
-  const checkedAt = nowIso()
-  try {
-    const update = await check()
-    if (!update) {
-      return {
-        availability: {
-          supported: true,
-          checkedAt,
-          available: false,
-          currentVersion: currentVersion ?? null,
-          version: currentVersion ?? null,
-          notes: null,
-          publishedAt: null,
-          error: null,
-          downloadUrl: RELEASES_PAGE_URL,
-        },
-        pendingUpdate: null,
-      }
-    }
-
-    const installableUpdate: InstallableUpdate = {
-      version: update.version,
-      date: update.date ?? null,
-      body: update.body ?? null,
-      downloadAndInstall: update.downloadAndInstall.bind(update),
-    }
-
-    return {
-      availability: {
-        supported: true,
-        checkedAt,
-        available: true,
-        currentVersion: currentVersion ?? null,
-        version: installableUpdate.version,
-        notes: installableUpdate.body ?? null,
-        publishedAt: installableUpdate.date ?? null,
-        error: null,
-        downloadUrl: RELEASES_PAGE_URL,
-      },
-      pendingUpdate: {
-        currentVersion: currentVersion ?? null,
-        version: installableUpdate.version,
-        notes: installableUpdate.body ?? null,
-        publishedAt: installableUpdate.date ?? null,
-        update: installableUpdate,
-      },
-    }
-  } catch (error) {
-    return {
-      availability: {
-        supported: true,
-        checkedAt,
-        available: false,
-        currentVersion: currentVersion ?? null,
-        version: null,
-        notes: null,
-        publishedAt: null,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'PathKeep could not check for updates right now.',
-        downloadUrl: RELEASES_PAGE_URL,
-      },
-      pendingUpdate: null,
-    }
+  const result = await backend.checkForAppUpdate()
+  return {
+    availability: {
+      ...result.availability,
+      currentVersion:
+        result.availability.currentVersion ?? currentVersion ?? null,
+      downloadUrl: result.availability.downloadUrl ?? RELEASES_PAGE_URL,
+    } satisfies UpdateAvailability,
+    pendingUpdate: result.pendingUpdate,
   }
 }
 
@@ -143,6 +73,7 @@ export async function downloadAndInstallAppUpdate(
   if (!isTauri()) {
     const unsupported = {
       phase: 'unsupported',
+      version: pendingUpdate.version,
       message: 'In-browser preview cannot download or install desktop updates.',
       downloadedBytes: null,
       contentLength: null,
@@ -151,60 +82,26 @@ export async function downloadAndInstallAppUpdate(
     return unsupported
   }
 
-  let downloadedBytes = 0
-  let contentLength: number | null = null
+  let lastProgressPhase: UpdateInstallState['phase'] | null = null
+  const unsubscribe = await subscribeToUpdaterProgress((state) => {
+    lastProgressPhase = state.phase
+    onStateChange?.(state)
+  })
+
   try {
-    onStateChange?.({
-      phase: 'downloading',
-      downloadedBytes: 0,
-      contentLength: null,
-      message: `Downloading PathKeep ${pendingUpdate.version}…`,
-    })
-
-    await pendingUpdate.update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case 'Started':
-          contentLength = event.data.contentLength ?? null
-          onStateChange?.({
-            phase: 'downloading',
-            downloadedBytes,
-            contentLength,
-            message: `Downloading PathKeep ${pendingUpdate.version}…`,
-          })
-          break
-        case 'Progress':
-          downloadedBytes += event.data.chunkLength
-          onStateChange?.({
-            phase: 'downloading',
-            downloadedBytes,
-            contentLength,
-            message: `Downloading PathKeep ${pendingUpdate.version}…`,
-          })
-          break
-        case 'Finished':
-          onStateChange?.({
-            phase: 'installing',
-            downloadedBytes,
-            contentLength,
-            message: `Installing PathKeep ${pendingUpdate.version}…`,
-          })
-          break
-      }
-    })
-
-    const installed = {
-      phase: 'installed',
-      downloadedBytes,
-      contentLength,
-      message: `PathKeep ${pendingUpdate.version} is ready. Restart to finish switching versions.`,
-    } satisfies UpdateInstallState
-    onStateChange?.(installed)
-    return installed
+    const result = await backend.downloadAndInstallAppUpdate(
+      pendingUpdate.version,
+    )
+    if (lastProgressPhase !== result.phase) {
+      onStateChange?.(result)
+    }
+    return result
   } catch (error) {
     const failed = {
       phase: 'error',
-      downloadedBytes,
-      contentLength,
+      version: pendingUpdate.version,
+      downloadedBytes: null,
+      contentLength: null,
       message:
         error instanceof Error
           ? error.message
@@ -212,6 +109,8 @@ export async function downloadAndInstallAppUpdate(
     } satisfies UpdateInstallState
     onStateChange?.(failed)
     return failed
+  } finally {
+    unsubscribe()
   }
 }
 
@@ -220,6 +119,5 @@ export async function relaunchAfterUpdate() {
     return false
   }
 
-  await relaunch()
-  return true
+  return await backend.relaunchAfterUpdate()
 }

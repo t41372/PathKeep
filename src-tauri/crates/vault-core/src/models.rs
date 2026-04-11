@@ -433,6 +433,53 @@ pub struct AppBuildInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct AppUpdateAvailability {
+    pub supported: bool,
+    pub checked_at: String,
+    pub available: bool,
+    pub current_version: Option<String>,
+    pub version: Option<String>,
+    pub notes: Option<String>,
+    pub published_at: Option<String>,
+    pub error: Option<String>,
+    pub download_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingAppUpdate {
+    pub current_version: Option<String>,
+    pub version: String,
+    pub notes: Option<String>,
+    pub published_at: Option<String>,
+    pub download_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateCheckResult {
+    pub availability: AppUpdateAvailability,
+    pub pending_update: Option<PendingAppUpdate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInstallRequest {
+    pub expected_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInstallState {
+    pub phase: String,
+    pub version: Option<String>,
+    pub downloaded_bytes: Option<u64>,
+    pub content_length: Option<u64>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct CrashReportSummary {
     pub source: String,
     pub recorded_at: String,

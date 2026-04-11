@@ -20,6 +20,7 @@ import type {
   AiSearchResponse,
   AppBuildInfo,
   AppConfig,
+  AppUpdateCheckResult,
   AppLockStatus,
   AppSnapshot,
   ApplyResult,
@@ -64,6 +65,7 @@ import type {
   TakeoutInspection,
   TakeoutRequest,
   UnlockAppSessionRequest,
+  UpdateInstallState,
 } from './types'
 
 // Stryker disable all: browser-preview fixtures are static reference data, not behavior.
@@ -2287,6 +2289,34 @@ async function call<T>(
       return (
         typeof args?.url === 'string' ? args.url : 'https://example.com'
       ) as T
+    case 'check_for_app_update':
+      return {
+        availability: {
+          supported: false,
+          checkedAt: new Date().toISOString(),
+          available: false,
+          currentVersion: mockBuildInfo.version,
+          version: null,
+          notes: null,
+          publishedAt: null,
+          error:
+            'In-browser preview cannot check desktop update channels. Use a packaged desktop build instead.',
+          downloadUrl:
+            'https://github.com/t41372/BrowserHistoryBackup/releases',
+        },
+        pendingUpdate: null,
+      } as T
+    case 'download_and_install_app_update':
+      return {
+        phase: 'unsupported',
+        version: null,
+        downloadedBytes: null,
+        contentLength: null,
+        message:
+          'In-browser preview cannot download or install desktop updates.',
+      } as T
+    case 'relaunch_after_update':
+      return false as T
     case 'run_backup_now': {
       if (!mockState.snapshot.config.initialized) {
         throw new Error('Initialize the archive before running a backup.')
@@ -3013,4 +3043,10 @@ export const backend = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
+  checkForAppUpdate: () => call<AppUpdateCheckResult>('check_for_app_update'),
+  downloadAndInstallAppUpdate: (expectedVersion?: string | null) =>
+    call<UpdateInstallState>('download_and_install_app_update', {
+      request: { expectedVersion: expectedVersion ?? null },
+    }),
+  relaunchAfterUpdate: () => call<boolean>('relaunch_after_update'),
 }

@@ -165,9 +165,23 @@ export type UpdateInstallPhase =
 
 export interface UpdateInstallState {
   phase: UpdateInstallPhase
+  version?: string | null
   downloadedBytes?: number | null
   contentLength?: number | null
   message?: string | null
+}
+
+export interface PendingAppUpdate {
+  currentVersion?: string | null
+  version: string
+  notes?: string | null
+  publishedAt?: string | null
+  downloadUrl?: string | null
+}
+
+export interface AppUpdateCheckResult {
+  availability: UpdateAvailability
+  pendingUpdate: PendingAppUpdate | null
 }
 
 export type AnalyticsEvent =

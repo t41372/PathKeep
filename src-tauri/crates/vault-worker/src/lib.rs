@@ -43,11 +43,11 @@ use vault_core::{
 };
 use vault_platform::{
     ScheduleParameters, app_lock_biometric_state, apply_schedule, authenticate_app_lock_biometric,
-    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
-    keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
-    keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
-    keyring_status, preview_schedule, provider_api_key_saved, remove_schedule,
-    s3_credentials_saved, schedule_status as detect_schedule_status,
+    discover_browser_profiles, keyring_clear_database_key, keyring_clear_provider_api_key,
+    keyring_clear_s3_credentials, keyring_get_database_key, keyring_get_provider_api_key,
+    keyring_get_s3_credentials, keyring_set_database_key, keyring_set_provider_api_key,
+    keyring_set_s3_credentials, keyring_status, preview_schedule, provider_api_key_saved,
+    remove_schedule, s3_credentials_saved, schedule_status as detect_schedule_status,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -630,7 +630,7 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let paths = project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let browser_profiles = vault_core::discover_profiles()?;
+    let browser_profiles = discover_browser_profiles()?;
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
     let insight_status = derive_insight_status(&paths, &config, session_database_key);

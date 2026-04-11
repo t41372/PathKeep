@@ -1,5 +1,6 @@
 mod file_manager;
 mod session;
+mod updater;
 mod worker_bridge;
 
 use anyhow::Result;
@@ -15,7 +16,8 @@ use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 #[cfg(not(test))]
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
-    AiSearchRequest, AppConfig, ExplainInsightRequest, ExportRequest, FrontendErrorReportRequest,
+    AiSearchRequest, AppConfig, AppUpdateCheckResult, AppUpdateInstallRequest,
+    AppUpdateInstallState, ExplainInsightRequest, ExportRequest, FrontendErrorReportRequest,
     HistoryQuery, RetentionPruneRequest, RunInsightsRequest, S3CredentialInput, SchedulePlan,
     ScheduleStatus, SecurityStatus, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
     TakeoutRequest, UnlockAppSessionRequest,
@@ -52,7 +54,6 @@ fn run_app() -> Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
@@ -137,7 +138,10 @@ fn run_app() -> Result<()> {
             record_frontend_error,
             reset_local_secret_vault,
             open_path_in_file_manager,
-            open_external_url
+            open_external_url,
+            check_for_app_update,
+            download_and_install_app_update,
+            relaunch_after_update
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -735,4 +739,25 @@ fn open_path_in_file_manager(path: String) -> Result<String, String> {
 #[tauri::command]
 fn open_external_url(url: String) -> Result<String, String> {
     file_manager::open_external_url_impl(url)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+async fn check_for_app_update(app: AppHandle) -> AppUpdateCheckResult {
+    updater::check_for_app_update(app).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+async fn download_and_install_app_update(
+    app: AppHandle,
+    request: Option<AppUpdateInstallRequest>,
+) -> AppUpdateInstallState {
+    updater::download_and_install_app_update(app, request).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+fn relaunch_after_update(app: AppHandle) -> bool {
+    updater::relaunch_after_update(app)
 }

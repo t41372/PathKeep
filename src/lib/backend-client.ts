@@ -14,6 +14,7 @@ import type {
   AiSearchResponse,
   AppBuildInfo,
   AppConfig,
+  AppUpdateCheckResult,
   AppLockStatus,
   AppSnapshot,
   ApplyResult,
@@ -54,6 +55,7 @@ import type {
   TakeoutInspection,
   TakeoutRequest,
   UnlockAppSessionRequest,
+  UpdateInstallState,
 } from './types'
 
 type BackendArgs = Record<string, unknown> | undefined
@@ -185,4 +187,10 @@ export const backend = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
+  checkForAppUpdate: () => call<AppUpdateCheckResult>('check_for_app_update'),
+  downloadAndInstallAppUpdate: (expectedVersion?: string | null) =>
+    call<UpdateInstallState>('download_and_install_app_update', {
+      request: { expectedVersion: expectedVersion ?? null },
+    }),
+  relaunchAfterUpdate: () => call<boolean>('relaunch_after_update'),
 }

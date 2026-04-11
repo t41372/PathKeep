@@ -816,12 +816,7 @@ describe('App shell', () => {
           version: '0.2.0',
           notes: 'Updater wiring is ready.',
           publishedAt: '2026-04-10T00:00:00Z',
-          update: {
-            version: '0.2.0',
-            date: '2026-04-10T00:00:00Z',
-            body: 'Updater wiring is ready.',
-            downloadAndInstall: vi.fn(),
-          },
+          downloadUrl: updateLib.RELEASES_PAGE_URL,
         },
       })
     const downloadAndInstallSpy = vi

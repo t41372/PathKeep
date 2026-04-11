@@ -1,0 +1,306 @@
+use std::{
+    fs,
+    path::Path,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use tempfile::tempdir;
+use vault_core::{AppLockBiometricState, ProjectPaths, S3CredentialInput};
+use vault_platform::test_support::{
+    TEST_KEYRING_SERVICE_ENV, TEST_LAUNCH_AGENTS_DIR_ENV, TEST_SCHEDULE_LABEL_ENV,
+};
+use vault_platform::{
+    ScheduleParameters, app_lock_biometric_state, apply_schedule, discover_browser_profiles,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
+    keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
+    keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
+    keyring_status, open_external_url, open_path_in_file_manager, preview_schedule,
+    remove_schedule, schedule_status,
+};
+
+fn unique_suffix() -> String {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("system time").as_nanos();
+    format!("{}-{nanos}", std::process::id())
+}
+
+fn sample_paths(root: &Path) -> ProjectPaths {
+    vault_core::config::project_paths_with_root(root)
+}
+
+fn wait_for_file(path: &Path) {
+    for _ in 0..50 {
+        if path.exists() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
+    unsafe {
+        if let Some(value) = value {
+            std::env::set_var(name, value);
+        } else {
+            std::env::remove_var(name);
+        }
+    }
+}
+
+#[test]
+fn discovery_smoke_does_not_crash() {
+    let result = discover_browser_profiles().expect("discover profiles");
+    for profile in result {
+        assert!(!profile.profile_id.is_empty());
+        assert!(!profile.browser_name.is_empty());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn launcher_smoke_uses_path_shims_for_host_invocation() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().expect("tempdir");
+    let shim_dir = dir.path().join("bin");
+    let target_dir = dir.path().join("open-me");
+    let capture_path = dir.path().join("capture.log");
+    fs::create_dir_all(&shim_dir).expect("create shim dir");
+    fs::create_dir_all(&target_dir).expect("create target dir");
+
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let program = "xdg-open";
+
+    let shim_path = shim_dir.join(program);
+    fs::write(
+        &shim_path,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> {}\n", capture_path.display()),
+    )
+    .expect("write shim");
+    let mut permissions = fs::metadata(&shim_path).expect("metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&shim_path, permissions).expect("chmod shim");
+
+    let original_path = std::env::var_os("PATH");
+    unsafe {
+        std::env::set_var(
+            "PATH",
+            format!(
+                "{}:{}",
+                shim_dir.display(),
+                original_path
+                    .as_ref()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ),
+        );
+    }
+
+    let opened_dir =
+        open_path_in_file_manager(target_dir.display().to_string()).expect("open path");
+    let opened_url =
+        open_external_url("https://example.com/pathkeep".to_string()).expect("open url");
+    wait_for_file(&capture_path);
+
+    restore_env("PATH", original_path);
+
+    let captured = fs::read_to_string(&capture_path).expect("read capture");
+    assert_eq!(opened_dir, target_dir.display().to_string());
+    assert_eq!(opened_url, "https://example.com/pathkeep");
+    assert!(captured.contains(&target_dir.display().to_string()));
+    assert!(captured.contains("https://example.com/pathkeep"));
+}
+
+fn native_keyring_roundtrip(service: &str) {
+    let original_service = std::env::var_os(TEST_KEYRING_SERVICE_ENV);
+    unsafe {
+        std::env::set_var(TEST_KEYRING_SERVICE_ENV, service);
+    }
+
+    keyring_clear_database_key().expect("clear db key");
+    keyring_clear_s3_credentials().expect("clear s3 credentials");
+    keyring_clear_provider_api_key("integration-openai").expect("clear provider key");
+
+    let status = keyring_status();
+    assert!(status.available, "expected native keyring backend to be available");
+
+    keyring_set_database_key("native-db-secret").expect("store db key");
+    assert_eq!(
+        keyring_get_database_key().expect("load db key"),
+        Some("native-db-secret".to_string())
+    );
+
+    let credentials = S3CredentialInput {
+        access_key_id: "access".to_string(),
+        secret_access_key: "secret".to_string(),
+    };
+    keyring_set_s3_credentials(&credentials).expect("store s3");
+    assert_eq!(keyring_get_s3_credentials().expect("load s3"), Some(credentials));
+
+    keyring_set_provider_api_key("integration-openai", "provider-secret")
+        .expect("store provider key");
+    assert_eq!(
+        keyring_get_provider_api_key("integration-openai").expect("load provider key"),
+        Some("provider-secret".to_string())
+    );
+
+    keyring_clear_database_key().expect("clear db key");
+    keyring_clear_s3_credentials().expect("clear s3 credentials");
+    keyring_clear_provider_api_key("integration-openai").expect("clear provider key");
+    assert_eq!(keyring_get_database_key().expect("db key cleared"), None);
+
+    restore_env(TEST_KEYRING_SERVICE_ENV, original_service);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_keychain_roundtrip_uses_a_unique_service_namespace() {
+    native_keyring_roundtrip(&format!("com.yi-ting.pathkeep.tests.{}", unique_suffix()));
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[test]
+fn linux_secret_service_roundtrip_uses_a_unique_service_namespace() {
+    native_keyring_roundtrip(&format!("com.yi-ting.pathkeep.tests.{}", unique_suffix()));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_credential_manager_roundtrip_uses_a_unique_service_namespace() {
+    native_keyring_roundtrip(&format!("com.yi-ting.pathkeep.tests.{}", unique_suffix()));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_scheduler_apply_bootstrap_status_and_cleanup_work() {
+    let dir = tempdir().expect("tempdir");
+    let launch_agents_dir = dir.path().join("LaunchAgents");
+    let label = format!("com.yi-ting.pathkeep.tests.{}", unique_suffix());
+    let original_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+    let original_launch_agents = std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV);
+    unsafe {
+        std::env::set_var(TEST_SCHEDULE_LABEL_ENV, &label);
+        std::env::set_var(TEST_LAUNCH_AGENTS_DIR_ENV, &launch_agents_dir);
+    }
+
+    let paths = sample_paths(dir.path());
+    let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+    let plan =
+        preview_schedule(Some("macos"), Path::new("/usr/bin/true"), &paths, &params).expect("plan");
+
+    let plist_path = launch_agents_dir.join(format!("{label}.plist"));
+    fs::create_dir_all(&launch_agents_dir).expect("launch agents dir");
+    fs::write(&plist_path, &plan.generated_files[0].contents).expect("write plist");
+    let lint = Command::new("plutil")
+        .args(["-lint", plist_path.to_str().expect("plist path")])
+        .status()
+        .expect("plutil -lint");
+    assert!(lint.success(), "expected plutil -lint to accept generated plist");
+
+    let applied = apply_schedule(&plan, &paths).expect("apply schedule");
+    assert!(applied.applied, "expected launchctl bootstrap to succeed");
+
+    let uid = String::from_utf8(Command::new("id").arg("-u").output().expect("id -u").stdout)
+        .expect("utf8 uid")
+        .trim()
+        .to_string();
+    let status = Command::new("launchctl")
+        .args(["print", &format!("gui/{uid}/{label}")])
+        .status()
+        .expect("launchctl print");
+    assert!(status.success(), "expected launchctl print to find installed label");
+
+    let detected = schedule_status(Some("macos"), Path::new("/usr/bin/true"), &paths, &params)
+        .expect("status");
+    assert_eq!(detected.install_state, "installed");
+
+    let removed = remove_schedule(&plan, &paths).expect("remove schedule");
+    assert!(removed.applied);
+
+    restore_env(TEST_SCHEDULE_LABEL_ENV, original_label);
+    restore_env(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents);
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[test]
+fn linux_scheduler_artifacts_validate_with_systemd_analyze() {
+    let dir = tempdir().expect("tempdir");
+    let label = format!("com.yi-ting.pathkeep.tests.{}", unique_suffix());
+    let original_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+    unsafe {
+        std::env::set_var(TEST_SCHEDULE_LABEL_ENV, &label);
+    }
+
+    let paths = sample_paths(dir.path());
+    let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+    let plan =
+        preview_schedule(Some("linux"), Path::new("/usr/bin/true"), &paths, &params).expect("plan");
+    let service_path = dir.path().join(format!("{label}.service"));
+    let timer_path = dir.path().join(format!("{label}.timer"));
+    fs::write(&service_path, &plan.generated_files[0].contents).expect("write service");
+    fs::write(&timer_path, &plan.generated_files[1].contents).expect("write timer");
+
+    let verify = Command::new("systemd-analyze")
+        .args([
+            "verify",
+            service_path.to_str().expect("service path"),
+            timer_path.to_str().expect("timer path"),
+        ])
+        .status()
+        .expect("systemd-analyze verify");
+
+    restore_env(TEST_SCHEDULE_LABEL_ENV, original_label);
+
+    assert!(verify.success(), "expected systemd-analyze verify to accept generated units");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_scheduler_xml_validates_with_schtasks() {
+    let dir = tempdir().expect("tempdir");
+    let label = format!("com.yi-ting.pathkeep.tests.{}", unique_suffix());
+    let original_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+    unsafe {
+        std::env::set_var(TEST_SCHEDULE_LABEL_ENV, &label);
+    }
+
+    let paths = sample_paths(dir.path());
+    let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+    let plan = preview_schedule(
+        Some("windows"),
+        Path::new("C:\\Windows\\System32\\cmd.exe"),
+        &paths,
+        &params,
+    )
+    .expect("plan");
+    let xml_path = dir.path().join(format!("{label}.xml"));
+    fs::write(&xml_path, &plan.generated_files[0].contents).expect("write xml");
+
+    let create = Command::new("schtasks")
+        .args(["/Create", "/TN", &label, "/XML", xml_path.to_str().expect("xml path"), "/F"])
+        .status()
+        .expect("schtasks /Create");
+    assert!(create.success(), "expected schtasks /Create to accept XML");
+
+    let delete = Command::new("schtasks")
+        .args(["/Delete", "/TN", &label, "/F"])
+        .status()
+        .expect("schtasks /Delete");
+
+    restore_env(TEST_SCHEDULE_LABEL_ENV, original_label);
+
+    assert!(delete.success(), "expected schtasks /Delete to clean up test task");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_biometric_state_smoke_is_not_unsupported() {
+    assert_ne!(app_lock_biometric_state(), AppLockBiometricState::Unsupported);
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn non_macos_biometric_state_is_unsupported() {
+    assert_eq!(app_lock_biometric_state(), AppLockBiometricState::Unsupported);
+}

@@ -76,7 +76,7 @@ jobs:
       - name: Rust supply-chain checks
         run: bun run check:supply-chain
 
-  desktop-debug-build:
+  platform-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,5 +90,53 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Build debug desktop app
-        run: bun run desktop:build:debug
+      - name: Run macOS platform-native checks
+        run: bun run check:platform
+
+  platform-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop and native-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            dbus-x11 \
+            gnome-keyring \
+            systemd
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run Linux platform-native checks
+        run: bun run check:platform
+
+  platform-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run Windows platform-native checks
+        run: bun run check:platform

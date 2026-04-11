@@ -1,25 +1,33 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { UpdateInstallState } from './types'
 
 const { isTauri } = vi.hoisted(() => ({
   isTauri: vi.fn(() => false),
 }))
-const { relaunch } = vi.hoisted(() => ({
-  relaunch: vi.fn(() => Promise.resolve()),
+
+const backend = vi.hoisted(() => ({
+  checkForAppUpdate: vi.fn(),
+  downloadAndInstallAppUpdate: vi.fn(),
+  relaunchAfterUpdate: vi.fn(() => Promise.resolve(true)),
 }))
-const { check } = vi.hoisted(() => ({
-  check: vi.fn(),
-}))
+
+const subscribeToUpdaterProgress = vi.hoisted(() =>
+  vi.fn((listener: unknown) => {
+    void listener
+    return Promise.resolve(() => {})
+  }),
+)
 
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri,
 }))
 
-vi.mock('@tauri-apps/plugin-process', () => ({
-  relaunch,
+vi.mock('./backend-client', () => ({
+  backend,
 }))
 
-vi.mock('@tauri-apps/plugin-updater', () => ({
-  check,
+vi.mock('./ipc/updater-progress', () => ({
+  subscribeToUpdaterProgress,
 }))
 
 import {
@@ -33,8 +41,12 @@ import {
 describe('update helpers', () => {
   beforeEach(() => {
     isTauri.mockReturnValue(false)
-    relaunch.mockClear()
-    check.mockReset()
+    backend.checkForAppUpdate.mockReset()
+    backend.downloadAndInstallAppUpdate.mockReset()
+    backend.relaunchAfterUpdate.mockReset()
+    backend.relaunchAfterUpdate.mockResolvedValue(true)
+    subscribeToUpdaterProgress.mockReset()
+    subscribeToUpdaterProgress.mockResolvedValue(() => {})
   })
 
   test('returns a truthful browser-preview fallback', async () => {
@@ -51,15 +63,30 @@ describe('update helpers', () => {
 
   test('maps an available desktop update into release metadata', async () => {
     isTauri.mockReturnValue(true)
-    check.mockResolvedValue({
-      version: '0.2.0',
-      date: '2026-04-10T00:00:00Z',
-      body: 'Bug fixes and updater wiring.',
-      downloadAndInstall: vi.fn(),
+    backend.checkForAppUpdate.mockResolvedValue({
+      availability: {
+        supported: true,
+        checkedAt: '2026-04-10T00:00:00Z',
+        available: true,
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        notes: 'Bug fixes and updater wiring.',
+        publishedAt: '2026-04-10T00:00:00Z',
+        error: null,
+        downloadUrl: 'https://example.com/latest.json',
+      },
+      pendingUpdate: {
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        notes: 'Bug fixes and updater wiring.',
+        publishedAt: '2026-04-10T00:00:00Z',
+        downloadUrl: 'https://example.com/latest.json',
+      },
     })
 
     const result = await checkForAppUpdate('0.1.0')
 
+    expect(backend.checkForAppUpdate).toHaveBeenCalledTimes(1)
     expect(result.pendingUpdate).toMatchObject({
       version: '0.2.0',
       currentVersion: '0.1.0',
@@ -69,68 +96,69 @@ describe('update helpers', () => {
       available: true,
       version: '0.2.0',
       publishedAt: '2026-04-10T00:00:00Z',
+      downloadUrl: 'https://example.com/latest.json',
     })
   })
 
-  test('tracks download and install progress before returning restart-ready state', async () => {
+  test('subscribes to updater progress and returns the desktop install result', async () => {
     isTauri.mockReturnValue(true)
     const states: string[] = []
-    const pendingUpdate = {
-      currentVersion: '0.1.0',
-      version: '0.2.0',
-      notes: null,
-      publishedAt: null,
-      update: {
+    const unsubscribe = vi.fn()
+    subscribeToUpdaterProgress.mockImplementation((listener: unknown) => {
+      const emit = listener as (state: UpdateInstallState) => void
+      emit({
+        phase: 'downloading',
         version: '0.2.0',
-        date: null,
-        body: null,
-        downloadAndInstall: vi.fn((handler) => {
-          handler({
-            event: 'Started',
-            data: { contentLength: 100 },
-          })
-          handler({
-            event: 'Progress',
-            data: { chunkLength: 40 },
-          })
-          handler({
-            event: 'Finished',
-            data: {},
-          })
-          return Promise.resolve()
-        }),
-      },
-    }
-
-    const result = await downloadAndInstallAppUpdate(pendingUpdate, (state) => {
-      states.push(state.phase)
+        downloadedBytes: 40,
+        contentLength: 100,
+        message: 'Downloading PathKeep 0.2.0...',
+      })
+      return Promise.resolve(unsubscribe)
+    })
+    backend.downloadAndInstallAppUpdate.mockResolvedValue({
+      phase: 'installed',
+      version: '0.2.0',
+      downloadedBytes: 100,
+      contentLength: 100,
+      message: 'PathKeep 0.2.0 is ready. Restart to finish switching versions.',
     })
 
-    expect(states).toEqual([
-      'downloading',
-      'downloading',
-      'downloading',
-      'installing',
-      'installed',
-    ])
+    const result = await downloadAndInstallAppUpdate(
+      {
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        notes: null,
+        publishedAt: null,
+        downloadUrl: 'https://example.com/latest.json',
+      },
+      (state) => {
+        states.push(state.phase)
+      },
+    )
+
+    expect(subscribeToUpdaterProgress).toHaveBeenCalledTimes(1)
+    expect(backend.downloadAndInstallAppUpdate).toHaveBeenCalledWith('0.2.0')
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(states).toEqual(['downloading', 'installed'])
     expect(result.phase).toBe('installed')
-    expect(result.downloadedBytes).toBe(40)
+    expect(result.downloadedBytes).toBe(100)
     expect(result.contentLength).toBe(100)
   })
 
   test('keeps relaunch behind the desktop boundary', async () => {
     expect(initialUpdateInstallState()).toEqual({
       phase: 'idle',
+      version: null,
       downloadedBytes: null,
       contentLength: null,
       message: null,
     })
 
     expect(await relaunchAfterUpdate()).toBe(false)
-    expect(relaunch).not.toHaveBeenCalled()
+    expect(backend.relaunchAfterUpdate).not.toHaveBeenCalled()
 
     isTauri.mockReturnValue(true)
     expect(await relaunchAfterUpdate()).toBe(true)
-    expect(relaunch).toHaveBeenCalledTimes(1)
+    expect(backend.relaunchAfterUpdate).toHaveBeenCalledTimes(1)
   })
 })
