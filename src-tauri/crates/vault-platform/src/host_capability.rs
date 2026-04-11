@@ -1,3 +1,5 @@
+//! Tiny host-capability helpers shared by platform adapters.
+
 #[cfg(target_os = "macos")]
 fn compiled_platform_name() -> &'static str {
     "macos"
@@ -13,6 +15,7 @@ fn compiled_platform_name() -> &'static str {
     "linux"
 }
 
+/// Returns the normalized platform name used across PathKeep read models.
 pub fn current_platform_name() -> String {
     compiled_platform_name().to_string()
 }

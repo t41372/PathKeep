@@ -1,3 +1,5 @@
+//! App-level configuration and shell read models.
+
 use super::ArchiveMode;
 use super::{
     AiIndexStatus, BackupRunOverview, BrowserProfile, ImportBatchOverview, InsightStatus,
@@ -11,12 +13,15 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Repairs config payloads so newly added runtime defaults are always present.
 pub fn normalize_app_config(config: &mut AppConfig) {
     config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);
     config.ai.enrichment_plugins =
         merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
     config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
 }
+
+/// User language selection persisted in config.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum LanguagePreference {
     #[serde(rename = "system")]
@@ -29,6 +34,8 @@ pub enum LanguagePreference {
     #[serde(rename = "zh-TW")]
     ZhTw,
 }
+
+/// Persisted App Lock settings that shape future UI sessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppLockConfig {
@@ -41,6 +48,7 @@ pub struct AppLockConfig {
 }
 
 impl Default for AppLockConfig {
+    /// Returns the accepted default App Lock policy for new installs.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -53,6 +61,7 @@ impl Default for AppLockConfig {
     }
 }
 
+/// Host biometric capability state surfaced to the desktop shell.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum AppLockBiometricState {
@@ -62,6 +71,7 @@ pub enum AppLockBiometricState {
     Unsupported,
 }
 
+/// Runtime App Lock status shown by the shell.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppLockStatus {
@@ -82,6 +92,7 @@ pub struct AppLockStatus {
     pub degradation_notes: Vec<String>,
 }
 
+/// Unlock request payload sent from the shell to the worker.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UnlockAppSessionRequest {
@@ -89,6 +100,7 @@ pub struct UnlockAppSessionRequest {
     pub use_biometric: bool,
 }
 
+/// Request payload for configuring an App Lock passcode.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SetAppLockPasscodeRequest {
@@ -96,6 +108,7 @@ pub struct SetAppLockPasscodeRequest {
     pub recovery_hint: Option<String>,
 }
 
+/// User analytics consent settings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AnalyticsConfig {
@@ -103,6 +116,7 @@ pub struct AnalyticsConfig {
     pub consent_granted_at: Option<String>,
 }
 
+/// Persisted application configuration owned by Settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
@@ -126,6 +140,7 @@ pub struct AppConfig {
 }
 
 impl Default for AppConfig {
+    /// Returns the accepted config defaults for a fresh install.
     fn default() -> Self {
         Self {
             initialized: false,
@@ -149,6 +164,7 @@ impl Default for AppConfig {
     }
 }
 
+/// Absolute application directories surfaced to the shell for diagnostics and previews.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppDirectories {
@@ -170,6 +186,7 @@ pub struct AppDirectories {
     pub stronghold_salt_path: String,
 }
 
+/// Immutable build metadata for About/support surfaces.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppBuildInfo {
@@ -180,6 +197,7 @@ pub struct AppBuildInfo {
     pub git_dirty: bool,
 }
 
+/// Availability snapshot returned by the updater check flow.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpdateAvailability {
@@ -194,6 +212,7 @@ pub struct AppUpdateAvailability {
     pub download_url: Option<String>,
 }
 
+/// Pending update metadata that the shell can keep around between steps.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingAppUpdate {
@@ -204,6 +223,7 @@ pub struct PendingAppUpdate {
     pub download_url: Option<String>,
 }
 
+/// Full updater check result returned to the shell.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpdateCheckResult {
@@ -211,12 +231,14 @@ pub struct AppUpdateCheckResult {
     pub pending_update: Option<PendingAppUpdate>,
 }
 
+/// Optional guard payload for installing a specific expected update version.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpdateInstallRequest {
     pub expected_version: Option<String>,
 }
 
+/// Progress snapshot for the updater download/install flow.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpdateInstallState {
@@ -227,6 +249,7 @@ pub struct AppUpdateInstallState {
     pub message: Option<String>,
 }
 
+/// Summary of one persisted crash or frontend error report.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CrashReportSummary {

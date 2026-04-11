@@ -1,13 +1,22 @@
+//! App Lock biometric adapter.
+//!
+//! Biometric unlock is intentionally scoped to the desktop session boundary.
+//! It can unlock the current App Lock session when the host supports it, but it
+//! does not replace archive encryption or native keyring guarantees.
+
 use vault_core::AppLockBiometricState;
 
+/// Reports whether biometric unlock is available in the current desktop build.
 pub fn app_lock_biometric_state() -> AppLockBiometricState {
     platform::app_lock_biometric_state()
 }
 
+/// Attempts to authenticate the current user with the host biometric prompt.
 pub fn authenticate_app_lock_biometric() -> Result<(), String> {
     platform::authenticate_app_lock_biometric()
 }
 
+/// Translates platform Touch ID errors into user-facing App Lock messages.
 fn map_touch_id_error(code: Option<isize>, description: Option<String>) -> String {
     match code {
         Some(-1) => "Touch ID could not verify your identity. Try again or use the app lock passcode."
@@ -50,6 +59,7 @@ mod platform {
 
     const TOUCH_ID_PROMPT_TIMEOUT: Duration = Duration::from_secs(90);
 
+    /// Returns Touch ID availability for the running macOS session.
     pub fn app_lock_biometric_state() -> AppLockBiometricState {
         let context = unsafe { LAContext::new() };
         match unsafe {
@@ -60,6 +70,7 @@ mod platform {
         }
     }
 
+    /// Presents the Touch ID prompt and maps platform failures into product copy.
     pub fn authenticate_app_lock_biometric() -> Result<(), String> {
         let context = unsafe { LAContext::new() };
         match unsafe {
@@ -109,10 +120,12 @@ mod platform {
 mod platform {
     use vault_core::AppLockBiometricState;
 
+    /// Reports that biometric unlock is unsupported on this build target.
     pub fn app_lock_biometric_state() -> AppLockBiometricState {
         AppLockBiometricState::Unsupported
     }
 
+    /// Returns an explicit unsupported error on non-macOS builds.
     pub fn authenticate_app_lock_biometric() -> Result<(), String> {
         Err("Biometric unlock is not available in the current desktop build.".to_string())
     }

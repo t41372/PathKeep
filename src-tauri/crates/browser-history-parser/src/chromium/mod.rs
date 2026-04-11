@@ -1,3 +1,9 @@
+//! Chromium history parser.
+//!
+//! This module reads already-staged Chromium `History` and `Favicons`
+//! databases. It deliberately avoids browser discovery and live-file copying;
+//! those concerns belong to higher layers.
+
 use crate::{
     error::ParseError,
     types::{
@@ -11,11 +17,13 @@ use std::path::Path;
 
 const CHROME_UNIX_EPOCH_OFFSET_MICROS: i64 = 11_644_473_600_000_000;
 
+/// Incremental URL ingest query used by the archive pipeline.
 pub const INGEST_URLS_SQL: &str =
     "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
      FROM urls
      WHERE last_visit_time >= ?1
      ORDER BY last_visit_time ASC";
+/// Incremental visit ingest query used by the archive pipeline.
 pub const INGEST_VISITS_SQL: &str =
     "SELECT visits.id, visits.url, urls.url, urls.title, visits.visit_time, visits.from_visit,
             visits.transition, visits.visit_duration, visits.is_known_to_sync,
@@ -24,17 +32,20 @@ pub const INGEST_VISITS_SQL: &str =
      JOIN urls ON urls.id = visits.url
      WHERE visits.id > ?1
      ORDER BY visits.id ASC";
+/// Incremental download ingest query used by the archive pipeline.
 pub const DOWNLOADS_SQL: &str =
     "SELECT id, guid, current_path, target_path, start_time, received_bytes, total_bytes, state,
             mime_type, original_mime_type
      FROM downloads
      WHERE id > ?1
      ORDER BY id ASC";
+/// Incremental keyword-search-term query used by the archive pipeline.
 pub const SEARCH_TERMS_SQL: &str = "SELECT keyword_id, url_id, term, normalized_term
      FROM keyword_search_terms
      WHERE url_id IN (
        SELECT id FROM urls WHERE last_visit_time >= ?1
      )";
+/// Incremental favicons query used by the archive pipeline.
 pub const FAVICONS_SQL: &str = "SELECT icon_mapping.page_url, favicons.url, favicons.icon_type,
             IFNULL(favicon_bitmaps.width, 0), IFNULL(favicon_bitmaps.height, 0),
             IFNULL(favicon_bitmaps.last_updated, 0), favicon_bitmaps.image_data
@@ -44,6 +55,7 @@ pub const FAVICONS_SQL: &str = "SELECT icon_mapping.page_url, favicons.url, favi
      WHERE IFNULL(favicon_bitmaps.last_updated, 0) >= ?1
      ORDER BY IFNULL(favicon_bitmaps.last_updated, 0) ASC";
 
+/// Inspects a staged Chromium source and reports table coverage/warnings.
 pub fn inspect_history(source: &HistoryDatabaseSet) -> Result<DatabaseInspection, ParseError> {
     let connection = open_readonly(&source.history_path)?;
     let mut statement = connection.prepare(
@@ -66,6 +78,7 @@ pub fn inspect_history(source: &HistoryDatabaseSet) -> Result<DatabaseInspection
     Ok(DatabaseInspection { table_names, warnings })
 }
 
+/// Parses a staged Chromium source into deterministic parser read models.
 pub fn parse_history(
     source: &HistoryDatabaseSet,
     cursor: ChromiumReadCursor,
@@ -112,10 +125,12 @@ pub fn parse_history(
     Ok(ChromiumHistory { inspection, urls, visits, downloads, search_terms, favicons, warnings })
 }
 
+/// Converts Chromium's microsecond timestamp format to Unix milliseconds.
 pub fn chrome_time_to_unix_ms(value: i64) -> i64 {
     value.saturating_sub(CHROME_UNIX_EPOCH_OFFSET_MICROS).div_euclid(1_000).max(0)
 }
 
+/// Converts Chromium's microsecond timestamp format to RFC3339.
 pub fn chrome_time_to_iso(value: i64) -> String {
     let milliseconds = chrome_time_to_unix_ms(value);
     Utc.timestamp_millis_opt(milliseconds)

@@ -1,12 +1,21 @@
+//! Host launcher/file-manager adapter.
+//!
+//! These helpers validate user-provided paths/URLs before handing them to the
+//! OS shell. The goal is modest but important: PathKeep should only ask the
+//! platform to open real local folders or HTTP(S) URLs and should fail with a
+//! straightforward message otherwise.
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Opens a path in the host file manager and returns the opened target directory.
 pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
     let target = resolve_file_manager_target(&path)?;
     spawn_file_manager_for_target(&target)?;
     Ok(target.display().to_string())
 }
 
+/// Opens an HTTP(S) URL in the host browser and returns the normalized URL.
 pub fn open_external_url(url: String) -> Result<String, String> {
     let target = resolve_external_url_target(&url)?;
     let (program, arguments) = external_url_command(&target);
@@ -14,6 +23,7 @@ pub fn open_external_url(url: String) -> Result<String, String> {
     Ok(target)
 }
 
+/// Resolves a user-supplied path into the directory the file manager should open.
 pub fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String> {
     let candidate = PathBuf::from(path);
     let target = if candidate.is_absolute() {
@@ -44,6 +54,7 @@ pub fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String> {
     Err(format!("Path does not exist: {}", target.display()))
 }
 
+/// Validates that a user-supplied URL is an HTTP(S) target we can hand to the shell.
 pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -59,35 +70,42 @@ pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
 }
 
 #[cfg(target_os = "macos")]
+/// Returns the macOS file-manager command and arguments for one target.
 pub fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
     ("open", vec![target.display().to_string()])
 }
 
 #[cfg(target_os = "windows")]
+/// Returns the Windows file-manager command and arguments for one target.
 pub fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
     ("explorer", vec![target.display().to_string()])
 }
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+/// Returns the Linux file-manager command and arguments for one target.
 pub fn file_manager_command(target: &Path) -> (&'static str, Vec<String>) {
     ("xdg-open", vec![target.display().to_string()])
 }
 
 #[cfg(target_os = "macos")]
+/// Returns the macOS browser-launch command and arguments for one URL.
 pub fn external_url_command(target: &str) -> (&'static str, Vec<String>) {
     ("open", vec![target.to_string()])
 }
 
 #[cfg(target_os = "windows")]
+/// Returns the Windows browser-launch command and arguments for one URL.
 pub fn external_url_command(target: &str) -> (&'static str, Vec<String>) {
     ("cmd", vec!["/C".to_string(), "start".to_string(), String::new(), target.to_string()])
 }
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+/// Returns the Linux browser-launch command and arguments for one URL.
 pub fn external_url_command(target: &str) -> (&'static str, Vec<String>) {
     ("xdg-open", vec![target.to_string()])
 }
 
+/// Spawns the host file manager for a validated target path.
 pub fn spawn_file_manager_for_target(target: &Path) -> Result<(), String> {
     let (program, arguments) = file_manager_command(target);
     spawn_file_manager_command(program, arguments, target)

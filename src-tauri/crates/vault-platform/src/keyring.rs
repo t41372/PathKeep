@@ -1,3 +1,9 @@
+//! Native keyring adapter.
+//!
+//! This module is the only place that should know how PathKeep stores secrets
+//! on the host. It supports native backends in production and a file-backed
+//! override for tests/coverage so higher layers can stay deterministic.
+
 use crate::test_support::{keyring_service, test_keyring_dir};
 use anyhow::{Context, Result};
 #[cfg(all(not(coverage), target_os = "macos"))]
@@ -90,6 +96,7 @@ fn keyring_backend_name() -> &'static str {
 }
 
 #[cfg(coverage)]
+/// Reports keyring availability using the coverage-mode file-backed backend.
 pub fn keyring_status() -> KeyringStatusReport {
     let path = test_keyring_dir().expect("coverage keyring dir");
     KeyringStatusReport {
@@ -101,6 +108,7 @@ pub fn keyring_status() -> KeyringStatusReport {
 }
 
 #[cfg(not(coverage))]
+/// Reports whether a usable keyring backend exists and whether a database key is stored.
 pub fn keyring_status() -> KeyringStatusReport {
     if let Some(path) = test_keyring_dir() {
         let stored_secret = test_keyring_path(&path, KEYRING_DATABASE_USER).exists();
@@ -129,11 +137,13 @@ pub fn keyring_status() -> KeyringStatusReport {
 }
 
 #[cfg(coverage)]
+/// Reads the stored archive database key from the file-backed coverage backend.
 pub fn keyring_get_database_key() -> Result<Option<String>> {
     test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_DATABASE_USER)
 }
 
 #[cfg(not(coverage))]
+/// Reads the stored archive database key from the current backend.
 pub fn keyring_get_database_key() -> Result<Option<String>> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_get(&path, KEYRING_DATABASE_USER);
@@ -148,11 +158,13 @@ pub fn keyring_get_database_key() -> Result<Option<String>> {
 }
 
 #[cfg(coverage)]
+/// Stores the archive database key in the file-backed coverage backend.
 pub fn keyring_set_database_key(key: &str) -> Result<()> {
     test_keyring_set(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_DATABASE_USER, key)
 }
 
 #[cfg(not(coverage))]
+/// Stores the archive database key in the current backend.
 pub fn keyring_set_database_key(key: &str) -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_set(&path, KEYRING_DATABASE_USER, key);
@@ -165,11 +177,13 @@ pub fn keyring_set_database_key(key: &str) -> Result<()> {
 }
 
 #[cfg(coverage)]
+/// Removes the archive database key from the file-backed coverage backend.
 pub fn keyring_clear_database_key() -> Result<()> {
     test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_DATABASE_USER)
 }
 
 #[cfg(not(coverage))]
+/// Removes the archive database key from the current backend.
 pub fn keyring_clear_database_key() -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_clear(&path, KEYRING_DATABASE_USER);
@@ -182,6 +196,7 @@ pub fn keyring_clear_database_key() -> Result<()> {
 }
 
 #[cfg(coverage)]
+/// Reads stored S3 credentials from the file-backed coverage backend.
 pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
     test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_S3_USER)?
         .map(|value| serde_json::from_str(&value).context("parsing stored S3 credentials"))
@@ -189,6 +204,7 @@ pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
 }
 
 #[cfg(not(coverage))]
+/// Reads stored S3 credentials from the current backend.
 pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_get(&path, KEYRING_S3_USER)?
@@ -207,6 +223,7 @@ pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
 }
 
 #[cfg(coverage)]
+/// Stores S3 credentials in the file-backed coverage backend.
 pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
     test_keyring_set(
         &test_keyring_dir().expect("coverage keyring dir"),
@@ -216,6 +233,7 @@ pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()>
 }
 
 #[cfg(not(coverage))]
+/// Stores S3 credentials in the current backend.
 pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_set(&path, KEYRING_S3_USER, &serde_json::to_string(credentials)?);
@@ -228,11 +246,13 @@ pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()>
 }
 
 #[cfg(coverage)]
+/// Removes stored S3 credentials from the file-backed coverage backend.
 pub fn keyring_clear_s3_credentials() -> Result<()> {
     test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_S3_USER)
 }
 
 #[cfg(not(coverage))]
+/// Removes stored S3 credentials from the current backend.
 pub fn keyring_clear_s3_credentials() -> Result<()> {
     if let Some(path) = test_keyring_dir() {
         return test_keyring_clear(&path, KEYRING_S3_USER);
@@ -244,6 +264,7 @@ pub fn keyring_clear_s3_credentials() -> Result<()> {
     Ok(())
 }
 
+/// Returns whether S3 credentials are currently stored in the active backend.
 pub fn s3_credentials_saved() -> bool {
     #[cfg(coverage)]
     {
@@ -261,12 +282,14 @@ pub fn s3_credentials_saved() -> bool {
 }
 
 #[cfg(coverage)]
+/// Reads an AI provider API key from the file-backed coverage backend.
 pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>> {
     let user = provider_keyring_user(provider_id);
     test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), &user)
 }
 
 #[cfg(not(coverage))]
+/// Reads an AI provider API key from the current backend.
 pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>> {
     let user = provider_keyring_user(provider_id);
     if let Some(path) = test_keyring_dir() {
@@ -282,12 +305,14 @@ pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>>
 }
 
 #[cfg(coverage)]
+/// Stores an AI provider API key in the file-backed coverage backend.
 pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<()> {
     let user = provider_keyring_user(provider_id);
     test_keyring_set(&test_keyring_dir().expect("coverage keyring dir"), &user, api_key)
 }
 
 #[cfg(not(coverage))]
+/// Stores an AI provider API key in the current backend.
 pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<()> {
     let user = provider_keyring_user(provider_id);
     if let Some(path) = test_keyring_dir() {
@@ -301,12 +326,14 @@ pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<
 }
 
 #[cfg(coverage)]
+/// Removes an AI provider API key from the file-backed coverage backend.
 pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
     let user = provider_keyring_user(provider_id);
     test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), &user)
 }
 
 #[cfg(not(coverage))]
+/// Removes an AI provider API key from the current backend.
 pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
     let user = provider_keyring_user(provider_id);
     if let Some(path) = test_keyring_dir() {
@@ -319,6 +346,7 @@ pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Returns whether an AI provider API key is currently stored in the active backend.
 pub fn provider_api_key_saved(provider_id: &str) -> bool {
     #[cfg(coverage)]
     {

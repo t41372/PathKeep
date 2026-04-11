@@ -1,6 +1,9 @@
+//! Security and keyring read models.
+
 use super::ArchiveMode;
 use serde::{Deserialize, Serialize};
 
+/// Snapshot of keyring availability and whether a database key is stored.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyringStatusReport {
@@ -9,6 +12,8 @@ pub struct KeyringStatusReport {
     pub stored_secret: bool,
     pub message: Option<String>,
 }
+
+/// Combined security-status payload returned to the shell.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SecurityStatus {
@@ -27,6 +32,7 @@ pub struct SecurityStatus {
     pub warnings: Vec<String>,
 }
 
+/// Preview payload for an archive rekey/mode-switch operation.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RekeyPreview {

@@ -1,3 +1,9 @@
+//! Firefox history parser.
+//!
+//! This baseline slice supports Firefox-family `places.sqlite` databases for
+//! visits and URLs. Downloads, search terms, and favicons intentionally remain
+//! unsupported here so the parser stays honest about what it can prove.
+
 use crate::{
     ParseError, ParsedHistory,
     types::{DatabaseInspection, ParsedUrl, ParsedVisit, ParserWarning},
@@ -35,6 +41,7 @@ WHERE moz_historyvisits.id > ?1
 ORDER BY moz_historyvisits.id ASC
 "#;
 
+/// Inspects a Firefox `places.sqlite` file and reports required-table coverage.
 pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     let connection = open_readonly(path)?;
     let mut statement = connection.prepare(INSPECT_TABLES_SQL)?;
@@ -62,6 +69,7 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     Ok(DatabaseInspection { table_names, warnings })
 }
 
+/// Parses a Firefox `places.sqlite` file into parser read models.
 pub fn parse_history(
     path: &Path,
     after_visit_id: i64,
@@ -85,14 +93,17 @@ pub fn parse_history(
     })
 }
 
+/// Converts Firefox's microsecond timestamp format to Unix milliseconds.
 pub fn firefox_time_to_unix_ms(value: i64) -> i64 {
     value.div_euclid(1_000).max(0)
 }
 
+/// Converts Unix milliseconds back into Firefox's microsecond timestamp format.
 pub fn unix_ms_to_firefox_time(value: i64) -> i64 {
     value.max(0).saturating_mul(1_000)
 }
 
+/// Converts Firefox's microsecond timestamp format to RFC3339.
 pub fn firefox_time_to_iso(value: i64) -> String {
     let milliseconds = firefox_time_to_unix_ms(value);
     Utc.timestamp_millis_opt(milliseconds)

@@ -1,5 +1,8 @@
+//! Remote-backup configuration and verification models.
+
 use serde::{Deserialize, Serialize};
 
+/// Persisted remote-backup settings stored inside app config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RemoteBackupConfig {
@@ -17,6 +20,7 @@ pub struct RemoteBackupConfig {
 }
 
 impl Default for RemoteBackupConfig {
+    /// Returns the accepted defaults for remote-backup settings.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -33,6 +37,8 @@ impl Default for RemoteBackupConfig {
         }
     }
 }
+
+/// Credentials payload used when storing S3-compatible secrets.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct S3CredentialInput {
@@ -40,6 +46,7 @@ pub struct S3CredentialInput {
     pub secret_access_key: String,
 }
 
+/// Preview payload for a remote-backup upload.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteBackupPreview {
@@ -51,6 +58,7 @@ pub struct RemoteBackupPreview {
     pub warnings: Vec<String>,
 }
 
+/// Result payload for a remote-backup upload.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteBackupResult {
@@ -61,6 +69,7 @@ pub struct RemoteBackupResult {
     pub message: String,
 }
 
+/// One verification check performed against a remote-backup bundle.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteBackupVerificationCheck {
@@ -69,6 +78,7 @@ pub struct RemoteBackupVerificationCheck {
     pub message: String,
 }
 
+/// One manifest file entry found inside a remote-backup bundle.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteBackupVerificationFile {
@@ -77,6 +87,7 @@ pub struct RemoteBackupVerificationFile {
     pub size_bytes: u64,
 }
 
+/// Full verification report for a remote-backup bundle.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteBackupVerification {

@@ -1,3 +1,9 @@
+//! Safari history parser.
+//!
+//! This slice reads already-staged `History.db` files and extracts visits/URLs.
+//! It does not attempt broader Safari artifact coverage; the goal is a
+//! trustworthy baseline parser, not speculative inference.
+
 use crate::{
     ParseError, ParsedHistory,
     types::{DatabaseInspection, ParsedUrl, ParsedVisit, ParserWarning},
@@ -57,6 +63,7 @@ ORDER BY history_visits.id ASC
 "#;
 const SAFARI_UNIX_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
 
+/// Inspects a Safari `History.db` file and reports required-table coverage.
 pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     let connection = open_readonly(path)?;
     let mut statement = connection.prepare(INSPECT_TABLES_SQL)?;
@@ -84,6 +91,7 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     Ok(DatabaseInspection { table_names, warnings })
 }
 
+/// Parses a Safari `History.db` file into parser read models.
 pub fn parse_history(
     path: &Path,
     after_visit_id: i64,
@@ -107,14 +115,17 @@ pub fn parse_history(
     })
 }
 
+/// Converts Safari's Cocoa timestamp format to Unix milliseconds.
 pub fn safari_time_to_unix_ms(value: f64) -> i64 {
     (((value + SAFARI_UNIX_EPOCH_OFFSET_SECONDS) * 1_000.0).round() as i64).max(0)
 }
 
+/// Converts Unix milliseconds back into Safari's Cocoa timestamp format.
 pub fn unix_ms_to_safari_time(value: i64) -> f64 {
     (value.max(0) as f64 / 1_000.0) - SAFARI_UNIX_EPOCH_OFFSET_SECONDS
 }
 
+/// Converts Safari's Cocoa timestamp format to RFC3339.
 pub fn safari_time_to_iso(value: f64) -> String {
     let milliseconds = safari_time_to_unix_ms(value);
     Utc.timestamp_millis_opt(milliseconds)

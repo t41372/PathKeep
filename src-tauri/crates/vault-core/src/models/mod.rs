@@ -1,3 +1,9 @@
+//! Shared backend read/write models.
+//!
+//! These serde types are the contract between the desktop shell, worker layer,
+//! and canonical backend modules. They should stay descriptive and transport
+//! friendly rather than smuggling behavior.
+
 pub mod app;
 pub mod archive;
 pub mod audit;
@@ -7,6 +13,7 @@ pub mod remote;
 pub mod schedule;
 pub mod security;
 
+/// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
     app::*, archive::*, audit::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
 };

@@ -1,6 +1,9 @@
+//! Canonical archive read/write models.
+
 use super::RemoteBackupResult;
 use serde::{Deserialize, Serialize};
 
+/// Storage mode for the canonical archive database.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ArchiveMode {
     #[serde(rename = "Plaintext", alias = "plaintext")]
@@ -9,6 +12,8 @@ pub enum ArchiveMode {
     #[serde(rename = "Encrypted", alias = "encrypted")]
     Encrypted,
 }
+
+/// High-level archive readiness/unlock status.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveStatus {
@@ -19,6 +24,8 @@ pub struct ArchiveStatus {
     pub last_successful_backup_at: Option<String>,
     pub warning: Option<String>,
 }
+
+/// Browser-managed retention boundary surfaced for honesty in the UI.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserRetentionBoundary {
@@ -26,6 +33,7 @@ pub struct BrowserRetentionBoundary {
     pub local_days: Option<u32>,
 }
 
+/// Discovered browser profile read model used before backup ingest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserProfile {
@@ -46,6 +54,7 @@ pub struct BrowserProfile {
     pub retention_boundary: BrowserRetentionBoundary,
 }
 
+/// Compact run-ledger summary used in lists and dashboards.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupRunOverview {
@@ -63,6 +72,7 @@ pub struct BackupRunOverview {
     pub new_downloads: usize,
 }
 
+/// Per-profile backup summary returned by one run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupProfileSummary {
@@ -75,6 +85,7 @@ pub struct BackupProfileSummary {
     pub notes: Vec<String>,
 }
 
+/// Full backup/report payload returned by backup-like operations.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupReport {
@@ -88,6 +99,7 @@ pub struct BackupReport {
     pub remote_backup: Option<RemoteBackupResult>,
 }
 
+/// Progress event streamed during a running backup.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupProgressEvent {
@@ -101,6 +113,7 @@ pub struct BackupProgressEvent {
     pub profile_id: Option<String>,
 }
 
+/// Disk-usage summary for archive-managed artifacts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageSummary {
@@ -112,6 +125,7 @@ pub struct StorageSummary {
     pub quarantine_bytes: u64,
 }
 
+/// Dashboard snapshot used by the archive home surface.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardSnapshot {
@@ -126,12 +140,14 @@ pub struct DashboardSnapshot {
     pub next_action: Option<String>,
 }
 
+/// Request payload for replaying a checkpoint snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotRestoreRequest {
     pub snapshot_path: String,
 }
 
+/// Preview payload for a checkpoint restore before execution.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotRestorePreview {
@@ -149,6 +165,7 @@ pub struct SnapshotRestorePreview {
     pub warnings: Vec<String>,
 }
 
+/// One retention bucket that can be previewed or pruned explicitly.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionBucket {
@@ -158,6 +175,7 @@ pub struct RetentionBucket {
     pub paths: Vec<String>,
 }
 
+/// Preview payload for retention pruning.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPreview {
@@ -165,12 +183,14 @@ pub struct RetentionPreview {
     pub warnings: Vec<String>,
 }
 
+/// Request payload for retention pruning.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPruneRequest {
     pub bucket_ids: Vec<String>,
 }
 
+/// Result payload for a retention-prune execution.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPruneResult {
@@ -181,6 +201,7 @@ pub struct RetentionPruneResult {
     pub warnings: Vec<String>,
 }
 
+/// History query contract used by archive recall and export surfaces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQuery {
@@ -198,6 +219,7 @@ pub struct HistoryQuery {
 }
 
 impl Default for HistoryQuery {
+    /// Returns the default archive recall settings used by the shell.
     fn default() -> Self {
         Self {
             q: None,
@@ -215,6 +237,7 @@ impl Default for HistoryQuery {
     }
 }
 
+/// One visible visit row returned by archive recall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
@@ -231,6 +254,7 @@ pub struct HistoryEntry {
     pub app_id: Option<String>,
 }
 
+/// Paginated history-query response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {

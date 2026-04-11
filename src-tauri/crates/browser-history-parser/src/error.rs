@@ -1,7 +1,13 @@
+//! Shared parser error types.
+//!
+//! Parser errors stay concrete about what failed: opening a database, finding a
+//! required table, or asking for a provider we do not support in this slice.
+
 use std::path::PathBuf;
 
 use thiserror::Error;
 
+/// Failures that can occur while reading a browser history artifact.
 #[derive(Debug, Error)]
 pub enum ParseError {
     #[error("failed to open SQLite database at {path}: {source}")]

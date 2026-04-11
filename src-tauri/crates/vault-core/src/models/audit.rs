@@ -1,7 +1,10 @@
+//! Audit and health-report read models.
+
 use super::BackupRunOverview;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// One artifact linked from an archive run's audit trail.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditArtifact {
@@ -13,6 +16,7 @@ pub struct AuditArtifact {
     pub reason: Option<String>,
 }
 
+/// Full audit detail for one run-ledger entry.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditRunDetail {
@@ -28,6 +32,8 @@ pub struct AuditRunDetail {
     pub manifest_hash: Option<String>,
     pub artifacts: Vec<AuditArtifact>,
 }
+
+/// One health/doctor check row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthCheck {
@@ -36,6 +42,7 @@ pub struct HealthCheck {
     pub detail: String,
 }
 
+/// Full doctor report returned by the archive health read path.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthReport {
@@ -43,6 +50,7 @@ pub struct HealthReport {
     pub checks: Vec<HealthCheck>,
 }
 
+/// Summary of conservative repair work performed by the doctor flow.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthRepairReport {

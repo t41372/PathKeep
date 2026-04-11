@@ -1,3 +1,9 @@
+//! Native scheduler adapters.
+//!
+//! PathKeep's schedule contract is explicit preview/manual/apply/remove/verify.
+//! This module turns that contract into host-specific plan files and install
+//! commands without hiding what will be written or executed.
+
 use crate::host_capability::current_platform_name;
 #[cfg(any(test, coverage))]
 use crate::test_support::launchctl_stub_success;
@@ -21,11 +27,13 @@ use vault_core::{
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Runtime parameters that shape the generated backup schedule plan.
 pub struct ScheduleParameters {
     pub due_after_hours: u64,
     pub check_interval_hours: u64,
 }
 
+/// Builds a preview-only native schedule plan for the requested platform.
 pub fn preview_schedule(
     platform: Option<&str>,
     executable_path: &Path,
@@ -50,6 +58,7 @@ pub fn preview_schedule(
     }
 }
 
+/// Applies a previously previewed native schedule plan when the platform supports it.
 pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
     if plan.platform != "macos" {
         return Ok(ApplyResult {
@@ -94,6 +103,7 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
     })
 }
 
+/// Removes a previously applied native schedule plan when the platform supports it.
 pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
     if plan.platform != "macos" {
         return Ok(ApplyResult {
@@ -136,6 +146,7 @@ pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Appl
     })
 }
 
+/// Reports install/due-state information for the native scheduler plan.
 pub fn schedule_status(
     platform: Option<&str>,
     executable_path: &Path,

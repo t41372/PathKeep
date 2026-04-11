@@ -1,5 +1,8 @@
+//! Takeout and import-batch read models.
+
 use serde::{Deserialize, Serialize};
 
+/// Request payload for inspecting or importing a Takeout source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TakeoutRequest {
@@ -7,6 +10,7 @@ pub struct TakeoutRequest {
     pub dry_run: bool,
 }
 
+/// Summary of one recognized or quarantined file inside a Takeout source.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TakeoutFileReport {
@@ -16,6 +20,7 @@ pub struct TakeoutFileReport {
     pub records: usize,
 }
 
+/// One preview visit shown before or after a Takeout import.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TakeoutPreviewEntry {
@@ -27,6 +32,7 @@ pub struct TakeoutPreviewEntry {
     pub status: String,
 }
 
+/// Compact summary for one recorded import batch.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportBatchOverview {
@@ -46,6 +52,7 @@ pub struct ImportBatchOverview {
     pub git_commit: Option<String>,
 }
 
+/// Detailed import-batch view with preview rows and file reports.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportBatchDetail {
@@ -56,6 +63,7 @@ pub struct ImportBatchDetail {
     pub notes: Vec<String>,
 }
 
+/// Full inspection/import payload returned by the Takeout flow.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TakeoutInspection {

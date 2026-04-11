@@ -1,12 +1,20 @@
+//! Shared parser read models.
+//!
+//! These types intentionally describe parsed source artifacts, not canonical
+//! archive rows. They keep parser output deterministic and easy to test before
+//! `vault-core` maps the data into archive-specific semantics.
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// File paths for a Chromium history database plus its optional favicons sidecar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryDatabaseSet {
     pub history_path: PathBuf,
     pub favicons_path: Option<PathBuf>,
 }
 
+/// Incremental cursor used when rereading Chromium data sources.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChromiumReadCursor {
     pub after_visit_id: i64,
@@ -15,18 +23,21 @@ pub struct ChromiumReadCursor {
     pub after_favicon_last_updated: i64,
 }
 
+/// Non-fatal issue discovered while inspecting or parsing a source database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParserWarning {
     pub code: String,
     pub message: String,
 }
 
+/// Table-level inspection summary for one source database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DatabaseInspection {
     pub table_names: Vec<String>,
     pub warnings: Vec<ParserWarning>,
 }
 
+/// Parsed Chromium/Firefox/Safari URL row before archive ingest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedUrl {
     pub source_url_id: i64,
@@ -39,6 +50,7 @@ pub struct ParsedUrl {
     pub hidden: bool,
 }
 
+/// Parsed browser visit row before archive ingest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedVisit {
     pub source_visit_id: i64,
@@ -56,6 +68,7 @@ pub struct ParsedVisit {
     pub app_id: Option<String>,
 }
 
+/// Parsed Chromium download row before archive ingest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedDownload {
     pub source_download_id: i64,
@@ -71,6 +84,7 @@ pub struct ParsedDownload {
     pub original_mime_type: Option<String>,
 }
 
+/// Parsed Chromium keyword-search term row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedSearchTerm {
     pub keyword_id: i64,
@@ -79,6 +93,7 @@ pub struct ParsedSearchTerm {
     pub normalized_term: String,
 }
 
+/// Parsed Chromium favicon bitmap metadata and bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedFavicon {
     pub page_url: String,
@@ -91,6 +106,7 @@ pub struct ParsedFavicon {
     pub image_data: Option<Vec<u8>>,
 }
 
+/// Full parsed Chromium-style history payload returned by the parser crate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChromiumHistory {
     pub inspection: DatabaseInspection,
