@@ -1,3 +1,10 @@
+//! Thin binary entrypoint for the desktop crate.
+//!
+//! `src/lib.rs` owns the real application logic. This file only translates the
+//! library result into an OS exit code so both tests and the app bundle can use
+//! the same entrypoint logic.
+
+/// Converts the shared library entrypoint result into a process exit code.
 fn entrypoint_exit_code(result: anyhow::Result<()>) -> i32 {
     match result {
         Ok(()) => 0,
@@ -9,6 +16,7 @@ fn entrypoint_exit_code(result: anyhow::Result<()>) -> i32 {
 }
 
 #[cfg(not(test))]
+/// Runs the desktop entrypoint and exits non-zero on startup failure.
 fn main() {
     let exit_code = entrypoint_exit_code(pathkeep_desktop::entrypoint());
     if exit_code != 0 {

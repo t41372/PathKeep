@@ -1,3 +1,5 @@
+//! Tauri commands for Takeout inspection/import and import-batch review.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -5,6 +7,7 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Inspects a Takeout source without importing it.
 pub(crate) fn inspect_takeout(
     request: vault_core::TakeoutRequest,
 ) -> Result<vault_core::TakeoutInspection, String> {
@@ -13,6 +16,7 @@ pub(crate) fn inspect_takeout(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Imports a Takeout source into the current archive.
 pub(crate) fn import_takeout(
     request: vault_core::TakeoutRequest,
     state: State<'_, SessionState>,
@@ -22,6 +26,7 @@ pub(crate) fn import_takeout(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the detailed preview for one previously recorded import batch.
 pub(crate) fn preview_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
@@ -31,6 +36,7 @@ pub(crate) fn preview_import_batch(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Hides one import batch from the visible archive surface.
 pub(crate) fn revert_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
@@ -40,6 +46,7 @@ pub(crate) fn revert_import_batch(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Restores a previously reverted import batch to the visible archive surface.
 pub(crate) fn restore_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,

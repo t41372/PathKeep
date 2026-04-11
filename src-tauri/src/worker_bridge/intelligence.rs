@@ -1,3 +1,5 @@
+//! Worker-bridge helpers for optional AI and deterministic intelligence.
+
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, ExplainInsightRequest, RunInsightsRequest,
@@ -6,12 +8,14 @@ use vault_core::{
 use super::worker_result;
 
 #[cfg_attr(test, allow(dead_code))]
+/// Clears rebuildable intelligence state while leaving canonical archive facts untouched.
 pub(crate) fn clear_derived_intelligence_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, String> {
     worker_result(vault_worker::clear_derived_intelligence(session_database_key))
 }
 
+/// Stores one AI provider API key and returns the refreshed app snapshot.
 pub(crate) fn store_ai_provider_api_key_impl(
     input: AiProviderSecretInput,
     session_database_key: Option<&str>,
@@ -19,6 +23,7 @@ pub(crate) fn store_ai_provider_api_key_impl(
     worker_result(vault_worker::store_ai_provider_api_key(&input, session_database_key))
 }
 
+/// Clears one AI provider API key and returns the refreshed app snapshot.
 pub(crate) fn clear_ai_provider_api_key_impl(
     provider_id: String,
     session_database_key: Option<&str>,
@@ -27,6 +32,7 @@ pub(crate) fn clear_ai_provider_api_key_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Tests one AI provider connection using the worker's runtime resolution rules.
 pub(crate) fn test_ai_provider_connection_impl(
     request: AiProviderConnectionTestRequest,
     session_database_key: Option<&str>,
@@ -35,6 +41,7 @@ pub(crate) fn test_ai_provider_connection_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the AI queue read model.
 pub(crate) fn load_ai_queue_status_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AiQueueStatus, String> {
@@ -42,6 +49,7 @@ pub(crate) fn load_ai_queue_status_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Drains AI queue jobs immediately.
 pub(crate) fn run_ai_queue_jobs_impl(
     max_jobs: Option<u32>,
     session_database_key: Option<&str>,
@@ -50,6 +58,7 @@ pub(crate) fn run_ai_queue_jobs_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Requeues a single AI job.
 pub(crate) fn replay_ai_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
@@ -58,6 +67,7 @@ pub(crate) fn replay_ai_job_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Cancels a single AI job.
 pub(crate) fn cancel_ai_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
@@ -66,6 +76,7 @@ pub(crate) fn cancel_ai_job_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the persisted assistant result for a queue-backed AI job.
 pub(crate) fn load_ai_assistant_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
@@ -73,6 +84,7 @@ pub(crate) fn load_ai_assistant_job_impl(
     worker_result(vault_worker::load_ai_assistant_job(session_database_key, job_id))
 }
 
+/// Builds or refreshes the semantic index right away.
 pub(crate) fn build_ai_index_impl(
     request: AiIndexRequest,
     session_database_key: Option<&str>,
@@ -80,6 +92,7 @@ pub(crate) fn build_ai_index_impl(
     worker_result(vault_worker::build_ai_index_now(session_database_key, &request))
 }
 
+/// Runs semantic-plus-lexical search through the worker layer.
 pub(crate) fn search_ai_history_impl(
     request: AiSearchRequest,
     session_database_key: Option<&str>,
@@ -87,6 +100,7 @@ pub(crate) fn search_ai_history_impl(
     worker_result(vault_worker::search_ai_history(session_database_key, &request))
 }
 
+/// Answers one question with first-party assistant tooling and citations.
 pub(crate) fn ask_ai_assistant_impl(
     request: AiAssistantRequest,
     session_database_key: Option<&str>,
@@ -94,11 +108,13 @@ pub(crate) fn ask_ai_assistant_impl(
     worker_result(vault_worker::ask_ai_assistant(session_database_key, &request))
 }
 
+/// Previews the generated MCP and skill integration artifacts.
 pub(crate) fn preview_ai_integrations_impl() -> Result<vault_core::AiIntegrationPreview, String> {
     worker_result(vault_worker::preview_ai_integration_files())
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Rebuilds deterministic insights immediately.
 pub(crate) fn run_insights_now_impl(
     request: RunInsightsRequest,
     session_database_key: Option<&str>,
@@ -107,6 +123,7 @@ pub(crate) fn run_insights_now_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the current deterministic insight snapshot.
 pub(crate) fn load_insights_impl(
     request: RunInsightsRequest,
     session_database_key: Option<&str>,
@@ -115,6 +132,7 @@ pub(crate) fn load_insights_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads one deterministic insight thread in detail.
 pub(crate) fn load_thread_detail_impl(
     thread_id: String,
     session_database_key: Option<&str>,
@@ -123,6 +141,7 @@ pub(crate) fn load_thread_detail_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Generates a human-readable explanation for one deterministic insight.
 pub(crate) fn explain_insight_impl(
     request: ExplainInsightRequest,
     session_database_key: Option<&str>,
@@ -131,6 +150,7 @@ pub(crate) fn explain_insight_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the combined runtime snapshot for intelligence queues and plugins.
 pub(crate) fn load_intelligence_runtime_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
@@ -138,6 +158,7 @@ pub(crate) fn load_intelligence_runtime_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Retries one deterministic intelligence job.
 pub(crate) fn retry_intelligence_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
@@ -146,6 +167,7 @@ pub(crate) fn retry_intelligence_job_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Cancels one deterministic intelligence job.
 pub(crate) fn cancel_intelligence_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,

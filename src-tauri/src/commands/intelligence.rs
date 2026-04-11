@@ -1,3 +1,5 @@
+//! Tauri commands for optional AI and deterministic intelligence flows.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -5,6 +7,7 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Stores one AI provider secret and returns the refreshed app snapshot.
 pub(crate) fn store_ai_provider_api_key(
     input: vault_core::AiProviderSecretInput,
     state: State<'_, SessionState>,
@@ -14,6 +17,7 @@ pub(crate) fn store_ai_provider_api_key(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Removes one stored AI provider secret and returns the refreshed app snapshot.
 pub(crate) fn clear_ai_provider_api_key(
     provider_id: String,
     state: State<'_, SessionState>,
@@ -23,6 +27,7 @@ pub(crate) fn clear_ai_provider_api_key(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Probes an AI provider connection without launching archive-wide jobs.
 pub(crate) fn test_ai_provider_connection(
     request: vault_core::AiProviderConnectionTestRequest,
     state: State<'_, SessionState>,
@@ -32,6 +37,7 @@ pub(crate) fn test_ai_provider_connection(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the persisted AI queue status read model.
 pub(crate) fn load_ai_queue_status(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueStatus, String> {
@@ -40,6 +46,7 @@ pub(crate) fn load_ai_queue_status(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Drains queued AI jobs up to the requested limit.
 pub(crate) fn run_ai_queue_jobs(
     max_jobs: Option<u32>,
     state: State<'_, SessionState>,
@@ -49,6 +56,7 @@ pub(crate) fn run_ai_queue_jobs(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Requeues one failed or skipped AI job.
 pub(crate) fn replay_ai_job(
     job_id: i64,
     state: State<'_, SessionState>,
@@ -58,6 +66,7 @@ pub(crate) fn replay_ai_job(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Cancels one queued or running AI job.
 pub(crate) fn cancel_ai_job(
     job_id: i64,
     state: State<'_, SessionState>,
@@ -67,6 +76,7 @@ pub(crate) fn cancel_ai_job(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the persisted assistant result for one queue-backed job.
 pub(crate) fn load_ai_assistant_job(
     job_id: i64,
     state: State<'_, SessionState>,
@@ -76,6 +86,7 @@ pub(crate) fn load_ai_assistant_job(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Builds or refreshes the semantic index.
 pub(crate) fn build_ai_index(
     request: vault_core::AiIndexRequest,
     state: State<'_, SessionState>,
@@ -85,6 +96,7 @@ pub(crate) fn build_ai_index(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Runs semantic-plus-lexical search over visible archive history.
 pub(crate) fn search_ai_history(
     request: vault_core::AiSearchRequest,
     state: State<'_, SessionState>,
@@ -94,6 +106,7 @@ pub(crate) fn search_ai_history(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Asks the first-party assistant to answer a question with archive citations.
 pub(crate) fn ask_ai_assistant(
     request: vault_core::AiAssistantRequest,
     state: State<'_, SessionState>,
@@ -103,6 +116,7 @@ pub(crate) fn ask_ai_assistant(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Executes a deterministic insights rebuild now instead of waiting for background work.
 pub(crate) fn run_insights_now(
     request: vault_core::RunInsightsRequest,
     state: State<'_, SessionState>,
@@ -112,6 +126,7 @@ pub(crate) fn run_insights_now(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the latest deterministic insights snapshot for the requested scope.
 pub(crate) fn load_insights(
     request: vault_core::RunInsightsRequest,
     state: State<'_, SessionState>,
@@ -121,6 +136,7 @@ pub(crate) fn load_insights(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads one deterministic insight thread in detail.
 pub(crate) fn load_thread_detail(
     thread_id: String,
     state: State<'_, SessionState>,
@@ -130,6 +146,7 @@ pub(crate) fn load_thread_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Produces a human-readable explanation for one deterministic insight.
 pub(crate) fn explain_insight(
     request: vault_core::ExplainInsightRequest,
     state: State<'_, SessionState>,
@@ -139,6 +156,7 @@ pub(crate) fn explain_insight(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Returns queue/runtime state for deterministic intelligence and enrichment work.
 pub(crate) fn load_intelligence_runtime(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
@@ -147,6 +165,7 @@ pub(crate) fn load_intelligence_runtime(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Retries one deterministic intelligence job immediately.
 pub(crate) fn retry_intelligence_job(
     job_id: i64,
     state: State<'_, SessionState>,
@@ -156,6 +175,7 @@ pub(crate) fn retry_intelligence_job(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Cancels one deterministic intelligence job.
 pub(crate) fn cancel_intelligence_job(
     job_id: i64,
     state: State<'_, SessionState>,
@@ -165,6 +185,7 @@ pub(crate) fn cancel_intelligence_job(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Generates the local MCP and skill integration preview files.
 pub(crate) fn preview_ai_integrations() -> Result<vault_core::AiIntegrationPreview, String> {
     worker_bridge::preview_ai_integrations_impl()
 }

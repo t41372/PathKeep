@@ -1,6 +1,13 @@
 #![cfg(feature = "devtools-bridge")]
 #![cfg_attr(test, allow(dead_code))]
 
+//! Dev-only HTTP bridge for browser automation and local tooling.
+//!
+//! This module mirrors a subset of the desktop command surface over localhost
+//! HTTP so Playwright/Chrome automation can drive the backend during local
+//! development. It is intentionally feature-gated and environment-gated; it is
+//! not part of the production transport contract.
+
 use crate::{
     PRODUCT_DISPLAY_NAME, file_manager,
     session::{SessionState, session_key},
@@ -186,6 +193,7 @@ struct AppUpdateInstallPayload {
     request: Option<AppUpdateInstallRequest>,
 }
 
+/// Starts the localhost dev bridge when the feature flag and env vars allow it.
 pub(crate) fn maybe_launch(app: AppHandle, session: SessionState) -> Result<()> {
     if !bridge_enabled() {
         return Ok(());

@@ -1,3 +1,19 @@
+//! Desktop application entrypoint and process-level wiring.
+//!
+//! This crate is the outermost backend boundary for the Tauri desktop app. It
+//! decides whether the process should boot the GUI shell or run the worker CLI,
+//! installs global plugins such as logging and updates, and wires the Tauri
+//! command surface to the lower-level worker bridge.
+//!
+//! Important invariants from the accepted docs:
+//!
+//! - Tauri commands are transport glue, not the source of truth for archive or
+//!   AI behavior.
+//! - The worker CLI stays behaviorally aligned with the desktop command
+//!   surface, so local automation and tests do not get a different backend.
+//! - App Lock session setup happens before the renderer starts issuing archive
+//!   reads.
+
 mod commands;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
@@ -19,6 +35,7 @@ use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 const PRODUCT_DISPLAY_NAME: &str = "PathKeep";
 
+/// Launches the desktop process in either GUI or `--worker` mode.
 pub fn entrypoint() -> Result<()> {
     let arguments = std::env::args().collect::<Vec<_>>();
     let stdout = std::io::stdout();
@@ -26,6 +43,7 @@ pub fn entrypoint() -> Result<()> {
     write_payload(&mut handle, run_with_arguments(&arguments)?)
 }
 
+/// Routes process arguments to the worker CLI or the GUI shell.
 fn run_with_arguments(arguments: &[String]) -> Result<Option<String>> {
     if arguments.get(1).map(String::as_str) == Some("--worker") {
         return vault_worker::run_worker_cli(&arguments[2..]).map(Some);
@@ -34,6 +52,7 @@ fn run_with_arguments(arguments: &[String]) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// Writes a worker-mode JSON payload to stdout when one exists.
 fn write_payload<W: Write>(writer: &mut W, payload: Option<String>) -> Result<()> {
     if let Some(payload) = payload {
         writeln!(writer, "{payload}")?;
@@ -42,6 +61,7 @@ fn write_payload<W: Write>(writer: &mut W, payload: Option<String>) -> Result<()
 }
 
 #[cfg(not(test))]
+/// Boots the desktop shell, installs plugins, and registers the command facade.
 fn run_app() -> Result<()> {
     let session_state = SessionState::default();
     #[cfg(feature = "devtools-bridge")]
@@ -147,11 +167,13 @@ fn run_app() -> Result<()> {
 }
 
 #[cfg(test)]
+/// Test stub that avoids constructing a real Tauri runtime.
 fn run_app() -> Result<()> {
     Ok(())
 }
 
 #[cfg(not(test))]
+/// Builds the rotating frontend/Rust log sinks used by the desktop app.
 fn build_logging_plugin<R: tauri::Runtime>(
     paths: &vault_core::ProjectPaths,
 ) -> tauri::plugin::TauriPlugin<R> {
@@ -184,6 +206,7 @@ fn build_logging_plugin<R: tauri::Runtime>(
 }
 
 #[cfg(not(test))]
+/// Installs a one-time panic hook that persists Rust crash reports to disk.
 fn install_panic_hook(paths: &vault_core::ProjectPaths) {
     use std::sync::OnceLock;
 

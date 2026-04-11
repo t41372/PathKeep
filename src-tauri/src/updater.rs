@@ -1,5 +1,12 @@
 #![cfg_attr(test, allow(dead_code))]
 
+//! Desktop updater orchestration.
+//!
+//! This module adapts the Tauri updater plugin into PathKeep's read models and
+//! progress events. It keeps update state explicit for the UI: check results,
+//! download/install progress, and relaunch signaling all flow through typed
+//! payloads instead of implicit plugin callbacks.
+
 use chrono::Utc;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -15,6 +22,7 @@ pub(crate) const RELEASES_PAGE_URL: &str =
 pub(crate) const UPDATER_PROGRESS_EVENT: &str = "pathkeep://updater-progress";
 const TEST_UPDATER_ENDPOINTS_ENV: &str = "PATHKEEP_TEST_UPDATER_ENDPOINTS";
 
+/// Checks for an available application update and normalizes the result for the UI.
 pub(crate) async fn check_for_app_update<R: Runtime>(app: AppHandle<R>) -> AppUpdateCheckResult {
     let checked_at = now_iso();
     let current_version = app.package_info().version.to_string();
@@ -68,6 +76,7 @@ pub(crate) async fn check_for_app_update<R: Runtime>(app: AppHandle<R>) -> AppUp
     }
 }
 
+/// Downloads and installs a pending update while emitting progress snapshots.
 pub(crate) async fn download_and_install_app_update<R: Runtime>(
     app: AppHandle<R>,
     request: Option<AppUpdateInstallRequest>,
@@ -184,11 +193,13 @@ pub(crate) async fn download_and_install_app_update<R: Runtime>(
     }
 }
 
+/// Requests an app restart after a successful update install.
 pub(crate) fn relaunch_after_update<R: Runtime>(app: AppHandle<R>) -> bool {
     app.request_restart();
     true
 }
 
+/// Builds the updater instance, including any debug-only endpoint overrides.
 fn updater_for_handle<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<tauri_plugin_updater::Updater, String> {
@@ -199,6 +210,7 @@ fn updater_for_handle<R: Runtime>(
     builder.build().map_err(|error| error.to_string())
 }
 
+/// Reads optional debug-only updater endpoint overrides from the environment.
 fn runtime_updater_endpoints() -> Result<Option<Vec<Url>>, String> {
     #[cfg(debug_assertions)]
     {
@@ -219,14 +231,17 @@ fn runtime_updater_endpoints() -> Result<Option<Vec<Url>>, String> {
     Ok(None)
 }
 
+/// Returns the current UTC timestamp in ISO/RFC3339 form for update read models.
 fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Formats an optional release date for the desktop read model.
 fn format_release_date<T: ToString>(date: Option<T>) -> Option<String> {
     date.map(|value| value.to_string())
 }
 
+/// Builds a failed update-check payload that still tells the UI when the check happened.
 fn check_failure(
     checked_at: String,
     current_version: Option<String>,
@@ -248,6 +263,7 @@ fn check_failure(
     }
 }
 
+/// Builds a failed install-progress payload with the bytes downloaded so far.
 fn install_error_state(
     version: Option<String>,
     downloaded_bytes: Option<u64>,

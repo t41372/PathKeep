@@ -1,3 +1,5 @@
+//! Tauri commands for backup schedule preview/apply/remove/status.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -5,6 +7,7 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Previews the native scheduler plan for one platform.
 pub(crate) fn preview_schedule(
     platform: Option<String>,
 ) -> Result<vault_core::SchedulePlan, String> {
@@ -13,6 +16,7 @@ pub(crate) fn preview_schedule(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Applies one previously previewed native schedule plan.
 pub(crate) fn apply_schedule(
     plan: vault_core::SchedulePlan,
 ) -> Result<vault_core::ApplyResult, String> {
@@ -21,6 +25,7 @@ pub(crate) fn apply_schedule(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Removes one previously previewed native schedule plan.
 pub(crate) fn remove_schedule(
     plan: vault_core::SchedulePlan,
 ) -> Result<vault_core::ApplyResult, String> {
@@ -29,6 +34,7 @@ pub(crate) fn remove_schedule(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads install/due-state information for the selected scheduler platform.
 pub(crate) fn schedule_status(
     platform: Option<String>,
     state: State<'_, SessionState>,

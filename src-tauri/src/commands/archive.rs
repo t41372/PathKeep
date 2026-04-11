@@ -1,3 +1,5 @@
+//! Tauri commands for canonical archive flows.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -7,6 +9,7 @@ use vault_worker::RekeyRequest;
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Initializes the archive and optionally seeds the first session key.
 pub(crate) fn initialize_archive(
     config: vault_core::AppConfig,
     database_key: Option<String>,
@@ -17,6 +20,7 @@ pub(crate) fn initialize_archive(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Executes an archive rekey/mode switch and returns the refreshed app snapshot.
 pub(crate) fn rekey_archive(
     request: RekeyRequest,
     state: State<'_, SessionState>,
@@ -26,6 +30,7 @@ pub(crate) fn rekey_archive(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Previews the archive rekey plan before any encryption-mode mutation happens.
 pub(crate) fn preview_rekey_archive(
     request: RekeyRequest,
     state: State<'_, SessionState>,
@@ -35,6 +40,7 @@ pub(crate) fn preview_rekey_archive(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Previews a checkpoint restore without replaying it yet.
 pub(crate) fn preview_snapshot_restore(
     request: vault_core::SnapshotRestoreRequest,
     state: State<'_, SessionState>,
@@ -44,6 +50,7 @@ pub(crate) fn preview_snapshot_restore(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Replays a checkpoint restore and records it in the archive ledger.
 pub(crate) fn run_snapshot_restore(
     request: vault_core::SnapshotRestoreRequest,
     state: State<'_, SessionState>,
@@ -53,6 +60,7 @@ pub(crate) fn run_snapshot_restore(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Shows what retention pruning would delete or preserve.
 pub(crate) fn preview_retention_prune(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::RetentionPreview, String> {
@@ -61,6 +69,7 @@ pub(crate) fn preview_retention_prune(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Executes retention pruning for the selected buckets.
 pub(crate) fn run_retention_prune(
     request: vault_core::RetentionPruneRequest,
     state: State<'_, SessionState>,
@@ -70,6 +79,7 @@ pub(crate) fn run_retention_prune(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Starts a backup run and streams progress events back to the renderer.
 pub(crate) fn run_backup_now(
     app: AppHandle,
     due_only: bool,
@@ -82,6 +92,7 @@ pub(crate) fn run_backup_now(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Queries visible history facts from the canonical archive.
 pub(crate) fn query_history(
     query: vault_core::HistoryQuery,
     state: State<'_, SessionState>,
@@ -91,6 +102,7 @@ pub(crate) fn query_history(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the dashboard summary shown on the archive home surface.
 pub(crate) fn load_dashboard_snapshot(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::DashboardSnapshot, String> {
@@ -99,6 +111,7 @@ pub(crate) fn load_dashboard_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the full audit detail for one archived run.
 pub(crate) fn load_audit_run_detail(
     run_id: i64,
     state: State<'_, SessionState>,
@@ -108,6 +121,7 @@ pub(crate) fn load_audit_run_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Exports a history query result to the requested artifact format.
 pub(crate) fn export_history(
     request: vault_core::ExportRequest,
     state: State<'_, SessionState>,
@@ -117,6 +131,7 @@ pub(crate) fn export_history(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Runs the archive doctor read path without mutating canonical facts.
 pub(crate) fn doctor_report(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthReport, String> {
@@ -125,6 +140,7 @@ pub(crate) fn doctor_report(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Applies conservative archive repair steps for doctor-detected issues.
 pub(crate) fn repair_health(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthRepairReport, String> {
@@ -133,6 +149,7 @@ pub(crate) fn repair_health(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Clears rebuildable intelligence state without touching canonical visits.
 pub(crate) fn clear_derived_intelligence(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, String> {

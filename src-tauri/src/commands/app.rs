@@ -1,3 +1,5 @@
+//! Tauri commands for app bootstrap and session controls.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -5,12 +7,14 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Returns immutable build metadata shown in About/diagnostics surfaces.
 pub(crate) fn app_build_info() -> vault_core::AppBuildInfo {
     worker_bridge::app_build_info_impl()
 }
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the desktop snapshot used to hydrate the shell after startup.
 pub(crate) fn app_snapshot(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
@@ -19,6 +23,7 @@ pub(crate) fn app_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Persists user config changes and returns the refreshed desktop snapshot.
 pub(crate) fn save_config(
     config: vault_core::AppConfig,
     state: State<'_, SessionState>,
@@ -28,6 +33,7 @@ pub(crate) fn save_config(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Stores a session-only archive key without touching native keyrings.
 pub(crate) fn set_session_database_key(
     database_key: String,
     state: State<'_, SessionState>,
@@ -37,18 +43,21 @@ pub(crate) fn set_session_database_key(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Clears the transient session database key cached by the desktop process.
 pub(crate) fn clear_session_database_key(state: State<'_, SessionState>) -> Result<(), String> {
     worker_bridge::clear_session_database_key_impl(&state)
 }
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Returns the current App Lock session status.
 pub(crate) fn app_lock_status() -> Result<vault_core::AppLockStatus, String> {
     worker_bridge::app_lock_status_impl()
 }
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Configures or rotates the App Lock passcode for future UI sessions.
 pub(crate) fn set_app_lock_passcode(
     request: vault_core::SetAppLockPasscodeRequest,
 ) -> Result<vault_core::AppLockStatus, String> {
@@ -57,12 +66,14 @@ pub(crate) fn set_app_lock_passcode(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Removes the App Lock passcode and returns the updated lock status.
 pub(crate) fn clear_app_lock_passcode() -> Result<vault_core::AppLockStatus, String> {
     worker_bridge::clear_app_lock_passcode_impl()
 }
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Locks the current UI session without changing archive encryption state.
 pub(crate) fn lock_app_session(
     reason: Option<String>,
 ) -> Result<vault_core::AppLockStatus, String> {
@@ -71,6 +82,7 @@ pub(crate) fn lock_app_session(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Attempts to unlock the current UI session with the provided credentials.
 pub(crate) fn unlock_app_session(
     request: vault_core::UnlockAppSessionRequest,
 ) -> Result<vault_core::AppLockStatus, String> {

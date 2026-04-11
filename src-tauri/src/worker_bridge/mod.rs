@@ -1,3 +1,10 @@
+//! Bridge from the Tauri command facade into `vault-worker`.
+//!
+//! The command modules are intentionally transport-shaped, while
+//! `vault-worker` is task-shaped. This layer adapts between them:
+//! session-state lookups, transient key updates, progress callbacks, and
+//! uniform string error shaping.
+
 mod app;
 mod archive;
 mod import;
@@ -10,6 +17,7 @@ pub(crate) use self::{
     app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
 };
 
+/// Normalizes worker/core errors into the string transport contract used by Tauri commands.
 fn worker_result<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
     result.map_err(|error| error.to_string())
 }

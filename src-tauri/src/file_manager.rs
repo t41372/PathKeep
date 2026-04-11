@@ -1,7 +1,14 @@
+//! Tiny shell-launcher wrappers for the desktop support commands.
+//!
+//! The command facade keeps file-manager/URL opening isolated here so tests can
+//! exercise the wrapper without pulling in the whole command module.
+
+/// Opens one local path through the platform launcher and returns the same path on success.
 pub(crate) fn open_path_in_file_manager_impl(path: String) -> Result<String, String> {
     vault_platform::open_path_in_file_manager(path)
 }
 
+/// Opens one external HTTP(S) URL through the platform launcher and returns it on success.
 pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
     vault_platform::open_external_url(url)
 }
