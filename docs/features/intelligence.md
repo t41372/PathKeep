@@ -5,6 +5,8 @@
 > 所有 AI 功能預設關閉，可以在設定中開啟。
 >
 > **2026-04-10 truth note:** deterministic baseline 已由 [deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 接管。這份文檔仍描述 optional AI / assistant / MCP / M3-M4 shipped surface；任何殘留的 session / dwell / embedding-first deterministic wording，都屬需要被 M5 持續 supersede 的 legacy implementation debt，不再是新的 accepted baseline。
+>
+> **2026-04-10 packaging note:** default desktop install 仍內建 optional AI / assistant / MCP / semantic runtime；`optional` 指 capability 預設關閉、需明確設定 / provider 才會啟用，不代表第一次使用時另裝 helper 或外掛 binary。相關 shipping boundary 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
 
 ---
 

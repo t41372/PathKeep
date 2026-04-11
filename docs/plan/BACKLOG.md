@@ -7,27 +7,7 @@
 
 ## 工作塊佇列（按順序）
 
-### Program — Quality Closeout Before M4
-
-- [!] **WORK-QC-F** — Optional Intelligence Runtime Boundary And Bundle Size Follow-Up [!blocked: needs explicit product / packaging sign-off if the default desktop build stops shipping optional AI / MCP / semantic runtime in-process]
-  - 讀先：
-    `docs/architecture/tech-stack.md`
-    `docs/features/intelligence.md`
-    `docs/features/deterministic-intelligence.md`
-    `docs/plan/m4-full-polish/release-size-audit.md`
-    `docs/plan/m4-full-polish/code-health-audit.md`
-  - 目標：釐清 `lancedb` / `lance` / `datafusion` / `rig-core` 這條 optional intelligence stack 是否應繼續和 archive / shell-critical desktop runtime 同 binary shipping，或改成可選 sidecar / helper / feature-gated build boundary。
-  - 驗收：產出有 trade-off 的設計決策與可重跑的 size / packaging evidence；若涉及改變 default shipping surface，必須先取得使用者明確 sign-off。
-
-### M1 — Solid Archive
-
-### M2 — Recall & Trust
-
-### M3 — Intelligence
-
-### M4 — Full Polish
-
-### M5 — Deterministic Intelligence
+- 目前沒有待排的 work block。`WORK-QC-F` 已於 2026-04-10 完成 closeout；default desktop shipping surface 維持內建 optional AI / MCP / semantic runtime。
 
 ---
 

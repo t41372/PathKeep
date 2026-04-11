@@ -54,3 +54,16 @@ The generated bundle is expected to answer four questions:
 - the other large avoidable factor was missing release-size optimizations; enabling stripped symbols plus thin LTO removed a large `__LINKEDIT` / dead-code tail from the final executable
 - the dominant remaining cost is still the optional intelligence stack that is linked into the default desktop binary: `lancedb` / `lance` / `datafusion` / `rig-core`, plus `bundled-sqlcipher-vendored-openssl`
 - current truth: a ~100 MB Rust desktop executable for this feature set is still heavy, but materially more honest than the previous ~190 MB binary; any further major drop now requires a deeper runtime-boundary decision, not just link-time cleanup
+
+## 2026-04-10 Packaging Sign-Off / 2026-04-11 UTC Snapshot
+
+- 2026-04-10：使用者明確 sign off，PathKeep 預設桌面版**維持**把 optional AI / MCP / semantic runtime 與 archive / shell-critical runtime 一起 shipping；不拆 helper，不改成 feature-SKU build。
+- refreshed artifact bundle: `artifacts/release/2026-04-11-size-audit/`（generated at `2026-04-11T05:09:56.896Z`）
+- web total: `903585` bytes
+- base shell entry (`index.html` manifest entry, JS + CSS): `387414` bytes
+- heaviest route chunk: `src/pages/settings/index.tsx` at `63696` bytes
+- local installer bundle found: `dmg/PathKeep_0.1.0_aarch64.dmg` at `43117049` bytes
+- local updater bundle found: `macos/PathKeep.app.tar.gz` at `44796557` bytes
+- unsigned app binary inside the local bundle: `macos/PathKeep.app/Contents/MacOS/pathkeep-desktop` at `109198880` bytes（約 `104 MiB`）
+- current truth: web payload 仍低於 `1 MB`；主要重量依然在 desktop executable，而這部分現在屬於接受的產品取捨，不再是假裝還沒拍板的 blocker
+- 後續若還要再做 size work，重點應放在一般 dependency hygiene、supply-chain review 與 evidence refresh；若要改變 default shipping surface，則必須重新開決策文檔，而不是在 cleanup 裡偷偷拆掉 optional intelligence

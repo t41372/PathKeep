@@ -53,6 +53,11 @@
 - macOS secret storage 現在直接接 `apple-native-keyring-store`；Windows / Linux / FreeBSD 則由各自的 native store crate 接到 `keyring-core` default store。桌面 app 不再透過 umbrella `keyring` crate 把未使用的 `db-keystore` / `turso` fallback 一起編進 macOS binary。
 - release profile 現在固定使用 `strip = "symbols"`、`lto = "thin"`、`codegen-units = 1`。這不是用來掩飾依賴膨脹，而是把可裁切的 release metadata 與跨 crate dead code 真正裁掉。
 
+2026-04-10 packaging boundary note：
+
+- 使用者已在 2026-04-10 明確 sign off：default desktop build 維持把 optional AI / MCP / semantic runtime 與 archive / shell-critical flow 一起 shipping；`optional` 指 disabled-by-default + provider / consent gated，不是第一次使用時再安裝另一個 helper。
+- `LanceDB sidecar` 仍是 semantic index data sidecar，而不是獨立 code/runtime helper。相關 packaging 邊界已由 [ADR-009](decisions/009-default-desktop-optional-intelligence-shipping.md) 凍結。
+
 ## 目標平台
 
 - macOS（主要開發和測試平台）
