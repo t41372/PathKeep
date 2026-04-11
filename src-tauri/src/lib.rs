@@ -54,6 +54,7 @@ fn write_payload<W: Write>(writer: &mut W, payload: Option<String>) -> Result<()
 #[cfg(not(test))]
 fn run_app() -> Result<()> {
     let session_state = SessionState::default();
+    #[cfg(feature = "devtools-bridge")]
     let dev_bridge_state = session_state.clone();
 
     tauri::Builder::default()

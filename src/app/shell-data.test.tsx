@@ -573,7 +573,9 @@ describe('ShellDataProvider', () => {
 
   test('surfaces initial refresh failures without leaking an unhandled rejection', async () => {
     const { snapshot } = await seedSnapshot()
-    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(snapshot.appLockStatus)
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(
+      snapshot.appLockStatus,
+    )
     vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
       productName: 'PathKeep',
       version: '0.1.0',
