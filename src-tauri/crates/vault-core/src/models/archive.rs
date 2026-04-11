@@ -1,0 +1,284 @@
+use serde::{Deserialize, Serialize};
+use super::RemoteBackupResult;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum ArchiveMode {
+    #[serde(rename = "Plaintext", alias = "plaintext")]
+    #[default]
+    Plaintext,
+    #[serde(rename = "Encrypted", alias = "encrypted")]
+    Encrypted,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveStatus {
+    pub initialized: bool,
+    pub encrypted: bool,
+    pub unlocked: bool,
+    pub database_path: String,
+    pub last_successful_backup_at: Option<String>,
+    pub warning: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserRetentionBoundary {
+    pub kind: String,
+    pub local_days: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserProfile {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub browser_family: String,
+    pub browser_name: String,
+    pub user_name: Option<String>,
+    pub profile_path: String,
+    pub history_path: Option<String>,
+    pub favicons_path: Option<String>,
+    pub history_exists: bool,
+    pub browser_version: Option<String>,
+    pub history_file_name: String,
+    pub history_bytes: u64,
+    pub favicons_bytes: u64,
+    pub supporting_bytes: u64,
+    pub retention_boundary: BrowserRetentionBoundary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupRunOverview {
+    pub id: i64,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub status: String,
+    pub run_type: String,
+    pub trigger: String,
+    pub profile_scope: Vec<String>,
+    pub manifest_hash: Option<String>,
+    pub profiles_processed: usize,
+    pub new_visits: usize,
+    pub new_urls: usize,
+    pub new_downloads: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupProfileSummary {
+    pub profile_id: String,
+    pub new_visits: usize,
+    pub new_urls: usize,
+    pub new_downloads: usize,
+    pub raw_rows: usize,
+    pub checkpoint_created: bool,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupReport {
+    pub due_skipped: bool,
+    pub reason: Option<String>,
+    pub run: Option<BackupRunOverview>,
+    pub profiles: Vec<BackupProfileSummary>,
+    pub manifest_path: Option<String>,
+    pub git_commit: Option<String>,
+    pub warnings: Vec<String>,
+    pub remote_backup: Option<RemoteBackupResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupProgressEvent {
+    pub phase: String,
+    pub label: String,
+    pub detail: String,
+    pub step: usize,
+    pub total_steps: usize,
+    pub completed_profiles: usize,
+    pub total_profiles: usize,
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSummary {
+    pub archive_database_bytes: u64,
+    pub manifest_bytes: u64,
+    pub snapshot_bytes: u64,
+    pub export_bytes: u64,
+    pub staging_bytes: u64,
+    pub quarantine_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardSnapshot {
+    pub generated_at: String,
+    pub total_profiles: usize,
+    pub total_urls: usize,
+    pub total_visits: usize,
+    pub total_downloads: usize,
+    pub last_successful_backup_at: Option<String>,
+    pub recent_runs: Vec<BackupRunOverview>,
+    pub storage: StorageSummary,
+    pub next_action: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRestoreRequest {
+    pub snapshot_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRestorePreview {
+    pub snapshot_path: String,
+    pub snapshot_kind: String,
+    pub source_run_id: Option<i64>,
+    pub source_profile_id: Option<String>,
+    pub source_browser_name: Option<String>,
+    pub created_at: Option<String>,
+    pub reason: Option<String>,
+    pub execute_supported: bool,
+    pub estimated_visits: usize,
+    pub estimated_urls: usize,
+    pub estimated_downloads: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionBucket {
+    pub id: String,
+    pub bytes: u64,
+    pub item_count: usize,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPreview {
+    pub buckets: Vec<RetentionBucket>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPruneRequest {
+    pub bucket_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPruneResult {
+    pub run_id: Option<i64>,
+    pub deleted_bytes: u64,
+    pub deleted_files: usize,
+    pub buckets: Vec<RetentionBucket>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryQuery {
+    pub q: Option<String>,
+    pub profile_id: Option<String>,
+    pub browser_kind: Option<String>,
+    pub domain: Option<String>,
+    pub start_time_ms: Option<i64>,
+    pub end_time_ms: Option<i64>,
+    pub sort: Option<String>,
+    pub limit: Option<u32>,
+    pub page: Option<u32>,
+    pub cursor: Option<String>,
+    pub regex_mode: Option<bool>,
+}
+
+impl Default for HistoryQuery {
+    fn default() -> Self {
+        Self {
+            q: None,
+            profile_id: None,
+            browser_kind: None,
+            domain: None,
+            start_time_ms: None,
+            end_time_ms: None,
+            sort: Some("newest".to_string()),
+            limit: Some(150),
+            page: None,
+            cursor: None,
+            regex_mode: Some(false),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub visited_at: String,
+    pub visit_time: i64,
+    pub duration_ms: Option<i64>,
+    pub transition: Option<i64>,
+    pub source_visit_id: i64,
+    pub app_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryQueryResponse {
+    pub total: usize,
+    pub items: Vec<HistoryEntry>,
+    pub page: usize,
+    pub page_size: usize,
+    pub page_count: usize,
+    pub has_previous: bool,
+    pub has_next: bool,
+    pub next_cursor: Option<String>,
+}
+
+impl Default for HistoryQueryResponse {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            items: Vec::new(),
+            page: 1,
+            page_size: 0,
+            page_count: 1,
+            has_previous: false,
+            has_next: false,
+            next_cursor: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportFormat {
+    Html,
+    Markdown,
+    Text,
+    Jsonl,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRequest {
+    pub query: HistoryQuery,
+    pub format: ExportFormat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    pub format: ExportFormat,
+    pub path: String,
+    pub count: usize,
+}
