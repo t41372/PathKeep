@@ -4,7 +4,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { BrandMark } from '../../components/brand-mark'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 
 function lockReasonLabel(

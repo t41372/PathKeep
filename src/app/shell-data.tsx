@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { backend } from '../lib/backend'
+import { backend } from '../lib/backend-client'
 import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
 import { useI18nContext } from '../lib/i18n'
 import type {

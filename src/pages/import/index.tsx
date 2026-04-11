@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 import {
   healthCheckStatusKey,

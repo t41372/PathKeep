@@ -10,9 +10,6 @@ import { fileURLToPath } from 'node:url'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const workspaceRoot = resolve(scriptDir, '..')
 const tauriRoot = resolve(workspaceRoot, 'src-tauri')
-const advisoryDbPath = resolve(tmpdir(), 'pathkeep-cargo-advisory-db')
-
-mkdirSync(advisoryDbPath, { recursive: true })
 
 const allowedAdvisories = new Map([
   [
@@ -126,10 +123,28 @@ function parseAuditJson(stdout, stderr) {
   return JSON.parse(combined.slice(start, end + 1))
 }
 
-const audit = spawnSync('cargo', ['audit', '--json', '--db', advisoryDbPath], {
-  cwd: tauriRoot,
-  encoding: 'utf8',
-})
+function runCargoAudit(extraEnv = {}) {
+  return spawnSync('cargo', ['audit', '--json'], {
+    cwd: tauriRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ...extraEnv,
+    },
+  })
+}
+
+let audit = runCargoAudit()
+
+if (
+  audit.stderr.includes(
+    'attempted to take an exclusive lock on a read-only path',
+  )
+) {
+  const fallbackCargoHome = resolve(tmpdir(), 'pathkeep-cargo-home')
+  mkdirSync(fallbackCargoHome, { recursive: true })
+  audit = runCargoAudit({ CARGO_HOME: fallbackCargoHome })
+}
 
 if (audit.error) {
   fail('Failed to execute `cargo audit --json`.', [audit.error.message])

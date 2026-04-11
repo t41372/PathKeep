@@ -4169,28 +4169,6 @@ const catalog: Record<
   },
 }
 
-function isRecord(
-  value: string | TranslationDictionary | undefined,
-): value is TranslationDictionary {
-  return typeof value === 'object' && value !== null
-}
-
-function getValue(
-  dictionary: TranslationDictionary,
-  path: string[],
-): string | null {
-  let current: string | TranslationDictionary | undefined = dictionary
-
-  for (const segment of path) {
-    if (!isRecord(current)) {
-      return null
-    }
-    current = current[segment]
-  }
-
-  return typeof current === 'string' ? current : null
-}
-
 function flattenDictionary(
   dictionary: TranslationDictionary,
   prefix = '',
@@ -4233,10 +4211,6 @@ function interpolate(
 
 export function translationCatalog() {
   return structuredClone(catalog)
-}
-
-export function listTranslationKeys(language: ResolvedLanguage = 'en') {
-  return Object.keys(flattenedCatalog[language]).sort()
 }
 
 export function pseudoLocalize(value: string) {
@@ -4360,24 +4334,4 @@ export function localeTag(language: ResolvedLanguage) {
   if (language === 'zh-CN') return 'zh-CN'
   if (language === 'zh-TW') return 'zh-TW'
   return 'en-US'
-}
-
-export function resolveTranslation(
-  language: ResolvedLanguage,
-  key: string,
-  vars?: Record<string, string | number>,
-) {
-  const segments = key.split('.')
-  const namespaced =
-    segments.length > 1
-      ? (getValue(catalog[language], segments) ??
-        getValue(catalog.en, segments))
-      : null
-
-  const value =
-    namespaced ??
-    flattenedCatalog[language][key] ??
-    flattenedCatalog.en[key] ??
-    key
-  return interpolate(value, vars)
 }

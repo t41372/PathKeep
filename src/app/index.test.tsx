@@ -10,7 +10,8 @@ import {
   readRouteHandle,
   sidebarSections,
 } from './router'
-import { backend, backendTestHarness } from '../lib/backend'
+import { backend } from '../lib/backend-client'
+import { backendTestHarness } from '../lib/backend'
 import { createNamespaceTranslator, createTranslator } from '../lib/i18n'
 import * as updateLib from '../lib/update'
 import type { AppConfig } from '../lib/types'

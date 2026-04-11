@@ -18,7 +18,7 @@ import {
 } from '../../components/primitives/skeleton'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import {
   formatDateTime,
   formatDuration,

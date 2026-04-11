@@ -6,7 +6,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {

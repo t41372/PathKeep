@@ -7,7 +7,7 @@ import {
   DashboardSkeleton,
   Skeleton,
 } from '../../components/primitives/skeleton'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import {
   calendarDayKey,

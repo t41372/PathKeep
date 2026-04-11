@@ -7,7 +7,8 @@ import {
   ShellDataContext,
   type ShellDataContextValue,
 } from '../app/shell-data-context'
-import { backend, backendTestHarness } from '../lib/backend'
+import { backend } from '../lib/backend-client'
+import { backendTestHarness } from '../lib/backend'
 import { I18nContext, type I18nContextValue } from '../lib/i18n/context'
 import {
   createNamespaceTranslator,

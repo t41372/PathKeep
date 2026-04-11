@@ -24,7 +24,8 @@ import {
   createTranslator,
   type ResolvedLanguage,
 } from '../lib/i18n'
-import { backend, backendTestHarness } from '../lib/backend'
+import { backend } from '../lib/backend-client'
+import { backendTestHarness } from '../lib/backend'
 import { platformLabelKey } from '../lib/platform-guidance'
 import { securityModeKey } from '../lib/trust-review'
 import type {

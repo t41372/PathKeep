@@ -6,7 +6,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { PreviewEntryList } from '../../components/ui'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { formatBytes, formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {

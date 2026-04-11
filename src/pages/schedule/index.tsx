@@ -4,7 +4,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { useShellData } from '../../app/shell-data-context'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {

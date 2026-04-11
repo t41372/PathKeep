@@ -206,23 +206,3 @@ export function SkeletonInsights({ label }: LabeledSkeletonProps) {
     </div>
   )
 }
-
-export function SkeletonSettings({ label }: LabeledSkeletonProps) {
-  return (
-    <div className="page-shell" aria-busy="true" aria-label={label}>
-      {Array.from({ length: 3 }, (_, i) => (
-        <div key={i} style={{ marginBottom: 'var(--space-4)' }}>
-          <div
-            className="skeleton-block"
-            style={{
-              height: '20px',
-              width: '30%',
-              marginBottom: 'var(--space-3)',
-            }}
-          />
-          <Skeleton variant="block" height="120px" />
-        </div>
-      ))}
-    </div>
-  )
-}

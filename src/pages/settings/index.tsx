@@ -6,7 +6,7 @@ import {
   CONFIGURED_ANALYTICS_ENDPOINT,
   trackAnalyticsEvent,
 } from '../../lib/analytics'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import {
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
   enrichmentPluginRegistry,

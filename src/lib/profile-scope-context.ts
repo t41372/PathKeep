@@ -17,12 +17,6 @@ export function useProfileScope() {
   return value
 }
 
-export function useScopedProfileId(explicitProfileId: string | null) {
-  const { activeProfileId } = useProfileScope()
-
-  return explicitProfileId ?? activeProfileId
-}
-
 export function profileIdLabel(profileId: string) {
   return profileId.split(':').slice(1).join(':') || profileId
 }

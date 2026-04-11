@@ -6,7 +6,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { SkeletonInsights } from '../../components/primitives/skeleton'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import {
   calendarDayKey,
   formatBytes,

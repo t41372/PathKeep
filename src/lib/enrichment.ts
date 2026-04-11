@@ -1,8 +1,4 @@
-import type {
-  AppConfig,
-  EnrichmentPluginState,
-  EnrichmentSettings,
-} from './types'
+import type { EnrichmentPluginState, EnrichmentSettings } from './types'
 
 export const TITLE_NORMALIZATION_PLUGIN_ID = 'title-normalization'
 export const READABLE_CONTENT_REFETCH_PLUGIN_ID = 'readable-content-refetch'
@@ -73,12 +69,6 @@ export function resolveEnrichmentSettings(
   }
 
   return { plugins }
-}
-
-export function resolveAppConfigEnrichment(
-  config: Pick<AppConfig, 'enrichment'>,
-): EnrichmentSettings {
-  return resolveEnrichmentSettings(config.enrichment)
 }
 
 export function enrichmentPluginState(
