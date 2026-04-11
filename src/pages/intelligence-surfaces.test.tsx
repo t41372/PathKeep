@@ -416,8 +416,11 @@ describe('intelligence surfaces', () => {
           lastRunId: 11,
           lastBuiltAt: '2026-04-09T16:25:00Z',
           lastInvalidatedAt: '2026-04-10T16:28:00Z',
-          staleReason: 'Visibility changed after the last deterministic rebuild.',
-          notes: ['Manual rebuild required before this deterministic module is fresh again.'],
+          staleReason:
+            'Visibility changed after the last deterministic rebuild.',
+          notes: [
+            'Manual rebuild required before this deterministic module is fresh again.',
+          ],
         },
       ],
       recentJobs: [
@@ -475,8 +478,11 @@ describe('intelligence surfaces', () => {
       .getByText('Title normalization')
       .closest('.result-row')
     expect(titleNormalizationRow).not.toBeNull()
+    if (!(titleNormalizationRow instanceof HTMLElement)) {
+      throw new Error('expected title normalization row')
+    }
     await user.click(
-      within(titleNormalizationRow!).getByRole('button', {
+      within(titleNormalizationRow).getByRole('button', {
         name: settingsT('disablePlugin'),
       }),
     )
@@ -1074,7 +1080,11 @@ describe('intelligence surfaces', () => {
     expect(
       await screen.findByText(insightsT('deterministicModules')),
     ).toBeVisible()
-    expect(await screen.findByText('Archive tool research narrowed into a GitHub-restricted query.')).toBeVisible()
+    expect(
+      await screen.findByText(
+        'Archive tool research narrowed into a GitHub-restricted query.',
+      ),
+    ).toBeVisible()
     expect(await screen.findByText('Semantic recall drift')).toBeVisible()
     expect(await screen.findByText(insightsT('queryEvolution'))).toBeVisible()
     expect(

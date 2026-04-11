@@ -2,10 +2,10 @@ use crate::{
     archive::{create_schema, open_archive_connection},
     config::ProjectPaths,
     models::{
-        AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus, IntelligenceJobOverview,
-        IntelligenceQueueStatus, IntelligenceRuntimeSnapshot, QUERY_GROUPS_MODULE_ID,
-        QUERY_GROUPS_MODULE_VERSION, READABLE_CONTENT_PLUGIN_ID, REFERENCE_PAGES_MODULE_ID,
-        REFERENCE_PAGES_MODULE_VERSION, SOURCE_EFFECTIVENESS_MODULE_ID,
+        AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus,
+        IntelligenceJobOverview, IntelligenceQueueStatus, IntelligenceRuntimeSnapshot,
+        QUERY_GROUPS_MODULE_ID, QUERY_GROUPS_MODULE_VERSION, READABLE_CONTENT_PLUGIN_ID,
+        REFERENCE_PAGES_MODULE_ID, REFERENCE_PAGES_MODULE_VERSION, SOURCE_EFFECTIVENESS_MODULE_ID,
         SOURCE_EFFECTIVENESS_MODULE_VERSION, TEMPLATE_SUMMARIES_MODULE_ID,
         TEMPLATE_SUMMARIES_MODULE_VERSION, THREADS_MODULE_ID, THREADS_MODULE_VERSION,
         TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences,
@@ -125,11 +125,7 @@ const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 5] = [
         id: QUERY_GROUPS_MODULE_ID,
         version: QUERY_GROUPS_MODULE_VERSION,
         depends_on: &[],
-        derived_tables: &[
-            "insight_bursts",
-            "insight_query_groups",
-            "insight_query_group_members",
-        ],
+        derived_tables: &["insight_bursts", "insight_query_groups", "insight_query_group_members"],
     },
     DeterministicModuleDefinition {
         id: THREADS_MODULE_ID,
@@ -320,8 +316,10 @@ pub(crate) fn mark_all_deterministic_modules_stale(
             last_built_at: None,
             last_invalidated_at: Some(now.clone()),
             stale_reason: Some(reason.to_string()),
-            notes: vec!["Deterministic rebuild is required before these summaries are fresh again."
-                .to_string()],
+            notes: vec![
+                "Deterministic rebuild is required before these summaries are fresh again."
+                    .to_string(),
+            ],
         })
         .collect::<Vec<_>>();
     persist_deterministic_module_runtime_updates(connection, &updates)
@@ -768,8 +766,7 @@ fn load_module_statuses(
 
         let mut status = stored_row.2;
         let mut stale_reason = stored_row.8;
-        let mut notes =
-            serde_json::from_str::<Vec<String>>(&stored_row.9).unwrap_or_default();
+        let mut notes = serde_json::from_str::<Vec<String>>(&stored_row.9).unwrap_or_default();
         if !enabled {
             status = "disabled".to_string();
             notes.push("Disabled in Settings.".to_string());
@@ -792,11 +789,12 @@ fn load_module_statuses(
             enabled,
             version: module.version.to_string(),
             status,
-            depends_on: serde_json::from_str::<Vec<String>>(&stored_row.3)
-                .unwrap_or_else(|_| module.depends_on.iter().map(|value| (*value).to_string()).collect()),
-            derived_tables: serde_json::from_str::<Vec<String>>(&stored_row.4).unwrap_or_else(|_| {
-                module.derived_tables.iter().map(|value| (*value).to_string()).collect()
+            depends_on: serde_json::from_str::<Vec<String>>(&stored_row.3).unwrap_or_else(|_| {
+                module.depends_on.iter().map(|value| (*value).to_string()).collect()
             }),
+            derived_tables: serde_json::from_str::<Vec<String>>(&stored_row.4).unwrap_or_else(
+                |_| module.derived_tables.iter().map(|value| (*value).to_string()).collect(),
+            ),
             last_run_id: stored_row.5,
             last_built_at: stored_row.6,
             last_invalidated_at: stored_row.7,

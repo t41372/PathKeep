@@ -6,9 +6,9 @@ use super::{
 use crate::{
     deterministic::{EvidenceTier, PageCategory, tokenize_text},
     models::{
-        InsightCard, InsightQueryGroupSummary, InsightQueryLadder,
-        InsightReferencePageSummary, InsightSourceEffectivenessSummary, InsightTemplateSummary,
-        InsightThreadSummary, InsightTopicSummary,
+        InsightCard, InsightQueryGroupSummary, InsightQueryLadder, InsightReferencePageSummary,
+        InsightSourceEffectivenessSummary, InsightTemplateSummary, InsightThreadSummary,
+        InsightTopicSummary,
     },
 };
 use anyhow::Result;
@@ -98,7 +98,8 @@ fn strongest_evidence_tier(items: impl Iterator<Item = EvidenceTier>) -> String 
 
 fn visit_is_search_seed(visit: &VisitRecord) -> bool {
     visit.query_term.as_deref().is_some_and(|value| !value.trim().is_empty())
-        && (visit.has_canonical_search_term || visit.page_category_v2 == PageCategory::SearchResults)
+        && (visit.has_canonical_search_term
+            || visit.page_category_v2 == PageCategory::SearchResults)
 }
 
 fn visit_is_query_landing(visit: &VisitRecord) -> bool {
@@ -144,12 +145,10 @@ fn finish_query_group(group: &mut QueryGroupRecord, visits: &[VisitRecord]) {
         group.title = group.latest_query.clone();
     }
     let step_bonus = (group.steps.len() as f32 * 0.18).clamp(0.0, 0.54);
-    let landing_bonus = group
-        .visit_indexes
-        .iter()
-        .filter(|index| visit_is_query_landing(&visits[**index]))
-        .count() as f32
-        * 0.08;
+    let landing_bonus =
+        group.visit_indexes.iter().filter(|index| visit_is_query_landing(&visits[**index])).count()
+            as f32
+            * 0.08;
     let evidence_bonus = if group.evidence_tier == "tier-a" { 0.24 } else { 0.08 };
     group.confidence = (0.36 + step_bonus + landing_bonus + evidence_bonus).clamp(0.0, 1.0);
 }
@@ -167,7 +166,8 @@ pub(super) fn build_bursts(visits: &mut [VisitRecord]) -> Vec<BurstRecord> {
                 && (visit.from_visit == Some(previous.source_visit_id)
                     || previous.from_visit == Some(visit.source_visit_id)
                     || previous.registrable_domain == visit.registrable_domain
-                    || token_similarity(&visit_token_set(previous), &visit_token_set(visit)) >= 0.16)
+                    || token_similarity(&visit_token_set(previous), &visit_token_set(visit))
+                        >= 0.16)
         });
 
         if !continues {
@@ -195,12 +195,10 @@ pub(super) fn build_bursts(visits: &mut [VisitRecord]) -> Vec<BurstRecord> {
     }
 
     for burst in &mut bursts {
-        let search_bonus = burst
-            .visit_indexes
-            .iter()
-            .filter(|index| visits[**index].query_term.is_some())
-            .count() as f32
-            * 0.08;
+        let search_bonus =
+            burst.visit_indexes.iter().filter(|index| visits[**index].query_term.is_some()).count()
+                as f32
+                * 0.08;
         burst.confidence = (0.4 + search_bonus).clamp(0.0, 1.0);
         for index in &burst.visit_indexes {
             visits[*index].burst_id = Some(burst.burst_id.clone());
@@ -257,9 +255,7 @@ pub(super) fn build_query_groups(
                     if current.steps.last().is_none_or(|value| value != query) {
                         let previous = current.steps.last().cloned();
                         current.steps.push(query.to_string());
-                        current
-                            .stages
-                            .push(classify_query_stage(Some(query), previous.as_deref()));
+                        current.stages.push(classify_query_stage(Some(query), previous.as_deref()));
                     }
                     current.latest_query = query.to_string();
                     current.title = query.to_string();
@@ -286,7 +282,10 @@ pub(super) fn build_query_groups(
             current_by_profile.insert(
                 profile_id,
                 QueryGroupRecord {
-                    query_group_id: format!("query-group-{:03}", groups.len() + current_by_profile.len() + 1),
+                    query_group_id: format!(
+                        "query-group-{:03}",
+                        groups.len() + current_by_profile.len() + 1
+                    ),
                     profile_id: visit.profile_id.clone(),
                     thread_id: None,
                     title: query.clone(),
@@ -355,11 +354,8 @@ pub(super) fn build_threads(
         let current_tokens = group_tokens(group);
         let current_domains = group_domains(group, visits);
         let current_anchors = group_anchors(group, visits);
-        let current_start = group
-            .visit_indexes
-            .first()
-            .map(|index| visits[*index].visit_time)
-            .unwrap_or_default();
+        let current_start =
+            group.visit_indexes.first().map(|index| visits[*index].visit_time).unwrap_or_default();
         let mut best_index = None;
         let mut best_score = 0.0f32;
 
@@ -404,7 +400,8 @@ pub(super) fn build_threads(
             } else {
                 0.0
             };
-            let score = token_score * 0.45 + domain_score * 0.25 + anchor_score * 0.3 + reopen_bonus;
+            let score =
+                token_score * 0.45 + domain_score * 0.25 + anchor_score * 0.3 + reopen_bonus;
             if score > best_score {
                 best_score = score;
                 best_index = Some(thread_index);
@@ -439,9 +436,7 @@ pub(super) fn build_threads(
 
         threads[thread_index].last_seen_at = group.last_seen_at.clone();
         threads[thread_index].visit_indexes.extend(group.visit_indexes.iter().copied());
-        threads[thread_index]
-            .query_group_ids
-            .push(group.query_group_id.clone());
+        threads[thread_index].query_group_ids.push(group.query_group_id.clone());
         threads[thread_index].chromium_enhanced |= group.chromium_enhanced;
         threads[thread_index].confidence =
             threads[thread_index].confidence.max(best_score.max(group.confidence));
@@ -449,8 +444,7 @@ pub(super) fn build_threads(
             || group.evidence_tier == "tier-a"
         {
             "tier-a".to_string()
-        } else if threads[thread_index].evidence_tier == "tier-b"
-            || group.evidence_tier == "tier-b"
+        } else if threads[thread_index].evidence_tier == "tier-b" || group.evidence_tier == "tier-b"
         {
             "tier-b".to_string()
         } else {
@@ -637,9 +631,9 @@ pub(super) fn build_topics(
                 token_similarity(&topic_tokens, &group_tokens) >= 0.22
             })
             .count();
-        topic.burst_score =
-            (topic.burst_score / topic.visit_count.max(1) as f32 + matching_groups as f32 * 0.15)
-                .clamp(0.0, 4.0);
+        topic.burst_score = (topic.burst_score / topic.visit_count.max(1) as f32
+            + matching_groups as f32 * 0.15)
+            .clamp(0.0, 4.0);
         topic.trend_slope = (topic.trend_slope / topic.visit_count.max(1) as f32).clamp(0.0, 1.0);
         topic.revisit_count = count_topic_revisits_like(topic, visits);
     }
@@ -773,10 +767,8 @@ pub(super) fn build_source_effectiveness(
         evidence_tiers: Vec<EvidenceTier>,
     }
 
-    let reference_domains = reference_pages
-        .iter()
-        .map(|page| page.domain.clone())
-        .collect::<HashSet<_>>();
+    let reference_domains =
+        reference_pages.iter().map(|page| page.domain.clone()).collect::<HashSet<_>>();
     let mut grouped = HashMap::<String, Acc>::new();
     for (index, visit) in visits.iter().enumerate() {
         let acc = grouped.entry(visit.registrable_domain.clone()).or_default();
@@ -795,7 +787,10 @@ pub(super) fn build_source_effectiveness(
         if reference_domains.contains(&visit.registrable_domain) {
             acc.reference_page_count += 1;
         }
-        if visit.query_group_id.is_some() && visit.thread_id.is_some() && visit_is_query_landing(visit) {
+        if visit.query_group_id.is_some()
+            && visit.thread_id.is_some()
+            && visit_is_query_landing(visit)
+        {
             acc.reopen_support_count += 1;
         }
         *acc.roles.entry(visit.source_role.clone()).or_insert(0) += 1;
@@ -848,6 +843,7 @@ pub(super) fn build_source_effectiveness(
 }
 
 pub(super) fn build_template_summaries(
+    visits: &[VisitRecord],
     query_groups: &[InsightQueryGroupSummary],
     threads: &[InsightThreadSummary],
     reference_pages: &[InsightReferencePageSummary],
@@ -913,6 +909,32 @@ pub(super) fn build_template_summaries(
             evidence: source.evidence.clone(),
         });
     }
+    if summaries.is_empty() {
+        if let Some(visit) = visits.last() {
+            summaries.push(InsightTemplateSummary {
+                summary_id: "summary-recent-activity".to_string(),
+                kind: "recent-activity".to_string(),
+                title: "Latest captured activity".to_string(),
+                body: format!(
+                    "Captured {} visit(s) in the current window, most recently {}.",
+                    visits.len(),
+                    visit
+                        .readable_title
+                        .clone()
+                        .or_else(|| visit.title.clone())
+                        .unwrap_or_else(|| visit.url.clone())
+                ),
+                confidence: (0.28 + visits.len().min(5) as f32 * 0.08).clamp(0.0, 0.7),
+                profile_id: profile_id.map(ToString::to_string),
+                evidence: vec![evidence_from_visit(
+                    visit,
+                    Some(
+                        "Deterministic fallback summary for a minimal activity window.".to_string(),
+                    ),
+                )],
+            });
+        }
+    }
     summaries
 }
 
@@ -942,9 +964,8 @@ pub(super) fn build_cards(
         })
         .collect::<Vec<_>>();
 
-    if let Some(thread) = threads
-        .iter()
-        .max_by(|left, right| left.open_loop_score.total_cmp(&right.open_loop_score))
+    if let Some(thread) =
+        threads.iter().max_by(|left, right| left.open_loop_score.total_cmp(&right.open_loop_score))
     {
         cards.push(InsightCard {
             card_id: format!("card-open-loop-{}", thread.thread_id),
@@ -1156,10 +1177,8 @@ pub(super) fn persist_reference_pages(
     profile_scope: &str,
     reference_pages: &[InsightReferencePageSummary],
 ) -> Result<()> {
-    connection.execute(
-        "DELETE FROM insight_reference_pages WHERE profile_scope = ?1",
-        [profile_scope],
-    )?;
+    connection
+        .execute("DELETE FROM insight_reference_pages WHERE profile_scope = ?1", [profile_scope])?;
     for page in reference_pages {
         connection.execute(
             "INSERT INTO insight_reference_pages
@@ -1357,9 +1376,7 @@ fn query_group_summary_from_row(row: &Row<'_>) -> rusqlite::Result<InsightQueryG
 }
 
 fn day_key(visited_at: &str) -> Option<String> {
-    DateTime::parse_from_rfc3339(visited_at)
-        .ok()
-        .map(|value| value.format("%Y-%m-%d").to_string())
+    DateTime::parse_from_rfc3339(visited_at).ok().map(|value| value.format("%Y-%m-%d").to_string())
 }
 
 fn fxhash(value: &str) -> u64 {

@@ -829,7 +829,9 @@ const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
       lastBuiltAt: new Date(Date.now() - 86_400_000).toISOString(),
       lastInvalidatedAt: new Date().toISOString(),
       staleReason: 'Visibility changed after the last deterministic rebuild.',
-      notes: ['Manual rebuild required before reference-page surfacing is fresh again.'],
+      notes: [
+        'Manual rebuild required before reference-page surfacing is fresh again.',
+      ],
     },
     {
       moduleId: 'source-effectiveness',
@@ -842,7 +844,9 @@ const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
       lastBuiltAt: new Date().toISOString(),
       lastInvalidatedAt: null,
       staleReason: null,
-      notes: ['Source effectiveness stays inside deterministic evidence boundaries.'],
+      notes: [
+        'Source effectiveness stays inside deterministic evidence boundaries.',
+      ],
     },
     {
       moduleId: 'template-summaries',
@@ -1219,7 +1223,9 @@ function clearDerivedIntelligenceFixture(
         ? 'Derived intelligence state was cleared manually.'
         : null,
       notes: module.enabled
-        ? ['Manual rebuild required before this deterministic module is fresh again.']
+        ? [
+            'Manual rebuild required before this deterministic module is fresh again.',
+          ]
         : ['Disabled in Settings.'],
     }),
   )
@@ -1434,7 +1440,9 @@ function syncMockIntelligenceRuntime(state: MockBackendState) {
       ...module,
       enabled: moduleEnabledById.get(module.moduleId) ?? module.enabled,
       status:
-        moduleEnabledById.get(module.moduleId) === false ? 'disabled' : module.status,
+        moduleEnabledById.get(module.moduleId) === false
+          ? 'disabled'
+          : module.status,
       notes:
         moduleEnabledById.get(module.moduleId) === false
           ? ['Disabled in Settings.']

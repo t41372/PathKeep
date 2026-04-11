@@ -72,7 +72,10 @@ export function deterministicModuleLabel(moduleId: string, t: Translator) {
   }
 }
 
-export function deterministicModuleDescription(moduleId: string, t: Translator) {
+export function deterministicModuleDescription(
+  moduleId: string,
+  t: Translator,
+) {
   switch (moduleId) {
     case 'query-groups':
       return t('queryGroupsModuleDescription')

@@ -402,12 +402,11 @@ export function SettingsPage() {
 
     return [...configIds, ...extraIds].map((moduleId) => ({
       runtime: runtimeModulesById.get(moduleId),
-      state:
-        configuredModules.find((module) => module.id === moduleId) ?? {
-          id: moduleId,
-          enabled: true,
-          version: 'm5b-v1',
-        },
+      state: configuredModules.find((module) => module.id === moduleId) ?? {
+        id: moduleId,
+        enabled: true,
+        version: 'm5b-v1',
+      },
     }))
   }, [runtimeModulesById, snapshot?.config.deterministic.modules])
 
@@ -739,8 +738,9 @@ export function SettingsPage() {
     }
 
     const currentModule =
-      snapshot.config.deterministic.modules.find((module) => module.id === moduleId) ??
-      null
+      snapshot.config.deterministic.modules.find(
+        (module) => module.id === moduleId,
+      ) ?? null
     const nextEnabled = !(currentModule?.enabled ?? true)
     setDerivedAction(t('settings.savingDeterministicModules'))
     try {
@@ -2448,7 +2448,10 @@ export function SettingsPage() {
           />
 
           {reviewableDeterministicModules.map((module) => (
-            <div key={module.state.id} className="result-row result-row--active">
+            <div
+              key={module.state.id}
+              className="result-row result-row--active"
+            >
               <div className="result-row__header">
                 <strong>
                   {deterministicModuleLabel(module.state.id, settingsNs)}
@@ -2504,8 +2507,8 @@ export function SettingsPage() {
                 </span>
                 <span className="config-value mono">
                   {module.runtime?.lastBuiltAt
-                    ? formatDateTime(module.runtime.lastBuiltAt, language) ??
-                      module.runtime.lastBuiltAt
+                    ? (formatDateTime(module.runtime.lastBuiltAt, language) ??
+                      module.runtime.lastBuiltAt)
                     : commonNs('notAvailable')}
                 </span>
               </div>
@@ -2522,7 +2525,10 @@ export function SettingsPage() {
               {module.runtime?.notes.length ? (
                 <div className="intelligence-note-list">
                   {module.runtime.notes.map((note) => (
-                    <p key={`${module.state.id}-${note}`} className="mono-support">
+                    <p
+                      key={`${module.state.id}-${note}`}
+                      className="mono-support"
+                    >
                       {note}
                     </p>
                   ))}

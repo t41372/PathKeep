@@ -1711,12 +1711,12 @@ pub struct IntelligenceRuntimeSnapshot {
 mod tests {
     use super::{
         AiSearchRequest, AppConfig, InsightStatus, QUERY_GROUPS_MODULE_ID,
-        READABLE_CONTENT_PLUGIN_ID, READABLE_CONTENT_PLUGIN_VERSION,
-        REFERENCE_PAGES_MODULE_ID, SOURCE_EFFECTIVENESS_MODULE_ID,
-        TEMPLATE_SUMMARIES_MODULE_ID, THREADS_MODULE_ID, TITLE_NORMALIZATION_PLUGIN_ID,
-        TITLE_NORMALIZATION_PLUGIN_VERSION, default_deterministic_module_states,
-        default_enrichment_plugin_states, merge_deterministic_module_states,
-        merge_enrichment_plugin_preferences, merge_enrichment_plugin_states, normalize_app_config,
+        READABLE_CONTENT_PLUGIN_ID, READABLE_CONTENT_PLUGIN_VERSION, REFERENCE_PAGES_MODULE_ID,
+        SOURCE_EFFECTIVENESS_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_ID, THREADS_MODULE_ID,
+        TITLE_NORMALIZATION_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_VERSION,
+        default_deterministic_module_states, default_enrichment_plugin_states,
+        merge_deterministic_module_states, merge_enrichment_plugin_preferences,
+        merge_enrichment_plugin_states, normalize_app_config,
     };
 
     #[test]

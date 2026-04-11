@@ -771,9 +771,7 @@ export function InsightsPage() {
         <div className="panel panel-wide">
           <div className="panel-header">
             <span className="panel-title">{insightsT('queryGroups')}</span>
-            <span className="panel-action">
-              {insights.queryGroups.length}
-            </span>
+            <span className="panel-action">{insights.queryGroups.length}</span>
           </div>
           <div className="panel-body intelligence-stack">
             {insights.queryGroups.length > 0 ? (
@@ -820,7 +818,10 @@ export function InsightsPage() {
                         >
                           {insightsT('explain')}
                         </button>
-                        <Link className="btn-tiny" to={`/explorer?${params.toString()}`}>
+                        <Link
+                          className="btn-tiny"
+                          to={`/explorer?${params.toString()}`}
+                        >
                           {insightsT('openExplorer')}
                         </Link>
                       </div>
@@ -965,9 +966,7 @@ export function InsightsPage() {
                   <div key={page.referencePageId} className="result-row">
                     <div className="result-row__header">
                       <strong>{page.title ?? page.url}</strong>
-                      <span className="mono-support">
-                        {page.domain}
-                      </span>
+                      <span className="mono-support">{page.domain}</span>
                     </div>
                     <p>
                       {insightsT('referencePagesBody', {
@@ -993,7 +992,10 @@ export function InsightsPage() {
                       >
                         {insightsT('explain')}
                       </button>
-                      <Link className="btn-tiny" to={evidenceHref({ url: page.url })}>
+                      <Link
+                        className="btn-tiny"
+                        to={evidenceHref({ url: page.url })}
+                      >
                         {insightsT('openExplorer')}
                       </Link>
                     </div>
@@ -1012,7 +1014,9 @@ export function InsightsPage() {
 
         <div className="panel panel-wide">
           <div className="panel-header">
-            <span className="panel-title">{insightsT('sourceEffectiveness')}</span>
+            <span className="panel-title">
+              {insightsT('sourceEffectiveness')}
+            </span>
             <span className="panel-action">
               {insights.sourceEffectiveness.length}
             </span>
@@ -1024,9 +1028,7 @@ export function InsightsPage() {
                   <div key={source.sourceId} className="result-row">
                     <div className="result-row__header">
                       <strong>{source.domain}</strong>
-                      <span className="mono-support">
-                        {source.sourceRole}
-                      </span>
+                      <span className="mono-support">{source.sourceRole}</span>
                     </div>
                     <p>
                       {insightsT('sourceEffectivenessBody', {
@@ -1050,10 +1052,10 @@ export function InsightsPage() {
 
         <div className="panel panel-wide">
           <div className="panel-header">
-            <span className="panel-title">{insightsT('deterministicModules')}</span>
-            <span className="panel-action">
-              {runtime?.modules.length ?? 0}
+            <span className="panel-title">
+              {insightsT('deterministicModules')}
             </span>
+            <span className="panel-action">{runtime?.modules.length ?? 0}</span>
           </div>
           <div className="panel-body intelligence-stack">
             {runtime?.modules.length ? (
@@ -1065,10 +1067,16 @@ export function InsightsPage() {
                         {deterministicModuleLabel(module.moduleId, settingsT)}
                       </strong>
                       <span className="mono-support">
-                        {deterministicModuleStatusLabel(module.status, settingsT)}
+                        {deterministicModuleStatusLabel(
+                          module.status,
+                          settingsT,
+                        )}
                       </span>
                     </div>
-                    <p>{module.notes[0] ?? insightsT('deterministicModulesDescription')}</p>
+                    <p>
+                      {module.notes[0] ??
+                        insightsT('deterministicModulesDescription')}
+                    </p>
                     <div className="result-row__meta">
                       <span className="mono-support">
                         {module.derivedTables.join(', ')}

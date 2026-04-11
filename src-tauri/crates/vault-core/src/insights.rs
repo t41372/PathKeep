@@ -1,5 +1,5 @@
-mod site_adapters;
 mod m5b;
+mod site_adapters;
 
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
@@ -23,11 +23,10 @@ use crate::{
         InsightCard, InsightDomainStat, InsightEvidenceItem, InsightExplanation,
         InsightProfileFacet, InsightQueryLadder, InsightSnapshot, InsightStatus,
         InsightThreadDetail, InsightThreadSummary, InsightTopicSummary, InsightWorkflowEdge,
-        InsightWorkflowMap, InsightWorkflowRole,
-        QUERY_GROUPS_MODULE_ID, READABLE_CONTENT_PLUGIN_ID, REFERENCE_PAGES_MODULE_ID,
-        RunInsightsReport, RunInsightsRequest, SOURCE_EFFECTIVENESS_MODULE_ID,
-        TEMPLATE_SUMMARIES_MODULE_ID, THREADS_MODULE_ID,
-        TITLE_NORMALIZATION_PLUGIN_ID,
+        InsightWorkflowMap, InsightWorkflowRole, QUERY_GROUPS_MODULE_ID,
+        READABLE_CONTENT_PLUGIN_ID, REFERENCE_PAGES_MODULE_ID, RunInsightsReport,
+        RunInsightsRequest, SOURCE_EFFECTIVENESS_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_ID,
+        THREADS_MODULE_ID, TITLE_NORMALIZATION_PLUGIN_ID,
     },
     utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, url_domain},
 };
@@ -41,14 +40,12 @@ use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
 use self::m5b::{
-    build_bursts, build_cards as build_m5b_cards, build_query_groups,
-    build_reference_pages, build_source_effectiveness, build_template_summaries,
-    build_threads as build_m5b_threads, build_topics as build_m5b_topics, load_query_groups,
-    load_reference_pages, load_source_effectiveness, load_thread_query_groups,
-    persist_bursts, persist_query_groups, persist_reference_pages,
-    persist_source_effectiveness, persist_threads as persist_m5b_threads,
-    persist_topic_summaries, query_group_summaries_from_records,
-    thread_summaries_from_records,
+    build_bursts, build_cards as build_m5b_cards, build_query_groups, build_reference_pages,
+    build_source_effectiveness, build_template_summaries, build_threads as build_m5b_threads,
+    build_topics as build_m5b_topics, load_query_groups, load_reference_pages,
+    load_source_effectiveness, load_thread_query_groups, persist_bursts, persist_query_groups,
+    persist_reference_pages, persist_source_effectiveness, persist_threads as persist_m5b_threads,
+    persist_topic_summaries, query_group_summaries_from_records, thread_summaries_from_records,
 };
 
 const INSIGHT_PIPELINE_VERSION: &str = "insights-v2";
@@ -58,8 +55,6 @@ const DEFAULT_WINDOW_DAYS: u32 = 30;
 const DEFAULT_ANALYSIS_LIMIT: usize = 600;
 const MAX_NETWORK_ENRICHMENT_JOBS_PER_RUN: usize = 4;
 const SESSION_GAP_MINUTES: i64 = 30;
-const THREAD_GAP_DAYS: i64 = 14;
-const REOPEN_GAP_HOURS: i64 = 24;
 
 const INSIGHT_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS visit_content_enrichments (
@@ -325,41 +320,6 @@ struct VisitRecord {
 }
 
 #[derive(Debug, Clone, Default)]
-struct SessionRecord {
-    profile_id: String,
-    visit_indexes: Vec<usize>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct TopicAccumulator {
-    topic_id: String,
-    label: String,
-    first_seen_at: String,
-    last_seen_at: String,
-    visit_indexes: Vec<usize>,
-    revisit_count: usize,
-    trend_slope: f32,
-    burst_score: f32,
-    centroid: Option<Vec<f32>>,
-    keyword_counts: HashMap<String, usize>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct ThreadAccumulator {
-    thread_id: String,
-    profile_id: String,
-    visit_indexes: Vec<usize>,
-    first_seen_at: String,
-    last_seen_at: String,
-    reopen_count: usize,
-    open_loop_score: f32,
-    dominant_topic_id: Option<String>,
-    status: String,
-    chromium_enhanced: bool,
-    title: String,
-}
-
-#[derive(Debug, Clone, Default)]
 struct EnrichmentResult {
     status: String,
     final_url: Option<String>,
@@ -538,18 +498,14 @@ pub fn insight_status(
         .query_row("SELECT COUNT(*) FROM insight_threads", [], |row: &Row<'_>| row.get::<_, i64>(0))
         .unwrap_or(0);
     let query_groups = connection
-        .query_row(
-            "SELECT COUNT(*) FROM insight_query_groups",
-            [],
-            |row: &Row<'_>| row.get::<_, i64>(0),
-        )
+        .query_row("SELECT COUNT(*) FROM insight_query_groups", [], |row: &Row<'_>| {
+            row.get::<_, i64>(0)
+        })
         .unwrap_or(0);
     let reference_pages = connection
-        .query_row(
-            "SELECT COUNT(*) FROM insight_reference_pages",
-            [],
-            |row: &Row<'_>| row.get::<_, i64>(0),
-        )
+        .query_row("SELECT COUNT(*) FROM insight_reference_pages", [], |row: &Row<'_>| {
+            row.get::<_, i64>(0)
+        })
         .unwrap_or(0);
     let latest = connection
         .query_row(
@@ -684,6 +640,7 @@ pub fn run_insights(
         };
         let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
             build_template_summaries(
+                &visits,
                 &query_group_summaries,
                 &thread_summaries,
                 &reference_pages,
@@ -919,6 +876,7 @@ pub fn load_insights(
     };
     let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
         build_template_summaries(
+            &visits,
             &query_groups,
             &threads,
             &reference_pages,
@@ -1022,6 +980,7 @@ pub fn clear_derived_intelligence_state(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_insight_schema(&connection)?;
+    ensure_intelligence_runtime_schema(&connection)?;
 
     let report = ClearDerivedIntelligenceReport {
         cleared_enrichment_rows: table_row_count(&connection, "visit_content_enrichments")?,
@@ -1132,7 +1091,9 @@ pub fn explain_insight(
                 .iter()
                 .find(|summary| summary.summary_id == request.insight_id)
                 .cloned()
-                .with_context(|| format!("template summary {} was not found", request.insight_id))?;
+                .with_context(|| {
+                    format!("template summary {} was not found", request.insight_id)
+                })?;
             Ok(InsightExplanation {
                 explanation: summary.body,
                 used_llm: false,
@@ -2089,181 +2050,6 @@ fn compute_feature_scores(visits: &mut [VisitRecord]) {
     }
 }
 
-fn build_sessions(visits: &[VisitRecord]) -> Vec<SessionRecord> {
-    let mut sessions = Vec::new();
-    let mut current: Option<SessionRecord> = None;
-    let mut previous: Option<&VisitRecord> = None;
-    for (index, visit) in visits.iter().enumerate() {
-        let same_session = previous.is_some_and(|previous| {
-            previous.profile_id == visit.profile_id
-                && (visit.from_visit == Some(previous.source_visit_id)
-                    || chrome_gap_minutes(previous.visit_time, visit.visit_time)
-                        <= SESSION_GAP_MINUTES)
-        });
-        if !same_session {
-            if let Some(current) = current.take() {
-                sessions.push(current);
-            }
-            current = Some(SessionRecord {
-                profile_id: visit.profile_id.clone(),
-                visit_indexes: vec![index],
-            });
-        } else if let Some(current) = &mut current {
-            current.visit_indexes.push(index);
-        }
-        previous = Some(visit);
-    }
-    if let Some(current) = current {
-        sessions.push(current);
-    }
-    sessions
-}
-
-fn assign_topics(visits: &mut [VisitRecord], window_days: u32) -> Vec<TopicAccumulator> {
-    let mut topics = Vec::<TopicAccumulator>::new();
-    for (index, visit) in visits.iter_mut().enumerate() {
-        let visit_tokens = visit.keywords.iter().cloned().collect::<HashSet<_>>();
-        let mut best_index = None;
-        let mut best_score = 0.0f32;
-        for (topic_index, topic) in topics.iter().enumerate() {
-            let score = topic_similarity(topic, visit, &visit_tokens);
-            if score > best_score {
-                best_score = score;
-                best_index = Some(topic_index);
-            }
-        }
-
-        let topic_index = if best_score >= 0.38 {
-            best_index.unwrap_or_default()
-        } else {
-            topics.push(TopicAccumulator {
-                topic_id: format!("topic-{:03}", topics.len() + 1),
-                label: String::new(),
-                first_seen_at: visit.visited_at.clone(),
-                last_seen_at: visit.visited_at.clone(),
-                visit_indexes: Vec::new(),
-                revisit_count: 0,
-                trend_slope: 0.0,
-                burst_score: 0.0,
-                centroid: None,
-                keyword_counts: HashMap::new(),
-            });
-            topics.len() - 1
-        };
-
-        visit.topic_id = Some(topics[topic_index].topic_id.clone());
-        topics[topic_index].visit_indexes.push(index);
-        topics[topic_index].last_seen_at = visit.visited_at.clone();
-        if topics[topic_index].first_seen_at.is_empty() {
-            topics[topic_index].first_seen_at = visit.visited_at.clone();
-        }
-        for keyword in &visit.keywords {
-            *topics[topic_index].keyword_counts.entry(keyword.clone()).or_insert(0) += 1;
-        }
-        if let Some(vector) = &visit.vector {
-            update_centroid(&mut topics[topic_index].centroid, vector);
-        }
-    }
-
-    for topic in &mut topics {
-        topic.label = build_topic_label(topic, visits);
-        let (trend, burst) = topic_trend_scores(topic, visits, window_days);
-        topic.trend_slope = trend;
-        topic.burst_score = burst;
-        topic.revisit_count = count_topic_revisits(topic, visits);
-    }
-    topics.sort_by(|left, right| right.visit_indexes.len().cmp(&left.visit_indexes.len()));
-    topics
-}
-
-fn assign_threads(
-    visits: &mut [VisitRecord],
-    sessions: &[SessionRecord],
-) -> Vec<ThreadAccumulator> {
-    let mut threads = Vec::<ThreadAccumulator>::new();
-    for session in sessions {
-        let mut best_index = None;
-        let mut best_score = 0.0f32;
-        for (thread_index, thread) in threads.iter().enumerate() {
-            if thread.profile_id != session.profile_id {
-                continue;
-            }
-            let gap_days = chrome_gap_hours(
-                visits[*thread.visit_indexes.last().expect("thread visit")].visit_time,
-                visits[*session.visit_indexes.first().expect("session visit")].visit_time,
-            ) / 24;
-            if gap_days > THREAD_GAP_DAYS {
-                continue;
-            }
-            let score = session_thread_similarity(session, thread, visits);
-            if score > best_score {
-                best_score = score;
-                best_index = Some(thread_index);
-            }
-        }
-
-        let thread_index = if best_score >= 0.34 {
-            best_index.unwrap_or_default()
-        } else {
-            threads.push(ThreadAccumulator {
-                thread_id: format!("thread-{:03}", threads.len() + 1),
-                profile_id: session.profile_id.clone(),
-                visit_indexes: Vec::new(),
-                first_seen_at: visits[*session.visit_indexes.first().expect("session start")]
-                    .visited_at
-                    .clone(),
-                last_seen_at: visits[*session.visit_indexes.last().expect("session end")]
-                    .visited_at
-                    .clone(),
-                reopen_count: 0,
-                open_loop_score: 0.0,
-                dominant_topic_id: None,
-                status: "active".to_string(),
-                chromium_enhanced: false,
-                title: String::new(),
-            });
-            threads.len() - 1
-        };
-
-        if let Some(previous_index) = threads[thread_index].visit_indexes.last().copied() {
-            let gap_hours = chrome_gap_hours(
-                visits[previous_index].visit_time,
-                visits[*session.visit_indexes.first().unwrap()].visit_time,
-            );
-            if gap_hours >= REOPEN_GAP_HOURS {
-                threads[thread_index].reopen_count += 1;
-            }
-        }
-        threads[thread_index].visit_indexes.extend(session.visit_indexes.iter().copied());
-        threads[thread_index].last_seen_at =
-            visits[*session.visit_indexes.last().expect("session end")].visited_at.clone();
-        threads[thread_index].chromium_enhanced |= session.visit_indexes.iter().any(|index| {
-            visits[*index].query_term.is_some() || visits[*index].external_referrer_url.is_some()
-        });
-    }
-
-    for thread in &mut threads {
-        for index in &thread.visit_indexes {
-            visits[*index].thread_id = Some(thread.thread_id.clone());
-        }
-        thread.open_loop_score = compute_open_loop_score(thread, visits);
-        thread.dominant_topic_id = dominant_topic(thread, visits);
-        thread.status = if thread.open_loop_score >= 1.8 {
-            "open-loop".to_string()
-        } else if DateTime::parse_from_rfc3339(&thread.last_seen_at)
-            .ok()
-            .is_some_and(|value| Utc::now() - value.with_timezone(&Utc) <= Duration::days(7))
-        {
-            "active".to_string()
-        } else {
-            "archived".to_string()
-        };
-        thread.title = build_thread_title(thread, visits);
-    }
-    threads.sort_by(|left, right| right.last_seen_at.cmp(&left.last_seen_at));
-    threads
-}
-
 fn persist_features(connection: &Connection, visits: &[VisitRecord]) -> Result<()> {
     for visit in visits {
         connection.execute(
@@ -2305,197 +2091,6 @@ fn persist_features(connection: &Connection, visits: &[VisitRecord]) -> Result<(
         )?;
     }
     Ok(())
-}
-
-fn persist_topics(
-    connection: &Connection,
-    topics: &[TopicAccumulator],
-    visits: &[VisitRecord],
-    profile_id: Option<&str>,
-    window_days: u32,
-) -> Result<()> {
-    let profile_scope = profile_id.unwrap_or("all");
-    connection.execute(
-        "DELETE FROM insight_topics WHERE profile_scope = ?1 AND window_days = ?2",
-        params![profile_scope, window_days as i64],
-    )?;
-    for topic in topics {
-        let evidence = topic_evidence(topic, visits);
-        connection.execute(
-            "INSERT OR REPLACE INTO insight_topics
-             (topic_id, profile_scope, window_days, label, first_seen_at, last_seen_at, visit_count,
-              revisit_count, trend_slope, burst_score, evidence_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                topic.topic_id,
-                profile_scope,
-                window_days as i64,
-                topic.label,
-                topic.first_seen_at,
-                topic.last_seen_at,
-                topic.visit_indexes.len() as i64,
-                topic.revisit_count as i64,
-                topic.trend_slope,
-                topic.burst_score,
-                serde_json::to_string(&evidence)?,
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-fn persist_threads(
-    connection: &Connection,
-    threads: &[ThreadAccumulator],
-    visits: &[VisitRecord],
-) -> Result<()> {
-    connection.execute("DELETE FROM insight_threads", [])?;
-    connection.execute("DELETE FROM insight_thread_members", [])?;
-    for thread in threads {
-        let evidence = thread_evidence(thread, visits);
-        connection.execute(
-            "INSERT INTO insight_threads
-             (thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
-              reopen_count, open_loop_score, dominant_topic_id, chromium_enhanced, evidence_json,
-              summary_json, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                thread.thread_id,
-                thread.profile_id,
-                thread.title,
-                thread.status,
-                thread.first_seen_at,
-                thread.last_seen_at,
-                thread.visit_indexes.len() as i64,
-                thread.reopen_count as i64,
-                thread.open_loop_score,
-                thread.dominant_topic_id,
-                thread.chromium_enhanced as i64,
-                serde_json::to_string(&evidence)?,
-                serde_json::to_string(&json!({
-                    "visitCount": thread.visit_indexes.len(),
-                    "reopenCount": thread.reopen_count,
-                    "openLoopScore": thread.open_loop_score,
-                }))?,
-                INSIGHT_PIPELINE_VERSION,
-            ],
-        )?;
-        for (ordinal, visit_index) in thread.visit_indexes.iter().enumerate() {
-            connection.execute(
-                "INSERT INTO insight_thread_members (thread_id, history_id, ordinal, visited_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    thread.thread_id,
-                    visits[*visit_index].history_id,
-                    ordinal as i64,
-                    visits[*visit_index].visited_at,
-                ],
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn build_cards(
-    visits: &[VisitRecord],
-    topics: &[TopicAccumulator],
-    threads: &[ThreadAccumulator],
-    window_days: u32,
-    profile_id: Option<&str>,
-) -> Vec<InsightCard> {
-    let mut cards = Vec::new();
-    if let Some(topic) = topics
-        .iter()
-        .filter(|topic| topic.trend_slope > 0.12)
-        .max_by(|left, right| left.trend_slope.total_cmp(&right.trend_slope))
-    {
-        cards.push(InsightCard {
-            card_id: format!("card-rising-{}", topic.topic_id),
-            kind: "rising-topic".to_string(),
-            title: format!("Rising topic: {}", topic.label),
-            summary: format!(
-                "{} is gaining momentum with {} visits in the last {} days.",
-                topic.label,
-                topic.visit_indexes.len(),
-                window_days
-            ),
-            window_days,
-            profile_id: profile_id.map(ToString::to_string),
-            score: topic.trend_slope,
-            chromium_enhanced: false,
-            evidence: topic_evidence(topic, visits),
-        });
-    }
-    if let Some(thread) =
-        threads.iter().max_by(|left, right| left.open_loop_score.total_cmp(&right.open_loop_score))
-    {
-        cards.push(InsightCard {
-            card_id: format!("card-open-loop-{}", thread.thread_id),
-            kind: "open-loop".to_string(),
-            title: format!("Open loop: {}", thread.title),
-            summary: format!(
-                "This thread reopened {} times and still looks unresolved.",
-                thread.reopen_count
-            ),
-            window_days,
-            profile_id: profile_id.map(ToString::to_string),
-            score: thread.open_loop_score,
-            chromium_enhanced: thread.chromium_enhanced,
-            evidence: thread_evidence(thread, visits),
-        });
-    }
-    if let Some(page) = revisited_pages(visits).into_iter().next() {
-        cards.push(InsightCard {
-            card_id: format!("card-revisit-{}", page.history_id),
-            kind: "revisit".to_string(),
-            title: "Important but unsaved".to_string(),
-            summary: format!(
-                "{} keeps resurfacing across sessions and is a good candidate to save or summarize.",
-                page.title.clone().unwrap_or_else(|| page.url.clone())
-            ),
-            window_days,
-            profile_id: profile_id.map(ToString::to_string),
-            score: page.importance_score,
-            chromium_enhanced: false,
-            evidence: vec![evidence_from_visit(page, Some("High revisit importance".to_string()))],
-        });
-    }
-    let explore_mean = if visits.is_empty() {
-        0.0
-    } else {
-        visits.iter().map(|visit| visit.explore_score).sum::<f32>() / visits.len() as f32
-    };
-    cards.push(InsightCard {
-        card_id: "card-focus-balance".to_string(),
-        kind: "focus-balance".to_string(),
-        title: if explore_mean >= 0.55 {
-            "Explore-heavy window".to_string()
-        } else {
-            "Exploit-heavy window".to_string()
-        },
-        summary: if explore_mean >= 0.55 {
-            "Browsing leaned toward new topics and wider exploration."
-        } else {
-            "Browsing leaned toward revisits and deeper follow-through."
-        }
-        .to_string(),
-        window_days,
-        profile_id: profile_id.map(ToString::to_string),
-        score: explore_mean,
-        chromium_enhanced: false,
-        evidence: visits
-            .iter()
-            .rev()
-            .take(3)
-            .map(|visit| {
-                evidence_from_visit(
-                    visit,
-                    Some(format!("Explore score {:.2}", visit.explore_score)),
-                )
-            })
-            .collect(),
-    });
-    cards
 }
 
 fn persist_cards(
@@ -2885,65 +2480,6 @@ fn build_profile_facets(
     facets
 }
 
-fn topic_trend_scores(
-    topic: &TopicAccumulator,
-    visits: &[VisitRecord],
-    window_days: u32,
-) -> (f32, f32) {
-    if topic.visit_indexes.is_empty() {
-        return (0.0, 0.0);
-    }
-    let window_start = Utc::now() - Duration::days(window_days as i64);
-    let last_week = Utc::now() - Duration::days(7);
-    let mut prior = 0usize;
-    let mut recent = 0usize;
-    for index in &topic.visit_indexes {
-        if let Ok(timestamp) = DateTime::parse_from_rfc3339(&visits[*index].visited_at) {
-            let timestamp = timestamp.with_timezone(&Utc);
-            if timestamp < window_start {
-                continue;
-            }
-            if timestamp >= last_week {
-                recent += 1;
-            } else {
-                prior += 1;
-            }
-        }
-    }
-    let baseline = (prior.max(1) as f32) / ((window_days.saturating_sub(7)).max(1) as f32 / 7.0);
-    let trend = ((recent as f32) - baseline) / (topic.visit_indexes.len().max(1) as f32);
-    let burst = recent as f32 / baseline.max(1.0);
-    (trend, burst)
-}
-
-fn count_topic_revisits(topic: &TopicAccumulator, visits: &[VisitRecord]) -> usize {
-    let mut counts = HashMap::<String, usize>::new();
-    for index in &topic.visit_indexes {
-        *counts.entry(canonical_visit_key(&visits[*index])).or_insert(0) += 1;
-    }
-    counts.values().filter(|count| **count > 1).count()
-}
-
-fn topic_evidence(topic: &TopicAccumulator, visits: &[VisitRecord]) -> Vec<InsightEvidenceItem> {
-    topic
-        .visit_indexes
-        .iter()
-        .rev()
-        .take(4)
-        .map(|index| evidence_from_visit(&visits[*index], Some(topic.label.clone())))
-        .collect()
-}
-
-fn thread_evidence(thread: &ThreadAccumulator, visits: &[VisitRecord]) -> Vec<InsightEvidenceItem> {
-    thread
-        .visit_indexes
-        .iter()
-        .rev()
-        .take(4)
-        .map(|index| evidence_from_visit(&visits[*index], Some(thread.status.clone())))
-        .collect()
-}
-
 fn evidence_from_visit(visit: &VisitRecord, note: Option<String>) -> InsightEvidenceItem {
     InsightEvidenceItem {
         history_id: visit.history_id,
@@ -2953,19 +2489,6 @@ fn evidence_from_visit(visit: &VisitRecord, note: Option<String>) -> InsightEvid
         visited_at: visit.visited_at.clone(),
         note,
     }
-}
-
-fn revisited_pages(visits: &[VisitRecord]) -> Vec<&VisitRecord> {
-    let mut counts = HashMap::<String, usize>::new();
-    for visit in visits {
-        *counts.entry(canonical_visit_key(visit)).or_insert(0) += 1;
-    }
-    let mut pages = visits
-        .iter()
-        .filter(|visit| counts.get(&canonical_visit_key(visit)).copied().unwrap_or(0) > 1)
-        .collect::<Vec<_>>();
-    pages.sort_by(|left, right| right.importance_score.total_cmp(&left.importance_score));
-    pages
 }
 
 fn build_run_notes(
@@ -3223,114 +2746,6 @@ fn token_similarity(left: &HashSet<String>, right: &HashSet<String>) -> f32 {
     if union == 0.0 { 0.0 } else { intersection / union }
 }
 
-fn topic_similarity(
-    topic: &TopicAccumulator,
-    visit: &VisitRecord,
-    visit_tokens: &HashSet<String>,
-) -> f32 {
-    if let (Some(left), Some(right)) = (topic.centroid.as_ref(), visit.vector.as_ref()) {
-        return cosine_similarity(left, right);
-    }
-    let topic_tokens = topic.keyword_counts.keys().cloned().collect::<HashSet<_>>();
-    token_similarity(&topic_tokens, visit_tokens)
-}
-
-fn session_thread_similarity(
-    session: &SessionRecord,
-    thread: &ThreadAccumulator,
-    visits: &[VisitRecord],
-) -> f32 {
-    let session_tokens = session
-        .visit_indexes
-        .iter()
-        .flat_map(|index| visits[*index].keywords.iter().cloned())
-        .collect::<HashSet<_>>();
-    let thread_tokens = thread
-        .visit_indexes
-        .iter()
-        .flat_map(|index| visits[*index].keywords.iter().cloned())
-        .collect::<HashSet<_>>();
-    token_similarity(&session_tokens, &thread_tokens)
-}
-
-fn update_centroid(centroid: &mut Option<Vec<f32>>, vector: &[f32]) {
-    if let Some(centroid) = centroid {
-        let len = centroid.len().min(vector.len());
-        for index in 0..len {
-            centroid[index] = (centroid[index] + vector[index]) / 2.0;
-        }
-    } else {
-        *centroid = Some(vector.to_vec());
-    }
-}
-
-fn build_topic_label(topic: &TopicAccumulator, visits: &[VisitRecord]) -> String {
-    let top_keyword = topic
-        .keyword_counts
-        .iter()
-        .max_by(|left, right| left.1.cmp(right.1))
-        .map(|(keyword, _)| keyword.clone())
-        .unwrap_or_else(|| "topic".to_string());
-    let title = topic
-        .visit_indexes
-        .iter()
-        .rev()
-        .find_map(|index| {
-            visits[*index].readable_title.clone().or_else(|| visits[*index].title.clone())
-        })
-        .unwrap_or_else(|| top_keyword.clone());
-    if title.to_lowercase().contains(&top_keyword) {
-        title
-    } else {
-        format!("{top_keyword} · {title}")
-    }
-}
-
-fn compute_open_loop_score(thread: &ThreadAccumulator, visits: &[VisitRecord]) -> f32 {
-    let revisit_count = thread
-        .visit_indexes
-        .iter()
-        .map(|index| canonical_visit_key(&visits[*index]))
-        .collect::<Vec<_>>();
-    let revisit_unique = revisit_count.iter().collect::<HashSet<_>>().len();
-    let compare_signals = thread
-        .visit_indexes
-        .iter()
-        .filter(|index| {
-            visits[**index]
-                .query_term
-                .as_deref()
-                .is_some_and(|term| term.contains(" vs ") || term.contains("compare"))
-                || visits[**index].page_type == "comparison"
-        })
-        .count();
-    revisit_unique as f32 * 0.4 + thread.reopen_count as f32 * 0.75 + compare_signals as f32 * 0.2
-}
-
-fn dominant_topic(thread: &ThreadAccumulator, visits: &[VisitRecord]) -> Option<String> {
-    let mut counts = HashMap::<String, usize>::new();
-    for index in &thread.visit_indexes {
-        if let Some(topic_id) = &visits[*index].topic_id {
-            *counts.entry(topic_id.clone()).or_insert(0) += 1;
-        }
-    }
-    counts.into_iter().max_by(|left, right| left.1.cmp(&right.1)).map(|(topic, _)| topic)
-}
-
-fn build_thread_title(thread: &ThreadAccumulator, visits: &[VisitRecord]) -> String {
-    if let Some(query) =
-        thread.visit_indexes.iter().find_map(|index| visits[*index].query_term.clone())
-    {
-        return query;
-    }
-    if let Some(title) = thread.visit_indexes.iter().rev().find_map(|index| {
-        visits[*index].readable_title.clone().or_else(|| visits[*index].title.clone())
-    }) {
-        return title;
-    }
-    "Untitled thread".to_string()
-}
-
 fn canonical_visit_key(visit: &VisitRecord) -> String {
     format!("{}::{}", visit.profile_id, visit.url)
 }
@@ -3360,26 +2775,6 @@ fn classify_query_stage(query_term: Option<&str>, previous: Option<&str>) -> Str
         "narrowing".to_string()
     } else {
         "broad".to_string()
-    }
-}
-
-fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
-    let len = left.len().min(right.len());
-    if len == 0 {
-        return 0.0;
-    }
-    let mut dot = 0.0f32;
-    let mut left_norm = 0.0f32;
-    let mut right_norm = 0.0f32;
-    for index in 0..len {
-        dot += left[index] * right[index];
-        left_norm += left[index] * left[index];
-        right_norm += right[index] * right[index];
-    }
-    if left_norm == 0.0 || right_norm == 0.0 {
-        0.0
-    } else {
-        dot / (left_norm.sqrt() * right_norm.sqrt())
     }
 }
 

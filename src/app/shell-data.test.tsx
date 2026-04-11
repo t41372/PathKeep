@@ -70,6 +70,15 @@ const baseConfig: AppConfig = {
       },
     ],
   },
+  deterministic: {
+    modules: [
+      { id: 'query-groups', enabled: true, version: 'm5b-v1' },
+      { id: 'threads', enabled: true, version: 'm5b-v1' },
+      { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
+      { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
+      { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
+    ],
+  },
   ai: {
     enabled: false,
     assistantEnabled: false,

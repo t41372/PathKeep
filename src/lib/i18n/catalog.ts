@@ -321,8 +321,7 @@ const zhCnM3Namespaces = {
       'Chromium 搜索词被归档后，这里才会显示搜索改写路径。',
     queryGroups: '查询组',
     queryGroupsEmptyTitle: '还没有查询组',
-    queryGroupsEmptyDescription:
-      '完成确定性搜索证据重建后，这里会显示查询组。',
+    queryGroupsEmptyDescription: '完成确定性搜索证据重建后，这里会显示查询组。',
     queryEvolutionSteps: '{count} 步',
     queryStageBroad: '宽泛',
     queryStageNarrowing: '收窄',
