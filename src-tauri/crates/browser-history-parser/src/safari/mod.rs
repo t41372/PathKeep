@@ -294,6 +294,10 @@ mod tests {
         assert_eq!(safari_time_to_unix_ms(0.0), 978_307_200_000);
         assert_eq!(unix_ms_to_safari_time(978_307_200_000), 0.0);
         assert_eq!(
+            safari_time_to_unix_ms(unix_ms_to_safari_time(1_744_146_000_000)),
+            1_744_146_000_000
+        );
+        assert_eq!(
             safari_time_to_iso(-SAFARI_UNIX_EPOCH_OFFSET_SECONDS),
             "1970-01-01T00:00:00+00:00"
         );
