@@ -1513,7 +1513,9 @@ function syncMockIntelligenceRuntime(state: MockBackendState) {
     .flatMap((job) => [job.finishedAt, job.startedAt, job.createdAt])
     .filter((value): value is string => Boolean(value))
   const lastActivityAt =
-    activityTimes.length > 0 ? (activityTimes.sort().at(-1) ?? null) : null
+    activityTimes.length > 0
+      ? activityTimes.sort()[activityTimes.length - 1]
+      : null
 
   state.intelligenceRuntime.queue = {
     queued: recentJobs.filter((job) => job.state === 'queued').length,
@@ -3374,6 +3376,7 @@ async function call<T>(
       const exportRequest = args?.request as ExportRequest | undefined
       const exportedItems = filterMockHistory(mockState, {
         ...exportRequest?.query,
+        page: null,
         cursor: null,
         limit: Math.max(1, mockState.history.items.length),
       }).items

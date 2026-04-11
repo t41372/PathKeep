@@ -670,6 +670,35 @@ describe('trust flows', () => {
     ).toHaveAttribute('href', expect.stringContaining('/audit?run='))
   })
 
+  test('renders the security unlock flow even when the shell snapshot is unavailable', async () => {
+    const { snapshot } = await seedInitializedSnapshot()
+    await backend.clearSessionDatabaseKey()
+
+    render(
+      <MemoryRouter initialEntries={['/security']}>
+        <I18nContext.Provider value={createI18nValue('en')}>
+          <ShellDataContext.Provider
+            value={{
+              ...createShellValue(snapshot),
+              snapshot: null,
+              dashboard: null,
+              error: 'database key is required for encrypted archives',
+            }}
+          >
+            <SecurityPage />
+          </ShellDataContext.Provider>
+        </I18nContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('ENCRYPTION')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Unlock' })).toBeVisible()
+    expect(screen.getByText('Archive is Encrypted / Locked')).toBeVisible()
+    expect(
+      screen.getByText('Locked — unlock to browse history and view audit logs'),
+    ).toBeVisible()
+  })
+
   test('renders the retention prune panel in settings and executes the selected cleanup', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedInitializedSnapshot()

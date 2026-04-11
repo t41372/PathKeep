@@ -62,7 +62,7 @@ function waitForNextPaint() {
  * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Security expectations in the design docs.
  */
 export function SecurityPage() {
-  const { loading, refreshAppData, refreshKey, snapshot } = useShellData()
+  const { refreshAppData, refreshKey } = useShellData()
   const { language, t } = useI18n()
   const [loadState, setLoadState] = useState<SecurityLoadState>({
     status: null,
@@ -285,13 +285,13 @@ export function SecurityPage() {
     })
   }
 
-  if (loading && !snapshot)
+  if (!status && pageError === null)
     return (
       <section className="page-shell">
         <LoadingState label={t('security.loadingPosture')} />
       </section>
     )
-  if (!snapshot || !status) {
+  if (!status) {
     return (
       <section className="page-shell">
         <EmptyState

@@ -415,6 +415,52 @@ describe('intelligence surfaces', () => {
     expect(screen.queryByText('settings.disabled')).not.toBeInTheDocument()
   })
 
+  test('routes dashboard archive-key failures toward the security page', async () => {
+    const { snapshot } = await seedArchiveState()
+    const dashboardT = createNamespaceTranslator('en', 'dashboard')
+
+    renderSurface(<DashboardPage />, {
+      snapshot,
+      shellValue: {
+        ...createShellValue(snapshot),
+        dashboard: null,
+        snapshot: null,
+        error: 'database key is required for encrypted archives',
+      },
+    })
+
+    expect(
+      await screen.findByRole('link', { name: dashboardT('reviewSecurity') }),
+    ).toHaveAttribute('href', '/security')
+  })
+
+  test('shows a security recovery empty state in settings when the archive needs unlocking', async () => {
+    const { snapshot } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const dashboardT = createNamespaceTranslator('en', 'dashboard')
+
+    await backend.clearSessionDatabaseKey()
+
+    renderSurface(<SettingsPage />, {
+      snapshot,
+      shellValue: {
+        ...createShellValue(snapshot),
+        dashboard: null,
+        snapshot: null,
+        error: 'database key is required for encrypted archives',
+      },
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: settingsT('archiveUnlockTitle'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: dashboardT('reviewSecurity') }),
+    ).toHaveAttribute('href', '/security')
+  })
+
   test('renders settings enrichment runtime review and syncs plugin toggles', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedArchiveState()

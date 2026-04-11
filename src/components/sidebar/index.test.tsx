@@ -15,8 +15,12 @@
 
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ShellDataProvider } from '../../app/shell-data'
+import {
+  ShellDataContext,
+  type ShellDataContextValue,
+} from '../../app/shell-data-context'
 import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
@@ -140,5 +144,60 @@ describe('Sidebar', () => {
     expect(await screen.findByLabelText('Expand navigation')).toBeVisible()
     expect(screen.getByText('PATHKEEP')).toHaveClass('logo-name')
     expect(screen.getByText('Dashboard')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  test('shows a locked archive status instead of pretending the archive is uninitialized', () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: 'database key is required for encrypted archives',
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <RouterProvider router={router} />
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('Archive attention needed')).toBeVisible()
+    expect(screen.getByText('Encrypted / Locked')).toBeVisible()
+    expect(
+      screen.queryByText('Archive not initialized'),
+    ).not.toBeInTheDocument()
   })
 })

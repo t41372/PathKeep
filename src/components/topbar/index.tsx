@@ -16,6 +16,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { AppScreen } from '../../app/router'
+import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { useI18n } from '../../lib/i18n'
 import { ProfileSwitcher } from '../profile-switcher'
 import { useShellData } from '../../app/shell-data-context'
@@ -40,6 +41,7 @@ export function Topbar({ screen }: TopbarProps) {
   const {
     appLockStatus,
     busyAction,
+    error,
     lockAppSession,
     notice,
     runBackup,
@@ -47,10 +49,14 @@ export function Topbar({ screen }: TopbarProps) {
   } = useShellData()
   const [query, setQuery] = useState('')
 
-  const backupDisabled = !snapshot || busyAction !== null
-  const backupLabel = snapshot?.config.initialized
-    ? t('navigation.backupNow')
-    : t('navigation.initializeFirst')
+  const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
+  const backupDisabled =
+    (!snapshot && !archiveNeedsUnlock) || busyAction !== null
+  const backupLabel = archiveNeedsUnlock
+    ? t('dashboard.reviewSecurity')
+    : snapshot?.config.initialized
+      ? t('navigation.backupNow')
+      : t('navigation.initializeFirst')
   const title = t(screen.titleKey)
   const subtitle = t(screen.subtitleKey)
 
@@ -110,6 +116,10 @@ export function Topbar({ screen }: TopbarProps) {
           disabled={backupDisabled}
           aria-busy={busyAction !== null}
           onClick={() => {
+            if (archiveNeedsUnlock) {
+              void navigate('/security')
+              return
+            }
             if (!snapshot?.config.initialized) {
               void navigate('/onboarding')
               return

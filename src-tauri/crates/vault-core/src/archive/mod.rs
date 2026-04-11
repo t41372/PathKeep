@@ -2436,6 +2436,23 @@ mod tests {
         assert_eq!(second_page.items.len(), 1);
         assert!(second_page.next_cursor.is_none());
 
+        let paged_export = export_history(
+            &paths,
+            &config,
+            None,
+            ExportRequest {
+                query: HistoryQuery {
+                    q: Some("archive".to_string()),
+                    limit: Some(1),
+                    page: Some(2),
+                    ..HistoryQuery::default()
+                },
+                format: ExportFormat::Jsonl,
+            },
+        )
+        .expect("export all visible history even when current query is paged");
+        assert_eq!(paged_export.count, 2);
+
         let report_again = run_backup(&paths, &config, None, false).expect("rerun backup");
         assert_eq!(report_again.run.as_ref().expect("run").new_visits, 0);
 

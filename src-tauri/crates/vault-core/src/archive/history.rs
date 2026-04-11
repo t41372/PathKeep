@@ -118,6 +118,9 @@ fn collect_history_for_export(
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
     let mut export_query = query;
+    // Export should always walk the full visible result set, not stay pinned to
+    // whichever UI page happened to be open when the user clicked export.
+    export_query.page = None;
     export_query.cursor = None;
     export_query.limit = Some(1_000);
 

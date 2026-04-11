@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { EmptyState } from '../../components/primitives/empty-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
   CONFIGURED_ANALYTICS_ENDPOINT,
@@ -105,6 +106,7 @@ export function SettingsPage() {
     buildInfo,
     clearAppLockPasscode,
     dashboard,
+    loading,
     lockAppSession,
     refreshKey,
     refreshAppData,
@@ -145,6 +147,7 @@ export function SettingsPage() {
     scheduleStatus: null,
     securityStatus: null,
   })
+  const [supportStateLoaded, setSupportStateLoaded] = useState(false)
   const [appLockDraft, setAppLockDraft] = useState<AppLockConfig | null>(null)
   const [analyticsDraft, setAnalyticsDraft] = useState<AnalyticsConfig | null>(
     null,
@@ -202,6 +205,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false
+    setSupportStateLoaded(false)
 
     /**
      * Loads the schedule/security support state that feeds Settings callouts.
@@ -218,10 +222,12 @@ export function SettingsPage() {
 
         if (!cancelled) {
           setSupportState({ scheduleStatus, securityStatus })
+          setSupportStateLoaded(true)
         }
       } catch {
         if (!cancelled) {
           setSupportState({ scheduleStatus: null, securityStatus: null })
+          setSupportStateLoaded(true)
         }
       }
     }
@@ -446,9 +452,41 @@ export function SettingsPage() {
   }, [runtimeModulesById, snapshot?.config.deterministic.modules])
 
   if (!snapshot) {
+    if (loading || !supportStateLoaded) {
+      return (
+        <section className="page-shell">
+          <LoadingState label={t('settings.loadingModules')} />
+        </section>
+      )
+    }
+
+    if (
+      supportState.securityStatus?.encrypted &&
+      !supportState.securityStatus.unlocked
+    ) {
+      return (
+        <section className="page-shell">
+          <EmptyState
+            action={
+              <Link className="btn-primary" to="/security">
+                {t('dashboard.reviewSecurity')}
+              </Link>
+            }
+            description={t('settings.archiveUnlockBody')}
+            eyebrow={t('navigation.settingsLabel')}
+            title={t('settings.archiveUnlockTitle')}
+          />
+        </section>
+      )
+    }
+
     return (
       <section className="page-shell">
-        <LoadingState label={t('settings.loadingModules')} />
+        <EmptyState
+          description={t('settings.unavailableBody')}
+          eyebrow={t('navigation.settingsLabel')}
+          title={t('settings.unavailableTitle')}
+        />
       </section>
     )
   }

@@ -15,6 +15,7 @@
 
 import { sidebarSections } from '../../app/router'
 import { useShellData } from '../../app/shell-data-context'
+import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
@@ -41,17 +42,22 @@ interface SidebarProps {
  */
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { language, t } = useI18n()
-  const { buildInfo, dashboard, snapshot } = useShellData()
+  const { buildInfo, dashboard, error, snapshot } = useShellData()
   const { activeProfileId } = useProfileScope()
+  const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
 
-  const archiveLabel = snapshot?.archiveStatus.warning
+  const archiveLabel = archiveNeedsUnlock
     ? t('navigation.archiveAttentionNeeded')
-    : snapshot?.config.initialized
-      ? t('navigation.archiveHealthy')
-      : t('navigation.archiveNotInitialized')
-  const runtimeLabel = snapshot?.archiveStatus.encrypted
-    ? t('navigation.encryptedArchive')
-    : t('navigation.plaintextArchive')
+    : snapshot?.archiveStatus.warning
+      ? t('navigation.archiveAttentionNeeded')
+      : snapshot?.config.initialized
+        ? t('navigation.archiveHealthy')
+        : t('navigation.archiveNotInitialized')
+  const runtimeLabel = archiveNeedsUnlock
+    ? t('common.modeLocked')
+    : snapshot?.archiveStatus.encrypted
+      ? t('navigation.encryptedArchive')
+      : t('navigation.plaintextArchive')
   const archiveSize = formatBytes(
     dashboard?.storage.archiveDatabaseBytes,
     language,

@@ -15,9 +15,13 @@
 
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { onboardingScreen } from '../../app/router'
 import { ShellDataProvider } from '../../app/shell-data'
+import {
+  ShellDataContext,
+  type ShellDataContextValue,
+} from '../../app/shell-data-context'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { Topbar } from './index'
@@ -56,5 +60,56 @@ describe('Topbar', () => {
     expect(
       await screen.findByRole('button', { name: /Initialize first/ }),
     ).toBeVisible()
+  })
+
+  test('routes the primary shell action to security when the archive needs unlocking', () => {
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: 'database key is required for encrypted archives',
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+            </MemoryRouter>
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Check security' })).toBeEnabled()
   })
 })

@@ -22,6 +22,7 @@ import {
   DashboardSkeleton,
   Skeleton,
 } from '../../components/primitives/skeleton'
+import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { backend } from '../../lib/backend-client'
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import {
@@ -163,11 +164,20 @@ export function DashboardPage() {
   }
 
   if (error && !dashboard) {
+    const needsArchiveUnlock = isArchiveUnlockRequiredMessage(error)
+
     return (
       <section className="page-shell" data-testid="dashboard-page">
         <ErrorState
           title={t('dashboard.archiveReadError')}
           description={error}
+          action={
+            needsArchiveUnlock ? (
+              <Link className="btn-secondary" to="/security">
+                {t('dashboard.reviewSecurity')}
+              </Link>
+            ) : undefined
+          }
         />
       </section>
     )

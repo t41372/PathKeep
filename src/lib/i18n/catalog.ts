@@ -1449,6 +1449,12 @@ const catalog: Record<
     settings: {
       loadingSettings: 'Loading settings…',
       loadingModules: 'Loading…',
+      archiveUnlockTitle: 'Unlock the archive before reviewing settings',
+      archiveUnlockBody:
+        'PathKeep can still inspect scheduler and keyring posture, but the rest of Settings needs the archive session key. Open Security to unlock it first.',
+      unavailableTitle: 'Settings are temporarily unavailable',
+      unavailableBody:
+        'PathKeep could not load the current settings review surface. Try refreshing after the shell finishes reloading.',
       browserProfiles: 'BROWSER PROFILES',
       browserProfilesBody:
         'Select which browsers to include in your archive. History will only be backed up from checked profiles.',
@@ -2893,6 +2899,12 @@ const catalog: Record<
     settings: {
       loadingSettings: '加载设置…',
       loadingModules: '加载中…',
+      archiveUnlockTitle: '请先解锁存档再检查设置',
+      archiveUnlockBody:
+        'PathKeep 仍然可以检查定时备份和钥匙串状态，但其余设置需要先提供存档会话密钥。请先到安全页面解锁。',
+      unavailableTitle: '设置暂时不可用',
+      unavailableBody:
+        'PathKeep 当前无法加载这组设置检查界面。等 shell 刷新完成后再试一次。',
       browserProfiles: '浏览器',
       browserProfilesBody: '选择要备份的浏览器。只有勾选的浏览器会被纳入存档。',
       aiProvider: 'AI 服务',
@@ -3946,6 +3958,12 @@ const catalog: Record<
     settings: {
       loadingSettings: '載入設定…',
       loadingModules: '載入中…',
+      archiveUnlockTitle: '請先解鎖封存再檢查設定',
+      archiveUnlockBody:
+        'PathKeep 仍然可以檢查定時備份和鑰匙圈狀態，但其餘設定需要先提供封存會話金鑰。請先到安全頁面解鎖。',
+      unavailableTitle: '設定暫時無法使用',
+      unavailableBody:
+        'PathKeep 目前無法載入這組設定檢查畫面。等 shell 刷新完成後再試一次。',
       browserProfiles: '瀏覽器',
       browserProfilesBody: '選擇要備份的瀏覽器。只有勾選的瀏覽器會被納入封存。',
       aiProvider: 'AI 服務',
