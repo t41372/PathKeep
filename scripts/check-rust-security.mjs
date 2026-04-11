@@ -96,6 +96,10 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2026-0002',
     "lru 0.12.x is transitively pinned by LanceDB's tantivy stack; PathKeep only reaches tantivy's StoreReader cache methods (get/put/len/peek_lru), not the affected IterMut API.",
   ],
+  [
+    'RUSTSEC-2026-0097',
+    "rand 0.7/0.8/0.9 is currently only present through transitive LanceDB/DataFusion, Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
+  ],
 ])
 
 function fail(message, details = []) {
