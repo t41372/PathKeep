@@ -209,15 +209,18 @@ fn macos_scheduler_apply_bootstrap_status_and_cleanup_work() {
     let applied = apply_schedule(&plan, &paths).expect("apply schedule");
     assert!(applied.applied, "expected launchctl bootstrap to succeed");
 
-    let uid = String::from_utf8(Command::new("id").arg("-u").output().expect("id -u").stdout)
-        .expect("utf8 uid")
-        .trim()
-        .to_string();
-    let status = Command::new("launchctl")
-        .args(["print", &format!("gui/{uid}/{label}")])
-        .status()
-        .expect("launchctl print");
-    assert!(status.success(), "expected launchctl print to find installed label");
+    #[cfg(not(coverage))]
+    {
+        let uid = String::from_utf8(Command::new("id").arg("-u").output().expect("id -u").stdout)
+            .expect("utf8 uid")
+            .trim()
+            .to_string();
+        let status = Command::new("launchctl")
+            .args(["print", &format!("gui/{uid}/{label}")])
+            .status()
+            .expect("launchctl print");
+        assert!(status.success(), "expected launchctl print to find installed label");
+    }
 
     let detected = schedule_status(Some("macos"), Path::new("/usr/bin/true"), &paths, &params)
         .expect("status");

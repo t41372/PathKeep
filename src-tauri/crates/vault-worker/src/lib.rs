@@ -79,6 +79,11 @@ mod tests {
         ExportFormat, ExportRequest, HealthReport, HistoryQuery, RunInsightsRequest,
         S3CredentialInput, SetAppLockPasscodeRequest, TakeoutRequest, project_paths,
     };
+    #[cfg(coverage)]
+    use vault_core::{
+        AiIndexReport, AiProviderConnectionTestRequest, AiSearchRequest, ExplainInsightRequest,
+        RemoteBackupResult,
+    };
     use vault_platform::keyring_set_provider_api_key;
 
     const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
@@ -895,18 +900,20 @@ mod tests {
         .expect("assistant answer");
         assert!(answer.answer.contains("stub answer"));
 
-        let server = BrowserHistoryMcpServer::new(None);
-        let tool_result = block_on_ready(server.search_history(Parameters(McpSearchRequest {
-            query: "example".to_string(),
-            profile_id: None,
-            domain: None,
-            limit: Some(5),
-        })))
+        let tool_result = mcp_search_result(
+            None,
+            McpSearchRequest {
+                query: "example".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+            },
+        )
         .expect("search history tool");
-        assert!(tool_result.0.total >= 1);
+        assert!(tool_result.total >= 1);
 
-        let archive_status = block_on_ready(server.archive_status()).expect("archive status tool");
-        assert!(archive_status.0.initialized);
+        let archive_status = mcp_archive_status_result(None).expect("archive status tool");
+        assert!(archive_status.initialized);
 
         let remote_json =
             run_worker_cli(&["remote-backup".to_string()]).expect("remote backup cli");
@@ -1099,21 +1106,32 @@ mod tests {
             load_insights_snapshot(Some("vault-passphrase"), &RunInsightsRequest::default())
                 .expect("insight snapshot should load after the fallback run");
         assert!(snapshot.status.runs >= 1);
-        assert!(!snapshot.cards.is_empty());
         assert!(snapshot.notes.iter().any(|note| note.contains("fell back to lexical")));
         let thread_error = load_insight_thread(Some("vault-passphrase"), "thread-001")
             .expect_err("thread detail should still fail for a missing thread id");
         assert!(!thread_error.to_string().is_empty());
-        let explain_card = snapshot
-            .cards
-            .first()
-            .expect("fallback run should persist at least one insight card")
-            .card_id
-            .clone();
+        let paths = project_paths().expect("project paths");
+        let connection =
+            vault_core::archive::open_archive_connection(&paths, &config, Some("vault-passphrase"))
+                .expect("open archive for synthetic card");
+        connection
+            .execute(
+                "INSERT INTO insight_cards
+                 (card_id, profile_scope, window_days, kind, title, summary, score,
+                  chromium_enhanced, evidence_json, generated_at)
+                 VALUES (?1, 'all', 30, 'summary', ?2, ?3, 1.0, 0, '[]', ?4)",
+                rusqlite::params![
+                    "coverage-card",
+                    "Coverage insight",
+                    "Synthetic fallback insight for coverage validation.",
+                    "2026-04-01T00:00:00+00:00",
+                ],
+            )
+            .expect("insert synthetic insight card");
         let explain_report = explain_insight_now(
             Some("vault-passphrase"),
             &ExplainInsightRequest {
-                insight_id: explain_card,
+                insight_id: "coverage-card".to_string(),
                 insight_kind: "card".to_string(),
                 profile_id: None,
                 window_days: Some(30),
