@@ -113,7 +113,7 @@ export function SecurityPage() {
   async function handleUnlock() {
     const trimmedKey = sessionKey.trim()
     if (!trimmedKey) {
-      setActionError(t('security.currentDatabaseKeyPlaceholder'))
+      setActionError(t('security.currentDatabaseKeyRequired'))
       return
     }
 
@@ -138,7 +138,7 @@ export function SecurityPage() {
   async function handleStoreKeyringKey() {
     const trimmedKey = sessionKey.trim()
     if (!trimmedKey) {
-      setActionError(t('security.currentDatabaseKeyPlaceholder'))
+      setActionError(t('security.currentDatabaseKeyRequired'))
       return
     }
 
@@ -186,7 +186,7 @@ export function SecurityPage() {
     }
 
     if (request.newMode === 'Encrypted' && !request.newKey?.trim()) {
-      setActionError(t('security.newDatabaseKeyPlaceholder'))
+      setActionError(t('security.newDatabaseKeyRequired'))
       return
     }
 

@@ -55,6 +55,7 @@ describe('Shell primitives', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Schedule preview unavailable',
     )
+    expect(screen.queryByText('ATTENTION')).not.toBeInTheDocument()
   })
 
   test('renders permission guidance and optional controls', () => {

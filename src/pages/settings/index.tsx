@@ -1159,12 +1159,18 @@ export function SettingsPage() {
     notes: t('settings.aiNotes'),
     apiKey: t('settings.aiApiKey'),
     apiKeyPlaceholder: t('settings.aiApiKeyPlaceholder'),
-    keyStored: t('settings.aiKeyStored'),
-    yes: t('common.yes'),
-    no: t('common.no'),
+    keySaved: t('settings.aiKeySaved'),
+    keyNotSaved: t('settings.aiKeyNotSaved'),
     saveKey: t('settings.aiSaveKey'),
     clearKey: t('settings.aiClearKey'),
     remove: t('settings.aiRemoveProvider'),
+    requestFormatLabels: {
+      openai: t('settings.aiRequestFormatOpenai'),
+      anthropic: t('settings.aiRequestFormatAnthropic'),
+      google: t('settings.aiRequestFormatGoogle'),
+      ollama: t('settings.aiRequestFormatOllama'),
+      'lm-studio': t('settings.aiRequestFormatLmStudio'),
+    },
   }
 
   const noAiProviders =

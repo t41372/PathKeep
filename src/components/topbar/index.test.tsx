@@ -33,7 +33,9 @@ describe('Topbar', () => {
       screen.getByRole('searchbox', { name: 'Search history' }),
     ).toBeVisible()
     expect(
-      screen.getByRole('button', { name: 'Switch profile scope' }),
+      screen.getByRole('button', {
+        name: 'Switch profile scope. Current: All profiles',
+      }),
     ).toBeVisible()
     expect(screen.getByText('All profiles')).toBeVisible()
     expect(

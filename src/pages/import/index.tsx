@@ -470,8 +470,8 @@ export function ImportPage() {
                 current: t('common.current'),
                 complete: t('common.complete'),
                 pending: t('common.pending'),
+                command: (index) => t('common.commandStepLabel', { index }),
               }}
-              language={language}
               onCopy={async (value) => {
                 await navigator.clipboard.writeText(value)
               }}

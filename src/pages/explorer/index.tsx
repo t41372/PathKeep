@@ -3,6 +3,7 @@ import {
   type KeyboardEvent,
   useDeferredValue,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -24,7 +25,7 @@ import {
   formatDuration,
   formatRelativeTime,
 } from '../../lib/format'
-import { useI18n } from '../../lib/i18n'
+import { localeTag, useI18n } from '../../lib/i18n'
 import {
   aiStatusMeta,
   assistantHref,
@@ -62,7 +63,7 @@ interface SemanticQueryState {
 }
 
 interface RecentSearchEntry {
-  label: string
+  label?: string
   params: {
     q?: string | null
     mode?: 'keyword' | 'semantic' | 'hybrid' | null
@@ -77,10 +78,10 @@ interface RecentSearchEntry {
 }
 
 const dateShortcutWindows = [
-  { key: 'DAY', days: 1 },
-  { key: 'WEEK', days: 7 },
-  { key: 'MONTH', days: 30 },
-  { key: 'YEAR', days: 365 },
+  { key: 'day', days: 1, labelKey: 'shortcutDay' },
+  { key: 'week', days: 7, labelKey: 'shortcutWeek' },
+  { key: 'month', days: 30, labelKey: 'shortcutMonth' },
+  { key: 'year', days: 365, labelKey: 'shortcutYear' },
 ] as const
 
 function endOfDayMs(value: string) {
@@ -92,28 +93,10 @@ function toLocalDateString(value: Date) {
   return value.toLocaleDateString('en-CA')
 }
 
-function buildRecentSearchLabel(params: RecentSearchEntry['params']) {
-  const labelParts = [
-    params.mode && params.mode !== 'keyword' ? `mode:${params.mode}` : null,
-    params.regex === '1' ? 'regex' : null,
-    params.q?.trim() ? `q:${params.q.trim()}` : null,
-    params.domain?.trim() ? `domain:${params.domain.trim()}` : null,
-    params.profileId ? `profile:${params.profileId}` : null,
-    params.browserKind ? `browser:${params.browserKind}` : null,
-    params.start || params.end
-      ? `range:${params.start ?? '…'}→${params.end ?? '…'}`
-      : null,
-  ].filter(Boolean)
-
-  return labelParts.join(' · ')
-}
-
 function isRecentSearchEntry(value: unknown): value is RecentSearchEntry {
   return (
     typeof value === 'object' &&
     value !== null &&
-    'label' in value &&
-    typeof value.label === 'string' &&
     'params' in value &&
     typeof value.params === 'object' &&
     value.params !== null
@@ -147,26 +130,6 @@ function loadRecentSearches() {
   } catch {
     return []
   }
-}
-
-function persistRecentSearch(params: RecentSearchEntry['params']) {
-  if (typeof window === 'undefined') return
-
-  const label = buildRecentSearchLabel(params)
-  if (!label) return
-
-  const nextEntry: RecentSearchEntry = {
-    label,
-    params: {
-      ...params,
-      sort: params.sort ?? 'newest',
-    },
-  }
-  const next = [
-    nextEntry,
-    ...loadRecentSearches().filter((entry) => entry.label !== label),
-  ].slice(0, 4)
-  window.localStorage.setItem(recentSearchesStorageKey, JSON.stringify(next))
 }
 
 function browserLabel(kind: string) {
@@ -227,6 +190,67 @@ export function ExplorerPage() {
     null,
   )
   const [actionError, setActionError] = useState<string | null>(null)
+
+  function formatRecentDate(value?: string | null) {
+    if (!value) return null
+    const parsed = new Date(`${value}T00:00:00`)
+    if (Number.isNaN(parsed.getTime())) return value
+    return parsed.toLocaleDateString(localeTag(language), {
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+
+  function buildRecentSearchLabel(params: RecentSearchEntry['params']) {
+    const labelParts = [
+      params.mode === 'semantic'
+        ? explorerT('modeSemantic')
+        : params.mode === 'hybrid'
+          ? explorerT('modeHybrid')
+          : null,
+      params.regex === '1' ? explorerT('activeFilterRegexEnabled') : null,
+      params.q?.trim() ? params.q.trim() : null,
+      params.domain?.trim() ? params.domain.trim() : null,
+      params.profileId ? profileIdLabel(params.profileId) : null,
+      params.browserKind ? browserLabel(params.browserKind) : null,
+      params.start || params.end
+        ? [
+            formatRecentDate(params.start) ?? explorerT('allRecordedTime'),
+            formatRecentDate(params.end) ?? explorerT('allRecordedTime'),
+          ].join(' - ')
+        : null,
+    ].filter(Boolean)
+
+    return labelParts.join(' · ')
+  }
+
+  const persistRecentSearch = useEffectEvent(
+    (params: RecentSearchEntry['params']) => {
+      if (typeof window === 'undefined') return
+
+      const label = buildRecentSearchLabel(params)
+      if (!label) return
+
+      const nextEntry: RecentSearchEntry = {
+        label,
+        params: {
+          ...params,
+          sort: params.sort ?? 'newest',
+        },
+      }
+      const next = [
+        nextEntry,
+        ...loadRecentSearches().filter(
+          (entry) =>
+            JSON.stringify(entry.params) !== JSON.stringify(nextEntry.params),
+        ),
+      ].slice(0, 4)
+      window.localStorage.setItem(
+        recentSearchesStorageKey,
+        JSON.stringify(next),
+      )
+    },
+  )
 
   const rawQuery = searchParams.get('q') ?? ''
   const [queryInput, setQueryInput] = useState(rawQuery)
@@ -951,7 +975,7 @@ export function ExplorerPage() {
               type="button"
               onClick={() => applyDateShortcut(entry.days)}
             >
-              {entry.key}
+              {explorerT(entry.labelKey)}
             </button>
           ))}
         </div>
@@ -987,13 +1011,20 @@ export function ExplorerPage() {
                   {filter.label}: {filter.value}
                 </span>
                 <button
+                  aria-label={explorerT('removeFilter', {
+                    label: filter.label,
+                    value: filter.value,
+                  })}
                   className="filter-remove"
                   type="button"
                   onClick={() => {
                     updateParam(filter.id, null)
                   }}
                 >
-                  ×
+                  <span aria-hidden>×</span>
+                  <span className="sr-only">
+                    {explorerT('removeFilterShort')}
+                  </span>
                 </button>
               </div>
             ))}
@@ -1207,7 +1238,7 @@ export function ExplorerPage() {
             {recentSearches.length > 0 ? (
               recentSearches.map((entry) => (
                 <button
-                  key={entry.label}
+                  key={JSON.stringify(entry.params)}
                   className="chip-button"
                   type="button"
                   onClick={() =>
@@ -1220,7 +1251,7 @@ export function ExplorerPage() {
                     )
                   }
                 >
-                  {entry.label}
+                  {buildRecentSearchLabel(entry.params) || entry.label}
                 </button>
               ))
             ) : (

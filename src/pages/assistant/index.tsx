@@ -692,6 +692,7 @@ export function AssistantPage() {
                 disabled={sending}
               />
               <button
+                aria-label={assistantT('sendAction')}
                 className="assistant-send"
                 type="button"
                 onClick={() => {
@@ -699,7 +700,7 @@ export function AssistantPage() {
                 }}
                 disabled={sending}
               >
-                <span>↵</span>
+                {assistantT('sendAction')}
               </button>
             </div>
             <div className="assistant-hint dim">

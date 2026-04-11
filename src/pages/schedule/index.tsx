@@ -224,6 +224,13 @@ export function SchedulePage() {
             <button
               className="btn-secondary"
               type="button"
+              onClick={() => setPmeTab('manual')}
+            >
+              {t('common.manualTab')}
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
               onClick={() => setPmeTab('execute')}
             >
               {t('common.executeTab')}
