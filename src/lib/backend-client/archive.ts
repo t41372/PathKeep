@@ -18,12 +18,14 @@ export const archiveClient = {
       config,
       databaseKey,
     }),
-  runBackupNow: (dueOnly = false) => call<BackupReport>('run_backup_now', { dueOnly }),
+  runBackupNow: (dueOnly = false) =>
+    call<BackupReport>('run_backup_now', { dueOnly }),
   previewSnapshotRestore: (request: SnapshotRestoreRequest) =>
     call<SnapshotRestorePreview>('preview_snapshot_restore', { request }),
   runSnapshotRestore: (request: SnapshotRestoreRequest) =>
     call<BackupReport>('run_snapshot_restore', { request }),
-  previewRetentionPrune: () => call<RetentionPreview>('preview_retention_prune'),
+  previewRetentionPrune: () =>
+    call<RetentionPreview>('preview_retention_prune'),
   runRetentionPrune: (request: RetentionPruneRequest) =>
     call<RetentionPruneResult>('run_retention_prune', { request }),
   exportHistory: (request: ExportRequest) =>

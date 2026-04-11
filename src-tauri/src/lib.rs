@@ -1,6 +1,6 @@
+mod commands;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
-mod commands;
 mod file_manager;
 mod session;
 mod updater;

@@ -12,7 +12,8 @@ export const appClient = {
   getBuildInfo: () => call<AppBuildInfo>('app_build_info'),
   getLockStatus: () => call<AppLockStatus>('app_lock_status'),
   getSnapshot: () => call<AppSnapshot>('app_snapshot'),
-  saveConfig: (config: AppConfig) => call<AppSnapshot>('save_config', { config }),
+  saveConfig: (config: AppConfig) =>
+    call<AppSnapshot>('save_config', { config }),
   setSessionDatabaseKey: (databaseKey: string) =>
     call<void>('set_session_database_key', { databaseKey }),
   clearSessionDatabaseKey: () => call<void>('clear_session_database_key'),

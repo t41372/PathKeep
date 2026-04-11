@@ -1,6 +1,17 @@
-import type { ArchiveMode, ArchiveStatus, BackupRunOverview, BrowserProfile } from './archive'
+import type {
+  ArchiveMode,
+  ArchiveStatus,
+  BackupRunOverview,
+  BrowserProfile,
+} from './archive'
 import type { ImportBatchOverview } from './import'
-import type { AiIndexStatus, AiSettings, DeterministicSettings, EnrichmentSettings, InsightStatus } from './intelligence'
+import type {
+  AiIndexStatus,
+  AiSettings,
+  DeterministicSettings,
+  EnrichmentSettings,
+  InsightStatus,
+} from './intelligence'
 import type { RemoteBackupConfig } from './remote'
 import type { KeyringStatusReport } from './security'
 

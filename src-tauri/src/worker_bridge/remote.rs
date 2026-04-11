@@ -1,5 +1,4 @@
 use vault_core::S3CredentialInput;
-use vault_worker;
 
 use super::worker_result;
 

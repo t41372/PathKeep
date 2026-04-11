@@ -1,4 +1,6 @@
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
+#[cfg(not(test))]
 use tauri::State;
 
 #[cfg(not(test))]

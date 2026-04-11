@@ -1,4 +1,6 @@
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
+#[cfg(not(test))]
 use tauri::State;
 
 #[cfg(not(test))]
@@ -61,7 +63,9 @@ pub(crate) fn clear_app_lock_passcode() -> Result<vault_core::AppLockStatus, Str
 
 #[cfg(not(test))]
 #[tauri::command]
-pub(crate) fn lock_app_session(reason: Option<String>) -> Result<vault_core::AppLockStatus, String> {
+pub(crate) fn lock_app_session(
+    reason: Option<String>,
+) -> Result<vault_core::AppLockStatus, String> {
     worker_bridge::lock_app_session_impl(reason)
 }
 

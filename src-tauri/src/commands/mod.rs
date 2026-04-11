@@ -8,6 +8,7 @@ mod security;
 mod support;
 mod update;
 
+#[cfg(not(test))]
 pub(crate) use self::{
     app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
     support::*, update::*,

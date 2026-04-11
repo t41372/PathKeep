@@ -1,4 +1,3 @@
-
 export interface RemoteBackupConfig {
   enabled: boolean
   bucket: string

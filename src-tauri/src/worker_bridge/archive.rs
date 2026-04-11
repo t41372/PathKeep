@@ -1,6 +1,6 @@
 use crate::session::{SessionState, session_key, update_session_key};
 use vault_core::{AppConfig, ExportRequest, HistoryQuery};
-use vault_worker::{self, RekeyRequest};
+use vault_worker::RekeyRequest;
 
 use super::worker_result;
 

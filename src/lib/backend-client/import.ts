@@ -1,4 +1,8 @@
-import type { ImportBatchDetail, TakeoutInspection, TakeoutRequest } from '../types'
+import type {
+  ImportBatchDetail,
+  TakeoutInspection,
+  TakeoutRequest,
+} from '../types'
 import { call } from './shared'
 
 export const importClient = {

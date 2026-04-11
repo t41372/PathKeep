@@ -3,7 +3,6 @@ use crate::{
     session::{SessionState, update_session_key},
 };
 use vault_core::{AppConfig, SetAppLockPasscodeRequest, UnlockAppSessionRequest};
-use vault_worker;
 
 use super::worker_result;
 

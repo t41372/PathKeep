@@ -1,4 +1,3 @@
-
 export interface ScheduleGeneratedFile {
   relativePath: string
   absolutePath?: string | null

@@ -1,4 +1,6 @@
+#[cfg(not(test))]
 use crate::updater;
+#[cfg(not(test))]
 use tauri::AppHandle;
 
 #[cfg(not(test))]

@@ -1,9 +1,15 @@
-use serde::{Deserialize, Serialize};
 use super::ArchiveMode;
-use super::{AiIndexStatus, BackupRunOverview, BrowserProfile, ImportBatchOverview, InsightStatus, KeyringStatusReport};
-use super::{ArchiveStatus, RemoteBackupConfig};
-use super::{merge_deterministic_module_states, merge_enrichment_plugin_preferences, merge_enrichment_plugin_states};
+use super::{
+    AiIndexStatus, BackupRunOverview, BrowserProfile, ImportBatchOverview, InsightStatus,
+    KeyringStatusReport,
+};
 use super::{AiSettings, DeterministicSettings, EnrichmentSettings};
+use super::{ArchiveStatus, RemoteBackupConfig};
+use super::{
+    merge_deterministic_module_states, merge_enrichment_plugin_preferences,
+    merge_enrichment_plugin_states,
+};
+use serde::{Deserialize, Serialize};
 
 pub fn normalize_app_config(config: &mut AppConfig) {
     config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);

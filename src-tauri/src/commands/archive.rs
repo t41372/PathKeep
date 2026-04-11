@@ -1,5 +1,8 @@
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
+#[cfg(not(test))]
 use tauri::{AppHandle, Emitter, State};
+#[cfg(not(test))]
 use vault_worker::RekeyRequest;
 
 #[cfg(not(test))]

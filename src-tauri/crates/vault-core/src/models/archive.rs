@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::RemoteBackupResult;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ArchiveMode {

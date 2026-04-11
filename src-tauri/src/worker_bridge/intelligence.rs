@@ -2,7 +2,6 @@ use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, ExplainInsightRequest, RunInsightsRequest,
 };
-use vault_worker;
 
 use super::worker_result;
 

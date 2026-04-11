@@ -6,12 +6,18 @@ mod remote;
 mod schedule;
 mod security;
 
-pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*};
+pub(crate) use self::{
+    app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
+};
 
 fn worker_result<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
     result.map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
+use crate::PRODUCT_DISPLAY_NAME;
+#[cfg(test)]
+use crate::session::{SessionState, session_key};
 #[cfg(test)]
 use crate::{entrypoint, run_with_arguments, write_payload};
 #[cfg(test)]
@@ -25,7 +31,9 @@ use std::{
 #[cfg(test)]
 use tempfile::tempdir;
 #[cfg(test)]
-use vault_core::{AiProviderConfig, AiProviderPurpose, AiRequestFormat, AppConfig, ArchiveMode};
+use vault_core::*;
+#[cfg(test)]
+use vault_worker::RekeyRequest;
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,3 @@
-use vault_worker;
-
 use super::worker_result;
 
 pub(crate) fn keyring_status_impl() -> vault_core::KeyringStatusReport {

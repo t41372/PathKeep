@@ -1,4 +1,3 @@
-
 export interface TakeoutRequest {
   sourcePath: string
   dryRun: boolean
