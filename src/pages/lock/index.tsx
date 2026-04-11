@@ -39,8 +39,7 @@ export function LockPage() {
 
   const nextPath = searchParams.get('next')?.trim() || '/'
   const reason = lockReasonLabel(appLockStatus.lockReason, t)
-  const canTryBiometric =
-    appLockStatus.biometricEnabled || appLockStatus.biometricAvailable
+  const canTryBiometric = appLockStatus.biometricEnabled
   const touchIdState =
     appLockStatus.biometricState === 'touch-id-available' ||
     appLockStatus.biometricState === 'touch-id-unavailable'

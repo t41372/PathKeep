@@ -33,6 +33,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
+    time::Duration as StdDuration,
 };
 use tempfile::tempdir;
 
@@ -1444,90 +1445,82 @@ pub fn rekey_archive(
     let mut next_config = current_config.clone();
     next_config.initialized = true;
     next_config.archive_mode = new_mode.clone();
-    let result = (|| -> Result<ArchiveStatus> {
-        export_archive_database(&source, &temp_path, target_key)?;
-        fs::rename(&paths.archive_database_path, &backup_path)?;
-        if let Err(error) = fs::rename(&temp_path, &paths.archive_database_path) {
-            let _ = fs::rename(&backup_path, &paths.archive_database_path);
-            let _ = fs::remove_file(&temp_path);
-            return Err(error).context("replacing archive database after rekey export");
-        }
-        let _ = fs::remove_file(&backup_path);
-        save_config(paths, &next_config)?;
-        archive_status(paths, &next_config, new_key.or(old_key))
-    })();
+    export_archive_database(&source, &temp_path, target_key)?;
+    drop(source);
 
-    let (status_label, run_config, run_key, run_error) = match &result {
-        Ok(_) => ("success", &next_config, new_key.or(old_key), None),
-        Err(error) => ("failed", current_config, old_key, Some(format!("{error:#}"))),
-    };
+    let temp_connection =
+        Connection::open(&temp_path).with_context(|| format!("opening {}", temp_path.display()))?;
+    temp_connection.busy_timeout(StdDuration::from_secs(5))?;
+    temp_connection.pragma_update(None, "foreign_keys", true)?;
+    if let Some(key) = target_key {
+        apply_cipher_key(&temp_connection, key)?;
+    }
+    create_schema(&temp_connection)?;
+    temp_connection.execute(
+        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+         VALUES ('rekey', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
+        params![started_at, timezone],
+    )?;
+    let run_id = temp_connection.last_insert_rowid();
+    record_snapshot_reference(
+        &temp_connection,
+        run_id,
+        &snapshot_path,
+        "before-rekey",
+        &started_at,
+    )?;
+    drop(temp_connection);
 
-    if let Ok(connection) = open_archive_connection(paths, run_config, run_key) {
-        if create_schema(&connection).is_ok() {
-            let _ = (|| -> Result<()> {
-                connection.execute(
-                    "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-                     VALUES ('rekey', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
-                    params![started_at, timezone],
-                )?;
-                let run_id = connection.last_insert_rowid();
-                record_snapshot_reference(
-                    &connection,
-                    run_id,
-                    &snapshot_path,
-                    "before-rekey",
-                    &started_at,
-                )?;
-                let finished_at = now_rfc3339();
-                let manifest_payload = json!({
-                    "runType": "rekey",
-                    "runId": run_id,
-                    "createdAt": finished_at,
-                    "fromMode": current_config.archive_mode,
-                    "toMode": new_mode.clone(),
-                    "snapshotPath": snapshot_path.display().to_string(),
-                    "status": status_label,
-                    "error": run_error.clone(),
-                });
-                let (manifest_hash, _manifest_path) = persist_structured_manifest(
-                    &connection,
-                    paths,
-                    run_id,
-                    &finished_at,
-                    &manifest_payload,
-                )?;
-                let stats = stats_with_archive_totals(
-                    &connection,
-                    json!({
-                        "fromMode": current_config.archive_mode,
-                        "toMode": new_mode.clone(),
-                        "snapshotPath": snapshot_path.display().to_string(),
-                        "manifestHash": manifest_hash,
-                    }),
-                )?;
-                connection.execute(
-                    "UPDATE runs
-                     SET finished_at = ?1,
-                         status = ?2,
-                         stats_json = ?3,
-                         warnings_json = ?4,
-                         error_message = ?5
-                     WHERE id = ?6",
-                    params![
-                        finished_at,
-                        status_label,
-                        serde_json::to_string(&stats)?,
-                        serde_json::to_string(&Vec::<String>::new())?,
-                        run_error.clone(),
-                        run_id,
-                    ],
-                )?;
-                Ok(())
-            })();
-        }
+    if let Err(error) = fs::rename(&paths.archive_database_path, &backup_path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error).context("preparing archive database swap for rekey export");
     }
 
-    result
+    if let Err(error) = fs::rename(&temp_path, &paths.archive_database_path) {
+        let _ = fs::rename(&backup_path, &paths.archive_database_path);
+        let _ = fs::remove_file(&temp_path);
+        return Err(error).context("replacing archive database after rekey export");
+    }
+
+    let _ = fs::remove_file(&backup_path);
+
+    match save_config(paths, &next_config)
+        .and_then(|_| archive_status(paths, &next_config, target_key))
+    {
+        Ok(status) => {
+            let connection = open_archive_connection(paths, &next_config, target_key)?;
+            create_schema(&connection)?;
+            finalize_rekey_run(
+                &connection,
+                paths,
+                run_id,
+                &current_config.archive_mode,
+                &new_mode,
+                &snapshot_path,
+                "success",
+                None,
+            )?;
+            Ok(status)
+        }
+        Err(error) => {
+            let run_error = format!("{error:#}");
+            if let Ok(connection) = open_archive_connection(paths, &next_config, target_key) {
+                if create_schema(&connection).is_ok() {
+                    let _ = finalize_rekey_run(
+                        &connection,
+                        paths,
+                        run_id,
+                        &current_config.archive_mode,
+                        &new_mode,
+                        &snapshot_path,
+                        "failed",
+                        Some(run_error.clone()),
+                    );
+                }
+            }
+            Err(error)
+        }
+    }
 }
 
 fn create_rekey_snapshot(paths: &ProjectPaths) -> Result<PathBuf> {
@@ -1539,6 +1532,58 @@ fn create_rekey_snapshot(paths: &ProjectPaths) -> Result<PathBuf> {
         format!("creating rekey safety snapshot at {}", snapshot_path.display())
     })?;
     Ok(snapshot_path)
+}
+
+fn finalize_rekey_run(
+    connection: &Connection,
+    paths: &ProjectPaths,
+    run_id: i64,
+    from_mode: &ArchiveMode,
+    to_mode: &ArchiveMode,
+    snapshot_path: &Path,
+    status_label: &str,
+    run_error: Option<String>,
+) -> Result<()> {
+    let finished_at = now_rfc3339();
+    let manifest_payload = json!({
+        "runType": "rekey",
+        "runId": run_id,
+        "createdAt": finished_at,
+        "fromMode": from_mode,
+        "toMode": to_mode,
+        "snapshotPath": snapshot_path.display().to_string(),
+        "status": status_label,
+        "error": run_error,
+    });
+    let (manifest_hash, _manifest_path) =
+        persist_structured_manifest(connection, paths, run_id, &finished_at, &manifest_payload)?;
+    let stats = stats_with_archive_totals(
+        connection,
+        json!({
+            "fromMode": from_mode,
+            "toMode": to_mode,
+            "snapshotPath": snapshot_path.display().to_string(),
+            "manifestHash": manifest_hash,
+        }),
+    )?;
+    connection.execute(
+        "UPDATE runs
+         SET finished_at = ?1,
+             status = ?2,
+             stats_json = ?3,
+             warnings_json = ?4,
+             error_message = ?5
+         WHERE id = ?6",
+        params![
+            finished_at,
+            status_label,
+            serde_json::to_string(&stats)?,
+            serde_json::to_string(&Vec::<String>::new())?,
+            manifest_payload.get("error").and_then(Value::as_str),
+            run_id,
+        ],
+    )?;
+    Ok(())
 }
 
 pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Result<HealthReport> {
@@ -1903,7 +1948,7 @@ fn process_profile_snapshot(
         let canonical_url_id =
             upsert_url(archive, run_id, source_profile_id, &snapshot.profile, url, &payload.hash)?;
         url_id_map.insert(url.source_url_id, canonical_url_id);
-        insert_raw_row(
+        let inserted = insert_raw_row(
             archive,
             RawRowInsert {
                 run_id,
@@ -1919,8 +1964,10 @@ fn process_profile_snapshot(
                 import_batch_id: None,
             },
         )?;
-        summary.new_urls += 1;
-        summary.raw_rows += 1;
+        if inserted > 0 {
+            summary.new_urls += 1;
+            summary.raw_rows += 1;
+        }
     }
 
     let mut url_bounds = HashMap::<i64, UrlVisitBounds>::new();
@@ -3676,24 +3723,14 @@ fn rewrite_import_audit_artifacts(
         return Ok(Vec::new());
     }
 
-    git_audit::ensure_repo(&paths.audit_repo_path)?;
     let mut rewritten = Vec::new();
     for batch_id in batch_ids {
-        let detail = crate::takeout::preview_import_batch(paths, config, key, *batch_id)?;
-        let action = match detail.batch.status.as_str() {
-            "reverted" => "reverted",
-            _ => "imported",
-        };
-        let file_name = format!(
-            "imports/{}/batch-{}-{}.json",
-            &detail.batch.created_at[0..10],
-            detail.batch.id,
-            action
-        );
-        let contents = serde_json::to_string_pretty(&detail)?;
-        let audit_path =
-            git_audit::write_audit_file(&paths.audit_repo_path, &file_name, &contents)?;
-        rewritten.push((*batch_id, audit_path.display().to_string()));
+        let (audit_path, _) = crate::takeout::ensure_import_batch_audit_artifact(
+            paths, config, key, *batch_id, None,
+        )?;
+        if let Some(audit_path) = audit_path {
+            rewritten.push((*batch_id, audit_path));
+        }
     }
     Ok(rewritten)
 }
@@ -4139,6 +4176,15 @@ mod tests {
         )
         .expect("list url fragment history");
         assert_eq!(url_fragment_history.total, 2);
+
+        let punctuation_only_history = list_history(
+            &paths,
+            &config,
+            None,
+            HistoryQuery { q: Some("!!!".to_string()), ..HistoryQuery::default() },
+        )
+        .expect("list punctuation-only history");
+        assert_eq!(punctuation_only_history.total, 0);
 
         let regex_history = list_history(
             &paths,

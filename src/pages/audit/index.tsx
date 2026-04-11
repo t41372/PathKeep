@@ -186,26 +186,24 @@ export function AuditPage() {
 
     let cancelled = false
     const loadRunIndex = async () => {
-      try {
-        const entries = await Promise.all(
-          runs.map(
-            async (run) =>
-              [run.id, await backend.loadAuditRunDetail(run.id)] as const,
-          ),
-        )
-        if (cancelled) {
-          return
-        }
-        const nextCache: Record<number, AuditRunDetail> = {}
-        for (const [nextRunId, nextDetail] of entries) {
-          nextCache[nextRunId] = nextDetail
-        }
-        setDetailCache(nextCache)
-      } catch {
-        if (!cancelled) {
-          setDetailCache({})
-        }
+      const entries = await Promise.allSettled(
+        runs.map(
+          async (run) =>
+            [run.id, await backend.loadAuditRunDetail(run.id)] as const,
+        ),
+      )
+      if (cancelled) {
+        return
       }
+      const nextCache: Record<number, AuditRunDetail> = {}
+      for (const entry of entries) {
+        if (entry.status !== 'fulfilled') {
+          continue
+        }
+        const [nextRunId, nextDetail] = entry.value
+        nextCache[nextRunId] = nextDetail
+      }
+      setDetailCache(nextCache)
     }
 
     void loadRunIndex()

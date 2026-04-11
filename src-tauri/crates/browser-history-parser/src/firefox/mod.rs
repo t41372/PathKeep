@@ -16,7 +16,7 @@ SELECT
   COALESCE(moz_places.hidden, 0),
   COALESCE(moz_places.last_visit_date, 0)
 FROM moz_places
-WHERE COALESCE(moz_places.last_visit_date, 0) > ?1
+WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1
 ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
 "#;
 const VISITS_SQL: &str = r#"
@@ -293,7 +293,7 @@ mod tests {
 
         let parsed = parse_history(&history_path, 11, 1_744_146_000_000).expect("cursor parse");
 
-        assert!(parsed.urls.is_empty());
+        assert_eq!(parsed.urls.len(), 1);
         assert!(parsed.visits.is_empty());
     }
 }

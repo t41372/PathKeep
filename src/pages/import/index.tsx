@@ -122,6 +122,8 @@ export function ImportPage() {
 
     let cancelled = false
     const loadBatch = async () => {
+      setSelectedBatchDetail(null)
+      setActionError(null)
       setLoadingBatch(true)
       try {
         const detail = await backend.previewImportBatch(selectedBatchId)
@@ -130,6 +132,7 @@ export function ImportPage() {
         }
       } catch (nextError) {
         if (!cancelled) {
+          setSelectedBatchDetail(null)
           setActionError(
             nextError instanceof Error
               ? nextError.message
@@ -332,9 +335,18 @@ export function ImportPage() {
       setStep('done')
       if (result.importBatch) {
         setSelectedBatchId(result.importBatch.id)
-        setSelectedBatchDetail(
-          await backend.previewImportBatch(result.importBatch.id),
-        )
+        try {
+          setSelectedBatchDetail(
+            await backend.previewImportBatch(result.importBatch.id),
+          )
+        } catch (nextError) {
+          setSelectedBatchDetail(null)
+          setActionError(
+            nextError instanceof Error
+              ? nextError.message
+              : t('common.unavailable'),
+          )
+        }
       }
     } catch (nextError) {
       setActionError(

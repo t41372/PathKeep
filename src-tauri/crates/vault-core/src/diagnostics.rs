@@ -105,16 +105,35 @@ fn read_report(path: &Path) -> Result<Option<StoredCrashReport>> {
     if !path.exists() {
         return Ok(None);
     }
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("reading crash report {}", path.display()))?;
-    let report = serde_json::from_str::<StoredCrashReport>(&content)
-        .with_context(|| format!("parsing crash report {}", path.display()))?;
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return Ok(None),
+    };
+    let report = match serde_json::from_str::<StoredCrashReport>(&content) {
+        Ok(report) => report,
+        Err(_) => return Ok(None),
+    };
     Ok(Some(report))
 }
 
 fn write_report(path: &Path, report: &StoredCrashReport) -> Result<()> {
     let content = serde_json::to_string_pretty(report)?;
-    fs::write(path, content).with_context(|| format!("writing crash report {}", path.display()))?;
+    let suffix = now_rfc3339().replace([':', '.'], "-");
+    let temp_path = path.with_extension(format!(
+        "{}.{suffix}.tmp",
+        path.extension().and_then(|value| value.to_str()).unwrap_or("json")
+    ));
+    fs::write(&temp_path, content)
+        .with_context(|| format!("writing crash report {}", temp_path.display()))?;
+    if let Err(error) = fs::rename(&temp_path, path) {
+        if path.exists() {
+            let _ = fs::remove_file(path);
+            fs::rename(&temp_path, path)
+                .with_context(|| format!("replacing crash report {}", path.display()))?;
+        } else {
+            return Err(error).with_context(|| format!("writing crash report {}", path.display()));
+        }
+    }
     Ok(())
 }
 
@@ -259,5 +278,18 @@ mod tests {
 
         let diagnostics = load_runtime_diagnostics(&paths).expect("diagnostics");
         assert_eq!(diagnostics.latest_crash_report.expect("latest crash").source, "window-error");
+    }
+
+    #[test]
+    fn diagnostics_ignore_malformed_crash_reports() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+
+        fs::write(&paths.frontend_error_report_path, "{not-json")
+            .expect("write malformed crash report");
+
+        let diagnostics = load_runtime_diagnostics(&paths).expect("diagnostics");
+        assert!(diagnostics.latest_crash_report.is_none());
     }
 }

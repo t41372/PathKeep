@@ -22,8 +22,12 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 const TEST_CURL_BIN_ENV: &str = "BHB_TEST_CURL_BIN";
 const REMOTE_BUNDLE_VERSION: &str = "pathkeep.remote-backup.v1";
-const REQUIRED_BUNDLE_ENTRIES: &[&str] =
-    &["archive/history-vault.sqlite", "config/config.json", "metadata/bundle-manifest.json"];
+const REQUIRED_BUNDLE_ENTRIES: &[&str] = &[
+    "archive/history-vault.sqlite",
+    "config/config.json",
+    "metadata/bundle-manifest.json",
+    "metadata/bundle-manifest.sha256",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,11 +161,17 @@ pub fn verify_remote_backup(
     let file =
         File::open(bundle_path).with_context(|| format!("opening {}", bundle_path.display()))?;
     let mut archive = ZipArchive::new(file).context("opening remote backup bundle")?;
-    let manifest = read_bundle_manifest(&mut archive)?;
+    let manifest_bytes = read_zip_entry(&mut archive, "metadata/bundle-manifest.json")?;
+    let manifest = serde_json::from_slice::<BundleManifest>(&manifest_bytes)
+        .context("parsing bundle manifest json")?;
 
     let version_supported = manifest.bundle_version == REMOTE_BUNDLE_VERSION;
     let required_entries_ready = required_bundle_entries_present(&mut archive);
-    let (checksum_ok, checksum_message) = verify_bundle_checksums(&mut archive, &manifest.files)?;
+    let (checksum_ok, checksum_message) =
+        match verify_bundle_checksums(&mut archive, &manifest, &manifest_bytes) {
+            Ok(result) => result,
+            Err(error) => (false, format!("Checksum verification failed: {error:#}")),
+        };
     let (restore_ready, restore_message, mut warnings) =
         match validate_restore_readiness(&mut archive, &manifest, key) {
             Ok(result) => result,
@@ -296,8 +306,11 @@ fn build_bundle(
         object_key: remote_object_key(config, &bundle_path),
         files: manifest_files,
     };
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
     zip.start_file("metadata/bundle-manifest.json", options)?;
-    zip.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
+    zip.write_all(&manifest_bytes)?;
+    zip.start_file("metadata/bundle-manifest.sha256", options)?;
+    zip.write_all(format!("{}\n", sha256_hex(&manifest_bytes)).as_bytes())?;
     zip.finish()?;
 
     Ok(bundle_path)
@@ -372,11 +385,6 @@ fn add_file_to_zip(
     Ok(())
 }
 
-fn read_bundle_manifest(archive: &mut ZipArchive<File>) -> Result<BundleManifest> {
-    let bytes = read_zip_entry(archive, "metadata/bundle-manifest.json")?;
-    serde_json::from_slice::<BundleManifest>(&bytes).context("parsing bundle manifest json")
-}
-
 fn read_zip_entry(archive: &mut ZipArchive<File>, entry_name: &str) -> Result<Vec<u8>> {
     let mut entry = archive
         .by_name(entry_name)
@@ -392,10 +400,55 @@ fn required_bundle_entries_present(archive: &mut ZipArchive<File>) -> bool {
 
 fn verify_bundle_checksums(
     archive: &mut ZipArchive<File>,
-    files: &[BundleManifestFile],
+    manifest: &BundleManifest,
+    manifest_bytes: &[u8],
 ) -> Result<(bool, String)> {
+    let expected_manifest_hash =
+        String::from_utf8(read_zip_entry(archive, "metadata/bundle-manifest.sha256")?)
+            .context("reading detached manifest checksum")?;
+    let actual_manifest_hash = sha256_hex(manifest_bytes);
+    let normalized_manifest_hash = expected_manifest_hash.trim();
+    if normalized_manifest_hash != actual_manifest_hash {
+        return Ok((
+            false,
+            format!(
+                "metadata/bundle-manifest.json checksum drifted (expected {}, saw {})",
+                normalized_manifest_hash, actual_manifest_hash
+            ),
+        ));
+    }
+
+    let mut actual_entries = (0..archive.len())
+        .map(|index| {
+            archive
+                .by_index(index)
+                .map(|entry| entry.name().replace('\\', "/"))
+                .map_err(anyhow::Error::from)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    actual_entries.sort();
+
+    let mut expected_entries =
+        manifest.files.iter().map(|file| file.relative_path.clone()).collect::<Vec<_>>();
+    expected_entries.extend([
+        "metadata/bundle-manifest.json".to_string(),
+        "metadata/bundle-manifest.sha256".to_string(),
+    ]);
+    expected_entries.sort();
+
+    if actual_entries != expected_entries {
+        return Ok((
+            false,
+            format!(
+                "bundle entry set drifted (expected [{}], saw [{}])",
+                expected_entries.join(", "),
+                actual_entries.join(", ")
+            ),
+        ));
+    }
+
     let mut mismatches = Vec::new();
-    for file in files {
+    for file in &manifest.files {
         let bytes = match read_zip_entry(archive, &file.relative_path) {
             Ok(bytes) => bytes,
             Err(_) => {
@@ -414,7 +467,13 @@ fn verify_bundle_checksums(
     }
 
     if mismatches.is_empty() {
-        Ok((true, format!("Verified {} manifest-tracked bundle entries.", files.len())))
+        Ok((
+            true,
+            format!(
+                "Verified {} manifest-tracked bundle entries plus detached manifest integrity.",
+                manifest.files.len()
+            ),
+        ))
     } else {
         Ok((false, mismatches.join(" | ")))
     }
@@ -620,6 +679,33 @@ mod tests {
             } else {
                 writer.write_all(&bytes).expect("write copied entry");
             }
+        }
+
+        writer.finish().expect("finish rewritten bundle");
+        rewritten_path
+    }
+
+    fn rewrite_bundle_without_entry(bundle_path: &Path, entry_name: &str) -> PathBuf {
+        let file = File::open(bundle_path).expect("open existing bundle");
+        let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+        let rewritten_path = bundle_path.with_file_name(format!(
+            "missing-{}",
+            bundle_path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        let rewritten_file = File::create(&rewritten_path).expect("create rewritten bundle");
+        let mut writer = ZipWriter::new(rewritten_file);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("bundle entry");
+            let name = entry.name().to_string();
+            if name == entry_name {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read bundle entry");
+            writer.start_file(name, options).expect("start zip entry");
+            writer.write_all(&bytes).expect("write copied entry");
         }
 
         writer.finish().expect("finish rewritten bundle");
@@ -885,6 +971,13 @@ mod tests {
             .expect("read manifest");
         assert!(manifest.contains("\"bundleVersion\": \"pathkeep.remote-backup.v1\""));
         assert!(manifest.contains("\"archiveMode\": \"encrypted\""));
+        let mut manifest_hash = String::new();
+        archive
+            .by_name("metadata/bundle-manifest.sha256")
+            .expect("manifest hash entry")
+            .read_to_string(&mut manifest_hash)
+            .expect("read manifest hash");
+        assert_eq!(manifest_hash.trim(), sha256_hex(manifest.as_bytes()));
     }
 
     #[test]
@@ -936,6 +1029,59 @@ mod tests {
                 .iter()
                 .find(|check| check.name == "checksums")
                 .expect("checksum check")
+                .status,
+            "error"
+        );
+    }
+
+    #[test]
+    fn verify_remote_backup_rejects_manifest_tampering() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+
+        let bundle_path =
+            build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+        let tampered_path = rewrite_bundle_entry(
+            &bundle_path,
+            "metadata/bundle-manifest.json",
+            br#"{"bundleVersion":"pathkeep.remote-backup.v1","appVersion":"tampered","createdAt":"2026-04-04T01:30:00Z","archiveMode":"plaintext","bucket":"example-bucket","objectKey":"pathkeep/tampered.zip","files":[]}"#,
+        );
+        let verification = verify_remote_backup(&tampered_path, None).expect("verify tampered");
+
+        assert!(!verification.restore_ready);
+        assert_eq!(
+            verification
+                .checks
+                .iter()
+                .find(|check| check.name == "checksums")
+                .expect("checksum check")
+                .status,
+            "error"
+        );
+    }
+
+    #[test]
+    fn verify_remote_backup_rejects_missing_manifest_checksum_entry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = sample_config();
+        initialize_plaintext_archive(&paths, &config);
+
+        let bundle_path =
+            build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+        let tampered_path =
+            rewrite_bundle_without_entry(&bundle_path, "metadata/bundle-manifest.sha256");
+        let verification = verify_remote_backup(&tampered_path, None).expect("verify tampered");
+
+        assert!(!verification.restore_ready);
+        assert_eq!(
+            verification
+                .checks
+                .iter()
+                .find(|check| check.name == "required-entries")
+                .expect("required entries check")
                 .status,
             "error"
         );

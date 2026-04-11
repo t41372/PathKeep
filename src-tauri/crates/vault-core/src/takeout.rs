@@ -228,8 +228,7 @@ pub fn import_takeout(
 
     finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
 
-    let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "imported")?;
-    update_batch_audit(paths, config, key, batch_id, audit_path.as_deref(), git_commit.as_deref())?;
+    ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("imported"))?;
 
     let detail = preview_import_batch(paths, config, key, batch_id)?;
     inspection.import_batch = Some(detail.batch);
@@ -280,30 +279,22 @@ pub fn preview_import_batch(
 ) -> Result<ImportBatchDetail> {
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
-    let batch = load_import_batch_record(&connection, batch_id)?
-        .with_context(|| format!("import batch {batch_id} was not found"))?;
+    let detail = load_import_batch_detail(&connection, batch_id)?;
+    let audit_missing = detail
+        .batch
+        .audit_path
+        .as_deref()
+        .is_none_or(|path| path.trim().is_empty() || !Path::new(path).exists());
+    if !audit_missing {
+        return Ok(detail);
+    }
 
-    const PREVIEW_IMPORT_BATCH_SQL: &str = "SELECT payload_json FROM raw_row_versions WHERE import_batch_id = ?1 ORDER BY id DESC LIMIT ?2";
-    #[rustfmt::skip]
-    let mut statement = connection.prepare(PREVIEW_IMPORT_BATCH_SQL)?;
-    let rows = statement.query_map(params![batch_id, PREVIEW_LIMIT as i64], |row: &Row<'_>| {
-        row.get::<_, String>(0)
-    })?;
-    let preview_entries = rows
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .filter_map(|payload_json| {
-            preview_entry_from_payload(&batch.overview.source_path, &payload_json).ok()
-        })
-        .collect::<Vec<_>>();
+    drop(connection);
+    ensure_import_batch_audit_artifact(paths, config, key, batch_id, None)?;
 
-    Ok(ImportBatchDetail {
-        batch: batch.overview,
-        preview_entries,
-        recognized_files: batch.recognized_files,
-        quarantined_files: batch.quarantined_files,
-        notes: batch.notes,
-    })
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    load_import_batch_detail(&connection, batch_id)
 }
 
 pub fn revert_import_batch(
@@ -360,8 +351,7 @@ pub fn revert_import_batch(
     )?;
     transaction.commit()?;
 
-    let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "reverted")?;
-    update_batch_audit(paths, config, key, batch_id, audit_path.as_deref(), git_commit.as_deref())?;
+    ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("reverted"))?;
 
     preview_import_batch(paths, config, key, batch_id)
 }
@@ -423,8 +413,7 @@ pub fn restore_import_batch(
     )?;
     transaction.commit()?;
 
-    let (audit_path, git_commit) = write_batch_audit(paths, config, batch_id, key, "restored")?;
-    update_batch_audit(paths, config, key, batch_id, audit_path.as_deref(), git_commit.as_deref())?;
+    ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("restored"))?;
 
     preview_import_batch(paths, config, key, batch_id)
 }
@@ -853,40 +842,91 @@ fn upsert_takeout_profile(
         .map_err(Into::into)
 }
 
-fn write_batch_audit(
+pub(crate) fn ensure_import_batch_audit_artifact(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    batch_id: i64,
+    action_hint: Option<&str>,
+) -> Result<(Option<String>, Option<String>)> {
+    let connection = open_archive_connection(paths, config, key)?;
+    create_schema(&connection)?;
+    let detail = load_import_batch_detail(&connection, batch_id)?;
+    if detail
+        .batch
+        .audit_path
+        .as_deref()
+        .is_some_and(|path| !path.trim().is_empty() && Path::new(path).exists())
+    {
+        return Ok((detail.batch.audit_path.clone(), detail.batch.git_commit.clone()));
+    }
+
+    let action = action_hint.unwrap_or(match detail.batch.status.as_str() {
+        "reverted" => "reverted",
+        _ => "imported",
+    });
+    let (audit_path, git_commit) =
+        write_batch_audit_detail(paths, config, batch_id, &detail, action)?;
+    update_batch_audit(&connection, batch_id, Some(audit_path.as_str()), git_commit.as_deref())?;
+    Ok((Some(audit_path), git_commit))
+}
+
+fn write_batch_audit_detail(
     paths: &ProjectPaths,
     config: &AppConfig,
     batch_id: i64,
-    key: Option<&str>,
+    detail: &ImportBatchDetail,
     action: &str,
-) -> Result<(Option<String>, Option<String>)> {
-    let detail = preview_import_batch(paths, config, key, batch_id)?;
+) -> Result<(String, Option<String>)> {
     git_audit::ensure_repo(&paths.audit_repo_path)?;
     let file_name =
         format!("imports/{}/batch-{}-{}.json", &detail.batch.created_at[0..10], batch_id, action);
-    let contents = serde_json::to_string_pretty(&detail)?;
+    let contents = serde_json::to_string_pretty(detail)?;
     let audit_path = git_audit::write_audit_file(&paths.audit_repo_path, &file_name, &contents)?;
     let git_commit = if config.git_enabled {
         git_audit::commit_all(&paths.audit_repo_path, &format!("import batch {batch_id} {action}"))?
     } else {
         None
     };
-    Ok((Some(audit_path.display().to_string()), git_commit))
+    Ok((audit_path.display().to_string(), git_commit))
 }
 
 fn update_batch_audit(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    connection: &Connection,
     batch_id: i64,
     audit_path: Option<&str>,
     git_commit: Option<&str>,
 ) -> Result<()> {
-    let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     #[rustfmt::skip]
     connection.execute("UPDATE import_batches SET audit_path = ?1, git_commit = ?2 WHERE id = ?3", params![audit_path, git_commit, batch_id])?;
     Ok(())
+}
+
+fn load_import_batch_detail(connection: &Connection, batch_id: i64) -> Result<ImportBatchDetail> {
+    let batch = load_import_batch_record(connection, batch_id)?
+        .with_context(|| format!("import batch {batch_id} was not found"))?;
+
+    const PREVIEW_IMPORT_BATCH_SQL: &str = "SELECT payload_json FROM raw_row_versions WHERE import_batch_id = ?1 ORDER BY id DESC LIMIT ?2";
+    #[rustfmt::skip]
+    let mut statement = connection.prepare(PREVIEW_IMPORT_BATCH_SQL)?;
+    let rows = statement.query_map(params![batch_id, PREVIEW_LIMIT as i64], |row: &Row<'_>| {
+        row.get::<_, String>(0)
+    })?;
+    let preview_entries = rows
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .filter_map(|payload_json| {
+            preview_entry_from_payload(&batch.overview.source_path, &payload_json).ok()
+        })
+        .collect::<Vec<_>>();
+
+    Ok(ImportBatchDetail {
+        batch: batch.overview,
+        preview_entries,
+        recognized_files: batch.recognized_files,
+        quarantined_files: batch.quarantined_files,
+        notes: batch.notes,
+    })
 }
 
 fn load_import_batch_record(
@@ -1411,6 +1451,36 @@ mod tests {
             load_recent_runs(&paths, &config, None).expect("recent runs after restore");
         assert_eq!(recent_runs[0].run_type, "restore");
         assert_eq!(recent_runs[0].new_visits, 2);
+    }
+
+    #[test]
+    fn preview_import_batch_repairs_missing_audit_artifacts() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = initialized_plaintext_config();
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        let source = write_takeout_fixture(dir.path());
+        let inspection = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect("import");
+        let batch = inspection.import_batch.expect("import batch");
+        let audit_path = batch.audit_path.clone().expect("audit path");
+        fs::remove_file(&audit_path).expect("remove audit artifact");
+
+        let repaired =
+            preview_import_batch(&paths, &config, None, batch.id).expect("preview batch");
+        let repaired_path = repaired.batch.audit_path.expect("repaired audit path");
+
+        assert!(Path::new(&repaired_path).exists());
+        assert!(repaired_path.ends_with(".json"));
     }
 
     #[test]

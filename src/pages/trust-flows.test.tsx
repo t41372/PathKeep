@@ -33,6 +33,8 @@ import type {
   AppSnapshot,
   AuditRunDetail,
   DashboardSnapshot,
+  ImportBatchDetail,
+  ImportBatchOverview,
 } from '../lib/types'
 import { AuditPage } from './audit'
 import { ImportPage } from './import'
@@ -317,6 +319,94 @@ describe('trust flows', () => {
       screen.getByRole('button', { name: importT('showManualPath') }),
     )
     expect(screen.getByPlaceholderText('/path/to/History')).toBeVisible()
+  })
+
+  test('clears stale batch detail when the newly selected preview fails', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const batches: ImportBatchOverview[] = [
+      {
+        id: 1,
+        sourceKind: 'takeout',
+        sourcePath: '/tmp/takeout-a',
+        profileId: 'takeout::browser-history',
+        createdAt: '2026-04-10T10:00:00.000Z',
+        importedAt: '2026-04-10T10:05:00.000Z',
+        revertedAt: null,
+        status: 'imported',
+        candidateItems: 1,
+        importedItems: 1,
+        duplicateItems: 0,
+        visibleItems: 1,
+        auditPath: '/tmp/import-audit-a.json',
+        gitCommit: null,
+      },
+      {
+        id: 2,
+        sourceKind: 'takeout',
+        sourcePath: '/tmp/takeout-b',
+        profileId: 'takeout::browser-history',
+        createdAt: '2026-04-10T11:00:00.000Z',
+        importedAt: '2026-04-10T11:05:00.000Z',
+        revertedAt: null,
+        status: 'imported',
+        candidateItems: 1,
+        importedItems: 1,
+        duplicateItems: 0,
+        visibleItems: 1,
+        auditPath: '/tmp/import-audit-b.json',
+        gitCommit: null,
+      },
+    ]
+    snapshot.recentImportBatches = batches
+
+    const previewByBatch: Record<number, ImportBatchDetail> = {
+      1: {
+        batch: batches[0],
+        previewEntries: [
+          {
+            sourcePath: '/tmp/takeout-a',
+            url: 'https://example.com/first',
+            title: 'First batch entry',
+            visitedAt: '2026-04-10T10:04:00.000Z',
+            sourceVisitId: 1,
+            status: 'imported',
+          },
+        ],
+        recognizedFiles: [],
+        quarantinedFiles: [],
+        notes: [],
+      },
+    }
+    vi.spyOn(backend, 'previewImportBatch').mockImplementation((batchId) => {
+      if (batchId in previewByBatch) {
+        return Promise.resolve(previewByBatch[batchId])
+      }
+      return Promise.reject(new Error('Batch detail unavailable'))
+    })
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import?batch=1',
+      snapshot,
+    })
+
+    expect(await screen.findByText('https://example.com/first')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: /Batch #2/,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Batch detail unavailable',
+      ),
+    )
+    expect(
+      screen.queryByText('https://example.com/first'),
+    ).not.toBeInTheDocument()
   })
 
   test('renders Windows scheduler guidance and keeps PME tabs keyboard reachable', async () => {
@@ -782,5 +872,86 @@ describe('trust flows', () => {
     expect(await screen.findByText('Schedule drift detected')).toBeVisible()
 
     loadAuditRunDetailSpy.mockRestore()
+  })
+
+  test('keeps successful audit detail cache entries when one run detail fails', async () => {
+    const auditT = createNamespaceTranslator('en', 'audit')
+    const snapshot = await backend.getAppSnapshot()
+    snapshot.config.initialized = true
+    snapshot.recentRuns = [
+      {
+        id: 21,
+        startedAt: '2026-04-07T10:00:00.000Z',
+        finishedAt: '2026-04-07T10:05:00.000Z',
+        status: 'success',
+        runType: 'import',
+        trigger: 'manual',
+        profileScope: ['takeout::browser-history'],
+        manifestHash: 'hash-21',
+        profilesProcessed: 1,
+        newVisits: 3,
+        newUrls: 2,
+        newDownloads: 0,
+      },
+      {
+        id: 20,
+        startedAt: '2026-04-06T10:00:00.000Z',
+        finishedAt: '2026-04-06T10:05:00.000Z',
+        status: 'success',
+        runType: 'backup',
+        trigger: 'manual',
+        profileScope: ['chrome:Default'],
+        manifestHash: 'hash-20',
+        profilesProcessed: 1,
+        newVisits: 4,
+        newUrls: 3,
+        newDownloads: 0,
+      },
+    ]
+
+    const detailMap: Record<number, AuditRunDetail> = {
+      21: {
+        run: snapshot.recentRuns[0],
+        trigger: 'manual',
+        timezone: 'America/Phoenix',
+        dueOnly: false,
+        profileScope: ['takeout::browser-history'],
+        warnings: [],
+        errorMessage: null,
+        stats: {},
+        manifestPath: '/tmp/run-21.json',
+        manifestHash: 'hash-21',
+        artifacts: [
+          {
+            kind: 'manifest',
+            path: '/tmp/run-21.json',
+            createdAt: '2026-04-07T10:05:00.000Z',
+          },
+        ],
+      },
+    }
+
+    vi.spyOn(backend, 'loadAuditRunDetail').mockImplementation((runId) => {
+      const detail = detailMap[runId]
+      if (detail) {
+        return Promise.resolve(detail)
+      }
+      return Promise.reject(new Error(`Run ${runId} detail unavailable`))
+    })
+
+    renderTrustPage(<AuditPage />, {
+      language: 'en',
+      route: '/audit?run=21',
+      snapshot,
+    })
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText(auditT('filterArtifactType'))).getByRole(
+          'option',
+          { name: 'manifest' },
+        ),
+      ).toBeInTheDocument(),
+    )
   })
 })

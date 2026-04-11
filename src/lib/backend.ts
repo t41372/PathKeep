@@ -2405,6 +2405,11 @@ async function call<T>(
     case 'unlock_app_session': {
       const request = args?.request as UnlockAppSessionRequest | undefined
       if (request?.useBiometric) {
+        if (!mockState.snapshot.config.appLock.biometricEnabled) {
+          throw new Error(
+            'Biometric unlock is currently turned off in Settings.',
+          )
+        }
         if (mockState.biometricState !== 'touch-id-available') {
           throw new Error(
             mockState.biometricState === 'touch-id-unavailable'
@@ -2418,6 +2423,11 @@ async function call<T>(
           !request?.useBiometric &&
           (request?.passcode?.trim() ?? '') !== mockState.appLockPasscode
         ) {
+          if (!mockState.snapshot.config.appLock.passcodeEnabled) {
+            throw new Error(
+              'PathKeep cannot unlock without an enabled app lock credential.',
+            )
+          }
           throw new Error('The app lock passcode did not match.')
         }
         mockState.snapshot.appLockStatus = {

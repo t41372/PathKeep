@@ -946,7 +946,7 @@ describe('backend facade', () => {
         passcode: null,
         useBiometric: true,
       }),
-    ).rejects.toThrow('Biometric unlock is not available')
+    ).rejects.toThrow('Biometric unlock is currently turned off in Settings.')
     await expect(
       backend.unlockAppSession({
         passcode: '9999',
@@ -1017,6 +1017,16 @@ describe('backend facade', () => {
     ).rejects.toThrow(
       'Touch ID is unavailable on this Mac right now. Use the app lock passcode instead.',
     )
+
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.config.appLock = {
+        ...state.snapshot.config.appLock,
+        enabled: true,
+        passcodeEnabled: true,
+        passcodeConfigured: true,
+        biometricEnabled: true,
+      }
+    })
 
     await expect(
       backend.unlockAppSession({

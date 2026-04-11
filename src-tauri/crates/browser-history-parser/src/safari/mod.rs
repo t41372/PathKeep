@@ -39,7 +39,7 @@ WHERE EXISTS (
     SELECT MAX(history_visits.visit_time)
     FROM history_visits
     WHERE history_visits.history_item = history_items.id
-  ) > ?1
+  ) >= ?1
 ORDER BY last_visit_time ASC
 "#;
 const VISITS_SQL: &str = r#"
@@ -297,7 +297,7 @@ mod tests {
 
         let parsed = parse_history(&history_path, 9, 1_744_146_000_000).expect("cursor parse");
 
-        assert!(parsed.urls.is_empty());
+        assert_eq!(parsed.urls.len(), 1);
         assert!(parsed.visits.is_empty());
     }
 }

@@ -321,6 +321,9 @@ where
     }
 
     if request.use_biometric {
+        if !config.app_lock.biometric_enabled {
+            bail!("Biometric unlock is currently turned off in Settings.");
+        }
         if !biometric_available(biometric_state) {
             bail!(biometric_unavailable_error(biometric_state));
         }
@@ -338,6 +341,8 @@ where
         if derived != secret.hash_hex {
             bail!("The app lock passcode did not match.");
         }
+    } else {
+        bail!("PathKeep cannot unlock without an enabled app lock credential.");
     }
 
     let previous = load_app_lock_state(paths, config)?;
@@ -391,12 +396,12 @@ pub fn clear_app_lock_passcode(
     paths: &ProjectPaths,
     config: &mut AppConfig,
 ) -> Result<AppLockStatus> {
-    clear_app_lock_secret(paths)?;
-    clear_app_lock_state(paths)?;
     config.app_lock.enabled = false;
     config.app_lock.passcode_configured = false;
     config.app_lock.recovery_hint = None;
     save_config(paths, config)?;
+    clear_app_lock_state(paths)?;
+    clear_app_lock_secret(paths)?;
     app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
@@ -539,5 +544,43 @@ mod tests {
         )
         .expect_err("canceled");
         assert!(canceled.to_string().contains("Touch ID unlock was canceled"));
+
+        config.app_lock.biometric_enabled = false;
+        let disabled = unlock_app_session_with_biometric(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: true },
+            AppLockBiometricState::TouchIdAvailable,
+            || Ok(()),
+        )
+        .expect_err("biometric disabled");
+        assert!(disabled.to_string().contains("turned off in Settings"));
+    }
+
+    #[test]
+    fn unlock_rejects_no_auth_branch_when_passcode_and_biometric_are_disabled() {
+        let paths = temp_paths();
+        let config = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig {
+                enabled: true,
+                idle_timeout_minutes: 5,
+                biometric_enabled: false,
+                passcode_enabled: false,
+                passcode_configured: false,
+                recovery_hint: None,
+            },
+            ..AppConfig::default()
+        };
+
+        let error = unlock_app_session_with_biometric(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: false },
+            AppLockBiometricState::Unsupported,
+            || Ok(()),
+        )
+        .expect_err("missing auth should fail");
+        assert!(error.to_string().contains("cannot unlock without an enabled app lock credential"));
     }
 }

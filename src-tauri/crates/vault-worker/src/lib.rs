@@ -13,7 +13,13 @@ use rmcp::{
 };
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::mpsc, thread, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::mpsc,
+    thread,
+    time::Duration,
+};
 use tokio::runtime::Runtime;
 use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIndexStatus,
@@ -49,6 +55,8 @@ use vault_platform::{
     keyring_set_s3_credentials, keyring_status, preview_schedule, provider_api_key_saved,
     remove_schedule, s3_credentials_saved, schedule_status as detect_schedule_status,
 };
+
+type RekeyReviewSummary = (Option<String>, Option<i64>, Option<String>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1069,37 +1077,11 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
     {
         let connection = archive::open_archive_connection(&paths, &config, session_database_key)?;
         archive::create_schema(&connection)?;
-        connection
-            .query_row(
-                "SELECT
-                       runs.id,
-                       runs.finished_at,
-                       (
-                         SELECT snapshots.file_path
-                         FROM snapshots
-                         WHERE snapshots.run_id = runs.id
-                           AND snapshots.reason = 'before-rekey'
-                         ORDER BY snapshots.id DESC
-                         LIMIT 1
-                       )
-                     FROM runs
-                     WHERE runs.run_type = 'rekey'
-                     ORDER BY runs.id DESC
-                     LIMIT 1",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                },
-            )
-            .optional()?
-            .map(|(run_id, finished_at, snapshot_path)| (finished_at, Some(run_id), snapshot_path))
+        latest_rekey_review_from_archive(&connection)?
+            .or_else(|| latest_rekey_review_from_manifests(&paths).ok().flatten())
             .unwrap_or((None, None, None))
     } else {
-        (None, None, None)
+        latest_rekey_review_from_manifests(&paths)?.unwrap_or((None, None, None))
     };
 
     Ok(vault_core::SecurityStatus {
@@ -1117,6 +1099,114 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
         keyring_status: keyring,
         warnings,
     })
+}
+
+fn latest_rekey_review_from_archive(
+    connection: &rusqlite::Connection,
+) -> Result<Option<RekeyReviewSummary>> {
+    connection
+        .query_row(
+            "SELECT
+                   runs.id,
+                   runs.finished_at,
+                   (
+                     SELECT snapshots.file_path
+                     FROM snapshots
+                     WHERE snapshots.run_id = runs.id
+                       AND snapshots.reason = 'before-rekey'
+                     ORDER BY snapshots.id DESC
+                     LIMIT 1
+                   )
+                 FROM runs
+                 WHERE runs.run_type = 'rekey'
+                 ORDER BY runs.id DESC
+                 LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map(|value| {
+            value.map(|(run_id, finished_at, snapshot_path)| {
+                (finished_at, Some(run_id), snapshot_path)
+            })
+        })
+        .map_err(Into::into)
+}
+
+fn latest_rekey_review_from_manifests(
+    paths: &vault_core::ProjectPaths,
+) -> Result<Option<RekeyReviewSummary>> {
+    let manifest_paths = collect_manifest_paths(&paths.manifests_dir)?;
+    let mut latest: Option<(String, i64, Option<String>)> = None;
+
+    for manifest_path in manifest_paths {
+        let content = match fs::read_to_string(&manifest_path) {
+            Ok(content) => content,
+            Err(_) => continue,
+        };
+        let payload = match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(payload) => payload,
+            Err(_) => continue,
+        };
+        if payload.get("runType").and_then(serde_json::Value::as_str) != Some("rekey") {
+            continue;
+        }
+        let Some(run_id) = payload.get("runId").and_then(serde_json::Value::as_i64) else {
+            continue;
+        };
+        let created_at = payload
+            .get("createdAt")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let snapshot_path = payload
+            .get("snapshotPath")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+
+        let replace = latest.as_ref().is_none_or(|(current_created_at, current_run_id, _)| {
+            created_at > *current_created_at
+                || (created_at == *current_created_at && run_id > *current_run_id)
+        });
+        if replace {
+            latest = Some((created_at, run_id, snapshot_path));
+        }
+    }
+
+    Ok(latest.map(|(created_at, run_id, snapshot_path)| {
+        ((!created_at.is_empty()).then_some(created_at), Some(run_id), snapshot_path)
+    }))
+}
+
+fn collect_manifest_paths(root: &Path) -> Result<Vec<PathBuf>> {
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        for entry in fs::read_dir(&path)
+            .with_context(|| format!("reading manifest directory {}", path.display()))?
+        {
+            let entry = entry?;
+            let entry_path = entry.path();
+            if entry.file_type()?.is_dir() {
+                stack.push(entry_path);
+                continue;
+            }
+            if entry_path.extension().and_then(|value| value.to_str()) == Some("json") {
+                files.push(entry_path);
+            }
+        }
+    }
+    Ok(files)
 }
 
 pub fn load_app_lock_status() -> Result<AppLockStatus> {
@@ -2775,6 +2865,47 @@ mod tests {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
             std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
             std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        }
+
+        let config = initialized_config();
+        initialize_archive_database(&config, None).expect("initialize archive");
+        save_user_config(&config, None).expect("save config");
+
+        rekey_archive_database(
+            None,
+            &RekeyRequest {
+                new_mode: ArchiveMode::Encrypted,
+                new_key: Some("vault-passphrase".to_string()),
+            },
+        )
+        .expect("rekey archive");
+
+        let security = security_status(None).expect("security status while locked");
+        assert_eq!(security.mode, "locked");
+        assert!(security.last_rekey_run_id.is_some());
+        assert!(security.last_rekey_at.is_some());
+        assert!(
+            security
+                .last_rekey_snapshot_path
+                .as_deref()
+                .is_some_and(|path| path.contains("archive-before-rekey"))
+        );
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         }
     }
 }
