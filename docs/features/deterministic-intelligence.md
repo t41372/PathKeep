@@ -222,6 +222,12 @@ Query reformulation：
 - 支援平台限制、error code、version、`site:` restrict、compare intent
 - Chromium search term evidence 最強；其他來源若只有 URL 抽取，必須誠實標示 evidence tier
 
+2026-04-10 implementation note：
+
+- `run_insights` 現在已正式按 `visit features -> burst -> query group -> thread -> reference/source/summaries` 順序執行。
+- `visit_insight_features` 會持久化 `burst_id` 與 `query_group_id`；shipping derived tables 也已補上 `insight_bursts`、`insight_query_groups`、`insight_query_group_members`、`insight_reference_pages` 與 `insight_source_effectiveness`。
+- `query_ladders` 現在優先從 persisted query-group surface 載入；如果 runtime 尚未有對應 group rows，才回退到 visit-level feature reconstruction。
+
 ### 5.6 Thread merge
 
 Thread 只建立在下列 evidence 上：
@@ -295,6 +301,11 @@ Open loop 只能輸出：
 - 常重找的參考頁
 - 值得 pin 的頁
 - 某主題下最常回訪的資料
+
+2026-04-10 implementation note：
+
+- Insights / Settings 現在正式 shipping `query groups`、`reference pages`、`source effectiveness` 與 `template summaries` surface。
+- `thread` summary 現在也持久化 `query_group_count`、`confidence` 與 `evidence_tier`，讓 explainability panel 不再只剩 reopen / open-loop 分數。
 
 ### 5.10 Template summaries
 
@@ -441,6 +452,7 @@ Optional helpers：
 - module 不可在 backup / import hot path 同步執行全量重建
 - third-party execution 仍屬 deferred，直到 sandbox ADR 存在
 - 2026-04-10 closeout：repo 現在正式 shipping first-party-only enrichment runtime registry（`title-normalization` + `readable-content-refetch`）與 queue review surface；這是 internal runtime boundary，不是 third-party plugin promise
+- 2026-04-10 `WORK-M5-B` closeout：deterministic built-ins 現在也有正式 module registry trace，至少涵蓋 `query-groups`、`threads`、`reference-pages`、`source-effectiveness`、`template-summaries`。Settings / Insights 會顯示 `ready` / `stale` / `disabled` / `idle`、dependency list、derived tables、last built time 與 stale reason。
 
 ---
 
@@ -460,6 +472,10 @@ Optional helpers：
 - taxonomy / visit-level feature rows 可 incremental rebuild
 - query groups / threads / open loops / reference pages 視 affected window incremental 或 full rebuild
 - clear derived state 必須留下 run-linked report，不可靜默刪除
+
+2026-04-10 implementation note：
+
+- `clear_derived_intelligence_state` 與 archive visibility repair 現在都會清掉 M5-B derived tables，並把 deterministic module registry 明確標成 `stale`，保留 `manual rebuild required` honesty，而不是讓舊 surface 假裝仍然新鮮。
 
 ---
 

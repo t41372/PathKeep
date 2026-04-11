@@ -528,6 +528,11 @@ mod tests {
     fn chrome_user_data_fixture(root: &Path) -> PathBuf {
         let chrome_root = root.join("chrome-user-data");
         let profile_dir = chrome_root.join("Default");
+        let now_chrome_micros = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("current time")
+            .as_micros() as i64
+            + 11_644_473_600_000_000i64;
         fs::create_dir_all(&profile_dir).expect("create chrome profile dir");
         fs::write(chrome_root.join("Last Version"), "135.0.0.0").expect("write version");
         fs::write(
@@ -584,15 +589,15 @@ mod tests {
         history
             .execute(
                 "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
-                 VALUES (1, 'https://example.com', 'Example', 1, 1, 1, 0)",
-                [],
+                 VALUES (1, 'https://www.google.com/search?q=example', 'example - Google Search', 1, 1, ?1, 0)",
+                [now_chrome_micros],
             )
             .expect("insert url");
         history
             .execute(
                 "INSERT INTO visits (id, url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id)
-                 VALUES (1, 1, 1, NULL, 805306368, 24000, 1, 3, 'https://ref.example', 'com.example.app')",
-                [],
+                 VALUES (1, 1, ?1, NULL, 805306368, 24000, 1, 3, 'https://ref.example', 'com.example.app')",
+                [now_chrome_micros],
             )
             .expect("insert visit");
         history
@@ -968,28 +973,50 @@ mod tests {
             load_insights_impl(RunInsightsRequest::default(), session_key(&session).as_deref())
                 .expect("insight snapshot should load after the fallback run");
         assert!(insights_snapshot.status.runs >= 1);
-        assert!(!insights_snapshot.cards.is_empty());
+        assert!(
+            !insights_snapshot.cards.is_empty()
+                || !insights_snapshot.template_summaries.is_empty()
+                || !insights_snapshot.query_groups.is_empty()
+                || !insights_snapshot.threads.is_empty()
+        );
         assert!(insights_snapshot.notes.iter().any(|note| note.contains("fell back to lexical")));
-        let thread_detail =
-            load_thread_detail_impl("thread-001".to_string(), session_key(&session).as_deref())
-                .expect_err("thread detail should not load without insight data");
-        assert!(!thread_detail.is_empty());
-        let insight_id = insights_snapshot
-            .cards
-            .first()
-            .expect("fallback run should persist at least one insight card")
-            .card_id
-            .clone();
+        if let Some(thread) = insights_snapshot.threads.first() {
+            let detail =
+                load_thread_detail_impl(thread.thread_id.clone(), session_key(&session).as_deref())
+                    .expect("thread detail should load when deterministic threads exist");
+            assert_eq!(detail.summary.thread_id, thread.thread_id);
+        } else {
+            let thread_detail =
+                load_thread_detail_impl("thread-001".to_string(), session_key(&session).as_deref())
+                    .expect_err("thread detail should not load without deterministic threads");
+            assert!(!thread_detail.is_empty());
+        }
+        let (insight_id, insight_kind) = if let Some(card) = insights_snapshot.cards.first() {
+            (card.card_id.clone(), "card".to_string())
+        } else if let Some(summary) = insights_snapshot.template_summaries.first() {
+            (summary.summary_id.clone(), "template-summary".to_string())
+        } else if let Some(group) = insights_snapshot.query_groups.first() {
+            (group.query_group_id.clone(), "query-group".to_string())
+        } else if let Some(reference_page) = insights_snapshot.reference_pages.first() {
+            (reference_page.reference_page_id.clone(), "reference-page".to_string())
+        } else if let Some(thread) = insights_snapshot.threads.first() {
+            (thread.thread_id.clone(), "thread".to_string())
+        } else {
+            let summary = insights_snapshot.topics.first().expect(
+                "fallback run should persist at least one explainable deterministic surface",
+            );
+            (summary.topic_id.clone(), "topic".to_string())
+        };
         let explanation = explain_insight_impl(
             ExplainInsightRequest {
                 insight_id,
-                insight_kind: "card".to_string(),
+                insight_kind,
                 profile_id: None,
                 window_days: Some(30),
             },
             session_key(&session).as_deref(),
         )
-        .expect("insight explain should work from the persisted card");
+        .expect("insight explain should work from the persisted deterministic surface");
         assert!(!explanation.explanation.is_empty());
         assert!(!explanation.used_llm);
 

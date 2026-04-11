@@ -132,11 +132,14 @@
 ### Enrichment / insight derived-state boundary
 
 - `AppConfig.enrichment.plugins[*]` 是 enrichment plugin 的設定 surface，至少保存 `id`、`enabled`、`version`。缺漏設定必須能從 built-in defaults 回補，避免舊 config 因為新增 plugin 而失真。
+- `AppConfig.deterministic.modules[*]` 是 deterministic intelligence module 的設定 surface，至少保存 `id`、`enabled`、`version`。M5-B 目前正式 shipping 的 built-ins 包含 `query-groups`、`threads`、`reference-pages`、`source-effectiveness`、`template-summaries`；缺漏設定同樣必須能從 built-in defaults 回補。
 - M5-A 起內建 enrichment plugin 固定有兩個：`title-normalization`（`m5-v1`、local-only）與 `readable-content-refetch`（`m4-v1`、network-backed）。它們都預設啟用，且都必須能從 built-in defaults 自動回補到 config。
 - enrichment queue contract 現在掛在 canonical archive 的 `intelligence_jobs`，並以 `job_type = 'enrichment-plugin'`、`plugin_id`、`run_id`、payload / artifact trace 區分。這是 derived-state runtime policy，不是 canonical ingest schema 的一部分。
 - built-in enrichment runtime 目前是 first-party only；Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍保持 deferred，不進 shipping runtime。
-- `visit_content_enrichments`、`visit_insight_features`、`insight_topics`、`insight_threads`、`insight_thread_members`、`insight_cards`、`insight_runs` 都屬於可重建 derived tables。`run_insights(full_rebuild = true)` 可以先清空再重算；`clear_derived_intelligence_state` 也可以整批刪除這些表的內容。
+- `visit_content_enrichments`、`visit_insight_features`、`insight_bursts`、`insight_query_groups`、`insight_query_group_members`、`insight_topics`、`insight_threads`、`insight_thread_members`、`insight_reference_pages`、`insight_source_effectiveness`、`insight_cards`、`insight_runs` 都屬於可重建 derived tables。`run_insights(full_rebuild = true)` 可以先清空再重算；`clear_derived_intelligence_state` 也可以整批刪除這些表的內容。
 - `visit_insight_features` 現在除了 legacy `page_type` / `source_role` 相容欄位，也持久化 deterministic taxonomy / evidence trace：`domain_category`、`page_category`、`interaction_kind`、`evidence_tier`、`taxonomy_source`、`taxonomy_pack`、`taxonomy_version`、`taxonomy_reason`。這些都屬 derived explanation state，而不是 canonical archive fact。
+- `visit_insight_features` 在 M5-B 也新增 `burst_id` 與 `query_group_id`，讓 query-group / thread / reference-page surface 可以回鏈到 visit-level feature rows，而不是只剩 summary text。
+- `deterministic_module_runtime` 是 module-registry trace table，不是 canonical truth。它只保存 module version、status、dependencies、derived tables、last run / built / invalidated time、stale reason 與 notes，供 Settings / Insights 誠實顯示 rebuild-required state。
 - derived clear / rebuild 絕不能修改 canonical `visits`、`downloads`、`search_terms`、`runs`、`manifests`、`raw_row_versions` 或 rollback visibility 欄位。任何 derived maintenance 都只能留下 trace，不可改寫 source facts。
 - refetch freshness / fetch status / snippet / readable text 都屬 derived evidence，而不是 source of truth。這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
 

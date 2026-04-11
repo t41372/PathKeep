@@ -5,6 +5,16 @@ pub const TITLE_NORMALIZATION_PLUGIN_ID: &str = "title-normalization";
 pub const READABLE_CONTENT_PLUGIN_ID: &str = "readable-content-refetch";
 pub const TITLE_NORMALIZATION_PLUGIN_VERSION: &str = "m5-v1";
 pub const READABLE_CONTENT_PLUGIN_VERSION: &str = "m4-v1";
+pub const QUERY_GROUPS_MODULE_ID: &str = "query-groups";
+pub const THREADS_MODULE_ID: &str = "threads";
+pub const REFERENCE_PAGES_MODULE_ID: &str = "reference-pages";
+pub const SOURCE_EFFECTIVENESS_MODULE_ID: &str = "source-effectiveness";
+pub const TEMPLATE_SUMMARIES_MODULE_ID: &str = "template-summaries";
+pub const QUERY_GROUPS_MODULE_VERSION: &str = "m5b-v1";
+pub const THREADS_MODULE_VERSION: &str = "m5b-v1";
+pub const REFERENCE_PAGES_MODULE_VERSION: &str = "m5b-v1";
+pub const SOURCE_EFFECTIVENESS_MODULE_VERSION: &str = "m5b-v1";
+pub const TEMPLATE_SUMMARIES_MODULE_VERSION: &str = "m5b-v1";
 
 fn default_enrichment_enabled() -> bool {
     true
@@ -89,6 +99,7 @@ pub fn normalize_app_config(config: &mut AppConfig) {
     config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);
     config.ai.enrichment_plugins =
         merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
+    config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -164,6 +175,87 @@ pub struct EnrichmentSettings {
 impl Default for EnrichmentSettings {
     fn default() -> Self {
         Self { plugins: default_enrichment_plugin_states() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeterministicModuleState {
+    pub id: String,
+    pub enabled: bool,
+    pub version: String,
+}
+
+pub fn default_deterministic_module_states() -> Vec<DeterministicModuleState> {
+    vec![
+        DeterministicModuleState {
+            id: QUERY_GROUPS_MODULE_ID.to_string(),
+            enabled: true,
+            version: QUERY_GROUPS_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: THREADS_MODULE_ID.to_string(),
+            enabled: true,
+            version: THREADS_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: REFERENCE_PAGES_MODULE_ID.to_string(),
+            enabled: true,
+            version: REFERENCE_PAGES_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: SOURCE_EFFECTIVENESS_MODULE_ID.to_string(),
+            enabled: true,
+            version: SOURCE_EFFECTIVENESS_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: TEMPLATE_SUMMARIES_MODULE_ID.to_string(),
+            enabled: true,
+            version: TEMPLATE_SUMMARIES_MODULE_VERSION.to_string(),
+        },
+    ]
+}
+
+pub fn merge_deterministic_module_states(
+    current: &[DeterministicModuleState],
+) -> Vec<DeterministicModuleState> {
+    let defaults = default_deterministic_module_states();
+    let mut merged = Vec::with_capacity(defaults.len());
+    for default in defaults {
+        if let Some(existing) = current.iter().find(|item| item.id == default.id) {
+            merged.push(DeterministicModuleState {
+                id: default.id.clone(),
+                enabled: existing.enabled,
+                version: if existing.version.trim().is_empty() {
+                    default.version.clone()
+                } else {
+                    existing.version.clone()
+                },
+            });
+        } else {
+            merged.push(default);
+        }
+    }
+
+    for existing in current {
+        if merged.iter().any(|item| item.id == existing.id) {
+            continue;
+        }
+        merged.push(existing.clone());
+    }
+
+    merged
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DeterministicSettings {
+    pub modules: Vec<DeterministicModuleState>,
+}
+
+impl Default for DeterministicSettings {
+    fn default() -> Self {
+        Self { modules: default_deterministic_module_states() }
     }
 }
 
@@ -374,6 +466,7 @@ pub struct AppConfig {
     pub analytics: AnalyticsConfig,
     pub remote_backup: RemoteBackupConfig,
     pub enrichment: EnrichmentSettings,
+    pub deterministic: DeterministicSettings,
     pub ai: AiSettings,
 }
 
@@ -395,6 +488,7 @@ impl Default for AppConfig {
             analytics: AnalyticsConfig::default(),
             remote_backup: RemoteBackupConfig::default(),
             enrichment: EnrichmentSettings::default(),
+            deterministic: DeterministicSettings::default(),
             ai: AiSettings::default(),
         }
     }
@@ -1015,8 +1109,13 @@ pub struct RemoteBackupVerification {
 pub struct ClearDerivedIntelligenceReport {
     pub cleared_enrichment_rows: usize,
     pub cleared_feature_rows: usize,
+    pub cleared_burst_rows: usize,
+    pub cleared_query_group_rows: usize,
     pub cleared_topic_rows: usize,
     pub cleared_thread_rows: usize,
+    pub cleared_reference_page_rows: usize,
+    pub cleared_source_rows: usize,
+    pub cleared_module_rows: usize,
     pub cleared_card_rows: usize,
     pub cleared_run_rows: usize,
     pub notes: Vec<String>,
@@ -1308,6 +1407,8 @@ pub struct InsightStatus {
     pub cards: usize,
     pub topics: usize,
     pub threads: usize,
+    pub query_groups: usize,
+    pub reference_pages: usize,
     pub content_coverage: f32,
     pub warning: Option<String>,
 }
@@ -1339,6 +1440,28 @@ pub struct InsightCard {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct InsightQueryGroupSummary {
+    pub query_group_id: String,
+    pub profile_id: String,
+    pub thread_id: Option<String>,
+    pub title: String,
+    pub root_query: String,
+    pub latest_query: String,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    pub visit_count: usize,
+    pub burst_count: usize,
+    pub step_count: usize,
+    pub confidence: f32,
+    pub evidence_tier: String,
+    pub chromium_enhanced: bool,
+    pub steps: Vec<String>,
+    pub stages: Vec<String>,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct InsightTopicSummary {
     pub topic_id: String,
     pub label: String,
@@ -1363,8 +1486,11 @@ pub struct InsightThreadSummary {
     pub first_seen_at: String,
     pub last_seen_at: String,
     pub visit_count: usize,
+    pub query_group_count: usize,
     pub reopen_count: usize,
     pub open_loop_score: f32,
+    pub confidence: f32,
+    pub evidence_tier: String,
     pub dominant_topic_id: Option<String>,
     pub chromium_enhanced: bool,
     pub evidence: Vec<InsightEvidenceItem>,
@@ -1374,18 +1500,70 @@ pub struct InsightThreadSummary {
 #[serde(rename_all = "camelCase")]
 pub struct InsightThreadDetail {
     pub summary: InsightThreadSummary,
+    pub query_groups: Vec<InsightQueryGroupSummary>,
     pub visits: Vec<InsightEvidenceItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct InsightQueryLadder {
+    pub query_group_id: Option<String>,
     pub root_term: String,
     pub profile_id: String,
     pub steps: Vec<String>,
     pub stages: Vec<String>,
     pub count: usize,
+    pub confidence: f32,
+    pub evidence_tier: String,
     pub chromium_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightReferencePageSummary {
+    pub reference_page_id: String,
+    pub profile_id: Option<String>,
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    pub revisit_count: usize,
+    pub cross_day_revisits: usize,
+    pub query_group_count: usize,
+    pub thread_count: usize,
+    pub score: f32,
+    pub evidence_tier: String,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightSourceEffectivenessSummary {
+    pub source_id: String,
+    pub profile_id: Option<String>,
+    pub domain: String,
+    pub source_role: String,
+    pub query_group_count: usize,
+    pub thread_count: usize,
+    pub stable_landing_count: usize,
+    pub reference_page_count: usize,
+    pub reopen_support_count: usize,
+    pub effectiveness_score: f32,
+    pub evidence_tier: String,
+    pub evidence: Vec<InsightEvidenceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightTemplateSummary {
+    pub summary_id: String,
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    pub confidence: f32,
+    pub profile_id: Option<String>,
+    pub evidence: Vec<InsightEvidenceItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1446,9 +1624,13 @@ pub struct InsightSnapshot {
     pub profile_id: Option<String>,
     pub status: InsightStatus,
     pub cards: Vec<InsightCard>,
+    pub query_groups: Vec<InsightQueryGroupSummary>,
     pub topics: Vec<InsightTopicSummary>,
     pub threads: Vec<InsightThreadSummary>,
     pub query_ladders: Vec<InsightQueryLadder>,
+    pub reference_pages: Vec<InsightReferencePageSummary>,
+    pub source_effectiveness: Vec<InsightSourceEffectivenessSummary>,
+    pub template_summaries: Vec<InsightTemplateSummary>,
     pub workflow_map: InsightWorkflowMap,
     pub profile_facets: Vec<InsightProfileFacet>,
     pub canonical: InsightCanonicalSummary,
@@ -1471,8 +1653,12 @@ pub struct RunInsightsReport {
     pub processed_visits: usize,
     pub enriched_visits: usize,
     pub failed_enrichments: usize,
+    pub query_group_count: usize,
     pub topic_count: usize,
     pub thread_count: usize,
+    pub reference_page_count: usize,
+    pub source_count: usize,
+    pub template_summary_count: usize,
     pub card_count: usize,
     pub content_coverage: f32,
     pub last_run_at: String,
@@ -1544,9 +1730,26 @@ pub struct IntelligenceJobOverview {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct DeterministicModuleRuntimeStatus {
+    pub module_id: String,
+    pub enabled: bool,
+    pub version: String,
+    pub status: String,
+    pub depends_on: Vec<String>,
+    pub derived_tables: Vec<String>,
+    pub last_run_id: Option<i64>,
+    pub last_built_at: Option<String>,
+    pub last_invalidated_at: Option<String>,
+    pub stale_reason: Option<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct IntelligenceRuntimeSnapshot {
     pub queue: IntelligenceQueueStatus,
     pub plugins: Vec<EnrichmentPluginStatus>,
+    pub modules: Vec<DeterministicModuleRuntimeStatus>,
     pub recent_jobs: Vec<IntelligenceJobOverview>,
     pub notes: Vec<String>,
 }
@@ -1554,10 +1757,13 @@ pub struct IntelligenceRuntimeSnapshot {
 #[cfg(test)]
 mod tests {
     use super::{
-        AiSearchRequest, AppConfig, InsightStatus, READABLE_CONTENT_PLUGIN_ID,
-        READABLE_CONTENT_PLUGIN_VERSION, TITLE_NORMALIZATION_PLUGIN_ID,
-        TITLE_NORMALIZATION_PLUGIN_VERSION, default_enrichment_plugin_states,
-        merge_enrichment_plugin_preferences, merge_enrichment_plugin_states, normalize_app_config,
+        AiSearchRequest, AppConfig, InsightStatus, QUERY_GROUPS_MODULE_ID,
+        READABLE_CONTENT_PLUGIN_ID, READABLE_CONTENT_PLUGIN_VERSION, REFERENCE_PAGES_MODULE_ID,
+        SOURCE_EFFECTIVENESS_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_ID, THREADS_MODULE_ID,
+        TITLE_NORMALIZATION_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_VERSION,
+        default_deterministic_module_states, default_enrichment_plugin_states,
+        merge_deterministic_module_states, merge_enrichment_plugin_preferences,
+        merge_enrichment_plugin_states, normalize_app_config,
     };
 
     #[test]
@@ -1574,6 +1780,7 @@ mod tests {
         let status = InsightStatus::default();
         assert!(!status.ready);
         assert_eq!(status.cards, 0);
+        assert_eq!(status.query_groups, 0);
         assert_eq!(status.content_coverage, 0.0);
     }
 
@@ -1615,14 +1822,40 @@ mod tests {
     }
 
     #[test]
+    fn deterministic_module_defaults_include_all_built_ins() {
+        let defaults = default_deterministic_module_states();
+        assert_eq!(defaults.len(), 5);
+        assert_eq!(defaults[0].id, QUERY_GROUPS_MODULE_ID);
+        assert_eq!(defaults[1].id, THREADS_MODULE_ID);
+        assert_eq!(defaults[2].id, REFERENCE_PAGES_MODULE_ID);
+        assert_eq!(defaults[3].id, SOURCE_EFFECTIVENESS_MODULE_ID);
+        assert_eq!(defaults[4].id, TEMPLATE_SUMMARIES_MODULE_ID);
+    }
+
+    #[test]
+    fn deterministic_module_state_merge_with_defaults() {
+        let merged = merge_deterministic_module_states(&[super::DeterministicModuleState {
+            id: THREADS_MODULE_ID.to_string(),
+            enabled: false,
+            version: String::new(),
+        }]);
+        assert_eq!(merged.len(), 5);
+        assert_eq!(merged[1].id, THREADS_MODULE_ID);
+        assert!(!merged[1].enabled);
+        assert!(!merged[1].version.is_empty());
+    }
+
+    #[test]
     fn normalize_app_config_restores_missing_runtime_defaults() {
         let mut config = AppConfig::default();
         config.enrichment.plugins.clear();
         config.ai.enrichment_plugins.clear();
+        config.deterministic.modules.clear();
         normalize_app_config(&mut config);
 
         assert_eq!(config.enrichment.plugins.len(), 2);
         assert_eq!(config.ai.enrichment_plugins.len(), 2);
+        assert_eq!(config.deterministic.modules.len(), 5);
         assert!(config.ai.enrichment_enabled);
     }
 }

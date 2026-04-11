@@ -25,6 +25,8 @@ import {
   evidenceHref,
 } from '../../lib/intelligence'
 import {
+  deterministicModuleLabel,
+  deterministicModuleStatusLabel,
   enrichmentPluginLabel,
   intelligenceRuntimeJobStateLabel,
 } from '../../lib/intelligence-runtime'
@@ -37,7 +39,6 @@ import {
   storageGrowthEvidence,
 } from '../../lib/storage-analytics'
 import type {
-  InsightCard,
   InsightEvidenceItem,
   InsightExplanation,
   InsightSnapshot,
@@ -74,7 +75,13 @@ export function InsightsPage() {
   const [explanation, setExplanation] = useState<InsightExplanation | null>(
     null,
   )
-  const [selectedCard, setSelectedCard] = useState<InsightCard | null>(null)
+  const [selectedInsight, setSelectedInsight] = useState<{
+    id: string
+    kind: string
+    title: string
+    profileId?: string | null
+    windowDays?: number
+  } | null>(null)
   const [action, setAction] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
@@ -224,16 +231,22 @@ export function InsightsPage() {
     }
   }
 
-  async function handleExplain(card: InsightCard) {
+  async function handleExplain(input: {
+    id: string
+    kind: string
+    title: string
+    profileId?: string | null
+    windowDays?: number
+  }) {
     setAction(insightsT('explainingAction'))
     setLoadError(null)
-    setSelectedCard(card)
+    setSelectedInsight(input)
     try {
       const nextExplanation = await backend.explainInsight({
-        insightId: card.cardId,
-        insightKind: card.kind,
-        profileId: card.profileId ?? activeProfileId,
-        windowDays: card.windowDays,
+        insightId: input.id,
+        insightKind: input.kind,
+        profileId: input.profileId ?? activeProfileId,
+        windowDays: input.windowDays,
       })
       setExplanation(nextExplanation)
     } catch (error) {
@@ -349,12 +362,12 @@ export function InsightsPage() {
           compact
           label={action}
           detail={
-            selectedCard
-              ? selectedCard.summary
+            selectedInsight
+              ? selectedInsight.title
               : insightsT('storageAnalyticsDescription')
           }
-          progressLabel={selectedCard ? '2 / 2' : '1 / 2'}
-          progressValue={selectedCard ? 100 : 50}
+          progressLabel={selectedInsight ? '2 / 2' : '1 / 2'}
+          progressValue={selectedInsight ? 100 : 50}
         />
       ) : null}
 
@@ -690,11 +703,45 @@ export function InsightsPage() {
             </span>
           </div>
           <div className="panel-body intelligence-stack">
-            {periodicSummary.map((paragraph) => (
-              <p key={paragraph} className="summary-text">
-                {paragraph}
-              </p>
-            ))}
+            {insights.templateSummaries.length > 0 ? (
+              <div className="intelligence-result-list">
+                {insights.templateSummaries.map((summary) => (
+                  <div key={summary.summaryId} className="result-row">
+                    <div className="result-row__header">
+                      <strong>{summary.title}</strong>
+                      <span className="mono-support">
+                        {Math.round(summary.confidence * 100)}%
+                      </span>
+                    </div>
+                    <p>{summary.body}</p>
+                    <div className="intelligence-actions">
+                      <button
+                        className="btn-tiny"
+                        type="button"
+                        onClick={() =>
+                          void handleExplain({
+                            id: summary.summaryId,
+                            kind: 'template-summary',
+                            title: summary.title,
+                            profileId: summary.profileId,
+                            windowDays: insights.windowDays,
+                          })
+                        }
+                        disabled={Boolean(action)}
+                      >
+                        {insightsT('explain')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              periodicSummary.map((paragraph) => (
+                <p key={paragraph} className="summary-text">
+                  {paragraph}
+                </p>
+              ))
+            )}
             {insights.notes.length > 0 && (
               <div className="intelligence-note-list">
                 {insights.notes.map((note) => (
@@ -718,6 +765,77 @@ export function InsightsPage() {
                 <span className="mono">{insights.topics.length}</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('queryGroups')}</span>
+            <span className="panel-action">{insights.queryGroups.length}</span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {insights.queryGroups.length > 0 ? (
+              <div className="intelligence-result-list">
+                {insights.queryGroups.map((group) => {
+                  const params = new URLSearchParams()
+                  params.set('q', group.latestQuery)
+                  params.set('mode', 'keyword')
+                  params.set('profileId', group.profileId)
+
+                  return (
+                    <div key={group.queryGroupId} className="result-row">
+                      <div className="result-row__header">
+                        <strong>{group.title}</strong>
+                        <span className="mono-support">
+                          {Math.round(group.confidence * 100)}%
+                        </span>
+                      </div>
+                      <p>{group.steps.join(' -> ')}</p>
+                      <div className="result-row__meta">
+                        <span className="mono-support">
+                          {insightsT('queryEvolutionSteps', {
+                            count: group.stepCount,
+                          })}
+                        </span>
+                        <span className="mono-support">
+                          {group.evidenceTier}
+                        </span>
+                      </div>
+                      <div className="intelligence-actions">
+                        <button
+                          className="btn-tiny"
+                          type="button"
+                          onClick={() =>
+                            void handleExplain({
+                              id: group.queryGroupId,
+                              kind: 'query-group',
+                              title: group.title,
+                              profileId: group.profileId,
+                              windowDays: insights.windowDays,
+                            })
+                          }
+                          disabled={Boolean(action)}
+                        >
+                          {insightsT('explain')}
+                        </button>
+                        <Link
+                          className="btn-tiny"
+                          to={`/explorer?${params.toString()}`}
+                        >
+                          {insightsT('openExplorer')}
+                        </Link>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState
+                description={insightsT('queryGroupsEmptyDescription')}
+                eyebrow={insightsT('queryGroups')}
+                title={insightsT('queryGroupsEmptyTitle')}
+              />
+            )}
           </div>
         </div>
 
@@ -836,6 +954,155 @@ export function InsightsPage() {
 
         <div className="panel panel-wide">
           <div className="panel-header">
+            <span className="panel-title">{insightsT('referencePages')}</span>
+            <span className="panel-action">
+              {insights.referencePages.length}
+            </span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {insights.referencePages.length > 0 ? (
+              <div className="intelligence-result-list">
+                {insights.referencePages.map((page) => (
+                  <div key={page.referencePageId} className="result-row">
+                    <div className="result-row__header">
+                      <strong>{page.title ?? page.url}</strong>
+                      <span className="mono-support">{page.domain}</span>
+                    </div>
+                    <p>
+                      {insightsT('referencePagesBody', {
+                        groups: page.queryGroupCount,
+                        threads: page.threadCount,
+                        revisits: page.revisitCount,
+                      })}
+                    </p>
+                    <div className="intelligence-actions">
+                      <button
+                        className="btn-tiny"
+                        type="button"
+                        onClick={() =>
+                          void handleExplain({
+                            id: page.referencePageId,
+                            kind: 'reference-page',
+                            title: page.title ?? page.url,
+                            profileId: page.profileId,
+                            windowDays: insights.windowDays,
+                          })
+                        }
+                        disabled={Boolean(action)}
+                      >
+                        {insightsT('explain')}
+                      </button>
+                      <Link
+                        className="btn-tiny"
+                        to={evidenceHref({ url: page.url })}
+                      >
+                        {insightsT('openExplorer')}
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                description={insightsT('referencePagesEmptyDescription')}
+                eyebrow={insightsT('referencePages')}
+                title={insightsT('referencePagesEmptyTitle')}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
+            <span className="panel-title">
+              {insightsT('sourceEffectiveness')}
+            </span>
+            <span className="panel-action">
+              {insights.sourceEffectiveness.length}
+            </span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {insights.sourceEffectiveness.length > 0 ? (
+              <div className="intelligence-result-list">
+                {insights.sourceEffectiveness.map((source) => (
+                  <div key={source.sourceId} className="result-row">
+                    <div className="result-row__header">
+                      <strong>{source.domain}</strong>
+                      <span className="mono-support">{source.sourceRole}</span>
+                    </div>
+                    <p>
+                      {insightsT('sourceEffectivenessBody', {
+                        groups: source.queryGroupCount,
+                        references: source.referencePageCount,
+                        landings: source.stableLandingCount,
+                      })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                description={insightsT('sourceEffectivenessEmptyDescription')}
+                eyebrow={insightsT('sourceEffectiveness')}
+                title={insightsT('sourceEffectivenessEmptyTitle')}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
+            <span className="panel-title">
+              {insightsT('deterministicModules')}
+            </span>
+            <span className="panel-action">{runtime?.modules.length ?? 0}</span>
+          </div>
+          <div className="panel-body intelligence-stack">
+            {runtime?.modules.length ? (
+              <div className="intelligence-result-list">
+                {runtime.modules.map((module) => (
+                  <div key={module.moduleId} className="result-row">
+                    <div className="result-row__header">
+                      <strong>
+                        {deterministicModuleLabel(module.moduleId, settingsT)}
+                      </strong>
+                      <span className="mono-support">
+                        {deterministicModuleStatusLabel(
+                          module.status,
+                          settingsT,
+                        )}
+                      </span>
+                    </div>
+                    <p>
+                      {module.notes[0] ??
+                        insightsT('deterministicModulesDescription')}
+                    </p>
+                    <div className="result-row__meta">
+                      <span className="mono-support">
+                        {module.derivedTables.join(', ')}
+                      </span>
+                      {module.lastBuiltAt ? (
+                        <span className="mono-support">
+                          {formatDateTime(module.lastBuiltAt, language) ??
+                            module.lastBuiltAt}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                description={insightsT('deterministicModulesEmptyDescription')}
+                eyebrow={insightsT('deterministicModules')}
+                title={insightsT('deterministicModulesEmptyTitle')}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="panel panel-wide">
+          <div className="panel-header">
             <span className="panel-title">{insightsT('insightCards')}</span>
             <span className="panel-action">{insightsT('explainable')}</span>
           </div>
@@ -872,7 +1139,15 @@ export function InsightsPage() {
                   <button
                     className="btn-tiny"
                     type="button"
-                    onClick={() => void handleExplain(card)}
+                    onClick={() =>
+                      void handleExplain({
+                        id: card.cardId,
+                        kind: card.kind,
+                        title: card.title,
+                        profileId: card.profileId,
+                        windowDays: card.windowDays,
+                      })
+                    }
                     disabled={Boolean(action)}
                   >
                     {insightsT('explain')}
@@ -892,11 +1167,11 @@ export function InsightsPage() {
         </div>
       </div>
 
-      {selectedCard && explanation ? (
+      {selectedInsight && explanation ? (
         <div className="panel intelligence-panel">
           <div className="panel-header">
             <span className="panel-title">{insightsT('explainability')}</span>
-            <span className="panel-action">{selectedCard.title}</span>
+            <span className="panel-action">{selectedInsight.title}</span>
           </div>
           <div className="panel-body intelligence-stack">
             <p className="summary-text">{explanation.explanation}</p>

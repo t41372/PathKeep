@@ -3702,6 +3702,11 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
     let mut cleared_rows = 0usize;
     for table_name in [
         "insight_cards",
+        "insight_reference_pages",
+        "insight_source_effectiveness",
+        "insight_query_group_members",
+        "insight_query_groups",
+        "insight_bursts",
         "insight_thread_members",
         "insight_threads",
         "insight_topics",
@@ -3714,6 +3719,11 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
                 .with_context(|| format!("clearing stale derived table {table_name}"))?;
         }
     }
+    crate::intelligence_runtime::ensure_intelligence_runtime_schema(connection)?;
+    crate::intelligence_runtime::mark_all_deterministic_modules_stale(
+        connection,
+        "Archive visibility or rollback state changed after the last deterministic rebuild.",
+    )?;
     Ok(cleared_rows)
 }
 

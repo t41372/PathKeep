@@ -319,6 +319,9 @@ const zhCnM3Namespaces = {
     queryEvolutionEmptyTitle: '还没有搜索演化',
     queryEvolutionEmptyDescription:
       'Chromium 搜索词被归档后，这里才会显示搜索改写路径。',
+    queryGroups: '查询组',
+    queryGroupsEmptyTitle: '还没有查询组',
+    queryGroupsEmptyDescription: '完成确定性搜索证据重建后，这里会显示查询组。',
     queryEvolutionSteps: '{count} 步',
     queryStageBroad: '宽泛',
     queryStageNarrowing: '收窄',
@@ -331,6 +334,24 @@ const zhCnM3Namespaces = {
       '当前时间范围共捕获了 {visits} 条访问记录，覆盖 {domains} 个网站域名。',
     periodicSummaryFallbackDomains: '主要活动集中在 {domains}。',
     snapshotLabel: '快照 {time}',
+    referencePages: '参考页',
+    referencePagesEmptyTitle: '还没有参考页',
+    referencePagesEmptyDescription:
+      '当页面开始在不同查询组和研究线索里反复出现后，这里会显示参考页。',
+    referencePagesBody:
+      '出现在 {groups} 个查询组、{threads} 条线索里，并被重访了 {revisits} 次。',
+    sourceEffectiveness: '来源效果',
+    sourceEffectivenessEmptyTitle: '还没有来源效果数据',
+    sourceEffectivenessEmptyDescription:
+      '确定性重建识别出稳定落点后，这里会显示来源效果。',
+    sourceEffectivenessBody:
+      '出现在 {groups} 个查询组、{references} 个参考页和 {landings} 次稳定落点中。',
+    deterministicModules: '确定性模块',
+    deterministicModulesDescription:
+      '查看哪些确定性模块是最新、已过期、已关闭，或还在等待重建。',
+    deterministicModulesEmptyTitle: '还没有模块状态',
+    deterministicModulesEmptyDescription:
+      '先运行一次确定性重建，这里才会显示模块状态和 trace 细节。',
     threads: '研究线索',
     cardsStat: '卡片',
     topicsStat: '话题',
@@ -653,6 +674,10 @@ const zhTwM3Namespaces = {
     queryEvolutionEmptyTitle: '還沒有搜尋演化',
     queryEvolutionEmptyDescription:
       'Chromium 搜尋詞被歸檔後，這裡才會顯示搜尋改寫路徑。',
+    queryGroups: '查詢群組',
+    queryGroupsEmptyTitle: '還沒有查詢群組',
+    queryGroupsEmptyDescription:
+      '完成確定性搜尋證據重建後，這裡會顯示查詢群組。',
     queryEvolutionSteps: '{count} 步',
     queryStageBroad: '寬泛',
     queryStageNarrowing: '收窄',
@@ -665,6 +690,24 @@ const zhTwM3Namespaces = {
       '目前時間範圍共捕獲了 {visits} 筆瀏覽紀錄，涵蓋 {domains} 個網站網域。',
     periodicSummaryFallbackDomains: '主要活動集中在 {domains}。',
     snapshotLabel: '快照 {time}',
+    referencePages: '參考頁',
+    referencePagesEmptyTitle: '還沒有參考頁',
+    referencePagesEmptyDescription:
+      '當頁面開始在不同查詢群組和研究線索裡反覆出現後，這裡會顯示參考頁。',
+    referencePagesBody:
+      '出現在 {groups} 個查詢群組、{threads} 條線索裡，並被重訪了 {revisits} 次。',
+    sourceEffectiveness: '來源效果',
+    sourceEffectivenessEmptyTitle: '還沒有來源效果資料',
+    sourceEffectivenessEmptyDescription:
+      '確定性重建辨識出穩定落點後，這裡會顯示來源效果。',
+    sourceEffectivenessBody:
+      '出現在 {groups} 個查詢群組、{references} 個參考頁和 {landings} 次穩定落點中。',
+    deterministicModules: '確定性模組',
+    deterministicModulesDescription:
+      '查看哪些確定性模組是最新、已過期、已關閉，或仍在等待重建。',
+    deterministicModulesEmptyTitle: '還沒有模組狀態',
+    deterministicModulesEmptyDescription:
+      '先執行一次確定性重建，這裡才會顯示模組狀態和 trace 細節。',
     threads: '研究線索',
     cardsStat: '卡片',
     topicsStat: '主題',
@@ -1537,6 +1580,7 @@ const catalog: Record<
         '{queued} queued / {running} running / {failed} failed',
       rebuildDerivedState: 'Rebuild',
       clearDerivedState: 'Clear all',
+      savingDeterministicModules: 'Saving module settings…',
       titleNormalizationPlugin: 'Title normalization',
       titleNormalizationDescription:
         'Normalizes page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into cleaner evidence labels.',
@@ -1546,6 +1590,32 @@ const catalog: Record<
       readableContentPlugin: 'Page content fetcher',
       readableContentDescription:
         'Fetches readable page content for visited pages so summaries and deterministic insights can cite fuller local evidence.',
+      queryGroupsModule: 'Query groups',
+      queryGroupsModuleDescription:
+        'Builds deterministic query groups and reformulation ladders from search evidence, landing pages, and bounded continuity rules.',
+      threadsModule: 'Threads',
+      threadsModuleDescription:
+        'Merges related query groups into cross-burst research threads using query family, anchor, and reopen evidence.',
+      referencePagesModule: 'Reference pages',
+      referencePagesModuleDescription:
+        'Finds pages that keep resurfacing as stable references across groups, threads, and days.',
+      sourceEffectivenessModule: 'Source effectiveness',
+      sourceEffectivenessModuleDescription:
+        'Scores which sources most often become stable landing points without relying on dwell or foreground proxies.',
+      templateSummariesModule: 'Template summaries',
+      templateSummariesModuleDescription:
+        'Generates deterministic summary text from query groups, threads, reference pages, and source effectiveness.',
+      deterministicModuleFallbackDescription:
+        'Review the stored module trace before relying on this deterministic surface.',
+      deterministicModuleVersion: 'Module version',
+      deterministicModuleDependsOn: 'Depends on',
+      deterministicModuleTables: 'Derived tables',
+      deterministicModuleLastBuilt: 'Last built',
+      deterministicModuleStaleReason: 'Stale reason',
+      deterministicModuleReady: 'Ready',
+      deterministicModuleStale: 'Stale',
+      deterministicModuleDisabled: 'Disabled',
+      deterministicModuleIdle: 'Idle',
       enrichmentPluginFallbackDescription:
         'Review the plugin boundary before enabling it for routine runs.',
       pluginBoundary: 'Boundary',
@@ -1962,6 +2032,10 @@ const catalog: Record<
       queryEvolutionEmptyTitle: 'No query ladders yet',
       queryEvolutionEmptyDescription:
         'Search refinements appear after Chromium query terms are archived.',
+      queryGroups: 'QUERY GROUPS',
+      queryGroupsEmptyTitle: 'No query groups yet',
+      queryGroupsEmptyDescription:
+        'Query groups appear after deterministic search evidence is rebuilt.',
       queryEvolutionSteps: '{count} steps',
       queryStageBroad: 'Broad',
       queryStageNarrowing: 'Narrowing',
@@ -1975,6 +2049,24 @@ const catalog: Record<
       periodicSummaryFallbackDomains:
         'Most activity clustered around {domains}.',
       snapshotLabel: 'As of {time}',
+      referencePages: 'REFERENCE PAGES',
+      referencePagesEmptyTitle: 'No reference pages yet',
+      referencePagesEmptyDescription:
+        'Reference pages appear after pages start resurfacing across groups and threads.',
+      referencePagesBody:
+        'Reused across {groups} groups, {threads} threads, and {revisits} revisits.',
+      sourceEffectiveness: 'SOURCE EFFECTIVENESS',
+      sourceEffectivenessEmptyTitle: 'No source effectiveness data yet',
+      sourceEffectivenessEmptyDescription:
+        'Source effectiveness appears after deterministic rebuilds identify stable landing sources.',
+      sourceEffectivenessBody:
+        'Appeared in {groups} groups, {references} reference pages, and {landings} stable landings.',
+      deterministicModules: 'DETERMINISTIC MODULES',
+      deterministicModulesDescription:
+        'Review which deterministic modules are fresh, stale, disabled, or waiting for rebuild.',
+      deterministicModulesEmptyTitle: 'No module status yet',
+      deterministicModulesEmptyDescription:
+        'Run a deterministic rebuild to populate module status and trace details.',
       threads: 'Threads',
       cardsStat: 'Highlights',
       topicsStat: 'Topics',
@@ -2902,6 +2994,7 @@ const catalog: Record<
         '{queued} 个排队 / {running} 个运行 / {failed} 个失败',
       rebuildDerivedState: '重新生成',
       clearDerivedState: '清除所有',
+      savingDeterministicModules: '正在保存模块设置…',
       titleNormalizationPlugin: '标题规范化',
       titleNormalizationDescription:
         '在本地规范网页标题，让重复标签、跳转页和噪声后缀收敛成更清晰的证据标签。',
@@ -2911,6 +3004,32 @@ const catalog: Record<
       readableContentPlugin: '页面内容抓取',
       readableContentDescription:
         '抓取已访问页面的可读正文，让摘要和确定性洞察可以引用更完整的本地证据。',
+      queryGroupsModule: '查询组',
+      queryGroupsModuleDescription:
+        '依据搜索证据、落地页和有边界的连续性规则，构建确定性的查询组和改写路径。',
+      threadsModule: '研究线索',
+      threadsModuleDescription:
+        '用查询家族、锚点页面和重开证据，把相关查询组合并成跨 burst 的研究线索。',
+      referencePagesModule: '参考页',
+      referencePagesModuleDescription:
+        '找出在不同查询组、线索和日期里反复被找回来的稳定参考页面。',
+      sourceEffectivenessModule: '来源效果',
+      sourceEffectivenessModuleDescription:
+        '评估哪些来源最常成为稳定落点，不使用停留时长或前台时间代理。',
+      templateSummariesModule: '模板总结',
+      templateSummariesModuleDescription:
+        '根据查询组、研究线索、参考页和来源效果生成确定性的总结文本。',
+      deterministicModuleFallbackDescription:
+        '在依赖这个确定性 surface 之前，请先检查保存下来的模块 trace。',
+      deterministicModuleVersion: '模块版本',
+      deterministicModuleDependsOn: '依赖',
+      deterministicModuleTables: '派生数据表',
+      deterministicModuleLastBuilt: '上次构建',
+      deterministicModuleStaleReason: '过期原因',
+      deterministicModuleReady: '已就绪',
+      deterministicModuleStale: '已过期',
+      deterministicModuleDisabled: '已关闭',
+      deterministicModuleIdle: '待构建',
       enrichmentPluginFallbackDescription:
         '启用前请先确认这个插件的边界是否适合日常运行。',
       pluginBoundary: '边界',
@@ -3917,6 +4036,7 @@ const catalog: Record<
         '{queued} 個排隊 / {running} 個執行中 / {failed} 個失敗',
       rebuildDerivedState: '重新產生',
       clearDerivedState: '清除全部',
+      savingDeterministicModules: '正在儲存模組設定…',
       titleNormalizationPlugin: '標題正規化',
       titleNormalizationDescription:
         '在本機正規化網頁標題，讓重複分頁、跳轉頁和雜訊尾碼收斂成更清楚的證據標籤。',
@@ -3926,6 +4046,32 @@ const catalog: Record<
       readableContentPlugin: '網頁內容擷取',
       readableContentDescription:
         '擷取已造訪頁面的可讀正文，讓摘要和確定性洞察可以引用更完整的本機證據。',
+      queryGroupsModule: '查詢群組',
+      queryGroupsModuleDescription:
+        '根據搜尋證據、落地頁和有邊界的連續性規則，建立確定性的查詢群組與改寫路徑。',
+      threadsModule: '研究線索',
+      threadsModuleDescription:
+        '用查詢家族、錨點頁面和重開證據，把相關查詢群組合併成跨 burst 的研究線索。',
+      referencePagesModule: '參考頁',
+      referencePagesModuleDescription:
+        '找出在不同查詢群組、線索和日期裡反覆被找回來的穩定參考頁面。',
+      sourceEffectivenessModule: '來源效果',
+      sourceEffectivenessModuleDescription:
+        '評估哪些來源最常成為穩定落點，不使用停留時長或前景時間代理。',
+      templateSummariesModule: '模板總結',
+      templateSummariesModuleDescription:
+        '根據查詢群組、研究線索、參考頁和來源效果產生確定性的總結文字。',
+      deterministicModuleFallbackDescription:
+        '在依賴這個確定性 surface 之前，請先檢查保存下來的模組 trace。',
+      deterministicModuleVersion: '模組版本',
+      deterministicModuleDependsOn: '依賴',
+      deterministicModuleTables: '衍生資料表',
+      deterministicModuleLastBuilt: '上次建置',
+      deterministicModuleStaleReason: '過期原因',
+      deterministicModuleReady: '已就緒',
+      deterministicModuleStale: '已過期',
+      deterministicModuleDisabled: '已關閉',
+      deterministicModuleIdle: '待建置',
       enrichmentPluginFallbackDescription:
         '啟用前請先確認這個插件的邊界是否適合日常執行。',
       pluginBoundary: '邊界',
