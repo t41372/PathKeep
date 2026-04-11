@@ -16,6 +16,7 @@ import {
   type ResolvedLanguage,
 } from '../lib/i18n'
 import { ProfileScopeProvider } from '../lib/profile-scope'
+import { useProfileScope } from '../lib/profile-scope-context'
 import type {
   AiProviderConnectionTestReport,
   AiQueueStatus,
@@ -193,6 +194,15 @@ function renderSurface(
         </ProfileScopeProvider>
       </I18nContext.Provider>
     </MemoryRouter>,
+  )
+}
+
+function ScopeSwitcher({ nextProfileId }: { nextProfileId: string }) {
+  const { setActiveProfileId } = useProfileScope()
+  return (
+    <button type="button" onClick={() => setActiveProfileId(nextProfileId)}>
+      Switch scope
+    </button>
   )
 }
 
@@ -1114,6 +1124,390 @@ describe('intelligence surfaces', () => {
         'This card stayed visible because the same evidence cluster reopened several times.',
       ),
     ).toBeVisible()
+  })
+
+  test('clears stale insights while a newly scoped snapshot is loading', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const insightsT = createNamespaceTranslator('en', 'insights')
+    enableAi(snapshot)
+
+    const chromeSnapshot: InsightSnapshot = {
+      generatedAt: '2026-04-07T12:00:00Z',
+      windowDays: 30,
+      status: {
+        ready: true,
+        lastRunAt: '2026-04-07T12:00:00Z',
+        runs: 1,
+        cards: 1,
+        topics: 0,
+        threads: 0,
+        queryGroups: 0,
+        referencePages: 0,
+        contentCoverage: 0.5,
+        warning: null,
+      },
+      cards: [
+        {
+          cardId: 'card-chrome',
+          kind: 'open-loop',
+          title: 'Chrome-only summary',
+          summary: 'Scoped to Chrome evidence.',
+          windowDays: 30,
+          profileId: 'chrome:Default',
+          score: 0.7,
+          chromiumEnhanced: true,
+          evidence: [],
+        },
+      ],
+      queryGroups: [],
+      topics: [],
+      threads: [],
+      queryLadders: [],
+      referencePages: [],
+      sourceEffectiveness: [],
+      templateSummaries: [],
+      workflowMap: {
+        profileId: 'chrome:Default',
+        roles: [],
+        edges: [],
+        chromiumEnhanced: true,
+      },
+      profileFacets: [],
+      canonical: {
+        windowVisitCount: 1,
+        windowUniqueDomains: 1,
+        onThisDay: [],
+        topDomains: [],
+      },
+      notes: [],
+    }
+    const firefoxSnapshot: InsightSnapshot = {
+      ...chromeSnapshot,
+      generatedAt: '2026-04-08T12:00:00Z',
+      cards: [
+        {
+          ...chromeSnapshot.cards[0],
+          cardId: 'card-firefox',
+          title: 'Firefox summary',
+          summary: 'Scoped to Firefox evidence.',
+          profileId: 'firefox:default-release',
+          chromiumEnhanced: false,
+        },
+      ],
+      workflowMap: {
+        profileId: 'firefox:default-release',
+        roles: [],
+        edges: [],
+        chromiumEnhanced: false,
+      },
+    }
+
+    let resolveNextSnapshot!: (value: InsightSnapshot) => void
+    const nextSnapshotPromise = new Promise<InsightSnapshot>((resolve) => {
+      resolveNextSnapshot = resolve
+    })
+    vi.spyOn(backend, 'loadInsights')
+      .mockResolvedValueOnce(chromeSnapshot)
+      .mockImplementationOnce(() => nextSnapshotPromise)
+
+    render(
+      <MemoryRouter initialEntries={['/insights']}>
+        <I18nContext.Provider value={createI18nValue('en')}>
+          <ProfileScopeProvider>
+            <ScopeSwitcher nextProfileId="firefox:default-release" />
+            <ShellDataContext.Provider value={createShellValue(snapshot)}>
+              <InsightsPage />
+            </ShellDataContext.Provider>
+          </ProfileScopeProvider>
+        </I18nContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Chrome-only summary')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Switch scope' }))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Chrome-only summary')).not.toBeInTheDocument(),
+    )
+    expect(
+      await screen.findByLabelText(insightsT('loadingLabel')),
+    ).toHaveAttribute('aria-busy', 'true')
+
+    resolveNextSnapshot(firefoxSnapshot)
+
+    expect(await screen.findByText('Firefox summary')).toBeVisible()
+  })
+
+  test('clears the previous explanation when a new explain request fails', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const insightsT = createNamespaceTranslator('en', 'insights')
+
+    enableAi(snapshot)
+
+    const insightSnapshot: InsightSnapshot = {
+      generatedAt: '2026-04-07T12:00:00Z',
+      windowDays: 30,
+      status: {
+        ready: true,
+        lastRunAt: '2026-04-07T12:00:00Z',
+        runs: 1,
+        cards: 1,
+        topics: 0,
+        threads: 0,
+        queryGroups: 0,
+        referencePages: 1,
+        contentCoverage: 0.4,
+        warning: null,
+      },
+      cards: [
+        {
+          cardId: 'card-1',
+          kind: 'open-loop',
+          title: 'First explain target',
+          summary: 'Evidence-backed card.',
+          windowDays: 30,
+          profileId: 'chrome:Default',
+          score: 0.84,
+          chromiumEnhanced: true,
+          evidence: [],
+        },
+      ],
+      queryGroups: [],
+      topics: [],
+      threads: [],
+      queryLadders: [],
+      referencePages: [
+        {
+          referencePageId: 'reference-1',
+          profileId: 'chrome:Default',
+          url: 'https://example.com/reference',
+          title: 'Second explain target',
+          domain: 'example.com',
+          firstSeenAt: '2026-04-06T18:30:00Z',
+          lastSeenAt: '2026-04-07T09:15:00Z',
+          revisitCount: 2,
+          crossDayRevisits: 1,
+          queryGroupCount: 1,
+          threadCount: 1,
+          score: 1.8,
+          evidenceTier: 'tier-b',
+          evidence: [],
+        },
+      ],
+      sourceEffectiveness: [],
+      templateSummaries: [],
+      workflowMap: {
+        profileId: 'chrome:Default',
+        roles: [],
+        edges: [],
+        chromiumEnhanced: true,
+      },
+      profileFacets: [],
+      canonical: {
+        windowVisitCount: 1,
+        windowUniqueDomains: 1,
+        onThisDay: [],
+        topDomains: [],
+      },
+      notes: [],
+    }
+    vi.spyOn(backend, 'loadInsights').mockResolvedValue(insightSnapshot)
+    vi.spyOn(backend, 'explainInsight')
+      .mockResolvedValueOnce({
+        explanation: 'First explanation',
+        usedLlm: false,
+        citations: [],
+        notes: [],
+      })
+      .mockRejectedValueOnce(new Error('Explain failed'))
+
+    renderSurface(<InsightsPage />, {
+      language: 'en',
+      route: '/insights',
+      snapshot,
+    })
+
+    expect(await screen.findByText('First explain target')).toBeVisible()
+
+    const explainButtons = await screen.findAllByRole('button', {
+      name: insightsT('explain'),
+    })
+    await user.click(explainButtons[0])
+    expect(await screen.findByText('First explanation')).toBeVisible()
+
+    await user.click(explainButtons[1])
+
+    await waitFor(() =>
+      expect(screen.queryByText('First explanation')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Explain failed')).toBeVisible()
+  })
+
+  test('preserves profile scope on insights drilldowns back to explorer', async () => {
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    window.localStorage.setItem('pathkeep.profile-scope', 'chrome:Default')
+    const today = new Date()
+    const onThisDayVisitedAt = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      12,
+      0,
+      0,
+    ).toISOString()
+
+    const insightSnapshot: InsightSnapshot = {
+      generatedAt: '2026-04-07T12:00:00Z',
+      windowDays: 30,
+      status: {
+        ready: true,
+        lastRunAt: '2026-04-07T12:00:00Z',
+        runs: 1,
+        cards: 0,
+        topics: 1,
+        threads: 0,
+        queryGroups: 0,
+        referencePages: 1,
+        contentCoverage: 0.4,
+        warning: null,
+      },
+      cards: [],
+      queryGroups: [],
+      topics: [
+        {
+          topicId: 'topic-1',
+          label: 'Scoped topic',
+          profileScope: 'chrome:Default',
+          windowDays: 30,
+          firstSeenAt: '2026-04-01T10:00:00Z',
+          lastSeenAt: '2026-04-07T10:00:00Z',
+          visitCount: 2,
+          revisitCount: 1,
+          trendSlope: 0.4,
+          burstScore: 0.3,
+          evidence: [],
+        },
+      ],
+      threads: [],
+      queryLadders: [],
+      referencePages: [
+        {
+          referencePageId: 'reference-1',
+          profileId: 'chrome:Default',
+          url: 'https://example.com/reference',
+          title: 'Scoped reference',
+          domain: 'example.com',
+          firstSeenAt: '2026-04-06T18:30:00Z',
+          lastSeenAt: '2026-04-07T09:15:00Z',
+          revisitCount: 2,
+          crossDayRevisits: 1,
+          queryGroupCount: 1,
+          threadCount: 1,
+          score: 1.8,
+          evidenceTier: 'tier-b',
+          evidence: [],
+        },
+      ],
+      sourceEffectiveness: [
+        {
+          sourceId: 'source-1',
+          profileId: 'chrome:Default',
+          domain: 'example.com',
+          sourceRole: 'docs',
+          queryGroupCount: 1,
+          threadCount: 1,
+          stableLandingCount: 1,
+          referencePageCount: 1,
+          reopenSupportCount: 1,
+          effectivenessScore: 1.4,
+          evidenceTier: 'tier-b',
+          evidence: [],
+        },
+      ],
+      templateSummaries: [],
+      workflowMap: {
+        profileId: 'chrome:Default',
+        roles: [],
+        edges: [],
+        chromiumEnhanced: true,
+      },
+      profileFacets: [],
+      canonical: {
+        windowVisitCount: 3,
+        windowUniqueDomains: 1,
+        onThisDay: [
+          {
+            historyId: 1,
+            profileId: 'chrome:Default',
+            url: 'https://example.com/on-this-day',
+            title: 'Scoped on this day',
+            visitedAt: onThisDayVisitedAt,
+            note: 'Scoped evidence',
+          },
+        ],
+        topDomains: [{ domain: 'example.com', visitCount: 3 }],
+      },
+      notes: [],
+    }
+    vi.spyOn(backend, 'loadInsights').mockResolvedValue(insightSnapshot)
+
+    try {
+      renderSurface(<InsightsPage />, {
+        language: 'en',
+        route: '/insights',
+        snapshot,
+      })
+
+      expect(await screen.findByText('Scoped topic')).toBeVisible()
+
+      const scopedExplorerSearches = screen
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href') ?? '')
+        .filter((href) => href.startsWith('/explorer?'))
+        .map((href) => new URLSearchParams(href.slice('/explorer?'.length)))
+
+      const scopedEvidenceSearches = scopedExplorerSearches.filter(
+        (params) => params.has('q') || params.has('domain'),
+      )
+      for (const params of scopedEvidenceSearches) {
+        expect(params.get('profileId')).toBe('chrome:Default')
+      }
+
+      expect(
+        scopedExplorerSearches.some(
+          (params) =>
+            params.get('profileId') === 'chrome:Default' &&
+            params.get('q') === 'https://example.com/on-this-day',
+        ),
+      ).toBe(true)
+      expect(
+        scopedExplorerSearches.some(
+          (params) =>
+            params.get('profileId') === 'chrome:Default' &&
+            params.get('domain') === 'example.com',
+        ),
+      ).toBe(true)
+      expect(
+        scopedExplorerSearches.some(
+          (params) =>
+            params.get('profileId') === 'chrome:Default' &&
+            params.get('q') === 'Scoped topic',
+        ),
+      ).toBe(true)
+      expect(
+        scopedExplorerSearches.some(
+          (params) =>
+            params.get('profileId') === 'chrome:Default' &&
+            params.get('q') === 'https://example.com/reference',
+        ),
+      ).toBe(true)
+    } finally {
+      window.localStorage.removeItem('pathkeep.profile-scope')
+    }
   })
 
   test('renders storage analytics linked back to the latest audit run', async () => {

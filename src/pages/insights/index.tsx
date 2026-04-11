@@ -97,6 +97,10 @@ export function InsightsPage() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setInsights(null)
+    setSelectedInsight(null)
+    setExplanation(null)
+    setLoadError(null)
     const load = async () => {
       try {
         const result = await backend.loadInsights({
@@ -109,6 +113,9 @@ export function InsightsPage() {
         }
       } catch (error) {
         if (!cancelled) {
+          setInsights(null)
+          setSelectedInsight(null)
+          setExplanation(null)
           setLoadError(
             error instanceof Error ? error.message : insightsT('loadingLabel'),
           )
@@ -241,6 +248,7 @@ export function InsightsPage() {
     setAction(insightsT('explainingAction'))
     setLoadError(null)
     setSelectedInsight(input)
+    setExplanation(null)
     try {
       const nextExplanation = await backend.explainInsight({
         insightId: input.id,
@@ -250,6 +258,7 @@ export function InsightsPage() {
       })
       setExplanation(nextExplanation)
     } catch (error) {
+      setExplanation(null)
       setLoadError(
         error instanceof Error ? error.message : insightsT('explainability'),
       )
@@ -512,7 +521,10 @@ export function InsightsPage() {
                 <Link
                   key={`${item.historyId}-${item.url}`}
                   className="result-row"
-                  to={evidenceHref(item)}
+                  to={evidenceHref({
+                    ...item,
+                    profileId: item.profileId ?? activeProfileId,
+                  })}
                 >
                   <div className="result-row__header">
                     <strong>{item.title ?? item.url}</strong>
@@ -548,7 +560,10 @@ export function InsightsPage() {
                   <Link
                     key={item.domain}
                     className="domain-item"
-                    to={evidenceHref({ domain: item.domain })}
+                    to={evidenceHref({
+                      domain: item.domain,
+                      profileId: activeProfileId,
+                    })}
                   >
                     <span className="domain-rank mono dim">
                       {String(index + 1).padStart(2, '0')}
@@ -873,7 +888,10 @@ export function InsightsPage() {
                   </div>
                   <Link
                     className="topic-count mono"
-                    to={evidenceHref({ title: topic.label })}
+                    to={evidenceHref({
+                      title: topic.label,
+                      profileId: activeProfileId,
+                    })}
                   >
                     {topic.visitCount}
                   </Link>
@@ -994,7 +1012,10 @@ export function InsightsPage() {
                       </button>
                       <Link
                         className="btn-tiny"
-                        to={evidenceHref({ url: page.url })}
+                        to={evidenceHref({
+                          url: page.url,
+                          profileId: page.profileId ?? activeProfileId,
+                        })}
                       >
                         {insightsT('openExplorer')}
                       </Link>
@@ -1189,7 +1210,10 @@ export function InsightsPage() {
                 <Link
                   key={`${item.historyId}-${item.url}`}
                   className="result-row"
-                  to={evidenceHref(item)}
+                  to={evidenceHref({
+                    ...item,
+                    profileId: item.profileId ?? activeProfileId,
+                  })}
                 >
                   <div className="result-row__header">
                     <strong>{item.title ?? item.url}</strong>

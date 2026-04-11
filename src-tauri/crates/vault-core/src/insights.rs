@@ -1,5 +1,9 @@
-mod m5b;
+mod grouping;
+mod shared;
 mod site_adapters;
+mod storage;
+mod surfaces;
+mod topics;
 
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
@@ -39,13 +43,22 @@ use serde_json::{Value, json};
 use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
-use self::m5b::{
-    build_bursts, build_cards as build_m5b_cards, build_query_groups, build_reference_pages,
-    build_source_effectiveness, build_template_summaries, build_threads as build_m5b_threads,
-    build_topics as build_m5b_topics, load_query_groups, load_reference_pages,
-    load_source_effectiveness, load_thread_query_groups, persist_bursts, persist_query_groups,
-    persist_reference_pages, persist_source_effectiveness, persist_threads as persist_m5b_threads,
-    persist_topic_summaries, query_group_summaries_from_records, thread_summaries_from_records,
+use self::{
+    grouping::{
+        build_bursts, build_query_groups, build_threads as build_thread_records,
+        query_group_summaries_from_records, thread_summaries_from_records,
+    },
+    storage::{
+        load_query_groups, load_reference_pages, load_source_effectiveness,
+        load_thread_query_groups, persist_bursts, persist_query_groups, persist_reference_pages,
+        persist_source_effectiveness, persist_threads as persist_thread_records,
+        persist_topic_summaries,
+    },
+    surfaces::{
+        build_cards as build_insight_cards, build_reference_pages, build_source_effectiveness,
+        build_template_summaries,
+    },
+    topics::build_topics as build_topic_summaries,
 };
 
 const INSIGHT_PIPELINE_VERSION: &str = "insights-v2";
@@ -554,7 +567,7 @@ pub fn run_insights(
     embedding_provider: Option<&AiProviderRuntime>,
     request: &RunInsightsRequest,
 ) -> Result<RunInsightsReport> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let mut connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     ensure_insight_schema(&connection)?;
@@ -563,7 +576,9 @@ pub fn run_insights(
     let recovery = recover_interrupted_insight_runs(&connection)?;
 
     if request.full_rebuild {
-        clear_derived_insight_state(&connection)?;
+        let transaction = connection.transaction()?;
+        clear_derived_insight_state(&transaction)?;
+        transaction.commit()?;
     }
 
     let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
@@ -614,7 +629,7 @@ pub fn run_insights(
             (Vec::new(), Vec::new())
         };
         let thread_records = if module_enabled(THREADS_MODULE_ID) {
-            build_m5b_threads(&mut visits, &mut query_groups)
+            build_thread_records(&mut visits, &mut query_groups)
         } else {
             Vec::new()
         };
@@ -629,7 +644,7 @@ pub fn run_insights(
             Vec::new()
         };
         let topics = if module_enabled(THREADS_MODULE_ID) {
-            build_m5b_topics(&visits, &query_group_summaries, &thread_summaries, window_days)
+            build_topic_summaries(&visits, &query_group_summaries, &thread_summaries, window_days)
         } else {
             Vec::new()
         };
@@ -659,7 +674,7 @@ pub fn run_insights(
         } else {
             Vec::new()
         };
-        let cards = build_m5b_cards(
+        let cards = build_insight_cards(
             &template_summaries,
             &thread_summaries,
             &reference_pages,
@@ -667,27 +682,29 @@ pub fn run_insights(
             request.profile_id.as_deref(),
         );
 
-        persist_features(&connection, &visits)?;
-        persist_bursts(&connection, &bursts)?;
-        persist_query_groups(&connection, &query_groups, &visits)?;
+        let transaction = connection.transaction()?;
+
+        persist_features(&transaction, &visits)?;
+        persist_bursts(&transaction, &bursts)?;
+        persist_query_groups(&transaction, &query_groups, &visits)?;
         persist_topic_summaries(
-            &connection,
+            &transaction,
             request.profile_id.as_deref().unwrap_or("all"),
             window_days,
             &topics,
         )?;
-        persist_m5b_threads(&connection, &thread_records, &visits)?;
+        persist_thread_records(&transaction, &thread_records, &visits)?;
         persist_reference_pages(
-            &connection,
+            &transaction,
             request.profile_id.as_deref().unwrap_or("all"),
             &reference_pages,
         )?;
         persist_source_effectiveness(
-            &connection,
+            &transaction,
             request.profile_id.as_deref().unwrap_or("all"),
             &source_effectiveness,
         )?;
-        persist_cards(&connection, &cards, request.profile_id.as_deref(), window_days)?;
+        persist_cards(&transaction, &cards, request.profile_id.as_deref(), window_days)?;
 
         let finished_at = now_rfc3339();
         let module_updates = built_in_deterministic_modules()
@@ -716,7 +733,7 @@ pub fn run_insights(
                 )],
             })
             .collect::<Vec<_>>();
-        persist_deterministic_module_runtime_updates(&connection, &module_updates)?;
+        persist_deterministic_module_runtime_updates(&transaction, &module_updates)?;
 
         let content_coverage = if visits.is_empty() {
             0.0
@@ -738,7 +755,7 @@ pub fn run_insights(
             &recovery,
         );
         notes.extend(build_taxonomy_review_notes(&visits));
-        connection.execute(
+        transaction.execute(
             "UPDATE insight_runs
              SET finished_at = ?1, status = 'success', processed_visits = ?2, enriched_visits = ?3,
                  failed_enrichments = ?4, query_group_count = ?5, topic_count = ?6,
@@ -763,6 +780,7 @@ pub fn run_insights(
                 run_id,
             ],
         )?;
+        transaction.commit()?;
 
         Ok(RunInsightsReport {
             run_id,
@@ -2966,7 +2984,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_insight_schema_upgrades_legacy_feature_rows_before_creating_m5b_indexes() {
+    fn ensure_insight_schema_upgrades_legacy_feature_rows_before_creating_grouping_indexes() {
         let connection = Connection::open_in_memory().expect("db");
         connection
             .execute_batch(
