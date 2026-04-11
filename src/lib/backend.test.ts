@@ -693,6 +693,138 @@ describe('backend facade', () => {
     )
   })
 
+  test('preserves fallback runtime notes for disabled modules and custom preview plugins', async () => {
+    backendTestHarness.mutateState((state) => {
+      state.intelligenceRuntime.recentJobs = [
+        {
+          ...state.intelligenceRuntime.recentJobs[0],
+          createdAt: null as unknown as string,
+          startedAt: null,
+          finishedAt: null,
+        },
+      ]
+      state.intelligenceRuntime.plugins.push({
+        ...state.intelligenceRuntime.plugins[0],
+        pluginId: 'custom-preview-plugin',
+        enabled: false,
+      })
+      state.intelligenceRuntime.modules.push({
+        ...state.intelligenceRuntime.modules[0],
+        moduleId: 'custom-preview-module',
+        enabled: false,
+        status: 'disabled',
+        notes: ['Disabled in Settings.'],
+      })
+      state.snapshot.config.deterministic.modules =
+        state.snapshot.config.deterministic.modules.map((module, index) =>
+          index === 0 ? { ...module, enabled: false } : module,
+        )
+    })
+
+    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
+      queue: expect.objectContaining({
+        lastActivityAt: null,
+      }),
+      plugins: expect.arrayContaining([
+        expect.objectContaining({
+          pluginId: 'custom-preview-plugin',
+          enabled: false,
+          queuedJobs: 0,
+          runningJobs: 0,
+          failedJobs: 0,
+          lastCompletedAt: null,
+          lastError: null,
+        }),
+      ]),
+      modules: expect.arrayContaining([
+        expect.objectContaining({
+          moduleId: 'query-groups',
+          enabled: false,
+          status: 'disabled',
+          notes: ['Disabled in Settings.'],
+        }),
+        expect.objectContaining({
+          moduleId: 'custom-preview-module',
+          enabled: false,
+          status: 'disabled',
+          notes: ['Disabled in Settings.'],
+        }),
+      ]),
+    })
+
+    await expect(backend.clearDerivedIntelligence()).resolves.toMatchObject({
+      clearedFeatureRows: 8,
+    })
+    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
+      modules: expect.arrayContaining([
+        expect.objectContaining({
+          moduleId: 'query-groups',
+          enabled: false,
+          status: 'disabled',
+          staleReason: null,
+          notes: ['Disabled in Settings.'],
+        }),
+      ]),
+    })
+    await expect(
+      backend.runInsightsNow({
+        profileId: 'chrome:Default',
+        windowDays: 30,
+        fullRebuild: false,
+        limit: null,
+      }),
+    ).resolves.toMatchObject({
+      processedVisits: expect.any(Number),
+    })
+    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
+      modules: expect.arrayContaining([
+        expect.objectContaining({
+          moduleId: 'query-groups',
+          enabled: false,
+          status: 'disabled',
+          notes: ['Disabled in Settings.'],
+        }),
+      ]),
+    })
+  })
+
+  test('surfaces preview-only updater responses through the backend facade', async () => {
+    await expect(backend.checkForAppUpdate()).resolves.toMatchObject({
+      availability: expect.objectContaining({
+        supported: false,
+        available: false,
+        currentVersion: expect.any(String),
+      }),
+      pendingUpdate: null,
+    })
+    await expect(backend.downloadAndInstallAppUpdate()).resolves.toMatchObject({
+      phase: 'unsupported',
+      version: null,
+      message: expect.stringContaining('cannot download or install'),
+    })
+    await expect(
+      backend.downloadAndInstallAppUpdate('0.2.0'),
+    ).resolves.toMatchObject({
+      phase: 'unsupported',
+    })
+    await expect(backend.relaunchAfterUpdate()).resolves.toBe(false)
+  })
+
+  test('leaves preview runtime jobs unchanged when retry or cancel targets are missing', async () => {
+    const before = await backend.loadIntelligenceRuntime()
+
+    await expect(
+      backendTestHarness.call('retry_intelligence_job'),
+    ).resolves.toMatchObject({
+      recentJobs: before.recentJobs,
+    })
+    await expect(
+      backendTestHarness.call('cancel_intelligence_job'),
+    ).resolves.toMatchObject({
+      recentJobs: before.recentJobs,
+    })
+  })
+
   test('enforces preview archive prerequisites and keeps lock state aligned with archive mode', async () => {
     await expect(backend.runBackupNow()).rejects.toThrow(
       'Initialize the archive before running a backup.',
@@ -1126,6 +1258,15 @@ describe('backend facade', () => {
         'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
       ]),
     })
+
+    await expect(
+      backend.unlockAppSession({
+        passcode: null,
+        useBiometric: true,
+      }),
+    ).rejects.toThrow(
+      'Biometric unlock is not available in the current desktop build.',
+    )
   })
 
   test('surfaces preview warnings when app lock is flagged on without a passcode', async () => {
@@ -1139,6 +1280,44 @@ describe('backend facade', () => {
       passcodeConfigured: false,
       warnings: ['Set an app lock passcode before relying on session lock.'],
     })
+  })
+
+  test('clears preview app lock credentials and rejects unlock attempts with no remaining credential', async () => {
+    await backend.setAppLockPasscode({
+      passcode: '2468',
+      recoveryHint: 'digits only',
+    })
+
+    await expect(backend.clearAppLockPasscode()).resolves.toMatchObject({
+      enabled: false,
+      passcodeConfigured: false,
+      locked: false,
+    })
+
+    backendTestHarness.mutateState((state) => {
+      state.appLockPasscode = null
+      state.snapshot.config.appLock = {
+        ...state.snapshot.config.appLock,
+        enabled: true,
+        passcodeEnabled: false,
+        passcodeConfigured: false,
+        biometricEnabled: false,
+      }
+      state.snapshot.appLockStatus = {
+        ...state.snapshot.appLockStatus,
+        enabled: true,
+        locked: true,
+      }
+    })
+
+    await expect(
+      backend.unlockAppSession({
+        passcode: '2468',
+        useBiometric: false,
+      }),
+    ).rejects.toThrow(
+      'PathKeep cannot unlock without an enabled app lock credential.',
+    )
   })
 
   test('tracks preview queue, provider secrets, remote preview, and doctor repair state transitions', async () => {
@@ -2137,10 +2316,19 @@ describe('backend facade', () => {
       },
       format: 'jsonl',
     })
+    const pagedExportResult = await backend.exportHistory({
+      query: {
+        q: 'sqlite',
+        limit: 10,
+        page: 3,
+      },
+      format: 'jsonl',
+    })
 
     expect(firstPage.items).toHaveLength(50)
     expect(firstPage.total).toBe(75)
     expect(exportResult.count).toBe(75)
+    expect(pagedExportResult.count).toBe(75)
   })
 
   test('covers mock fallback branches for snapshot restore and retention prune without explicit args', async () => {

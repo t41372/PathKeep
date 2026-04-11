@@ -92,4 +92,25 @@ describe('i18n provider and hooks', () => {
     )
     consoleError.mockRestore()
   })
+
+  test('skips document lang writes when document is unavailable during hydration', () => {
+    const originalDocument = globalThis.document
+    const container = originalDocument.createElement('div')
+    originalDocument.body.appendChild(container)
+    vi.stubGlobal('document', undefined)
+
+    try {
+      expect(() =>
+        render(
+          <I18nProvider>
+            <div>server-safe</div>
+          </I18nProvider>,
+          { container },
+        ),
+      ).not.toThrow()
+    } finally {
+      vi.stubGlobal('document', originalDocument)
+      container.remove()
+    }
+  })
 })
