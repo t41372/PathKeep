@@ -1,3 +1,18 @@
+/**
+ * This module renders the History Explorer route and keeps the keyword-first, deep-linkable recall workflow honest even when optional AI features degrade.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `ExplorerPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -23,6 +38,11 @@ import { ExplorerResultsPanel } from './panels/results-panel'
 import { ExplorerRuntimePanel } from './panels/runtime-panel'
 import { ExplorerSemanticPanel } from './panels/semantic-panel'
 
+/**
+ * Renders the explorer route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
+ */
 export function ExplorerPage() {
   const {
     error: shellError,

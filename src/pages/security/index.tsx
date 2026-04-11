@@ -1,3 +1,18 @@
+/**
+ * This module renders the Security route, where archive mode, keyring review, rekey preview, and lock-state recovery stay explicit.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `SecurityPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -16,11 +31,21 @@ import type {
   SecurityStatus,
 } from '../../lib/types'
 
+/**
+ * Captures the state shape used by `SecurityLoad`.
+ *
+ * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface SecurityLoadState {
   status: SecurityStatus | null
   error: string | null
 }
 
+/**
+ * Waits for next paint.
+ *
+ * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 function waitForNextPaint() {
   return new Promise<void>((resolve) => {
     if (typeof window === 'undefined') {
@@ -31,6 +56,11 @@ function waitForNextPaint() {
   })
 }
 
+/**
+ * Renders the security route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Security expectations in the design docs.
+ */
 export function SecurityPage() {
   const { loading, refreshAppData, refreshKey, snapshot } = useShellData()
   const { language, t } = useI18n()
@@ -50,6 +80,11 @@ export function SecurityPage() {
 
   useEffect(() => {
     let cancelled = false
+    /**
+     * Loads security.
+     *
+     * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+     */
     const loadSecurity = async () => {
       try {
         const nextStatus = await backend.securityStatus()
@@ -80,6 +115,11 @@ export function SecurityPage() {
   const status = loadState.status
   const pageError = loadState.error
 
+  /**
+   * Explains how reload after action works.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function reloadAfterAction(nextNotice?: string) {
     await refreshAppData()
     const nextStatus = await backend.securityStatus()
@@ -91,6 +131,11 @@ export function SecurityPage() {
     setNotice(nextNotice ?? null)
   }
 
+  /**
+   * Explains how with busy works.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function withBusy<T>(label: string, fn: () => Promise<T>) {
     setBusy(label)
     setActionError(null)
@@ -110,6 +155,11 @@ export function SecurityPage() {
     }
   }
 
+  /**
+   * Handles unlock.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleUnlock() {
     const trimmedKey = sessionKey.trim()
     if (!trimmedKey) {
@@ -124,6 +174,11 @@ export function SecurityPage() {
     })
   }
 
+  /**
+   * Handles unlock from keyring.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleUnlockFromKeyring() {
     await withBusy(t('security.useKeyring'), async () => {
       const key = await backend.keyringGetDatabaseKey()
@@ -135,6 +190,11 @@ export function SecurityPage() {
     })
   }
 
+  /**
+   * Handles store keyring key.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleStoreKeyringKey() {
     const trimmedKey = sessionKey.trim()
     if (!trimmedKey) {
@@ -148,6 +208,11 @@ export function SecurityPage() {
     })
   }
 
+  /**
+   * Handles clear keyring.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleClearKeyring() {
     await withBusy(t('security.clearKeyring'), async () => {
       await backend.keyringClearDatabaseKey()
@@ -155,6 +220,11 @@ export function SecurityPage() {
     })
   }
 
+  /**
+   * Handles lock archive.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleLockArchive() {
     await withBusy(t('security.lockArchive'), async () => {
       await backend.clearSessionDatabaseKey()
@@ -162,6 +232,11 @@ export function SecurityPage() {
     })
   }
 
+  /**
+   * Handles preview rekey.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handlePreviewRekey() {
     if (!status?.initialized) return
 
@@ -177,6 +252,11 @@ export function SecurityPage() {
     })
   }
 
+  /**
+   * Handles execute rekey.
+   *
+   * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleExecuteRekey() {
     if (!status?.initialized) return
 

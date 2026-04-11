@@ -1,3 +1,19 @@
+/**
+ * This module mirrors the design-token contract into TypeScript-friendly helpers.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `themes`
+ * - `tokens`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 export const themes = ['dark', 'light'] as const
 
 export const tokens = {

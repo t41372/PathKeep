@@ -1,25 +1,74 @@
+/**
+ * This module defines typed front-end contracts for AI providers, deterministic insights, queue state, and runtime review surfaces.
+ *
+ * Why this file exists:
+ * - The UI reads these shapes as its desktop and preview contract, so unclear names here ripple through every consumer.
+ * - If you need to know what a route or helper expects from the backend, this is often the fastest file to open first.
+ *
+ * Main declarations:
+ * - `EnrichmentPluginState`
+ * - `EnrichmentSettings`
+ * - `DeterministicModuleState`
+ * - `DeterministicSettings`
+ * - `AiRequestFormat`
+ * - `AiProviderPurpose`
+ * - `AiProviderConfig`
+ * - `EnrichmentPluginPreference`
+ * - `AiSettings`
+ * - `AiIndexStatus`
+ *
+ * Source-of-truth notes:
+ * - Data shapes should stay aligned with the accepted architecture and feature docs rather than ad-hoc page assumptions.
+ * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
+ */
+
 import type { ScheduleGeneratedFile } from './schedule'
 
+/**
+ * Captures the state shape used by `EnrichmentPlugin`.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface EnrichmentPluginState {
   id: string
   enabled: boolean
   version: string
 }
 
+/**
+ * Defines the typed shape for enrichment settings.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface EnrichmentSettings {
   plugins: EnrichmentPluginState[]
 }
 
+/**
+ * Captures the state shape used by `DeterministicModule`.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface DeterministicModuleState {
   id: string
   enabled: boolean
   version: string
 }
 
+/**
+ * Defines the typed shape for deterministic settings.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface DeterministicSettings {
   modules: DeterministicModuleState[]
 }
 
+/**
+ * Defines the type-level contract for ai request format.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export type AiRequestFormat =
   | 'openai'
   | 'anthropic'
@@ -27,8 +76,18 @@ export type AiRequestFormat =
   | 'ollama'
   | 'lm-studio'
 
+/**
+ * Defines the type-level contract for ai provider purpose.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export type AiProviderPurpose = 'llm' | 'embedding'
 
+/**
+ * Represents persisted configuration for ai provider.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiProviderConfig {
   id: string
   name: string
@@ -45,11 +104,21 @@ export interface AiProviderConfig {
   notes?: string | null
 }
 
+/**
+ * Defines the typed shape for enrichment plugin preference.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface EnrichmentPluginPreference {
   pluginId: string
   enabled: boolean
 }
 
+/**
+ * Defines the typed shape for ai settings.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiSettings {
   enabled: boolean
   assistantEnabled: boolean
@@ -68,6 +137,11 @@ export interface AiSettings {
   llmProviders: AiProviderConfig[]
   embeddingProviders: AiProviderConfig[]
 }
+/**
+ * Represents a read model or status snapshot for ai index.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiIndexStatus {
   enabled: boolean
   assistantEnabled: boolean
@@ -91,6 +165,11 @@ export interface AiIndexStatus {
   warning?: string | null
 }
 
+/**
+ * Represents a completed report that the UI can review after a run finishes.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiProviderCapabilityReport {
   supportsChat: boolean
   supportsEmbeddings: boolean
@@ -99,11 +178,21 @@ export interface AiProviderCapabilityReport {
   supportsStructuredOutput: boolean
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiProviderConnectionTestRequest {
   providerId: string
   purpose: AiProviderPurpose
 }
 
+/**
+ * Represents a completed report that the UI can review after a run finishes.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiProviderConnectionTestReport {
   providerId: string
   purpose: string
@@ -118,6 +207,11 @@ export interface AiProviderConnectionTestReport {
   message: string
 }
 
+/**
+ * Defines the typed shape for ai queue job.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiQueueJob {
   id: number
   jobType: string
@@ -136,6 +230,11 @@ export interface AiQueueJob {
   errorMessage?: string | null
 }
 
+/**
+ * Represents a read model or status snapshot for ai queue.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiQueueStatus {
   paused: boolean
   concurrency: number
@@ -145,6 +244,11 @@ export interface AiQueueStatus {
   recentJobs: AiQueueJob[]
 }
 
+/**
+ * Represents a read model or status snapshot for insight.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightStatus {
   ready: boolean
   lastRunAt?: string | null
@@ -158,6 +262,11 @@ export interface InsightStatus {
   warning?: string | null
 }
 
+/**
+ * Defines the typed shape for insight evidence item.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightEvidenceItem {
   historyId: number
   profileId: string
@@ -167,6 +276,11 @@ export interface InsightEvidenceItem {
   note?: string | null
 }
 
+/**
+ * Defines the typed shape for insight card.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightCard {
   cardId: string
   kind: string
@@ -179,6 +293,11 @@ export interface InsightCard {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Represents a condensed summary for insight query group.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightQueryGroupSummary {
   queryGroupId: string
   profileId: string
@@ -199,6 +318,11 @@ export interface InsightQueryGroupSummary {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Represents a condensed summary for insight topic.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightTopicSummary {
   topicId: string
   label: string
@@ -213,6 +337,11 @@ export interface InsightTopicSummary {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Represents a condensed summary for insight thread.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightThreadSummary {
   threadId: string
   profileId: string
@@ -231,12 +360,22 @@ export interface InsightThreadSummary {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Represents the detailed view model for insight thread.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightThreadDetail {
   summary: InsightThreadSummary
   queryGroups: InsightQueryGroupSummary[]
   visits: InsightEvidenceItem[]
 }
 
+/**
+ * Defines the typed shape for insight query ladder.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightQueryLadder {
   queryGroupId?: string | null
   rootTerm: string
@@ -249,6 +388,11 @@ export interface InsightQueryLadder {
   chromiumOnly: boolean
 }
 
+/**
+ * Represents a condensed summary for insight reference page.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightReferencePageSummary {
   referencePageId: string
   profileId?: string | null
@@ -266,6 +410,11 @@ export interface InsightReferencePageSummary {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Represents a condensed summary for insight source effectiveness.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightSourceEffectivenessSummary {
   sourceId: string
   profileId?: string | null
@@ -281,6 +430,11 @@ export interface InsightSourceEffectivenessSummary {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Represents a condensed summary for insight template.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightTemplateSummary {
   summaryId: string
   kind: string
@@ -291,17 +445,32 @@ export interface InsightTemplateSummary {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Defines the typed shape for insight workflow role.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightWorkflowRole {
   role: string
   count: number
 }
 
+/**
+ * Defines the typed shape for insight workflow edge.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightWorkflowEdge {
   fromRole: string
   toRole: string
   count: number
 }
 
+/**
+ * Defines the typed shape for insight workflow map.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightWorkflowMap {
   profileId?: string | null
   roles: InsightWorkflowRole[]
@@ -309,6 +478,11 @@ export interface InsightWorkflowMap {
   chromiumEnhanced: boolean
 }
 
+/**
+ * Defines the typed shape for insight profile facet.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightProfileFacet {
   key: string
   label: string
@@ -317,11 +491,21 @@ export interface InsightProfileFacet {
   evidence: InsightEvidenceItem[]
 }
 
+/**
+ * Defines the typed shape for insight domain stat.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightDomainStat {
   domain: string
   visitCount: number
 }
 
+/**
+ * Represents a condensed summary for insight canonical.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightCanonicalSummary {
   windowVisitCount: number
   windowUniqueDomains: number
@@ -329,6 +513,11 @@ export interface InsightCanonicalSummary {
   topDomains: InsightDomainStat[]
 }
 
+/**
+ * Defines the typed shape for insight snapshot.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightSnapshot {
   generatedAt: string
   windowDays: number
@@ -348,6 +537,11 @@ export interface InsightSnapshot {
   notes: string[]
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface RunInsightsRequest {
   profileId?: string | null
   windowDays?: number | null
@@ -355,6 +549,11 @@ export interface RunInsightsRequest {
   limit?: number | null
 }
 
+/**
+ * Represents a completed report that the UI can review after a run finishes.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface RunInsightsReport {
   runId: number
   processedVisits: number
@@ -372,6 +571,11 @@ export interface RunInsightsReport {
   notes: string[]
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface ExplainInsightRequest {
   insightId: string
   insightKind: string
@@ -379,6 +583,11 @@ export interface ExplainInsightRequest {
   windowDays?: number | null
 }
 
+/**
+ * Defines the typed shape for insight explanation.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface InsightExplanation {
   explanation: string
   usedLlm: boolean
@@ -386,6 +595,11 @@ export interface InsightExplanation {
   notes: string[]
 }
 
+/**
+ * Represents a read model or status snapshot for intelligence queue.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface IntelligenceQueueStatus {
   queued: number
   running: number
@@ -395,6 +609,11 @@ export interface IntelligenceQueueStatus {
   lastActivityAt?: string | null
 }
 
+/**
+ * Represents a read model or status snapshot for enrichment plugin.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface EnrichmentPluginStatus {
   pluginId: string
   sourceKind: string
@@ -407,6 +626,11 @@ export interface EnrichmentPluginStatus {
   lastError?: string | null
 }
 
+/**
+ * Defines the typed shape for intelligence job overview.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface IntelligenceJobOverview {
   id: number
   jobType: string
@@ -425,6 +649,11 @@ export interface IntelligenceJobOverview {
   cancellable: boolean
 }
 
+/**
+ * Represents a read model or status snapshot for deterministic module runtime.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface DeterministicModuleRuntimeStatus {
   moduleId: string
   enabled: boolean
@@ -439,6 +668,11 @@ export interface DeterministicModuleRuntimeStatus {
   notes: string[]
 }
 
+/**
+ * Defines the typed shape for intelligence runtime snapshot.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface IntelligenceRuntimeSnapshot {
   queue: IntelligenceQueueStatus
   plugins: EnrichmentPluginStatus[]
@@ -446,6 +680,11 @@ export interface IntelligenceRuntimeSnapshot {
   recentJobs: IntelligenceJobOverview[]
   notes: string[]
 }
+/**
+ * Represents a completed report that the UI can review after a run finishes.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface ClearDerivedIntelligenceReport {
   clearedEnrichmentRows: number
   clearedFeatureRows: number
@@ -461,11 +700,21 @@ export interface ClearDerivedIntelligenceReport {
   notes: string[]
 }
 
+/**
+ * Defines the typed shape for ai provider secret input.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiProviderSecretInput {
   providerId: string
   apiKey: string
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiIndexRequest {
   providerId?: string | null
   fullRebuild: boolean
@@ -473,6 +722,11 @@ export interface AiIndexRequest {
   limit?: number | null
 }
 
+/**
+ * Represents a completed report that the UI can review after a run finishes.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiIndexReport {
   jobId?: number | null
   runId?: number | null
@@ -486,6 +740,11 @@ export interface AiIndexReport {
   notes: string[]
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiSearchRequest {
   query: string
   profileId?: string | null
@@ -494,6 +753,11 @@ export interface AiSearchRequest {
   cursor?: string | null
 }
 
+/**
+ * Defines the typed shape for ai search result item.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiSearchResultItem {
   historyId: number
   profileId: string
@@ -505,6 +769,11 @@ export interface AiSearchResultItem {
   matchReason: string
 }
 
+/**
+ * Describes a response payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiSearchResponse {
   total: number
   providerId: string
@@ -514,12 +783,22 @@ export interface AiSearchResponse {
   nextCursor?: string | null
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiAssistantRequest {
   question: string
   profileId?: string | null
   domain?: string | null
 }
 
+/**
+ * Defines the typed shape for ai assistant citation.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiAssistantCitation {
   historyId: number
   profileId: string
@@ -529,6 +808,11 @@ export interface AiAssistantCitation {
   score: number
 }
 
+/**
+ * Describes a response payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiAssistantResponse {
   state: string
   answer: string
@@ -540,6 +824,11 @@ export interface AiAssistantResponse {
   notes: string[]
 }
 
+/**
+ * Represents the preview payload shown before a write or high-risk action happens.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AiIntegrationPreview {
   mcpCommand: string
   consentSummary: string

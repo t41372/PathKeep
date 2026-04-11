@@ -1,3 +1,21 @@
+/**
+ * This module defines the context contract that exposes shell bootstrap state and shell actions to route components.
+ *
+ * Why this file exists:
+ * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
+ * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
+ *
+ * Main declarations:
+ * - `BusyOverlayState`
+ * - `ShellDataContextValue`
+ * - `ShellDataContext`
+ * - `useShellData`
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
+ * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
+ */
+
 import { createContext, useContext } from 'react'
 import type {
   AppBuildInfo,
@@ -10,6 +28,11 @@ import type {
   UnlockAppSessionRequest,
 } from '../lib/types'
 
+/**
+ * Captures the state shape used by `BusyOverlay`.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export interface BusyOverlayState {
   label: string
   detail?: string | null
@@ -19,6 +42,11 @@ export interface BusyOverlayState {
   activeStep?: number
 }
 
+/**
+ * Defines the value exposed through the `ShellDataContext` context.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export interface ShellDataContextValue {
   buildInfo: AppBuildInfo | null
   appLockStatus: AppLockStatus | null
@@ -46,10 +74,20 @@ export interface ShellDataContextValue {
   clearNotice: () => void
 }
 
+/**
+ * Holds the React context used to share shell data across the shell.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export const ShellDataContext = createContext<ShellDataContextValue | null>(
   null,
 )
 
+/**
+ * Provides the `useShellData` hook.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export function useShellData() {
   const value = useContext(ShellDataContext)
 

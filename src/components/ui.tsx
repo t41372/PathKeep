@@ -1,3 +1,27 @@
+/**
+ * This module holds reusable shell-level UI building blocks that many routes lean on before they need a route-specific component.
+ *
+ * Why this file exists:
+ * - Shared components keep the shell visually and behaviorally consistent instead of making each route invent its own state grammar.
+ * - If a primitive or chrome component changes, multiple workflows can shift at once, so the rationale belongs close to the code.
+ *
+ * Main declarations:
+ * - `Glyph`
+ * - `Surface`
+ * - `FieldBlock`
+ * - `ToggleRow`
+ * - `DataRow`
+ * - `PathRow`
+ * - `EmptyState`
+ * - `InfoStat`
+ * - `StatusTag`
+ * - `PreviewEntryList`
+ *
+ * Source-of-truth notes:
+ * - Visual language comes from `docs/design/design-tokens.md` and the route/shell structure in `docs/design/screens-and-nav.md`.
+ * - Loading, empty, error, permission, and callout behavior must stay aligned with `docs/design/ux-principles.md`.
+ */
+
 import type { ReactNode } from 'react'
 import type { TakeoutPreviewEntry } from '../lib/types'
 import { useI18n } from '../lib/i18n'
@@ -8,6 +32,11 @@ import { formatDateTime } from '../lib/format'
 // Glyph — Material Symbols icon wrapper
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how glyph works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function Glyph({
   icon,
   filled = false,
@@ -28,6 +57,11 @@ export function Glyph({
 // Surface — bordered card with optional header actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how surface works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function Surface({
   eyebrow,
   title,
@@ -64,6 +98,11 @@ export function Surface({
 // FieldBlock — label + form control wrapper
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how field block works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function FieldBlock({
   label,
   control,
@@ -85,6 +124,11 @@ export function FieldBlock({
 // ToggleRow — label + checkbox toggle
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how toggle row works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function ToggleRow({
   checked,
   disabled = false,
@@ -113,6 +157,11 @@ export function ToggleRow({
 // DataRow — key/value display row
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how data row works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function DataRow({
   label,
   value,
@@ -134,6 +183,11 @@ export function DataRow({
 // PathRow — path display with open/copy actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how path row works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function PathRow({
   label,
   value,
@@ -191,6 +245,11 @@ export function PathRow({
 // EmptyState — dashed box placeholder
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how empty state works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function EmptyState({
   children,
   icon,
@@ -213,6 +272,11 @@ export function EmptyState({
 // InfoStat — compact stat chip with label + bold value
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how info stat works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function InfoStat({
   label,
   value,
@@ -232,6 +296,11 @@ export function InfoStat({
 // StatusTag — tinted inline badge
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how status tag works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function StatusTag({
   ariaLabel,
   tone,
@@ -252,6 +321,11 @@ export function StatusTag({
 // PreviewEntryList — Takeout preview rows
 // ---------------------------------------------------------------------------
 
+/**
+ * Explains how preview entry list works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function PreviewEntryList({
   entries,
   language,
@@ -297,6 +371,11 @@ export function PreviewEntryList({
 // WorkflowStep type + OperationWorkflow — step-by-step process UI
 // ---------------------------------------------------------------------------
 
+/**
+ * Defines the type-level contract for workflow step.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export type WorkflowStep = {
   id: string
   title: string
@@ -309,6 +388,11 @@ export type WorkflowStep = {
   actions?: ReactNode
 }
 
+/**
+ * Explains how operation workflow works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function OperationWorkflow({
   actionLabel,
   labels,

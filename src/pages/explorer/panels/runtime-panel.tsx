@@ -1,3 +1,18 @@
+/**
+ * This module renders a focused panel inside the Explorer route.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `ExplorerRuntimePanel`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { Link } from 'react-router-dom'
 import { ErrorState } from '../../../components/primitives/error-state'
 import { LoadingState } from '../../../components/primitives/loading-state'
@@ -12,6 +27,11 @@ import type {
 } from '../../../lib/types'
 import type { Translator } from '../types'
 
+/**
+ * Describes the props accepted by `ExplorerRuntimePanel`.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface ExplorerRuntimePanelProps {
   aiMeta: {
     description: string
@@ -37,6 +57,11 @@ interface ExplorerRuntimePanelProps {
   snapshotAiStatus: AiIndexStatus
 }
 
+/**
+ * Renders the explorer runtime panel.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function ExplorerRuntimePanel({
   aiMeta,
   embeddingProvider,

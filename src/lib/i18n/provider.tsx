@@ -1,3 +1,18 @@
+/**
+ * This module is part of PathKeep's shipping i18n contract, not a best-effort localization afterthought.
+ *
+ * Why this file exists:
+ * - Every user-visible string, route label, callout, and loading surface should flow through this layer.
+ * - Keeping the contract centralized makes it easier to reason about locale length, pseudo-locale smoke, and shared wording changes.
+ *
+ * Main declarations:
+ * - `I18nProvider`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with the i18n requirements in `docs/design/ux-principles.md`.
+ * - The catalog must keep `en`, `zh-CN`, and `zh-TW` in sync for all shipped namespaces.
+ */
+
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { LanguagePreference } from '../types'
 import {
@@ -13,6 +28,11 @@ import {
   type I18nContextValue,
 } from './context'
 
+/**
+ * Provides i18n to descendant components.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [preference, setPreference] = useState<LanguagePreference>(() =>
     readStoredPreference(),
@@ -33,6 +53,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       Parameters<I18nContextValue['ns']>[0],
       ReturnType<I18nContextValue['ns']>
     >()
+    /**
+     * Explains how ns works.
+     *
+     * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+     */
     const ns: I18nContextValue['ns'] = (namespace) => {
       const cached = namespaceCache.get(namespace)
       if (cached) {

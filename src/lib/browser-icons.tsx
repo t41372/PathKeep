@@ -1,6 +1,28 @@
+/**
+ * This module resolves browser names into the iconography used across onboarding, dashboard, and scoped review surfaces.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `supportedBrowsers`
+ * - `browserIconKeyForName`
+ * - `BrowserIcon`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 import type { ReactNode } from 'react'
 
 /* eslint-disable react-refresh/only-export-components */
+/**
+ * Defines the type-level contract for browser icon key.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 type BrowserIconKey =
   | 'arc'
   | 'brave'
@@ -39,10 +61,20 @@ const browserIconKeyByName = new Map<string, BrowserIconKey>(
   supportedBrowsers.map((browser) => [browser.name, browser.key]),
 )
 
+/**
+ * Explains how browser icon key for name works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function browserIconKeyForName(browserName: string): BrowserIconKey {
   return browserIconKeyByName.get(browserName) ?? 'generic'
 }
 
+/**
+ * Defines the type-level contract for browser icon props.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 type BrowserIconProps = {
   browserName: string
   className?: string
@@ -50,6 +82,11 @@ type BrowserIconProps = {
   title?: string
 }
 
+/**
+ * Explains how browser icon works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function BrowserIcon({
   browserName,
   className,
@@ -75,6 +112,11 @@ export function BrowserIcon({
   )
 }
 
+/**
+ * Explains how render browser icon works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function renderBrowserIcon(key: BrowserIconKey): ReactNode {
   switch (key) {
     case 'chrome':

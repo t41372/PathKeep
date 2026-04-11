@@ -321,3 +321,16 @@
   - 新增 / 擴寫 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)、[`src/lib/update.test.ts`](../../src/lib/update.test.ts)、[`src/lib/ipc/bridge.test.ts`](../../src/lib/ipc/bridge.test.ts)、[`src/app/index.test.tsx`](../../src/app/index.test.tsx)、[`scripts/build-release-size-audit.test.ts`](../../scripts/build-release-size-audit.test.ts) 與相關 Rust tests，把 scoped stale-state、bridge updater parity、bridge failure shaping、release size provenance、unknown backup phases / punctuation-only FTS / parser cursor boundary 等 residual review findings 收回 regression surface。
   - 同步回寫 [`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/program/quality-matrix.md`](program/quality-matrix.md)、[`docs/plan/m4-full-polish/release-size-audit.md`](m4-full-polish/release-size-audit.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md) 與 [`docs/plan/STATUS.md`](STATUS.md)，把 scoped-view truth、bridge updater boundary 與 release evidence contract 寫回 source docs。
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-QC-K** — Frontend Doc-Comment Map And Maintainability Sweep
+  - 讀先：
+    `docs/plan/m0-foundation/frontend-shell-and-design-system.md`
+    `docs/plan/m4-full-polish/code-health-audit.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/design/design-tokens.md`
+  - 2026-04-11：為活躍前端 `src/` surface 補上 file header 與 declaration-level doc comments，讓 route / shell / primitive / helper / typed contract files 一打開就能看懂職責、主要宣告與對應的 design / trust source of truth。
+  - 針對 hot spots 做實際維護性修補：新增 [`src/pages/settings/helpers.ts`](../../src/pages/settings/helpers.ts) 與 [`src/pages/settings/helpers.test.ts`](../../src/pages/settings/helpers.test.ts)，把 Settings 的 AI draft / retention-selection 純 helper 抽離主 route，並修正 retention preview merge 對新 bucket 的預設選取行為；同時刪除 stale duplicate [`src/lib/i18n/messages.ts`](../../src/lib/i18n/messages.ts)。
+  - 更新 [`scripts/check-rust-security.mjs`](../../scripts/check-rust-security.mjs) 與 [`deny.toml`](../../deny.toml)，把新出現的 transitive `RUSTSEC-2026-0097` `rand` advisory 納入 allowlist 並寫下依賴鏈 / owned-surface rationale，讓供應鏈 gate 與目前 repo truth 對齊。
+  - 同步回寫 [`docs/plan/m4-full-polish/code-health-audit.md`](m4-full-polish/code-health-audit.md)、[`docs/plan/STATUS.md`](STATUS.md) 與本檔，明確標出 frontend documentation closeout、Settings helper extraction 與 remaining large-file hotspots 的現況。
+  - 驗收：`bun run check`、`bun run build`

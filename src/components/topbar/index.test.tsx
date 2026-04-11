@@ -1,3 +1,18 @@
+/**
+ * This test file protects the shared Topbar component contract.
+ *
+ * Why this file exists:
+ * - Reusable shell components can create subtle regressions everywhere at once, so the tests here act as a front-end safety net.
+ * - If the design or accessibility contract changes, these tests should tell the next reader exactly which promise moved.
+ *
+ * Main declarations:
+ * - This file is mostly internal implementation detail.
+ *
+ * Source-of-truth notes:
+ * - Shared shell components must stay aligned with `docs/design/screens-and-nav.md`, `docs/design/ux-principles.md`, and `docs/design/design-tokens.md`.
+ * - Avoid locking tests to decorative markup when the actual contract is state visibility, routing, or accessible labeling.
+ */
+
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'

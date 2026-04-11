@@ -1,3 +1,15 @@
+/*
+ * This stylesheet defines the production token layer that mirrors the approved design-token contract.
+ *
+ * Why this file exists:
+ * - It is the CSS source of truth for color, spacing, typography, motion, and density values used across the shell.
+ * - When the design docs change, this file is one of the first places that should move with them.
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/design/design-tokens.md` and the typography fallback policy.
+ * - New visual primitives should consume tokens instead of introducing ad-hoc color or spacing constants.
+ */
+
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;

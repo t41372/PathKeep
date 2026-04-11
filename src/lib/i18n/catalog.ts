@@ -1,6 +1,40 @@
+/**
+ * This module is part of PathKeep's shipping i18n contract, not a best-effort localization afterthought.
+ *
+ * Why this file exists:
+ * - Every user-visible string, route label, callout, and loading surface should flow through this layer.
+ * - Keeping the contract centralized makes it easier to reason about locale length, pseudo-locale smoke, and shared wording changes.
+ *
+ * Main declarations:
+ * - `ResolvedLanguage`
+ * - `TranslationNamespace`
+ * - `supportedLanguages`
+ * - `translationNamespaces`
+ * - `translationCatalog`
+ * - `pseudoLocalize`
+ * - `detectSystemLanguage`
+ * - `resolveLanguage`
+ * - `TranslationKey`
+ * - `createTranslator`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with the i18n requirements in `docs/design/ux-principles.md`.
+ * - The catalog must keep `en`, `zh-CN`, and `zh-TW` in sync for all shipped namespaces.
+ */
+
 import type { LanguagePreference } from '../types'
 
+/**
+ * Defines the type-level contract for resolved language.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export type ResolvedLanguage = 'en' | 'zh-CN' | 'zh-TW'
+/**
+ * Defines the type-level contract for translation namespace.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export type TranslationNamespace =
   | 'common'
   | 'shell'
@@ -18,11 +52,26 @@ export type TranslationNamespace =
   | 'platform'
   | 'onboarding'
 
+/**
+ * Defines the typed shape for translation dictionary.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 interface TranslationDictionary {
   [key: string]: string | TranslationDictionary
 }
 
+/**
+ * Lists the supported languages that this front-end surface knows how to handle.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export const supportedLanguages: ResolvedLanguage[] = ['en', 'zh-CN', 'zh-TW']
+/**
+ * Exposes the shared translation namespaces declaration used by this module.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export const translationNamespaces: TranslationNamespace[] = [
   'common',
   'shell',
@@ -764,6 +813,11 @@ const zhTwM3Namespaces = {
   TranslationDictionary
 >
 
+/**
+ * Stores the translation catalog that powers PathKeep's shipped i18n surface.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 const catalog: Record<
   ResolvedLanguage,
   Record<TranslationNamespace, TranslationDictionary>
@@ -4367,6 +4421,10 @@ const catalog: Record<
   },
 }
 
+/**
+ * Flattens a nested namespace dictionary into dot-path keys while also keeping
+ * leaf-level fallback access for legacy callers.
+ */
 function flattenDictionary(
   dictionary: TranslationDictionary,
   prefix = '',
@@ -4393,6 +4451,10 @@ const flattenedCatalog = Object.fromEntries(
   ]),
 ) as Record<ResolvedLanguage, Record<string, string>>
 
+/**
+ * Replaces `{placeholder}` tokens inside a translation string with the runtime
+ * variables supplied by the caller.
+ */
 function interpolate(
   value: string,
   vars?: Record<string, string | number | null | undefined>,
@@ -4407,10 +4469,18 @@ function interpolate(
   })
 }
 
+/**
+ * Returns a defensive clone of the full translation catalog so tests and
+ * tooling can inspect it without mutating the live singleton.
+ */
 export function translationCatalog() {
   return structuredClone(catalog)
 }
 
+/**
+ * Expands and accents a translation string for pseudo-locale smoke testing
+ * while preserving placeholder tokens intact.
+ */
 export function pseudoLocalize(value: string) {
   const accentMap: Record<string, string> = {
     a: 'á',
@@ -4444,6 +4514,11 @@ export function pseudoLocalize(value: string) {
   return `［${restored}］`
 }
 
+/**
+ * Detects system language.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function detectSystemLanguage(
   languages?: readonly string[],
 ): ResolvedLanguage {
@@ -4477,6 +4552,11 @@ export function detectSystemLanguage(
   return 'en'
 }
 
+/**
+ * Resolves language from the available inputs.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function resolveLanguage(
   preference?: LanguagePreference,
   languages?: readonly string[],
@@ -4488,8 +4568,18 @@ export function resolveLanguage(
   return supportedLanguages.includes(preference) ? preference : 'en'
 }
 
+/**
+ * Defines the type-level contract for translation key.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export type TranslationKey = string
 
+/**
+ * Creates translator.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function createTranslator(language: ResolvedLanguage, pseudo = false) {
   const dictionary = flattenedCatalog[language] ?? flattenedCatalog.en
   const fallback = flattenedCatalog.en
@@ -4501,6 +4591,11 @@ export function createTranslator(language: ResolvedLanguage, pseudo = false) {
   }
 }
 
+/**
+ * Creates namespace translator.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function createNamespaceTranslator(
   language: ResolvedLanguage,
   namespace: TranslationNamespace,
@@ -4511,6 +4606,11 @@ export function createNamespaceTranslator(
     translate(`${namespace}.${key}`, vars)
 }
 
+/**
+ * Returns the human-readable label for a supported language.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function languageLabel(
   preference: LanguagePreference,
   uiLanguage: ResolvedLanguage,
@@ -4528,6 +4628,11 @@ export function languageLabel(
   return translate('common.english')
 }
 
+/**
+ * Returns the locale tag the DOM and browser APIs should use for the current language.
+ *
+ * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
+ */
 export function localeTag(language: ResolvedLanguage) {
   if (language === 'zh-CN') return 'zh-CN'
   if (language === 'zh-TW') return 'zh-TW'

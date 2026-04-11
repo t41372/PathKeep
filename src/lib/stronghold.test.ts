@@ -1,3 +1,18 @@
+/**
+ * This test file protects the front-end helper and contract logic in Stronghold.
+ *
+ * Why this file exists:
+ * - Pure helpers are where we keep UI policy testable without booting the whole shell.
+ * - When these tests fail, they usually point at a contract drift that would otherwise show up as subtle route regressions.
+ *
+ * Main declarations:
+ * - This file is mostly internal implementation detail.
+ *
+ * Source-of-truth notes:
+ * - Helper behavior should stay aligned with the same design, feature, and architecture docs that guide the UI surfaces consuming it.
+ * - Prefer focused behavioral assertions over snapshotting implementation detail.
+ */
+
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const { isTauri, strongholdLoad } = vi.hoisted(() => ({
@@ -39,6 +54,11 @@ describe('stronghold helpers', () => {
     const get = vi.fn().mockResolvedValue(new TextEncoder().encode('tauri-key'))
     const unload = vi.fn().mockResolvedValue(undefined)
     const save = vi.fn().mockResolvedValue(undefined)
+    /**
+     * Exposes the focused client surface for load commands.
+     *
+     * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+     */
     const loadClient = vi.fn().mockResolvedValue({
       getStore: () => ({
         insert,
@@ -69,6 +89,11 @@ describe('stronghold helpers', () => {
 
   test('creates a missing Stronghold client and returns null when the key is absent', async () => {
     const get = vi.fn().mockResolvedValue(null)
+    /**
+     * Exposes the focused client surface for create commands.
+     *
+     * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+     */
     const createClient = vi.fn().mockResolvedValue({
       getStore: () => ({
         insert: vi.fn(),

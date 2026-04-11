@@ -1,3 +1,28 @@
+/**
+ * This module provides a shared primitive for loading, empty, error, permission, or trust-first shell states.
+ *
+ * Why this file exists:
+ * - Shared components keep the shell visually and behaviorally consistent instead of making each route invent its own state grammar.
+ * - If a primitive or chrome component changes, multiple workflows can shift at once, so the rationale belongs close to the code.
+ *
+ * Main declarations:
+ * - `Skeleton`
+ * - `DashboardSkeleton`
+ * - `TableSkeleton`
+ * - `SkeletonExplorer`
+ * - `SkeletonExplorerResults`
+ * - `SkeletonInsights`
+ *
+ * Source-of-truth notes:
+ * - Visual language comes from `docs/design/design-tokens.md` and the route/shell structure in `docs/design/screens-and-nav.md`.
+ * - Loading, empty, error, permission, and callout behavior must stay aligned with `docs/design/ux-principles.md`.
+ */
+
+/**
+ * Describes the props accepted by `Skeleton`.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 interface SkeletonProps {
   width?: string
   height?: string
@@ -5,10 +30,20 @@ interface SkeletonProps {
   count?: number
 }
 
+/**
+ * Describes the props accepted by `LabeledSkeleton`.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 interface LabeledSkeletonProps {
   label: string
 }
 
+/**
+ * Explains how skeleton unit works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 function SkeletonUnit({
   width,
   height,
@@ -61,6 +96,11 @@ function SkeletonUnit({
   )
 }
 
+/**
+ * Explains how skeleton works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function Skeleton({
   width,
   height,
@@ -81,6 +121,11 @@ export function Skeleton({
   )
 }
 
+/**
+ * Explains how dashboard skeleton works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function DashboardSkeleton({ label }: LabeledSkeletonProps) {
   return (
     <div className="page-shell" aria-busy="true" aria-label={label}>
@@ -101,6 +146,11 @@ export function DashboardSkeleton({ label }: LabeledSkeletonProps) {
   )
 }
 
+/**
+ * Explains how table skeleton works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function TableSkeleton({
   label,
   rows = 5,
@@ -112,6 +162,11 @@ export function TableSkeleton({
   )
 }
 
+/**
+ * Explains how skeleton explorer works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function SkeletonExplorer({ label }: LabeledSkeletonProps) {
   return (
     <div className="page-shell" aria-busy="true" aria-label={label}>
@@ -138,6 +193,11 @@ export function SkeletonExplorer({ label }: LabeledSkeletonProps) {
   )
 }
 
+/**
+ * Explains how skeleton explorer results works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function SkeletonExplorerResults({ label }: LabeledSkeletonProps) {
   return (
     <div className="explorer-grid" aria-busy="true" aria-label={label}>
@@ -180,6 +240,11 @@ export function SkeletonExplorerResults({ label }: LabeledSkeletonProps) {
   )
 }
 
+/**
+ * Explains how skeleton insights works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function SkeletonInsights({ label }: LabeledSkeletonProps) {
   return (
     <div className="page-shell" aria-busy="true" aria-label={label}>

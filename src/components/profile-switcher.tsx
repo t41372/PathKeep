@@ -1,3 +1,18 @@
+/**
+ * This module renders the shared profile-scope selector used by shell chrome and scoped routes.
+ *
+ * Why this file exists:
+ * - Shared components keep the shell visually and behaviorally consistent instead of making each route invent its own state grammar.
+ * - If a primitive or chrome component changes, multiple workflows can shift at once, so the rationale belongs close to the code.
+ *
+ * Main declarations:
+ * - `ProfileSwitcher`
+ *
+ * Source-of-truth notes:
+ * - Visual language comes from `docs/design/design-tokens.md` and the route/shell structure in `docs/design/screens-and-nav.md`.
+ * - Loading, empty, error, permission, and callout behavior must stay aligned with `docs/design/ux-principles.md`.
+ */
+
 import {
   useEffect,
   useMemo,
@@ -14,6 +29,11 @@ import {
   useProfileScope,
 } from '../lib/profile-scope-context'
 
+/**
+ * Explains how profile switcher works.
+ *
+ * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ */
 export function ProfileSwitcher() {
   const { snapshot } = useShellData()
   const { t } = useI18n()
@@ -64,6 +84,11 @@ export function ProfileSwitcher() {
   const activeOptionIndex = profileOptions.findIndex(
     (option) => option.id === activeProfileId,
   )
+  /**
+   * Explains how focus option works.
+   *
+   * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+   */
   const focusOption = (nextIndex: number) => {
     optionRefs.current[nextIndex]?.focus()
   }
@@ -80,6 +105,11 @@ export function ProfileSwitcher() {
   useEffect(() => {
     if (!open) return
 
+    /**
+     * Handles pointer down.
+     *
+     * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+     */
     const handlePointerDown = (event: MouseEvent) => {
       if (
         containerRef.current &&
@@ -88,6 +118,11 @@ export function ProfileSwitcher() {
         setOpen(false)
       }
     }
+    /**
+     * Handles key down.
+     *
+     * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+     */
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpen(false)
@@ -113,6 +148,11 @@ export function ProfileSwitcher() {
     return () => window.cancelAnimationFrame(frame)
   }, [activeOptionIndex, open])
 
+  /**
+   * Handles option navigation.
+   *
+   * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+   */
   function handleOptionNavigation(
     event: ReactKeyboardEvent<HTMLButtonElement>,
     index: number,

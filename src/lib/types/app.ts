@@ -1,3 +1,27 @@
+/**
+ * This module defines typed front-end contracts for app bootstrap, configuration, diagnostics, and updater state.
+ *
+ * Why this file exists:
+ * - The UI reads these shapes as its desktop and preview contract, so unclear names here ripple through every consumer.
+ * - If you need to know what a route or helper expects from the backend, this is often the fastest file to open first.
+ *
+ * Main declarations:
+ * - `LanguagePreference`
+ * - `AppLockConfig`
+ * - `AppLockBiometricState`
+ * - `AppLockStatus`
+ * - `UnlockAppSessionRequest`
+ * - `SetAppLockPasscodeRequest`
+ * - `AnalyticsConfig`
+ * - `AppConfig`
+ * - `UpdateAvailability`
+ * - `UpdateInstallPhase`
+ *
+ * Source-of-truth notes:
+ * - Data shapes should stay aligned with the accepted architecture and feature docs rather than ad-hoc page assumptions.
+ * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
+ */
+
 import type {
   ArchiveMode,
   ArchiveStatus,
@@ -15,7 +39,17 @@ import type {
 import type { RemoteBackupConfig } from './remote'
 import type { KeyringStatusReport } from './security'
 
+/**
+ * Defines the type-level contract for language preference.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export type LanguagePreference = 'system' | 'en' | 'zh-CN' | 'zh-TW'
+/**
+ * Represents persisted configuration for app lock.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppLockConfig {
   enabled: boolean
   idleTimeoutMinutes: number
@@ -25,11 +59,21 @@ export interface AppLockConfig {
   recoveryHint?: string | null
 }
 
+/**
+ * Names the allowed states for app lock biometric.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export type AppLockBiometricState =
   | 'touch-id-available'
   | 'touch-id-unavailable'
   | 'unsupported'
 
+/**
+ * Represents a read model or status snapshot for app lock.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppLockStatus {
   enabled: boolean
   locked: boolean
@@ -48,21 +92,41 @@ export interface AppLockStatus {
   degradationNotes: string[]
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface UnlockAppSessionRequest {
   passcode?: string | null
   useBiometric?: boolean
 }
 
+/**
+ * Describes a request payload in this front-end contract.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface SetAppLockPasscodeRequest {
   passcode: string
   recoveryHint?: string | null
 }
 
+/**
+ * Represents persisted configuration for analytics.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AnalyticsConfig {
   enabled: boolean
   consentGrantedAt?: string | null
 }
 
+/**
+ * Represents persisted configuration for app.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppConfig {
   initialized: boolean
   archiveMode: ArchiveMode
@@ -83,6 +147,11 @@ export interface AppConfig {
   ai: AiSettings
 }
 
+/**
+ * Defines the typed shape for update availability.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface UpdateAvailability {
   supported: boolean
   checkedAt: string
@@ -95,6 +164,11 @@ export interface UpdateAvailability {
   downloadUrl?: string | null
 }
 
+/**
+ * Defines the type-level contract for update install phase.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export type UpdateInstallPhase =
   | 'idle'
   | 'checking'
@@ -106,6 +180,11 @@ export type UpdateInstallPhase =
   | 'error'
   | 'unsupported'
 
+/**
+ * Captures the state shape used by `UpdateInstall`.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface UpdateInstallState {
   phase: UpdateInstallPhase
   version?: string | null
@@ -114,6 +193,11 @@ export interface UpdateInstallState {
   message?: string | null
 }
 
+/**
+ * Defines the typed shape for pending app update.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface PendingAppUpdate {
   currentVersion?: string | null
   version: string
@@ -122,11 +206,21 @@ export interface PendingAppUpdate {
   downloadUrl?: string | null
 }
 
+/**
+ * Defines the typed shape for app update check result.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppUpdateCheckResult {
   availability: UpdateAvailability
   pendingUpdate: PendingAppUpdate | null
 }
 
+/**
+ * Defines the type-level contract for analytics event.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export type AnalyticsEvent =
   | {
       type: 'route-view'
@@ -148,6 +242,11 @@ export type AnalyticsEvent =
       version?: string | null
     }
 
+/**
+ * Defines the typed shape for app directories.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppDirectories {
   appRoot: string
   configPath: string
@@ -167,6 +266,11 @@ export interface AppDirectories {
   strongholdSaltPath: string
 }
 
+/**
+ * Defines the typed shape for app build info.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppBuildInfo {
   productName: string
   version: string
@@ -175,6 +279,11 @@ export interface AppBuildInfo {
   gitDirty: boolean
 }
 
+/**
+ * Represents a condensed summary for crash report.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface CrashReportSummary {
   source: string
   recordedAt: string
@@ -184,6 +293,11 @@ export interface CrashReportSummary {
   path: string
 }
 
+/**
+ * Defines the typed shape for runtime diagnostics.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface RuntimeDiagnostics {
   logDirectory: string
   rustLogPath: string
@@ -192,6 +306,11 @@ export interface RuntimeDiagnostics {
   latestCrashReport?: CrashReportSummary | null
 }
 
+/**
+ * Defines the typed shape for app snapshot.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
 export interface AppSnapshot {
   directories: AppDirectories
   runtimeDiagnostics: RuntimeDiagnostics

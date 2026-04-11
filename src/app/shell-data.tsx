@@ -1,3 +1,18 @@
+/**
+ * This module owns the shell-level front-end read model, bootstrap hydration, and busy-state orchestration.
+ *
+ * Why this file exists:
+ * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
+ * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
+ *
+ * Main declarations:
+ * - `ShellDataProvider`
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
+ * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
+ */
+
 import {
   useCallback,
   useEffect,
@@ -21,6 +36,14 @@ import type {
 } from '../lib/types'
 import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
 
+/**
+ * Waits one frame so a busy overlay or loading transition can paint before the
+ * next expensive async step begins.
+ *
+ * We use this in trust-critical flows such as backup and shell refresh where a
+ * frozen frame would make PathKeep feel like it started work before explaining
+ * what it was doing.
+ */
 function waitForNextPaint() {
   return new Promise<void>((resolve) => {
     if (
@@ -32,6 +55,10 @@ function waitForNextPaint() {
     }
 
     let settled = false
+    /**
+     * Settles the pending paint wait exactly once, regardless of which fallback
+     * path wins first.
+     */
     const finish = () => {
       if (settled) return
       settled = true
@@ -43,6 +70,10 @@ function waitForNextPaint() {
   })
 }
 
+/**
+ * Detects the locked-state refusal messages that should kick the shell back
+ * onto the explicit App Lock flow instead of surfacing a generic error.
+ */
 function isAppLockError(error: unknown) {
   return (
     error instanceof Error &&
@@ -50,6 +81,14 @@ function isAppLockError(error: unknown) {
   )
 }
 
+/**
+ * Returns whether the shell is allowed to try the best-effort keyring auto
+ * unlock path during bootstrap.
+ *
+ * The point is not to hide archive locking; it is to avoid asking the user to
+ * repeat an unlock step when they explicitly chose "remember key in keyring"
+ * and the platform says a stored secret is available.
+ */
 function shouldAttemptKeyringAutoUnlock(snapshot: AppSnapshot) {
   return (
     snapshot.archiveStatus.encrypted &&
@@ -60,6 +99,14 @@ function shouldAttemptKeyringAutoUnlock(snapshot: AppSnapshot) {
   )
 }
 
+/**
+ * Provides the front-end shell read model and shell-level actions to the rest
+ * of the app.
+ *
+ * This provider is where PathKeep turns desktop command responses, progress
+ * events, app-lock state, and bootstrap errors into a single route-friendly
+ * context instead of making every page talk to the backend on its own.
+ */
 export function ShellDataProvider({ children }: { children: ReactNode }) {
   const { setLanguagePreference, t } = useI18nContext()
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
@@ -77,11 +124,20 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const surfacedCrashReportPathRef = useRef<string | null>(null)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
 
+  /**
+   * Shows the shell-wide busy overlay for a long-running action.
+   *
+   * Centralizing this here keeps backup, initialize, lock, and config flows on
+   * the same loading grammar instead of each action inventing its own spinner.
+   */
   function showBusyOverlay(next: BusyOverlayState) {
     setBusyAction(next.label)
     setBusyOverlay(next)
   }
 
+  /**
+   * Clears the shell-wide busy overlay after a long-running action settles.
+   */
   function clearBusyOverlay() {
     setBusyAction(null)
     setBusyOverlay(null)
@@ -101,6 +157,14 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setDashboard(null)
   }, [])
 
+  /**
+   * Converts a low-level backup progress event into the readable busy-overlay
+   * state shown by the shell.
+   *
+   * This is part of the PME honesty contract: users should see which phase a
+   * backup is in, which profile is being processed, and roughly how far along
+   * the run has moved.
+   */
   function backupOverlay(progress: BackupProgressEvent): BusyOverlayState {
     const backupSteps = [
       t('shell.backupStepPrepare'),
@@ -312,10 +376,20 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    /**
+     * Explains how schedule idle reset works.
+     *
+     * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+     */
     const scheduleIdleReset = () => {
       armIdleDeadline(appLockStatus.idleTimeoutMinutes)
     }
 
+    /**
+     * Handles visibility.
+     *
+     * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+     */
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         armIdleDeadline(appLockStatus.idleTimeoutMinutes)
@@ -348,6 +422,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     clearIdleTimer,
   ])
 
+  /**
+   * Explains how save config works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function saveConfig(config: AppConfig) {
     showBusyOverlay({
       label: t('shell.savingArchiveChoices'),
@@ -380,6 +459,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Explains how initialize archive works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function initializeArchive(
     config: AppConfig,
     databaseKey?: string | null,
@@ -414,12 +498,22 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Explains how run backup works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function runBackup() {
     const backupSteps = [
       t('shell.backupStepPrepare'),
       t('shell.backupStepArchive'),
       t('shell.backupStepRefresh'),
     ]
+    /**
+     * Explains how unsubscribe works.
+     *
+     * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+     */
     let unsubscribe = () => {}
 
     showBusyOverlay({
@@ -477,6 +571,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Explains how set app lock passcode works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function setAppLockPasscode(request: SetAppLockPasscodeRequest) {
     showBusyOverlay({
       label: t('shell.settingAppLockPasscode'),
@@ -503,6 +602,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Explains how clear app lock passcode works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function clearAppLockPasscode() {
     showBusyOverlay({
       label: t('shell.clearingAppLockPasscode'),
@@ -529,6 +633,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Explains how lock app session works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function lockAppSession(reason?: string | null) {
     showBusyOverlay({
       label: t('shell.lockingApp'),
@@ -556,6 +665,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Explains how unlock app session works.
+   *
+   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+   */
   async function unlockAppSession(request: UnlockAppSessionRequest) {
     showBusyOverlay({
       label: t('shell.unlockingApp'),

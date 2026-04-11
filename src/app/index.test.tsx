@@ -1,3 +1,21 @@
+/**
+ * This module belongs to the application shell layer for Index.test.tsx.
+ *
+ * Why this file exists:
+ * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
+ * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
+ *
+ * Main declarations:
+ * - `seedArchiveRun`
+ * - `seedAiProviders`
+ * - `expectHtmlElement`
+ * - `seedInteractiveSchedule`
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
+ * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
+ */
+
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -105,11 +123,21 @@ const initializedConfig: AppConfig = {
   },
 }
 
+/**
+ * Explains how seed archive run works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 async function seedArchiveRun() {
   await backend.initializeArchive(initializedConfig, 'vault-passphrase')
   await backend.runBackupNow(false)
 }
 
+/**
+ * Explains how seed ai providers works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 async function seedAiProviders() {
   const snapshot = await backend.getAppSnapshot()
   await backend.saveConfig({
@@ -140,11 +168,21 @@ async function seedAiProviders() {
   })
 }
 
+/**
+ * Explains how expect html element works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 function expectHtmlElement(node: Element | null): HTMLElement {
   expect(node).toBeInstanceOf(HTMLElement)
   return node as HTMLElement
 }
 
+/**
+ * Explains how seed interactive schedule works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 function seedInteractiveSchedule() {
   backendTestHarness.seedSchedule(
     {

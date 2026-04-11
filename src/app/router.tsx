@@ -1,8 +1,35 @@
+/**
+ * This module is the canonical route registry for the desktop shell, including sidebar metadata and route handles.
+ *
+ * Why this file exists:
+ * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
+ * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
+ *
+ * Main declarations:
+ * - `AppRouteId`
+ * - `NavigationSection`
+ * - `AppScreen`
+ * - `onboardingScreen`
+ * - `appScreens`
+ * - `sidebarSections`
+ * - `appRoutes`
+ * - `readRouteHandle`
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
+ * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
+ */
+
 import { Navigate, type RouteObject } from 'react-router-dom'
 import { OnboardingShell } from './onboarding-shell'
 import { RequireLockScreen, RequireUnlockedShell } from './route-guards'
 import { AppShell } from './shell'
 
+/**
+ * Defines the type-level contract for app route id.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export type AppRouteId =
   | 'dashboard'
   | 'explorer'
@@ -15,8 +42,18 @@ export type AppRouteId =
   | 'settings'
   | 'onboarding'
 
+/**
+ * Defines the type-level contract for navigation section.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export type NavigationSection = 'CORE' | 'OPERATIONS' | 'SYSTEM'
 
+/**
+ * Defines the typed shape for app screen.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export interface AppScreen {
   id: AppRouteId
   titleKey: string
@@ -28,10 +65,20 @@ export interface AppScreen {
   section?: NavigationSection
 }
 
+/**
+ * Defines the typed shape for route handle.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 interface RouteHandle {
   screen: AppScreen
 }
 
+/**
+ * Collects the screen metadata that the shell uses for navigation and routing.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 const appShellScreens: AppScreen[] = [
   {
     id: 'dashboard',
@@ -117,6 +164,11 @@ const appShellScreens: AppScreen[] = [
   },
 ]
 
+/**
+ * Exposes the shared onboarding screen declaration used by this module.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export const onboardingScreen: AppScreen = {
   id: 'onboarding',
   labelKey: 'navigation.onboardingLabel',
@@ -126,8 +178,18 @@ export const onboardingScreen: AppScreen = {
   href: '/onboarding',
 }
 
+/**
+ * Collects the screen metadata that the shell uses for navigation and routing.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export const appScreens = [...appShellScreens, onboardingScreen]
 
+/**
+ * Groups navigation metadata into the sidebar sections shown by the shell.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export const sidebarSections = [
   {
     id: 'core',
@@ -146,6 +208,11 @@ export const sidebarSections = [
   },
 ]
 
+/**
+ * Explains how with handle works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 function withHandle(screen: AppScreen): RouteHandle {
   return { screen }
 }
@@ -225,6 +292,11 @@ const appRouteChildren: RouteObject[] = [
   },
 ]
 
+/**
+ * Defines the route tree or route registry used by the desktop shell.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export const appRoutes: RouteObject[] = [
   {
     path: '/',
@@ -264,6 +336,11 @@ export const appRoutes: RouteObject[] = [
   },
 ]
 
+/**
+ * Reads route handle from the current runtime.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 export function readRouteHandle(handle: unknown): RouteHandle | null {
   if (
     typeof handle === 'object' &&

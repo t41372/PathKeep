@@ -1,3 +1,20 @@
+/**
+ * This module belongs to the application shell layer for Shell Data.test.tsx.
+ *
+ * Why this file exists:
+ * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
+ * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
+ *
+ * Main declarations:
+ * - `createI18nValue`
+ * - `seedSnapshot`
+ * - `ShellProbe`
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
+ * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
+ */
+
 import { useEffect } from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -102,6 +119,11 @@ const baseConfig: AppConfig = {
   },
 }
 
+/**
+ * Creates i18n value.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 function createI18nValue(
   language: ResolvedLanguage,
   setLanguagePreference = vi.fn(),
@@ -115,6 +137,11 @@ function createI18nValue(
   }
 }
 
+/**
+ * Explains how seed snapshot works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 async function seedSnapshot() {
   await backend.initializeArchive(baseConfig, 'vault-passphrase')
   const snapshot = structuredClone(await backend.getAppSnapshot())
@@ -122,6 +149,11 @@ async function seedSnapshot() {
   return { dashboard, snapshot }
 }
 
+/**
+ * Explains how shell probe works.
+ *
+ * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
+ */
 function ShellProbe({ onReady }: { onReady?: () => void }) {
   const shell = useShellData()
 

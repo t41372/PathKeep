@@ -1,3 +1,18 @@
+/**
+ * This module renders a focused panel inside the Explorer route.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `ExplorerResultsPanel`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import {
   formatDateTime,
   formatDuration,
@@ -9,6 +24,11 @@ import type { ExportFormat, HistoryQueryResponse } from '../../../lib/types'
 import { activateRecordSelection } from '../helpers'
 import type { Translator } from '../types'
 
+/**
+ * Describes the props accepted by `ExplorerResultsPanel`.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 interface ExplorerResultsPanelProps {
   actionError: string | null
   commonT: Translator
@@ -35,6 +55,11 @@ interface ExplorerResultsPanelProps {
   selectedEntry: HistoryQueryResponse['items'][number] | null
 }
 
+/**
+ * Renders the explorer results panel.
+ *
+ * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
+ */
 export function ExplorerResultsPanel({
   actionError,
   commonT,

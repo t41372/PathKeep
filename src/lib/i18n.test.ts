@@ -1,3 +1,18 @@
+/**
+ * This test file protects the front-end helper and contract logic in I18n.
+ *
+ * Why this file exists:
+ * - Pure helpers are where we keep UI policy testable without booting the whole shell.
+ * - When these tests fail, they usually point at a contract drift that would otherwise show up as subtle route regressions.
+ *
+ * Main declarations:
+ * - `collectLeafKeys`
+ *
+ * Source-of-truth notes:
+ * - Helper behavior should stay aligned with the same design, feature, and architecture docs that guide the UI surfaces consuming it.
+ * - Prefer focused behavioral assertions over snapshotting implementation detail.
+ */
+
 import { describe, expect, test } from 'vitest'
 
 import {
@@ -11,6 +26,11 @@ import {
   translationNamespaces,
 } from './i18n'
 
+/**
+ * Explains how collect leaf keys works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function collectLeafKeys(
   node: Record<string, string | Record<string, unknown>>,
   prefix = '',
@@ -73,6 +93,11 @@ describe('i18n helpers', () => {
   })
 
   test('keeps trust-critical namespaces aligned across locales', () => {
+    /**
+     * Stores the translation catalog that powers PathKeep's shipped i18n surface.
+     *
+     * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+     */
     const catalog = translationCatalog()
     const englishKeys = collectLeafKeys(catalog.en)
 

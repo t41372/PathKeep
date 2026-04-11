@@ -1,25 +1,68 @@
+/**
+ * This module derives deterministic insight summaries from canonical evidence without making the routes own that logic directly.
+ *
+ * Why this file exists:
+ * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
+ * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ *
+ * Main declarations:
+ * - `InsightTopDomain`
+ * - `resolveInsightOnThisDay`
+ * - `resolveInsightTopDomains`
+ * - `resolveInsightPeriodicSummary`
+ *
+ * Source-of-truth notes:
+ * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
+ * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ */
+
 import { calendarDayKey } from './format'
 import type { InsightEvidenceItem, InsightSnapshot } from './types'
 
+/**
+ * Defines the type-level contract for insight translator.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 type InsightTranslator = (
   key: string,
   values?: Record<string, number | string>,
 ) => string
 
+/**
+ * Defines the typed shape for insight top domain.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export interface InsightTopDomain {
   domain: string
   count: number
   pct: number
 }
 
+/**
+ * Explains how unique non empty works.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function uniqueNonEmpty(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
 }
 
+/**
+ * Resolves limit from the available inputs.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 function resolveLimit(limit: number | undefined, fallback: number) {
   return Math.max(0, limit ?? fallback)
 }
 
+/**
+ * Resolves insight on this day from the available inputs.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function resolveInsightOnThisDay(
   snapshot: InsightSnapshot,
   todayKey: string | null,
@@ -35,6 +78,11 @@ export function resolveInsightOnThisDay(
     .slice(0, resolveLimit(limit, snapshot.canonical.onThisDay.length))
 }
 
+/**
+ * Resolves insight top domains from the available inputs.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function resolveInsightTopDomains(
   snapshot: InsightSnapshot,
   limit = 5,
@@ -56,6 +104,11 @@ export function resolveInsightTopDomains(
   }))
 }
 
+/**
+ * Resolves insight periodic summary from the available inputs.
+ *
+ * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ */
 export function resolveInsightPeriodicSummary(
   snapshot: InsightSnapshot,
   t: InsightTranslator,

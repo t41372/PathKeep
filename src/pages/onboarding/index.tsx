@@ -1,3 +1,18 @@
+/**
+ * This module renders the onboarding flow that teaches the archive boundary, browser-retention honesty, and first-backup setup steps.
+ *
+ * Why this file exists:
+ * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
+ * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ *
+ * Main declarations:
+ * - `OnboardingPage`
+ *
+ * Source-of-truth notes:
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
+ * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ */
+
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
@@ -22,6 +37,11 @@ const stepKeys = [
 ] as const
 const dueAfterOptions = [6, 12, 24, 72]
 
+/**
+ * Renders the onboarding route.
+ *
+ * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Onboarding expectations in the design docs.
+ */
 export function OnboardingPage() {
   const navigate = useNavigate()
   const {
@@ -133,6 +153,11 @@ export function OnboardingPage() {
     snapshot.config.selectedProfileIds,
   )
 
+  /**
+   * Handles security card click.
+   *
+   * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   function handleSecurityCardClick(
     mode: 'Encrypted' | 'Plaintext',
     target: EventTarget | null,
@@ -144,6 +169,10 @@ export function OnboardingPage() {
     void updateConfig((config) => ({ ...config, archiveMode: mode }))
   }
 
+  /**
+   * Persists a small onboarding config change while clearing any stale local
+   * error message from the previous step.
+   */
   async function updateConfig(
     updater: (c: typeof currentConfig) => typeof currentConfig,
   ) {
@@ -151,6 +180,11 @@ export function OnboardingPage() {
     await saveConfig(updater(currentConfig))
   }
 
+  /**
+   * Handles finish.
+   *
+   * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
+   */
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
@@ -185,6 +219,10 @@ export function OnboardingPage() {
     }
   }
 
+  /**
+   * Maps a browser profile ID to the CSS modifier used by the onboarding
+   * browser cards.
+   */
   function browserIconClass(profileId: string) {
     if (profileId.startsWith('chrome:')) return 'chrome'
     if (profileId.startsWith('arc:')) return 'arc'
@@ -193,6 +231,10 @@ export function OnboardingPage() {
     return ''
   }
 
+  /**
+   * Maps a browser profile ID to the single-letter fallback glyph used when the
+   * onboarding browser cards do not render a richer icon.
+   */
   function browserIconLetter(profileId: string) {
     if (profileId.startsWith('chrome:')) return 'C'
     if (profileId.startsWith('arc:')) return 'A'
@@ -338,6 +380,11 @@ export function OnboardingPage() {
                     profile.profileId,
                   )
                   const retention = browserRetentionMeta(profile, commonT)
+                  /**
+                   * Explains how toggle profile works.
+                   *
+                   * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
+                   */
                   const toggleProfile = () => {
                     const nextSelected = selected
                       ? snapshot.config.selectedProfileIds.filter(
