@@ -43,11 +43,11 @@
 - [x] `M5-001` 凍結 deterministic evidence contract，正式移除 dwell / session-duration baseline 假設
 - [x] `M5-002` 建立 URL normalization、registrable domain extraction、search URL parsing、script-aware tokenization 基礎
 - [x] `M5-003` 建立 multi-dimensional taxonomy v2，具 user override、rule packs、lexicons、`unknown`
-- [ ] `M5-004` 實作 query groups 與 query reformulation ladders v2
-- [ ] `M5-005` 實作 cross-burst / cross-day thread merge、open loops、reference pages
-- [ ] `M5-006` 建立 source role / source effectiveness 與 template summary modules
-- [ ] `M5-007` 把 deterministic insights 拆出 internal module registry 與 explainability contract
-- [ ] `M5-008` 補齊 rollback / restore / visibility invalidation、fixtures、acceptance 與 long-horizon benchmark
+- [x] `M5-004` 實作 query groups 與 query reformulation ladders v2
+- [x] `M5-005` 實作 cross-burst / cross-day thread merge、open loops、reference pages
+- [x] `M5-006` 建立 source role / source effectiveness 與 template summary modules
+- [x] `M5-007` 把 deterministic insights 拆出 internal module registry 與 explainability contract
+- [x] `M5-008` 補齊 rollback / restore / visibility invalidation、fixtures、acceptance 與 long-horizon benchmark
 
 ### 2026-04-10 foundation progress
 
@@ -55,3 +55,10 @@
 - `vault-core::insights` 已開始把 taxonomy / evidence trace 持久化到 `visit_insight_features`，並把 deterministic importance score 從 `duration_ms` 移開。
 - `WORK-M5-A` closeout 同步把 first-party-only enrichment runtime、dual built-in plugin defaults、Settings / Insights queue review surface、retry / cancel guard 與 browser preview/runtime fixture 一起簽收；下一個 focus 轉到 `WORK-M5-B` 的 query groups / threads / reference pages。
 - `PG-RD-AI-010` 尚未完成，因此 runtime 仍只允許 checked-in heuristic packs；任何 external tokenizer / registrable-domain / language-ID / optional model asset 仍不得進 shipping bundle。
+
+### 2026-04-10 groups / surfaces closeout
+
+- `vault-core::insights` 現在已正式按 `visit features -> burst -> query group -> thread -> reference/source/summaries` 的 deterministic pipeline 執行，並把 `burst_id` / `query_group_id`、`query_group_count`、thread confidence / evidence tier 一起持久化到 shipping derived state。
+- 新的 derived tables / runtime trace 已落地：`insight_bursts`、`insight_query_groups`、`insight_query_group_members`、`insight_reference_pages`、`insight_source_effectiveness`、`deterministic_module_runtime`。
+- Settings / Insights 現在可 review deterministic module registry，顯示 `ready` / `stale` / `disabled` / `idle`、dependencies、derived tables、last built、stale reason，且模組 enable-state 已回寫到 `AppConfig.deterministic.modules`。
+- Dashboard / Insights summary surface 現在優先消費 deterministic `templateSummaries`，query groups、reference pages 與 source effectiveness 也都變成正式、可 profile-scope、可 explain 的 shipping surface。

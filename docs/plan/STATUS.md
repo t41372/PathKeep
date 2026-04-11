@@ -12,16 +12,8 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-M5-B** — Query Groups, Threads, Reference Pages, And Module Registry
-  - 讀先：
-    `docs/features/deterministic-intelligence.md`
-    `docs/plan/m5-deterministic-intelligence/README.md`
-    `docs/plan/m5-deterministic-intelligence/groups-threads-and-surfaces.md`
-    `docs/plan/m4-full-polish/intelligence-60-year-envelope.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：把 query groups、query ladders、cross-day thread merge、open loops、source effectiveness、reference pages 與 deterministic module registry 做成 explainable、可重建、可 profile-scope、可 invalidate 的正式 shipping surface。
-  - 併入的 M4 deferred work：longer-horizon topic timeline / periodic summary、returning topics / session-pattern families，以及其對應 reference-page / thread surfaces。
-  - 驗收：`bun run check && bun run build`
+- 目前沒有可啟動的未阻塞 work block。
+  - `BACKLOG.md` 頂部只剩 `WORK-QC-F`，仍待 explicit product / packaging sign-off。
 
 ---
 
