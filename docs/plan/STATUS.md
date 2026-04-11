@@ -12,7 +12,18 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- 目前沒有待排的 work block。`BACKLOG.md` 也已清空，等待新的 milestone 或新的使用者指派。
+- [ ] **WORK-QC-K** — Backend Rustdoc Sweep And Module Decomposition
+  - 讀先：
+    `docs/architecture/data-model.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/tech-stack.md`
+    `docs/features/archive.md`
+    `docs/features/intelligence.md`
+    `docs/features/deterministic-intelligence.md`
+  - 目標：把 Rust backend 補成 self-explanatory map。所有 runtime Rust 檔案都要有清楚檔頭與符號級 doc comments，並在補文檔時同步拆掉 `vault-worker`、`vault-core::archive`、`vault-core::{chrome, ai, insights}` 等現有 hotspot 的責任混寫。
+  - 契約：維持現有 Tauri command、CLI command、serde payload 與 top-level re-export 穩定；任何行為修正都必須附對應測試與 source-doc 更新。
+  - 驗收：`bun run check && bun run build`
 
 ---
 
