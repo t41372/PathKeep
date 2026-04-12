@@ -17,6 +17,7 @@
   - 目標：把 deterministic intelligence 在大資料量下的時間 / 記憶體 / I/O 邊界做成可重跑 artifact，而不是只靠主觀體感；必要時把 full rebuild 拆成 chunked / resumable / amortized pipeline。
   - 契約：以 4 核 3GHz CPU / 8GB RAM、60 年高強度瀏覽資料、無 LLM / 無 embedding 為 baseline，對 backup 後 auto rebuild、Explorer/Insights deterministic surfaces、Jobs recovery / resume 做真實 benchmark 與 complexity audit；如現行複雜度或記憶體模型不滿足基線，需提出並實作 chunking / checkpoint / resume 策略與對應驗收。
   - 驗收：留下 benchmark artifact、source doc 更新、targeted regression / perf guard，以及至少一條能在 large-archive sample 上重跑的 honest automation / manual recipe。
+  - 2026-04-12 progress：bounded joins、thread accumulator、scope/window partitioned persistence 與 replayable 100k / 1M synthetic benchmark artifact 已落地；剩餘 signoff 收斂到 10M / low-RAM envelope、queue recovery RSS、以及真實 large-profile replay。
 
 ---
 

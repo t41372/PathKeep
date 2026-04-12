@@ -306,17 +306,25 @@ Open loop 只能輸出：
 
 - Insights / Settings 現在正式 shipping `query groups`、`reference pages`、`source effectiveness` 與 `template summaries` surface。
 - `thread` summary 現在也持久化 `query_group_count`、`confidence` 與 `evidence_tier`，讓 explainability panel 不再只剩 reopen / open-loop 分數。
+- 2026-04-12 runtime rewrite：`query_groups`、`threads`、`reference_pages`、`source_effectiveness` 與 `cards` 的 persisted read model 必須按 `profile_scope + window_days` 分區，禁止 30-day / 365-day 或 single-profile / all-profile rebuild 互相清掉對方的結果。
 
 ### 5.10 Template summaries
 
 M5 的 deterministic summaries 先採模板生成：
 
+- periodic summary（目前 window 的 deterministic overview）
+- contrastive summary（目前 window vs 前一個等長 window）
 - 最近常查的問題
 - 哪些主題反覆被重開
 - 哪些來源常作為穩定落點
 - 近一段時間偏探索還是偏深挖
 
 LLM 只能在 optional layer 上把 deterministic outputs 改寫成人話，不可替代 evidence generation。
+
+2026-04-12 truth note：
+
+- backend 現在必須直接生成 periodic / contrastive summary，讓 AI disabled 時仍有 summary card。
+- `Important but Unsaved` 仍 deferred，直到 canonical archive 真正 ingest bookmark / saved-page facts；在那之前 deterministic layer 不能假裝知道「是否已保存」。
 
 ---
 
@@ -476,6 +484,7 @@ Optional helpers：
 2026-04-10 implementation note：
 
 - `clear_derived_intelligence_state` 與 archive visibility repair 現在都會清掉 M5-B derived tables，並把 deterministic module registry 明確標成 `stale`。backup / import 成功後必須自動排入新的 deterministic rebuild job；若是 manual clear / repair 導致的 stale state，UI 也必須明講目前狀態與下一步，而不是讓舊 surface 假裝仍然新鮮。
+- deterministic rebuild queue 現在採 lease + heartbeat + cooperative cancel：claim 必須 compare-and-set，running cancel 只設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；success 不得覆蓋已被 cancel / failed 的 job。
 
 ---
 
@@ -543,6 +552,10 @@ M5 只有在以下條件成立時才算完成：
 - no-AI mode 仍可提供高價值 insights
 - explainability 能回到 canonical Explorer evidence
 - 60-year / heavy-user envelope 至少對 deterministic pipeline 有 replayable benchmark 與 cost accounting
+  - 2026-04-12 current replayable artifacts:
+    - `cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --visits 100000 --window-days 365 --output artifacts/benchmarks/2026-04-12-intelligence-rewrite/100k.json`
+    - `cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --visits 100000 --window-days 365 --horizon-days 21900 --output artifacts/benchmarks/2026-04-12-intelligence-rewrite/100k-60y.json`
+    - `cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --visits 1000000 --window-days 365 --horizon-days 21900 --output artifacts/benchmarks/2026-04-12-intelligence-rewrite/1m-60y.json`
 
 ## 相關
 

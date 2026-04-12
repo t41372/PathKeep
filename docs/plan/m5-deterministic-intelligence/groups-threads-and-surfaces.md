@@ -35,3 +35,9 @@
 - explainable cards / ladders / reference-page surfaces
 - rebuild / invalidate / clear contract
 - replayable acceptance + perf bundle
+
+## 2026-04-12 progress note
+
+- shipping runtime 現在已補上 profile/window partitioned persistence、backend-owned periodic / contrastive summaries、bounded joins，以及 thread accumulator rewrite。
+- replayable perf bundle 現在由 `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs` 生成，artifact 會落在 `artifacts/benchmarks/2026-04-12-intelligence-rewrite/`。
+- 這代表 `M5-DI-B-005` / `M5-DI-B-006` / `M5-DI-B-008` 的核心 runtime 已收斂，但 final signoff 仍保留在真實 large-profile replay、10M-scale proof、以及 bookmark facts 尚未進 canonical archive 前的 `Important but Unsaved` deferred truth。

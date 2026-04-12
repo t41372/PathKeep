@@ -1,0 +1,41 @@
+{
+  "corpus": {
+    "archiveBytes": 195977216,
+    "visits": 100000,
+    "windowDays": 365
+  },
+  "report": {
+    "cardCount": 3,
+    "contentCoverage": 0.0,
+    "enrichedVisits": 49995,
+    "failedEnrichments": 0,
+    "lastRunAt": "2026-04-12T21:16:05.137117+00:00",
+    "notes": [
+      "Insight run fell back to lexical and structural signals because no embedding provider was ready.",
+      "Enrichment runtime completed 49995 successful plugin jobs.",
+      "Deferred 49995 network enrichment job(s) to later refreshes so this run stays responsive.",
+      "Deterministic taxonomy m5-taxonomy-v1:2026-04-10 used script-aware tokens plus checked-in regional rule packs; external tokenizer and registrable-domain wheels stay gated behind PG-RD-AI-010.",
+      "Deterministic taxonomy classified the analyzed window without falling back to unknown."
+    ],
+    "processedVisits": 49995,
+    "queryGroupCount": 0,
+    "referencePageCount": 12,
+    "runId": 1,
+    "sourceCount": 3,
+    "templateSummaryCount": 4,
+    "threadCount": 0,
+    "topicCount": 0
+  },
+  "snapshot": {
+    "cards": 3,
+    "queryGroups": 0,
+    "referencePages": 12,
+    "sourceEffectiveness": 3,
+    "templateSummaries": 4,
+    "threads": 0
+  },
+  "timings": {
+    "loadInsightsMs": 591,
+    "runInsightsMs": 40104
+  }
+}

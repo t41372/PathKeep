@@ -62,3 +62,10 @@
 - 新的 derived tables / runtime trace 已落地：`insight_bursts`、`insight_query_groups`、`insight_query_group_members`、`insight_reference_pages`、`insight_source_effectiveness`、`deterministic_module_runtime`。
 - Settings / Insights 現在可 review deterministic module registry，顯示 `ready` / `stale` / `disabled` / `idle`、dependencies、derived tables、last built、stale reason，且模組 enable-state 已回寫到 `AppConfig.deterministic.modules`。
 - Dashboard / Insights summary surface 現在優先消費 deterministic `templateSummaries`，query groups、reference pages 與 source effectiveness 也都變成正式、可 profile-scope、可 explain 的 shipping surface。
+
+### 2026-04-12 runtime / envelope progress
+
+- deterministic pipeline 現在把 search terms、feature rows、enrichments 都改成 bounded joins，只讀當前 visit set；thread merge 也改成 incremental accumulator，不再在 nested loop 裡重建整份 token / domain / anchor union。
+- backend deterministic registry 現在直接產出 `periodic-summary` 與 `contrastive-summary` cards；`Important but Unsaved` 仍明確 deferred，直到 canonical archive 真正 ingest bookmark / saved-page facts。
+- scoped rebuild persistence 現在按 `profile_scope + window_days` 分區，30-day / 365-day、single-profile / all-profile snapshot 不再互相覆蓋。
+- `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs` 與 `artifacts/benchmarks/2026-04-12-intelligence-rewrite/` 現在提供可重跑的 100k / 1M synthetic benchmark evidence；這讓 M5 已有 replayable perf artifact，但仍**不等於**完成 10M / low-RAM / 真實 large-profile signoff。

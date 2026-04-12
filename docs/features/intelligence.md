@@ -22,7 +22,7 @@
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - v1 semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 - semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 應先查 LanceDB sidecar；若 sidecar 缺失或失敗，可暫時退回 SQLite compatibility mirror，但 UI / notes 必須明講這是 fallback path。
+- runtime contract：semantic retrieval 必須先查 LanceDB sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑對 SQLite compatibility mirror 做全庫向量掃描。SQLite mirror 只保留 metadata / debug / stale-cleanup projection。
 
 ---
 
@@ -42,7 +42,7 @@
 - 這是**顯式觸發**的功能，不是背景常駐。
 - assistant response state 必須誠實可見：`queued`、`completed`、`insufficient-evidence`、`failed`、`cancelled`，並保留 `jobId` / `runId` / provider snapshot 供 audit trace 與 queue reload。
 - citation contract 至少包含 `historyId`、`profileId`、URL / title、visited time、score；若 citation ranking 後沒有可保留 evidence，assistant 必須拒答，而不是補一個看似合理的答案。
-- queued assistant request 可在執行前 replay / cancel；目前 running job 仍不支援 mid-flight cancel，UI 必須清楚說明這個邊界。
+- queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
 
@@ -133,7 +133,7 @@
 - **週度總結**：和上週相比，你的研究重心有什麼變化？本週新出現了什麼主題？
 - **月度總結**：本月的主題分布、最深入的研究線、最常用的資訊來源。
 - **年度總結**：年度回顧 — 你這一年的注意力分布、主要的研究階段和轉折點。
-- **實現**：統計部分不需要 AI。主題歸納和對比式描述使用 LLM。
+- **實現**：統計部分不需要 AI。2026-04-12 起，backend deterministic registry 必須至少輸出 backend-owned periodic summary 與 adjacent-window contrastive summary，讓 AI disabled 時仍可顯示 summary card；LLM 只負責之後把這些結構化差異改寫成人話。
 
 ##### 🌊 Topic Timeline（主題時間軸）
 
@@ -162,6 +162,7 @@
 你看了很多次、顯然覺得重要，但從來沒有 bookmark 的頁面。
 
 - **實現**：importance 以 revisit、reference-page reuse、query-group 後段穩定落點與 deterministic centrality signal 為主；不再依賴 estimated dwell。
+- **2026-04-12 truth note:** 這張卡仍 deferred。當前 canonical archive 尚未 ingest bookmark / saved-page facts，所以 backend 不得假裝已能判定「沒保存」；在 bookmark source 落地前，只允許保留為 source-doc deferred item，不得在 UI 冒充 shipping surface。
 
 ##### 📈 Explore vs Exploit（探索 vs 深挖）
 
@@ -184,6 +185,8 @@
 ##### 🎯 Contrastive Summary（對比式摘要）
 
 「這週 vs 上週，你的研究重心變了什麼？」把結構化差異交給 LLM 寫成人話。
+
+- **2026-04-12 implementation note:** deterministic backend 現在必須先輸出 adjacent-window contrast summary，再讓 optional LLM 在此之上改寫；沒有 AI provider 時，Insights 仍要顯示 deterministic contrast card，而不是整塊 summary 變空。
 
 ### V1 洞察顯示契約
 
@@ -209,6 +212,7 @@
 - `title-normalization` 預設啟用，負責把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label。停用後，deterministic insights 仍可用，但必須誠實回退到 raw title / URL structural signals。
 - `readable-content-refetch` 預設啟用、freshness window 7 天，也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。
 - built-in enrichment runtime 目前仍是 first-party only：Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
+- queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
 - Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
 - Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / On This Day / summary，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。
@@ -224,7 +228,7 @@
 洞察系統支援以特定瀏覽器 profile 為範圍查看洞察資料，增強現有的 shared profile scope 功能。
 
 - 透過 topbar 的共享 profile scope 選擇特定 profile 後，Insights 頁面的可篩選 surface 自動切換為 scoped view。
-- **可篩選的 surface**：insight cards、topic timeline、threads、query ladders、periodic summaries。
+- **可篩選的 surface**：insight cards、topic timeline、query groups、threads、query ladders、reference pages、source effectiveness、periodic summaries。
 - **仍維持 archive-wide 的資料**：Dashboard KPIs、storage analytics、growth signal。
 - Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view，部分統計仍為 archive-wide」，避免用戶誤解。
 - 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致。

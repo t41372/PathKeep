@@ -28,17 +28,18 @@
 
 - provider config 現在正式區分 `purpose`、`requestFormat`、`baseUrl`、`defaultModel`、`modelCatalog`、`temperature` / `maxTokens` / `dimensions` 與 `apiKeySaved`；provider secret save / clear 透過 keyring surface 留下可驗證結果，不會把 preset 與 model selection 一起刪掉。
 - provider capability / connection test 已落地：worker / Tauri / frontend contract 會回傳 chat / embedding / streaming / tool-use / structured-output capability、latency、error code、action hint、retry hint。Anthropic 在當前 rig.rs integration 下保持 day-one chat-only。
-- `ai_jobs` queue schema 已存在於 canonical archive SQLite；index build / clear 與 assistant request 共用同一 queue。pause / resume 只影響 queued / stale jobs；running job 不支援 mid-flight cancel；manual replay 只允許 failed / cancelled / paused / stale job。
+- `ai_jobs` queue schema 已存在於 canonical archive SQLite；index build / clear 與 assistant request 共用同一 queue。claim 現在採 lease-based compare-and-set；pause / resume 只影響 queued / stale jobs；running cancel 是 cooperative stop-request，由 worker 在 phase / chunk 邊界退出；manual replay 只允許 failed / cancelled / paused / stale job。
 - semantic index 現在由 SQLite `ai_index_ledger` + LanceDB sidecar 組成：SQLite 記 provider / model / sidecar table / source watermark / last run / failure，LanceDB 保存真正的 vector rows 與 ANN index。`clear-only`、`full rebuild`、incremental catch-up 三種模式都會留下 queue / run trace。
 - backup auto-index、手動 build、manual replay、queue drain 都走同一組 worker orchestration；沒有 AI provider、queue 被 pause、archive 尚未初始化等情況，都會回傳誠實降級狀態而不是偷偷失敗。
 - packaging / supply-chain 註記：目前 LanceDB 依賴鏈仍 transitively 拉入 `tantivy 0.24.2 -> lru 0.12.x`。RustSec `RUSTSEC-2026-0002` 影響 `IterMut`，而 PathKeep 當前只經由 tantivy `StoreReader` 使用 `get` / `put` / `len` / `peek_lru` cache path，因此先保留 allowlist，等待上游兼容升級。
 
 ## 2026-04-09 closeout（`WORK-QC-D`）
 
-- semantic retrieval 現在會先查 LanceDB sidecar，sidecar 缺失或失敗時才退回 SQLite compatibility mirror，且會留下明確 notes，而不是靜默掃全表
+- semantic retrieval 現在會先查 LanceDB sidecar；sidecar 缺失或失敗時只退化到 lexical / capped candidate recall，並留下明確 notes，而不是靜默掃 SQLite mirror 或全表 cosine scan
 - index readiness / stale detection 現在已 model-scoped，並會對 import / rollback / visibility watermark 與 readable-content enrichment freshness 變化回傳 `stale`，要求使用者手動 rebuild
 - embedding build 現在有 batch sizing、retry、partial success handling；逐筆 fallback 只在 batch 失敗時才發生
 - Settings 現在可見 indexed rows、sidecar bytes、mirror bytes、estimated embedding tokens，以及 MCP / skill integration 的 consent / capability / scope / audit preview
+- SQLite semantic mirror 現在只保留 metadata / debug surface；legacy `embedding_json` row 會在 schema bootstrap 時遷移成 `embedding_blob`
 - MCP 現在明確保留 read-only lexical fallback：沒有 embedding provider 時可搜尋，但必須明講 semantic recall unavailable；每次 external query 都會留下 `mcp_query` run
 - 整體 truth stance 見 [../m4-full-polish/intelligence-60-year-envelope.md](../m4-full-polish/intelligence-60-year-envelope.md)：這代表 M3 intelligence v1 可用，但**不等於**已對 60-year all-features baseline 做最終性能背書
 
