@@ -68,7 +68,8 @@
 ### CI/CD
 
 - GitHub Actions：
-  - mainline CI 直接執行 `check:js`、`check:desktop-contract`、`coverage:js`、`check:rust`、`coverage:rust`、`check:supply-chain`、`build`、`test:e2e`。
+  - `CI` workflow（PR + manual）直接執行 `check:js`、`check:desktop-contract`、`coverage:js`、`check:rust`、`coverage:rust`、`check:supply-chain`、`build`、`test:e2e`。
+  - `Platform Native` workflow 改成 manual dispatch，專門跑 `check:platform` 與 `test:e2e:desktop-bridge:truth`，避免每次 branch push 都把 hosted runner 分鐘燒在 host-sensitive native checks 上。
   - `mutation:js` 與 `mutation:rust` 由 scheduled / manual `Mutation` workflow 執行，作為 deep check 與 pre-release gate。
   - `check:full`、`verify` 是本地 closeout / release rehearsal 指令，不要求每個 PR 都全跑。
 - Release pipeline：多平台構建 + 自動產出安裝檔。
