@@ -1706,6 +1706,157 @@ describe('intelligence surfaces', () => {
     expect(screen.queryByText(longUrl)).not.toBeInTheDocument()
   })
 
+  test('polls queued deterministic refresh jobs until the insight snapshot can be refreshed', async () => {
+    const user = userEvent.setup()
+    let setTimeoutSpy: { mockRestore: () => void } | null = null
+    let clearTimeoutSpy: { mockRestore: () => void } | null = null
+    try {
+      const { snapshot, dashboard } = await seedArchiveState()
+      const insightsT = createNamespaceTranslator('en', 'insights')
+      const shellValue = createShellValue(snapshot, dashboard)
+      const refreshAppData = vi.fn().mockResolvedValue(undefined)
+      shellValue.refreshAppData = refreshAppData
+
+      const runningRuntime: IntelligenceRuntimeSnapshot = {
+        queue: { queued: 2, running: 1, succeeded: 0, failed: 0, cancelled: 0 },
+        plugins: [],
+        modules: [],
+        recentJobs: [
+          {
+            id: 91,
+            jobType: 'deterministic-rebuild',
+            pluginId: null,
+            state: 'running',
+            historyId: null,
+            profileId: null,
+            url: null,
+            title: 'All profiles · 30 days',
+            attempt: 1,
+            createdAt: '2026-04-12T21:00:00Z',
+            startedAt: '2026-04-12T21:00:03Z',
+            finishedAt: null,
+            updatedAt: '2026-04-12T21:00:04Z',
+            heartbeatAt: '2026-04-12T21:00:05Z',
+            progressLabel: 'Refreshing deterministic insights',
+            progressDetail: 'Processing active window',
+            progressCurrent: 1,
+            progressTotal: 2,
+            progressPercent: 50,
+            lastError: null,
+            retryable: false,
+            cancellable: true,
+          },
+        ],
+        notes: [],
+      }
+      const completedRuntime: IntelligenceRuntimeSnapshot = {
+        ...runningRuntime,
+        queue: {
+          queued: 1,
+          running: 0,
+          succeeded: 1,
+          failed: 0,
+          cancelled: 0,
+        },
+        recentJobs: [
+          {
+            ...runningRuntime.recentJobs[0],
+            state: 'succeeded',
+            finishedAt: '2026-04-12T21:00:12Z',
+            updatedAt: '2026-04-12T21:00:12Z',
+            retryable: false,
+            cancellable: false,
+          },
+        ],
+      }
+      const insightSnapshot = {
+        generatedAt: '2026-04-12T21:00:00Z',
+        windowDays: 30,
+        status: {
+          ready: true,
+          lastRunAt: '2026-04-12T21:00:00Z',
+          runs: 4,
+          cards: 2,
+          topics: 1,
+          threads: 1,
+          queryGroups: 2,
+          referencePages: 1,
+          contentCoverage: 0.5,
+          warning: null,
+        },
+        cards: [],
+        queryGroups: [],
+        topics: [],
+        threads: [],
+        queryLadders: [],
+        referencePages: [],
+        sourceEffectiveness: [],
+        templateSummaries: [],
+        workflowMap: {
+          profileId: null,
+          roles: [],
+          edges: [],
+          chromiumEnhanced: false,
+        },
+        profileFacets: [],
+        canonical: {
+          windowVisitCount: 1,
+          windowUniqueDomains: 1,
+          onThisDay: [],
+          topDomains: [{ domain: 'example.com', visitCount: 1 }],
+        },
+        notes: [],
+      } satisfies InsightSnapshot
+
+      vi.spyOn(backend, 'loadInsights').mockResolvedValue(insightSnapshot)
+      vi.spyOn(backend, 'loadIntelligenceRuntime')
+        .mockResolvedValueOnce(runningRuntime)
+        .mockResolvedValueOnce(runningRuntime)
+        .mockResolvedValueOnce(completedRuntime)
+      vi.spyOn(backend, 'queueInsightsRebuild').mockResolvedValue({
+        jobId: 91,
+        state: 'queued',
+        notes: ['Queued deterministic rebuild.'],
+      })
+
+      renderSurface(<InsightsPage />, {
+        dashboard,
+        language: 'en',
+        route: '/insights',
+        shellValue,
+        snapshot,
+      })
+
+      await screen.findByText(insightsT('overviewTitle'))
+      setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((
+        handler: TimerHandler,
+      ) => {
+        if (typeof handler === 'function') {
+          queueMicrotask(() => {
+            handler()
+          })
+        }
+        return 0
+      }) as unknown as typeof window.setTimeout)
+      clearTimeoutSpy = vi
+        .spyOn(window, 'clearTimeout')
+        .mockImplementation(() => undefined)
+      await user.click(
+        screen.getByRole('button', { name: insightsT('refreshInsights') }),
+      )
+
+      await waitFor(() => expect(refreshAppData).toHaveBeenCalledTimes(1))
+      await waitFor(() =>
+        expect(
+          screen.queryByText(insightsT('refreshQueuedTitle')),
+        ).not.toBeInTheDocument(),
+      )
+    } finally {
+      setTimeoutSpy?.mockRestore()
+      clearTimeoutSpy?.mockRestore()
+    }
+  })
+
   test('clears stale insights while a newly scoped snapshot is loading', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()

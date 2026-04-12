@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -197,6 +197,53 @@ export function InsightsPage() {
       cancelled = true
     }
   }, [commonT, refreshKey])
+
+  const pollQueuedRefreshJob = useEffectEvent(async (jobId: number) => {
+    try {
+      const nextRuntime = await backend.loadIntelligenceRuntime()
+      setRuntime(nextRuntime)
+      setRuntimeError(null)
+      const trackedJob = nextRuntime.recentJobs.find((job) => job.id === jobId)
+      if (trackedJob && ['queued', 'running'].includes(trackedJob.state)) {
+        return false
+      }
+      await refreshAppData()
+      setRefreshQueueReport(null)
+      return true
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error ? error.message : commonT('notAvailable'),
+      )
+      return false
+    }
+  })
+
+  useEffect(() => {
+    const jobId = refreshQueueReport?.jobId
+    if (!jobId) {
+      return
+    }
+    let cancelled = false
+    let timer: number | null = null
+    const schedule = (delayMs: number) => {
+      timer = window.setTimeout(() => {
+        void tick()
+      }, delayMs)
+    }
+    const tick = async () => {
+      const completed = await pollQueuedRefreshJob(jobId)
+      if (!cancelled && !completed) {
+        schedule(3000)
+      }
+    }
+    schedule(3000)
+    return () => {
+      cancelled = true
+      if (timer !== null) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [refreshQueueReport?.jobId])
 
   const aiMeta = snapshot
     ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
