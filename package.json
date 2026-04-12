@@ -20,7 +20,7 @@
     "test:unit:desktop-contract": "vitest run --config vitest.desktop-contract.config.ts",
     "coverage:js": "vitest run --config vitest.quality.config.ts --coverage",
     "coverage:js:desktop-contract": "vitest run --config vitest.desktop-contract.config.ts --coverage",
-    "check:desktop-contract": "bun run test:unit:desktop-contract && bun run coverage:js:desktop-contract && bun run mutation:js:desktop-contract",
+    "check:desktop-contract": "bun run test:unit:desktop-contract && bun run coverage:js:desktop-contract",
     "test:e2e": "playwright test",
     "test:e2e:desktop-bridge": "playwright test --config playwright.desktop-bridge.config.ts",
     "test:e2e:desktop-bridge:headed": "playwright test --config playwright.desktop-bridge.config.ts --headed",
@@ -48,7 +48,7 @@
     "check:js": "bun run format:check && bun run lint && bun run typecheck && bun run test:unit",
     "check:rust": "bun run fmt:rust && bun run lint:rust && bun run test:rust",
     "check": "bun run check:js && bun run check:desktop-contract && bun run check:rust && bun run check:supply-chain && bun run check:platform",
-    "check:full": "bun run check && bun run coverage && bun run mutation && bun run test:e2e",
+    "check:full": "bun run check && bun run coverage && bun run test:e2e",
     "coverage": "bun run check:coverage",
     "ci:local": "bun run check && bun run coverage && bun run build && bun run test:e2e && bun run desktop:build:debug",
     "docs:llm": "bun scripts/build-llm-txt.mjs",
@@ -56,7 +56,8 @@
     "release:bump": "node scripts/bump-version.mjs",
     "release:size-audit": "node scripts/build-release-size-audit.mjs",
     "preview": "vite preview",
-    "verify": "bun run check:full && bun run build && bun run desktop:build:debug"
+    "verify": "bun run check:full && bun run build && bun run desktop:build:debug",
+    "test:e2e:desktop-bridge:truth": "playwright test --config playwright.desktop-bridge.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

@@ -41,6 +41,10 @@ bun run verify
 - `bun run build`
 - `bun run desktop:build:debug`
 
+Current recovery-mode note:
+
+- mutation scripts are still available, but they are temporarily out of the default `check` / `check:full` / `verify` path while product recovery work is underway.
+
 What they mean:
 
 - `bun run mutation:rust`: current honest Rust mutation contract for `browser-history-parser` plus the `vault-core/src/ai.rs` status/helper slice (`ai_index_status`, `ai_queue_status`, `reconcile_ai_queue_controls`, `provider_capabilities`, `provider_connection_failure_report`, `test_provider_connection`).
@@ -54,7 +58,6 @@ What they mean:
 bun run test:unit
 bun run test:unit:desktop-contract
 bun run coverage:js:desktop-contract
-bun run mutation:js:desktop-contract
 bun run check:js
 bun run check:rust
 ```
@@ -75,9 +78,9 @@ Use this order for release rehearsal:
 2. `bun run coverage:js`
 3. `bun run coverage:rust`
 4. `bun run test:e2e`
-5. `bun run mutation:js`
-6. `bun run mutation:rust`
-7. `bun run build`
-8. `bun run desktop:build:debug`
+5. `bun run build`
+6. `bun run desktop:build:debug`
+
+Run `bun run mutation:js` and `bun run mutation:rust` manually before release / milestone signoff while the temporary recovery-mode policy is in effect.
 
 If the change touches packaging, release workflow, platform guidance, or troubleshooting copy, also perform the traceability sweep in [RELEASE.md](./RELEASE.md).

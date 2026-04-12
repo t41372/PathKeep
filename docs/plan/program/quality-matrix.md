@@ -31,6 +31,8 @@
 
 ## Current Quality Surfaces
 
+> 2026-04-11 recovery note：mutation scripts 暫時退出日常 `check` / `check:full` / `verify`，保留作 manual 或 scheduled deep check，直到這一波 desktop truth / queue recovery 收口後再回到正常 commit 流程。
+
 ### JS coverage / mutation quality surface
 
 `bun run coverage:js` 與 `bun run mutation:js` 目前對齊以下 living M0-M3 JS surface：
@@ -89,8 +91,8 @@
 | JS mutation sweep                | `bun run mutation:js` / GitHub `Mutation` workflow `javascript-mutation` | 對 living M0-M3 JS quality surface 做 repo-level mutation gate                  | 目前 break threshold 是 80。屬於 scheduled / manual deep check；進 M4 與 release closeout 前必須能跑通。                                                  |
 | Rust mutation contract           | `bun run mutation:rust` / GitHub `Mutation` workflow `rust-mutation`     | `browser-history-parser` + `vault-core` AI status/helper slice                  | 不在每次 PR blocking path；屬於 scheduled / manual / pre-release gate。                                                                                   |
 | Exploratory Rust mutation sweep  | `bun run mutation:rust:full`                                             | whole-workspace cargo-mutants discovery run                                     | 用於 backlog / deferred rationale，不是目前的 signed-off gate。                                                                                           |
-| Full local sweep                 | `bun run check:full`                                                     | 本地一次跑 `check` + coverage + mutation + e2e                                  | 適合大 closeout 或 merge 前自我驗收。                                                                                                                     |
-| Release-style local verification | `bun run verify`                                                         | `check:full` + `build` + `desktop:build:debug`                                  | 作為 release / milestone closeout 的本地預演。                                                                                                            |
+| Full local sweep                 | `bun run check:full`                                                     | 本地一次跑 `check` + coverage + e2e                                             | 適合大 closeout 或 merge 前自我驗收；mutation 在這一波 recovery 期間改走手動 deep check。                                                                 |
+| Release-style local verification | `bun run verify`                                                         | `check:full` + `build` + `desktop:build:debug`                                  | 作為 release / milestone closeout 的本地預演；mutation 在這一波 recovery 期間不再由 `verify` 自動觸發。                                                   |
 
 > 2026-04-08 closeout 註記：`bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 均已通過；隨後 `WORK-M4-D` 把 Rust mutation baseline 收斂成誠實的 signed-off contract：parser crate + AI status/helper slice。更廣的 `bun run mutation:rust:full` 仍保留給 exploratory whole-workspace triage，不再被誤報成已簽收 gate。
 
