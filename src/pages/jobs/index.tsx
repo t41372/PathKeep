@@ -52,6 +52,16 @@ type JobsTranslator = (
   vars?: Record<string, string | number>,
 ) => string
 
+function backgroundRefreshDelay(
+  aiQueue: AiQueueStatus | null,
+  runtime: IntelligenceRuntimeSnapshot | null,
+) {
+  const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
+  const running = (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0)
+
+  return queued + running > 0 ? 3000 : 15000
+}
+
 function aiJobStateLabel(state: string, jobsT: JobsTranslator) {
   switch (state) {
     case 'queued':
@@ -132,20 +142,17 @@ export function JobsPage() {
 
     const scheduleNext = (delayMs: number) => {
       if (cancelled || typeof window === 'undefined') return
-      timeoutId = window.setTimeout(() => {
-        void refreshBackgroundWork()
+      timeoutId = window.setTimeout(async () => {
+        const next = await refreshBackgroundWork()
+        if (cancelled) return
+        scheduleNext(backgroundRefreshDelay(next.nextAiQueue, next.nextRuntime))
       }, delayMs)
     }
 
     const load = async () => {
       const next = await refreshBackgroundWork()
       if (cancelled) return
-      const queued =
-        (next.nextAiQueue?.queued ?? 0) + (next.nextRuntime?.queue.queued ?? 0)
-      const running =
-        (next.nextAiQueue?.running ?? 0) +
-        (next.nextRuntime?.queue.running ?? 0)
-      scheduleNext(queued + running > 0 ? 3000 : 15000)
+      scheduleNext(backgroundRefreshDelay(next.nextAiQueue, next.nextRuntime))
     }
 
     void load()

@@ -19,7 +19,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -1032,6 +1032,77 @@ describe('intelligence surfaces', () => {
     expect(
       screen.getAllByText(jobsT('errorUnsupportedContent')).length,
     ).toBeGreaterThan(0)
+  })
+
+  test('keeps polling while background work is still queued or running', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { snapshot } = await seedArchiveState()
+      const jobsT = createNamespaceTranslator('en', 'jobs')
+
+      const queueStatus: AiQueueStatus = {
+        paused: false,
+        concurrency: 1,
+        queued: 2,
+        running: 1,
+        failed: 0,
+        recentJobs: [],
+      }
+
+      const runtimeSnapshot: IntelligenceRuntimeSnapshot = {
+        queue: {
+          queued: 1,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: '2026-04-10T16:30:00Z',
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [],
+        notes: [],
+      }
+
+      const loadAiQueueStatusSpy = vi
+        .spyOn(backend, 'loadAiQueueStatus')
+        .mockResolvedValue(queueStatus)
+      const loadRuntimeSpy = vi
+        .spyOn(backend, 'loadIntelligenceRuntime')
+        .mockResolvedValue(runtimeSnapshot)
+
+      renderSurface(<JobsPage />, {
+        language: 'en',
+        route: '/jobs',
+        snapshot,
+      })
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText(jobsT('runningTitle'))).toBeVisible()
+      expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(1)
+      expect(loadRuntimeSpy).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000)
+      })
+
+      expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(2)
+      expect(loadRuntimeSpy).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000)
+      })
+
+      expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(3)
+      expect(loadRuntimeSpy).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {
