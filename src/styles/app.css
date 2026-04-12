@@ -1783,6 +1783,17 @@
   margin-bottom: var(--space-4);
 }
 
+.insights-runtime-digest {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  margin-bottom: var(--space-3);
+}
+
 .insights-hero-card {
   position: relative;
   overflow: hidden;
@@ -1830,6 +1841,11 @@
 .insights-hero-copy p,
 .jobs-hero-copy p {
   margin: 0;
+}
+
+.insights-hero-notes {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .insights-summary {
@@ -4691,6 +4707,10 @@ button.stepper-step:disabled {
   .jobs-overview-grid,
   .jobs-focus-grid {
     grid-template-columns: 1fr;
+  }
+  .insights-runtime-digest {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .jobs-summary-grid,
   .jobs-meta-grid {

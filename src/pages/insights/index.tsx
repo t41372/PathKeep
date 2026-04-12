@@ -418,36 +418,6 @@ export function InsightsPage() {
 
   return (
     <section className="page-shell insights-page" data-testid="insights-page">
-      {aiMeta && (
-        <StatusCallout
-          tone={aiMeta.tone}
-          eyebrow={insightsT('intelligenceEyebrow')}
-          title={aiMeta.label}
-          body={aiMeta.description}
-          actions={
-            <div className="intelligence-actions">
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => void handleRefreshInsights()}
-                disabled={Boolean(action)}
-              >
-                {insightsT('refreshInsights')}
-              </button>
-              <Link className="btn-secondary" to="/explorer?mode=hybrid">
-                {insightsT('openExplorer')}
-              </Link>
-              <Link
-                className="btn-secondary"
-                to={assistantHref(insightsT('assistantSummaryPrompt'))}
-              >
-                {insightsT('askAssistant')}
-              </Link>
-            </div>
-          }
-        />
-      )}
-
       {activeProfileId ? (
         <StatusCallout
           tone="info"
@@ -497,36 +467,23 @@ export function InsightsPage() {
         />
       ) : null}
 
-      <StatusCallout
-        tone={runtimeError || runtime?.queue.failed ? 'warning' : 'info'}
-        eyebrow={settingsT('runtimeQueueTitle')}
-        title={
-          runtimeError
-            ? settingsT('runtimeUnavailableTitle')
-            : settingsT('firstPartyRuntimeTitle')
-        }
-        body={
-          runtimeError
+      <div className="insights-runtime-digest">
+        <span className="mono-support">
+          {aiMeta ? aiMeta.label : settingsT('firstPartyRuntimeTitle')}
+        </span>
+        <span className="mono-support">
+          {runtimeError
             ? runtimeError
-            : `${settingsT('firstPartyRuntimeBody')} ${settingsT(
-                'runtimeQueueBody',
-              )}`
-        }
-        actions={
-          <div className="intelligence-actions">
-            <span className="mono">
-              {settingsT('runtimeQueueSummary', {
+            : settingsT('runtimeQueueSummary', {
                 queued: runtime?.queue.queued ?? 0,
                 running: runtime?.queue.running ?? 0,
                 failed: runtime?.queue.failed ?? 0,
               })}
-            </span>
-            <Link className="btn-secondary" to="/jobs">
-              {settingsT('runtimeQueueTitle')}
-            </Link>
-          </div>
-        }
-      />
+        </span>
+        <Link className="btn-tiny" to="/jobs">
+          {settingsT('runtimeQueueTitle')}
+        </Link>
+      </div>
 
       <div className="insights-hero-grid">
         <div className="panel insights-hero-card insights-hero-card--wide">
@@ -544,13 +501,18 @@ export function InsightsPage() {
             <div className="insights-hero-copy">
               <h2>{insightsT('overviewHeadline')}</h2>
               <p>{insightsT('overviewBody')}</p>
-              <p className="mono-support">
-                {activeProfileId
-                  ? insightsT('scopedViewBody', {
-                      profile: profileIdLabel(activeProfileId),
-                    })
-                  : insightsT('archiveWideBody')}
-              </p>
+              <div className="insights-hero-notes">
+                <p className="mono-support">
+                  {activeProfileId
+                    ? insightsT('scopedViewBody', {
+                        profile: profileIdLabel(activeProfileId),
+                      })
+                    : insightsT('archiveWideBody')}
+                </p>
+                {aiMeta ? (
+                  <p className="mono-support">{aiMeta.description}</p>
+                ) : null}
+              </div>
             </div>
             <div className="insights-summary">
               <div className="insight-kpi">
@@ -592,6 +554,25 @@ export function InsightsPage() {
                   {insightsT('coverageDescription')}
                 </div>
               </div>
+            </div>
+            <div className="intelligence-actions">
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => void handleRefreshInsights()}
+                disabled={Boolean(action)}
+              >
+                {insightsT('refreshInsights')}
+              </button>
+              <Link className="btn-secondary" to="/explorer?mode=hybrid">
+                {insightsT('openExplorer')}
+              </Link>
+              <Link
+                className="btn-secondary"
+                to={assistantHref(insightsT('assistantSummaryPrompt'))}
+              >
+                {insightsT('askAssistant')}
+              </Link>
             </div>
           </div>
         </div>
@@ -1110,7 +1091,7 @@ export function InsightsPage() {
             </p>
             {insights.queryLadders.length > 0 ? (
               <div className="intelligence-result-list">
-                {insights.queryLadders.map((ladder) => {
+                {insights.queryLadders.map((ladder, index) => {
                   const params = new URLSearchParams()
                   params.set(
                     'q',
@@ -1120,10 +1101,17 @@ export function InsightsPage() {
                   if (ladder.profileId) {
                     params.set('profileId', ladder.profileId)
                   }
+                  const ladderKey = [
+                    ladder.profileId ?? 'all-profiles',
+                    ladder.rootTerm,
+                    ladder.steps.join('->'),
+                    ladder.stages.join('->'),
+                    index,
+                  ].join('::')
 
                   return (
                     <Link
-                      key={`${ladder.profileId}-${ladder.rootTerm}`}
+                      key={ladderKey}
                       className="result-row"
                       to={`/explorer?${params.toString()}`}
                     >
