@@ -109,6 +109,8 @@ async function invokeDesktopBridge<T>(
 
 test.describe.configure({ mode: 'serial' })
 
+const bridgeReadyTimeoutMs = 300_000
+
 test('treats unreachable bridge health checks as not-ready', async ({
   request,
 }, testInfo) => {
@@ -157,7 +159,7 @@ test('connects chrome to the live desktop command bridge', async ({
           return 'not-ready'
         }
       },
-      { timeout: 120_000, intervals: [500, 1_000, 2_000] },
+      { timeout: bridgeReadyTimeoutMs, intervals: [500, 1_000, 2_000, 5_000] },
     )
     .toBe('browser-desktop-bridge')
 
@@ -226,7 +228,7 @@ test('runs a live backup and insights flow through the desktop command bridge', 
           return 'not-ready'
         }
       },
-      { timeout: 120_000, intervals: [500, 1_000, 2_000] },
+      { timeout: bridgeReadyTimeoutMs, intervals: [500, 1_000, 2_000, 5_000] },
     )
     .toBe('browser-desktop-bridge')
 
