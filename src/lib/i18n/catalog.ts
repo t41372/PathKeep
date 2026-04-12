@@ -354,6 +354,14 @@ const zhCnM3Namespaces = {
     refreshQueuedTitle: '刷新已加入队列',
     refreshQueuedBody:
       '确定性重新生成任务 #{jobId} 已进入后台任务。你可以继续浏览，PathKeep 会在后台刷新最新的派生证据。',
+    overviewTitle: '分析快照',
+    overviewHeadline: '先看结论，再决定要不要继续深挖',
+    overviewBody:
+      '这一页应该先告诉你最近发生了什么，再把查询组、线索、参考页和来源效果分层展开，而不是把所有模块一次性堆在你面前。',
+    archiveWideBody:
+      '当前显示的是整个 archive 的分析结果。切换浏览器范围后，卡片与线索会跟着收窄，但存储与增长指标仍保持 archive-wide。',
+    queueReviewBody:
+      '重建与网页内容抓取会继续在后台推进。这里只保留最重要的运行线索，完整进度与失败处理请到 Jobs 页面查看。',
     window: '时间范围',
     windowDaysCompact: '{days} 天',
     cards: '洞察卡片',
@@ -451,6 +459,15 @@ const zhCnM3Namespaces = {
     noGrowthEvidenceTitle: '还没有数据增长记录',
     noGrowthEvidenceDescription:
       '完成第一次备份后，这里会显示每次备份新增的数据量。',
+    spotlightTitle: '先看这里',
+    spotlightBody:
+      '把最值得打开的回顾、站点模式与阶段总结放在最前面，帮助你先抓住重点。',
+    researchSignalsTitle: '研究信号',
+    researchSignalsBody:
+      '查询组、话题趋势和搜索演化展示的是最近这段时间你如何缩小问题、重新打开线索，以及主题怎么升温或降温。',
+    evidenceLibraryTitle: '证据与健康状态',
+    evidenceLibraryBody:
+      '参考页、来源效果、存储增长和模块状态更适合用来解释这些洞察从哪里来，以及系统现在健不健康。',
   },
   jobs: {
     statusEyebrow: '后台工作',
@@ -478,6 +495,10 @@ const zhCnM3Namespaces = {
     openSettings: '打开设置',
     loadingPage: '正在加载后台工作',
     pageUnavailableTitle: '后台工作暂时不可用',
+    overviewTitle: '队列总览',
+    overviewHeadline: '先完成确定性分析，再慢慢补抓网页正文',
+    overviewBody:
+      '大批量的内容抓取 backlog 并不代表系统卡住了。PathKeep 会先完成可立即交付的确定性重建，再继续处理网络型网页内容抓取。',
     queueSummaryTitle: 'AI 队列',
     queueSummaryBody:
       'embedding 和助手任务会保存在存档队列里，所以前台操作结束后也能继续完成。',
@@ -508,6 +529,50 @@ const zhCnM3Namespaces = {
     startedAt: '开始时间',
     finishedAt: '结束时间',
     noErrorDetails: '还没有详细信息。',
+    savedReadableContent: '已保存正文',
+    storedRecordsLabel: '已保存行数',
+    focusNow: '正在推进',
+    focusNowBacklog: '后台仍有任务在运行，请刷新以查看最新的活动项。',
+    focusNowIdle: '当前没有活跃工作，队列会在下一次重建后继续。',
+    needsReviewNow: '需要你处理',
+    needsReviewIdle: '目前没有需要人工处理的失败项。',
+    needsReviewBacklog: '还有 {count} 个失败任务等待你查看或重试。',
+    contentFetchTitle: '网页内容抓取',
+    contentFetchBacklogBody:
+      '已保存 {stored} 条可读网页内容。剩余 {queued} 条网络抓取会在后台慢慢补齐，所以重建不会被大队列拖慢。',
+    contentFetchRunningBody:
+      '已保存 {stored} 条可读网页内容。PathKeep 正在继续补抓网页正文。',
+    contentFetchReadyBody:
+      '已保存 {stored} 条可读网页内容。当前没有待处理的网页正文抓取。',
+    contentFetchFallbackBody:
+      '网页内容抓取会在后台为摘要和洞察补充更多可引用的本机证据。',
+    titleNormalizationBody:
+      '标题规范化会先在本机快速完成，帮助搜索、摘要和洞察尽快得到更稳定的证据标签。',
+    moduleAttentionBody: '{count} 个确定性模块正在等待重建或需要重新检查。',
+    moduleHealthyBody: '所有已启用的确定性模块都处于最新状态。',
+    moduleReadyCount: '已就绪模块',
+    moduleAttentionCount: '待处理模块',
+    runtimeHealthTitle: '运行时边界',
+    runtimeHealthBody:
+      '这里会把插件、确定性模块和恢复线索分开显示，让你分辨现在是在排队、运行、失败，还是只是被延后执行。',
+    recentActivityTitle: '最近活动',
+    recentActivityBody:
+      '按任务家族查看最近的 AI 与衍生数据工作，方便你重试失败项、取消排队项，或确认后台仍在继续前进。',
+    errorPdf: '这个页面返回的是 PDF，当前网页正文抓取会跳过非 HTML 内容。',
+    errorUnsupportedContent:
+      '这个页面不是可读取的 HTML 正文，所以 PathKeep 跳过了正文抓取。',
+    errorRedirectBlocked:
+      '这个页面跳进了登录或跳转边界，PathKeep 目前拿不到稳定的正文。',
+    errorRateLimited: '上游网站暂时拒绝了抓取请求，稍后可以再试一次。',
+    deterministicRuntimeSummary:
+      'PathKeep 正在重建确定性证据，这一步会先完成，再继续处理网络型抓取。',
+    contentFetchQueuedSummaryHost:
+      '这条网页正文抓取还在排队，轮到时会重新访问 {host}。',
+    contentFetchQueuedSummary:
+      '这条网页正文抓取还在排队，轮到时会重新访问原页面。',
+    contentFetchRunningSummaryHost:
+      'PathKeep 正在重新访问 {host}，为这条记录补抓可读正文。',
+    contentFetchRunningSummary: 'PathKeep 正在为这条记录补抓可读正文。',
     sidebarTitle: '后台工作',
     sidebarNeedsSetup: '完成设置后才会显示后台工作。',
     sidebarUnavailable: '后台工作暂时不可用',
@@ -796,6 +861,14 @@ const zhTwM3Namespaces = {
     refreshQueuedTitle: '重新整理已加入佇列',
     refreshQueuedBody:
       '確定性重新產生任務 #{jobId} 已進入背景工作。你可以繼續瀏覽，PathKeep 會在背景重新整理最新的派生證據。',
+    overviewTitle: '分析快照',
+    overviewHeadline: '先看結論，再決定要不要繼續深挖',
+    overviewBody:
+      '這一頁應該先告訴你最近發生了什麼，再把查詢群組、線索、參考頁與來源效果分層展開，而不是把所有模組一次堆給你。',
+    archiveWideBody:
+      '目前顯示的是整個 archive 的分析結果。切換瀏覽器範圍後，卡片與研究訊號會跟著收窄，但儲存與成長指標仍維持 archive-wide。',
+    queueReviewBody:
+      '重建與網頁內容抓取會繼續在背景推進。這裡只保留最重要的執行線索，完整進度與失敗處理請到 Jobs 頁面查看。',
     window: '時間範圍',
     windowDaysCompact: '{days} 天',
     cards: '洞察卡片',
@@ -893,6 +966,15 @@ const zhTwM3Namespaces = {
     noGrowthEvidenceTitle: '還沒有資料成長紀錄',
     noGrowthEvidenceDescription:
       '完成第一次備份後，這裡會顯示每次備份新增的資料量。',
+    spotlightTitle: '先看這裡',
+    spotlightBody:
+      '把最值得打開的回顧、站點模式與階段總結放在最前面，幫助你先抓住重點。',
+    researchSignalsTitle: '研究訊號',
+    researchSignalsBody:
+      '查詢群組、主題趨勢與搜尋演化展示的是最近這段時間你如何收斂問題、重新打開線索，以及主題怎麼升溫或降溫。',
+    evidenceLibraryTitle: '證據與健康狀態',
+    evidenceLibraryBody:
+      '參考頁、來源效果、儲存成長與模組狀態更適合用來解釋這些洞察從哪裡來，以及系統現在健不健康。',
   },
   jobs: {
     statusEyebrow: '背景工作',
@@ -920,6 +1002,10 @@ const zhTwM3Namespaces = {
     openSettings: '打開設定',
     loadingPage: '正在載入背景工作',
     pageUnavailableTitle: '背景工作暫時無法使用',
+    overviewTitle: '佇列總覽',
+    overviewHeadline: '先完成確定性分析，再慢慢補抓網頁正文',
+    overviewBody:
+      '大量的內容抓取 backlog 不代表系統卡住了。PathKeep 會先完成可以立即交付的確定性重建，再繼續處理網路型的網頁內容抓取。',
     queueSummaryTitle: 'AI 佇列',
     queueSummaryBody:
       'embedding 和助手任務會保存在封存佇列裡，所以前景操作結束後也能繼續完成。',
@@ -950,6 +1036,50 @@ const zhTwM3Namespaces = {
     startedAt: '開始時間',
     finishedAt: '結束時間',
     noErrorDetails: '目前還沒有詳細資訊。',
+    savedReadableContent: '已保存正文',
+    storedRecordsLabel: '已保存列數',
+    focusNow: '正在推進',
+    focusNowBacklog: '背景仍有任務在執行，請重新整理以查看最新的活動項目。',
+    focusNowIdle: '目前沒有活躍工作，佇列會在下一次重建後繼續。',
+    needsReviewNow: '需要你處理',
+    needsReviewIdle: '目前沒有需要人工處理的失敗項。',
+    needsReviewBacklog: '還有 {count} 個失敗任務等你查看或重試。',
+    contentFetchTitle: '網頁內容擷取',
+    contentFetchBacklogBody:
+      '已保存 {stored} 筆可讀網頁內容。剩下 {queued} 筆網路抓取會在背景慢慢補齊，所以重建不會被大佇列拖慢。',
+    contentFetchRunningBody:
+      '已保存 {stored} 筆可讀網頁內容。PathKeep 正在繼續補抓網頁正文。',
+    contentFetchReadyBody:
+      '已保存 {stored} 筆可讀網頁內容。現在沒有待處理的網頁正文抓取。',
+    contentFetchFallbackBody:
+      '網頁內容抓取會在背景替摘要與洞察補上更多可引用的本機證據。',
+    titleNormalizationBody:
+      '標題正規化會先在本機快速完成，幫助搜尋、摘要與洞察更快拿到穩定的證據標籤。',
+    moduleAttentionBody: '{count} 個確定性模組仍在等待重建或需要重新檢查。',
+    moduleHealthyBody: '所有已啟用的確定性模組目前都已是最新狀態。',
+    moduleReadyCount: '已就緒模組',
+    moduleAttentionCount: '待處理模組',
+    runtimeHealthTitle: '執行邊界',
+    runtimeHealthBody:
+      '這裡把插件、確定性模組和恢復線索拆開顯示，讓你分辨現在是在排隊、執行、失敗，還是只是被延後處理。',
+    recentActivityTitle: '最近活動',
+    recentActivityBody:
+      '按任務家族查看最近的 AI 與衍生資料工作，方便你重試失敗項、取消排隊項，或確認背景工作仍在前進。',
+    errorPdf: '這個頁面回傳的是 PDF，目前網頁正文抓取會跳過非 HTML 內容。',
+    errorUnsupportedContent:
+      '這個頁面不是可讀的 HTML 正文，所以 PathKeep 跳過了正文抓取。',
+    errorRedirectBlocked:
+      '這個頁面跳進了登入或重新導向邊界，PathKeep 目前拿不到穩定的正文。',
+    errorRateLimited: '上游網站暫時拒絕了抓取請求，稍後可以再試一次。',
+    deterministicRuntimeSummary:
+      'PathKeep 正在重建確定性證據，這一步會先完成，再繼續處理較慢的網路抓取。',
+    contentFetchQueuedSummaryHost:
+      '這筆網頁正文抓取還在排隊，輪到時會重新造訪 {host}。',
+    contentFetchQueuedSummary:
+      '這筆網頁正文抓取還在排隊，輪到時會重新造訪原頁面。',
+    contentFetchRunningSummaryHost:
+      'PathKeep 正在重新造訪 {host}，為這筆紀錄補抓可讀正文。',
+    contentFetchRunningSummary: 'PathKeep 正在為這筆紀錄補抓可讀正文。',
     sidebarTitle: '背景工作',
     sidebarNeedsSetup: '完成設定後才會顯示背景工作。',
     sidebarUnavailable: '背景工作暫時無法使用',
@@ -2010,6 +2140,11 @@ const catalog: Record<
       openSettings: 'Open Settings',
       loadingPage: 'Loading background work',
       pageUnavailableTitle: 'Background work is unavailable',
+      overviewTitle: 'Queue overview',
+      overviewHeadline:
+        'Finish deterministic evidence first, then refill page text in the background',
+      overviewBody:
+        "A huge content-fetch backlog doesn't automatically mean PathKeep is stuck. It intentionally finishes the deterministic rebuild first so cards and derived evidence stay reviewable sooner.",
       queueSummaryTitle: 'AI queue',
       queueSummaryBody:
         'Embedding and assistant jobs are stored in the archive queue so they can finish after the foreground action ends.',
@@ -2040,6 +2175,56 @@ const catalog: Record<
       startedAt: 'Started',
       finishedAt: 'Finished',
       noErrorDetails: 'No details yet.',
+      savedReadableContent: 'Readable pages saved',
+      storedRecordsLabel: 'Stored rows',
+      focusNow: 'Moving now',
+      focusNowBacklog:
+        'Background work is still active. Refresh to load the newest live item.',
+      focusNowIdle: 'No active work is running right now.',
+      needsReviewNow: 'Needs your attention',
+      needsReviewIdle: 'Nothing needs manual review right now.',
+      needsReviewBacklog: '{count} failed job(s) still need review or retry.',
+      contentFetchTitle: 'Page content fetch',
+      contentFetchBacklogBody:
+        'PathKeep already saved {stored} readable pages. The remaining {queued} network fetches stay in the queue so rebuilds can finish without waiting on every site.',
+      contentFetchRunningBody:
+        'PathKeep already saved {stored} readable pages and is still fetching more page text in the background.',
+      contentFetchReadyBody:
+        'PathKeep already saved {stored} readable pages and the fetch queue is currently clear.',
+      contentFetchFallbackBody:
+        'Page text fetches add deeper local evidence for summaries and deterministic insights.',
+      titleNormalizationBody:
+        'Title cleanup runs locally and quickly so search, summaries, and insight cards can use steadier evidence labels first.',
+      moduleAttentionBody:
+        '{count} deterministic module(s) still need a rebuild or another review pass.',
+      moduleHealthyBody:
+        'Every enabled deterministic module is currently up to date.',
+      moduleReadyCount: 'Modules ready',
+      moduleAttentionCount: 'Need rebuild',
+      runtimeHealthTitle: 'Runtime health',
+      runtimeHealthBody:
+        'Plugins, deterministic modules, and recovery notes are split apart here so you can tell the difference between queued, running, failed, and intentionally deferred work.',
+      recentActivityTitle: 'Recent activity',
+      recentActivityBody:
+        'Review recent AI and derived-data jobs by family so you can retry failures, cancel queued work, or confirm the queue is still moving.',
+      errorPdf:
+        'This page returned a PDF, so PathKeep skipped readable-text extraction.',
+      errorUnsupportedContent:
+        'This page did not return readable HTML, so PathKeep skipped page-text extraction.',
+      errorRedirectBlocked:
+        'This page redirected into a sign-in or redirect boundary, so PathKeep could not keep a stable readable copy.',
+      errorRateLimited:
+        'The upstream site temporarily refused the fetch. Retry it later.',
+      deterministicRuntimeSummary:
+        'PathKeep is rebuilding deterministic evidence first, then it will continue the slower network-backed work.',
+      contentFetchQueuedSummaryHost:
+        'This page-text fetch is waiting in the queue and will revisit {host} later.',
+      contentFetchQueuedSummary:
+        'This page-text fetch is waiting in the queue and will revisit the source page later.',
+      contentFetchRunningSummaryHost:
+        'PathKeep is revisiting {host} now to capture readable page text.',
+      contentFetchRunningSummary:
+        'PathKeep is capturing readable page text for this record right now.',
       sidebarTitle: 'Background work',
       sidebarNeedsSetup: 'Background work appears after setup.',
       sidebarUnavailable: 'Background work is unavailable',
@@ -2350,6 +2535,15 @@ const catalog: Record<
       refreshQueuedTitle: 'Refresh queued',
       refreshQueuedBody:
         'Deterministic rebuild job #{jobId} is now in Background Jobs. Keep browsing while PathKeep refreshes the latest derived evidence.',
+      overviewTitle: 'Latest analysis',
+      overviewHeadline:
+        'Start with the clearest signals, then decide where to dig deeper',
+      overviewBody:
+        'Insights should first tell you what changed recently, then open into query groups, research threads, reference pages, and source patterns. This page now follows that reading order.',
+      archiveWideBody:
+        'You are viewing archive-wide analysis. If you switch to one browser profile, cards and research signals narrow with it, while storage and growth metrics stay archive-wide.',
+      queueReviewBody:
+        'Rebuilds and page-text fetches keep moving in the background. This surface only keeps the most important runtime clue visible here; use Jobs for the full queue review.',
       window: 'TIME RANGE',
       windowDaysCompact: '{days}d',
       cards: 'HIGHLIGHTS',
@@ -2449,6 +2643,15 @@ const catalog: Record<
       noGrowthEvidenceTitle: 'No growth data yet',
       noGrowthEvidenceDescription:
         'Run at least one backup to see how your archive grows over time.',
+      spotlightTitle: 'Start here',
+      spotlightBody:
+        'These panels surface the most immediately useful read-back: the strongest highlights, site patterns, and the current summary window.',
+      researchSignalsTitle: 'Research signals',
+      researchSignalsBody:
+        'Query groups, topic momentum, and query evolution show how your recent browsing narrowed a question, reopened a thread, or shifted focus.',
+      evidenceLibraryTitle: 'Evidence and system health',
+      evidenceLibraryBody:
+        'Reference pages, source effectiveness, storage growth, and module status explain where the insights came from and whether the runtime is keeping up.',
     },
     onboarding: {
       stepWelcome: 'Welcome',

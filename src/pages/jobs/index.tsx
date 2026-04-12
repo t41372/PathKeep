@@ -25,6 +25,12 @@ import { backend } from '../../lib/backend-client'
 import { formatDateTime, formatRelativeTime } from '../../lib/format'
 import { type ResolvedLanguage, useI18n } from '../../lib/i18n'
 import {
+  runtimeJobMutationNeedsRefresh,
+  summarizePluginError,
+  summarizeRuntimeJob,
+  summarizeRuntimeJobError,
+} from '../../lib/intelligence-presentation'
+import {
   deterministicModuleDescription,
   deterministicModuleLabel,
   deterministicModuleStatusLabel,
@@ -242,6 +248,14 @@ export function JobsPage() {
       setRuntime(nextRuntime)
       setPageError(null)
       await refreshAppData()
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : commonT('notAvailable')
+      if (runtimeJobMutationNeedsRefresh(message)) {
+        await Promise.all([refreshAppData(), refreshBackgroundWork()])
+        return
+      }
+      setPageError(message)
     } finally {
       setAction(null)
     }
@@ -254,6 +268,14 @@ export function JobsPage() {
       setRuntime(nextRuntime)
       setPageError(null)
       await refreshAppData()
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : commonT('notAvailable')
+      if (runtimeJobMutationNeedsRefresh(message)) {
+        await Promise.all([refreshAppData(), refreshBackgroundWork()])
+        return
+      }
+      setPageError(message)
     } finally {
       setAction(null)
     }
@@ -334,6 +356,52 @@ export function JobsPage() {
       ?.finishedAt ??
     aiQueue?.recentJobs[0]?.queuedAt ??
     null
+  const contentPlugin =
+    runtime?.plugins.find(
+      (plugin) => plugin.pluginId === 'readable-content-refetch',
+    ) ?? null
+  const titlePlugin =
+    runtime?.plugins.find(
+      (plugin) => plugin.pluginId === 'title-normalization',
+    ) ?? null
+  const readyModuleCount =
+    runtime?.modules.filter((module) => module.status === 'ready').length ?? 0
+  const attentionModuleCount =
+    runtime?.modules.filter(
+      (module) => !['ready', 'disabled'].includes(module.status),
+    ).length ?? 0
+  const activeRuntimeJob =
+    runtime?.recentJobs.find((job) => job.state === 'running') ??
+    runtime?.recentJobs.find((job) => job.state === 'queued') ??
+    null
+  const reviewRuntimeJob =
+    runtime?.recentJobs.find((job) => job.state === 'failed') ?? null
+  const latestModuleBuildAt =
+    runtime?.modules.find((module) => module.lastBuiltAt)?.lastBuiltAt ?? null
+  const contentQueueMessage = contentPlugin
+    ? contentPlugin.queuedJobs > 0
+      ? jobsT('contentFetchBacklogBody', {
+          queued: contentPlugin.queuedJobs,
+          stored: contentPlugin.storedRecords,
+        })
+      : contentPlugin.runningJobs > 0
+        ? jobsT('contentFetchRunningBody', {
+            stored: contentPlugin.storedRecords,
+          })
+        : jobsT('contentFetchReadyBody', {
+            stored: contentPlugin.storedRecords,
+          })
+    : jobsT('contentFetchFallbackBody')
+  const focusNowMessage = activeRuntimeJob
+    ? summarizeRuntimeJob(activeRuntimeJob, jobsT)
+    : queueCounts.running > 0
+      ? jobsT('focusNowBacklog')
+      : jobsT('focusNowIdle')
+  const needsReviewMessage = reviewRuntimeJob
+    ? summarizeRuntimeJobError(reviewRuntimeJob, jobsT)
+    : queueCounts.failed > 0
+      ? jobsT('needsReviewBacklog', { count: queueCounts.failed })
+      : jobsT('needsReviewIdle')
 
   return (
     <section className="page-shell jobs-page" data-testid="jobs-page">
@@ -380,8 +448,64 @@ export function JobsPage() {
           />
         ) : null}
 
-        <div className="jobs-summary-grid">
-          <div className="panel">
+        <div className="jobs-overview-grid">
+          <div className="panel jobs-hero-card jobs-hero-card--wide">
+            <div className="panel-header">
+              <span className="panel-title">{jobsT('overviewTitle')}</span>
+              <span className="panel-action">
+                {lastActivityAt
+                  ? formatRelativeTime(lastActivityAt, language)
+                  : jobsT('sidebarIdleDetail')}
+              </span>
+            </div>
+            <div className="panel-body jobs-panel-stack">
+              <div className="jobs-hero-copy">
+                <h2>{jobsT('overviewHeadline')}</h2>
+                <p>{jobsT('overviewBody')}</p>
+                <p className="mono-support">{contentQueueMessage}</p>
+              </div>
+              <div className="jobs-hero-stats">
+                <div className="jobs-hero-stat">
+                  <span className="dim">{jobsT('runningCount')}</span>
+                  <strong className="mono">
+                    {queueCounts.running.toLocaleString(language)}
+                  </strong>
+                </div>
+                <div className="jobs-hero-stat">
+                  <span className="dim">{jobsT('queuedCount')}</span>
+                  <strong className="mono">
+                    {queueCounts.queued.toLocaleString(language)}
+                  </strong>
+                </div>
+                <div className="jobs-hero-stat">
+                  <span className="dim">{jobsT('failedCount')}</span>
+                  <strong className="mono">
+                    {queueCounts.failed.toLocaleString(language)}
+                  </strong>
+                </div>
+                <div className="jobs-hero-stat">
+                  <span className="dim">{jobsT('savedReadableContent')}</span>
+                  <strong className="mono">
+                    {(contentPlugin?.storedRecords ?? 0).toLocaleString(
+                      language,
+                    )}
+                  </strong>
+                </div>
+              </div>
+              <div className="jobs-callout-strip">
+                <div className="jobs-mini-callout">
+                  <span className="dim">{jobsT('focusNow')}</span>
+                  <p>{focusNowMessage}</p>
+                </div>
+                <div className="jobs-mini-callout">
+                  <span className="dim">{jobsT('needsReviewNow')}</span>
+                  <p>{needsReviewMessage}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel jobs-overview-card">
             <div className="panel-header">
               <span className="panel-title">{jobsT('queueSummaryTitle')}</span>
               <span className="panel-action">
@@ -430,7 +554,7 @@ export function JobsPage() {
             </div>
           </div>
 
-          <div className="panel">
+          <div className="panel jobs-overview-card">
             <div className="panel-header">
               <span className="panel-title">
                 {jobsT('runtimeSummaryTitle')}
@@ -477,24 +601,133 @@ export function JobsPage() {
           </div>
         </div>
 
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">{jobsT('recoveryTitle')}</span>
-          </div>
-          <div className="panel-body jobs-panel-stack">
-            <p>{jobsT('recoveryBody')}</p>
-            {runtime?.notes?.length ? (
-              <div className="jobs-notes">
-                {runtime.notes.map((note) => (
-                  <p key={note} className="mono-support">
-                    {note}
-                  </p>
-                ))}
+        <div className="jobs-focus-grid">
+          <div className="panel jobs-focus-card">
+            <div className="panel-header">
+              <span className="panel-title">{jobsT('contentFetchTitle')}</span>
+              <span className="panel-action">
+                {enrichmentPluginBoundaryLabel('network', settingsT)}
+              </span>
+            </div>
+            <div className="panel-body jobs-panel-stack">
+              <p>{contentQueueMessage}</p>
+              <div className="jobs-meta-grid mono-support">
+                <span>
+                  {jobsT('queuedCount')}:{' '}
+                  {(contentPlugin?.queuedJobs ?? 0).toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('runningCount')}:{' '}
+                  {(contentPlugin?.runningJobs ?? 0).toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('failedCount')}:{' '}
+                  {(contentPlugin?.failedJobs ?? 0).toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('savedReadableContent')}:{' '}
+                  {(contentPlugin?.storedRecords ?? 0).toLocaleString(language)}
+                </span>
               </div>
-            ) : (
-              <p className="mono-support">{jobsT('noRecoveryNotes')}</p>
-            )}
+              {contentPlugin?.lastError ? (
+                <p className="mono-support">
+                  {summarizePluginError(contentPlugin, jobsT)}
+                </p>
+              ) : null}
+            </div>
           </div>
+
+          <div className="panel jobs-focus-card">
+            <div className="panel-header">
+              <span className="panel-title">
+                {enrichmentPluginLabel('title-normalization', settingsT)}
+              </span>
+              <span className="panel-action">
+                {enrichmentPluginBoundaryLabel('local', settingsT)}
+              </span>
+            </div>
+            <div className="panel-body jobs-panel-stack">
+              <p>{jobsT('titleNormalizationBody')}</p>
+              <div className="jobs-meta-grid mono-support">
+                <span>
+                  {jobsT('queuedCount')}:{' '}
+                  {(titlePlugin?.queuedJobs ?? 0).toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('runningCount')}:{' '}
+                  {(titlePlugin?.runningJobs ?? 0).toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('failedCount')}:{' '}
+                  {(titlePlugin?.failedJobs ?? 0).toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('storedRecordsLabel')}:{' '}
+                  {(titlePlugin?.storedRecords ?? 0).toLocaleString(language)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel jobs-focus-card">
+            <div className="panel-header">
+              <span className="panel-title">{jobsT('modulesTitle')}</span>
+              <span className="panel-action">
+                {readyModuleCount.toLocaleString(language)} /{' '}
+                {(runtime?.modules.length ?? 0).toLocaleString(language)}
+              </span>
+            </div>
+            <div className="panel-body jobs-panel-stack">
+              <p>
+                {attentionModuleCount > 0
+                  ? jobsT('moduleAttentionBody', {
+                      count: attentionModuleCount,
+                    })
+                  : jobsT('moduleHealthyBody')}
+              </p>
+              <div className="jobs-meta-grid mono-support">
+                <span>
+                  {jobsT('moduleReadyCount')}:{' '}
+                  {readyModuleCount.toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('moduleAttentionCount')}:{' '}
+                  {attentionModuleCount.toLocaleString(language)}
+                </span>
+                <span>
+                  {jobsT('lastCompletedAt')}:{' '}
+                  {latestModuleBuildAt
+                    ? formatDateTime(latestModuleBuildAt, language)
+                    : commonT('notAvailable')}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel jobs-focus-card">
+            <div className="panel-header">
+              <span className="panel-title">{jobsT('recoveryTitle')}</span>
+            </div>
+            <div className="panel-body jobs-panel-stack">
+              <p>{jobsT('recoveryBody')}</p>
+              {runtime?.notes?.length ? (
+                <div className="jobs-notes">
+                  {runtime.notes.map((note) => (
+                    <p key={note} className="mono-support">
+                      {note}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mono-support">{jobsT('noRecoveryNotes')}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="jobs-section-heading">
+          <span className="panel-title">{jobsT('runtimeHealthTitle')}</span>
+          <p>{jobsT('runtimeHealthBody')}</p>
         </div>
 
         <div className="jobs-summary-grid">
@@ -540,7 +773,9 @@ export function JobsPage() {
                     </span>
                   </div>
                   {plugin.lastError ? (
-                    <p className="mono-support">{plugin.lastError}</p>
+                    <p className="mono-support">
+                      {summarizePluginError(plugin, jobsT)}
+                    </p>
                   ) : null}
                 </div>
               ))}
@@ -586,6 +821,11 @@ export function JobsPage() {
           </div>
         </div>
 
+        <div className="jobs-section-heading">
+          <span className="panel-title">{jobsT('recentActivityTitle')}</span>
+          <p>{jobsT('recentActivityBody')}</p>
+        </div>
+
         <div className="jobs-summary-grid">
           <JobPanel
             action={action}
@@ -604,7 +844,6 @@ export function JobsPage() {
             emptyLabel={jobsT('recentJobsEmpty')}
             jobs={runtime?.recentJobs ?? []}
             language={language}
-            noDetailsLabel={jobsT('noErrorDetails')}
             onCancel={handleCancelRuntimeJob}
             onRetry={handleRetryRuntimeJob}
             settingsT={settingsT}
@@ -713,7 +952,6 @@ function RuntimeJobPanel({
   emptyLabel,
   jobs,
   language,
-  noDetailsLabel,
   onCancel,
   onRetry,
   settingsT,
@@ -724,7 +962,6 @@ function RuntimeJobPanel({
   emptyLabel: string
   jobs: IntelligenceJobOverview[]
   language: ResolvedLanguage
-  noDetailsLabel: string
   onCancel: (jobId: number) => Promise<void>
   onRetry: (jobId: number) => Promise<void>
   settingsT: ReturnType<ReturnType<typeof useI18n>['ns']>
@@ -753,7 +990,11 @@ function RuntimeJobPanel({
                   {intelligenceRuntimeJobStateLabel(job.state, settingsT)}
                 </span>
               </div>
-              <p>{job.title ?? job.url ?? job.lastError ?? noDetailsLabel}</p>
+              <p>{summarizeRuntimeJob(job, jobsT)}</p>
+              {job.lastError &&
+              summarizeRuntimeJob(job, jobsT) !== job.lastError ? (
+                <p className="mono-support">{job.lastError}</p>
+              ) : null}
               {typeof job.progressPercent === 'number' ? (
                 <div className="jobs-progress">
                   <div aria-hidden="true" className="jobs-progress__track">

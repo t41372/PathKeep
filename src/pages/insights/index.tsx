@@ -30,6 +30,11 @@ import {
 } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
+  compactInsightText,
+  formatInsightCoverage,
+  runtimeJobMutationNeedsRefresh,
+} from '../../lib/intelligence-presentation'
+import {
   resolveInsightOnThisDay,
   resolveInsightPeriodicSummary,
   resolveInsightTopDomains,
@@ -223,6 +228,11 @@ export function InsightsPage() {
     () => (dashboard ? storageAnalyticsSlices(dashboard.storage) : []),
     [dashboard],
   )
+  const runtimeLeadJob =
+    runtime?.recentJobs.find((job) => job.state === 'running') ??
+    runtime?.recentJobs.find((job) => job.state === 'failed') ??
+    runtime?.recentJobs.find((job) => job.state === 'queued') ??
+    null
 
   /**
    * Handles refresh insights.
@@ -265,9 +275,24 @@ export function InsightsPage() {
       setRuntime(nextRuntime)
       setRuntimeError(null)
     } catch (error) {
-      setRuntimeError(
-        error instanceof Error ? error.message : commonT('notAvailable'),
-      )
+      const message =
+        error instanceof Error ? error.message : commonT('notAvailable')
+      if (runtimeJobMutationNeedsRefresh(message)) {
+        try {
+          const refreshedRuntime = await backend.loadIntelligenceRuntime()
+          setRuntime(refreshedRuntime)
+          setRuntimeError(null)
+          return
+        } catch (refreshError) {
+          setRuntimeError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : commonT('notAvailable'),
+          )
+          return
+        }
+      }
+      setRuntimeError(message)
     } finally {
       setAction(null)
     }
@@ -285,9 +310,24 @@ export function InsightsPage() {
       setRuntime(nextRuntime)
       setRuntimeError(null)
     } catch (error) {
-      setRuntimeError(
-        error instanceof Error ? error.message : commonT('notAvailable'),
-      )
+      const message =
+        error instanceof Error ? error.message : commonT('notAvailable')
+      if (runtimeJobMutationNeedsRefresh(message)) {
+        try {
+          const refreshedRuntime = await backend.loadIntelligenceRuntime()
+          setRuntime(refreshedRuntime)
+          setRuntimeError(null)
+          return
+        } catch (refreshError) {
+          setRuntimeError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : commonT('notAvailable'),
+          )
+          return
+        }
+      }
+      setRuntimeError(message)
     } finally {
       setAction(null)
     }
@@ -488,105 +528,167 @@ export function InsightsPage() {
         }
       />
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{settingsT('runtimeRecentJobs')}</span>
-          <span className="panel-badge">
-            {settingsT('runtimeQueueSummary', {
-              queued: runtime?.queue.queued ?? 0,
-              running: runtime?.queue.running ?? 0,
-              failed: runtime?.queue.failed ?? 0,
-            })}
-          </span>
+      <div className="insights-hero-grid">
+        <div className="panel insights-hero-card insights-hero-card--wide">
+          <div className="panel-header">
+            <span className="panel-title">{insightsT('overviewTitle')}</span>
+            <span className="panel-action">
+              {insightsT('snapshotLabel', {
+                time:
+                  formatDateTime(insights.generatedAt, language) ??
+                  insights.generatedAt,
+              })}
+            </span>
+          </div>
+          <div className="panel-body insights-hero-stack">
+            <div className="insights-hero-copy">
+              <h2>{insightsT('overviewHeadline')}</h2>
+              <p>{insightsT('overviewBody')}</p>
+              <p className="mono-support">
+                {activeProfileId
+                  ? insightsT('scopedViewBody', {
+                      profile: profileIdLabel(activeProfileId),
+                    })
+                  : insightsT('archiveWideBody')}
+              </p>
+            </div>
+            <div className="insights-summary">
+              <div className="insight-kpi">
+                <div className="kpi-label">{insightsT('window')}</div>
+                <div className="kpi-value">
+                  {insightsT('windowDaysCompact', {
+                    days: insights.windowDays,
+                  })}
+                </div>
+                <div className="kpi-sublabel">
+                  {insightsT('generatedAt', {
+                    time: formatRelativeTime(insights.generatedAt, language),
+                  })}
+                </div>
+              </div>
+              <div className="insight-kpi">
+                <div className="kpi-label">{insightsT('cards')}</div>
+                <div className="kpi-value">{insights.cards.length}</div>
+                <div className="kpi-sublabel">
+                  {insightsT('cardsDescription')}
+                </div>
+              </div>
+              <div className="insight-kpi">
+                <div className="kpi-label">{insightsT('topics')}</div>
+                <div className="kpi-value">{insights.topics.length}</div>
+                <div className="kpi-sublabel">
+                  {insightsT('topicsDescription')}
+                </div>
+              </div>
+              <div className="insight-kpi">
+                <div className="kpi-label">{insightsT('coverage')}</div>
+                <div className="kpi-value">
+                  {formatInsightCoverage(
+                    insights.status.contentCoverage,
+                    language,
+                  )}
+                </div>
+                <div className="kpi-sublabel">
+                  {insightsT('coverageDescription')}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="panel-body">
-          {runtime?.recentJobs.length ? (
-            <div className="settings-result-list">
-              {runtime.recentJobs.map((job) => (
-                <div key={job.id} className="result-row">
-                  <div className="result-row__header">
-                    <strong>
-                      {enrichmentPluginLabel(
-                        job.pluginId ?? job.jobType,
-                        settingsT,
-                      )}
-                    </strong>
-                    <span className="mono">
-                      {intelligenceRuntimeJobStateLabel(job.state, settingsT)}
-                    </span>
-                  </div>
-                  <p>
-                    {job.title ?? job.url ?? job.jobType} ·{' '}
-                    {settingsT('runtimeJobAttempt', { attempt: job.attempt })}
-                  </p>
-                  {job.lastError ? <p>{job.lastError}</p> : null}
-                  <div className="settings-action-row">
-                    {job.retryable ? (
+
+        <div className="panel insights-hero-card">
+          <div className="panel-header">
+            <span className="panel-title">
+              {settingsT('runtimeQueueTitle')}
+            </span>
+            <span className="panel-action">
+              {settingsT('runtimeQueueSummary', {
+                queued: runtime?.queue.queued ?? 0,
+                running: runtime?.queue.running ?? 0,
+                failed: runtime?.queue.failed ?? 0,
+              })}
+            </span>
+          </div>
+          <div className="panel-body insights-hero-stack">
+            <p className="summary-text">{insightsT('queueReviewBody')}</p>
+            {runtimeLeadJob ? (
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>
+                    {enrichmentPluginLabel(
+                      runtimeLeadJob.pluginId ?? runtimeLeadJob.jobType,
+                      settingsT,
+                    )}
+                  </strong>
+                  <span className="mono-support">
+                    {intelligenceRuntimeJobStateLabel(
+                      runtimeLeadJob.state,
+                      settingsT,
+                    )}
+                  </span>
+                </div>
+                <p>
+                  {compactInsightText(
+                    runtimeLeadJob.title ??
+                      runtimeLeadJob.url ??
+                      settingsT('runtimeNoJobs'),
+                    72,
+                  )}{' '}
+                  ·{' '}
+                  {settingsT('runtimeJobAttempt', {
+                    attempt: runtimeLeadJob.attempt,
+                  })}
+                </p>
+                {runtimeLeadJob.lastError ? (
+                  <p className="mono-support">{runtimeLeadJob.lastError}</p>
+                ) : null}
+                {runtimeLeadJob.retryable || runtimeLeadJob.cancellable ? (
+                  <div className="intelligence-actions">
+                    {runtimeLeadJob.retryable ? (
                       <button
                         className="btn-secondary"
                         type="button"
                         disabled={Boolean(action)}
                         onClick={() => {
-                          void handleRetryRuntimeJob(job.id)
+                          void handleRetryRuntimeJob(runtimeLeadJob.id)
                         }}
                       >
                         {settingsT('retryRuntimeJob')}
                       </button>
                     ) : null}
-                    {job.cancellable ? (
+                    {runtimeLeadJob.cancellable ? (
                       <button
                         className="btn-secondary"
                         type="button"
                         disabled={Boolean(action)}
                         onClick={() => {
-                          void handleCancelRuntimeJob(job.id)
+                          void handleCancelRuntimeJob(runtimeLeadJob.id)
                         }}
                       >
                         {settingsT('cancelRuntimeJob')}
                       </button>
                     ) : null}
                   </div>
-                </div>
-              ))}
+                ) : null}
+              </div>
+            ) : (
+              <p className="mono-support">{settingsT('runtimeNoJobs')}</p>
+            )}
+            <div className="intelligence-actions">
+              <Link className="btn-secondary" to="/jobs">
+                {settingsT('runtimeQueueTitle')}
+              </Link>
             </div>
-          ) : (
-            <p className="summary-text">{settingsT('runtimeNoJobs')}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="insights-summary">
-        <div className="insight-kpi">
-          <div className="kpi-label">{insightsT('window')}</div>
-          <div className="kpi-value">
-            {insightsT('windowDaysCompact', { days: insights.windowDays })}
           </div>
-          <div className="kpi-sublabel">
-            {insightsT('generatedAt', {
-              time: formatRelativeTime(insights.generatedAt, language),
-            })}
-          </div>
-        </div>
-        <div className="insight-kpi">
-          <div className="kpi-label">{insightsT('cards')}</div>
-          <div className="kpi-value">{insights.cards.length}</div>
-          <div className="kpi-sublabel">{insightsT('cardsDescription')}</div>
-        </div>
-        <div className="insight-kpi">
-          <div className="kpi-label">{insightsT('topics')}</div>
-          <div className="kpi-value">{insights.topics.length}</div>
-          <div className="kpi-sublabel">{insightsT('topicsDescription')}</div>
-        </div>
-        <div className="insight-kpi">
-          <div className="kpi-label">{insightsT('coverage')}</div>
-          <div className="kpi-value">
-            {Math.round(insights.status.contentCoverage * 100)}%
-          </div>
-          <div className="kpi-sublabel">{insightsT('coverageDescription')}</div>
         </div>
       </div>
 
       <div className="insights-grid">
+        <div className="insights-section-heading panel-wide">
+          <span className="panel-title">{insightsT('spotlightTitle')}</span>
+          <p>{insightsT('spotlightBody')}</p>
+        </div>
+
         <div className="panel">
           <div className="panel-header">
             <span className="panel-title">{insightsT('onThisDay')}</span>
@@ -800,7 +902,7 @@ export function InsightsPage() {
                 {insights.templateSummaries.map((summary) => (
                   <div key={summary.summaryId} className="result-row">
                     <div className="result-row__header">
-                      <strong>{summary.title}</strong>
+                      <strong>{compactInsightText(summary.title, 88)}</strong>
                       <span className="mono-support">
                         {Math.round(summary.confidence * 100)}%
                       </span>
@@ -860,6 +962,13 @@ export function InsightsPage() {
           </div>
         </div>
 
+        <div className="insights-section-heading panel-wide">
+          <span className="panel-title">
+            {insightsT('researchSignalsTitle')}
+          </span>
+          <p>{insightsT('researchSignalsBody')}</p>
+        </div>
+
         <div className="panel panel-wide">
           <div className="panel-header">
             <span className="panel-title">{insightsT('queryGroups')}</span>
@@ -873,16 +982,20 @@ export function InsightsPage() {
                   params.set('q', group.latestQuery)
                   params.set('mode', 'keyword')
                   params.set('profileId', group.profileId)
+                  const displayTitle = compactInsightText(group.title, 88)
+                  const displaySteps = group.steps
+                    .map((step) => compactInsightText(step, 56))
+                    .join(' -> ')
 
                   return (
                     <div key={group.queryGroupId} className="result-row">
                       <div className="result-row__header">
-                        <strong>{group.title}</strong>
+                        <strong>{displayTitle}</strong>
                         <span className="mono-support">
                           {Math.round(group.confidence * 100)}%
                         </span>
                       </div>
-                      <p>{group.steps.join(' -> ')}</p>
+                      <p>{displaySteps}</p>
                       <div className="result-row__meta">
                         <span className="mono-support">
                           {insightsT('queryEvolutionSteps', {
@@ -901,7 +1014,7 @@ export function InsightsPage() {
                             void handleExplain({
                               id: group.queryGroupId,
                               kind: 'query-group',
-                              title: group.title,
+                              title: displayTitle,
                               profileId: group.profileId,
                               windowDays: insights.windowDays,
                             })
@@ -1047,6 +1160,13 @@ export function InsightsPage() {
           </div>
         </div>
 
+        <div className="insights-section-heading panel-wide">
+          <span className="panel-title">
+            {insightsT('evidenceLibraryTitle')}
+          </span>
+          <p>{insightsT('evidenceLibraryBody')}</p>
+        </div>
+
         <div className="panel panel-wide">
           <div className="panel-header">
             <span className="panel-title">{insightsT('referencePages')}</span>
@@ -1060,7 +1180,9 @@ export function InsightsPage() {
                 {insights.referencePages.map((page) => (
                   <div key={page.referencePageId} className="result-row">
                     <div className="result-row__header">
-                      <strong>{page.title ?? page.url}</strong>
+                      <strong>
+                        {compactInsightText(page.title ?? page.url, 88)}
+                      </strong>
                       <span className="mono-support">{page.domain}</span>
                     </div>
                     <p>
@@ -1078,7 +1200,10 @@ export function InsightsPage() {
                           void handleExplain({
                             id: page.referencePageId,
                             kind: 'reference-page',
-                            title: page.title ?? page.url,
+                            title: compactInsightText(
+                              page.title ?? page.url,
+                              88,
+                            ),
                             profileId: page.profileId,
                             windowDays: insights.windowDays,
                           })
@@ -1208,7 +1333,7 @@ export function InsightsPage() {
             {insights.cards.map((card) => (
               <div key={card.cardId} className="result-row">
                 <div className="result-row__header">
-                  <strong>{card.title}</strong>
+                  <strong>{compactInsightText(card.title, 88)}</strong>
                   <span className="mono-support">
                     {card.kind === 'open-loop'
                       ? insightsT('openLoopSignal')
@@ -1241,7 +1366,7 @@ export function InsightsPage() {
                       void handleExplain({
                         id: card.cardId,
                         kind: card.kind,
-                        title: card.title,
+                        title: compactInsightText(card.title, 88),
                         profileId: card.profileId,
                         windowDays: card.windowDays,
                       })
@@ -1269,7 +1394,9 @@ export function InsightsPage() {
         <div className="panel intelligence-panel">
           <div className="panel-header">
             <span className="panel-title">{insightsT('explainability')}</span>
-            <span className="panel-action">{selectedInsight.title}</span>
+            <span className="panel-action">
+              {compactInsightText(selectedInsight.title, 72)}
+            </span>
           </div>
           <div className="panel-body intelligence-stack">
             <p className="summary-text">{explanation.explanation}</p>
@@ -1293,7 +1420,9 @@ export function InsightsPage() {
                   })}
                 >
                   <div className="result-row__header">
-                    <strong>{item.title ?? item.url}</strong>
+                    <strong>
+                      {compactInsightText(item.title ?? item.url, 88)}
+                    </strong>
                     <span className="mono-support">
                       {formatDateTime(item.visitedAt, language) ??
                         item.visitedAt}

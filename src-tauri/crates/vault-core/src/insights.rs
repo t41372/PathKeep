@@ -1047,12 +1047,51 @@ fn enrichment_is_terminal_failure(enrichment: &EnrichmentResult) -> bool {
 }
 
 fn enrichment_failure_message(enrichment: &EnrichmentResult) -> String {
-    enrichment
-        .extraction
-        .get("error")
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .unwrap_or_else(|| format!("Enrichment failed with status {}", enrichment.status))
+    match enrichment.status.as_str() {
+        "unsupported-content" => {
+            let content_type = enrichment
+                .extraction
+                .get("contentType")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("non-HTML response");
+            format!("Skipped non-readable content ({content_type}).")
+        }
+        "fetch-error" => enrichment
+            .extraction
+            .get("error")
+            .and_then(Value::as_str)
+            .map(|error| format!("Could not fetch the page again. {error}"))
+            .unwrap_or_else(|| "Could not fetch the page again.".to_string()),
+        "decode-error" => {
+            let content_type = enrichment
+                .extraction
+                .get("contentType")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            let error = enrichment
+                .extraction
+                .get("error")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            match (content_type, error) {
+                (Some(content_type), Some(error)) => {
+                    format!("Could not decode the response body ({content_type}). {error}")
+                }
+                (Some(content_type), None) => {
+                    format!("Could not decode the response body ({content_type}).")
+                }
+                (None, Some(error)) => format!("Could not decode the response body. {error}"),
+                (None, None) => "Could not decode the response body.".to_string(),
+            }
+        }
+        _ => enrichment
+            .extraction
+            .get("error")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("Enrichment failed with status {}", enrichment.status)),
+    }
 }
 
 fn build_refetch_client() -> Result<Client> {
@@ -2638,6 +2677,37 @@ CREATE TABLE visit_insight_features (
         assert!(snapshot.cards.is_empty());
         assert!(snapshot.threads.is_empty());
         assert!(!snapshot.canonical.on_this_day.is_empty());
+    }
+
+    #[test]
+    fn enrichment_failure_message_turns_known_fetch_states_into_honest_copy() {
+        assert_eq!(
+            enrichment_failure_message(&EnrichmentResult {
+                status: "unsupported-content".to_string(),
+                extraction: json!({ "contentType": "application/pdf" }),
+                ..EnrichmentResult::default()
+            }),
+            "Skipped non-readable content (application/pdf)."
+        );
+        assert_eq!(
+            enrichment_failure_message(&EnrichmentResult {
+                status: "fetch-error".to_string(),
+                extraction: json!({ "error": "error following redirect" }),
+                ..EnrichmentResult::default()
+            }),
+            "Could not fetch the page again. error following redirect"
+        );
+        assert_eq!(
+            enrichment_failure_message(&EnrichmentResult {
+                status: "decode-error".to_string(),
+                extraction: json!({
+                    "contentType": "text/html; charset=UTF-8",
+                    "error": "invalid utf-8"
+                }),
+                ..EnrichmentResult::default()
+            }),
+            "Could not decode the response body (text/html; charset=UTF-8). invalid utf-8"
+        );
     }
 
     #[test]

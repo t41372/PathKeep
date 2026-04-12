@@ -35,6 +35,10 @@ import {
   createTranslator,
   type ResolvedLanguage,
 } from '../lib/i18n'
+import {
+  compactInsightText,
+  formatInsightCoverage,
+} from '../lib/intelligence-presentation'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import { useProfileScope } from '../lib/profile-scope-context'
 import type {
@@ -628,6 +632,7 @@ describe('intelligence surfaces', () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const settingsT = createNamespaceTranslator('en', 'settings')
+    const insightsT = createNamespaceTranslator('en', 'insights')
     const runtimeSnapshot: IntelligenceRuntimeSnapshot = {
       queue: {
         queued: 1,
@@ -736,22 +741,16 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
+    expect(await screen.findByText(insightsT('overviewTitle'))).toBeVisible()
     expect(
-      await screen.findByText(settingsT('runtimeRecentJobs')),
-    ).toBeVisible()
-    expect(
-      screen.getByRole('link', { name: settingsT('runtimeQueueTitle') }),
+      screen.getAllByRole('link', { name: settingsT('runtimeQueueTitle') })[0],
     ).toHaveAttribute('href', '/jobs')
 
     await user.click(
       screen.getByRole('button', { name: settingsT('retryRuntimeJob') }),
     )
-    expect(retrySpy).toHaveBeenCalledWith(411)
-
-    await user.click(
-      screen.getByRole('button', { name: settingsT('cancelRuntimeJob') }),
-    )
-    expect(cancelSpy).toHaveBeenCalledWith(412)
+    await waitFor(() => expect(retrySpy).toHaveBeenCalledWith(411))
+    expect(cancelSpy).not.toHaveBeenCalled()
   })
 
   test('renders background jobs controls and lets the user pause or replay work', async () => {
@@ -920,7 +919,9 @@ describe('intelligence surfaces', () => {
     expect(screen.getByText(jobsT('statusEyebrow'))).toBeVisible()
     expect(screen.getByText('Derived-data queue')).toBeVisible()
     expect(screen.getByText('Scoring visits')).toBeVisible()
-    expect(screen.getByText('24,000 / 64,781 visits')).toBeVisible()
+    expect(
+      screen.getAllByText('24,000 / 64,781 visits').length,
+    ).toBeGreaterThan(0)
     expect(screen.getByText('47%')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: jobsT('pauseQueue') }))
@@ -953,6 +954,84 @@ describe('intelligence surfaces', () => {
       within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
     )
     expect(retrySpy).toHaveBeenCalledWith(412)
+  })
+
+  test('keeps failed backlog honest even when the latest runtime item is still running', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue({
+      paused: false,
+      concurrency: 1,
+      queued: 0,
+      running: 0,
+      failed: 0,
+      recentJobs: [],
+    })
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue({
+      queue: {
+        queued: 3,
+        running: 1,
+        succeeded: 0,
+        failed: 2,
+        cancelled: 0,
+        lastActivityAt: '2026-04-10T16:30:00Z',
+      },
+      plugins: [
+        {
+          pluginId: 'readable-content-refetch',
+          sourceKind: 'network',
+          enabled: true,
+          storedRecords: 5,
+          queuedJobs: 3,
+          runningJobs: 1,
+          failedJobs: 2,
+          lastCompletedAt: '2026-04-10T16:20:00Z',
+          lastError: 'unsupported-content',
+        },
+      ],
+      modules: [],
+      recentJobs: [
+        {
+          id: 990,
+          jobType: 'enrichment-plugin',
+          pluginId: 'readable-content-refetch',
+          state: 'running',
+          historyId: 2,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/article',
+          title: 'Article',
+          attempt: 1,
+          createdAt: '2026-04-10T15:20:00Z',
+          startedAt: '2026-04-10T15:21:00Z',
+          finishedAt: null,
+          updatedAt: '2026-04-10T15:22:00Z',
+          heartbeatAt: null,
+          progressLabel: null,
+          progressDetail: null,
+          progressCurrent: null,
+          progressTotal: null,
+          progressPercent: null,
+          lastError: null,
+          retryable: false,
+          cancellable: true,
+        },
+      ],
+      notes: [],
+    })
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(jobsT('needsReviewBacklog', { count: 2 })),
+    ).toBeVisible()
+    expect(
+      screen.getAllByText(jobsT('errorUnsupportedContent')).length,
+    ).toBeGreaterThan(0)
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {
@@ -1446,6 +1525,114 @@ describe('intelligence surfaces', () => {
         'This card stayed visible because the same evidence cluster reopened several times.',
       ),
     ).toBeVisible()
+  })
+
+  test('keeps tiny coverage honest and compacts oversized query labels', async () => {
+    const { snapshot } = await seedArchiveState()
+    const insightsT = createNamespaceTranslator('en', 'insights')
+    const longUrl =
+      'https://elink2fb.mail.gethalfbaked.com/ss/c/u001.W7yY1DE5FLIFsRdzd8xlOFxIFmg-LnZyrakPeT0Kr4Akcsd_1nNyG4O-JzeKCfzCHx0L-Q-XaEfbRodxc4QPmYWsoxwYVKVdTuQECM3bSYEh-a_vxV99Ks-5wLaLiMaeY37qxnfpzNzmpXsxTvq_IPXz5HgP5iJZKdDkWjrUqimIY5PctDJFjhBu_zPRRgAg-dQNhu6BYaOyTuNS1qwtzKJBmoFK-4zVhhNl9iu13mgWvQtpcozXWzWK8THCZHcPxnrCdMIIBGV828w4PzF5yB_x3RR-pCoiYJSxvPV7JY5xBOnmLvfnv6r5NzjB43ogYyVW_4TBHTEm9p1YBYuXct8p7_gVGKhCalmuEO4l29RrpEepk_Zt8ZfJbgCHA2NjhaShq8P_ecCqoZkhZbPdK7hXCmS6vCQQRwbCqJMn7rA_6CzHp8cuu2dLM1WxsvcV1C5v3062OGqpliWy3p_B6ZqbcyyyAVhk3tEUvBYh8TUYjsNVDIOCyEAc0dkLDNoDaBX2UtwqDtlcFjtIHf7x8fmFqODD0nlBa94zHuY8gUv1PcmjeDQU_ibOvtlZSJutjF08QvPetF_tT9R1AG-pCUZYPqZPxqcyIhSnpMPA85mgUOD4Ssj59-ReWgfWvpXDFwIpILbfYzvkr6rd2QwWYR7mD2nmsRHmhGPLM4ar_Tdo8VRzL00zEoB-LSpWB_aZAa1FIBk3dWFYNrjwOwn-R6p4vxsbWIzCgtsPQEIjA8CHYwMpgFjDUz7hRPmSHIzKIE4t5jS9G3uUkMWr1m-_JqtApppz5izeYwpp8sYQOhIp02VjCNahZjKvFVAel4258O1sayVYHxyrT181U82dM1cobtRdxHUToaSFPC_2voJT-pw2NzWLA8-sy0gVhOtHAn0VGS_TSTRrJWoukJubqwM2cjTB7VvMhREDJND84eG0Lz0CeZue7gVy4dz-O1UMAy6_ghvYEslOJ8MYK71du2uV8w8d26maPf_m_b6HuuOddElBfgZjYFWwhpjNModDmZKXHamsBFP3Xt-6an2SyB51igaGpmn190V5Zvo8kwk/4po/kXT0fItVSwCLj4QagxK9mw/h35/h001.Asq1GllC9cmWzWIRdZ3K50d8fC8sPF_cT-N0wkOUle8'
+
+    vi.spyOn(backend, 'loadInsights').mockResolvedValue({
+      generatedAt: '2026-04-07T12:00:00Z',
+      windowDays: 30,
+      status: {
+        ready: true,
+        lastRunAt: '2026-04-07T12:00:00Z',
+        runs: 1,
+        cards: 1,
+        topics: 0,
+        threads: 0,
+        queryGroups: 1,
+        referencePages: 0,
+        contentCoverage: 0.001,
+        warning: null,
+      },
+      cards: [
+        {
+          cardId: 'card-long-url',
+          kind: 'open-loop',
+          title: `Open loop: ${longUrl}`,
+          summary: 'This line is still active.',
+          windowDays: 30,
+          profileId: 'chrome:Default',
+          score: 0.84,
+          chromiumEnhanced: true,
+          evidence: [],
+        },
+      ],
+      queryGroups: [
+        {
+          queryGroupId: 'query-group-long-url',
+          profileId: 'chrome:Default',
+          threadId: null,
+          title: longUrl,
+          rootQuery: longUrl,
+          latestQuery: longUrl,
+          firstSeenAt: '2026-04-06T18:00:00Z',
+          lastSeenAt: '2026-04-07T09:15:00Z',
+          visitCount: 4,
+          burstCount: 2,
+          stepCount: 1,
+          confidence: 0.81,
+          evidenceTier: 'tier-a',
+          chromiumEnhanced: true,
+          steps: [longUrl],
+          stages: ['broad'],
+          evidence: [],
+        },
+      ],
+      topics: [],
+      threads: [],
+      queryLadders: [],
+      referencePages: [],
+      sourceEffectiveness: [],
+      templateSummaries: [],
+      workflowMap: {
+        profileId: 'chrome:Default',
+        roles: [],
+        edges: [],
+        chromiumEnhanced: true,
+      },
+      profileFacets: [],
+      canonical: {
+        windowVisitCount: 1,
+        windowUniqueDomains: 1,
+        onThisDay: [],
+        topDomains: [],
+      },
+      notes: [],
+    })
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue({
+      queue: {
+        queued: 0,
+        running: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        lastActivityAt: null,
+      },
+      plugins: [],
+      modules: [],
+      recentJobs: [],
+      notes: [],
+    })
+
+    renderSurface(<InsightsPage />, {
+      language: 'en',
+      route: '/insights',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(formatInsightCoverage(0.001, 'en')),
+    ).toBeVisible()
+    expect(await screen.findByText(insightsT('queryGroups'))).toBeVisible()
+    expect(screen.getByText(compactInsightText(longUrl, 88))).toBeVisible()
+    expect(
+      screen.getByText(compactInsightText(`Open loop: ${longUrl}`, 88)),
+    ).toBeVisible()
+    expect(screen.queryByText(longUrl)).not.toBeInTheDocument()
   })
 
   test('clears stale insights while a newly scoped snapshot is loading', async () => {
