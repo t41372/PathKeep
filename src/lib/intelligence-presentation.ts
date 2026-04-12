@@ -1,7 +1,4 @@
-import type {
-  EnrichmentPluginStatus,
-  IntelligenceJobOverview,
-} from './types'
+import type { EnrichmentPluginStatus, IntelligenceJobOverview } from './types'
 
 type JobsTranslator = (
   key: string,

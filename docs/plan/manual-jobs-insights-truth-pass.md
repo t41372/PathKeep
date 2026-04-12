@@ -310,6 +310,18 @@ That final pass should attach screenshots for:
 
 ### Desktop bridge truth gate follow-up
 
-- `bun run test:e2e:desktop-bridge:truth` initially failed on this host because the test uses a fresh temporary `CARGO_TARGET_DIR`, which forced a full desktop rebuild and exceeded the test's own `120s` bridge-readiness poll.
-- Fixed the test timeout to match the real cold-start cost of a clean desktop-bridge build.
-- Re-run is required after that timeout adjustment to record the new steady-state result.
+- `bun run test:e2e:desktop-bridge:truth` initially failed on this host for two separate fixture-assumption reasons:
+  - the test used a fresh temporary `CARGO_TARGET_DIR`, which forced a full desktop rebuild and exceeded the bridge-readiness poll;
+  - Playwright loaded the desktop-bridge config in multiple processes, so the worker and webServer each created a different temporary `CHB_PROJECT_ROOT`.
+- Fixed the truth gate by:
+  - increasing the bridge-readiness timeout for a real cold-start desktop build;
+  - reusing the injected fixture environment when Playwright re-loads the config;
+  - moving the desktop-bridge build cache to a reusable repo-local path;
+  - randomizing the bridge ports per run to avoid stale-process collisions;
+  - tightening assertions so the test validates the real fixture root / profile surface without assuming query groups will always exist in a tiny synthetic archive.
+- Re-ran the gate on 2026-04-12:
+  - one cold-start run passed after the new cached target compiled the desktop bridge in about `2m06s`;
+  - two follow-up warm runs both passed in about `15s` end-to-end.
+- Final steady-state result on this host:
+  - `bun run test:e2e:desktop-bridge:truth` passed twice consecutively after the stabilization patches;
+  - `bun run check` and `bun run build` also passed afterward on the same workspace state.

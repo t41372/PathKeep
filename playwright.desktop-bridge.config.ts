@@ -9,7 +9,38 @@ function chromeTimestampMicros(timestampMs: number) {
   return Math.trunc(timestampMs * 1_000 + 11_644_473_600_000_000)
 }
 
+function resolveDesktopBridgePortOverrides(env: NodeJS.ProcessEnv) {
+  const randomOffset = Math.trunc(Math.random() * 2_000)
+
+  return {
+    devServerPort:
+      env.PATHKEEP_DEV_SERVER_PORT ?? String(15_420 + randomOffset),
+    devIpcPort: env.PATHKEEP_DEV_IPC_PORT ?? String(43_118 + randomOffset),
+  }
+}
+
 function prepareDesktopBridgeFixture() {
+  const existingProjectRoot = process.env.CHB_PROJECT_ROOT
+  const existingChromeUserDataRoot = process.env.CHB_CHROME_USER_DATA_DIR
+  const existingKeyringRoot = process.env.CHB_TEST_KEYRING_DIR
+  const existingCargoTargetDir =
+    process.env.CHB_CARGO_TARGET_DIR ?? process.env.CARGO_TARGET_DIR
+
+  if (
+    existingProjectRoot &&
+    existingChromeUserDataRoot &&
+    existingKeyringRoot &&
+    existingCargoTargetDir
+  ) {
+    return {
+      projectRoot: existingProjectRoot,
+      chromeUserDataRoot: existingChromeUserDataRoot,
+      keyringRoot: existingKeyringRoot,
+      cargoTargetDir: existingCargoTargetDir,
+      profileId: 'chrome:Default',
+    }
+  }
+
   // Use a synthetic Chrome profile so the desktop bridge can exercise the real Rust archive path in CI.
   const fixtureRoot = mkdtempSync(
     path.join(os.tmpdir(), 'pathkeep-desktop-bridge-'),
@@ -18,7 +49,16 @@ function prepareDesktopBridgeFixture() {
   const chromeUserDataRoot = path.join(fixtureRoot, 'chrome-user-data')
   const profileRoot = path.join(chromeUserDataRoot, 'Default')
   const keyringRoot = path.join(fixtureRoot, 'keyring')
-  const cargoTargetDir = path.join(fixtureRoot, 'cargo-target')
+  // Keep the build cache stable across runs so the truth gate does not pay a full Rust rebuild every time.
+  const cargoTargetDir =
+    process.env.CHB_CARGO_TARGET_DIR ??
+    path.join(
+      process.cwd(),
+      'var',
+      'playwright',
+      'desktop-bridge',
+      'cargo-target',
+    )
 
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(chromeUserDataRoot, { recursive: true })
@@ -186,10 +226,13 @@ function prepareDesktopBridgeFixture() {
 }
 
 prepareDesktopBridgeFixture()
+const desktopBridgePorts = resolveDesktopBridgePortOverrides(process.env)
+process.env.PATHKEEP_DEV_SERVER_PORT = desktopBridgePorts.devServerPort
+process.env.PATHKEEP_DEV_IPC_PORT = desktopBridgePorts.devIpcPort
 const desktopBridgeEnv = resolveDesktopBridgeEnv({
   ...process.env,
-  PATHKEEP_DEV_SERVER_PORT: process.env.PATHKEEP_DEV_SERVER_PORT ?? '15420',
-  PATHKEEP_DEV_IPC_PORT: process.env.PATHKEEP_DEV_IPC_PORT ?? '43118',
+  PATHKEEP_DEV_SERVER_PORT: desktopBridgePorts.devServerPort,
+  PATHKEEP_DEV_IPC_PORT: desktopBridgePorts.devIpcPort,
 })
 
 const desktopBridgeCommand =

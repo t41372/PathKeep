@@ -75,8 +75,6 @@ describe('intelligence presentation helpers', () => {
         "Intelligence job 56600 is in state 'running' and cannot be retried.",
       ),
     ).toBe(true)
-    expect(runtimeJobMutationNeedsRefresh('429 from upstream host')).toBe(
-      false,
-    )
+    expect(runtimeJobMutationNeedsRefresh('429 from upstream host')).toBe(false)
   })
 })
