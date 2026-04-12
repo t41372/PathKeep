@@ -52,13 +52,13 @@ pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
 pub use insights::{
-    clear_derived_intelligence_state, execute_enrichment_job_by_id, explain_insight,
-    insight_status, load_insight_thread_detail, load_insights, run_insights,
+    InsightsRunCancelled, clear_derived_intelligence_state, execute_enrichment_job_by_id,
+    explain_insight, insight_status, load_insight_thread_detail, load_insights, run_insights,
     run_insights_with_progress,
 };
 pub use intelligence_runtime::{
-    cancel_intelligence_job, load_intelligence_runtime, retry_intelligence_job,
-    update_intelligence_job_artifact,
+    cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,
+    retry_intelligence_job, update_intelligence_job_artifact,
 };
 pub use models::*;
 pub use remote::{preview_remote_backup, run_remote_backup, verify_remote_backup};

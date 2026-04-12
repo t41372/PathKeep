@@ -12,7 +12,111 @@ use super::*;
 /// Ensures the AI compatibility tables exist in the canonical archive.
 pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(AI_SCHEMA_SQL)?;
+    migrate_ai_embeddings_to_blob(connection)?;
     ensure_ai_assistant_run_columns(connection)?;
+    Ok(())
+}
+
+fn migrate_ai_embeddings_to_blob(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(ai_embeddings)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_blob = columns.iter().any(|column| column == "embedding_blob");
+    let has_json = columns.iter().any(|column| column == "embedding_json");
+    if has_blob && !has_json {
+        return Ok(());
+    }
+    if !has_json {
+        anyhow::bail!("ai_embeddings is missing both embedding_blob and embedding_json");
+    }
+
+    #[derive(Debug)]
+    struct LegacyEmbeddingRow {
+        id: i64,
+        history_id: i64,
+        profile_id: String,
+        url: String,
+        title: Option<String>,
+        domain: String,
+        visited_at: String,
+        content: String,
+        content_hash: String,
+        provider_id: String,
+        model: String,
+        embedding_blob: Option<Vec<u8>>,
+        embedding_json: Option<String>,
+        dimensions: i64,
+        indexed_at: String,
+    }
+
+    let legacy_sql = if has_blob {
+        "SELECT id, history_id, profile_id, url, title, domain, visited_at, content, content_hash,
+                provider_id, model, embedding_blob, embedding_json, dimensions, indexed_at
+         FROM ai_embeddings
+         ORDER BY id ASC"
+    } else {
+        "SELECT id, history_id, profile_id, url, title, domain, visited_at, content, content_hash,
+                provider_id, model, NULL as embedding_blob, embedding_json, dimensions, indexed_at
+         FROM ai_embeddings
+         ORDER BY id ASC"
+    };
+    let mut legacy_statement = connection.prepare(legacy_sql)?;
+    let legacy_rows = legacy_statement
+        .query_map([], |row: &Row<'_>| {
+            Ok(LegacyEmbeddingRow {
+                id: row.get(0)?,
+                history_id: row.get(1)?,
+                profile_id: row.get(2)?,
+                url: row.get(3)?,
+                title: row.get(4)?,
+                domain: row.get(5)?,
+                visited_at: row.get(6)?,
+                content: row.get(7)?,
+                content_hash: row.get(8)?,
+                provider_id: row.get(9)?,
+                model: row.get(10)?,
+                embedding_blob: row.get(11)?,
+                embedding_json: row.get(12)?,
+                dimensions: row.get(13)?,
+                indexed_at: row.get(14)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    connection.execute_batch("ALTER TABLE ai_embeddings RENAME TO ai_embeddings_legacy_v1;")?;
+    connection.execute_batch(AI_EMBEDDINGS_TABLE_SQL)?;
+    let mut insert = connection.prepare(
+        "INSERT INTO ai_embeddings
+         (id, history_id, profile_id, url, title, domain, visited_at, content, content_hash,
+          provider_id, model, embedding_blob, dimensions, indexed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+    )?;
+    for row in legacy_rows {
+        let embedding_blob = match (row.embedding_blob, row.embedding_json) {
+            (Some(blob), _) if !blob.is_empty() => blob,
+            (_, Some(json)) => embedding_blob_from_json(&json)?,
+            _ => anyhow::bail!("ai_embeddings row {} is missing vector payload", row.id),
+        };
+        insert.execute(rusqlite::params![
+            row.id,
+            row.history_id,
+            row.profile_id,
+            row.url,
+            row.title,
+            row.domain,
+            row.visited_at,
+            row.content,
+            row.content_hash,
+            row.provider_id,
+            row.model,
+            embedding_blob,
+            row.dimensions,
+            row.indexed_at,
+        ])?;
+    }
+    drop(insert);
+    connection.execute_batch("DROP TABLE ai_embeddings_legacy_v1;")?;
     Ok(())
 }
 
@@ -48,7 +152,6 @@ pub fn ai_index_status(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     let queue_status = ai_queue::load_ai_queue_status(
         &connection,
@@ -186,7 +289,6 @@ pub fn ai_queue_status(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     ai_queue::load_ai_queue_status(
         &connection,
@@ -211,7 +313,6 @@ pub fn reconcile_ai_queue_controls(
     }
 
     let connection = open_archive_connection(paths, next_config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     ai_queue::ensure_ai_queue_schema(&connection)?;
 
@@ -297,7 +398,6 @@ pub fn load_assistant_run_response(
     run_id: i64,
 ) -> Result<AiAssistantResponse> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     connection
         .query_row(

@@ -84,7 +84,6 @@ pub fn repair_health_issues(
 ) -> Result<HealthRepairReport> {
     ensure_paths(paths)?;
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
 
     let missing_import_audits = missing_import_audit_batches(&connection)?;
     let broken_visibility_rows: usize = connection

@@ -345,7 +345,6 @@ where
     }
 
     let mut connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
 
     if due_only && let Some(reason) = backup_due_skip_reason(&connection, config)? {
         return Ok(BackupReport {
@@ -1653,13 +1652,10 @@ fn retention_snapshot_bucket(
 ) -> Result<RetentionBucket> {
     let item_count = if config.initialized {
         match open_archive_connection(paths, config, key) {
-            Ok(connection) => {
-                create_schema(&connection)?;
-                connection
-                    .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get::<_, i64>(0))
-                    .unwrap_or_default()
-                    .max(0) as usize
-            }
+            Ok(connection) => connection
+                .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get::<_, i64>(0))
+                .unwrap_or_default()
+                .max(0) as usize,
             Err(_) => count_path_entries(&paths.raw_snapshots_dir),
         }
     } else {
@@ -2579,9 +2575,9 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO ai_embeddings
-                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at)
-                 VALUES (999, 'takeout::browser-history', 'https://example.com/import', 'Imported', 'example.com', ?1, 'Imported', 'hash', 'provider', 'model', '[0.1]', 1, ?1)",
-                [now_rfc3339()],
+                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_blob, dimensions, indexed_at)
+                 VALUES (999, 'takeout::browser-history', 'https://example.com/import', 'Imported', 'example.com', ?1, 'Imported', 'hash', 'provider', 'model', ?2, 1, ?1)",
+                rusqlite::params![now_rfc3339(), vec![0xCD_u8, 0xCC, 0xCC, 0x3D]],
             )
             .expect("insert stale ai embedding");
         connection

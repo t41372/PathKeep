@@ -31,14 +31,14 @@ use vault_core::{
     AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
     AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, DeterministicRebuildQueueReport,
     ExplainInsightRequest, InsightExplanation, InsightSnapshot, InsightThreadDetail,
-    IntelligenceRuntimeSnapshot, RunInsightsReport, RunInsightsRequest, ai_queue,
-    answer_history_question, build_ai_index, cancel_intelligence_job, execute_enrichment_job_by_id,
-    explain_insight,
+    InsightsRunCancelled, IntelligenceRuntimeSnapshot, RunInsightsReport, RunInsightsRequest,
+    ai_queue, answer_history_question, build_ai_index, cancel_intelligence_job,
+    execute_enrichment_job_by_id, explain_insight, intelligence_job_stop_requested,
     intelligence_runtime::{
         DETERMINISTIC_REBUILD_JOB_TYPE, claim_deterministic_rebuild_job,
         enqueue_deterministic_rebuild_job, mark_intelligence_job_failed,
-        mark_intelligence_job_succeeded, next_queued_intelligence_job,
-        update_intelligence_job_artifact,
+        mark_intelligence_job_succeeded, mark_running_intelligence_job_cancelled,
+        next_queued_intelligence_job, update_intelligence_job_artifact,
     },
     load_assistant_run_response, load_insight_thread_detail, load_insights,
     load_intelligence_runtime, preview_ai_integrations, retry_intelligence_job, run_insights,
@@ -75,23 +75,42 @@ pub(crate) fn complete_claimed_index_job(
                 "Indexed {} new / {} updated row(s).",
                 report.indexed_items, report.updated_items
             );
-            ai_queue::mark_ai_job_succeeded(
-                connection,
-                claimed.id,
-                report.run_id,
-                Some(summary.as_str()),
-            )?;
+            let cancelled = if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
+                true
+            } else {
+                !ai_queue::mark_ai_job_succeeded(
+                    connection,
+                    claimed.id,
+                    report.run_id,
+                    Some(summary.as_str()),
+                )?
+            };
+            if cancelled {
+                let _ = ai_queue::mark_running_ai_job_cancelled(
+                    connection,
+                    claimed.id,
+                    Some("Index build cancelled from the UI."),
+                )?;
+            }
             Ok(report)
         }
         Err(error) => {
             let failure = queue_failure_from_error(&error);
-            ai_queue::mark_ai_job_failed(
-                connection,
-                claimed.id,
-                None,
-                &failure,
-                config.ai.job_queue_paused,
-            )?;
+            if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
+                let _ = ai_queue::mark_running_ai_job_cancelled(
+                    connection,
+                    claimed.id,
+                    Some("Index build cancelled from the UI."),
+                )?;
+            } else {
+                ai_queue::mark_ai_job_failed(
+                    connection,
+                    claimed.id,
+                    None,
+                    &failure,
+                    config.ai.job_queue_paused,
+                )?;
+            }
             Err(error)
         }
     }
@@ -130,23 +149,42 @@ pub(crate) fn complete_claimed_assistant_job(
         Ok(mut response) => {
             response.job_id = Some(claimed.id);
             let summary = format!("Answered with {} citation(s).", response.citations.len());
-            ai_queue::mark_ai_job_succeeded(
-                connection,
-                claimed.id,
-                response.run_id,
-                Some(summary.as_str()),
-            )?;
+            let cancelled = if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
+                true
+            } else {
+                !ai_queue::mark_ai_job_succeeded(
+                    connection,
+                    claimed.id,
+                    response.run_id,
+                    Some(summary.as_str()),
+                )?
+            };
+            if cancelled {
+                let _ = ai_queue::mark_running_ai_job_cancelled(
+                    connection,
+                    claimed.id,
+                    Some("Assistant run cancelled from the UI."),
+                )?;
+            }
             Ok(response)
         }
         Err(error) => {
             let failure = queue_failure_from_error(&error);
-            ai_queue::mark_ai_job_failed(
-                connection,
-                claimed.id,
-                None,
-                &failure,
-                config.ai.job_queue_paused,
-            )?;
+            if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
+                let _ = ai_queue::mark_running_ai_job_cancelled(
+                    connection,
+                    claimed.id,
+                    Some("Assistant run cancelled from the UI."),
+                )?;
+            } else {
+                ai_queue::mark_ai_job_failed(
+                    connection,
+                    claimed.id,
+                    None,
+                    &failure,
+                    config.ai.job_queue_paused,
+                )?;
+            }
             Err(error)
         }
     }
@@ -608,6 +646,15 @@ fn execute_deterministic_rebuild_job(
     let embedding_provider = selected_optional_embedding_runtime(&refresh_config).ok().flatten();
     let initial_profile =
         payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
+    let cancel_requested = |detail: &str| -> Result<()> {
+        if intelligence_job_stop_requested(&connection, job_id)? {
+            let _ =
+                mark_running_intelligence_job_cancelled(&connection, job_id, "cancelled from UI");
+            return Err(InsightsRunCancelled::new(detail).into());
+        }
+        Ok(())
+    };
+    cancel_requested("Deterministic rebuild was cancelled before work started.")?;
     let _ = update_intelligence_job_artifact(
         &connection,
         job_id,
@@ -627,6 +674,9 @@ fn execute_deterministic_rebuild_job(
         embedding_provider.as_ref(),
         &payload.request,
         |progress| {
+            cancel_requested(
+                "Deterministic rebuild was cancelled while progress was being reported.",
+            )?;
             let artifact = json!({
                 "kind": "deterministic-rebuild",
                 "phase": progress.phase_label,
@@ -638,10 +688,22 @@ fn execute_deterministic_rebuild_job(
                 "progressPercent": progress.percent(),
             });
             let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
+            cancel_requested(
+                "Deterministic rebuild was cancelled after the latest progress update.",
+            )?;
+            Ok(())
         },
     ) {
         Ok(report) => {
-            mark_intelligence_job_succeeded(
+            if intelligence_job_stop_requested(&connection, job_id)? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    &connection,
+                    job_id,
+                    "cancelled from UI",
+                );
+                return Ok(true);
+            }
+            if !mark_intelligence_job_succeeded(
                 &connection,
                 job_id,
                 &json!({
@@ -663,10 +725,24 @@ fn execute_deterministic_rebuild_job(
                     "threadCount": report.thread_count,
                     "notes": report.notes,
                 }),
-            )?;
+            )? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    &connection,
+                    job_id,
+                    "cancelled from UI",
+                );
+            }
             Ok(true)
         }
         Err(error) => {
+            if error.downcast_ref::<InsightsRunCancelled>().is_some() {
+                let _ = mark_running_intelligence_job_cancelled(
+                    &connection,
+                    job_id,
+                    "cancelled from UI",
+                );
+                return Ok(true);
+            }
             mark_intelligence_job_failed(&connection, job_id, &error.to_string())?;
             Err(error)
         }

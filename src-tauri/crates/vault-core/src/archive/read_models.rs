@@ -17,8 +17,7 @@ pub fn ensure_archive_initialized(
     let mut next_config = config.clone();
     next_config.initialized = true;
     save_config(paths, &next_config)?;
-    let connection = open_archive_connection(paths, &next_config, key)?;
-    create_schema(&connection)?;
+    let _connection = open_archive_connection(paths, &next_config, key)?;
     archive_status(paths, &next_config, key)
 }
 
@@ -44,7 +43,6 @@ pub fn archive_status(
 
     match open_archive_connection(paths, config, key) {
         Ok(connection) => {
-            create_schema(&connection)?;
             status.unlocked = true;
             status.last_successful_backup_at = connection
                 .query_row(
@@ -76,7 +74,6 @@ pub fn load_recent_runs(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let mut statement = connection.prepare(RECENT_RUNS_SQL)?;
     let rows = statement.query_map([], backup_run_overview_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -102,7 +99,6 @@ pub fn load_dashboard_snapshot(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let totals = load_cached_archive_totals(&connection)?
         .unwrap_or(count_visible_archive_totals(&connection)?);
     let last_successful_backup_at = connection
@@ -145,7 +141,6 @@ pub fn load_audit_run_detail(
     run_id: i64,
 ) -> Result<AuditRunDetail> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let row = connection.query_row(
         "SELECT
            id,

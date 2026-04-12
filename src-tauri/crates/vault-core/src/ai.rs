@@ -10,12 +10,14 @@
 
 mod read_model;
 
+#[cfg(test)]
+use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self, SidecarEmbeddingRow},
-    archive::{create_schema, list_history, open_archive_connection},
+    archive::{list_history, open_archive_connection},
     config::ProjectPaths,
-    insights::preferred_embedding_content,
+    insights::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
         AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
         AiIndexStatus, AiProviderCapabilityReport, AiProviderConfig,
@@ -41,7 +43,12 @@ use rig::{
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{cmp::Ordering, collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Instant,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -93,8 +100,6 @@ struct StoredEmbedding {
     score: f32,
 }
 
-type SemanticRow = (i64, String, String, Option<String>, String, String, String);
-
 #[derive(Debug, Clone, Default)]
 struct AiIndexLedgerRow {
     state: String,
@@ -117,6 +122,30 @@ struct SemanticMatchReport {
     notes: Vec<String>,
 }
 
+const AI_EMBEDDINGS_TABLE_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS ai_embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      history_id INTEGER NOT NULL,
+      profile_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT,
+      domain TEXT NOT NULL,
+      visited_at TEXT NOT NULL,
+      content TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      embedding_blob BLOB NOT NULL,
+      dimensions INTEGER NOT NULL,
+      indexed_at TEXT NOT NULL,
+      UNIQUE(history_id, provider_id, model, content_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_provider_model
+      ON ai_embeddings(provider_id, model);
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_history_id
+      ON ai_embeddings(history_id);
+"#;
+
 const AI_SCHEMA_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS ai_embeddings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,7 +159,7 @@ const AI_SCHEMA_SQL: &str = r#"
       content_hash TEXT NOT NULL,
       provider_id TEXT NOT NULL,
       model TEXT NOT NULL,
-      embedding_json TEXT NOT NULL,
+      embedding_blob BLOB NOT NULL,
       dimensions INTEGER NOT NULL,
       indexed_at TEXT NOT NULL,
       UNIQUE(history_id, provider_id, model, content_hash)
@@ -168,33 +197,16 @@ const AI_SCHEMA_SQL: &str = r#"
       ON ai_embeddings(history_id);
 "#;
 
-const SEMANTIC_MATCHES_SQL: &str = r#"
-    SELECT
-      ai_embeddings.history_id,
-      ai_embeddings.profile_id,
-      ai_embeddings.url,
-      ai_embeddings.title,
-      ai_embeddings.domain,
-      ai_embeddings.visited_at,
-      ai_embeddings.embedding_json
-    FROM ai_embeddings
-    JOIN visit_events
-      ON visit_events.id = ai_embeddings.history_id
-    WHERE ai_embeddings.provider_id = ?1
-      AND ai_embeddings.model = ?2
-      AND (?3 IS NULL OR ai_embeddings.profile_id = ?3)
-      AND (?4 IS NULL OR ai_embeddings.domain LIKE '%' || ?4 || '%')
-"#;
-
 const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
     "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
 const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM visit_events)";
-const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_blob, dimensions, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 const EMBEDDING_BATCH_SIZE: usize = 32;
 const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
+const SQLITE_BATCH_SIZE: usize = 400;
 
 #[derive(Debug, Clone)]
 struct SearchContext {
@@ -373,7 +385,6 @@ pub async fn build_ai_index(
 ) -> Result<AiIndexReport> {
     validate_provider(provider, AiProviderPurpose::Embedding)?;
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     let started_at = now_rfc3339();
     let source_watermark = current_source_watermark(&connection)?;
@@ -470,29 +481,20 @@ pub async fn build_ai_index(
         let mut skipped_items = 0usize;
         let mut sidecar_rows = Vec::with_capacity(candidates.len());
         let mut partial_failure_notes = Vec::new();
+        let existing_history_ids = load_existing_embedding_hashes(
+            &connection,
+            provider,
+            &candidates.iter().map(|visit| visit.history_id).collect::<Vec<_>>(),
+        )?
+        .into_keys()
+        .collect::<HashSet<_>>();
 
         for batch in candidates.chunks(EMBEDDING_BATCH_SIZE) {
             let texts = batch.iter().map(|visit| visit.content.clone()).collect::<Vec<_>>();
             match embed_batch_with_retry(provider, &texts).await {
                 Ok(vectors) if vectors.len() == batch.len() => {
                     for (visit, vector) in batch.iter().zip(vectors.into_iter()) {
-                        let had_prior_index = connection
-                            .query_row(
-                                "SELECT id
-                                 FROM ai_embeddings
-                                 WHERE history_id = ?1
-                                   AND provider_id = ?2
-                                   AND model = ?3
-                                 LIMIT 1",
-                                params![
-                                    visit.history_id,
-                                    provider.config.id,
-                                    provider.config.default_model
-                                ],
-                                |row: &Row<'_>| row.get::<_, i64>(0),
-                            )
-                            .optional()?
-                            .is_some();
+                        let had_prior_index = existing_history_ids.contains(&visit.history_id);
                         upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
                         sidecar_rows.push(SidecarEmbeddingRow {
                             history_id: visit.history_id,
@@ -516,23 +518,7 @@ pub async fn build_ai_index(
                 }
                 Ok(_) | Err(_) => {
                     for visit in batch {
-                        let had_prior_index = connection
-                            .query_row(
-                                "SELECT id
-                                 FROM ai_embeddings
-                                 WHERE history_id = ?1
-                                   AND provider_id = ?2
-                                   AND model = ?3
-                                 LIMIT 1",
-                                params![
-                                    visit.history_id,
-                                    provider.config.id,
-                                    provider.config.default_model
-                                ],
-                                |row: &Row<'_>| row.get::<_, i64>(0),
-                            )
-                            .optional()?
-                            .is_some();
+                        let had_prior_index = existing_history_ids.contains(&visit.history_id);
                         match embed_single_with_retry(provider, &visit.content).await {
                             Ok(vector) => {
                                 upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
@@ -597,7 +583,7 @@ pub async fn build_ai_index(
                     EMBEDDING_BATCH_SIZE
                 ),
                 format!(
-                    "Synced {} row(s) into the LanceDB semantic sidecar. Search still keeps a temporary SQLite compatibility mirror as a fallback path.",
+                    "Synced {} row(s) into the LanceDB semantic sidecar. PathKeep keeps the SQLite mirror only for metadata/debug compatibility, not for full-table semantic fallback scans.",
                     sidecar_synced
                 ),
                 ];
@@ -687,7 +673,6 @@ pub async fn answer_history_question(
         anyhow::bail!("Enable AI analysis and the assistant in Settings before asking questions.")
     }
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     let run_id = begin_ai_run(
         &connection,
@@ -991,8 +976,17 @@ fn load_index_ledger(
 
 fn current_source_watermark(connection: &Connection) -> Result<i64> {
     connection
-        .query_row("SELECT COALESCE(MAX(id), 0) FROM visit_events", [], |row| row.get(0))
-        .context("loading latest visit watermark for AI indexing")
+        .query_row(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0)
+             FROM visit_events",
+            [],
+            |row| {
+                let visible_rows = row.get::<_, i64>(0)?.max(0);
+                let max_history_id = row.get::<_, i64>(1)?.max(0);
+                Ok((visible_rows << 32) ^ max_history_id)
+            },
+        )
+        .context("loading visibility-aware AI index watermark")
 }
 
 fn current_timezone_name() -> String {
@@ -1393,7 +1387,6 @@ async fn semantic_matches(
     request: &AiSearchRequest,
 ) -> Result<SemanticMatchReport> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     let mut notes = Vec::new();
     let ledger =
@@ -1448,42 +1441,49 @@ async fn semantic_matches(
             )? > 0
             {
                 notes.push(
-                    "The LanceDB semantic sidecar is missing or empty, so PathKeep fell back to the SQLite compatibility mirror."
+                    "The LanceDB semantic sidecar is missing or empty, so PathKeep returned lexical matches only instead of scanning the SQLite compatibility mirror."
                         .to_string(),
                 );
             }
         }
         Err(error) => {
             notes.push(format!(
-                "The LanceDB semantic sidecar could not answer this search ({}). PathKeep fell back to the SQLite compatibility mirror.",
+                "The LanceDB semantic sidecar could not answer this search ({}). PathKeep returned lexical matches only instead of scanning the SQLite compatibility mirror.",
                 error
             ));
         }
     }
+    Ok(SemanticMatchReport { items: Vec::new(), notes })
+}
 
-    let rows = load_semantic_rows(&connection, provider, request)?;
-
-    let mut scored = Vec::new();
-    for row in rows {
-        let (history_id, profile_id, url, title, domain, visited_at, embedding_json) = row;
-        let stored_vector = serde_json::from_str::<Vec<f32>>(&embedding_json)
-            .with_context(|| format!("parsing ai embedding for history row {history_id}"))?;
-        let score = cosine_similarity(&query_vector, &stored_vector);
-        if score.is_finite() {
-            scored.push(StoredEmbedding {
-                history_id,
-                profile_id,
-                url,
-                title,
-                domain,
-                visited_at,
-                score,
-            });
+fn load_existing_embedding_hashes(
+    connection: &Connection,
+    provider: &AiProviderRuntime,
+    history_ids: &[i64],
+) -> Result<HashMap<i64, String>> {
+    let mut hashes = HashMap::new();
+    for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT history_id, content_hash
+             FROM ai_embeddings
+             WHERE provider_id = ?1
+               AND model = ?2
+               AND history_id IN ({placeholders})"
+        );
+        let mut statement = connection.prepare(&sql)?;
+        let params = std::iter::once(&provider.config.id as &dyn rusqlite::ToSql)
+            .chain(std::iter::once(&provider.config.default_model as &dyn rusqlite::ToSql))
+            .chain(chunk.iter().map(|history_id| history_id as &dyn rusqlite::ToSql));
+        let rows = statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (history_id, content_hash) = row?;
+            hashes.insert(history_id, content_hash);
         }
     }
-
-    scored.sort_by(sort_stored_embeddings_desc);
-    Ok(SemanticMatchReport { items: scored, notes })
+    Ok(hashes)
 }
 
 fn collect_visits_to_index(
@@ -1507,54 +1507,42 @@ fn collect_visits_to_index(
     let mut rows =
         if limit.is_some() { statement.query(params![limit_sql])? } else { statement.query([])? };
 
-    let mut visits = Vec::new();
+    let mut raw_visits = Vec::new();
     while let Some(row) = rows.next()? {
-        let history_id: i64 = row.get(0)?;
-        let profile_id: String = row.get(1)?;
-        let url: String = row.get(2)?;
-        let title: Option<String> = row.get(3)?;
-        let visited_at = crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?);
-        let domain = url_domain(&url);
-        let content = preferred_embedding_content(
-            connection,
-            history_id,
-            &profile_id,
-            &url,
-            title.as_deref(),
-            &visited_at,
-        )?;
-        let content_hash = sha256_hex(content.as_bytes());
+        raw_visits.push(IndexedVisit {
+            history_id: row.get(0)?,
+            profile_id: row.get(1)?,
+            url: row.get(2)?,
+            title: row.get(3)?,
+            domain: String::new(),
+            visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?),
+            content: String::new(),
+            content_hash: String::new(),
+        });
+    }
 
-        let exists: Option<i64> = connection
-            .query_row(
-                "SELECT id
-                 FROM ai_embeddings
-                 WHERE history_id = ?1
-                   AND provider_id = ?2
-                   AND model = ?3
-                   AND content_hash = ?4
-                 LIMIT 1",
-                params![
-                    history_id,
-                    provider.config.id,
-                    provider.config.default_model,
-                    content_hash
-                ],
-                |inner_row| inner_row.get(0),
-            )
-            .optional()?;
-        if exists.is_none() {
-            visits.push(IndexedVisit {
-                history_id,
-                profile_id,
-                url,
-                title,
-                domain,
-                visited_at,
-                content,
-                content_hash,
-            });
+    let history_ids = raw_visits.iter().map(|visit| visit.history_id).collect::<Vec<_>>();
+    let existing_hashes = load_existing_embedding_hashes(connection, provider, &history_ids)?;
+    let enrichments = load_best_enrichment_map_by_history_ids(connection, &history_ids)?;
+    let mut visits = Vec::with_capacity(raw_visits.len());
+    for mut visit in raw_visits {
+        let enrichment = enrichments.get(&visit.history_id);
+        let content = build_embedding_content_from_parts(
+            &visit.profile_id,
+            &visit.url,
+            visit.title.as_deref(),
+            &visit.visited_at,
+            enrichment.and_then(|value| value.readable_title.as_deref()),
+            enrichment.and_then(|value| value.readable_text.as_deref()),
+        );
+        let content_hash = sha256_hex(content.as_bytes());
+        if existing_hashes.get(&visit.history_id) == Some(&content_hash) {
+            continue;
         }
+        visit.domain = url_domain(&visit.url);
+        visit.content = content;
+        visit.content_hash = content_hash;
+        visits.push(visit);
     }
     Ok(visits)
 }
@@ -1678,7 +1666,7 @@ fn ai_embeddings_storage_bytes(connection: &Connection) -> Result<u64> {
             LENGTH(IFNULL(content_hash, '')) +
             LENGTH(IFNULL(provider_id, '')) +
             LENGTH(IFNULL(model, '')) +
-            LENGTH(IFNULL(embedding_json, ''))
+            LENGTH(IFNULL(embedding_blob, X''))
          ), 0)
          FROM ai_embeddings",
         [],
@@ -1700,6 +1688,34 @@ fn ai_embedding_token_estimate(connection: &Connection) -> Result<u64> {
     Ok(characters.div_ceil(4))
 }
 
+fn encode_embedding_blob(vector: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(vector));
+    for value in vector {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(test)]
+fn decode_embedding_blob(bytes: &[u8]) -> Result<Vec<f32>> {
+    if bytes.len() % std::mem::size_of::<f32>() != 0 {
+        anyhow::bail!("embedding blob length {} is not divisible by 4", bytes.len());
+    }
+    Ok(bytes
+        .chunks_exact(std::mem::size_of::<f32>())
+        .map(|chunk| {
+            let mut word = [0u8; std::mem::size_of::<f32>()];
+            word.copy_from_slice(chunk);
+            f32::from_le_bytes(word)
+        })
+        .collect())
+}
+
+fn embedding_blob_from_json(json: &str) -> Result<Vec<u8>> {
+    let vector = serde_json::from_str::<Vec<f32>>(json).context("parsing legacy embedding json")?;
+    Ok(encode_embedding_blob(&vector))
+}
+
 fn clear_provider_embeddings(connection: &Connection, provider: &AiProviderRuntime) -> Result<()> {
     #[rustfmt::skip]
     connection.execute(CLEAR_PROVIDER_EMBEDDINGS_SQL, params![provider.config.id, provider.config.default_model])?;
@@ -1714,7 +1730,7 @@ fn upsert_embedding(
     indexed_at: &str,
 ) -> Result<()> {
     #[rustfmt::skip]
-    connection.execute(UPSERT_EMBEDDING_SQL, params![visit.history_id, visit.profile_id, visit.url, visit.title, visit.domain, visit.visited_at, visit.content, visit.content_hash, provider.config.id, provider.config.default_model, serde_json::to_string(vector)?, vector.len() as i64, indexed_at])?;
+    connection.execute(UPSERT_EMBEDDING_SQL, params![visit.history_id, visit.profile_id, visit.url, visit.title, visit.domain, visit.visited_at, visit.content, visit.content_hash, provider.config.id, provider.config.default_model, encode_embedding_blob(vector), vector.len() as i64, indexed_at])?;
     Ok(())
 }
 
@@ -1760,30 +1776,6 @@ fn lexical_history_results(
     )
 }
 
-fn load_semantic_rows(
-    connection: &Connection,
-    provider: &AiProviderRuntime,
-    request: &AiSearchRequest,
-) -> Result<Vec<SemanticRow>> {
-    let mut statement = connection.prepare(SEMANTIC_MATCHES_SQL)?;
-    #[rustfmt::skip]
-    let mut rows = statement.query(params![provider.config.id, provider.config.default_model, request.profile_id, request.domain])?;
-    let mut collected = Vec::new();
-    while let Some(row) = rows.next()? {
-        let embedding_json: String = row.get(6)?;
-        collected.push((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, String>(5)?,
-            embedding_json,
-        ));
-    }
-    Ok(collected)
-}
-
 fn sort_stored_embeddings_desc(left: &StoredEmbedding, right: &StoredEmbedding) -> Ordering {
     right.score.partial_cmp(&left.score).unwrap_or(Ordering::Equal)
 }
@@ -1823,6 +1815,7 @@ fn lexical_boost(index: usize, limit: usize) -> f32 {
     ((limit.saturating_sub(index)) as f32 / limit.max(1) as f32) * 0.08
 }
 
+#[cfg(test)]
 fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
     let len = left.len().min(right.len());
     if len == 0 {
@@ -2140,13 +2133,14 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO ai_embeddings
-                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at)
-                 VALUES (?1, 'chrome:Default', 'https://example.com', 'Example', 'example.com', '2026-04-04T00:00:00Z', 'content', ?2, ?3, ?4, '[1.0,0.0,0.0]', 3, ?5)",
+                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_blob, dimensions, indexed_at)
+                 VALUES (?1, 'chrome:Default', 'https://example.com', 'Example', 'example.com', '2026-04-04T00:00:00Z', 'content', ?2, ?3, ?4, ?5, 3, ?6)",
                 params![
                     history_id,
                     content_hash,
                     provider.config.id,
                     provider.config.default_model,
+                    encode_embedding_blob(&[1.0, 0.0, 0.0]),
                     now_rfc3339()
                 ],
             )
@@ -2159,23 +2153,57 @@ mod tests {
         provider: &AiProviderRuntime,
         vector: &[f32],
     ) {
-        let vector_json = serde_json::to_string(vector).expect("serialize vector");
         connection
             .execute(
                 "INSERT INTO ai_embeddings
-                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at)
+                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_blob, dimensions, indexed_at)
                  VALUES (?1, 'chrome:Default', 'https://example.com', 'Example', 'example.com', '2026-04-04T00:00:00Z', 'content', ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     history_id,
                     format!("hash-{history_id}"),
                     provider.config.id,
                     provider.config.default_model,
-                    vector_json,
+                    encode_embedding_blob(vector),
                     vector.len() as i64,
                     now_rfc3339()
                 ],
             )
             .expect("insert embedding with vector");
+    }
+
+    fn sync_sidecar_vectors(
+        paths: &ProjectPaths,
+        provider: &AiProviderRuntime,
+        rows: &[(i64, Vec<f32>)],
+    ) {
+        let runtime = Runtime::new().expect("runtime");
+        let sidecar_rows = rows
+            .iter()
+            .map(|(history_id, vector)| SidecarEmbeddingRow {
+                history_id: *history_id,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com".to_string(),
+                title: Some("Example".to_string()),
+                domain: "example.com".to_string(),
+                visited_at: "2026-04-04T00:00:00Z".to_string(),
+                provider_id: provider.config.id.clone(),
+                model: provider.config.default_model.clone(),
+                content_hash: format!("hash-{history_id}"),
+                indexed_at: now_rfc3339(),
+                vector: vector.clone(),
+            })
+            .collect::<Vec<_>>();
+        runtime
+            .block_on(ai_sidecar::sync_provider_embeddings(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+                &sidecar_rows,
+                true,
+                false,
+                &[],
+            ))
+            .expect("sync sidecar vectors");
     }
 
     fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
@@ -2655,6 +2683,69 @@ mod tests {
     }
 
     #[test]
+    fn ensure_ai_schema_migrates_legacy_embedding_json_rows_to_blob() {
+        let paths = test_paths();
+        std::fs::create_dir_all(
+            paths.archive_database_path.parent().expect("archive database parent"),
+        )
+        .expect("create archive dir");
+        let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE ai_embeddings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  history_id INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT,
+  domain TEXT NOT NULL,
+  visited_at TEXT NOT NULL,
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  embedding_json TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(history_id, provider_id, model, content_hash)
+);
+"#,
+            )
+            .expect("create legacy table");
+        connection
+            .execute(
+                "INSERT INTO ai_embeddings
+                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_json, dimensions, indexed_at)
+                 VALUES (1, 'chrome:Default', 'https://example.com', 'Example', 'example.com', '2026-04-04T00:00:00Z', 'content', 'hash', 'embed', 'text-embedding-3-small', '[1.0,0.0,0.5]', 3, ?1)",
+                [now_rfc3339()],
+            )
+            .expect("insert legacy row");
+
+        ensure_ai_schema(&connection).expect("migrate schema");
+
+        let columns = connection
+            .prepare("PRAGMA table_info(ai_embeddings)")
+            .expect("prepare pragma")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query pragma")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect columns");
+        assert!(columns.iter().any(|column| column == "embedding_blob"));
+        assert!(!columns.iter().any(|column| column == "embedding_json"));
+
+        let blob: Vec<u8> = connection
+            .query_row("SELECT embedding_blob FROM ai_embeddings WHERE history_id = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("load migrated blob");
+        assert_eq!(
+            decode_embedding_blob(&blob).expect("decode migrated blob"),
+            vec![1.0, 0.0, 0.5]
+        );
+    }
+
+    #[test]
     fn build_assistant_preamble_covers_empty_and_seeded_context() {
         let config = base_config();
         let empty = build_assistant_preamble(&config, &AiSearchResponse::default());
@@ -3009,14 +3100,14 @@ mod tests {
     }
 
     #[test]
-    fn semantic_matches_orders_results_by_score() {
+    fn semantic_matches_returns_sidecar_results_when_available() {
         let runtime = Runtime::new().expect("runtime");
         let (paths, config, connection) = prepared_archive();
         let embedding = embedding_provider();
         seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-        seed_visit(&connection, 2, "chrome:Default", "https://example.com/hello", Some("Hello"), 2);
-        seed_embedding_with_vector(&connection, 1, &embedding, &[0.0, 1.0, 0.0, 0.0]);
-        seed_embedding_with_vector(&connection, 2, &embedding, &[0.25, 0.25, 0.25, 0.25]);
+        let query_vector = runtime.block_on(embed_query(&embedding, "docs")).expect("query vector");
+        seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
+        sync_sidecar_vectors(&paths, &embedding, &[(1, query_vector.clone())]);
 
         let matches = runtime
             .block_on(semantic_matches(
@@ -3025,7 +3116,7 @@ mod tests {
                 None,
                 &embedding,
                 &AiSearchRequest {
-                    query: "hello".to_string(),
+                    query: "docs".to_string(),
                     profile_id: None,
                     domain: None,
                     limit: Some(5),
@@ -3033,9 +3124,8 @@ mod tests {
                 },
             ))
             .expect("semantic matches");
-        assert_eq!(matches.items.len(), 2);
-        assert_eq!(matches.items[0].history_id, 2);
-        assert!(matches.items[0].score >= matches.items[1].score);
+        assert_eq!(matches.items.len(), 1);
+        assert_eq!(matches.items[0].history_id, 1);
     }
 
     #[test]
@@ -3046,6 +3136,7 @@ mod tests {
         seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
         let query_vector = runtime.block_on(embed_query(&embedding, "docs")).expect("query vector");
         seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
+        sync_sidecar_vectors(&paths, &embedding, &[(1, query_vector.clone())]);
 
         let search = runtime
             .block_on(search_history_internal(

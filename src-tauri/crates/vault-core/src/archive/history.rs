@@ -22,7 +22,6 @@ pub fn list_history(
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
     let limit_usize = limit as usize;
     let requested_page = query.page.map(|page| usize::try_from(page.max(1)).unwrap_or(usize::MAX));

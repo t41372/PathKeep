@@ -211,11 +211,7 @@ pub(crate) fn ai_archive_connection(
     config: &AppConfig,
     session_database_key: Option<&str>,
 ) -> Result<rusqlite::Connection> {
-    let connection = archive::open_archive_connection(paths, config, session_database_key)?;
-    archive::create_schema(&connection)?;
-    vault_core::ai::ensure_ai_schema(&connection)?;
-    ai_queue::ensure_ai_queue_schema(&connection)?;
-    Ok(connection)
+    archive::open_archive_connection(paths, config, session_database_key)
 }
 
 /// Looks up the provider config referenced by a request before resolving secrets.

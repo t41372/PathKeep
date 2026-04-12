@@ -6,10 +6,17 @@ use crate::models::{
     InsightTopicSummary,
 };
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use rusqlite::{Connection, Row, params};
 
 use super::grouping::{BurstRecord, QueryGroupRecord, ThreadRecord};
+
+fn scoped_query_group_id(profile_scope: &str, window_days: u32, query_group_id: &str) -> String {
+    format!("{profile_scope}:{window_days}:{query_group_id}")
+}
+
+fn scoped_thread_id(profile_scope: &str, window_days: u32, thread_id: &str) -> String {
+    format!("{profile_scope}:{window_days}:{thread_id}")
+}
 
 pub(super) fn persist_bursts(connection: &Connection, bursts: &[BurstRecord]) -> Result<()> {
     connection.execute("DELETE FROM insight_bursts", [])?;
@@ -35,22 +42,49 @@ pub(super) fn persist_bursts(connection: &Connection, bursts: &[BurstRecord]) ->
 
 pub(super) fn persist_query_groups(
     connection: &Connection,
+    profile_scope: &str,
+    window_days: u32,
     query_groups: &[QueryGroupRecord],
     visits: &[VisitRecord],
 ) -> Result<()> {
-    connection.execute("DELETE FROM insight_query_groups", [])?;
-    connection.execute("DELETE FROM insight_query_group_members", [])?;
+    let scoped_ids = connection
+        .prepare(
+            "SELECT query_group_id
+             FROM insight_query_groups
+             WHERE profile_scope = ?1 AND window_days = ?2",
+        )?
+        .query_map(params![profile_scope, window_days as i64], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for query_group_id in &scoped_ids {
+        connection.execute(
+            "DELETE FROM insight_query_group_members WHERE query_group_id = ?1",
+            [query_group_id],
+        )?;
+    }
+    connection.execute(
+        "DELETE FROM insight_query_groups WHERE profile_scope = ?1 AND window_days = ?2",
+        params![profile_scope, window_days as i64],
+    )?;
     for group in query_groups {
+        let query_group_id =
+            scoped_query_group_id(profile_scope, window_days, &group.query_group_id);
+        let thread_id = group
+            .thread_id
+            .as_deref()
+            .map(|value| scoped_thread_id(profile_scope, window_days, value));
         connection.execute(
             "INSERT INTO insight_query_groups
-             (query_group_id, profile_id, thread_id, title, root_query, latest_query, first_seen_at,
-              last_seen_at, visit_count, burst_count, step_count, confidence, evidence_tier,
-              chromium_enhanced, steps_json, stages_json, evidence_json, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+             (query_group_id, profile_scope, window_days, profile_id, thread_id, title, root_query,
+              latest_query, first_seen_at, last_seen_at, visit_count, burst_count, step_count,
+              confidence, evidence_tier, chromium_enhanced, steps_json, stages_json,
+              evidence_json, pipeline_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
-                group.query_group_id,
+                query_group_id,
+                profile_scope,
+                window_days as i64,
                 group.profile_id,
-                group.thread_id,
+                thread_id,
                 group.title,
                 group.root_query,
                 group.latest_query,
@@ -82,7 +116,7 @@ pub(super) fn persist_query_groups(
                  (query_group_id, history_id, ordinal, visited_at)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![
-                    group.query_group_id,
+                    query_group_id,
                     visits[*index].history_id,
                     ordinal as i64,
                     visits[*index].visited_at,
@@ -129,20 +163,40 @@ pub(super) fn persist_topic_summaries(
 
 pub(super) fn persist_threads(
     connection: &Connection,
+    profile_scope: &str,
+    window_days: u32,
     threads: &[ThreadRecord],
     visits: &[VisitRecord],
 ) -> Result<()> {
-    connection.execute("DELETE FROM insight_threads", [])?;
-    connection.execute("DELETE FROM insight_thread_members", [])?;
+    let scoped_ids = connection
+        .prepare(
+            "SELECT thread_id
+             FROM insight_threads
+             WHERE profile_scope = ?1 AND window_days = ?2",
+        )?
+        .query_map(params![profile_scope, window_days as i64], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for thread_id in &scoped_ids {
+        connection
+            .execute("DELETE FROM insight_thread_members WHERE thread_id = ?1", [thread_id])?;
+    }
+    connection.execute(
+        "DELETE FROM insight_threads WHERE profile_scope = ?1 AND window_days = ?2",
+        params![profile_scope, window_days as i64],
+    )?;
     for thread in threads {
+        let thread_id = scoped_thread_id(profile_scope, window_days, &thread.thread_id);
         connection.execute(
             "INSERT INTO insight_threads
-             (thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
-              query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
-              dominant_topic_id, chromium_enhanced, evidence_json, summary_json, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16)",
+             (thread_id, profile_scope, window_days, profile_id, title, status, first_seen_at,
+              last_seen_at, visit_count, query_group_count, reopen_count, open_loop_score,
+              confidence, evidence_tier, dominant_topic_id, chromium_enhanced, evidence_json,
+              summary_json, pipeline_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18)",
             params![
-                thread.thread_id,
+                thread_id,
+                profile_scope,
+                window_days as i64,
                 thread.profile_id,
                 thread.title,
                 thread.status,
@@ -169,7 +223,7 @@ pub(super) fn persist_threads(
                 "INSERT INTO insight_thread_members (thread_id, history_id, ordinal, visited_at)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![
-                    thread.thread_id,
+                    thread_id,
                     visits[*visit_index].history_id,
                     ordinal as i64,
                     visits[*visit_index].visited_at,
@@ -183,20 +237,24 @@ pub(super) fn persist_threads(
 pub(super) fn persist_reference_pages(
     connection: &Connection,
     profile_scope: &str,
+    window_days: u32,
     reference_pages: &[InsightReferencePageSummary],
 ) -> Result<()> {
-    connection
-        .execute("DELETE FROM insight_reference_pages WHERE profile_scope = ?1", [profile_scope])?;
+    connection.execute(
+        "DELETE FROM insight_reference_pages WHERE profile_scope = ?1 AND window_days = ?2",
+        params![profile_scope, window_days as i64],
+    )?;
     for page in reference_pages {
         connection.execute(
             "INSERT INTO insight_reference_pages
-             (reference_page_id, profile_scope, url, title, domain, first_seen_at, last_seen_at,
-              revisit_count, cross_day_revisits, query_group_count, thread_count, score,
-              evidence_tier, evidence_json, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             (reference_page_id, profile_scope, window_days, url, title, domain, first_seen_at,
+              last_seen_at, revisit_count, cross_day_revisits, query_group_count, thread_count,
+              score, evidence_tier, evidence_json, pipeline_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
-                page.reference_page_id,
+                scoped_query_group_id(profile_scope, window_days, &page.reference_page_id),
                 profile_scope,
+                window_days as i64,
                 page.url,
                 page.title,
                 page.domain,
@@ -219,22 +277,24 @@ pub(super) fn persist_reference_pages(
 pub(super) fn persist_source_effectiveness(
     connection: &Connection,
     profile_scope: &str,
+    window_days: u32,
     source_effectiveness: &[InsightSourceEffectivenessSummary],
 ) -> Result<()> {
     connection.execute(
-        "DELETE FROM insight_source_effectiveness WHERE profile_scope = ?1",
-        [profile_scope],
+        "DELETE FROM insight_source_effectiveness WHERE profile_scope = ?1 AND window_days = ?2",
+        params![profile_scope, window_days as i64],
     )?;
     for row in source_effectiveness {
         connection.execute(
             "INSERT INTO insight_source_effectiveness
-             (source_id, profile_scope, domain, source_role, query_group_count, thread_count,
-              stable_landing_count, reference_page_count, reopen_support_count,
+             (source_id, profile_scope, window_days, domain, source_role, query_group_count,
+              thread_count, stable_landing_count, reference_page_count, reopen_support_count,
               effectiveness_score, evidence_tier, evidence_json, pipeline_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
-                row.source_id,
+                scoped_query_group_id(profile_scope, window_days, &row.source_id),
                 profile_scope,
+                window_days as i64,
                 row.domain,
                 row.source_role,
                 row.query_group_count as i64,
@@ -254,46 +314,35 @@ pub(super) fn persist_source_effectiveness(
 
 pub(super) fn load_query_groups(
     connection: &Connection,
-    profile_id: Option<&str>,
+    profile_scope: &str,
     window_days: u32,
 ) -> Result<Vec<InsightQueryGroupSummary>> {
-    let start = (Utc::now() - Duration::days(window_days as i64)).to_rfc3339();
-    let sql = if profile_id.is_some() {
+    let mut statement = connection.prepare(
         "SELECT query_group_id, profile_id, thread_id, title, root_query, latest_query,
                 first_seen_at, last_seen_at, visit_count, burst_count, step_count, confidence,
                 evidence_tier, chromium_enhanced, steps_json, stages_json, evidence_json
          FROM insight_query_groups
-         WHERE profile_id = ?1 AND last_seen_at >= ?2
-         ORDER BY last_seen_at DESC"
-    } else {
-        "SELECT query_group_id, profile_id, thread_id, title, root_query, latest_query,
-                first_seen_at, last_seen_at, visit_count, burst_count, step_count, confidence,
-                evidence_tier, chromium_enhanced, steps_json, stages_json, evidence_json
-         FROM insight_query_groups
-         WHERE last_seen_at >= ?1
-         ORDER BY last_seen_at DESC"
-    };
-    let mut statement = connection.prepare(sql)?;
-    let rows = if let Some(profile_id) = profile_id {
-        statement.query_map(params![profile_id, start], query_group_summary_from_row)?
-    } else {
-        statement.query_map(params![start], query_group_summary_from_row)?
-    };
+         WHERE profile_scope = ?1 AND window_days = ?2
+         ORDER BY last_seen_at DESC",
+    )?;
+    let rows = statement
+        .query_map(params![profile_scope, window_days as i64], query_group_summary_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub(super) fn load_reference_pages(
     connection: &Connection,
     profile_scope: &str,
+    window_days: u32,
 ) -> Result<Vec<InsightReferencePageSummary>> {
     let mut statement = connection.prepare(
         "SELECT reference_page_id, url, title, domain, first_seen_at, last_seen_at, revisit_count,
                 cross_day_revisits, query_group_count, thread_count, score, evidence_tier, evidence_json
          FROM insight_reference_pages
-         WHERE profile_scope = ?1
+         WHERE profile_scope = ?1 AND window_days = ?2
          ORDER BY score DESC, last_seen_at DESC",
     )?;
-    let rows = statement.query_map([profile_scope], |row| {
+    let rows = statement.query_map(params![profile_scope, window_days as i64], |row| {
         Ok(InsightReferencePageSummary {
             reference_page_id: row.get(0)?,
             profile_id: (profile_scope != "all").then(|| profile_scope.to_string()),
@@ -317,16 +366,17 @@ pub(super) fn load_reference_pages(
 pub(super) fn load_source_effectiveness(
     connection: &Connection,
     profile_scope: &str,
+    window_days: u32,
 ) -> Result<Vec<InsightSourceEffectivenessSummary>> {
     let mut statement = connection.prepare(
         "SELECT source_id, domain, source_role, query_group_count, thread_count, stable_landing_count,
                 reference_page_count, reopen_support_count, effectiveness_score, evidence_tier,
                 evidence_json
          FROM insight_source_effectiveness
-         WHERE profile_scope = ?1
+         WHERE profile_scope = ?1 AND window_days = ?2
          ORDER BY effectiveness_score DESC, domain ASC",
     )?;
-    let rows = statement.query_map([profile_scope], |row| {
+    let rows = statement.query_map(params![profile_scope, window_days as i64], |row| {
         Ok(InsightSourceEffectivenessSummary {
             source_id: row.get(0)?,
             profile_id: (profile_scope != "all").then(|| profile_scope.to_string()),

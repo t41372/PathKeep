@@ -9,9 +9,24 @@
 //! keep the user-facing orchestration readable without blending it into lower
 //! level storage or enrichment helpers.
 
+use super::surfaces::ContrastWindowSummary;
 use super::*;
+use std::collections::HashSet;
+use thiserror::Error;
 
 const INSIGHT_PROGRESS_PHASES: usize = 8;
+
+#[derive(Debug, Error)]
+#[error("{reason}")]
+pub struct InsightsRunCancelled {
+    reason: String,
+}
+
+impl InsightsRunCancelled {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self { reason: reason.into() }
+    }
+}
 
 /// Progress snapshot emitted while a deterministic rebuild is running.
 #[derive(Debug, Clone)]
@@ -55,6 +70,35 @@ impl InsightsRunProgress {
     }
 }
 
+fn load_contrast_window_summary(
+    connection: &Connection,
+    profile_id: Option<&str>,
+    window_days: u32,
+    limit: Option<usize>,
+) -> Result<ContrastWindowSummary> {
+    let current_start = Utc::now() - Duration::days(window_days as i64);
+    let previous_start = current_start - Duration::days(window_days as i64);
+    let current_start_chrome =
+        crate::utils::iso_to_chrome_time_micros(&current_start.to_rfc3339()).unwrap_or(0);
+    let previous_start_chrome =
+        crate::utils::iso_to_chrome_time_micros(&previous_start.to_rfc3339()).unwrap_or(0);
+    let previous_visits = load_visits_in_range(
+        connection,
+        profile_id,
+        previous_start_chrome,
+        Some(current_start_chrome),
+        limit,
+    )?;
+    Ok(ContrastWindowSummary {
+        previous_visit_count: previous_visits.len(),
+        previous_unique_domains: previous_visits
+            .iter()
+            .map(|visit| url_domain(&visit.url))
+            .collect::<HashSet<_>>()
+            .len(),
+    })
+}
+
 /// Reports whether derived insight state exists and when it last ran successfully.
 pub fn insight_status(
     paths: &ProjectPaths,
@@ -65,7 +109,6 @@ pub fn insight_status(
         return Ok(InsightStatus::default());
     }
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     let runs = connection
         .query_row("SELECT COUNT(*) FROM insight_runs", [], |row: &Row<'_>| row.get::<_, i64>(0))
@@ -128,7 +171,7 @@ pub fn run_insights(
     embedding_provider: Option<&AiProviderRuntime>,
     request: &RunInsightsRequest,
 ) -> Result<RunInsightsReport> {
-    run_insights_with_progress(paths, config, key, embedding_provider, request, |_| {})
+    run_insights_with_progress(paths, config, key, embedding_provider, request, |_| Ok(()))
 }
 
 /// Rebuilds derived insight state and emits coarse progress snapshots as it advances.
@@ -141,10 +184,9 @@ pub fn run_insights_with_progress<F>(
     mut on_progress: F,
 ) -> Result<RunInsightsReport>
 where
-    F: FnMut(InsightsRunProgress),
+    F: FnMut(InsightsRunProgress) -> Result<()>,
 {
     let mut connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
@@ -178,17 +220,17 @@ where
                 window_days,
                 request.profile_id.as_deref().unwrap_or("all profiles")
             )),
-        ));
+        ))?;
         let mut visits =
             load_visits(&connection, request.profile_id.as_deref(), window_days, analysis_limit)?;
-        let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
+        let query_terms = load_search_term_map(&connection, &visits)?;
         on_progress(InsightsRunProgress::new(
             "Hydrating search terms",
             2,
             Some(visits.len()),
             Some(visits.len()),
             Some(format!("Loaded {} visit rows.", visits.len())),
-        ));
+        ))?;
         hydrate_query_terms(&mut visits, &query_terms);
 
         on_progress(InsightsRunProgress::new(
@@ -197,7 +239,7 @@ where
             None,
             None,
             Some("Scheduling first-party enrichment jobs for the current window.".to_string()),
-        ));
+        ))?;
         schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
         let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
 
@@ -209,17 +251,17 @@ where
             Some(
                 "Joining readable content, normalized titles, and optional embeddings.".to_string(),
             ),
-        ));
+        ))?;
         let enrichments = load_best_enrichment_map(&connection, &visits)?;
-        let embeddings = load_embedding_map(&connection, embedding_provider, &visits)?;
-        hydrate_enrichment_and_embeddings(&mut visits, &enrichments, &embeddings);
+        let _ = embedding_provider;
+        hydrate_enrichments(&mut visits, &enrichments);
         on_progress(InsightsRunProgress::new(
             "Scoring visits",
             5,
             Some(0),
             Some(visits.len()),
             Some(format!("0 / {} visits", visits.len())),
-        ));
+        ))?;
         compute_feature_scores_with_progress(&mut visits, |processed, total| {
             on_progress(InsightsRunProgress::new(
                 "Scoring visits",
@@ -227,8 +269,8 @@ where
                 Some(processed),
                 Some(total),
                 Some(format!("{processed} / {total} visits")),
-            ));
-        });
+            ))
+        })?;
 
         let module_enabled = |module_id: &str| {
             config
@@ -245,7 +287,7 @@ where
             None,
             None,
             Some("Assembling bursts, query groups, threads, and topics.".to_string()),
-        ));
+        ))?;
         let bursts = if module_enabled(QUERY_GROUPS_MODULE_ID) {
             build_bursts(&mut visits)
         } else {
@@ -290,6 +332,16 @@ where
         } else {
             Vec::new()
         };
+        let contrast_window = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+            Some(load_contrast_window_summary(
+                &connection,
+                request.profile_id.as_deref(),
+                window_days,
+                analysis_limit,
+            )?)
+        } else {
+            None
+        };
         let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
             build_template_summaries(
                 &visits,
@@ -298,6 +350,8 @@ where
                 &reference_pages,
                 &source_effectiveness,
                 request.profile_id.as_deref(),
+                window_days,
+                contrast_window.as_ref(),
             )
         } else {
             Vec::new()
@@ -316,27 +370,30 @@ where
             None,
             None,
             Some("Writing rebuilt insight tables back to the local archive.".to_string()),
-        ));
+        ))?;
         let transaction = connection.transaction()?;
 
         persist_features(&transaction, &visits)?;
         persist_bursts(&transaction, &bursts)?;
-        persist_query_groups(&transaction, &query_groups, &visits)?;
+        persist_query_groups(&transaction, &profile_scope, window_days, &query_groups, &visits)?;
         persist_topic_summaries(
             &transaction,
             request.profile_id.as_deref().unwrap_or("all"),
             window_days,
             &topics,
         )?;
-        persist_thread_records(&transaction, &thread_records, &visits)?;
-        persist_reference_pages(
+        persist_thread_records(
             &transaction,
-            request.profile_id.as_deref().unwrap_or("all"),
-            &reference_pages,
+            &profile_scope,
+            window_days,
+            &thread_records,
+            &visits,
         )?;
+        persist_reference_pages(&transaction, &profile_scope, window_days, &reference_pages)?;
         persist_source_effectiveness(
             &transaction,
-            request.profile_id.as_deref().unwrap_or("all"),
+            &profile_scope,
+            window_days,
             &source_effectiveness,
         )?;
         persist_cards(&transaction, &cards, request.profile_id.as_deref(), window_days)?;
@@ -429,7 +486,7 @@ where
             Some(visits.len()),
             Some(visits.len()),
             Some(format!("{} visits processed, {} cards ready.", visits.len(), cards.len())),
-        ));
+        ))?;
         Ok(RunInsightsReport {
             run_id,
             processed_visits: visits.len(),
@@ -451,17 +508,32 @@ where
     match run_result {
         Ok(report) => Ok(report),
         Err(error) => {
-            let failure_warning = format!("Insight refresh stopped before completion: {}", error);
-            let failure_notes = vec![
-                "PathKeep kept the canonical archive unchanged.".to_string(),
-                "Any interrupted enrichment work was re-queued for a later refresh.".to_string(),
-            ];
+            let cancelled = error.downcast_ref::<InsightsRunCancelled>().is_some();
+            let failure_warning = if cancelled {
+                error.to_string()
+            } else {
+                format!("Insight refresh stopped before completion: {}", error)
+            };
+            let failure_notes = if cancelled {
+                vec![
+                    "PathKeep cancelled the deterministic rebuild before completion.".to_string(),
+                    "Any interrupted enrichment work was re-queued for a later refresh."
+                        .to_string(),
+                ]
+            } else {
+                vec![
+                    "PathKeep kept the canonical archive unchanged.".to_string(),
+                    "Any interrupted enrichment work was re-queued for a later refresh."
+                        .to_string(),
+                ]
+            };
             let _ = connection.execute(
                 "UPDATE insight_runs
-                 SET finished_at = ?1, status = 'failed', warning = ?2, notes_json = ?3
-                 WHERE id = ?4",
+                 SET finished_at = ?1, status = ?2, warning = ?3, notes_json = ?4
+                 WHERE id = ?5",
                 params![
                     now_rfc3339(),
+                    if cancelled { "cancelled" } else { "failed" },
                     failure_warning,
                     serde_json::to_string(&failure_notes)?,
                     run_id,
@@ -481,7 +553,6 @@ pub fn load_insights(
     request: &RunInsightsRequest,
 ) -> Result<InsightSnapshot> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
     let profile_scope = request.profile_id.clone().unwrap_or_else(|| "all".to_string());
@@ -497,7 +568,7 @@ pub fn load_insights(
 
     let mut cards = load_cards(&connection, &profile_scope, window_days)?;
     let query_groups = if module_enabled(QUERY_GROUPS_MODULE_ID) {
-        load_query_groups(&connection, request.profile_id.as_deref(), window_days)?
+        load_query_groups(&connection, &profile_scope, window_days)?
     } else {
         Vec::new()
     };
@@ -507,17 +578,17 @@ pub fn load_insights(
         Vec::new()
     };
     let threads = if module_enabled(THREADS_MODULE_ID) {
-        load_threads(&connection, request.profile_id.as_deref(), window_days)?
+        load_threads(&connection, &profile_scope, window_days)?
     } else {
         Vec::new()
     };
     let reference_pages = if module_enabled(REFERENCE_PAGES_MODULE_ID) {
-        load_reference_pages(&connection, &profile_scope)?
+        load_reference_pages(&connection, &profile_scope, window_days)?
     } else {
         Vec::new()
     };
     let source_effectiveness = if module_enabled(SOURCE_EFFECTIVENESS_MODULE_ID) {
-        load_source_effectiveness(&connection, &profile_scope)?
+        load_source_effectiveness(&connection, &profile_scope, window_days)?
     } else {
         Vec::new()
     };
@@ -528,7 +599,7 @@ pub fn load_insights(
         request.limit.map(|limit| limit.max(1) as usize),
     )?;
     let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
-    let features = load_feature_rows(&connection, request.profile_id.as_deref())?;
+    let features = load_feature_rows(&connection, &visits)?;
     let query_ladders = if !module_enabled(QUERY_GROUPS_MODULE_ID) {
         Vec::new()
     } else if query_groups.is_empty() {
@@ -551,6 +622,12 @@ pub fn load_insights(
             .collect()
     };
     let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+        let contrast_window = load_contrast_window_summary(
+            &connection,
+            request.profile_id.as_deref(),
+            window_days,
+            request.limit.map(|limit| limit.max(1) as usize),
+        )?;
         build_template_summaries(
             &visits,
             &query_groups,
@@ -558,6 +635,8 @@ pub fn load_insights(
             &reference_pages,
             &source_effectiveness,
             request.profile_id.as_deref(),
+            window_days,
+            Some(&contrast_window),
         )
     } else {
         Vec::new()
@@ -621,7 +700,6 @@ pub fn load_insight_thread_detail(
     thread_id: &str,
 ) -> Result<InsightThreadDetail> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     let summary = connection.query_row(
         "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
@@ -662,7 +740,6 @@ pub fn clear_derived_intelligence_state(
     key: Option<&str>,
 ) -> Result<ClearDerivedIntelligenceReport> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
 

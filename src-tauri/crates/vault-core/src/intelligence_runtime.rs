@@ -6,7 +6,7 @@
 //! insight data.
 
 use crate::{
-    archive::{create_schema, open_archive_connection},
+    archive::open_archive_connection,
     config::ProjectPaths,
     models::{
         AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus,
@@ -20,6 +20,7 @@ use crate::{
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
+use chrono::{Duration, Utc};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,15 +48,28 @@ CREATE TABLE IF NOT EXISTS intelligence_jobs (
   scheduled_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT,
+  heartbeat_at TEXT,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
   updated_at TEXT NOT NULL,
   last_error TEXT,
   cancellation_reason TEXT,
+  stop_requested INTEGER NOT NULL DEFAULT 0,
   UNIQUE(dedupe_key)
 );
 CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_state
   ON intelligence_jobs(job_type, state, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_plugin_state
   ON intelligence_jobs(plugin_id, state, updated_at DESC);
+CREATE TABLE IF NOT EXISTS intelligence_job_triggers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES intelligence_jobs(id) ON DELETE CASCADE,
+  run_id INTEGER,
+  reason TEXT,
+  requested_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intelligence_job_triggers_job_id
+  ON intelligence_job_triggers(job_id, requested_at DESC);
 CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
   module_id TEXT PRIMARY KEY,
   version TEXT NOT NULL,
@@ -77,6 +91,7 @@ pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
 pub const DETERMINISTIC_REBUILD_JOB_TYPE: &str = "deterministic-rebuild";
 /// Deterministic rebuilds must run before optional enrichment so baseline insights stay usable.
 const DETERMINISTIC_REBUILD_PRIORITY: i64 = 50;
+const INTELLIGENCE_JOB_LEASE_SECONDS: i64 = 300;
 /// Source-kind identifier for local-only enrichment plugins.
 pub(crate) const LOCAL_PLUGIN_SOURCE_KIND: &str = "local";
 /// Source-kind identifier for network-backed enrichment plugins.
@@ -237,6 +252,69 @@ const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 5] = [
 /// Ensures the persistent intelligence runtime tables exist.
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
+    ensure_runtime_column(connection, "intelligence_jobs", "heartbeat_at", "TEXT")?;
+    ensure_runtime_column(connection, "intelligence_jobs", "lease_owner", "TEXT")?;
+    ensure_runtime_column(connection, "intelligence_jobs", "lease_expires_at", "TEXT")?;
+    ensure_runtime_column(
+        connection,
+        "intelligence_jobs",
+        "stop_requested",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    Ok(())
+}
+
+fn ensure_runtime_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if columns.iter().any(|existing| existing == column) {
+        return Ok(());
+    }
+    connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
+    Ok(())
+}
+
+fn lease_owner_label() -> String {
+    format!("pathkeep:{}:{}", std::process::id(), std::thread::current().name().unwrap_or("main"))
+}
+
+fn lease_expires_at(seconds: i64) -> String {
+    (Utc::now() + Duration::seconds(seconds)).to_rfc3339()
+}
+
+pub fn intelligence_job_stop_requested(connection: &Connection, job_id: i64) -> Result<bool> {
+    connection
+        .query_row(
+            "SELECT stop_requested
+             FROM intelligence_jobs
+             WHERE id = ?1",
+            [job_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|value| value.unwrap_or(0) != 0)
+        .with_context(|| format!("loading stop flag for intelligence job {job_id}"))
+}
+
+fn record_intelligence_job_trigger(
+    connection: &Connection,
+    job_id: i64,
+    run_id: Option<i64>,
+    reason: Option<&str>,
+    requested_at: &str,
+) -> Result<()> {
+    connection.execute(
+        "INSERT INTO intelligence_job_triggers (job_id, run_id, reason, requested_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![job_id, run_id, reason, requested_at],
+    )?;
     Ok(())
 }
 
@@ -302,30 +380,44 @@ pub(crate) fn enqueue_enrichment_job(
     let dedupe_key = format!("{}:{}", plugin.id, payload.history_id);
     let payload_json = serde_json::to_string(payload)?;
 
-    let existing_state = connection
+    let existing = connection
         .query_row(
-            "SELECT state FROM intelligence_jobs WHERE dedupe_key = ?1",
+            "SELECT id, state
+             FROM intelligence_jobs
+             WHERE dedupe_key = ?1",
             [&dedupe_key],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
 
-    if existing_state.is_some() {
-        connection.execute(
-            "UPDATE intelligence_jobs
-             SET run_id = ?1,
-                 priority = ?2,
-                 payload_json = ?3,
-                 scheduled_at = ?4,
-                 updated_at = ?4,
-                 state = CASE WHEN state = 'running' THEN state ELSE 'queued' END,
-                 started_at = CASE WHEN state = 'running' THEN started_at ELSE NULL END,
-                 finished_at = CASE WHEN state = 'running' THEN finished_at ELSE NULL END,
-                 last_error = CASE WHEN state = 'running' THEN last_error ELSE NULL END,
-                 cancellation_reason = CASE WHEN state = 'running' THEN cancellation_reason ELSE NULL END
-             WHERE dedupe_key = ?5",
-            params![run_id, plugin.priority, payload_json, now, dedupe_key],
+    if let Some((job_id, state)) = existing {
+        record_intelligence_job_trigger(
+            connection,
+            job_id,
+            Some(run_id),
+            Some("Deterministic rebuild requested matching enrichment."),
+            &now,
         )?;
+        if state != "running" {
+            connection.execute(
+                "UPDATE intelligence_jobs
+                 SET state = 'queued',
+                     priority = ?1,
+                     payload_json = ?2,
+                     scheduled_at = ?3,
+                     started_at = NULL,
+                     finished_at = NULL,
+                     heartbeat_at = NULL,
+                     lease_owner = NULL,
+                     lease_expires_at = NULL,
+                     updated_at = ?3,
+                     last_error = NULL,
+                     cancellation_reason = NULL,
+                     stop_requested = 0
+                 WHERE id = ?4",
+                params![plugin.priority, payload_json, now, job_id],
+            )?;
+        }
     } else {
         connection.execute(
             "INSERT INTO intelligence_jobs
@@ -341,6 +433,13 @@ pub(crate) fn enqueue_enrichment_job(
                 payload_json,
                 now,
             ],
+        )?;
+        record_intelligence_job_trigger(
+            connection,
+            connection.last_insert_rowid(),
+            Some(run_id),
+            Some("Deterministic rebuild scheduled enrichment."),
+            &now,
         )?;
     }
 
@@ -375,20 +474,27 @@ pub fn enqueue_deterministic_rebuild_job(
         .optional()?;
 
     if let Some((job_id, state)) = existing {
-        connection.execute(
-            "UPDATE intelligence_jobs
-             SET state = CASE WHEN ?1 = 'running' THEN state ELSE 'queued' END,
-                 priority = ?2,
-                 payload_json = ?3,
-                 scheduled_at = ?4,
-                 updated_at = ?4,
-                 started_at = CASE WHEN ?1 = 'running' THEN started_at ELSE NULL END,
-                 finished_at = CASE WHEN ?1 = 'running' THEN finished_at ELSE NULL END,
-                 last_error = CASE WHEN ?1 = 'running' THEN last_error ELSE NULL END,
-                 cancellation_reason = CASE WHEN ?1 = 'running' THEN cancellation_reason ELSE NULL END
-             WHERE id = ?5",
-            params![state, DETERMINISTIC_REBUILD_PRIORITY, payload_json, now, job_id],
-        )?;
+        record_intelligence_job_trigger(connection, job_id, None, Some(reason), &now)?;
+        if state != "running" {
+            connection.execute(
+                "UPDATE intelligence_jobs
+                 SET state = 'queued',
+                     priority = ?1,
+                     scheduled_at = ?2,
+                     payload_json = ?3,
+                     started_at = NULL,
+                     finished_at = NULL,
+                     heartbeat_at = NULL,
+                     lease_owner = NULL,
+                     lease_expires_at = NULL,
+                     updated_at = ?2,
+                     last_error = NULL,
+                     cancellation_reason = NULL,
+                     stop_requested = 0
+                 WHERE id = ?4",
+                params![DETERMINISTIC_REBUILD_PRIORITY, now, payload_json, job_id],
+            )?;
+        }
         return Ok(job_id);
     }
 
@@ -405,7 +511,9 @@ pub fn enqueue_deterministic_rebuild_job(
             now
         ],
     )?;
-    Ok(connection.last_insert_rowid())
+    let job_id = connection.last_insert_rowid();
+    record_intelligence_job_trigger(connection, job_id, None, Some(reason), &now)?;
+    Ok(job_id)
 }
 
 /// Claims one deterministic rebuild job by id and returns its request payload.
@@ -415,19 +523,25 @@ pub fn claim_deterministic_rebuild_job(
 ) -> Result<Option<DeterministicRebuildJobPayload>> {
     ensure_intelligence_runtime_schema(connection)?;
     let now = now_rfc3339();
+    let lease_owner = lease_owner_label();
+    let lease_expires_at = lease_expires_at(INTELLIGENCE_JOB_LEASE_SECONDS);
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'running',
              attempt = attempt + 1,
-             started_at = ?1,
+             started_at = COALESCE(started_at, ?1),
              finished_at = NULL,
              updated_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = ?2,
+             lease_expires_at = ?3,
              last_error = NULL,
-             cancellation_reason = NULL
-         WHERE id = ?2
-           AND job_type = ?3
+             cancellation_reason = NULL,
+             stop_requested = 0
+         WHERE id = ?4
+           AND job_type = ?5
            AND state = 'queued'",
-        params![now, job_id, DETERMINISTIC_REBUILD_JOB_TYPE],
+        params![now, lease_owner, lease_expires_at, job_id, DETERMINISTIC_REBUILD_JOB_TYPE],
     )?;
     if updated == 0 {
         return Ok(None);
@@ -662,18 +776,24 @@ fn try_claim_enrichment_job(
     job_id: i64,
     claimed_at: &str,
 ) -> Result<bool> {
+    let lease_owner = lease_owner_label();
+    let lease_expires_at = lease_expires_at(INTELLIGENCE_JOB_LEASE_SECONDS);
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'running',
              attempt = attempt + 1,
-             started_at = ?1,
+             started_at = COALESCE(started_at, ?1),
              finished_at = NULL,
              updated_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = ?2,
+             lease_expires_at = ?3,
              last_error = NULL,
-             cancellation_reason = NULL
-         WHERE id = ?2
+             cancellation_reason = NULL,
+             stop_requested = 0
+         WHERE id = ?4
            AND state = 'queued'",
-        params![claimed_at, job_id],
+        params![claimed_at, lease_owner, lease_expires_at, job_id],
     )?;
     Ok(updated == 1)
 }
@@ -683,16 +803,19 @@ pub fn mark_intelligence_job_succeeded(
     connection: &Connection,
     job_id: i64,
     artifact: &Value,
-) -> Result<()> {
+) -> Result<bool> {
     let now = now_rfc3339();
-    connection.execute(
+    let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'succeeded', artifact_json = ?1, finished_at = ?2, updated_at = ?2,
+             heartbeat_at = ?2, lease_owner = NULL, lease_expires_at = NULL,
              last_error = NULL, cancellation_reason = NULL
-         WHERE id = ?3",
+         WHERE id = ?3
+           AND state = 'running'
+           AND stop_requested = 0",
         params![serde_json::to_string(artifact)?, now, job_id],
     )?;
-    Ok(())
+    Ok(updated == 1)
 }
 
 /// Updates one running intelligence job with progress/heartbeat metadata.
@@ -704,10 +827,18 @@ pub fn update_intelligence_job_artifact(
     let now = now_rfc3339();
     connection.execute(
         "UPDATE intelligence_jobs
-         SET artifact_json = ?1, updated_at = ?2
-         WHERE id = ?3
+         SET artifact_json = ?1,
+             updated_at = ?2,
+             heartbeat_at = ?2,
+             lease_expires_at = ?3
+         WHERE id = ?4
            AND state = 'running'",
-        params![serde_json::to_string(artifact)?, now, job_id],
+        params![
+            serde_json::to_string(artifact)?,
+            now,
+            lease_expires_at(INTELLIGENCE_JOB_LEASE_SECONDS),
+            job_id,
+        ],
     )?;
     Ok(())
 }
@@ -717,15 +848,47 @@ pub fn mark_intelligence_job_failed(
     connection: &Connection,
     job_id: i64,
     error: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let now = now_rfc3339();
-    connection.execute(
+    let updated = connection.execute(
         "UPDATE intelligence_jobs
-         SET state = 'failed', finished_at = ?1, updated_at = ?1, last_error = ?2
-         WHERE id = ?3",
+         SET state = 'failed',
+             finished_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             updated_at = ?1,
+             last_error = ?2
+         WHERE id = ?3
+           AND state = 'running'
+           AND stop_requested = 0",
         params![now, error, job_id],
     )?;
-    Ok(())
+    Ok(updated == 1)
+}
+
+/// Marks one running intelligence job as cancelled after its worker observes a stop request.
+pub fn mark_running_intelligence_job_cancelled(
+    connection: &Connection,
+    job_id: i64,
+    reason: &str,
+) -> Result<bool> {
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'cancelled',
+             finished_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             updated_at = ?1,
+             last_error = NULL,
+             cancellation_reason = ?2
+         WHERE id = ?3
+           AND state = 'running'",
+        params![now, reason, job_id],
+    )?;
+    Ok(updated == 1)
 }
 
 /// Requeues any stuck running enrichment jobs globally.
@@ -735,11 +898,52 @@ pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'queued', scheduled_at = ?1, started_at = NULL, finished_at = NULL,
-             updated_at = ?1, last_error = NULL, cancellation_reason = NULL
+             heartbeat_at = NULL, lease_owner = NULL, lease_expires_at = NULL,
+             updated_at = ?1, last_error = NULL, cancellation_reason = NULL, stop_requested = 0
          WHERE job_type = ?2 AND state = 'running'",
         params![now, ENRICHMENT_JOB_TYPE],
     )?;
     Ok(updated)
+}
+
+fn recover_expired_intelligence_jobs(connection: &Connection) -> Result<()> {
+    let now = now_rfc3339();
+    let expired_at = Utc::now().to_rfc3339();
+    connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'cancelled',
+             finished_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             updated_at = ?1,
+             last_error = NULL
+         WHERE state = 'running'
+           AND stop_requested = 1
+           AND lease_expires_at IS NOT NULL
+           AND lease_expires_at <= ?2",
+        params![now, expired_at],
+    )?;
+    connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'queued',
+             scheduled_at = ?1,
+             started_at = NULL,
+             finished_at = NULL,
+             heartbeat_at = NULL,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             updated_at = ?1,
+             last_error = 'PathKeep recovered an expired intelligence lease.',
+             cancellation_reason = NULL,
+             stop_requested = 0
+         WHERE state = 'running'
+           AND COALESCE(stop_requested, 0) = 0
+           AND lease_expires_at IS NOT NULL
+           AND lease_expires_at <= ?2",
+        params![now, expired_at],
+    )?;
+    Ok(())
 }
 
 /// Returns the next queued intelligence job in worker execution order.
@@ -747,6 +951,7 @@ pub fn next_queued_intelligence_job(
     connection: &Connection,
 ) -> Result<Option<QueuedIntelligenceJob>> {
     ensure_intelligence_runtime_schema(connection)?;
+    recover_expired_intelligence_jobs(connection)?;
     connection
         .query_row(
             "SELECT id, job_type
@@ -774,7 +979,8 @@ pub(crate) fn requeue_running_enrichment_jobs_for_run(
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'queued', scheduled_at = ?1, started_at = NULL, finished_at = NULL,
-             updated_at = ?1, last_error = NULL, cancellation_reason = NULL
+             heartbeat_at = NULL, lease_owner = NULL, lease_expires_at = NULL,
+             updated_at = ?1, last_error = NULL, cancellation_reason = NULL, stop_requested = 0
          WHERE job_type = ?2 AND state = 'running' AND run_id = ?3",
         params![now, ENRICHMENT_JOB_TYPE, run_id],
     )?;
@@ -810,8 +1016,7 @@ pub fn load_intelligence_runtime(
         });
     }
 
-    let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
+    let mut connection = open_archive_connection(paths, config, key)?;
     ensure_intelligence_runtime_schema(&connection)?;
     if should_recover_runtime_jobs(&paths.archive_database_path) {
         let recovered_deterministic_jobs = recover_interrupted_deterministic_jobs(&connection)?;
@@ -830,10 +1035,13 @@ pub fn load_intelligence_runtime(
         }
     }
 
-    let queue = load_queue_status(&connection)?;
-    let plugins = load_plugin_statuses(&connection, config)?;
-    let modules = load_module_statuses(&connection, config)?;
-    let recent_jobs = load_recent_jobs(&connection)?;
+    recover_expired_intelligence_jobs(&connection)?;
+    let snapshot = connection.transaction()?;
+    let queue = load_queue_status(&snapshot)?;
+    let plugins = load_plugin_statuses(&snapshot, config)?;
+    let modules = load_module_statuses(&snapshot, config)?;
+    let recent_jobs = load_recent_jobs(&snapshot)?;
+    snapshot.commit()?;
     Ok(IntelligenceRuntimeSnapshot { queue, plugins, modules, recent_jobs, notes })
 }
 
@@ -845,7 +1053,6 @@ pub fn retry_intelligence_job(
     job_id: i64,
 ) -> Result<IntelligenceRuntimeSnapshot> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
     let state = load_job_state(&connection, job_id)?;
     if !matches!(state.as_str(), "failed" | "cancelled") {
@@ -855,7 +1062,9 @@ pub fn retry_intelligence_job(
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'queued', scheduled_at = ?1, updated_at = ?1, started_at = NULL,
-             finished_at = NULL, last_error = NULL, cancellation_reason = NULL
+             finished_at = NULL, heartbeat_at = NULL, lease_owner = NULL,
+             lease_expires_at = NULL, last_error = NULL, cancellation_reason = NULL,
+             stop_requested = 0
          WHERE id = ?2",
         params![now, job_id],
     )?;
@@ -873,20 +1082,39 @@ pub fn cancel_intelligence_job(
     job_id: i64,
 ) -> Result<IntelligenceRuntimeSnapshot> {
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
     let state = load_job_state(&connection, job_id)?;
     if !matches!(state.as_str(), "queued" | "running") {
         anyhow::bail!("Intelligence job {job_id} is in state '{state}' and cannot be cancelled.");
     }
     let now = now_rfc3339();
-    let updated = connection.execute(
-        "UPDATE intelligence_jobs
-         SET state = 'cancelled', finished_at = ?1, updated_at = ?1,
-             last_error = NULL, cancellation_reason = 'cancelled from UI'
-         WHERE id = ?2",
-        params![now, job_id],
-    )?;
+    let updated = match state.as_str() {
+        "queued" => connection.execute(
+            "UPDATE intelligence_jobs
+             SET state = 'cancelled',
+                 finished_at = ?1,
+                 heartbeat_at = NULL,
+                 lease_owner = NULL,
+                 lease_expires_at = NULL,
+                 updated_at = ?1,
+                 last_error = NULL,
+                 cancellation_reason = 'cancelled from UI',
+                 stop_requested = 1
+             WHERE id = ?2
+               AND state = 'queued'",
+            params![now, job_id],
+        )?,
+        "running" => connection.execute(
+            "UPDATE intelligence_jobs
+             SET updated_at = ?1,
+                 cancellation_reason = 'cancelled from UI',
+                 stop_requested = 1
+             WHERE id = ?2
+               AND state = 'running'",
+            params![now, job_id],
+        )?,
+        _ => 0,
+    };
     if updated == 0 {
         anyhow::bail!("Intelligence job {job_id} could not be cancelled.");
     }
@@ -903,8 +1131,12 @@ fn recover_interrupted_deterministic_jobs(connection: &Connection) -> Result<usi
              updated_at = ?1,
              started_at = NULL,
              finished_at = NULL,
+             heartbeat_at = NULL,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
              last_error = 'PathKeep restarted before this deterministic rebuild finished.',
-             cancellation_reason = NULL
+             cancellation_reason = NULL,
+             stop_requested = 0
          WHERE job_type = ?3
            AND state = 'running'",
         params![now, DETERMINISTIC_REBUILD_PRIORITY, DETERMINISTIC_REBUILD_JOB_TYPE],
@@ -1056,7 +1288,7 @@ fn load_plugin_statuses(
 fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOverview>> {
     let mut statement = connection.prepare(
         "SELECT id, job_type, plugin_id, state, attempt, payload_json, artifact_json, created_at,
-                started_at, finished_at, updated_at, last_error
+                started_at, finished_at, updated_at, heartbeat_at, last_error, stop_requested
          FROM intelligence_jobs
          ORDER BY updated_at DESC, id DESC
          LIMIT 12",
@@ -1102,7 +1334,7 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
                 finished_at: row.get(9)?,
                 updated_at: row.get(10)?,
                 heartbeat_at: if state == "running" {
-                    row.get::<_, Option<String>>(10)?
+                    row.get::<_, Option<String>>(11)?
                 } else {
                     None
                 },
@@ -1111,9 +1343,13 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
                 progress_current,
                 progress_total,
                 progress_percent,
-                last_error: row.get(11)?,
+                last_error: row.get(12)?,
                 retryable: matches!(state.as_str(), "failed" | "cancelled"),
-                cancellable: matches!(state.as_str(), "queued" | "running"),
+                cancellable: match state.as_str() {
+                    "queued" => true,
+                    "running" => row.get::<_, i64>(13)? == 0,
+                    _ => false,
+                },
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -1242,7 +1478,6 @@ mod tests {
         };
         let connection =
             open_archive_connection(&paths, &config, None).expect("open runtime archive");
-        create_schema(&connection).expect("core schema");
         ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
         (root, paths, config)
     }

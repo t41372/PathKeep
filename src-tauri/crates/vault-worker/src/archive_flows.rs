@@ -23,13 +23,14 @@ use serde_json::json;
 use vault_core::{
     AiIndexRequest, BackupProgressEvent, ClearDerivedIntelligenceReport, DashboardSnapshot,
     ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
-    ImportBatchDetail, RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification,
-    RunInsightsRequest, TakeoutInspection, TakeoutRequest, ai_queue,
+    ImportBatchDetail, InsightsRunCancelled, RemoteBackupPreview, RemoteBackupResult,
+    RemoteBackupVerification, RunInsightsRequest, TakeoutInspection, TakeoutRequest, ai_queue,
     clear_derived_intelligence_state, doctor, export_history, import_takeout, inspect_takeout,
+    intelligence_job_stop_requested,
     intelligence_runtime::{
         claim_deterministic_rebuild_job, enqueue_deterministic_rebuild_job,
         mark_intelligence_job_failed, mark_intelligence_job_succeeded,
-        update_intelligence_job_artifact,
+        mark_running_intelligence_job_cancelled, update_intelligence_job_artifact,
     },
     list_history, load_audit_run_detail, load_dashboard_snapshot, preview_import_batch,
     preview_remote_backup, repair_health_issues, restore_import_batch, revert_import_batch,
@@ -355,6 +356,9 @@ fn spawn_deterministic_refresh(
                 session_database_key.as_deref(),
                 job_id,
             ) {
+                if error.downcast_ref::<InsightsRunCancelled>().is_some() {
+                    return;
+                }
                 eprintln!(
                     "PathKeep could not finish deterministic refresh job {} in the background: {error:#}",
                     job_id
@@ -379,6 +383,15 @@ fn execute_deterministic_refresh_job(
     let embedding_provider = selected_optional_embedding_runtime(&refresh_config).ok().flatten();
     let initial_profile =
         payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
+    let cancel_requested = |detail: &str| -> Result<()> {
+        if intelligence_job_stop_requested(&connection, job_id)? {
+            let _ =
+                mark_running_intelligence_job_cancelled(&connection, job_id, "cancelled from UI");
+            return Err(InsightsRunCancelled::new(detail).into());
+        }
+        Ok(())
+    };
+    cancel_requested("Deterministic rebuild was cancelled before work started.")?;
     let _ = update_intelligence_job_artifact(
         &connection,
         job_id,
@@ -398,6 +411,9 @@ fn execute_deterministic_refresh_job(
         embedding_provider.as_ref(),
         &payload.request,
         |progress| {
+            cancel_requested(
+                "Deterministic rebuild was cancelled while progress was being reported.",
+            )?;
             let artifact = json!({
                 "kind": "deterministic-rebuild",
                 "phase": progress.phase_label,
@@ -409,10 +425,25 @@ fn execute_deterministic_refresh_job(
                 "progressPercent": progress.percent(),
             });
             let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
+            cancel_requested(
+                "Deterministic rebuild was cancelled after the latest progress update.",
+            )?;
+            Ok(())
         },
     ) {
         Ok(report) => {
-            mark_intelligence_job_succeeded(
+            if intelligence_job_stop_requested(&connection, job_id)? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    &connection,
+                    job_id,
+                    "cancelled from UI",
+                );
+                return Err(InsightsRunCancelled::new(
+                    "Deterministic rebuild was cancelled before completion.",
+                )
+                .into());
+            }
+            if !mark_intelligence_job_succeeded(
                 &connection,
                 job_id,
                 &json!({
@@ -434,10 +465,28 @@ fn execute_deterministic_refresh_job(
                     "threadCount": report.thread_count,
                     "notes": report.notes,
                 }),
-            )?;
+            )? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    &connection,
+                    job_id,
+                    "cancelled from UI",
+                );
+                return Err(InsightsRunCancelled::new(
+                    "Deterministic rebuild was cancelled before completion.",
+                )
+                .into());
+            }
             Ok(report)
         }
         Err(error) => {
+            if error.downcast_ref::<InsightsRunCancelled>().is_some() {
+                let _ = mark_running_intelligence_job_cancelled(
+                    &connection,
+                    job_id,
+                    "cancelled from UI",
+                );
+                return Err(error);
+            }
             mark_intelligence_job_failed(&connection, job_id, &error.to_string())?;
             Err(error)
         }

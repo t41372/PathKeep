@@ -8,18 +8,27 @@ use crate::{
     ai::ensure_ai_schema,
     config::{ProjectPaths, ensure_paths},
     insights::ensure_insight_schema,
+    intelligence_runtime::ensure_intelligence_runtime_schema,
     models::{AppConfig, ArchiveMode},
     utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{collections::BTreeMap, fs, path::Path, time::Duration as StdDuration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+    path::Path,
+    sync::{Mutex, OnceLock},
+    time::Duration as StdDuration,
+};
 
 const MIGRATION_001_INITIAL_SQL: &str = include_str!("../migrations/001_initial.sql");
 const MIGRATION_002_RUNTIME_SQL: &str =
     include_str!("../migrations/002_archive_runtime_foundation.sql");
 const MIGRATION_003_HISTORY_SEARCH_FTS_SQL: &str =
     include_str!("../migrations/003_history_search_fts.sql");
+
+static BOOTSTRAPPED_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 const IMPORT_BATCH_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS import_batches (
@@ -277,6 +286,7 @@ pub fn open_archive_connection(
         let key = key.context("database key is required for encrypted archives")?;
         apply_cipher_key(&connection, key)?;
     }
+    ensure_archive_bootstrapped(&connection, &paths.archive_database_path)?;
     Ok(connection)
 }
 
@@ -314,12 +324,29 @@ pub(crate) fn export_archive_database(
 /// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
-    ensure_import_batch_schema(connection)?;
-    backfill_runtime_columns(connection)?;
-    install_legacy_views(connection)?;
-    ensure_ai_schema(connection)?;
-    ensure_insight_schema(connection)?;
-    Ok(())
+    connection.execute_batch("BEGIN IMMEDIATE").context("acquiring archive bootstrap lock")?;
+
+    let result = (|| -> Result<()> {
+        ensure_import_batch_schema(connection)?;
+        backfill_runtime_columns(connection)?;
+        install_legacy_views(connection)?;
+        ensure_ai_schema(connection)?;
+        ensure_insight_schema(connection)?;
+        crate::ai_queue::ensure_ai_queue_schema(connection)?;
+        ensure_intelligence_runtime_schema(connection)?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            connection.execute_batch("COMMIT").context("committing archive bootstrap")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
 }
 
 /// Returns the schema version currently recorded in the archive metadata.
@@ -428,6 +455,9 @@ WHERE profile_id IS NULL;
 }
 
 fn install_legacy_views(connection: &Connection) -> Result<()> {
+    if legacy_views_ready(connection)? {
+        return Ok(());
+    }
     create_or_replace_view(connection, "profiles", LEGACY_PROFILES_VIEW_SQL)?;
     create_or_replace_view(connection, "visit_events", LEGACY_VISIT_EVENTS_VIEW_SQL)?;
     connection.execute_batch(
@@ -436,6 +466,22 @@ fn install_legacy_views(connection: &Connection) -> Result<()> {
          DROP TRIGGER IF EXISTS visit_events_delete;",
     )?;
     connection.execute_batch(LEGACY_VIEW_TRIGGER_SQL)?;
+    Ok(())
+}
+
+fn ensure_archive_bootstrapped(
+    connection: &Connection,
+    archive_database_path: &Path,
+) -> Result<()> {
+    let cache_key = archive_database_path.display().to_string();
+    let bootstrapped = BOOTSTRAPPED_ARCHIVES.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut bootstrapped = bootstrapped.lock().expect("archive bootstrap cache lock");
+    if bootstrapped.contains(&cache_key) && table_exists(connection, "schema_migrations")? {
+        return Ok(());
+    }
+
+    create_schema(connection)?;
+    bootstrapped.insert(cache_key);
     Ok(())
 }
 
@@ -463,6 +509,18 @@ fn object_type(connection: &Connection, object_name: &str) -> Result<Option<Stri
         )
         .optional()
         .map_err(Into::into)
+}
+
+fn legacy_views_ready(connection: &Connection) -> Result<bool> {
+    let profiles_ready =
+        matches!(object_type(connection, "profiles")?.as_deref(), Some("view") | Some("table"));
+    let visit_events_ready =
+        matches!(object_type(connection, "visit_events")?.as_deref(), Some("view") | Some("table"));
+    let triggers_ready =
+        ["profiles_insert", "visit_events_insert", "visit_events_delete"].into_iter().all(|name| {
+            matches!(object_type(connection, name).ok().flatten().as_deref(), Some("trigger"))
+        });
+    Ok(profiles_ready && visit_events_ready && triggers_ready)
 }
 
 fn load_applied_migrations(connection: &Connection) -> Result<BTreeMap<i64, String>> {
@@ -497,6 +555,11 @@ fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        config::project_paths_with_root,
+        models::{AppConfig, ArchiveMode},
+    };
+    use std::sync::{Arc, Barrier};
 
     fn has_table(connection: &Connection, table_name: &str) -> bool {
         table_exists(connection, table_name).expect("table check")
@@ -560,5 +623,50 @@ mod tests {
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
         assert_eq!(current_version(&connection).expect("migrated version"), 3);
+    }
+
+    #[test]
+    fn concurrent_archive_opens_bootstrap_once_without_trigger_races() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let barrier = Arc::new(Barrier::new(2));
+
+        std::thread::scope(|scope| {
+            let mut joins = Vec::new();
+            for _ in 0..2 {
+                let paths = paths.clone();
+                let config = config.clone();
+                let barrier = Arc::clone(&barrier);
+                joins.push(scope.spawn(move || {
+                    barrier.wait();
+                    let connection =
+                        open_archive_connection(&paths, &config, None).expect("open archive");
+                    current_version(&connection).expect("schema version")
+                }));
+            }
+
+            for join in joins {
+                assert_eq!(join.join().expect("thread join"), 3);
+            }
+        });
+
+        let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+        assert!(legacy_views_ready(&connection).expect("legacy views ready"));
+        let trigger_count = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM sqlite_master
+                 WHERE type = 'trigger'
+                   AND name IN ('profiles_insert', 'visit_events_insert', 'visit_events_delete')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count legacy triggers");
+        assert_eq!(trigger_count, 3);
     }
 }

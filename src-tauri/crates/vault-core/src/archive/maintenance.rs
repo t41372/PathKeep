@@ -22,7 +22,6 @@ pub fn preview_snapshot_restore(
 ) -> Result<SnapshotRestorePreview> {
     ensure_paths(paths)?;
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let snapshot = load_snapshot_record(&connection, &request.snapshot_path)?
         .with_context(|| format!("snapshot {} was not found", request.snapshot_path))?;
     let snapshot_path = PathBuf::from(&snapshot.file_path);
@@ -80,7 +79,6 @@ pub fn run_snapshot_restore(
     }
 
     let mut connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let snapshot = load_snapshot_record(&connection, &request.snapshot_path)?
         .with_context(|| format!("snapshot {} was not found", request.snapshot_path))?;
     let snapshot_path = PathBuf::from(&snapshot.file_path);
@@ -254,7 +252,6 @@ pub fn run_retention_prune(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
     connection.execute(
@@ -423,7 +420,6 @@ pub fn rekey_archive(
     {
         Ok(status) => {
             let connection = open_archive_connection(paths, &next_config, target_key)?;
-            create_schema(&connection)?;
             finalize_rekey_run(
                 &connection,
                 paths,
@@ -439,18 +435,16 @@ pub fn rekey_archive(
         Err(error) => {
             let run_error = format!("{error:#}");
             if let Ok(connection) = open_archive_connection(paths, &next_config, target_key) {
-                if create_schema(&connection).is_ok() {
-                    let _ = finalize_rekey_run(
-                        &connection,
-                        paths,
-                        run_id,
-                        &current_config.archive_mode,
-                        &new_mode,
-                        &snapshot_path,
-                        "failed",
-                        Some(run_error.clone()),
-                    );
-                }
+                let _ = finalize_rekey_run(
+                    &connection,
+                    paths,
+                    run_id,
+                    &current_config.archive_mode,
+                    &new_mode,
+                    &snapshot_path,
+                    "failed",
+                    Some(run_error.clone()),
+                );
             }
             Err(error)
         }

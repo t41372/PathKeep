@@ -33,12 +33,16 @@ CREATE TABLE IF NOT EXISTS ai_jobs (
   started_at TEXT,
   finished_at TEXT,
   heartbeat_at TEXT,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  stop_requested INTEGER NOT NULL DEFAULT 0,
   error_code TEXT,
   error_message TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ai_jobs_state_available
   ON ai_jobs(state, available_at, priority DESC, id ASC);
 "#;
+const AI_JOB_LEASE_SECONDS: i64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,7 +93,30 @@ pub struct AiJobFailure {
 /// Ensures the persistent AI queue tables exist.
 pub fn ensure_ai_queue_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(AI_QUEUE_SCHEMA_SQL)?;
+    ensure_queue_column(connection, "lease_owner", "TEXT")?;
+    ensure_queue_column(connection, "lease_expires_at", "TEXT")?;
+    ensure_queue_column(connection, "stop_requested", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
+}
+
+fn ensure_queue_column(connection: &Connection, column: &str, definition: &str) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(ai_jobs)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if columns.iter().any(|existing| existing == column) {
+        return Ok(());
+    }
+    connection.execute(&format!("ALTER TABLE ai_jobs ADD COLUMN {column} {definition}"), [])?;
+    Ok(())
+}
+
+fn lease_owner_label() -> String {
+    format!("pathkeep:{}:{}", std::process::id(), std::thread::current().name().unwrap_or("main"))
+}
+
+fn lease_expires_at(seconds: i64) -> String {
+    (Utc::now() + Duration::seconds(seconds)).to_rfc3339()
 }
 
 /// Enqueues a semantic-index build job and returns its persisted row.
@@ -187,52 +214,64 @@ pub fn claim_next_ai_job(
     ensure_ai_queue_schema(connection)?;
     mark_stale_jobs(connection, stale_after_seconds)?;
     let now = now_rfc3339();
-    let claimed = connection
-        .query_row(
-            "SELECT id, job_type, attempt, max_attempts, payload_json
-             FROM ai_jobs
-             WHERE state IN ('queued', 'stale')
-               AND available_at <= ?1
-             ORDER BY priority DESC, id ASC
-             LIMIT 1",
-            [&now],
-            |row| {
-                let job_type: String = row.get(1)?;
-                let payload_json: String = row.get(4)?;
-                let payload =
-                    serde_json::from_str::<AiJobPayload>(&payload_json).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            4,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                Ok(StoredAiJob {
-                    id: row.get(0)?,
-                    job_type: decode_job_type(&job_type),
-                    attempt: row.get::<_, i64>(2)? as u32,
-                    max_attempts: row.get::<_, i64>(3)? as u32,
-                    payload,
-                })
-            },
-        )
-        .optional()?;
+    let lease_owner = lease_owner_label();
+    let lease_expires_at = lease_expires_at(AI_JOB_LEASE_SECONDS);
 
-    if let Some(job) = claimed {
-        connection.execute(
+    loop {
+        let claimed = connection
+            .query_row(
+                "SELECT id, job_type, attempt, max_attempts, payload_json
+                 FROM ai_jobs
+                 WHERE state IN ('queued', 'stale')
+                   AND available_at <= ?1
+                 ORDER BY priority DESC, id ASC
+                 LIMIT 1",
+                [&now],
+                |row| {
+                    let job_type: String = row.get(1)?;
+                    let payload_json: String = row.get(4)?;
+                    let payload =
+                        serde_json::from_str::<AiJobPayload>(&payload_json).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?;
+                    Ok(StoredAiJob {
+                        id: row.get(0)?,
+                        job_type: decode_job_type(&job_type),
+                        attempt: row.get::<_, i64>(2)? as u32,
+                        max_attempts: row.get::<_, i64>(3)? as u32,
+                        payload,
+                    })
+                },
+            )
+            .optional()?;
+
+        let Some(job) = claimed else {
+            return Ok(None);
+        };
+
+        let updated = connection.execute(
             "UPDATE ai_jobs
              SET state = 'running',
                  attempt = attempt + 1,
                  updated_at = ?1,
                  started_at = COALESCE(started_at, ?1),
-                 heartbeat_at = ?1
-             WHERE id = ?2",
-            params![now, job.id],
+                 heartbeat_at = ?1,
+                 lease_owner = ?2,
+                 lease_expires_at = ?3,
+                 stop_requested = 0
+             WHERE id = ?4
+               AND state IN ('queued', 'stale')
+               AND available_at <= ?1",
+            params![now, lease_owner, lease_expires_at, job.id],
         )?;
-        return Ok(Some(StoredAiJob { attempt: job.attempt + 1, ..job }));
+        if updated == 1 {
+            return Ok(Some(StoredAiJob { attempt: job.attempt + 1, ..job }));
+        }
     }
-
-    Ok(None)
 }
 
 /// Claims a specific queued AI job by ID when the state permits it.
@@ -244,6 +283,8 @@ pub fn claim_ai_job_by_id(
     ensure_ai_queue_schema(connection)?;
     mark_stale_jobs(connection, stale_after_seconds)?;
     let now = now_rfc3339();
+    let lease_owner = lease_owner_label();
+    let lease_expires_at = lease_expires_at(AI_JOB_LEASE_SECONDS);
     let claimed = connection
         .query_row(
             "SELECT id, job_type, attempt, max_attempts, payload_json
@@ -276,17 +317,24 @@ pub fn claim_ai_job_by_id(
         .optional()?;
 
     if let Some(job) = claimed {
-        connection.execute(
+        let updated = connection.execute(
             "UPDATE ai_jobs
              SET state = 'running',
                  attempt = attempt + 1,
                  updated_at = ?1,
                  started_at = COALESCE(started_at, ?1),
-                 heartbeat_at = ?1
-             WHERE id = ?2",
-            params![now, job.id],
+                 heartbeat_at = ?1,
+                 lease_owner = ?2,
+                 lease_expires_at = ?3,
+                 stop_requested = 0
+             WHERE id = ?4
+               AND state IN ('queued', 'stale')
+               AND available_at <= ?1",
+            params![now, lease_owner, lease_expires_at, job.id],
         )?;
-        return Ok(Some(StoredAiJob { attempt: job.attempt + 1, ..job }));
+        if updated == 1 {
+            return Ok(Some(StoredAiJob { attempt: job.attempt + 1, ..job }));
+        }
     }
 
     Ok(None)
@@ -297,9 +345,9 @@ pub fn heartbeat_ai_job(connection: &Connection, job_id: i64) -> Result<()> {
     ensure_ai_queue_schema(connection)?;
     connection.execute(
         "UPDATE ai_jobs
-         SET heartbeat_at = ?1, updated_at = ?1
-         WHERE id = ?2 AND state = 'running'",
-        params![now_rfc3339(), job_id],
+         SET heartbeat_at = ?1, updated_at = ?1, lease_expires_at = ?2
+         WHERE id = ?3 AND state = 'running'",
+        params![now_rfc3339(), lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
     )?;
     Ok(())
 }
@@ -310,10 +358,10 @@ pub fn mark_ai_job_succeeded(
     job_id: i64,
     run_id: Option<i64>,
     summary: Option<&str>,
-) -> Result<AiQueueJob> {
+) -> Result<bool> {
     ensure_ai_queue_schema(connection)?;
     let now = now_rfc3339();
-    connection.execute(
+    let updated = connection.execute(
         "UPDATE ai_jobs
          SET state = 'succeeded',
              run_id = COALESCE(?1, run_id),
@@ -321,12 +369,16 @@ pub fn mark_ai_job_succeeded(
              updated_at = ?3,
              heartbeat_at = ?3,
              finished_at = ?3,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
              error_code = NULL,
              error_message = NULL
-         WHERE id = ?4",
+         WHERE id = ?4
+           AND state = 'running'
+           AND stop_requested = 0",
         params![run_id, summary, now, job_id],
     )?;
-    load_ai_job(connection, job_id)
+    Ok(updated == 1)
 }
 
 /// Marks a running AI job as failed and decides whether it should retry.
@@ -363,11 +415,15 @@ pub fn mark_ai_job_failed(
              summary = COALESCE(?3, summary),
              updated_at = ?4,
              heartbeat_at = ?4,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
              available_at = ?5,
              finished_at = CASE WHEN ?1 = 'failed' THEN ?4 ELSE NULL END,
              error_code = ?6,
              error_message = ?7
-         WHERE id = ?8",
+         WHERE id = ?8
+           AND state = 'running'
+           AND stop_requested = 0",
         params![
             encode_job_state(next_state),
             run_id,
@@ -378,6 +434,48 @@ pub fn mark_ai_job_failed(
             failure.error_message.as_str(),
             job_id,
         ],
+    )?;
+    load_ai_job(connection, job_id)
+}
+
+/// Returns whether a running AI job has been asked to stop cooperatively.
+pub fn ai_job_stop_requested(connection: &Connection, job_id: i64) -> Result<bool> {
+    ensure_ai_queue_schema(connection)?;
+    connection
+        .query_row(
+            "SELECT stop_requested
+             FROM ai_jobs
+             WHERE id = ?1",
+            [job_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|value| value.unwrap_or(0) != 0)
+        .with_context(|| format!("loading stop flag for AI job {job_id}"))
+}
+
+/// Marks a running AI job as cancelled after its worker observes a stop request.
+pub fn mark_running_ai_job_cancelled(
+    connection: &Connection,
+    job_id: i64,
+    summary: Option<&str>,
+) -> Result<AiQueueJob> {
+    ensure_ai_queue_schema(connection)?;
+    let now = now_rfc3339();
+    connection.execute(
+        "UPDATE ai_jobs
+         SET state = 'cancelled',
+             summary = COALESCE(?1, summary),
+             updated_at = ?2,
+             heartbeat_at = ?2,
+             finished_at = ?2,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             error_code = NULL,
+             error_message = NULL
+         WHERE id = ?3
+           AND state = 'running'",
+        params![summary, now, job_id],
     )?;
     load_ai_job(connection, job_id)
 }
@@ -400,15 +498,18 @@ pub fn replay_ai_job(connection: &Connection, job_id: i64, paused: bool) -> Resu
     connection.execute(
         "UPDATE ai_jobs
          SET state = ?1,
-             attempt = 0,
-             run_id = NULL,
-             updated_at = ?2,
-             available_at = ?2,
-             started_at = NULL,
-             finished_at = NULL,
-             heartbeat_at = NULL,
-             error_code = NULL,
-             error_message = NULL
+            attempt = 0,
+            run_id = NULL,
+            updated_at = ?2,
+            available_at = ?2,
+            started_at = NULL,
+            finished_at = NULL,
+            heartbeat_at = NULL,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            stop_requested = 0,
+            error_code = NULL,
+            error_message = NULL
          WHERE id = ?3",
         params![
             encode_job_state(if paused {
@@ -423,22 +524,39 @@ pub fn replay_ai_job(connection: &Connection, job_id: i64, paused: bool) -> Resu
     load_ai_job(connection, job_id)
 }
 
-/// Cancels one queued or paused AI job and returns its new read model.
+/// Cancels one queued/paused AI job immediately or requests cooperative stop for running jobs.
 pub fn cancel_ai_job(connection: &Connection, job_id: i64) -> Result<AiQueueJob> {
     ensure_ai_queue_schema(connection)?;
     let job = load_ai_job(connection, job_id)?;
-    if decode_job_state(&job.state) == AiQueueJobState::Running {
-        anyhow::bail!("Running AI jobs cannot be cancelled mid-flight in the current worker.");
-    }
     let now = now_rfc3339();
-    connection.execute(
-        "UPDATE ai_jobs
-         SET state = 'cancelled',
-             updated_at = ?1,
-             finished_at = ?1
-         WHERE id = ?2",
-        params![now, job_id],
-    )?;
+    match decode_job_state(&job.state) {
+        AiQueueJobState::Running => {
+            connection.execute(
+                "UPDATE ai_jobs
+                 SET updated_at = ?1,
+                     summary = COALESCE(summary, 'Cancellation requested from the UI.'),
+                     stop_requested = 1
+                 WHERE id = ?2
+                   AND state = 'running'",
+                params![now, job_id],
+            )?;
+        }
+        AiQueueJobState::Queued | AiQueueJobState::Paused | AiQueueJobState::Stale => {
+            connection.execute(
+                "UPDATE ai_jobs
+                 SET state = 'cancelled',
+                     updated_at = ?1,
+                     finished_at = ?1,
+                     heartbeat_at = NULL,
+                     lease_owner = NULL,
+                     lease_expires_at = NULL,
+                     stop_requested = 1
+                 WHERE id = ?2",
+                params![now, job_id],
+            )?;
+        }
+        _ => anyhow::bail!("AI job {job_id} is in state '{}' and cannot be cancelled.", job.state),
+    }
     load_ai_job(connection, job_id)
 }
 
@@ -448,7 +566,8 @@ pub fn pause_queued_jobs(connection: &Connection) -> Result<usize> {
     Ok(connection.execute(
         "UPDATE ai_jobs
          SET state = 'paused',
-             updated_at = ?1
+             updated_at = ?1,
+             stop_requested = 0
          WHERE state IN ('queued', 'stale')",
         params![now_rfc3339()],
     )?)
@@ -461,7 +580,8 @@ pub fn resume_paused_jobs(connection: &Connection) -> Result<usize> {
         "UPDATE ai_jobs
          SET state = 'queued',
              updated_at = ?1,
-             available_at = ?1
+             available_at = ?1,
+             stop_requested = 0
          WHERE state = 'paused'",
         params![now_rfc3339()],
     )?)
@@ -563,13 +683,34 @@ fn count_jobs_for_types(
 
 fn mark_stale_jobs(connection: &Connection, stale_after_seconds: i64) -> Result<usize> {
     let threshold = (Utc::now() - Duration::seconds(stale_after_seconds)).to_rfc3339();
+    let now = now_rfc3339();
+    connection.execute(
+        "UPDATE ai_jobs
+         SET state = 'cancelled',
+             updated_at = ?1,
+             finished_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = NULL,
+             lease_expires_at = NULL
+         WHERE state = 'running'
+           AND stop_requested = 1
+           AND (
+             (lease_expires_at IS NOT NULL AND lease_expires_at <= ?2)
+             OR (heartbeat_at IS NOT NULL AND heartbeat_at < ?2)
+           )",
+        params![now, threshold],
+    )?;
     Ok(connection.execute(
         "UPDATE ai_jobs
-         SET state = 'stale', updated_at = ?1
+         SET state = 'stale',
+             updated_at = ?1,
+             lease_owner = NULL,
+             lease_expires_at = NULL
          WHERE state = 'running'
+           AND COALESCE(stop_requested, 0) = 0
            AND heartbeat_at IS NOT NULL
            AND heartbeat_at < ?2",
-        params![now_rfc3339(), threshold],
+        params![now, threshold],
     )?)
 }
 
@@ -691,9 +832,12 @@ mod tests {
         assert_eq!(claimed.id, queued.id);
         heartbeat_ai_job(&connection, claimed.id).expect("heartbeat");
 
-        let finished =
+        assert!(
             mark_ai_job_succeeded(&connection, claimed.id, Some(42), Some("Index refreshed"))
-                .expect("succeeded");
+                .expect("succeeded"),
+            "success transition should win while no cancellation is pending"
+        );
+        let finished = load_ai_job(&connection, claimed.id).expect("load finished job");
         assert_eq!(finished.state, "succeeded");
         assert_eq!(finished.run_id, Some(42));
         assert_eq!(finished.summary.as_deref(), Some("Index refreshed"));
@@ -825,15 +969,25 @@ mod tests {
     }
 
     #[test]
-    fn cancel_rejects_running_jobs() {
+    fn running_cancel_sets_stop_request_until_worker_finishes_cancel() {
         let connection = connection();
         let queued =
             enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
         let claimed = claim_next_ai_job(&connection, 60).expect("claim").expect("job");
         assert_eq!(claimed.id, queued.id);
 
-        let error = cancel_ai_job(&connection, claimed.id).expect_err("cancel should fail");
-        assert!(error.to_string().contains("cannot be cancelled"));
+        let running = cancel_ai_job(&connection, claimed.id).expect("request cancellation");
+        assert_eq!(running.state, "running");
+        assert!(ai_job_stop_requested(&connection, claimed.id).expect("stop flag"));
+
+        let cancelled = mark_running_ai_job_cancelled(
+            &connection,
+            claimed.id,
+            Some("Cancelled while running."),
+        )
+        .expect("finalize cancellation");
+        assert_eq!(cancelled.state, "cancelled");
+        assert_eq!(cancelled.summary.as_deref(), Some("Cancelled while running."));
     }
 
     #[test]
@@ -859,5 +1013,22 @@ mod tests {
         let resumed = resume_paused_jobs(&connection).expect("resume paused jobs");
         assert_eq!(resumed, 1);
         assert_eq!(load_ai_job(&connection, first.id).expect("resumed job").state, "queued");
+    }
+
+    #[test]
+    fn compare_and_set_claim_prevents_double_claims() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let database_path = root.path().join("ai-queue.sqlite");
+        let first_connection = Connection::open(&database_path).expect("open first db");
+        let second_connection = Connection::open(&database_path).expect("open second db");
+        first_connection
+            .execute_batch("CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT);")
+            .expect("create runs table");
+        ensure_ai_queue_schema(&first_connection).expect("ensure schema");
+        enqueue_index_job(&first_connection, &AiIndexRequest::default(), false).expect("enqueue");
+
+        let first_claim = claim_next_ai_job(&first_connection, 60).expect("first claim");
+        let second_claim = claim_next_ai_job(&second_connection, 60).expect("second claim");
+        assert!(first_claim.is_some() ^ second_claim.is_some());
     }
 }

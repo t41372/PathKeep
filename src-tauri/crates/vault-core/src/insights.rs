@@ -13,9 +13,11 @@ mod storage;
 mod surfaces;
 mod topics;
 
+#[cfg(test)]
+use crate::archive::create_schema;
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
-    archive::{create_schema, open_archive_connection},
+    archive::open_archive_connection,
     config::ProjectPaths,
     deterministic::{
         DomainCategory, EvidenceTier, InteractionKind, PageCategory, VisitAnalysisInput,
@@ -27,8 +29,9 @@ use crate::{
         built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_job_by_id,
         claim_enrichment_jobs, enqueue_enrichment_job, enrichment_plugin_enabled,
         ensure_intelligence_runtime_schema, mark_intelligence_job_failed,
-        mark_intelligence_job_succeeded, persist_deterministic_module_runtime_updates,
-        requeue_running_enrichment_jobs, requeue_running_enrichment_jobs_for_run,
+        mark_intelligence_job_succeeded, mark_running_intelligence_job_cancelled,
+        persist_deterministic_module_runtime_updates, requeue_running_enrichment_jobs,
+        requeue_running_enrichment_jobs_for_run,
     },
     models::{
         AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCanonicalSummary,
@@ -52,8 +55,8 @@ use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
 pub use self::runtime::{
-    clear_derived_intelligence_state, explain_insight, insight_status, load_insight_thread_detail,
-    load_insights, run_insights, run_insights_with_progress,
+    InsightsRunCancelled, clear_derived_intelligence_state, explain_insight, insight_status,
+    load_insight_thread_detail, load_insights, run_insights, run_insights_with_progress,
 };
 use self::{
     grouping::{
@@ -135,6 +138,8 @@ CREATE TABLE IF NOT EXISTS insight_bursts (
 );
 CREATE TABLE IF NOT EXISTS insight_query_groups (
   query_group_id TEXT PRIMARY KEY,
+  profile_scope TEXT NOT NULL,
+  window_days INTEGER NOT NULL,
   profile_id TEXT NOT NULL,
   thread_id TEXT,
   title TEXT NOT NULL,
@@ -177,6 +182,8 @@ CREATE TABLE IF NOT EXISTS insight_topics (
 );
 CREATE TABLE IF NOT EXISTS insight_threads (
   thread_id TEXT PRIMARY KEY,
+  profile_scope TEXT NOT NULL,
+  window_days INTEGER NOT NULL,
   profile_id TEXT NOT NULL,
   title TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -205,6 +212,7 @@ CREATE TABLE IF NOT EXISTS insight_thread_members (
 CREATE TABLE IF NOT EXISTS insight_reference_pages (
   reference_page_id TEXT PRIMARY KEY,
   profile_scope TEXT NOT NULL,
+  window_days INTEGER NOT NULL,
   url TEXT NOT NULL,
   title TEXT,
   domain TEXT NOT NULL,
@@ -222,6 +230,7 @@ CREATE TABLE IF NOT EXISTS insight_reference_pages (
 CREATE TABLE IF NOT EXISTS insight_source_effectiveness (
   source_id TEXT PRIMARY KEY,
   profile_scope TEXT NOT NULL,
+  window_days INTEGER NOT NULL,
   domain TEXT NOT NULL,
   source_role TEXT NOT NULL,
   query_group_count INTEGER NOT NULL,
@@ -335,7 +344,6 @@ struct VisitRecord {
     query_group_id: Option<String>,
     topic_id: Option<String>,
     thread_id: Option<String>,
-    vector: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -350,12 +358,12 @@ struct EnrichmentResult {
 }
 
 #[derive(Debug, Clone)]
-struct StoredEnrichment {
-    fetch_status: String,
-    fetched_at: String,
-    readable_title: Option<String>,
-    readable_text: Option<String>,
-    snippet_json: String,
+pub(crate) struct StoredEnrichment {
+    pub(crate) fetch_status: String,
+    pub(crate) fetched_at: String,
+    pub(crate) readable_title: Option<String>,
+    pub(crate) readable_text: Option<String>,
+    pub(crate) snippet_json: String,
 }
 
 #[derive(Debug, Default)]
@@ -370,6 +378,8 @@ struct InterruptedInsightRecovery {
     recovered_runs: usize,
     requeued_enrichment_jobs: usize,
 }
+
+const SQLITE_BATCH_SIZE: usize = 400;
 
 /// Ensures all deterministic-insight schema tables and indexes exist.
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
@@ -410,6 +420,42 @@ pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
         "query_group_count",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    ensure_table_column(
+        connection,
+        "insight_query_groups",
+        "profile_scope",
+        "TEXT NOT NULL DEFAULT 'all'",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_query_groups",
+        "window_days",
+        "INTEGER NOT NULL DEFAULT 30",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_threads",
+        "profile_scope",
+        "TEXT NOT NULL DEFAULT 'all'",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_threads",
+        "window_days",
+        "INTEGER NOT NULL DEFAULT 30",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_reference_pages",
+        "window_days",
+        "INTEGER NOT NULL DEFAULT 30",
+    )?;
+    ensure_table_column(
+        connection,
+        "insight_source_effectiveness",
+        "window_days",
+        "INTEGER NOT NULL DEFAULT 30",
+    )?;
     ensure_table_column(connection, "insight_threads", "confidence", "REAL NOT NULL DEFAULT 0")?;
     ensure_table_column(
         connection,
@@ -435,6 +481,18 @@ pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
         "insight_runs",
         "template_summary_count",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    connection.execute_batch(
+        r#"
+CREATE INDEX IF NOT EXISTS idx_insight_query_groups_scope_window_last_seen
+  ON insight_query_groups(profile_scope, window_days, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_threads_scope_window_last_seen
+  ON insight_threads(profile_scope, window_days, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_reference_pages_scope_window_score
+  ON insight_reference_pages(profile_scope, window_days, score DESC, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_source_effectiveness_scope_window_score
+  ON insight_source_effectiveness(profile_scope, window_days, effectiveness_score DESC);
+"#,
     )?;
     ensure_visit_insight_feature_indexes(connection)?;
     Ok(())
@@ -489,6 +547,7 @@ fn ensure_table_column(
 }
 
 /// Chooses the best text payload to embed for one enriched visit.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn preferred_embedding_content(
     connection: &Connection,
     history_id: i64,
@@ -508,6 +567,32 @@ pub(crate) fn preferred_embedding_content(
     ))
 }
 
+fn collect_history_ids(visits: &[VisitRecord]) -> Vec<i64> {
+    let mut seen = HashSet::new();
+    let mut ids = Vec::with_capacity(visits.len());
+    for visit in visits {
+        if seen.insert(visit.history_id) {
+            ids.push(visit.history_id);
+        }
+    }
+    ids
+}
+
+fn collect_profile_url_ids(visits: &[VisitRecord]) -> HashMap<String, Vec<i64>> {
+    let mut grouped = HashMap::<String, HashSet<i64>>::new();
+    for visit in visits {
+        grouped.entry(visit.profile_id.clone()).or_default().insert(visit.source_url_id);
+    }
+    grouped
+        .into_iter()
+        .map(|(profile_id, url_ids)| {
+            let mut url_ids = url_ids.into_iter().collect::<Vec<_>>();
+            url_ids.sort_unstable();
+            (profile_id, url_ids)
+        })
+        .collect()
+}
+
 fn load_visits(
     connection: &Connection,
     profile_id: Option<&str>,
@@ -516,50 +601,44 @@ fn load_visits(
 ) -> Result<Vec<VisitRecord>> {
     let start = (Utc::now() - Duration::days(window_days as i64)).to_rfc3339();
     let start_chrome = crate::utils::iso_to_chrome_time_micros(&start).unwrap_or(0);
-    let sql = match (profile_id.is_some(), limit.is_some()) {
-        (true, true) => {
-            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                    from_visit, transition, visit_duration, external_referrer_url, app_id
-             FROM visit_events
-             WHERE profile_id = ?1 AND visit_time >= ?2
-             ORDER BY visit_time ASC
-             LIMIT ?3"
-        }
-        (true, false) => {
-            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                    from_visit, transition, visit_duration, external_referrer_url, app_id
-             FROM visit_events
-             WHERE profile_id = ?1 AND visit_time >= ?2
-             ORDER BY visit_time ASC"
-        }
-        (false, true) => {
-            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                    from_visit, transition, visit_duration, external_referrer_url, app_id
-             FROM visit_events
-             WHERE visit_time >= ?1
-             ORDER BY visit_time ASC
-             LIMIT ?2"
-        }
-        (false, false) => {
-            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                    from_visit, transition, visit_duration, external_referrer_url, app_id
-             FROM visit_events
-             WHERE visit_time >= ?1
-             ORDER BY visit_time ASC"
-        }
-    };
-    let mut statement = connection.prepare(sql)?;
-    let rows = match (profile_id, limit) {
-        (Some(profile_id), Some(limit)) => statement
-            .query_map(params![profile_id, start_chrome, limit as i64], visit_record_from_row)?,
-        (Some(profile_id), None) => {
-            statement.query_map(params![profile_id, start_chrome], visit_record_from_row)?
-        }
-        (None, Some(limit)) => {
-            statement.query_map(params![start_chrome, limit as i64], visit_record_from_row)?
-        }
-        (None, None) => statement.query_map(params![start_chrome], visit_record_from_row)?,
-    };
+    load_visits_in_range(connection, profile_id, start_chrome, None, limit)
+}
+
+fn load_visits_in_range(
+    connection: &Connection,
+    profile_id: Option<&str>,
+    start_chrome: i64,
+    end_chrome: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<VisitRecord>> {
+    let mut sql = String::from(
+        "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
+                from_visit, transition, visit_duration, external_referrer_url, app_id
+         FROM visit_events
+         WHERE visit_time >= ?1",
+    );
+    let mut params: Vec<&dyn rusqlite::ToSql> = vec![&start_chrome];
+    let mut next_index = 2;
+    let end_value = end_chrome;
+    let profile_value = profile_id.map(ToString::to_string);
+    if let Some(end_chrome) = end_value.as_ref() {
+        sql.push_str(&format!(" AND visit_time < ?{next_index}"));
+        params.push(end_chrome);
+        next_index += 1;
+    }
+    if let Some(profile_id) = profile_value.as_ref() {
+        sql.push_str(&format!(" AND profile_id = ?{next_index}"));
+        params.push(profile_id);
+        next_index += 1;
+    }
+    sql.push_str(" ORDER BY visit_time ASC");
+    let limit_value = limit.map(|limit| limit.max(1) as i64);
+    if let Some(limit_value) = limit_value.as_ref() {
+        sql.push_str(&format!(" LIMIT ?{next_index}"));
+        params.push(limit_value);
+    }
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map(rusqlite::params_from_iter(params), visit_record_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -670,7 +749,6 @@ fn visit_record_from_row(row: &Row<'_>) -> rusqlite::Result<VisitRecord> {
         query_group_id: None,
         topic_id: None,
         thread_id: None,
-        vector: None,
     })
 }
 
@@ -689,35 +767,30 @@ fn insight_evidence_from_row(row: &Row<'_>) -> rusqlite::Result<InsightEvidenceI
 
 fn load_search_term_map(
     connection: &Connection,
-    profile_id: Option<&str>,
+    visits: &[VisitRecord],
 ) -> Result<HashMap<(String, i64), String>> {
-    let sql = if profile_id.is_some() {
-        "SELECT profile_id, url_id, normalized_term
-         FROM search_terms
-         WHERE profile_id = ?1
-           AND reverted_at IS NULL"
-    } else {
-        "SELECT profile_id, url_id, normalized_term
-         FROM search_terms
-         WHERE reverted_at IS NULL"
-    };
-    let mut statement = connection.prepare(sql)?;
     let mut map = HashMap::new();
-    if let Some(profile_id) = profile_id {
-        let rows = statement.query_map([profile_id], |row: &Row<'_>| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
-        })?;
-        for row in rows {
-            let (profile_id, url_id, term) = row?;
-            map.entry((profile_id, url_id)).or_insert(term);
-        }
-    } else {
-        let rows = statement.query_map([], |row: &Row<'_>| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
-        })?;
-        for row in rows {
-            let (profile_id, url_id, term) = row?;
-            map.entry((profile_id, url_id)).or_insert(term);
+    for (profile_id, url_ids) in collect_profile_url_ids(visits) {
+        for chunk in url_ids.chunks(SQLITE_BATCH_SIZE) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT profile_id, url_id, normalized_term
+                 FROM search_terms
+                 WHERE profile_id = ?1
+                   AND reverted_at IS NULL
+                   AND url_id IN ({placeholders})"
+            );
+            let mut statement = connection.prepare(&sql)?;
+            let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+                .chain(chunk.iter().map(|url_id| url_id as &dyn rusqlite::ToSql));
+            let rows =
+                statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+                })?;
+            for row in rows {
+                let (profile_id, url_id, term) = row?;
+                map.entry((profile_id, url_id)).or_insert(term);
+            }
         }
     }
     Ok(map)
@@ -829,11 +902,17 @@ fn process_enrichment_jobs(
 
     for job in claimed {
         let Some(visit) = visit_map.get(&job.payload.history_id) else {
-            mark_intelligence_job_failed(
+            if !mark_intelligence_job_failed(
                 connection,
                 job.id,
                 "The queued visit no longer exists in the current insight window.",
-            )?;
+            )? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    connection,
+                    job.id,
+                    "cancelled from UI",
+                );
+            }
             report.failed_enrichments += 1;
             continue;
         };
@@ -843,11 +922,17 @@ fn process_enrichment_jobs(
                 title_normalization_enrichment(&visit.url, visit.title.as_deref())
             }
             _ => {
-                mark_intelligence_job_failed(
+                if !mark_intelligence_job_failed(
                     connection,
                     job.id,
                     &format!("Unknown enrichment plugin {}", job.plugin_id),
-                )?;
+                )? {
+                    let _ = mark_running_intelligence_job_cancelled(
+                        connection,
+                        job.id,
+                        "cancelled from UI",
+                    );
+                }
                 report.failed_enrichments += 1;
                 continue;
             }
@@ -866,16 +951,28 @@ fn process_enrichment_jobs(
         });
         if enrichment_is_terminal_failure(&enrichment) {
             report.failed_enrichments += 1;
-            mark_intelligence_job_failed(
+            if !mark_intelligence_job_failed(
                 connection,
                 job.id,
                 &enrichment_failure_message(&enrichment),
-            )?;
+            )? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    connection,
+                    job.id,
+                    "cancelled from UI",
+                );
+            }
         } else {
             if enrichment.status == "success" {
                 report.enriched_visits += 1;
             }
-            mark_intelligence_job_succeeded(connection, job.id, &artifact)?;
+            if !mark_intelligence_job_succeeded(connection, job.id, &artifact)? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    connection,
+                    job.id,
+                    "cancelled from UI",
+                );
+            }
         }
     }
 
@@ -896,11 +993,17 @@ pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Res
             refetch_visit_content(&client, &job.payload.url)
         }
         _ => {
-            mark_intelligence_job_failed(
+            if !mark_intelligence_job_failed(
                 connection,
                 job.id,
                 &format!("Unknown enrichment plugin {}", job.plugin_id),
-            )?;
+            )? {
+                let _ = mark_running_intelligence_job_cancelled(
+                    connection,
+                    job.id,
+                    "cancelled from UI",
+                );
+            }
             return Ok(true);
         }
     };
@@ -917,9 +1020,19 @@ pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Res
         "attempt": job.attempt,
     });
     if enrichment_is_terminal_failure(&enrichment) {
-        mark_intelligence_job_failed(connection, job.id, &enrichment_failure_message(&enrichment))?;
+        if !mark_intelligence_job_failed(
+            connection,
+            job.id,
+            &enrichment_failure_message(&enrichment),
+        )? {
+            let _ =
+                mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+        }
     } else {
-        mark_intelligence_job_succeeded(connection, job.id, &artifact)?;
+        if !mark_intelligence_job_succeeded(connection, job.id, &artifact)? {
+            let _ =
+                mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+        }
     }
 
     Ok(true)
@@ -1289,6 +1402,7 @@ fn enrichment_for_history_and_source(
         .map_err(Into::into)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn best_enrichment_for_history(
     connection: &Connection,
     history_id: i64,
@@ -1324,74 +1438,63 @@ fn best_enrichment_for_history(
         .map_err(Into::into)
 }
 
+pub(crate) fn load_best_enrichment_map_by_history_ids(
+    connection: &Connection,
+    history_ids: &[i64],
+) -> Result<HashMap<i64, StoredEnrichment>> {
+    if history_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut map = HashMap::new();
+    for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT history_id, fetch_status, fetched_at, readable_title, readable_text, snippet_json
+             FROM visit_content_enrichments
+             WHERE history_id IN ({placeholders})
+             ORDER BY
+               history_id ASC,
+               CASE fetch_status WHEN 'success' THEN 0 WHEN 'empty' THEN 1 ELSE 2 END,
+               CASE content_source
+                 WHEN 'capture' THEN 0
+                 WHEN 'readable-content-refetch' THEN 1
+                 WHEN 'title-normalization' THEN 2
+                 ELSE 3
+               END,
+               fetched_at DESC"
+        );
+        let mut statement = connection.prepare(&sql)?;
+        let params = chunk.iter().map(|history_id| history_id as &dyn rusqlite::ToSql);
+        let rows = statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                StoredEnrichment {
+                    fetch_status: row.get(1)?,
+                    fetched_at: row.get(2)?,
+                    readable_title: row.get(3)?,
+                    readable_text: row.get(4)?,
+                    snippet_json: row.get(5)?,
+                },
+            ))
+        })?;
+        for row in rows {
+            let (history_id, enrichment) = row?;
+            map.entry(history_id).or_insert(enrichment);
+        }
+    }
+
+    Ok(map)
+}
+
 fn load_best_enrichment_map(
     connection: &Connection,
     visits: &[VisitRecord],
 ) -> Result<HashMap<i64, StoredEnrichment>> {
-    let mut map = HashMap::new();
-    for visit in visits {
-        if let Some(value) = best_enrichment_for_history(connection, visit.history_id)? {
-            map.insert(visit.history_id, value);
-        }
-    }
-    Ok(map)
+    load_best_enrichment_map_by_history_ids(connection, &collect_history_ids(visits))
 }
 
-fn load_embedding_map(
-    connection: &Connection,
-    embedding_provider: Option<&AiProviderRuntime>,
-    visits: &[VisitRecord],
-) -> Result<HashMap<i64, Vec<f32>>> {
-    let provider_filter = embedding_provider.map(|value| value.config.id.clone());
-    let model_filter = embedding_provider.map(|value| value.config.default_model.clone());
-    let sql = if provider_filter.is_some() && model_filter.is_some() {
-        "SELECT history_id, embedding_json
-         FROM ai_embeddings
-         WHERE provider_id = ?1 AND model = ?2"
-    } else {
-        "SELECT history_id, embedding_json
-         FROM ai_embeddings
-         WHERE rowid IN (
-           SELECT MAX(rowid) FROM ai_embeddings GROUP BY history_id
-         )"
-    };
-    let mut statement = connection.prepare(sql)?;
-    let allowed = visits.iter().map(|visit| visit.history_id).collect::<HashSet<_>>();
-    let mut map = HashMap::new();
-    if let (Some(provider_id), Some(model)) = (provider_filter, model_filter) {
-        let rows = statement.query_map(params![provider_id, model], |row: &Row<'_>| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
-        for row in rows {
-            let (history_id, embedding_json) = row?;
-            if !allowed.contains(&history_id) {
-                continue;
-            }
-            if let Ok(vector) = serde_json::from_str::<Vec<f32>>(&embedding_json) {
-                map.insert(history_id, vector);
-            }
-        }
-    } else {
-        let rows = statement
-            .query_map([], |row: &Row<'_>| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?;
-        for row in rows {
-            let (history_id, embedding_json) = row?;
-            if !allowed.contains(&history_id) {
-                continue;
-            }
-            if let Ok(vector) = serde_json::from_str::<Vec<f32>>(&embedding_json) {
-                map.insert(history_id, vector);
-            }
-        }
-    }
-    Ok(map)
-}
-
-fn hydrate_enrichment_and_embeddings(
-    visits: &mut [VisitRecord],
-    enrichments: &HashMap<i64, StoredEnrichment>,
-    embeddings: &HashMap<i64, Vec<f32>>,
-) {
+fn hydrate_enrichments(visits: &mut [VisitRecord], enrichments: &HashMap<i64, StoredEnrichment>) {
     for visit in visits {
         if let Some(enrichment) = enrichments.get(&visit.history_id) {
             visit.readable_title = enrichment.readable_title.clone();
@@ -1427,28 +1530,31 @@ fn hydrate_enrichment_and_embeddings(
         visit.page_type = legacy_page_type(visit).to_string();
         visit.keywords = extract_keywords(visit);
         visit.entities = extract_entities(visit);
-        visit.vector = embeddings.get(&visit.history_id).cloned();
     }
 }
 
 #[cfg(test)]
 fn compute_feature_scores(visits: &mut [VisitRecord]) {
-    compute_feature_scores_with_progress(visits, |_processed, _total| {});
+    compute_feature_scores_with_progress(visits, |_processed, _total| Ok(()))
+        .expect("score visits");
 }
 
-fn compute_feature_scores_with_progress<F>(visits: &mut [VisitRecord], mut on_progress: F)
+fn compute_feature_scores_with_progress<F>(
+    visits: &mut [VisitRecord],
+    mut on_progress: F,
+) -> Result<()>
 where
-    F: FnMut(usize, usize),
+    F: FnMut(usize, usize) -> Result<()>,
 {
     let mut seen_token_counts = HashMap::<String, usize>::new();
     let mut revisit_counts = HashMap::<String, usize>::new();
     let total = visits.len();
     if total == 0 {
-        on_progress(0, 0);
-        return;
+        on_progress(0, 0)?;
+        return Ok(());
     }
     let progress_interval = (total / 24).max(2_048);
-    on_progress(0, total);
+    on_progress(0, total)?;
     for (index, visit) in visits.iter_mut().enumerate() {
         let tokens = visit.keywords.iter().cloned().collect::<HashSet<_>>();
         let repeated_token_ratio = if tokens.is_empty() {
@@ -1493,9 +1599,10 @@ where
         }
         let processed = index + 1;
         if processed == total || processed % progress_interval == 0 {
-            on_progress(processed, total);
+            on_progress(processed, total)?;
         }
     }
+    Ok(())
 }
 
 fn persist_features(connection: &Connection, visits: &[VisitRecord]) -> Result<()> {
@@ -1553,13 +1660,14 @@ fn persist_cards(
         params![profile_scope, window_days as i64],
     )?;
     for card in cards {
+        let card_id = format!("{profile_scope}:{window_days}:{}", card.card_id);
         connection.execute(
             "INSERT INTO insight_cards
              (card_id, profile_scope, window_days, kind, title, summary, score, chromium_enhanced,
               evidence_json, generated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
-                card.card_id,
+                card_id,
                 profile_scope,
                 window_days as i64,
                 card.kind,
@@ -1642,31 +1750,19 @@ fn load_topics(
 
 fn load_threads(
     connection: &Connection,
-    profile_id: Option<&str>,
+    profile_scope: &str,
     window_days: u32,
 ) -> Result<Vec<InsightThreadSummary>> {
-    let start = (Utc::now() - Duration::days(window_days as i64)).to_rfc3339();
-    let sql = if profile_id.is_some() {
+    let mut statement = connection.prepare(
         "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
                 query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
                 dominant_topic_id, chromium_enhanced, evidence_json
          FROM insight_threads
-         WHERE profile_id = ?1 AND last_seen_at >= ?2
-         ORDER BY last_seen_at DESC"
-    } else {
-        "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
-                query_group_count, reopen_count, open_loop_score, confidence, evidence_tier,
-                dominant_topic_id, chromium_enhanced, evidence_json
-         FROM insight_threads
-         WHERE last_seen_at >= ?1
-         ORDER BY last_seen_at DESC"
-    };
-    let mut statement = connection.prepare(sql)?;
-    let rows = if let Some(profile_id) = profile_id {
-        statement.query_map(params![profile_id, start], thread_summary_from_row)?
-    } else {
-        statement.query_map(params![start], thread_summary_from_row)?
-    };
+         WHERE profile_scope = ?1 AND window_days = ?2
+         ORDER BY last_seen_at DESC",
+    )?;
+    let rows =
+        statement.query_map(params![profile_scope, window_days as i64], thread_summary_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -1693,32 +1789,20 @@ fn thread_summary_from_row(row: &Row<'_>) -> rusqlite::Result<InsightThreadSumma
 
 fn load_feature_rows(
     connection: &Connection,
-    profile_id: Option<&str>,
+    visits: &[VisitRecord],
 ) -> Result<HashMap<i64, (String, Option<String>, String)>> {
-    let sql = if profile_id.is_some() {
-        "SELECT history_id, source_role, query_term, query_stage
-         FROM visit_insight_features
-         WHERE profile_id = ?1"
-    } else {
-        "SELECT history_id, source_role, query_term, query_stage FROM visit_insight_features"
-    };
-    let mut statement = connection.prepare(sql)?;
+    let history_ids = collect_history_ids(visits);
     let mut map = HashMap::new();
-    if let Some(profile_id) = profile_id {
-        let rows = statement.query_map([profile_id], |row: &Row<'_>| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
-        for row in rows {
-            let (history_id, source_role, query_term, query_stage) = row?;
-            map.insert(history_id, (source_role, query_term, query_stage));
-        }
-    } else {
-        let rows = statement.query_map([], |row: &Row<'_>| {
+    for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT history_id, source_role, query_term, query_stage
+             FROM visit_insight_features
+             WHERE history_id IN ({placeholders})"
+        );
+        let mut statement = connection.prepare(&sql)?;
+        let params = chunk.iter().map(|history_id| history_id as &dyn rusqlite::ToSql);
+        let rows = statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
@@ -2074,7 +2158,7 @@ fn truncate_text(input: &str, limit: usize) -> String {
     input.chars().take(limit).collect::<String>()
 }
 
-fn build_embedding_content_from_parts(
+pub(crate) fn build_embedding_content_from_parts(
     profile_id: &str,
     url: &str,
     title: Option<&str>,
@@ -2400,8 +2484,128 @@ mod tests {
         assert!(!snapshot.canonical.on_this_day.is_empty());
         assert!(!snapshot.canonical.top_domains.is_empty());
         assert!(!snapshot.query_ladders.is_empty());
+        assert!(
+            snapshot.template_summaries.iter().any(|summary| summary.kind == "periodic-summary")
+        );
+        assert!(
+            snapshot.template_summaries.iter().any(|summary| summary.kind == "contrastive-summary")
+        );
         assert!(snapshot.query_ladders[0].steps.len() > 1);
         assert!(snapshot.workflow_map.chromium_enhanced);
+    }
+
+    #[test]
+    fn scoped_persistence_keeps_30_day_and_365_day_snapshots_isolated() {
+        let paths = test_paths();
+        let config = test_config();
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        seed_visits(&connection);
+
+        let older_visit_one = (Utc::now() - Duration::days(90)).to_rfc3339();
+        let older_visit_two = (Utc::now() - Duration::days(60)).to_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO visit_events
+                 (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                 VALUES
+                 (100, 'chrome:Default', 100, 100, 'https://example.com/docs/archive', 'Archive docs', ?1, NULL, 805306368, 12000, 1, NULL, NULL, NULL, 'older-a', 'older-a', ?3),
+                 (101, 'chrome:Default', 101, 101, 'https://example.com/docs/archive', 'Archive docs', ?2, 100, 805306368, 12000, 1, NULL, NULL, NULL, 'older-b', 'older-b', ?4)",
+                params![
+                    iso_to_chrome_time_micros(&older_visit_one).expect("older visit one"),
+                    iso_to_chrome_time_micros(&older_visit_two).expect("older visit two"),
+                    older_visit_one,
+                    older_visit_two,
+                ],
+            )
+            .expect("insert older visits");
+
+        run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("run 30 day insights");
+
+        let before = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load 30 day snapshot before 365 day rebuild");
+        assert!(
+            before
+                .reference_pages
+                .iter()
+                .all(|page| page.url != "https://example.com/docs/archive"),
+            "30 day snapshot should not include the older reference page yet"
+        );
+
+        run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(365),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("run 365 day insights");
+
+        let after = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load 30 day snapshot after 365 day rebuild");
+        assert!(
+            after.reference_pages.iter().all(|page| page.url != "https://example.com/docs/archive"),
+            "30 day snapshot must stay isolated from the 365 day rebuild"
+        );
+
+        let year_snapshot = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(365),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load 365 day snapshot");
+        assert!(
+            year_snapshot
+                .reference_pages
+                .iter()
+                .any(|page| page.url == "https://example.com/docs/archive"),
+            "365 day snapshot should keep the older reference page"
+        );
     }
 
     #[test]
@@ -2501,7 +2705,6 @@ mod tests {
                 query_group_id: None,
                 topic_id: None,
                 thread_id: None,
-                vector: None,
             }
         }
 
@@ -2560,7 +2763,6 @@ mod tests {
                 query_group_id: None,
                 topic_id: None,
                 thread_id: None,
-                vector: None,
             }
         }
 
@@ -2570,7 +2772,9 @@ mod tests {
 
         compute_feature_scores_with_progress(&mut visits, |processed, total| {
             progress.push((processed, total));
-        });
+            Ok(())
+        })
+        .expect("score visits with progress");
 
         assert_eq!(progress.first().copied(), Some((0, 3)));
         assert_eq!(progress.last().copied(), Some((3, 3)));

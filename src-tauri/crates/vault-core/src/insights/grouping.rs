@@ -64,13 +64,14 @@ pub(super) struct ThreadRecord {
     pub evidence: Vec<InsightEvidenceItem>,
 }
 
-#[derive(Debug, Clone)]
-struct GroupSnapshot {
+#[derive(Debug, Clone, Default)]
+struct ThreadAccumulator {
     title: String,
     confidence: f32,
     tokens: HashSet<String>,
     domains: HashSet<String>,
     anchors: HashSet<String>,
+    last_visit_time: i64,
 }
 
 fn query_token_set(query: &str) -> HashSet<String> {
@@ -315,7 +316,7 @@ pub(super) fn build_threads(
 ) -> Vec<ThreadRecord> {
     query_groups.sort_by(|left, right| left.first_seen_at.cmp(&right.first_seen_at));
     let mut threads = Vec::<ThreadRecord>::new();
-    let mut group_snapshots = HashMap::<String, GroupSnapshot>::new();
+    let mut accumulators = Vec::<ThreadAccumulator>::new();
 
     for group in query_groups.iter_mut() {
         let current_tokens = group_tokens(group);
@@ -323,6 +324,11 @@ pub(super) fn build_threads(
         let current_anchors = group_anchors(group, visits);
         let current_start =
             group.visit_indexes.first().map(|index| visits[*index].visit_time).unwrap_or_default();
+        let current_end = group
+            .visit_indexes
+            .last()
+            .map(|index| visits[*index].visit_time)
+            .unwrap_or(current_start);
         let mut best_index = None;
         let mut best_score = 0.0f32;
 
@@ -330,38 +336,15 @@ pub(super) fn build_threads(
             if thread.profile_id != group.profile_id {
                 continue;
             }
-            let gap_days = current_start
-                - thread
-                    .visit_indexes
-                    .last()
-                    .map(|index| visits[*index].visit_time)
-                    .unwrap_or_default();
+            let accumulator = &accumulators[thread_index];
+            let gap_days = current_start - accumulator.last_visit_time;
             let gap_days = gap_days.max(0) / 1_000_000 / 60 / 60 / 24;
             if gap_days > THREAD_GAP_DAYS {
                 continue;
             }
-
-            let thread_tokens = thread
-                .query_group_ids
-                .iter()
-                .filter_map(|id| group_snapshots.get(id))
-                .flat_map(|snapshot| snapshot.tokens.iter().cloned())
-                .collect::<HashSet<_>>();
-            let thread_domains = thread
-                .query_group_ids
-                .iter()
-                .filter_map(|id| group_snapshots.get(id))
-                .flat_map(|snapshot| snapshot.domains.iter().cloned())
-                .collect::<HashSet<_>>();
-            let thread_anchors = thread
-                .query_group_ids
-                .iter()
-                .filter_map(|id| group_snapshots.get(id))
-                .flat_map(|snapshot| snapshot.anchors.iter().cloned())
-                .collect::<HashSet<_>>();
-            let token_score = token_similarity(&current_tokens, &thread_tokens);
-            let domain_score = token_similarity(&current_domains, &thread_domains);
-            let anchor_score = token_similarity(&current_anchors, &thread_anchors);
+            let token_score = token_similarity(&current_tokens, &accumulator.tokens);
+            let domain_score = token_similarity(&current_domains, &accumulator.domains);
+            let anchor_score = token_similarity(&current_anchors, &accumulator.anchors);
             let reopen_bonus = if gap_days >= 1 && (token_score >= 0.22 || anchor_score >= 0.2) {
                 0.12
             } else {
@@ -392,6 +375,7 @@ pub(super) fn build_threads(
                 chromium_enhanced: group.chromium_enhanced,
                 evidence: Vec::new(),
             });
+            accumulators.push(ThreadAccumulator::default());
             threads.len() - 1
         });
 
@@ -418,19 +402,20 @@ pub(super) fn build_threads(
             "tier-c".to_string()
         };
         group.thread_id = Some(threads[thread_index].thread_id.clone());
-        group_snapshots.insert(
-            group.query_group_id.clone(),
-            GroupSnapshot {
-                title: group.title.clone(),
-                confidence: group.confidence,
-                tokens: current_tokens,
-                domains: current_domains,
-                anchors: current_anchors,
-            },
-        );
+        let accumulator = &mut accumulators[thread_index];
+        accumulator.title = if group.confidence >= accumulator.confidence {
+            group.title.clone()
+        } else {
+            accumulator.title.clone()
+        };
+        accumulator.confidence = accumulator.confidence.max(group.confidence);
+        accumulator.tokens.extend(current_tokens);
+        accumulator.domains.extend(current_domains);
+        accumulator.anchors.extend(current_anchors);
+        accumulator.last_visit_time = current_end;
     }
 
-    for thread in &mut threads {
+    for (thread_index, thread) in threads.iter_mut().enumerate() {
         thread.visit_indexes.sort_unstable();
         for index in &thread.visit_indexes {
             visits[*index].thread_id = Some(thread.thread_id.clone());
@@ -448,14 +433,7 @@ pub(super) fn build_threads(
             .filter(|index| visits[**index].query_group_id.is_some())
             .count() as f32
             * 0.08;
-        let anchor_bonus = thread
-            .query_group_ids
-            .iter()
-            .filter_map(|id| group_snapshots.get(id))
-            .flat_map(|snapshot| snapshot.anchors.iter().cloned())
-            .collect::<HashSet<_>>()
-            .len() as f32
-            * 0.08;
+        let anchor_bonus = accumulators[thread_index].anchors.len() as f32 * 0.08;
         thread.open_loop_score =
             (thread.reopen_count as f32 * 0.6 + query_group_bonus + anchor_bonus).clamp(0.0, 4.0);
         let last_seen_recent = DateTime::parse_from_rfc3339(&thread.last_seen_at)
@@ -468,13 +446,8 @@ pub(super) fn build_threads(
         } else {
             "archived".to_string()
         };
-        if let Some(best_group) = thread
-            .query_group_ids
-            .iter()
-            .filter_map(|id| group_snapshots.get(id))
-            .max_by(|left, right| left.confidence.total_cmp(&right.confidence))
-        {
-            thread.title = best_group.title.clone();
+        if accumulators[thread_index].confidence > 0.0 {
+            thread.title = accumulators[thread_index].title.clone();
         }
     }
 

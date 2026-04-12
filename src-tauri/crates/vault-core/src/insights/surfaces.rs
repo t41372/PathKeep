@@ -14,6 +14,137 @@ use std::collections::{HashMap, HashSet};
 
 use super::shared::{day_key, fxhash, strongest_evidence_tier, visit_is_query_landing};
 
+#[derive(Debug, Clone, Default)]
+pub(super) struct ContrastWindowSummary {
+    pub previous_visit_count: usize,
+    pub previous_unique_domains: usize,
+}
+
+fn summary_window_label(window_days: u32) -> &'static str {
+    match window_days {
+        0..=7 => "last 7 days",
+        8..=31 => "last 30 days",
+        32..=92 => "last 90 days",
+        93..=180 => "last 180 days",
+        _ => "last 365 days",
+    }
+}
+
+fn periodic_summary_evidence(
+    visits: &[VisitRecord],
+    threads: &[InsightThreadSummary],
+    query_groups: &[InsightQueryGroupSummary],
+) -> Vec<super::InsightEvidenceItem> {
+    if let Some(thread) = threads.first() {
+        return thread.evidence.clone();
+    }
+    if let Some(group) = query_groups.first() {
+        return group.evidence.clone();
+    }
+    visits
+        .iter()
+        .rev()
+        .take(4)
+        .map(|visit| {
+            evidence_from_visit(visit, Some("Recent activity in the current window.".to_string()))
+        })
+        .collect()
+}
+
+fn build_periodic_summary(
+    visits: &[VisitRecord],
+    query_groups: &[InsightQueryGroupSummary],
+    threads: &[InsightThreadSummary],
+    reference_pages: &[InsightReferencePageSummary],
+    profile_id: Option<&str>,
+    window_days: u32,
+) -> Option<InsightTemplateSummary> {
+    let primary_focus = threads
+        .first()
+        .map(|thread| thread.title.clone())
+        .or_else(|| query_groups.first().map(|group| group.title.clone()))
+        .or_else(|| {
+            reference_pages
+                .first()
+                .map(|page| page.title.clone().unwrap_or_else(|| page.url.clone()))
+        })?;
+    let unique_domains =
+        visits.iter().map(|visit| visit.registrable_domain.clone()).collect::<HashSet<_>>().len();
+    Some(InsightTemplateSummary {
+        summary_id: "summary-periodic".to_string(),
+        kind: "periodic-summary".to_string(),
+        title: "Periodic summary".to_string(),
+        body: format!(
+            "Over the {} this scope centered on \"{}\" across {} visits, {} domains, and {} query groups.",
+            summary_window_label(window_days),
+            primary_focus,
+            visits.len(),
+            unique_domains,
+            query_groups.len()
+        ),
+        confidence: (0.36 + visits.len().min(24) as f32 * 0.02).clamp(0.0, 0.92),
+        profile_id: profile_id.map(ToString::to_string),
+        evidence: periodic_summary_evidence(visits, threads, query_groups),
+    })
+}
+
+fn build_contrastive_summary(
+    visits: &[VisitRecord],
+    contrast: Option<&ContrastWindowSummary>,
+    profile_id: Option<&str>,
+    window_days: u32,
+) -> Option<InsightTemplateSummary> {
+    let contrast = contrast?;
+    let current_unique_domains =
+        visits.iter().map(|visit| visit.registrable_domain.clone()).collect::<HashSet<_>>().len();
+    let evidence = visits
+        .iter()
+        .rev()
+        .take(4)
+        .map(|visit| {
+            evidence_from_visit(
+                visit,
+                Some("Current-window evidence used for deterministic contrast.".to_string()),
+            )
+        })
+        .collect::<Vec<_>>();
+    let body = if contrast.previous_visit_count == 0 {
+        format!(
+            "Compared with the previous {} there was no earlier activity in scope; this window opened with {} visits across {} domains.",
+            summary_window_label(window_days),
+            visits.len(),
+            current_unique_domains
+        )
+    } else {
+        let visit_delta = visits.len() as i64 - contrast.previous_visit_count as i64;
+        let direction = if visit_delta > 0 {
+            "increased"
+        } else if visit_delta < 0 {
+            "decreased"
+        } else {
+            "held steady"
+        };
+        format!(
+            "Compared with the previous {} activity {} from {} to {} visits, while domain breadth shifted from {} to {}.",
+            summary_window_label(window_days),
+            direction,
+            contrast.previous_visit_count,
+            visits.len(),
+            contrast.previous_unique_domains,
+            current_unique_domains
+        )
+    };
+    Some(InsightTemplateSummary {
+        summary_id: "summary-contrastive".to_string(),
+        kind: "contrastive-summary".to_string(),
+        title: "Contrastive summary".to_string(),
+        body,
+        confidence: 0.58,
+        profile_id: profile_id.map(ToString::to_string),
+        evidence,
+    })
+}
+
 pub(super) fn build_reference_pages(
     visits: &[VisitRecord],
     profile_scope: &str,
@@ -209,8 +340,23 @@ pub(super) fn build_template_summaries(
     reference_pages: &[InsightReferencePageSummary],
     source_effectiveness: &[InsightSourceEffectivenessSummary],
     profile_id: Option<&str>,
+    window_days: u32,
+    contrast: Option<&ContrastWindowSummary>,
 ) -> Vec<InsightTemplateSummary> {
     let mut summaries = Vec::new();
+    if let Some(summary) = build_periodic_summary(
+        visits,
+        query_groups,
+        threads,
+        reference_pages,
+        profile_id,
+        window_days,
+    ) {
+        summaries.push(summary);
+    }
+    if let Some(summary) = build_contrastive_summary(visits, contrast, profile_id, window_days) {
+        summaries.push(summary);
+    }
     if let Some(group) = query_groups.first() {
         summaries.push(InsightTemplateSummary {
             summary_id: "summary-query-groups".to_string(),
