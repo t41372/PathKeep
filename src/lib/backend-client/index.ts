@@ -101,6 +101,7 @@ export const backend = {
   askAiAssistant: intelligenceClient.askAssistant,
   loadAiAssistantJob: intelligenceClient.getAssistantJob,
   runInsightsNow: intelligenceClient.runInsights,
+  queueInsightsRebuild: intelligenceClient.queueInsightsRebuild,
   clearDerivedIntelligence: intelligenceClient.clearDerivedState,
   loadInsights: intelligenceClient.getInsightsSnapshot,
   loadThreadDetail: intelligenceClient.getThreadDetail,

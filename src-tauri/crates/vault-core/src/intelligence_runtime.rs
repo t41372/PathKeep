@@ -12,10 +12,10 @@ use crate::{
         AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus,
         IntelligenceJobOverview, IntelligenceQueueStatus, IntelligenceRuntimeSnapshot,
         QUERY_GROUPS_MODULE_ID, QUERY_GROUPS_MODULE_VERSION, READABLE_CONTENT_PLUGIN_ID,
-        REFERENCE_PAGES_MODULE_ID, REFERENCE_PAGES_MODULE_VERSION, SOURCE_EFFECTIVENESS_MODULE_ID,
-        SOURCE_EFFECTIVENESS_MODULE_VERSION, TEMPLATE_SUMMARIES_MODULE_ID,
-        TEMPLATE_SUMMARIES_MODULE_VERSION, THREADS_MODULE_ID, THREADS_MODULE_VERSION,
-        TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences,
+        REFERENCE_PAGES_MODULE_ID, REFERENCE_PAGES_MODULE_VERSION, RunInsightsRequest,
+        SOURCE_EFFECTIVENESS_MODULE_ID, SOURCE_EFFECTIVENESS_MODULE_VERSION,
+        TEMPLATE_SUMMARIES_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_VERSION, THREADS_MODULE_ID,
+        THREADS_MODULE_VERSION, TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences,
     },
     utils::now_rfc3339,
 };
@@ -23,6 +23,13 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
+use std::{
+    collections::HashSet,
+    path::Path,
+    sync::{Mutex, OnceLock},
+};
 
 const INTELLIGENCE_RUNTIME_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS intelligence_jobs (
@@ -66,10 +73,16 @@ CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
 
 /// Queue job type identifier used for enrichment plugin jobs.
 pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
+/// Queue job type identifier used for deterministic rebuild jobs.
+pub const DETERMINISTIC_REBUILD_JOB_TYPE: &str = "deterministic-rebuild";
+/// Deterministic rebuilds must run before optional enrichment so baseline insights stay usable.
+const DETERMINISTIC_REBUILD_PRIORITY: i64 = 50;
 /// Source-kind identifier for local-only enrichment plugins.
 pub(crate) const LOCAL_PLUGIN_SOURCE_KIND: &str = "local";
 /// Source-kind identifier for network-backed enrichment plugins.
 pub(crate) const NETWORK_PLUGIN_SOURCE_KIND: &str = "network";
+
+static RECOVERED_RUNTIME_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EnrichmentPluginDefinition {
@@ -107,6 +120,31 @@ pub(crate) struct EnrichmentJobPayload {
     pub title: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeterministicRebuildJobPayload {
+    pub request: RunInsightsRequest,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct IntelligenceJobArtifact {
+    kind: Option<String>,
+    phase: Option<String>,
+    detail: Option<String>,
+    completed_steps: Option<usize>,
+    total_steps: Option<usize>,
+    processed_items: Option<usize>,
+    total_items: Option<usize>,
+    progress_percent: Option<f32>,
+    processed_visits: Option<usize>,
+    card_count: Option<usize>,
+    query_group_count: Option<usize>,
+    thread_count: Option<usize>,
+    notes: Option<Vec<String>>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ClaimedEnrichmentJob {
     pub id: i64,
@@ -130,6 +168,12 @@ struct EnrichmentQueueCursor {
     priority: i64,
     created_at: String,
     id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuedIntelligenceJob {
+    pub id: i64,
+    pub job_type: String,
 }
 
 impl QueuedEnrichmentJobSnapshot {
@@ -303,6 +347,105 @@ pub(crate) fn enqueue_enrichment_job(
     Ok(())
 }
 
+/// Enqueues one deterministic rebuild job for the requested scope.
+pub fn enqueue_deterministic_rebuild_job(
+    connection: &Connection,
+    request: &RunInsightsRequest,
+    reason: &str,
+) -> Result<i64> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = now_rfc3339();
+    let payload =
+        DeterministicRebuildJobPayload { request: request.clone(), reason: reason.to_string() };
+    let payload_json = serde_json::to_string(&payload)?;
+    let dedupe_key = format!(
+        "deterministic:{}:{}:{}:{}",
+        request.profile_id.as_deref().unwrap_or("all"),
+        request.window_days.unwrap_or(30),
+        request.full_rebuild,
+        request.limit.map(|limit| limit.max(1).to_string()).unwrap_or_else(|| "full".to_string()),
+    );
+
+    let existing = connection
+        .query_row(
+            "SELECT id, state FROM intelligence_jobs WHERE dedupe_key = ?1",
+            [&dedupe_key],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+
+    if let Some((job_id, state)) = existing {
+        connection.execute(
+            "UPDATE intelligence_jobs
+             SET state = CASE WHEN ?1 = 'running' THEN state ELSE 'queued' END,
+                 priority = ?2,
+                 payload_json = ?3,
+                 scheduled_at = ?4,
+                 updated_at = ?4,
+                 started_at = CASE WHEN ?1 = 'running' THEN started_at ELSE NULL END,
+                 finished_at = CASE WHEN ?1 = 'running' THEN finished_at ELSE NULL END,
+                 last_error = CASE WHEN ?1 = 'running' THEN last_error ELSE NULL END,
+                 cancellation_reason = CASE WHEN ?1 = 'running' THEN cancellation_reason ELSE NULL END
+             WHERE id = ?5",
+            params![state, DETERMINISTIC_REBUILD_PRIORITY, payload_json, now, job_id],
+        )?;
+        return Ok(job_id);
+    }
+
+    connection.execute(
+        "INSERT INTO intelligence_jobs
+         (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+          artifact_json, created_at, scheduled_at, updated_at)
+         VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5)",
+        params![
+            DETERMINISTIC_REBUILD_JOB_TYPE,
+            DETERMINISTIC_REBUILD_PRIORITY,
+            dedupe_key,
+            payload_json,
+            now
+        ],
+    )?;
+    Ok(connection.last_insert_rowid())
+}
+
+/// Claims one deterministic rebuild job by id and returns its request payload.
+pub fn claim_deterministic_rebuild_job(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<Option<DeterministicRebuildJobPayload>> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'running',
+             attempt = attempt + 1,
+             started_at = ?1,
+             finished_at = NULL,
+             updated_at = ?1,
+             last_error = NULL,
+             cancellation_reason = NULL
+         WHERE id = ?2
+           AND job_type = ?3
+           AND state = 'queued'",
+        params![now, job_id, DETERMINISTIC_REBUILD_JOB_TYPE],
+    )?;
+    if updated == 0 {
+        return Ok(None);
+    }
+    connection
+        .query_row(
+            "SELECT payload_json
+             FROM intelligence_jobs
+             WHERE id = ?1 AND job_type = ?2",
+            params![job_id, DETERMINISTIC_REBUILD_JOB_TYPE],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|payload_json| serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json))
+        .transpose()
+        .map_err(Into::into)
+}
+
 /// Persists runtime bookkeeping updates for deterministic modules.
 pub(crate) fn persist_deterministic_module_runtime_updates(
     connection: &Connection,
@@ -427,6 +570,41 @@ pub(crate) fn claim_enrichment_jobs(
     Ok(claimed)
 }
 
+pub(crate) fn claim_enrichment_job_by_id(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<Option<ClaimedEnrichmentJob>> {
+    ensure_intelligence_runtime_schema(connection)?;
+
+    let snapshot = connection
+        .query_row(
+            "SELECT plugin_id, attempt, payload_json
+             FROM intelligence_jobs
+             WHERE id = ?1
+               AND job_type = ?2
+               AND state = 'queued'",
+            params![job_id, ENRICHMENT_JOB_TYPE],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+        )
+        .optional()?;
+    let Some((plugin_id, attempt, payload_json)) = snapshot else {
+        return Ok(None);
+    };
+    let payload = serde_json::from_str::<EnrichmentJobPayload>(&payload_json)
+        .with_context(|| format!("parsing enrichment payload for job {job_id}"))?;
+    let claimed_at = now_rfc3339();
+    if !try_claim_enrichment_job(connection, job_id, &claimed_at)? {
+        return Ok(None);
+    }
+
+    Ok(Some(ClaimedEnrichmentJob {
+        id: job_id,
+        plugin_id,
+        attempt: attempt.max(0) as usize + 1,
+        payload,
+    }))
+}
+
 fn queued_enrichment_candidates_page(
     connection: &Connection,
     allowed_plugin_ids: &[String],
@@ -501,7 +679,7 @@ fn try_claim_enrichment_job(
 }
 
 /// Marks one intelligence job as succeeded.
-pub(crate) fn mark_intelligence_job_succeeded(
+pub fn mark_intelligence_job_succeeded(
     connection: &Connection,
     job_id: i64,
     artifact: &Value,
@@ -517,8 +695,25 @@ pub(crate) fn mark_intelligence_job_succeeded(
     Ok(())
 }
 
+/// Updates one running intelligence job with progress/heartbeat metadata.
+pub fn update_intelligence_job_artifact(
+    connection: &Connection,
+    job_id: i64,
+    artifact: &Value,
+) -> Result<()> {
+    let now = now_rfc3339();
+    connection.execute(
+        "UPDATE intelligence_jobs
+         SET artifact_json = ?1, updated_at = ?2
+         WHERE id = ?3
+           AND state = 'running'",
+        params![serde_json::to_string(artifact)?, now, job_id],
+    )?;
+    Ok(())
+}
+
 /// Marks one intelligence job as failed.
-pub(crate) fn mark_intelligence_job_failed(
+pub fn mark_intelligence_job_failed(
     connection: &Connection,
     job_id: i64,
     error: &str,
@@ -545,6 +740,28 @@ pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result
         params![now, ENRICHMENT_JOB_TYPE],
     )?;
     Ok(updated)
+}
+
+/// Returns the next queued intelligence job in worker execution order.
+pub fn next_queued_intelligence_job(
+    connection: &Connection,
+) -> Result<Option<QueuedIntelligenceJob>> {
+    ensure_intelligence_runtime_schema(connection)?;
+    connection
+        .query_row(
+            "SELECT id, job_type
+             FROM intelligence_jobs
+             WHERE state = 'queued'
+             ORDER BY CASE WHEN job_type = ?1 THEN 1 ELSE 0 END DESC,
+                      priority DESC,
+                      scheduled_at ASC,
+                      id ASC
+             LIMIT 1",
+            [DETERMINISTIC_REBUILD_JOB_TYPE],
+            |row| Ok(QueuedIntelligenceJob { id: row.get(0)?, job_type: row.get(1)? }),
+        )
+        .optional()
+        .context("loading next queued intelligence job")
 }
 
 /// Requeues any stuck running enrichment jobs that belong to one run.
@@ -596,6 +813,22 @@ pub fn load_intelligence_runtime(
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
+    if should_recover_runtime_jobs(&paths.archive_database_path) {
+        let recovered_deterministic_jobs = recover_interrupted_deterministic_jobs(&connection)?;
+        if recovered_deterministic_jobs > 0 {
+            notes.push(format!(
+                "Recovered {} interrupted deterministic rebuild job(s) after the previous session ended unexpectedly.",
+                recovered_deterministic_jobs
+            ));
+        }
+        let recovered_enrichment_jobs = requeue_running_enrichment_jobs(&connection)?;
+        if recovered_enrichment_jobs > 0 {
+            notes.push(format!(
+                "Recovered {} interrupted enrichment job(s) after the previous session ended unexpectedly.",
+                recovered_enrichment_jobs
+            ));
+        }
+    }
 
     let queue = load_queue_status(&connection)?;
     let plugins = load_plugin_statuses(&connection, config)?;
@@ -660,6 +893,32 @@ pub fn cancel_intelligence_job(
     load_intelligence_runtime(paths, config, key)
 }
 
+fn recover_interrupted_deterministic_jobs(connection: &Connection) -> Result<usize> {
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'queued',
+             priority = ?2,
+             scheduled_at = ?1,
+             updated_at = ?1,
+             started_at = NULL,
+             finished_at = NULL,
+             last_error = 'PathKeep restarted before this deterministic rebuild finished.',
+             cancellation_reason = NULL
+         WHERE job_type = ?3
+           AND state = 'running'",
+        params![now, DETERMINISTIC_REBUILD_PRIORITY, DETERMINISTIC_REBUILD_JOB_TYPE],
+    )?;
+    Ok(updated)
+}
+
+fn should_recover_runtime_jobs(archive_database_path: &Path) -> bool {
+    let recovered_archives = RECOVERED_RUNTIME_ARCHIVES.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut recovered_archives =
+        recovered_archives.lock().expect("runtime recovery archive registry lock");
+    recovered_archives.insert(archive_database_path.display().to_string())
+}
+
 fn load_job_state(connection: &Connection, job_id: i64) -> Result<String> {
     connection
         .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
@@ -719,9 +978,8 @@ fn load_queue_status(connection: &Connection) -> Result<IntelligenceQueueStatus>
             SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END),
             SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END),
             MAX(updated_at)
-         FROM intelligence_jobs
-         WHERE job_type = ?1",
-            [ENRICHMENT_JOB_TYPE],
+         FROM intelligence_jobs",
+            [],
             |row| {
                 Ok(IntelligenceQueueStatus {
                     queued: row.get::<_, Option<i64>>(0)?.unwrap_or(0).max(0) as usize,
@@ -797,32 +1055,63 @@ fn load_plugin_statuses(
 
 fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOverview>> {
     let mut statement = connection.prepare(
-        "SELECT id, job_type, plugin_id, state, attempt, payload_json, created_at, started_at,
-                finished_at, last_error
+        "SELECT id, job_type, plugin_id, state, attempt, payload_json, artifact_json, created_at,
+                started_at, finished_at, updated_at, last_error
          FROM intelligence_jobs
-         WHERE job_type = ?1
          ORDER BY updated_at DESC, id DESC
          LIMIT 12",
     )?;
     statement
-        .query_map([ENRICHMENT_JOB_TYPE], |row| {
+        .query_map([], |row| {
             let payload_json: String = row.get(5)?;
+            let artifact_json: String = row.get(6)?;
+            let job_type = row.get::<_, String>(1)?;
             let payload = serde_json::from_str::<EnrichmentJobPayload>(&payload_json).ok();
+            let rebuild_payload =
+                serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json).ok();
+            let artifact =
+                serde_json::from_str::<IntelligenceJobArtifact>(&artifact_json).unwrap_or_default();
             let state = row.get::<_, String>(3)?;
+            let title = match job_type.as_str() {
+                DETERMINISTIC_REBUILD_JOB_TYPE => rebuild_payload.as_ref().map(|payload| {
+                    format!(
+                        "{} · {} days",
+                        payload.request.profile_id.as_deref().unwrap_or("All profiles"),
+                        payload.request.window_days.unwrap_or(30)
+                    )
+                }),
+                _ => payload.as_ref().and_then(|value| value.title.clone()),
+            };
+            let progress_percent = artifact.progress_percent.map(|value| value.clamp(0.0, 100.0));
+            let progress_current = artifact.processed_items.or(artifact.completed_steps);
+            let progress_total = artifact.total_items.or(artifact.total_steps);
             Ok(IntelligenceJobOverview {
                 id: row.get(0)?,
-                job_type: row.get(1)?,
+                job_type: job_type.clone(),
                 plugin_id: row.get(2)?,
                 state: state.clone(),
                 history_id: payload.as_ref().map(|value| value.history_id),
-                profile_id: payload.as_ref().map(|value| value.profile_id.clone()),
+                profile_id: payload.as_ref().map(|value| value.profile_id.clone()).or_else(|| {
+                    rebuild_payload.as_ref().and_then(|value| value.request.profile_id.clone())
+                }),
                 url: payload.as_ref().map(|value| value.url.clone()),
-                title: payload.as_ref().and_then(|value| value.title.clone()),
+                title,
                 attempt: row.get::<_, i64>(4)?.max(0) as usize,
-                created_at: row.get(6)?,
-                started_at: row.get(7)?,
-                finished_at: row.get(8)?,
-                last_error: row.get(9)?,
+                created_at: row.get(7)?,
+                started_at: row.get(8)?,
+                finished_at: row.get(9)?,
+                updated_at: row.get(10)?,
+                heartbeat_at: if state == "running" {
+                    row.get::<_, Option<String>>(10)?
+                } else {
+                    None
+                },
+                progress_label: artifact.phase,
+                progress_detail: artifact.detail,
+                progress_current,
+                progress_total,
+                progress_percent,
+                last_error: row.get(11)?,
                 retryable: matches!(state.as_str(), "failed" | "cancelled"),
                 cancellable: matches!(state.as_str(), "queued" | "running"),
             })
@@ -993,6 +1282,109 @@ mod tests {
         let jobs = load_recent_jobs(&connection).expect("recent jobs");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].plugin_id.as_deref(), Some(TITLE_NORMALIZATION_PLUGIN_ID));
+    }
+
+    #[test]
+    fn deterministic_rebuild_jobs_are_traced_in_runtime_queue() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+
+        let job_id = enqueue_deterministic_rebuild_job(
+            &connection,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: true,
+                limit: None,
+            },
+            "Archive changed.",
+        )
+        .expect("enqueue deterministic rebuild");
+
+        let queue = load_queue_status(&connection).expect("queue status");
+        assert_eq!(queue.queued, 1);
+
+        let claimed =
+            claim_deterministic_rebuild_job(&connection, job_id).expect("claim deterministic job");
+        assert_eq!(
+            claimed.expect("deterministic payload").request.profile_id.as_deref(),
+            Some("chrome:Default")
+        );
+
+        let jobs = load_recent_jobs(&connection).expect("recent jobs");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].job_type, DETERMINISTIC_REBUILD_JOB_TYPE);
+        assert_eq!(jobs[0].title.as_deref(), Some("chrome:Default · 30 days"));
+    }
+
+    #[test]
+    fn recent_jobs_surface_progress_for_running_deterministic_rebuilds() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+
+        let job_id = enqueue_deterministic_rebuild_job(
+            &connection,
+            &RunInsightsRequest::default(),
+            "Archive changed.",
+        )
+        .expect("enqueue deterministic rebuild");
+        claim_deterministic_rebuild_job(&connection, job_id).expect("claim deterministic rebuild");
+        update_intelligence_job_artifact(
+            &connection,
+            job_id,
+            &json!({
+                "kind": "deterministic-rebuild",
+                "phase": "Scoring visits",
+                "detail": "12,000 / 64,781 visits",
+                "completedSteps": 4,
+                "totalSteps": 8,
+                "processedItems": 12_000,
+                "totalItems": 64_781,
+                "progressPercent": 43.5
+            }),
+        )
+        .expect("update progress artifact");
+
+        let jobs = load_recent_jobs(&connection).expect("recent jobs");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].progress_label.as_deref(), Some("Scoring visits"));
+        assert_eq!(jobs[0].progress_detail.as_deref(), Some("12,000 / 64,781 visits"));
+        assert_eq!(jobs[0].progress_current, Some(12_000));
+        assert_eq!(jobs[0].progress_total, Some(64_781));
+        assert_eq!(jobs[0].progress_percent, Some(43.5));
+        assert!(jobs[0].heartbeat_at.is_some());
+    }
+
+    #[test]
+    fn deterministic_rebuild_jobs_run_before_optional_enrichment() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+
+        enqueue_enrichment_job(
+            &connection,
+            7,
+            &BUILT_IN_ENRICHMENT_PLUGINS[1],
+            &EnrichmentJobPayload {
+                history_id: 3,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/docs".to_string(),
+                title: Some("Docs".to_string()),
+            },
+        )
+        .expect("enqueue enrichment");
+
+        let deterministic_job_id = enqueue_deterministic_rebuild_job(
+            &connection,
+            &RunInsightsRequest::default(),
+            "Archive changed.",
+        )
+        .expect("enqueue deterministic rebuild");
+
+        let next_job = next_queued_intelligence_job(&connection)
+            .expect("next queued job")
+            .expect("queued job");
+        assert_eq!(next_job.id, deterministic_job_id);
+        assert_eq!(next_job.job_type, DETERMINISTIC_REBUILD_JOB_TYPE);
     }
 
     #[test]
@@ -1248,5 +1640,159 @@ mod tests {
         let cancel_error = cancel_intelligence_job(&paths, &config, None, 404)
             .expect_err("cancel should fail for missing jobs");
         assert!(cancel_error.to_string().contains("404"));
+    }
+
+    #[test]
+    fn load_intelligence_runtime_recovers_interrupted_deterministic_jobs() {
+        let (_root, paths, config) = setup_runtime_archive();
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, updated_at)
+                 VALUES (?1, NULL, NULL, 'running', 5, 1, 'deterministic:all:30:false:full', ?2,
+                         '{}', ?3, ?3, ?3, ?3)",
+                params![
+                    DETERMINISTIC_REBUILD_JOB_TYPE,
+                    serde_json::to_string(&DeterministicRebuildJobPayload {
+                        request: RunInsightsRequest::default(),
+                        reason: "recover me".to_string(),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert interrupted deterministic job");
+
+        let snapshot =
+            load_intelligence_runtime(&paths, &config, None).expect("load runtime snapshot");
+        assert!(snapshot.notes.iter().any(|note| note.contains("Recovered 1 interrupted")));
+
+        let (state, last_error) = connection
+            .query_row(
+                "SELECT state, last_error FROM intelligence_jobs WHERE job_type = ?1",
+                [DETERMINISTIC_REBUILD_JOB_TYPE],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .expect("recovered job state");
+        assert_eq!(state, "queued");
+        assert!(
+            last_error
+                .expect("recovery note")
+                .contains("restarted before this deterministic rebuild finished")
+        );
+    }
+
+    #[test]
+    fn load_intelligence_runtime_recovers_interrupted_enrichment_jobs() {
+        let (_root, paths, config) = setup_runtime_archive();
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, updated_at)
+                 VALUES (?1, ?2, 41, 'running', 10, 1, 'readable-content-refetch:1', ?3,
+                         '{}', ?4, ?4, ?4, ?4)",
+                params![
+                    ENRICHMENT_JOB_TYPE,
+                    READABLE_CONTENT_PLUGIN_ID,
+                    serde_json::to_string(&EnrichmentJobPayload {
+                        history_id: 1,
+                        profile_id: "chrome:Default".to_string(),
+                        url: "https://example.com/article".to_string(),
+                        title: Some("Example".to_string()),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert interrupted enrichment job");
+
+        let snapshot =
+            load_intelligence_runtime(&paths, &config, None).expect("load runtime snapshot");
+        assert!(
+            snapshot.notes.iter().any(|note| note.contains("Recovered 1 interrupted enrichment"))
+        );
+
+        let state = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE job_type = ?1",
+                [ENRICHMENT_JOB_TYPE],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("recovered job state");
+        assert_eq!(state, "queued");
+    }
+
+    #[test]
+    fn load_intelligence_runtime_only_recovers_running_jobs_once_per_archive() {
+        let (_root, paths, config) = setup_runtime_archive();
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, updated_at)
+                 VALUES (?1, NULL, NULL, 'running', ?2, 1, 'deterministic:all:30:false:full', ?3,
+                         '{}', ?4, ?4, ?4, ?4)",
+                params![
+                    DETERMINISTIC_REBUILD_JOB_TYPE,
+                    DETERMINISTIC_REBUILD_PRIORITY,
+                    serde_json::to_string(&DeterministicRebuildJobPayload {
+                        request: RunInsightsRequest::default(),
+                        reason: "recover me".to_string(),
+                    })
+                    .expect("payload"),
+                    now,
+                ],
+            )
+            .expect("insert interrupted deterministic job");
+
+        let first_snapshot =
+            load_intelligence_runtime(&paths, &config, None).expect("first runtime snapshot");
+        assert!(
+            first_snapshot
+                .notes
+                .iter()
+                .any(|note| note.contains("Recovered 1 interrupted deterministic"))
+        );
+
+        connection
+            .execute(
+                "UPDATE intelligence_jobs
+                 SET state = 'running',
+                     started_at = ?1,
+                     updated_at = ?1,
+                     last_error = NULL
+                 WHERE job_type = ?2",
+                params![now_rfc3339(), DETERMINISTIC_REBUILD_JOB_TYPE],
+            )
+            .expect("mark deterministic job running again");
+
+        let second_snapshot =
+            load_intelligence_runtime(&paths, &config, None).expect("second runtime snapshot");
+        assert!(
+            second_snapshot
+                .notes
+                .iter()
+                .all(|note| !note.contains("Recovered 1 interrupted deterministic"))
+        );
+
+        let state = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE job_type = ?1",
+                [DETERMINISTIC_REBUILD_JOB_TYPE],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("deterministic job state after second load");
+        assert_eq!(state, "running");
     }
 }

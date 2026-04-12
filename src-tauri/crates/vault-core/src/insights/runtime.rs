@@ -11,6 +11,50 @@
 
 use super::*;
 
+const INSIGHT_PROGRESS_PHASES: usize = 8;
+
+/// Progress snapshot emitted while a deterministic rebuild is running.
+#[derive(Debug, Clone)]
+pub struct InsightsRunProgress {
+    pub phase_label: &'static str,
+    pub phase_step: usize,
+    pub phase_count: usize,
+    pub processed_items: Option<usize>,
+    pub total_items: Option<usize>,
+    pub detail: Option<String>,
+}
+
+impl InsightsRunProgress {
+    fn new(
+        phase_label: &'static str,
+        phase_step: usize,
+        processed_items: Option<usize>,
+        total_items: Option<usize>,
+        detail: Option<String>,
+    ) -> Self {
+        Self {
+            phase_label,
+            phase_step,
+            phase_count: INSIGHT_PROGRESS_PHASES,
+            processed_items,
+            total_items,
+            detail,
+        }
+    }
+
+    pub fn percent(&self) -> f32 {
+        let completed_phases = self.phase_step.saturating_sub(1) as f32;
+        let phase_fraction = match (self.processed_items, self.total_items) {
+            (Some(processed), Some(total)) if total > 0 => {
+                (processed.min(total) as f32 / total as f32).clamp(0.0, 1.0)
+            }
+            _ => 1.0,
+        };
+        (((completed_phases + phase_fraction) / self.phase_count.max(1) as f32) * 100.0)
+            .clamp(0.0, 100.0)
+    }
+}
+
 /// Reports whether derived insight state exists and when it last ran successfully.
 pub fn insight_status(
     paths: &ProjectPaths,
@@ -84,6 +128,21 @@ pub fn run_insights(
     embedding_provider: Option<&AiProviderRuntime>,
     request: &RunInsightsRequest,
 ) -> Result<RunInsightsReport> {
+    run_insights_with_progress(paths, config, key, embedding_provider, request, |_| {})
+}
+
+/// Rebuilds derived insight state and emits coarse progress snapshots as it advances.
+pub fn run_insights_with_progress<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    embedding_provider: Option<&AiProviderRuntime>,
+    request: &RunInsightsRequest,
+    mut on_progress: F,
+) -> Result<RunInsightsReport>
+where
+    F: FnMut(InsightsRunProgress),
+{
     let mut connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
     ensure_ai_schema(&connection)?;
@@ -108,19 +167,68 @@ pub fn run_insights(
     )?;
     let run_id = connection.last_insert_rowid();
     let run_result = (|| -> Result<RunInsightsReport> {
-        let analysis_limit = request.limit.unwrap_or(DEFAULT_ANALYSIS_LIMIT as u32) as usize;
+        let analysis_limit = request.limit.map(|limit| limit.max(1) as usize);
+        on_progress(InsightsRunProgress::new(
+            "Loading visits",
+            1,
+            None,
+            None,
+            Some(format!(
+                "Preparing {}-day scope for {}.",
+                window_days,
+                request.profile_id.as_deref().unwrap_or("all profiles")
+            )),
+        ));
         let mut visits =
             load_visits(&connection, request.profile_id.as_deref(), window_days, analysis_limit)?;
         let query_terms = load_search_term_map(&connection, request.profile_id.as_deref())?;
+        on_progress(InsightsRunProgress::new(
+            "Hydrating search terms",
+            2,
+            Some(visits.len()),
+            Some(visits.len()),
+            Some(format!("Loaded {} visit rows.", visits.len())),
+        ));
         hydrate_query_terms(&mut visits, &query_terms);
 
+        on_progress(InsightsRunProgress::new(
+            "Refreshing local enrichments",
+            3,
+            None,
+            None,
+            Some("Scheduling first-party enrichment jobs for the current window.".to_string()),
+        ));
         schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
         let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
 
+        on_progress(InsightsRunProgress::new(
+            "Hydrating visit evidence",
+            4,
+            None,
+            None,
+            Some(
+                "Joining readable content, normalized titles, and optional embeddings.".to_string(),
+            ),
+        ));
         let enrichments = load_best_enrichment_map(&connection, &visits)?;
         let embeddings = load_embedding_map(&connection, embedding_provider, &visits)?;
         hydrate_enrichment_and_embeddings(&mut visits, &enrichments, &embeddings);
-        compute_feature_scores(&mut visits);
+        on_progress(InsightsRunProgress::new(
+            "Scoring visits",
+            5,
+            Some(0),
+            Some(visits.len()),
+            Some(format!("0 / {} visits", visits.len())),
+        ));
+        compute_feature_scores_with_progress(&mut visits, |processed, total| {
+            on_progress(InsightsRunProgress::new(
+                "Scoring visits",
+                5,
+                Some(processed),
+                Some(total),
+                Some(format!("{processed} / {total} visits")),
+            ));
+        });
 
         let module_enabled = |module_id: &str| {
             config
@@ -131,6 +239,13 @@ pub fn run_insights(
                 .map(|candidate| candidate.enabled)
                 .unwrap_or(false)
         };
+        on_progress(InsightsRunProgress::new(
+            "Building groups and threads",
+            6,
+            None,
+            None,
+            Some("Assembling bursts, query groups, threads, and topics.".to_string()),
+        ));
         let bursts = if module_enabled(QUERY_GROUPS_MODULE_ID) {
             build_bursts(&mut visits)
         } else {
@@ -195,6 +310,13 @@ pub fn run_insights(
             request.profile_id.as_deref(),
         );
 
+        on_progress(InsightsRunProgress::new(
+            "Persisting deterministic tables",
+            7,
+            None,
+            None,
+            Some("Writing rebuilt insight tables back to the local archive.".to_string()),
+        ));
         let transaction = connection.transaction()?;
 
         persist_features(&transaction, &visits)?;
@@ -267,6 +389,12 @@ pub fn run_insights(
             enrichment_report.queued_network_jobs,
             &recovery,
         );
+        if let Some(limit) = request.limit.map(|limit| limit.max(1)) {
+            notes.push(format!(
+                "This refresh analyzed only the latest {} visits because an explicit limit was requested.",
+                limit
+            ));
+        }
         notes.extend(build_taxonomy_review_notes(&visits));
         transaction.execute(
             "UPDATE insight_runs
@@ -295,6 +423,13 @@ pub fn run_insights(
         )?;
         transaction.commit()?;
 
+        on_progress(InsightsRunProgress::new(
+            "Finalizing snapshot",
+            8,
+            Some(visits.len()),
+            Some(visits.len()),
+            Some(format!("{} visits processed, {} cards ready.", visits.len(), cards.len())),
+        ));
         Ok(RunInsightsReport {
             run_id,
             processed_visits: visits.len(),
@@ -390,7 +525,7 @@ pub fn load_insights(
         &connection,
         request.profile_id.as_deref(),
         window_days,
-        DEFAULT_ANALYSIS_LIMIT,
+        request.limit.map(|limit| limit.max(1) as usize),
     )?;
     let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
     let features = load_feature_rows(&connection, request.profile_id.as_deref())?;
@@ -439,7 +574,7 @@ pub fn load_insights(
     let profile_facets = build_profile_facets(&visits, &topics, &threads);
     let canonical = build_canonical_summary(&visits, on_this_day);
     let status = insight_status(paths, config, key)?;
-    let notes = connection
+    let mut notes = connection
         .query_row(
             "SELECT notes_json
              FROM insight_runs
@@ -451,6 +586,12 @@ pub fn load_insights(
         .optional()?
         .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
         .unwrap_or_default();
+    if let Some(limit) = request.limit.map(|limit| limit.max(1)) {
+        notes.push(format!(
+            "This snapshot is limited to the latest {} visits because the caller requested a sampled view.",
+            limit
+        ));
+    }
 
     Ok(InsightSnapshot {
         generated_at: now_rfc3339(),
@@ -704,8 +845,7 @@ fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
     connection.execute("DELETE FROM insight_source_effectiveness", [])?;
     connection.execute("DELETE FROM insight_cards", [])?;
     connection.execute("DELETE FROM insight_runs", [])?;
-    connection
-        .execute("DELETE FROM intelligence_jobs WHERE job_type = ?1", [ENRICHMENT_JOB_TYPE])?;
+    connection.execute("DELETE FROM intelligence_jobs", [])?;
     crate::intelligence_runtime::mark_all_deterministic_modules_stale(
         connection,
         "Derived intelligence state was cleared manually.",
@@ -717,4 +857,22 @@ fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
 fn table_row_count(connection: &Connection, table_name: &str) -> Result<usize> {
     let sql = format!("SELECT COUNT(*) FROM {table_name}");
     Ok(connection.query_row(&sql, [], |row: &Row<'_>| row.get::<_, i64>(0))?.max(0) as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InsightsRunProgress;
+
+    #[test]
+    fn progress_percent_accounts_for_intra_phase_work() {
+        let progress = InsightsRunProgress::new(
+            "Scoring visits",
+            5,
+            Some(32),
+            Some(64),
+            Some("32 / 64 visits".to_string()),
+        );
+
+        assert!((progress.percent() - 56.25).abs() < f32::EPSILON);
+    }
 }

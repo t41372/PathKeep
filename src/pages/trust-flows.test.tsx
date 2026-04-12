@@ -103,17 +103,17 @@ const config: AppConfig = {
       {
         id: 'readable-content-refetch',
         enabled: true,
-        version: 'm4-v1',
+        version: 'diagnostic',
       },
     ],
   },
   deterministic: {
     modules: [
-      { id: 'query-groups', enabled: true, version: 'm5b-v1' },
-      { id: 'threads', enabled: true, version: 'm5b-v1' },
-      { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
-      { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
-      { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
+      { id: 'query-groups', enabled: true, version: 'diagnostic' },
+      { id: 'threads', enabled: true, version: 'diagnostic' },
+      { id: 'reference-pages', enabled: true, version: 'diagnostic' },
+      { id: 'source-effectiveness', enabled: true, version: 'diagnostic' },
+      { id: 'template-summaries', enabled: true, version: 'diagnostic' },
     ],
   },
   ai: {

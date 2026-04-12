@@ -21,6 +21,7 @@ import {
   ShellDataContext,
   type ShellDataContextValue,
 } from '../../app/shell-data-context'
+import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
@@ -29,6 +30,7 @@ import { Sidebar } from './index'
 describe('Sidebar', () => {
   beforeEach(() => {
     backendTestHarness.reset()
+    vi.restoreAllMocks()
   })
 
   test('renders the product name, sections, and archive status', async () => {
@@ -199,5 +201,116 @@ describe('Sidebar', () => {
     expect(
       screen.queryByText('Archive not initialized'),
     ).not.toBeInTheDocument()
+  })
+
+  test('shows compact background work status in the footer', async () => {
+    vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue({
+      paused: false,
+      concurrency: 2,
+      queued: 2,
+      running: 1,
+      failed: 0,
+      recentJobs: [],
+    })
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue({
+      queue: {
+        queued: 1,
+        running: 1,
+        failed: 0,
+        succeeded: 0,
+        cancelled: 0,
+        lastActivityAt: '2026-04-11T08:00:00.000Z',
+      },
+      plugins: [],
+      modules: [],
+      recentJobs: [
+        {
+          id: 900,
+          jobType: 'deterministic-rebuild',
+          pluginId: null,
+          state: 'running',
+          historyId: null,
+          profileId: 'chrome:Default',
+          url: null,
+          title: 'chrome:Default · 30 days',
+          attempt: 1,
+          createdAt: '2026-04-11T07:59:00.000Z',
+          startedAt: '2026-04-11T08:00:00.000Z',
+          finishedAt: null,
+          updatedAt: '2026-04-11T08:01:00.000Z',
+          heartbeatAt: '2026-04-11T08:01:00.000Z',
+          progressLabel: 'Scoring visits',
+          progressDetail: '24,000 / 64,781 visits',
+          progressCurrent: 24000,
+          progressTotal: 64781,
+          progressPercent: 46.8,
+          lastError: null,
+          retryable: false,
+          cancellable: true,
+        },
+      ],
+      notes: [],
+    })
+    const snapshot = await backend.getAppSnapshot()
+    snapshot.config.initialized = true
+    const shellValue: ShellDataContextValue = {
+      buildInfo: {
+        productName: 'PathKeep',
+        version: '0.1.0',
+        gitCommitShort: 'test123',
+        gitCommitFull: 'test1234567890',
+        gitDirty: false,
+      },
+      appLockStatus: snapshot.appLockStatus,
+      snapshot,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 1,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      saveConfig: vi.fn().mockResolvedValue(snapshot),
+      initializeArchive: vi.fn().mockResolvedValue(snapshot),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <RouterProvider router={router} />
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    expect(await screen.findByText('Background work')).toBeVisible()
+    expect(await screen.findByText('2 running · 3 queued')).toBeVisible()
+    expect(screen.getByText('24,000 / 64,781 visits')).toBeVisible()
+    expect(screen.getAllByRole('link', { name: 'Jobs' })[1]).toHaveAttribute(
+      'href',
+      '/jobs',
+    )
   })
 })

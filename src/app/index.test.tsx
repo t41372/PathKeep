@@ -86,17 +86,17 @@ const initializedConfig: AppConfig = {
       {
         id: 'readable-content-refetch',
         enabled: true,
-        version: 'm4-v1',
+        version: 'diagnostic',
       },
     ],
   },
   deterministic: {
     modules: [
-      { id: 'query-groups', enabled: true, version: 'm5b-v1' },
-      { id: 'threads', enabled: true, version: 'm5b-v1' },
-      { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
-      { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
-      { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
+      { id: 'query-groups', enabled: true, version: 'diagnostic' },
+      { id: 'threads', enabled: true, version: 'diagnostic' },
+      { id: 'reference-pages', enabled: true, version: 'diagnostic' },
+      { id: 'source-effectiveness', enabled: true, version: 'diagnostic' },
+      { id: 'template-summaries', enabled: true, version: 'diagnostic' },
     ],
   },
   ai: {
@@ -284,6 +284,59 @@ describe('App shell', () => {
     await user.click(screen.getByRole('button', { name: shellT('exitSetup') }))
 
     expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
+  })
+
+  test('requires selecting a browser profile before leaving the onboarding browser step', async () => {
+    const user = userEvent.setup()
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.config.selectedProfileIds = []
+    })
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/onboarding'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+    await user.click(
+      await screen.findByRole('button', { name: onboardingT('beginSetup') }),
+    )
+
+    expect(
+      await screen.findByRole('heading', {
+        name: onboardingT('browserDetectionTitle'),
+      }),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      onboardingT('errorSelectProfile'),
+    )
+    expect(
+      screen.getByRole('heading', {
+        name: onboardingT('browserDetectionTitle'),
+      }),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Google Chrome / Primary' }),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: 'Google Chrome / Primary' }),
+      ).toBeChecked(),
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: onboardingT('storageTitle') }),
+    ).toBeVisible()
   })
 
   test('routes locked sessions to the lock screen and restores the requested route after unlock', async () => {
@@ -605,7 +658,11 @@ describe('App shell', () => {
       }
 
       const page = await screen.findByTestId(pageTestId)
-      expect(await within(page).findByText(sentinel)).toBeVisible()
+      if (entry === '/insights') {
+        expect(await within(page).findAllByText(sentinel)).toHaveLength(2)
+      } else {
+        expect(await within(page).findByText(sentinel)).toBeVisible()
+      }
     },
   )
 
@@ -792,9 +849,14 @@ describe('App shell', () => {
     )
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText(settingsT('rebuildCompletedTitle')),
+        within(settingsPage).getByText(settingsT('rebuildQueuedTitle')),
       ).toBeVisible()
     })
+    expect(
+      within(settingsPage).getByRole('link', {
+        name: settingsT('runtimeQueueTitle'),
+      }),
+    ).toHaveAttribute('href', '/jobs')
   })
 
   test('keeps AI provider field edits local until save is confirmed', async () => {
@@ -1062,6 +1124,13 @@ describe('App shell', () => {
             subtitleKey: 'navigation.auditSubtitle',
             icon: '⊞',
             href: '/audit',
+          }),
+          expect.objectContaining({
+            id: 'jobs',
+            labelKey: 'navigation.jobsLabel',
+            subtitleKey: 'navigation.jobsSubtitle',
+            icon: '≡',
+            href: '/jobs',
           }),
           expect.objectContaining({
             id: 'schedule',

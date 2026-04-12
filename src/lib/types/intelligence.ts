@@ -32,6 +32,10 @@ import type { ScheduleGeneratedFile } from './schedule'
 export interface EnrichmentPluginState {
   id: string
   enabled: boolean
+  /**
+   * Internal runtime marker used for diagnostics and storage diffing.
+   * The primary UI should not surface this value in normal review chrome.
+   */
   version: string
 }
 
@@ -52,6 +56,10 @@ export interface EnrichmentSettings {
 export interface DeterministicModuleState {
   id: string
   enabled: boolean
+  /**
+   * Internal runtime marker used for diagnostics and storage diffing.
+   * The primary UI should not surface this value in normal review chrome.
+   */
   version: string
 }
 
@@ -572,6 +580,17 @@ export interface RunInsightsReport {
 }
 
 /**
+ * Represents a queued manual deterministic rebuild request.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface DeterministicRebuildQueueReport {
+  jobId: number
+  state: string
+  notes: string[]
+}
+
+/**
  * Describes a request payload in this front-end contract.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
@@ -644,6 +663,13 @@ export interface IntelligenceJobOverview {
   createdAt: string
   startedAt?: string | null
   finishedAt?: string | null
+  updatedAt: string
+  heartbeatAt?: string | null
+  progressLabel?: string | null
+  progressDetail?: string | null
+  progressCurrent?: number | null
+  progressTotal?: number | null
+  progressPercent?: number | null
   lastError?: string | null
   retryable: boolean
   cancellable: boolean

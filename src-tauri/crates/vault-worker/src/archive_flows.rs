@@ -12,19 +12,28 @@
 //! payloads.
 
 use crate::{
-    context::{ai_archive_connection, load_unlocked_config, resolved_app_lock_status},
-    intelligence::execute_index_job,
+    context::{
+        ai_archive_connection, load_unlocked_config, resolved_app_lock_status,
+        selected_optional_embedding_runtime,
+    },
+    intelligence::maybe_spawn_ai_queue_drain,
 };
 use anyhow::{Context, Result};
+use serde_json::json;
 use vault_core::{
     AiIndexRequest, BackupProgressEvent, ClearDerivedIntelligenceReport, DashboardSnapshot,
     ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
     ImportBatchDetail, RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification,
-    TakeoutInspection, TakeoutRequest, ai_queue, clear_derived_intelligence_state, doctor,
-    export_history, import_takeout, inspect_takeout, list_history, load_audit_run_detail,
-    load_dashboard_snapshot, preview_import_batch, preview_remote_backup, repair_health_issues,
-    restore_import_batch, revert_import_batch, run_backup_with_progress, run_remote_backup,
-    verify_remote_backup,
+    RunInsightsRequest, TakeoutInspection, TakeoutRequest, ai_queue,
+    clear_derived_intelligence_state, doctor, export_history, import_takeout, inspect_takeout,
+    intelligence_runtime::{
+        claim_deterministic_rebuild_job, enqueue_deterministic_rebuild_job,
+        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+        update_intelligence_job_artifact,
+    },
+    list_history, load_audit_run_detail, load_dashboard_snapshot, preview_import_batch,
+    preview_remote_backup, repair_health_issues, restore_import_batch, revert_import_batch,
+    run_backup_with_progress, run_insights_with_progress, run_remote_backup, verify_remote_backup,
 };
 use vault_platform::keyring_get_s3_credentials;
 
@@ -138,19 +147,8 @@ where
                     "AI auto-index queued job {} while the AI queue is paused.",
                     job.id
                 )),
-                Ok(job) => {
-                    if let Err(error) = execute_index_job(
-                        &connection,
-                        &paths,
-                        &config,
-                        session_database_key,
-                        job.id,
-                        &auto_index_request,
-                    ) {
-                        report
-                            .warnings
-                            .push(format!("AI index refresh after backup failed: {error}"));
-                    }
+                Ok(_job) => {
+                    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
                 }
                 Err(error) => report
                     .warnings
@@ -159,6 +157,15 @@ where
             Err(error) => report.warnings.push(format!(
                 "AI auto-index is enabled, but the embedding provider is not ready: {error}"
             )),
+        }
+    }
+    if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
+        if let Err(error) =
+            enqueue_and_spawn_deterministic_refresh(&paths, &config, session_database_key)
+        {
+            report
+                .warnings
+                .push(format!("Deterministic insights could not refresh after backup: {error}"));
         }
     }
     Ok(report)
@@ -252,7 +259,18 @@ pub fn import_takeout_source(
 ) -> Result<TakeoutInspection> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    import_takeout(&paths, &config, session_database_key, request)
+    let mut inspection = import_takeout(&paths, &config, session_database_key, request)?;
+    if inspection.imported_items > 0 {
+        match enqueue_and_spawn_deterministic_refresh(&paths, &config, session_database_key) {
+            Ok(job_id) => inspection.notes.push(format!(
+                "Deterministic insights refresh job {job_id} was queued automatically after import and will finish in the background."
+            )),
+            Err(error) => inspection.notes.push(format!(
+                "Deterministic insights could not refresh automatically after import: {error}"
+            )),
+        }
+    }
+    Ok(inspection)
 }
 
 /// Loads the preview/read-model detail for one import batch.
@@ -297,4 +315,131 @@ pub fn repair_health(session_database_key: Option<&str>) -> Result<HealthRepairR
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     repair_health_issues(&paths, &config, session_database_key)
+}
+
+fn backup_changed_archive(run: Option<&vault_core::BackupRunOverview>) -> bool {
+    run.is_some_and(|run| run.new_visits > 0 || run.new_urls > 0 || run.new_downloads > 0)
+}
+
+fn enqueue_and_spawn_deterministic_refresh(
+    paths: &vault_core::ProjectPaths,
+    config: &vault_core::AppConfig,
+    session_database_key: Option<&str>,
+) -> Result<i64> {
+    let connection = ai_archive_connection(paths, config, session_database_key)?;
+    let request = RunInsightsRequest::default();
+    let job_id = enqueue_deterministic_rebuild_job(
+        &connection,
+        &request,
+        "Archive data changed and deterministic insights need a refresh.",
+    )?;
+    if !config.ai.job_queue_paused {
+        spawn_deterministic_refresh(paths.clone(), config.clone(), session_database_key, job_id);
+    }
+    Ok(job_id)
+}
+
+fn spawn_deterministic_refresh(
+    paths: vault_core::ProjectPaths,
+    config: vault_core::AppConfig,
+    session_database_key: Option<&str>,
+    job_id: i64,
+) {
+    let session_database_key = session_database_key.map(str::to_owned);
+    let _ = std::thread::Builder::new()
+        .name(format!("pathkeep-deterministic-refresh-{job_id}"))
+        .spawn(move || {
+            if let Err(error) = execute_deterministic_refresh_job(
+                &paths,
+                &config,
+                session_database_key.as_deref(),
+                job_id,
+            ) {
+                eprintln!(
+                    "PathKeep could not finish deterministic refresh job {} in the background: {error:#}",
+                    job_id
+                );
+            }
+        });
+}
+
+fn execute_deterministic_refresh_job(
+    paths: &vault_core::ProjectPaths,
+    config: &vault_core::AppConfig,
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<vault_core::RunInsightsReport> {
+    let connection = ai_archive_connection(paths, config, session_database_key)?;
+    let payload = claim_deterministic_rebuild_job(&connection, job_id)?
+        .with_context(|| format!("deterministic rebuild job {job_id} was not ready to run"))?;
+    let mut refresh_config = config.clone();
+    // Automatic post-backup/import refresh must not hold the caller hostage
+    // while tens of thousands of derived enrichment jobs are scheduled or run.
+    refresh_config.ai.enrichment_enabled = false;
+    let embedding_provider = selected_optional_embedding_runtime(&refresh_config).ok().flatten();
+    let initial_profile =
+        payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
+    let _ = update_intelligence_job_artifact(
+        &connection,
+        job_id,
+        &json!({
+            "kind": "deterministic-rebuild",
+            "phase": "Queued work started",
+            "detail": format!("Preparing a deterministic rebuild for {initial_profile}."),
+            "completedSteps": 0,
+            "totalSteps": 8,
+            "progressPercent": 0.0
+        }),
+    );
+    match run_insights_with_progress(
+        paths,
+        &refresh_config,
+        session_database_key,
+        embedding_provider.as_ref(),
+        &payload.request,
+        |progress| {
+            let artifact = json!({
+                "kind": "deterministic-rebuild",
+                "phase": progress.phase_label,
+                "detail": progress.detail,
+                "completedSteps": progress.phase_step,
+                "totalSteps": progress.phase_count,
+                "processedItems": progress.processed_items,
+                "totalItems": progress.total_items,
+                "progressPercent": progress.percent(),
+            });
+            let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
+        },
+    ) {
+        Ok(report) => {
+            mark_intelligence_job_succeeded(
+                &connection,
+                job_id,
+                &json!({
+                    "kind": "deterministic-rebuild",
+                    "phase": "Completed",
+                    "detail": format!(
+                        "{} visits processed, {} cards ready.",
+                        report.processed_visits,
+                        report.card_count
+                    ),
+                    "completedSteps": 8,
+                    "totalSteps": 8,
+                    "processedItems": report.processed_visits,
+                    "totalItems": report.processed_visits,
+                    "progressPercent": 100.0,
+                    "processedVisits": report.processed_visits,
+                    "cardCount": report.card_count,
+                    "queryGroupCount": report.query_group_count,
+                    "threadCount": report.thread_count,
+                    "notes": report.notes,
+                }),
+            )?;
+            Ok(report)
+        }
+        Err(error) => {
+            mark_intelligence_job_failed(&connection, job_id, &error.to_string())?;
+            Err(error)
+        }
+    }
 }

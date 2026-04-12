@@ -12,6 +12,17 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [ ] **WORK-QC-L** — Intelligence Recovery And Desktop Truth Gate
+  - 讀先：
+    `docs/plan/e2e-workflow-tests.md`
+    `docs/features/intelligence.md`
+    `docs/features/deterministic-intelligence.md`
+    `docs/design/screens-and-nav.md`
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：把 deterministic insights、Settings / Insights copy、desktop-bridge e2e 與 CI 驗收重新收斂成真的可用 surface，而不是 preview fixture / placeholder completion。
+  - 契約：backup / import 後 deterministic rebuild 必須自動排入並留下可 review 的 runtime trace；`On This Day` 只能回看過去年份；主產品 UI 不得外露 `m4-v1` / `m5b-v1` 這類內部里程碑版本字串；desktop bridge 必須驗到 live Rust flow，而不是只停在 health / build-info smoke。
+  - 驗收：`bun run build`、targeted Rust / Vitest regression tests、`test:e2e:desktop-bridge:truth` 能在有權限的 host 上穩定跑完；source docs 與 plan tracking 同步回寫真實邊界。
+
 - [ ] **WORK-QC-K** — Backend Rustdoc Sweep And Module Decomposition
   - 讀先：
     `docs/architecture/data-model.md`

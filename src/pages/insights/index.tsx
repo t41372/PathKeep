@@ -54,6 +54,7 @@ import {
   storageGrowthEvidence,
 } from '../../lib/storage-analytics'
 import type {
+  DeterministicRebuildQueueReport,
   InsightEvidenceItem,
   InsightExplanation,
   InsightSnapshot,
@@ -112,6 +113,8 @@ export function InsightsPage() {
   const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
     null,
   )
+  const [refreshQueueReport, setRefreshQueueReport] =
+    useState<DeterministicRebuildQueueReport | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -195,7 +198,13 @@ export function InsightsPage() {
     : null
   const todayKey = calendarDayKey(new Date())
   const onThisDay = useMemo(
-    () => (insights ? resolveInsightOnThisDay(insights, todayKey) : []),
+    () =>
+      insights
+        ? resolveInsightOnThisDay(insights, todayKey).filter((item) => {
+            const visitedYear = new Date(item.visitedAt).getFullYear()
+            return visitedYear < new Date().getFullYear()
+          })
+        : [],
     [insights, todayKey],
   )
   const siteAnalytics = useMemo(
@@ -224,16 +233,12 @@ export function InsightsPage() {
     setAction(insightsT('refreshingAction'))
     setLoadError(null)
     try {
-      await backend.runInsightsNow({
+      const report = await backend.queueInsightsRebuild({
         fullRebuild: false,
         profileId: activeProfileId,
       })
-      const nextInsights = await backend.loadInsights({
-        fullRebuild: false,
-        profileId: activeProfileId,
-      })
+      setRefreshQueueReport(report)
       const nextRuntime = await backend.loadIntelligenceRuntime()
-      setInsights(nextInsights)
       setRuntime(nextRuntime)
       setRuntimeError(null)
       await refreshAppData()
@@ -421,6 +426,23 @@ export function InsightsPage() {
         />
       ) : null}
 
+      {refreshQueueReport ? (
+        <StatusCallout
+          tone="info"
+          title={insightsT('refreshQueuedTitle')}
+          body={insightsT('refreshQueuedBody', {
+            jobId: refreshQueueReport.jobId,
+          })}
+          actions={
+            <div className="intelligence-actions">
+              <Link className="btn-secondary" to="/jobs">
+                {settingsT('runtimeQueueTitle')}
+              </Link>
+            </div>
+          }
+        />
+      ) : null}
+
       {action ? (
         <LoadingState
           compact
@@ -459,7 +481,7 @@ export function InsightsPage() {
                 failed: runtime?.queue.failed ?? 0,
               })}
             </span>
-            <Link className="btn-secondary" to="/settings">
+            <Link className="btn-secondary" to="/jobs">
               {settingsT('runtimeQueueTitle')}
             </Link>
           </div>

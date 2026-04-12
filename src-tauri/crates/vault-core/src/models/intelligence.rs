@@ -890,6 +890,15 @@ pub struct RunInsightsReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Queue response for a manual deterministic rebuild request.
+pub struct DeterministicRebuildQueueReport {
+    pub job_id: i64,
+    pub state: String,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Request payload for explaining one insight.
 pub struct ExplainInsightRequest {
     pub insight_id: String,
@@ -951,6 +960,13 @@ pub struct IntelligenceJobOverview {
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    pub updated_at: String,
+    pub heartbeat_at: Option<String>,
+    pub progress_label: Option<String>,
+    pub progress_detail: Option<String>,
+    pub progress_current: Option<usize>,
+    pub progress_total: Option<usize>,
+    pub progress_percent: Option<f32>,
     pub last_error: Option<String>,
     pub retryable: bool,
     pub cancellable: bool,

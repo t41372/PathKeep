@@ -119,6 +119,7 @@ describe('i18n helpers', () => {
       'assistant',
       'insights',
       'intelligence',
+      'jobs',
       'platform',
       'onboarding',
     ])

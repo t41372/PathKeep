@@ -126,6 +126,17 @@ pub(crate) fn run_insights_now(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Queues one deterministic rebuild so it can run through the background jobs surface.
+#[allow(dead_code)]
+pub(crate) fn queue_insights_rebuild(
+    request: vault_core::RunInsightsRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::DeterministicRebuildQueueReport, String> {
+    worker_bridge::queue_insights_rebuild_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads the latest deterministic insights snapshot for the requested scope.
 pub(crate) fn load_insights(
     request: vault_core::RunInsightsRequest,

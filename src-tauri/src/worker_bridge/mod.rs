@@ -375,7 +375,7 @@ mod tests {
         )
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
-        let ai_index_error = build_ai_index_impl(
+        let ai_index_report = build_ai_index_impl(
             AiIndexRequest {
                 provider_id: None,
                 full_rebuild: false,
@@ -384,8 +384,15 @@ mod tests {
             },
             session_key(&session).as_deref(),
         )
-        .expect_err("index build should require saved embedding provider key");
-        assert!(ai_index_error.contains("API key") || ai_index_error.contains("embedding"));
+        .expect("index build should queue a background job report");
+        assert!(ai_index_report.job_id.is_some());
+        assert!(ai_index_report.run_id.is_none());
+        assert!(
+            ai_index_report
+                .notes
+                .iter()
+                .any(|note| note.contains("processing it in the background"))
+        );
 
         let ai_search = search_ai_history_impl(
             AiSearchRequest {

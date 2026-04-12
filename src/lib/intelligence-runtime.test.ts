@@ -30,15 +30,18 @@ describe('intelligence runtime helpers', () => {
     expect(enrichmentPluginLabel('title-normalization', t)).toBe(
       'Title normalization',
     )
+    expect(enrichmentPluginLabel('deterministic-rebuild', t)).toBe(
+      'Deterministic rebuild',
+    )
     expect(
       enrichmentPluginDescription('readable-content-refetch', t),
-    ).toContain('Fetches readable page content')
+    ).toContain('Reads page text from visited pages')
   })
 
   test('falls back for unknown plugin ids and source kinds', () => {
     expect(enrichmentPluginLabel('custom-plugin', t)).toBe('custom-plugin')
     expect(enrichmentPluginDescription('custom-plugin', t)).toBe(
-      'Review the plugin boundary before enabling it for routine runs.',
+      'Check the plugin boundary before you turn it on for everyday use.',
     )
     expect(enrichmentPluginBoundaryLabel('network', t)).toBe('Network')
     expect(enrichmentPluginBoundaryLabel('local', t)).toBe('Local only')

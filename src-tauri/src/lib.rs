@@ -147,6 +147,7 @@ fn run_app() -> Result<()> {
             search_ai_history,
             ask_ai_assistant,
             run_insights_now,
+            queue_insights_rebuild,
             load_insights,
             load_thread_detail,
             explain_insight,

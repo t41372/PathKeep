@@ -28,6 +28,7 @@ import type {
   AiSearchResponse,
   AppSnapshot,
   ClearDerivedIntelligenceReport,
+  DeterministicRebuildQueueReport,
   ExplainInsightRequest,
   InsightExplanation,
   InsightSnapshot,
@@ -67,6 +68,10 @@ export const intelligenceClient = {
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
   runInsights: (request: RunInsightsRequest) =>
     call<RunInsightsReport>('run_insights_now', { request }),
+  queueInsightsRebuild: (request: RunInsightsRequest) =>
+    call<DeterministicRebuildQueueReport>('queue_insights_rebuild', {
+      request,
+    }),
   clearDerivedState: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   getInsightsSnapshot: (request: RunInsightsRequest) =>

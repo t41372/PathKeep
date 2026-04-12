@@ -37,6 +37,7 @@ export type AppRouteId =
   | 'assistant'
   | 'import'
   | 'audit'
+  | 'jobs'
   | 'schedule'
   | 'security'
   | 'settings'
@@ -133,6 +134,15 @@ const appShellScreens: AppScreen[] = [
     subtitleKey: 'navigation.auditSubtitle',
     icon: '⊞',
     href: '/audit',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'jobs',
+    labelKey: 'navigation.jobsLabel',
+    titleKey: 'navigation.jobsTitle',
+    subtitleKey: 'navigation.jobsSubtitle',
+    icon: '≡',
+    href: '/jobs',
     section: 'OPERATIONS',
   },
   {
@@ -267,12 +277,20 @@ const appRouteChildren: RouteObject[] = [
     handle: withHandle(appShellScreens[5]),
   },
   {
+    path: 'jobs',
+    lazy: async () => {
+      const module = await import('../pages/jobs')
+      return { Component: module.JobsPage }
+    },
+    handle: withHandle(appShellScreens[6]),
+  },
+  {
     path: 'schedule',
     lazy: async () => {
       const module = await import('../pages/schedule')
       return { Component: module.SchedulePage }
     },
-    handle: withHandle(appShellScreens[6]),
+    handle: withHandle(appShellScreens[7]),
   },
   {
     path: 'security',
@@ -280,7 +298,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/security')
       return { Component: module.SecurityPage }
     },
-    handle: withHandle(appShellScreens[7]),
+    handle: withHandle(appShellScreens[8]),
   },
   {
     path: 'settings',
@@ -288,7 +306,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/settings')
       return { Component: module.SettingsPage }
     },
-    handle: withHandle(appShellScreens[8]),
+    handle: withHandle(appShellScreens[9]),
   },
 ]
 

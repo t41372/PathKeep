@@ -120,6 +120,7 @@
 
 - 拉出歷年同一天（±1 天容差）的歷史紀錄，按年份分組展示。
 - 同一天的比對以使用者目前系統 timezone 的本地日曆日為準，不用 raw UTC 日期切片假裝對齊「今天」。
+- 當前年份今天的紀錄不屬於 `On This Day`；這張卡只用來回看過去幾年的同一天，不能把今天剛產生的瀏覽紀錄混進歷史回顧。
 - 如果有足夠數據，用 LLM 生成一句話摘要。
 - 適合放在 Dashboard 上作為每日亮點。
 - **實現**：純數據庫查詢，不需要 embedding。有 LLM 時可生成摘要，沒有也能用。
@@ -199,14 +200,17 @@
 
 - Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant slice，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
 - storage analytics 目前用四個 slice 呈現磁碟分佈：`core`、`audit`、`exports`、`rebuildable`。`rebuildable` 代表 staging / quarantine 一類可重建或可清理資產，不能和 canonical archive facts 混為一談。
-- Settings 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、live queue / recent job review、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。
+- Settings 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、live queue / recent job review、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
+- shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Insights 才知道 background queue 還在跑什麼。
+- long-running derived-data job 不能只顯示抽象的 `running`。deterministic rebuild 至少要持續更新 phase、heartbeat 與 coarse progress（例如目前在哪個 phase、已處理幾筆 / 總筆數），讓 Jobs 頁和 shell footer 都能分辨「仍在前進」與「疑似卡死」。
 - M5-A 起正式 shipping 的 built-in enrichment plugin 有兩個：`title-normalization`（local-only，版本 `m5-v1`）與 `readable-content-refetch`（network-backed，版本 `m4-v1`）。兩者都屬 derived-state runtime，不可改寫 canonical archive facts。
 - `title-normalization` 預設啟用，負責把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label。停用後，deterministic insights 仍可用，但必須誠實回退到 raw title / URL structural signals。
 - `readable-content-refetch` 預設啟用、freshness window 7 天，也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。
 - built-in enrichment runtime 目前仍是 first-party only：Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
-- derived intelligence refresh 仍是 explicit action；manual backup / import 完成後不應同步綁住 UI 等待 insights rebuild。若使用者要最新 derived state，從 Insights / Settings 主動觸發 rebuild，並在 UI 上看到明確 progress / notes。
+- derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 會先清空既有 derived enrichment / insight tables，再重算 insight cards；derived clear / rebuild 與 deterministic module runtime 狀態更新必須以同一個 archive transaction 落地，避免只清掉一半或留下不一致的 stale trace。這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
+- queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
 - source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
@@ -310,4 +314,6 @@
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
 - v1 invalidation contract 先以 honest stale detection + manual rebuild 落地：import / rollback / visibility change / approved enrichment freshness 改變時，UI 必須把 index state 標成 stale。是否自動 re-enqueue rebuild 屬後續 work，不可假裝 day-one 已完成。
 - queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。
-- M5-A 現在已把 enrichment queue 收斂成 SQLite-backed `intelligence_jobs` family，並在 Settings / Insights 提供 recent job review、retry / cancel controls 與 first-party-only boundary copy；execution 仍是 manual-first，不假裝已有 autonomous background plugin worker。
+- M5-A 起的 queue/runtime surface 現在必須在 archive 解鎖且 queue 未暫停時自動背景執行：AI index job、retry/replay 後的 AI queue，以及 deterministic / enrichment runtime job 都不能再卡住前台 UI。Settings / Insights 仍保留 review / retry / cancel controls，而 dedicated Jobs 頁則作為 always-on log / progress / recovery surface。
+- deterministic rebuild 屬於 baseline intelligence，可選 enrichment 只是在後面補更多證據。兩者同時排隊時，deterministic rebuild 必須先跑，避免使用者看到 queue 很忙，但無 AI 的 Insights 仍然完全不可用。
+- automatic post-backup/import deterministic refresh 仍不得重新把 network enrichment 塞回 inline backup critical path；backup 只負責 enqueue 與啟動 background rebuild，後續 readable-content 類工作必須留在 queue 裡獨立處理。

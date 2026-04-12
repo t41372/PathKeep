@@ -45,6 +45,7 @@ import type {
   BackupReport,
   ClearDerivedIntelligenceReport,
   DashboardSnapshot,
+  DeterministicRebuildQueueReport,
   ExplainInsightRequest,
   ExportRequest,
   ExportResult,
@@ -904,6 +905,13 @@ const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
       createdAt: new Date(Date.now() - 60_000).toISOString(),
       startedAt: new Date(Date.now() - 55_000).toISOString(),
       finishedAt: new Date(Date.now() - 54_000).toISOString(),
+      updatedAt: new Date(Date.now() - 54_000).toISOString(),
+      heartbeatAt: null,
+      progressLabel: null,
+      progressDetail: null,
+      progressCurrent: null,
+      progressTotal: null,
+      progressPercent: null,
       lastError: '429 from upstream host',
       retryable: true,
       cancellable: false,
@@ -921,6 +929,13 @@ const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
       createdAt: new Date(Date.now() - 120_000).toISOString(),
       startedAt: new Date(Date.now() - 118_000).toISOString(),
       finishedAt: new Date(Date.now() - 117_000).toISOString(),
+      updatedAt: new Date(Date.now() - 117_000).toISOString(),
+      heartbeatAt: null,
+      progressLabel: null,
+      progressDetail: null,
+      progressCurrent: null,
+      progressTotal: null,
+      progressPercent: null,
       lastError: null,
       retryable: false,
       cancellable: false,
@@ -2884,6 +2899,59 @@ async function call<T>(
         mockState,
         args?.request as RunInsightsRequest | undefined,
       ) as T
+    case 'queue_insights_rebuild': {
+      const jobId = Date.now()
+      const now = new Date().toISOString()
+      mockState.intelligenceRuntime.recentJobs = [
+        {
+          id: jobId,
+          jobType: 'deterministic-rebuild',
+          pluginId: null,
+          state: mockState.snapshot.config.ai.jobQueuePaused
+            ? 'queued'
+            : 'running',
+          historyId: null,
+          profileId: 'all',
+          url: null,
+          title: 'All profiles · 30 days',
+          attempt: 1,
+          createdAt: now,
+          startedAt: mockState.snapshot.config.ai.jobQueuePaused ? null : now,
+          finishedAt: null,
+          updatedAt: now,
+          heartbeatAt: mockState.snapshot.config.ai.jobQueuePaused ? null : now,
+          progressLabel: mockState.snapshot.config.ai.jobQueuePaused
+            ? null
+            : 'Loading visits',
+          progressDetail: mockState.snapshot.config.ai.jobQueuePaused
+            ? null
+            : 'Preparing a deterministic rebuild for all profiles.',
+          progressCurrent: mockState.snapshot.config.ai.jobQueuePaused
+            ? null
+            : 0,
+          progressTotal: mockState.snapshot.config.ai.jobQueuePaused ? null : 8,
+          progressPercent: mockState.snapshot.config.ai.jobQueuePaused
+            ? null
+            : 0,
+          lastError: null,
+          retryable: false,
+          cancellable: true,
+        },
+        ...mockState.intelligenceRuntime.recentJobs,
+      ].slice(0, 12)
+      syncMockIntelligenceRuntime(mockState)
+      return {
+        jobId,
+        state: mockState.snapshot.config.ai.jobQueuePaused
+          ? 'queued'
+          : 'running',
+        notes: [
+          mockState.snapshot.config.ai.jobQueuePaused
+            ? `Queued deterministic rebuild job ${jobId}. Resume background work to process it.`
+            : `Queued deterministic rebuild job ${jobId}. PathKeep is processing it in the background.`,
+        ],
+      } as T
+    }
     case 'load_insights':
       return loadInsightsFixture(mockState) as T
     case 'load_thread_detail':
@@ -2901,6 +2969,13 @@ async function call<T>(
                 ...job,
                 state: 'queued',
                 finishedAt: null,
+                updatedAt: new Date().toISOString(),
+                heartbeatAt: null,
+                progressLabel: null,
+                progressDetail: null,
+                progressCurrent: null,
+                progressTotal: null,
+                progressPercent: null,
                 lastError: null,
                 retryable: false,
                 cancellable: true,
@@ -2919,6 +2994,8 @@ async function call<T>(
                 ...job,
                 state: 'cancelled',
                 finishedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                heartbeatAt: null,
                 lastError: null,
                 retryable: true,
                 cancellable: false,
@@ -3540,6 +3617,10 @@ export const backend = {
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
   runInsightsNow: (request: RunInsightsRequest) =>
     call<RunInsightsReport>('run_insights_now', { request }),
+  queueInsightsRebuild: (request: RunInsightsRequest) =>
+    call<DeterministicRebuildQueueReport>('queue_insights_rebuild', {
+      request,
+    }),
   clearDerivedIntelligence: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   loadInsights: (request: RunInsightsRequest) =>

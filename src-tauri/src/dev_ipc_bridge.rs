@@ -572,6 +572,13 @@ async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "queue_insights_rebuild" => {
+            let payload = parse_payload::<WrappedRequest<RunInsightsRequest>>(payload)?;
+            json_value!(worker_bridge::queue_insights_rebuild_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "load_insights" => {
             let payload = parse_payload::<WrappedRequest<RunInsightsRequest>>(payload)?;
             json_value!(worker_bridge::load_insights_impl(

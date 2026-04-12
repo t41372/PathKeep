@@ -21,16 +21,32 @@ use crate::context::{
     selected_optional_embedding_runtime, start_ai_job_heartbeat, tokio_runtime,
 };
 use anyhow::{Context, Result};
+use serde_json::json;
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+};
 use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
     AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
-    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, ExplainInsightRequest,
-    InsightExplanation, InsightSnapshot, InsightThreadDetail, IntelligenceRuntimeSnapshot,
-    RunInsightsReport, RunInsightsRequest, ai_queue, answer_history_question, build_ai_index,
-    cancel_intelligence_job, explain_insight, load_assistant_run_response,
-    load_insight_thread_detail, load_insights, load_intelligence_runtime, preview_ai_integrations,
-    retry_intelligence_job, run_insights, semantic_search_history, test_provider_connection,
+    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, DeterministicRebuildQueueReport,
+    ExplainInsightRequest, InsightExplanation, InsightSnapshot, InsightThreadDetail,
+    IntelligenceRuntimeSnapshot, RunInsightsReport, RunInsightsRequest, ai_queue,
+    answer_history_question, build_ai_index, cancel_intelligence_job, execute_enrichment_job_by_id,
+    explain_insight,
+    intelligence_runtime::{
+        DETERMINISTIC_REBUILD_JOB_TYPE, claim_deterministic_rebuild_job,
+        enqueue_deterministic_rebuild_job, mark_intelligence_job_failed,
+        mark_intelligence_job_succeeded, next_queued_intelligence_job,
+        update_intelligence_job_artifact,
+    },
+    load_assistant_run_response, load_insight_thread_detail, load_insights,
+    load_intelligence_runtime, preview_ai_integrations, retry_intelligence_job, run_insights,
+    run_insights_with_progress, semantic_search_history, test_provider_connection,
 };
+
+static AI_QUEUE_DRAIN_ACTIVE: AtomicBool = AtomicBool::new(false);
+static INTELLIGENCE_QUEUE_DRAIN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Completes one claimed index job and writes the queue outcome back to SQLite.
 pub(crate) fn complete_claimed_index_job(
@@ -79,20 +95,6 @@ pub(crate) fn complete_claimed_index_job(
             Err(error)
         }
     }
-}
-
-/// Claims a queued index job by id and executes it.
-pub(crate) fn execute_index_job(
-    connection: &rusqlite::Connection,
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    job_id: i64,
-    request: &AiIndexRequest,
-) -> Result<AiIndexReport> {
-    let claimed = ai_queue::claim_ai_job_by_id(connection, job_id, 300)?
-        .with_context(|| format!("AI index job {job_id} is not ready to run"))?;
-    complete_claimed_index_job(connection, paths, config, session_database_key, claimed, request)
 }
 
 /// Completes one claimed assistant job and persists the response trace.
@@ -171,11 +173,127 @@ pub(crate) fn execute_assistant_job(
     )
 }
 
+pub(crate) fn maybe_spawn_ai_queue_drain(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    queued_jobs: u32,
+) {
+    if config.ai.job_queue_paused || queued_jobs == 0 {
+        return;
+    }
+    spawn_ai_queue_drain(paths.clone(), session_database_key.map(ToOwned::to_owned));
+}
+
+pub(crate) fn maybe_spawn_intelligence_queue_drain(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    queued_jobs: usize,
+) {
+    if config.ai.job_queue_paused || queued_jobs == 0 {
+        return;
+    }
+    spawn_intelligence_queue_drain(paths.clone(), session_database_key.map(ToOwned::to_owned));
+}
+
+fn spawn_ai_queue_drain(_paths: vault_core::ProjectPaths, session_database_key: Option<String>) {
+    if AI_QUEUE_DRAIN_ACTIVE
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
+    let _ = thread::Builder::new().name("pathkeep-ai-queue".to_string()).spawn(move || {
+        loop {
+            match run_ai_queue_jobs(session_database_key.as_deref(), None) {
+                Ok(status) => {
+                    if status.paused || status.queued == 0 {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("PathKeep could not drain the AI queue in the background: {error:#}");
+                    break;
+                }
+            }
+        }
+
+        AI_QUEUE_DRAIN_ACTIVE.store(false, Ordering::Release);
+    });
+}
+
+fn spawn_intelligence_queue_drain(
+    paths: vault_core::ProjectPaths,
+    session_database_key: Option<String>,
+) {
+    if INTELLIGENCE_QUEUE_DRAIN_ACTIVE
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
+    let _ = thread::Builder::new()
+        .name("pathkeep-intelligence-queue".to_string())
+        .spawn(move || {
+            loop {
+                let config = match load_unlocked_config(&paths) {
+                    Ok(config) => config,
+                    Err(error) => {
+                        eprintln!("PathKeep could not load intelligence queue config: {error:#}");
+                        break;
+                    }
+                };
+                if !config.initialized || config.ai.job_queue_paused {
+                    break;
+                }
+                let connection =
+                    match ai_archive_connection(&paths, &config, session_database_key.as_deref()) {
+                        Ok(connection) => connection,
+                        Err(error) => {
+                            eprintln!(
+                                "PathKeep could not open the archive for intelligence queue work: {error:#}"
+                            );
+                            break;
+                        }
+                    };
+                let Some(job) = (match next_queued_intelligence_job(&connection) {
+                    Ok(job) => job,
+                    Err(error) => {
+                        eprintln!(
+                            "PathKeep could not load the next intelligence queue job: {error:#}"
+                        );
+                        break;
+                    }
+                }) else {
+                    break;
+                };
+
+                if job.job_type == DETERMINISTIC_REBUILD_JOB_TYPE {
+                    let _ = execute_deterministic_rebuild_job(
+                        &paths,
+                        &config,
+                        session_database_key.as_deref(),
+                        job.id,
+                    );
+                } else {
+                    let _ = execute_enrichment_job_by_id(&connection, job.id);
+                }
+            }
+
+            INTELLIGENCE_QUEUE_DRAIN_ACTIVE.store(false, Ordering::Release);
+        });
+}
+
 /// Loads the persisted AI queue status for the current archive.
 pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    vault_core::ai_queue_status(&paths, &config, session_database_key)
+    let status = vault_core::ai_queue_status(&paths, &config, session_database_key)?;
+    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, status.queued);
+    Ok(status)
 }
 
 /// Drains queued AI jobs up to the requested limit.
@@ -227,7 +345,14 @@ pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)
+    let job = ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)?;
+    maybe_spawn_ai_queue_drain(
+        &paths,
+        &config,
+        session_database_key,
+        if job.state == "queued" { 1 } else { 0 },
+    );
+    Ok(job)
 }
 
 /// Cancels one queued/retryable AI job.
@@ -273,15 +398,22 @@ pub fn build_ai_index_now(
             )],
         });
     }
-
-    execute_index_job(
-        &connection,
-        &paths,
-        &config,
-        session_database_key,
-        queued.id,
-        &queued_request,
-    )
+    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
+    Ok(AiIndexReport {
+        job_id: Some(queued.id),
+        run_id: None,
+        provider_id: provider_config.id,
+        model: provider_config.default_model,
+        indexed_items: 0,
+        updated_items: 0,
+        skipped_items: 0,
+        removed_items: 0,
+        last_indexed_at: chrono::Utc::now().to_rfc3339(),
+        notes: vec![format!(
+            "Queued AI index job {}. PathKeep is processing it in the background.",
+            queued.id
+        )],
+    })
 }
 
 /// Runs semantic search, falling back to lexical search when semantic runtime is unavailable.
@@ -420,6 +552,127 @@ pub fn run_insights_now(
     run_insights(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
 }
 
+/// Queues one manual deterministic rebuild so heavy work can stay off the foreground UI thread.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn queue_insights_rebuild(
+    session_database_key: Option<&str>,
+    request: &RunInsightsRequest,
+) -> Result<DeterministicRebuildQueueReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    let job_id = enqueue_deterministic_rebuild_job(
+        &connection,
+        request,
+        "User requested a deterministic rebuild from the UI.",
+    )?;
+    let state = connection
+        .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap_or_else(|_| "queued".to_string());
+    maybe_spawn_intelligence_queue_drain(&paths, &config, session_database_key, 1);
+    Ok(DeterministicRebuildQueueReport {
+        job_id,
+        state: state.clone(),
+        notes: vec![if config.ai.job_queue_paused {
+            format!(
+                "Queued deterministic rebuild job {}. Resume background work to process it.",
+                job_id
+            )
+        } else if state == "running" {
+            format!("Deterministic rebuild job {} is already running in the background.", job_id)
+        } else {
+            format!(
+                "Queued deterministic rebuild job {}. PathKeep is processing it in the background.",
+                job_id
+            )
+        }],
+    })
+}
+
+fn execute_deterministic_rebuild_job(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<bool> {
+    let connection = ai_archive_connection(paths, config, session_database_key)?;
+    let Some(payload) = claim_deterministic_rebuild_job(&connection, job_id)? else {
+        return Ok(false);
+    };
+    let mut refresh_config = config.clone();
+    // Deterministic rebuilds must stay responsive and should not get stuck
+    // processing optional readable-content enrichment inline.
+    refresh_config.ai.enrichment_enabled = false;
+    let embedding_provider = selected_optional_embedding_runtime(&refresh_config).ok().flatten();
+    let initial_profile =
+        payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
+    let _ = update_intelligence_job_artifact(
+        &connection,
+        job_id,
+        &json!({
+            "kind": "deterministic-rebuild",
+            "phase": "Queued work started",
+            "detail": format!("Preparing a deterministic rebuild for {initial_profile}."),
+            "completedSteps": 0,
+            "totalSteps": 8,
+            "progressPercent": 0.0
+        }),
+    );
+    match run_insights_with_progress(
+        paths,
+        &refresh_config,
+        session_database_key,
+        embedding_provider.as_ref(),
+        &payload.request,
+        |progress| {
+            let artifact = json!({
+                "kind": "deterministic-rebuild",
+                "phase": progress.phase_label,
+                "detail": progress.detail,
+                "completedSteps": progress.phase_step,
+                "totalSteps": progress.phase_count,
+                "processedItems": progress.processed_items,
+                "totalItems": progress.total_items,
+                "progressPercent": progress.percent(),
+            });
+            let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
+        },
+    ) {
+        Ok(report) => {
+            mark_intelligence_job_succeeded(
+                &connection,
+                job_id,
+                &json!({
+                    "kind": "deterministic-rebuild",
+                    "phase": "Completed",
+                    "detail": format!(
+                        "{} visits processed, {} cards ready.",
+                        report.processed_visits,
+                        report.card_count
+                    ),
+                    "completedSteps": 8,
+                    "totalSteps": 8,
+                    "processedItems": report.processed_visits,
+                    "totalItems": report.processed_visits,
+                    "progressPercent": 100.0,
+                    "processedVisits": report.processed_visits,
+                    "cardCount": report.card_count,
+                    "queryGroupCount": report.query_group_count,
+                    "threadCount": report.thread_count,
+                    "notes": report.notes,
+                }),
+            )?;
+            Ok(true)
+        }
+        Err(error) => {
+            mark_intelligence_job_failed(&connection, job_id, &error.to_string())?;
+            Err(error)
+        }
+    }
+}
+
 /// Loads the current insight snapshot read model.
 pub fn load_insights_snapshot(
     session_database_key: Option<&str>,
@@ -457,7 +710,14 @@ pub fn load_intelligence_runtime_snapshot(
     let paths = vault_core::project_paths()?;
     let mut config = vault_core::load_config(&paths)?;
     crate::context::hydrate_derived_config_state(&mut config);
-    load_intelligence_runtime(&paths, &config, session_database_key)
+    let snapshot = load_intelligence_runtime(&paths, &config, session_database_key)?;
+    maybe_spawn_intelligence_queue_drain(
+        &paths,
+        &config,
+        session_database_key,
+        snapshot.queue.queued,
+    );
+    Ok(snapshot)
 }
 
 /// Retries one enrichment/intelligence runtime job.
@@ -468,7 +728,15 @@ pub fn retry_intelligence_job_now(
     let paths = vault_core::project_paths()?;
     let mut config = vault_core::load_config(&paths)?;
     crate::context::hydrate_derived_config_state(&mut config);
-    retry_intelligence_job(&paths, &config, session_database_key, job_id)
+    retry_intelligence_job(&paths, &config, session_database_key, job_id)?;
+    let snapshot = load_intelligence_runtime(&paths, &config, session_database_key)?;
+    maybe_spawn_intelligence_queue_drain(
+        &paths,
+        &config,
+        session_database_key,
+        snapshot.queue.queued,
+    );
+    Ok(snapshot)
 }
 
 /// Cancels one queued enrichment/intelligence runtime job.

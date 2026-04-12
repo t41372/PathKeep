@@ -40,8 +40,8 @@ pub use self::{
         ask_ai_assistant, build_ai_index_now, cancel_ai_job, cancel_intelligence_job_now,
         explain_insight_now, load_ai_assistant_job, load_ai_queue, load_insight_thread,
         load_insights_snapshot, load_intelligence_runtime_snapshot, preview_ai_integration_files,
-        replay_ai_job, retry_intelligence_job_now, run_ai_queue_jobs, run_insights_now,
-        search_ai_history, test_ai_provider_connection_report,
+        queue_insights_rebuild, replay_ai_job, retry_intelligence_job_now, run_ai_queue_jobs,
+        run_insights_now, search_ai_history, test_ai_provider_connection_report,
     },
     schedule::{apply_schedule_plan, preview_schedule_plan, remove_schedule_plan, schedule_status},
     security::{
@@ -398,7 +398,8 @@ mod tests {
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
 
-        let config = configured_ai_config();
+        let mut config = configured_ai_config();
+        config.ai.job_queue_paused = true;
         initialize_archive_database(&config, None).expect("initialize archive");
         run_backup_now(None, false).expect("backup");
 
@@ -485,7 +486,8 @@ mod tests {
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
 
-        let config = configured_ai_config();
+        let mut config = configured_ai_config();
+        config.ai.job_queue_paused = true;
         initialize_archive_database(&config, None).expect("initialize archive");
         let backup = run_backup_now(None, false).expect("backup");
         assert_eq!(backup.run.expect("run").new_visits, 1);
@@ -523,11 +525,13 @@ mod tests {
         assert!(!search.items.is_empty());
         assert!(!search.notes.is_empty());
 
-        let index_error = build_ai_index_now(None, &AiIndexRequest::default())
-            .expect_err("build index should require a saved key");
-        assert!(index_error.to_string().contains("API key"));
+        let index_report =
+            build_ai_index_now(None, &AiIndexRequest::default()).expect("queue paused index");
+        assert!(index_report.job_id.is_some());
+        assert!(index_report.run_id.is_none());
+        assert!(index_report.notes.iter().any(|note| note.contains("Resume the AI queue")));
 
-        let assistant_error = ask_ai_assistant(
+        let assistant_report = ask_ai_assistant(
             None,
             &AiAssistantRequest {
                 question: "What did I search?".to_string(),
@@ -535,8 +539,10 @@ mod tests {
                 domain: None,
             },
         )
-        .expect_err("assistant should require a saved key");
-        assert!(assistant_error.to_string().contains("API key"));
+        .expect("queue paused assistant");
+        assert_eq!(assistant_report.state, "queued");
+        assert!(assistant_report.job_id.is_some());
+        assert!(assistant_report.notes.iter().any(|note| note.contains("The AI queue is paused")));
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -594,7 +600,49 @@ mod tests {
     }
 
     #[test]
-    fn manual_backup_leaves_insight_rebuild_as_an_explicit_follow_up() {
+    fn build_ai_index_returns_a_background_job_report_without_blocking_the_caller() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let config = configured_ai_config();
+        initialize_archive_database(&config, None).expect("initialize archive");
+        save_user_config(&config, None).expect("save config");
+
+        let report =
+            build_ai_index_now(None, &AiIndexRequest::default()).expect("queue background index");
+        let job_id = report.job_id.expect("queued job id");
+        assert!(report.run_id.is_none());
+        assert!(report.notes.iter().any(|note| note.contains("processing it in the background")));
+
+        let _ = run_ai_queue_jobs(None, None).expect("drain queued background job");
+        let mut queue = load_ai_queue(None).expect("load ai queue");
+        for _ in 0..20 {
+            if queue.queued == 0 && queue.running == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            queue = load_ai_queue(None).expect("reload ai queue");
+        }
+        assert!(queue.recent_jobs.iter().any(|job| job.id == job_id
+            && matches!(job.state.as_str(), "queued" | "running" | "succeeded" | "failed")));
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn manual_backup_refreshes_deterministic_insights_automatically() {
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let chrome_root = chrome_user_data_fixture(dir.path());
@@ -611,12 +659,48 @@ mod tests {
 
         let backup = run_backup_now(None, false).expect("backup");
         assert_eq!(backup.run.expect("backup run").new_visits, 1);
+        assert!(
+            backup
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("Deterministic insights could not refresh"))
+        );
+
+        let mut runtime =
+            load_intelligence_runtime_snapshot(None).expect("load intelligence runtime snapshot");
+        for _ in 0..50 {
+            if runtime
+                .recent_jobs
+                .iter()
+                .any(|job| job.job_type == "deterministic-rebuild" && job.state == "succeeded")
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            runtime = load_intelligence_runtime_snapshot(None)
+                .expect("reload intelligence runtime snapshot");
+        }
 
         let insights =
             load_insights_snapshot(None, &RunInsightsRequest::default()).expect("load insights");
-        assert_eq!(insights.status.runs, 0);
-        assert!(insights.cards.is_empty());
-        assert!(insights.notes.is_empty());
+        assert!(insights.status.runs >= 1);
+        assert!(!insights.notes.is_empty());
+        let readable_content = runtime
+            .plugins
+            .iter()
+            .find(|plugin| plugin.plugin_id == "readable-content-refetch")
+            .expect("readable content plugin runtime");
+        assert_eq!(readable_content.queued_jobs, 0);
+        assert_eq!(readable_content.running_jobs, 0);
+        assert!(runtime.recent_jobs.iter().all(|job| {
+            job.plugin_id.as_deref() != Some("readable-content-refetch") || job.state != "running"
+        }));
+        assert!(runtime.recent_jobs.iter().any(|job| {
+            job.job_type == "deterministic-rebuild"
+                && job.state == "succeeded"
+                && job.progress_label.as_deref() == Some("Completed")
+                && job.progress_percent == Some(100.0)
+        }));
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -692,6 +776,12 @@ mod tests {
         .expect("import takeout");
         let batch_id = imported.import_batch.expect("import batch").id;
         assert_eq!(imported.imported_items, 1);
+        assert!(
+            imported
+                .notes
+                .iter()
+                .any(|note| { note.contains("Deterministic insights refresh job") })
+        );
         let import_preview = preview_import_batch_detail(None, batch_id).expect("preview batch");
         assert_eq!(import_preview.batch.status, "imported");
         let reverted = revert_import_batch_detail(None, batch_id).expect("revert batch");
@@ -875,6 +965,13 @@ mod tests {
 
         let index = build_ai_index_now(None, &AiIndexRequest::default()).expect("build ai index");
         assert!(!index.provider_id.is_empty());
+        for _ in 0..50 {
+            let queue = load_ai_queue(None).expect("load ai queue");
+            if queue.queued == 0 && queue.running == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
 
         let search = search_ai_history(
             None,
@@ -1025,12 +1122,15 @@ mod tests {
         assert!(
             report.warnings.iter().any(|warning| warning.contains("upload failed from worker"))
         );
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("AI index refresh after backup failed"))
-        );
+        let mut queue = load_ai_queue(None).expect("load ai queue");
+        for _ in 0..50 {
+            if queue.failed > 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            queue = load_ai_queue(None).expect("reload ai queue");
+        }
+        assert!(queue.failed > 0);
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

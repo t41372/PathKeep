@@ -475,7 +475,7 @@ Optional helpers：
 
 2026-04-10 implementation note：
 
-- `clear_derived_intelligence_state` 與 archive visibility repair 現在都會清掉 M5-B derived tables，並把 deterministic module registry 明確標成 `stale`，保留 `manual rebuild required` honesty，而不是讓舊 surface 假裝仍然新鮮。
+- `clear_derived_intelligence_state` 與 archive visibility repair 現在都會清掉 M5-B derived tables，並把 deterministic module registry 明確標成 `stale`。backup / import 成功後必須自動排入新的 deterministic rebuild job；若是 manual clear / repair 導致的 stale state，UI 也必須明講目前狀態與下一步，而不是讓舊 surface 假裝仍然新鮮。
 
 ---
 

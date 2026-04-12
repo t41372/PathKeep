@@ -66,6 +66,7 @@ import type {
   AiSettings,
   AppLockConfig,
   ClearDerivedIntelligenceReport,
+  DeterministicRebuildQueueReport,
   IntelligenceRuntimeSnapshot,
   RemoteBackupConfig,
   RemoteBackupPreview,
@@ -135,6 +136,8 @@ export function SettingsPage() {
   const [rebuildReport, setRebuildReport] = useState<RunInsightsReport | null>(
     null,
   )
+  const [rebuildQueueReport, setRebuildQueueReport] =
+    useState<DeterministicRebuildQueueReport | null>(null)
   const [clearReport, setClearReport] =
     useState<ClearDerivedIntelligenceReport | null>(null)
   const [derivedAction, setDerivedAction] = useState<string | null>(null)
@@ -446,7 +449,7 @@ export function SettingsPage() {
       state: configuredModules.find((module) => module.id === moduleId) ?? {
         id: moduleId,
         enabled: true,
-        version: 'm5b-v1',
+        version: 'diagnostic',
       },
     }))
   }, [runtimeModulesById, snapshot?.config.deterministic.modules])
@@ -906,8 +909,9 @@ export function SettingsPage() {
   async function handleRebuildDerivedState() {
     setDerivedAction(t('settings.rebuildingDerivedState'))
     try {
-      const report = await backend.runInsightsNow({ fullRebuild: true })
-      setRebuildReport(report)
+      const report = await backend.queueInsightsRebuild({ fullRebuild: true })
+      setRebuildQueueReport(report)
+      setRebuildReport(null)
       setClearReport(null)
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
@@ -928,6 +932,7 @@ export function SettingsPage() {
       const report = await backend.clearDerivedIntelligence()
       setClearReport(report)
       setRebuildReport(null)
+      setRebuildQueueReport(null)
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
     } finally {
@@ -2740,14 +2745,6 @@ export function SettingsPage() {
               </p>
               <div className="config-row">
                 <span className="config-label">
-                  {settingsNs('deterministicModuleVersion')}
-                </span>
-                <span className="config-value mono">
-                  {module.state.version}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">
                   {settingsNs('deterministicModuleDependsOn')}
                 </span>
                 <span className="config-value mono">
@@ -2850,14 +2847,6 @@ export function SettingsPage() {
                   </span>
                   <span className="config-value mono">
                     {enrichmentPluginBoundaryLabel(sourceKind, settingsNs)}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.pluginVersion')}
-                  </span>
-                  <span className="config-value mono">
-                    {plugin.state.version}
                   </span>
                 </div>
                 <div className="config-row">
@@ -3037,6 +3026,24 @@ export function SettingsPage() {
                     cards: rebuildReport.cardCount,
                   })}
                 </p>
+              </div>
+            ) : null}
+            {rebuildQueueReport ? (
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{t('settings.rebuildQueuedTitle')}</strong>
+                  <span className="mono">#{rebuildQueueReport.jobId}</span>
+                </div>
+                <p>
+                  {t('settings.rebuildQueuedBody', {
+                    jobId: rebuildQueueReport.jobId,
+                  })}
+                </p>
+                <div className="settings-action-row">
+                  <Link className="btn-secondary" to="/jobs">
+                    {t('settings.runtimeQueueTitle')}
+                  </Link>
+                </div>
               </div>
             ) : null}
             {clearReport ? (

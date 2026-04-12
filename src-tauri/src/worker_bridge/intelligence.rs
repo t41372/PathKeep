@@ -123,6 +123,16 @@ pub(crate) fn run_insights_now_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+#[cfg_attr(not(test), allow(dead_code))]
+/// Queues one deterministic rebuild so the desktop shell can keep heavy work in the background.
+pub(crate) fn queue_insights_rebuild_impl(
+    request: RunInsightsRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::DeterministicRebuildQueueReport, String> {
+    worker_result(vault_worker::queue_insights_rebuild(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads the current deterministic insight snapshot.
 pub(crate) fn load_insights_impl(
     request: RunInsightsRequest,

@@ -51,6 +51,7 @@ import { AssistantPage } from './assistant'
 import { DashboardPage } from './dashboard'
 import { ExplorerPage } from './explorer'
 import { InsightsPage } from './insights'
+import { JobsPage } from './jobs'
 import { SettingsPage } from './settings'
 
 const baseConfig: AppConfig = {
@@ -95,17 +96,17 @@ const baseConfig: AppConfig = {
       {
         id: 'readable-content-refetch',
         enabled: true,
-        version: 'm4-v1',
+        version: 'diagnostic',
       },
     ],
   },
   deterministic: {
     modules: [
-      { id: 'query-groups', enabled: true, version: 'm5b-v1' },
-      { id: 'threads', enabled: true, version: 'm5b-v1' },
-      { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
-      { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
-      { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
+      { id: 'query-groups', enabled: true, version: 'diagnostic' },
+      { id: 'threads', enabled: true, version: 'diagnostic' },
+      { id: 'reference-pages', enabled: true, version: 'diagnostic' },
+      { id: 'source-effectiveness', enabled: true, version: 'diagnostic' },
+      { id: 'template-summaries', enabled: true, version: 'diagnostic' },
     ],
   },
   ai: {
@@ -502,7 +503,7 @@ describe('intelligence surfaces', () => {
         {
           moduleId: 'query-groups',
           enabled: true,
-          version: 'm5b-v1',
+          version: 'diagnostic',
           status: 'ready',
           dependsOn: [],
           derivedTables: ['insight_bursts', 'insight_query_groups'],
@@ -515,7 +516,7 @@ describe('intelligence surfaces', () => {
         {
           moduleId: 'reference-pages',
           enabled: true,
-          version: 'm5b-v1',
+          version: 'diagnostic',
           status: 'stale',
           dependsOn: ['query-groups', 'threads'],
           derivedTables: ['insight_reference_pages'],
@@ -543,6 +544,13 @@ describe('intelligence surfaces', () => {
           createdAt: '2026-04-10T15:35:00Z',
           startedAt: '2026-04-10T15:36:00Z',
           finishedAt: '2026-04-10T15:37:00Z',
+          updatedAt: '2026-04-10T15:37:00Z',
+          heartbeatAt: null,
+          progressLabel: null,
+          progressDetail: null,
+          progressCurrent: null,
+          progressTotal: null,
+          progressPercent: null,
           lastError: '429 from upstream host',
           retryable: true,
           cancellable: false,
@@ -646,7 +654,7 @@ describe('intelligence surfaces', () => {
         {
           moduleId: 'threads',
           enabled: true,
-          version: 'm5b-v1',
+          version: 'diagnostic',
           status: 'ready',
           dependsOn: ['query-groups'],
           derivedTables: ['insight_threads', 'insight_thread_members'],
@@ -671,6 +679,13 @@ describe('intelligence surfaces', () => {
           createdAt: '2026-04-10T15:35:00Z',
           startedAt: '2026-04-10T15:36:00Z',
           finishedAt: '2026-04-10T15:37:00Z',
+          updatedAt: '2026-04-10T15:37:00Z',
+          heartbeatAt: null,
+          progressLabel: null,
+          progressDetail: null,
+          progressCurrent: null,
+          progressTotal: null,
+          progressPercent: null,
           lastError: '429 from upstream host',
           retryable: true,
           cancellable: false,
@@ -688,6 +703,13 @@ describe('intelligence surfaces', () => {
           createdAt: '2026-04-10T15:40:00Z',
           startedAt: null,
           finishedAt: null,
+          updatedAt: '2026-04-10T15:40:00Z',
+          heartbeatAt: null,
+          progressLabel: null,
+          progressDetail: null,
+          progressCurrent: null,
+          progressTotal: null,
+          progressPercent: null,
           lastError: null,
           retryable: false,
           cancellable: true,
@@ -717,6 +739,9 @@ describe('intelligence surfaces', () => {
     expect(
       await screen.findByText(settingsT('runtimeRecentJobs')),
     ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: settingsT('runtimeQueueTitle') }),
+    ).toHaveAttribute('href', '/jobs')
 
     await user.click(
       screen.getByRole('button', { name: settingsT('retryRuntimeJob') }),
@@ -727,6 +752,207 @@ describe('intelligence surfaces', () => {
       screen.getByRole('button', { name: settingsT('cancelRuntimeJob') }),
     )
     expect(cancelSpy).toHaveBeenCalledWith(412)
+  })
+
+  test('renders background jobs controls and lets the user pause or replay work', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const queueStatus: AiQueueStatus = {
+      paused: false,
+      concurrency: 2,
+      queued: 1,
+      running: 1,
+      failed: 1,
+      recentJobs: [
+        {
+          id: 77,
+          jobType: 'index-build',
+          state: 'failed',
+          priority: 10,
+          attempt: 2,
+          maxAttempts: 3,
+          runId: null,
+          summary: 'Provider quota window has not reset yet.',
+          queuedAt: '2026-04-07T18:00:00Z',
+          availableAt: '2026-04-07T18:00:00Z',
+          startedAt: '2026-04-07T18:01:00Z',
+          finishedAt: '2026-04-07T18:02:00Z',
+          heartbeatAt: '2026-04-07T18:01:30Z',
+          errorCode: 'rate-limited',
+          errorMessage: '429',
+        },
+        {
+          id: 78,
+          jobType: 'assistant',
+          state: 'queued',
+          priority: 10,
+          attempt: 1,
+          maxAttempts: 3,
+          runId: null,
+          summary: null,
+          queuedAt: '2026-04-07T18:03:00Z',
+          availableAt: '2026-04-07T18:03:00Z',
+          startedAt: null,
+          finishedAt: null,
+          heartbeatAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+    }
+    const runtimeSnapshot: IntelligenceRuntimeSnapshot = {
+      queue: {
+        queued: 1,
+        running: 1,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        lastActivityAt: '2026-04-10T16:30:00Z',
+      },
+      plugins: [
+        {
+          pluginId: 'readable-content-refetch',
+          sourceKind: 'network',
+          enabled: true,
+          storedRecords: 5,
+          queuedJobs: 1,
+          runningJobs: 0,
+          failedJobs: 1,
+          lastCompletedAt: '2026-04-10T16:20:00Z',
+          lastError: '429 from upstream host',
+        },
+      ],
+      modules: [
+        {
+          moduleId: 'threads',
+          enabled: true,
+          version: 'diagnostic',
+          status: 'stale',
+          dependsOn: ['query-groups'],
+          derivedTables: ['insight_threads', 'insight_thread_members'],
+          lastRunId: 12,
+          lastBuiltAt: '2026-04-10T16:25:00Z',
+          lastInvalidatedAt: '2026-04-10T16:28:00Z',
+          staleReason: 'New imports were added after the last rebuild.',
+          notes: ['Thread merge uses query-family and reopen evidence.'],
+        },
+      ],
+      recentJobs: [
+        {
+          id: 411,
+          jobType: 'deterministic-rebuild',
+          pluginId: null,
+          state: 'running',
+          historyId: null,
+          profileId: 'chrome:Default',
+          url: null,
+          title: 'chrome:Default · 30 days',
+          attempt: 2,
+          createdAt: '2026-04-10T15:35:00Z',
+          startedAt: '2026-04-10T15:36:00Z',
+          finishedAt: null,
+          updatedAt: '2026-04-10T15:36:45Z',
+          heartbeatAt: '2026-04-10T15:36:45Z',
+          progressLabel: 'Scoring visits',
+          progressDetail: '24,000 / 64,781 visits',
+          progressCurrent: 24000,
+          progressTotal: 64781,
+          progressPercent: 46.8,
+          lastError: null,
+          retryable: false,
+          cancellable: true,
+        },
+        {
+          id: 412,
+          jobType: 'enrichment-plugin',
+          pluginId: 'readable-content-refetch',
+          state: 'failed',
+          historyId: 2,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/article',
+          title: 'Article',
+          attempt: 2,
+          createdAt: '2026-04-10T15:20:00Z',
+          startedAt: '2026-04-10T15:21:00Z',
+          finishedAt: '2026-04-10T15:22:00Z',
+          updatedAt: '2026-04-10T15:22:00Z',
+          heartbeatAt: null,
+          progressLabel: null,
+          progressDetail: null,
+          progressCurrent: null,
+          progressTotal: null,
+          progressPercent: null,
+          lastError: '429 from upstream host',
+          retryable: true,
+          cancellable: false,
+        },
+      ],
+      notes: [
+        'Recovered 1 interrupted deterministic rebuild job after restart.',
+      ],
+    }
+
+    vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue(queueStatus)
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      runtimeSnapshot,
+    )
+    const replaySpy = vi
+      .spyOn(backend, 'replayAiJob')
+      .mockResolvedValue(queueStatus.recentJobs[0])
+    const retrySpy = vi
+      .spyOn(backend, 'retryIntelligenceJob')
+      .mockResolvedValue(runtimeSnapshot)
+
+    const pausedSnapshot = structuredClone(snapshot)
+    pausedSnapshot.config.ai.jobQueuePaused = true
+    const shellValue = createShellValue(snapshot)
+    shellValue.saveConfig = vi.fn().mockResolvedValue(pausedSnapshot)
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(await screen.findByText(jobsT('failedTitle'))).toBeVisible()
+    expect(screen.getByText(jobsT('statusEyebrow'))).toBeVisible()
+    expect(screen.getByText('Derived-data queue')).toBeVisible()
+    expect(screen.getByText('Scoring visits')).toBeVisible()
+    expect(screen.getByText('24,000 / 64,781 visits')).toBeVisible()
+    expect(screen.getByText('47%')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: jobsT('pauseQueue') }))
+    await waitFor(() =>
+      expect(shellValue.saveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ai: expect.objectContaining({ jobQueuePaused: true }),
+        }),
+      ),
+    )
+
+    const aiPanel = screen.getByText(jobsT('recentAiJobs')).closest('.panel')
+    expect(aiPanel).not.toBeNull()
+    if (!(aiPanel instanceof HTMLElement)) {
+      throw new Error('expected recent ai jobs panel')
+    }
+    await user.click(
+      within(aiPanel).getAllByRole('button', { name: jobsT('retryJob') })[0],
+    )
+    expect(replaySpy).toHaveBeenCalledWith(77)
+
+    const runtimePanel = screen
+      .getByText(jobsT('recentRuntimeJobs'))
+      .closest('.panel')
+    expect(runtimePanel).not.toBeNull()
+    if (!(runtimePanel instanceof HTMLElement)) {
+      throw new Error('expected recent runtime jobs panel')
+    }
+    await user.click(
+      within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
+    )
+    expect(retrySpy).toHaveBeenCalledWith(412)
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {
@@ -1559,6 +1785,7 @@ describe('intelligence surfaces', () => {
       })
 
       expect(await screen.findByText('Scoped topic')).toBeVisible()
+      expect(screen.queryByText('Scoped on this day')).not.toBeInTheDocument()
 
       const scopedExplorerSearches = screen
         .getAllByRole('link')
@@ -1579,7 +1806,7 @@ describe('intelligence surfaces', () => {
             params.get('profileId') === 'chrome:Default' &&
             params.get('q') === 'https://example.com/on-this-day',
         ),
-      ).toBe(true)
+      ).toBe(false)
       expect(
         scopedExplorerSearches.some(
           (params) =>

@@ -49,6 +49,7 @@ export type TranslationNamespace =
   | 'assistant'
   | 'insights'
   | 'intelligence'
+  | 'jobs'
   | 'platform'
   | 'onboarding'
 
@@ -86,6 +87,7 @@ export const translationNamespaces: TranslationNamespace[] = [
   'assistant',
   'insights',
   'intelligence',
+  'jobs',
   'platform',
   'onboarding',
 ]
@@ -346,9 +348,12 @@ const zhCnM3Namespaces = {
     assistantSummaryPrompt: '总结一下我最近浏览洞察中最明显的变化。',
     scopedViewTitle: '当前为浏览器范围视图',
     scopedViewBody:
-      '洞察卡片、主题、线程和摘要已切换到 {profile}。覆盖率、存储统计和增长信号仍然显示全部存档。',
+      '洞察卡片、主题、线程和摘要只会显示 {profile}。覆盖率、存储统计和增长信号仍然使用全部存档。',
     archiveWideBadge: '全部存档统计',
     refreshAttentionTitle: '洞察刷新遇到问题',
+    refreshQueuedTitle: '刷新已加入队列',
+    refreshQueuedBody:
+      '确定性重新生成任务 #{jobId} 已进入后台任务。你可以继续浏览，PathKeep 会在后台刷新最新的派生证据。',
     window: '时间范围',
     windowDaysCompact: '{days} 天',
     cards: '洞察卡片',
@@ -362,21 +367,22 @@ const zhCnM3Namespaces = {
     nothingForDayEyebrow: '历史上的今天',
     nothingForDayTitle: '今天没有历史记录',
     nothingForDayDescription:
-      '在当前洞察数据中，没有找到和今天同日期的浏览记录。',
+      '在过去的年份里，没有找到和今天同日期的浏览记录。',
     siteAnalytics: '网站统计',
-    currentEvidenceSample: '当前洞察数据样本',
+    currentEvidenceSample: '来自这次分析',
     noSiteAnalyticsEyebrow: '网站',
     noSiteAnalyticsTitle: '还没有网站统计',
     noSiteAnalyticsDescription:
       '首次生成洞察并包含浏览数据后，这里会显示你最常访问的网站。',
     queryEvolution: '搜索演化',
-    queryEvolutionDescription: '把最近的搜索改写整理成可追溯的搜索路径。',
+    queryEvolutionDescription: '把最近的搜索变化整理成一条可追踪的路径。',
     queryEvolutionEmptyTitle: '还没有搜索演化',
     queryEvolutionEmptyDescription:
-      'Chromium 搜索词被归档后，这里才会显示搜索改写路径。',
+      'Chromium 记录到搜索词后，这里才会显示搜索轨迹。',
     queryGroups: '查询组',
     queryGroupsEmptyTitle: '还没有查询组',
-    queryGroupsEmptyDescription: '完成确定性搜索证据重建后，这里会显示查询组。',
+    queryGroupsEmptyDescription:
+      '搜索证据重建完成后，这里会显示分组后的关键词。',
     queryEvolutionSteps: '{count} 步',
     queryStageBroad: '宽泛',
     queryStageNarrowing: '收窄',
@@ -392,13 +398,13 @@ const zhCnM3Namespaces = {
     referencePages: '参考页',
     referencePagesEmptyTitle: '还没有参考页',
     referencePagesEmptyDescription:
-      '当页面开始在不同查询组和研究线索里反复出现后，这里会显示参考页。',
+      '当页面在不同搜索里反复出现后，这里就会显示。',
     referencePagesBody:
       '出现在 {groups} 个查询组、{threads} 条线索里，并被重访了 {revisits} 次。',
     sourceEffectiveness: '来源效果',
     sourceEffectivenessEmptyTitle: '还没有来源效果数据',
     sourceEffectivenessEmptyDescription:
-      '确定性重建识别出稳定落点后，这里会显示来源效果。',
+      '等 PathKeep 能比较哪些来源最常带来有用结果后，这里才会显示。',
     sourceEffectivenessBody:
       '出现在 {groups} 个查询组、{references} 个参考页和 {landings} 次稳定落点中。',
     deterministicModules: '确定性模块',
@@ -446,8 +452,85 @@ const zhCnM3Namespaces = {
     noGrowthEvidenceDescription:
       '完成第一次备份后，这里会显示每次备份新增的数据量。',
   },
+  jobs: {
+    statusEyebrow: '后台工作',
+    readyTitle: '后台工作已空闲',
+    readyBody: '当前没有排队任务。新的重建、内容补全和索引任务会显示在这里。',
+    pausedTitle: '后台工作已暂停',
+    pausedBody: '排队任务已经保存，恢复后会继续处理。',
+    runningTitle: '后台工作正在运行',
+    runningBody:
+      'PathKeep 正在后台处理排队任务。你可以继续使用应用的其他部分。',
+    queuedTitle: '后台工作正在排队',
+    queuedBody: '这些任务正在等待可用 worker，或等待你恢复队列。',
+    failedTitle: '有后台任务需要处理',
+    failedBody: '失败的任务会保留在这里，并附上错误信息，方便你重试或取消。',
+    setupTitle: '完成设置后才会开始后台任务',
+    setupDescription:
+      '先完成初始设置并运行第一次备份。这里之后会显示队列活动、日志和恢复控制。',
+    lockedTitle: '先解锁存档，才能查看后台工作',
+    lockedEyebrow: '存档已锁定',
+    lockedDetail:
+      '在存档解锁前，PathKeep 无法读取任务历史，也不能恢复排队任务。',
+    refresh: '刷新',
+    pauseQueue: '暂停后台工作',
+    resumeQueue: '恢复后台工作',
+    openSettings: '打开设置',
+    loadingPage: '正在加载后台工作',
+    pageUnavailableTitle: '后台工作暂时不可用',
+    queueSummaryTitle: 'AI 队列',
+    queueSummaryBody:
+      'embedding 和助手任务会保存在存档队列里，所以前台操作结束后也能继续完成。',
+    runtimeSummaryTitle: '衍生数据队列',
+    runtimeSummaryBody:
+      '确定性重建和 enrichment 任务会保留自己的运行记录，方便你查看哪些已经完成，哪些还需要处理。',
+    recoveryTitle: '恢复',
+    recoveryBody:
+      '排队任务会保存在存档里。如果应用意外关闭，未完成的任务仍会留在这里，重新打开 PathKeep 后可以继续查看或重试。',
+    noRecoveryNotes: '当前没有恢复备注。',
+    pluginsTitle: 'Enrichment 插件',
+    modulesTitle: '确定性模块',
+    recentAiJobs: '最近的 AI 任务',
+    recentRuntimeJobs: '最近的衍生数据任务',
+    recentJobsEmpty: '还没有后台任务记录。',
+    queuedCount: '排队中',
+    runningCount: '运行中',
+    failedCount: '失败',
+    concurrency: 'Worker 数',
+    queueStatePaused: '已暂停',
+    queueStateLive: '运行中',
+    lastActivity: '最近活动',
+    lastCompletedAt: '上次完成',
+    derivedTables: '衍生表',
+    retryJob: '重试',
+    cancelJob: '取消',
+    createdAt: '创建时间',
+    startedAt: '开始时间',
+    finishedAt: '结束时间',
+    noErrorDetails: '还没有详细信息。',
+    sidebarTitle: '后台工作',
+    sidebarNeedsSetup: '完成设置后才会显示后台工作。',
+    sidebarUnavailable: '后台工作暂时不可用',
+    sidebarPaused: '{queued} 个排队 · 已暂停',
+    sidebarRunning: '{running} 个运行中 · {queued} 个排队',
+    sidebarFailed: '{failed} 个需要处理',
+    sidebarQueued: '{queued} 个排队中',
+    sidebarIdle: '已全部完成',
+    sidebarIdleDetail: '当前没有排队任务。',
+    sidebarLastActivity: '最近活动 {relative}',
+    sidebarOpenJobs: '打开后台任务',
+    openJobs: '后台任务',
+    now: '刚刚',
+    jobStateQueued: '排队中',
+    jobStateRunning: '运行中',
+    jobStateSucceeded: '已完成',
+    jobStateFailed: '失败',
+    jobStateCancelled: '已取消',
+    jobStatePaused: '已暂停',
+    jobStateStale: '需要重新执行',
+  },
 } satisfies Record<
-  'intelligence' | 'explorer' | 'assistant' | 'insights',
+  'intelligence' | 'explorer' | 'assistant' | 'insights' | 'jobs',
   TranslationDictionary
 >
 
@@ -707,9 +790,12 @@ const zhTwM3Namespaces = {
     assistantSummaryPrompt: '總結一下我最近瀏覽洞察中最明顯的變化。',
     scopedViewTitle: '目前為瀏覽器範圍視圖',
     scopedViewBody:
-      '洞察卡片、主題、執行緒和摘要已切換到 {profile}。涵蓋率、儲存統計和成長訊號仍顯示全部封存。',
+      '洞察卡片、主題、執行緒和摘要只會顯示 {profile}。涵蓋率、儲存統計和成長訊號仍然使用全部封存。',
     archiveWideBadge: '全部封存統計',
     refreshAttentionTitle: '洞察重新整理遇到問題',
+    refreshQueuedTitle: '重新整理已加入佇列',
+    refreshQueuedBody:
+      '確定性重新產生任務 #{jobId} 已進入背景工作。你可以繼續瀏覽，PathKeep 會在背景重新整理最新的派生證據。',
     window: '時間範圍',
     windowDaysCompact: '{days} 天',
     cards: '洞察卡片',
@@ -723,22 +809,22 @@ const zhTwM3Namespaces = {
     nothingForDayEyebrow: '歷史上的今天',
     nothingForDayTitle: '今天沒有歷史紀錄',
     nothingForDayDescription:
-      '在目前洞察資料中，沒有找到和今天同日期的瀏覽紀錄。',
+      '在過去的年份裡，沒有找到和今天同日期的瀏覽紀錄。',
     siteAnalytics: '網站統計',
-    currentEvidenceSample: '目前洞察資料樣本',
+    currentEvidenceSample: '來自這次分析',
     noSiteAnalyticsEyebrow: '網站',
     noSiteAnalyticsTitle: '還沒有網站統計',
     noSiteAnalyticsDescription:
       '首次產生洞察並包含瀏覽資料後，這裡會顯示你最常造訪的網站。',
     queryEvolution: '搜尋演化',
-    queryEvolutionDescription: '把最近的搜尋改寫整理成可追溯的搜尋路徑。',
+    queryEvolutionDescription: '把最近的搜尋變化整理成一條可追蹤的路徑。',
     queryEvolutionEmptyTitle: '還沒有搜尋演化',
     queryEvolutionEmptyDescription:
-      'Chromium 搜尋詞被歸檔後，這裡才會顯示搜尋改寫路徑。',
+      'Chromium 記錄到搜尋詞後，這裡才會顯示搜尋軌跡。',
     queryGroups: '查詢群組',
     queryGroupsEmptyTitle: '還沒有查詢群組',
     queryGroupsEmptyDescription:
-      '完成確定性搜尋證據重建後，這裡會顯示查詢群組。',
+      '搜尋證據重建完成後，這裡會顯示分組後的關鍵字。',
     queryEvolutionSteps: '{count} 步',
     queryStageBroad: '寬泛',
     queryStageNarrowing: '收窄',
@@ -754,13 +840,13 @@ const zhTwM3Namespaces = {
     referencePages: '參考頁',
     referencePagesEmptyTitle: '還沒有參考頁',
     referencePagesEmptyDescription:
-      '當頁面開始在不同查詢群組和研究線索裡反覆出現後，這裡會顯示參考頁。',
+      '當頁面在不同搜尋裡反覆出現後，這裡就會顯示。',
     referencePagesBody:
       '出現在 {groups} 個查詢群組、{threads} 條線索裡，並被重訪了 {revisits} 次。',
     sourceEffectiveness: '來源效果',
     sourceEffectivenessEmptyTitle: '還沒有來源效果資料',
     sourceEffectivenessEmptyDescription:
-      '確定性重建辨識出穩定落點後，這裡會顯示來源效果。',
+      '等 PathKeep 能比較哪些來源最常帶來有用結果後，這裡才會顯示。',
     sourceEffectivenessBody:
       '出現在 {groups} 個查詢群組、{references} 個參考頁和 {landings} 次穩定落點中。',
     deterministicModules: '確定性模組',
@@ -808,8 +894,85 @@ const zhTwM3Namespaces = {
     noGrowthEvidenceDescription:
       '完成第一次備份後，這裡會顯示每次備份新增的資料量。',
   },
+  jobs: {
+    statusEyebrow: '背景工作',
+    readyTitle: '背景工作目前空閒',
+    readyBody: '目前沒有排隊任務。新的重建、內容補抓與索引任務會顯示在這裡。',
+    pausedTitle: '背景工作已暫停',
+    pausedBody: '排隊任務已經保存，恢復後就會繼續處理。',
+    runningTitle: '背景工作正在執行',
+    runningBody:
+      'PathKeep 正在背景處理排隊任務。你可以繼續使用應用的其他部分。',
+    queuedTitle: '背景工作正在排隊',
+    queuedBody: '這些任務正在等待可用 worker，或等待你恢復佇列。',
+    failedTitle: '有背景任務需要處理',
+    failedBody: '失敗的任務會留在這裡，並附上錯誤資訊，方便你重試或取消。',
+    setupTitle: '完成設定後才會開始背景任務',
+    setupDescription:
+      '先完成初始設定並執行第一次備份。之後這裡會顯示佇列活動、日誌與恢復控制。',
+    lockedTitle: '先解鎖封存，才能查看背景工作',
+    lockedEyebrow: '封存已鎖定',
+    lockedDetail:
+      '在封存解鎖前，PathKeep 無法讀取任務歷史，也不能恢復排隊任務。',
+    refresh: '重新整理',
+    pauseQueue: '暫停背景工作',
+    resumeQueue: '恢復背景工作',
+    openSettings: '打開設定',
+    loadingPage: '正在載入背景工作',
+    pageUnavailableTitle: '背景工作暫時無法使用',
+    queueSummaryTitle: 'AI 佇列',
+    queueSummaryBody:
+      'embedding 和助手任務會保存在封存佇列裡，所以前景操作結束後也能繼續完成。',
+    runtimeSummaryTitle: '衍生資料佇列',
+    runtimeSummaryBody:
+      '確定性重建和 enrichment 任務會保留自己的執行記錄，方便你查看哪些已完成、哪些還需要處理。',
+    recoveryTitle: '恢復',
+    recoveryBody:
+      '排隊任務會保存在封存裡。如果應用意外關閉，未完成的任務仍會留在這裡，重新開啟 PathKeep 後可以繼續查看或重試。',
+    noRecoveryNotes: '目前沒有恢復備註。',
+    pluginsTitle: 'Enrichment 外掛',
+    modulesTitle: '確定性模組',
+    recentAiJobs: '最近的 AI 任務',
+    recentRuntimeJobs: '最近的衍生資料任務',
+    recentJobsEmpty: '還沒有背景任務紀錄。',
+    queuedCount: '排隊中',
+    runningCount: '執行中',
+    failedCount: '失敗',
+    concurrency: 'Worker 數',
+    queueStatePaused: '已暫停',
+    queueStateLive: '執行中',
+    lastActivity: '最近活動',
+    lastCompletedAt: '上次完成',
+    derivedTables: '衍生資料表',
+    retryJob: '重試',
+    cancelJob: '取消',
+    createdAt: '建立時間',
+    startedAt: '開始時間',
+    finishedAt: '結束時間',
+    noErrorDetails: '目前還沒有詳細資訊。',
+    sidebarTitle: '背景工作',
+    sidebarNeedsSetup: '完成設定後才會顯示背景工作。',
+    sidebarUnavailable: '背景工作暫時無法使用',
+    sidebarPaused: '{queued} 個排隊 · 已暫停',
+    sidebarRunning: '{running} 個執行中 · {queued} 個排隊',
+    sidebarFailed: '{failed} 個需要處理',
+    sidebarQueued: '{queued} 個排隊中',
+    sidebarIdle: '已全部完成',
+    sidebarIdleDetail: '目前沒有排隊任務。',
+    sidebarLastActivity: '最近活動 {relative}',
+    sidebarOpenJobs: '打開背景工作',
+    openJobs: '背景工作',
+    now: '剛剛',
+    jobStateQueued: '排隊中',
+    jobStateRunning: '執行中',
+    jobStateSucceeded: '已完成',
+    jobStateFailed: '失敗',
+    jobStateCancelled: '已取消',
+    jobStatePaused: '已暫停',
+    jobStateStale: '需要重新執行',
+  },
 } satisfies Record<
-  'intelligence' | 'explorer' | 'assistant' | 'insights',
+  'intelligence' | 'explorer' | 'assistant' | 'insights' | 'jobs',
   TranslationDictionary
 >
 
@@ -996,6 +1159,9 @@ const catalog: Record<
       auditLabel: 'Audit Ledger',
       auditTitle: 'Audit Ledger',
       auditSubtitle: 'Verify backup integrity and history',
+      jobsLabel: 'Jobs',
+      jobsTitle: 'Background Jobs',
+      jobsSubtitle: 'Watch progress, logs, and recovery',
       scheduleLabel: 'Schedule',
       scheduleTitle: 'Schedule',
       scheduleSubtitle: 'Automate your backup frequency',
@@ -1460,10 +1626,10 @@ const catalog: Record<
         'Select which browsers to include in your archive. History will only be backed up from checked profiles.',
       aiProvider: 'AI PROVIDER',
       aiProviderBody:
-        'Configure AI providers for smart search, insights, and the assistant. AI features are optional and everything works without them.',
+        'Add AI providers if you want smart search or the assistant. Leave this off and the app still works normally.',
       optional: 'OPTIONAL',
       general: 'GENERAL',
-      generalDescription: 'Language, data paths, and version info.',
+      generalDescription: 'Language, data paths, and diagnostics.',
       retentionTitle: 'RETENTION & CLEANUP',
       retentionDescription:
         'Review which local artifacts can be removed now. PathKeep only prunes them when you explicitly run this action.',
@@ -1534,8 +1700,8 @@ const catalog: Record<
       openDirectory: 'Open folder',
       openCrashReport: 'Open crash report',
       mcpServer: 'MCP Server',
-      version: 'Version',
-      gitCommit: 'Build',
+      version: 'App version',
+      gitCommit: 'Git hash',
       latestCrashTitle: 'Recent crash report detected',
       latestCrashBody: '{source} recorded at {time}. Latest message: {message}',
       latestCrashSourceRust: 'Rust panic',
@@ -1560,7 +1726,7 @@ const catalog: Record<
       updateTitle: 'APP UPDATES',
       updateBoundaryTitle: 'Manual check and install',
       updateBoundaryBody:
-        'Review release availability, notes, and install progress before PathKeep restarts into a new version.',
+        'Check the available version, read the notes, and install when you are ready. PathKeep restarts after the update.',
       updateCurrentVersion: 'Current version',
       updateLatestVersion: 'Latest available',
       updatePublishedAt: 'Published',
@@ -1582,7 +1748,7 @@ const catalog: Record<
       s3Compatible: 'S3-COMPATIBLE',
       remoteBackupSummary: 'Upload your archive to cloud storage',
       remoteBackupBody:
-        'Preview what will be uploaded, review the details, upload, then verify the backup is restorable.',
+        'Preview what will upload, review the details, upload, then verify the backup can be restored.',
       remoteEnabled: 'Enable cloud backup',
       bucketLabel: 'Bucket',
       regionLabel: 'Region',
@@ -1613,15 +1779,15 @@ const catalog: Record<
       verifyingRemoteBackup: 'Verifying…',
       previewBoundaryTitle: 'PREVIEW',
       previewBoundaryBody:
-        'See what will be uploaded — file path, destination, and any warnings — before anything is sent.',
+        'Review the file path, destination, and any warnings before anything is sent.',
       previewBoundaryReady:
         'Preview ready. Review the details below, then upload when ready.',
       manualBoundaryTitle: 'MANUAL UPLOAD',
       manualBoundaryBody:
-        'Use this command to upload manually. Keep the restore checklist handy.',
+        'Use this command to upload manually. Keep the restore steps with it.',
       previewCommand: 'Upload command',
       retentionGuidance:
-        "Clean-up and retry are manual for now. Set up bucket lifecycle rules once you're comfortable with the backup format.",
+        'Cleanup and retry are manual for now. Set up bucket lifecycle rules once you are comfortable with the backup format.',
       previewFirstTitle: 'Preview first',
       previewFirstBody:
         'Generate a preview before uploading or using the manual upload command.',
@@ -1646,13 +1812,13 @@ const catalog: Record<
       derivedOnly: 'SAFE TO CLEAR',
       derivedStateBoundaryTitle: 'What gets affected',
       derivedStateBoundaryBody:
-        'These actions only affect enrichment and insights data. Your original history, audit logs, and undo history are never touched.',
+        'These actions only affect enrichment and insights data. Your original history, audit logs, and undo history stay untouched.',
       firstPartyRuntimeTitle: 'Built-in plugins only',
       firstPartyRuntimeBody:
-        'PathKeep only runs first-party enrichment plugins today. Third-party runtime access stays deferred until a separate sandbox and permission review lands.',
+        'PathKeep only runs its own enrichment plugins here. Third-party runtime access stays off until we support it safely.',
       runtimeQueueTitle: 'Runtime queue',
       runtimeQueueBody:
-        'Deterministic refresh rebuilds cards and features. Enrichment jobs fill optional derived evidence and can fail, be retried, or be cancelled without touching canonical history.',
+        'A full rebuild refreshes cards and derived evidence. Enrichment jobs fill optional data and can fail, be retried, or be cancelled without changing your original history.',
       runtimeQueueSummary:
         '{queued} queued / {running} running / {failed} failed',
       rebuildDerivedState: 'Rebuild',
@@ -1660,30 +1826,30 @@ const catalog: Record<
       savingDeterministicModules: 'Saving module settings…',
       titleNormalizationPlugin: 'Title normalization',
       titleNormalizationDescription:
-        'Normalizes page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into cleaner evidence labels.',
+        'Cleans up page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into clearer evidence labels.',
       readableContentRefetch: 'Page content fetcher',
       readableContentRefetchBody:
-        'Fetches readable text from pages you visited, used for better summaries and richer insights. Disabling stops new fetches; clearing removes previously fetched content.',
+        'Reads page text from pages you visited so summaries and insights have better local evidence. Turn it off to stop new reads; clear it to remove old text.',
       readableContentPlugin: 'Page content fetcher',
       readableContentDescription:
-        'Fetches readable page content for visited pages so summaries and deterministic insights can cite fuller local evidence.',
+        'Reads page text from visited pages so summaries and deterministic insights can cite more complete local evidence.',
       queryGroupsModule: 'Query groups',
       queryGroupsModuleDescription:
-        'Builds deterministic query groups and reformulation ladders from search evidence, landing pages, and bounded continuity rules.',
+        'Groups related search keywords into a clear trail you can follow.',
       threadsModule: 'Threads',
       threadsModuleDescription:
-        'Merges related query groups into cross-burst research threads using query family, anchor, and reopen evidence.',
+        'Bundles related search trails into longer research threads.',
       referencePagesModule: 'Reference pages',
       referencePagesModuleDescription:
-        'Finds pages that keep resurfacing as stable references across groups, threads, and days.',
+        'Finds pages that keep coming back as anchors across searches.',
       sourceEffectivenessModule: 'Source effectiveness',
       sourceEffectivenessModuleDescription:
-        'Scores which sources most often become stable landing points without relying on dwell or foreground proxies.',
+        'Shows which sources most often lead to useful results.',
       templateSummariesModule: 'Template summaries',
       templateSummariesModuleDescription:
-        'Generates deterministic summary text from query groups, threads, reference pages, and source effectiveness.',
+        'Turns repeated patterns into short, readable summaries.',
       deterministicModuleFallbackDescription:
-        'Review the stored module trace before relying on this deterministic surface.',
+        'Check the saved module trace before you rely on this result.',
       deterministicModuleVersion: 'Module version',
       deterministicModuleDependsOn: 'Depends on',
       deterministicModuleTables: 'Derived tables',
@@ -1694,7 +1860,7 @@ const catalog: Record<
       deterministicModuleDisabled: 'Disabled',
       deterministicModuleIdle: 'Idle',
       enrichmentPluginFallbackDescription:
-        'Review the plugin boundary before enabling it for routine runs.',
+        'Check the plugin boundary before you turn it on for everyday use.',
       pluginBoundary: 'Boundary',
       pluginVersion: 'Version',
       pluginQueue: 'Queue',
@@ -1710,12 +1876,13 @@ const catalog: Record<
       networkAccess: 'Network',
       localOnly: 'Local only',
       readableContentRefetchImpact:
-        'Stores page text locally. Can be rebuilt anytime.',
+        'Stores page text locally so it can be rebuilt any time.',
       disablePlugin: 'Disable',
       enablePlugin: 'Enable',
       runtimeRecentJobs: 'Recent runtime jobs',
       runtimeNoJobs:
         'Recent queue activity will appear here after a deterministic refresh.',
+      deterministicRebuildJobLabel: 'Deterministic rebuild',
       runtimeJobAttempt: 'Attempt {attempt}',
       retryRuntimeJob: 'Retry',
       cancelRuntimeJob: 'Cancel',
@@ -1734,6 +1901,9 @@ const catalog: Record<
       rebuildCompletedTitle: 'Rebuild complete',
       rebuildCompletedBody:
         'Processed {visits} visits, refreshed {enriched} enriched rows, and created {cards} insight cards.',
+      rebuildQueuedTitle: 'Rebuild queued',
+      rebuildQueuedBody:
+        'Deterministic rebuild job #{jobId} is now in Background Jobs. Follow progress there while PathKeep refreshes cards and derived evidence.',
       clearCompletedTitle: 'Data cleared',
       clearCompletedBody:
         'Cleared {enrichments} enrichment rows, {features} feature rows, and {cards} insight cards. Your original history was not affected.',
@@ -1809,6 +1979,87 @@ const catalog: Record<
       aiAuditTrace: 'Audit trace',
       aiGeneratedFiles: 'Generated files',
       aiManualSteps: 'Manual steps',
+    },
+    jobs: {
+      statusEyebrow: 'BACKGROUND WORK',
+      readyTitle: 'Background work is idle',
+      readyBody:
+        'Nothing is waiting right now. New rebuilds, enrichment fetches, and index jobs will appear here.',
+      pausedTitle: 'Background work is paused',
+      pausedBody:
+        'Queued work is saved and will stay here until you resume it.',
+      runningTitle: 'Background work is running',
+      runningBody:
+        'PathKeep is processing queued work in the background. You can keep using the app.',
+      queuedTitle: 'Background work is queued',
+      queuedBody:
+        'Queued work is waiting for an available worker slot or for you to resume the queue.',
+      failedTitle: 'Some background work needs review',
+      failedBody:
+        'Failed jobs stay here with their error details so you can retry or cancel them.',
+      setupTitle: 'Background jobs start after setup',
+      setupDescription:
+        'Finish setup and run your first backup. Queue activity, logs, and recovery controls will appear here.',
+      lockedTitle: 'Unlock the archive to review background work',
+      lockedEyebrow: 'ARCHIVE LOCKED',
+      lockedDetail:
+        'PathKeep cannot load job history or resume queued work until the archive is unlocked.',
+      refresh: 'Refresh',
+      pauseQueue: 'Pause background work',
+      resumeQueue: 'Resume background work',
+      openSettings: 'Open Settings',
+      loadingPage: 'Loading background work',
+      pageUnavailableTitle: 'Background work is unavailable',
+      queueSummaryTitle: 'AI queue',
+      queueSummaryBody:
+        'Embedding and assistant jobs are stored in the archive queue so they can finish after the foreground action ends.',
+      runtimeSummaryTitle: 'Derived-data queue',
+      runtimeSummaryBody:
+        'Deterministic rebuilds and enrichment jobs keep their own trace so you can review what ran and what still needs attention.',
+      recoveryTitle: 'Recovery',
+      recoveryBody:
+        'Queued work is saved in the archive. If the app closes unexpectedly, unfinished items stay here so you can review or retry them after reopening PathKeep.',
+      noRecoveryNotes: 'No recovery notes right now.',
+      pluginsTitle: 'Enrichment plugins',
+      modulesTitle: 'Deterministic modules',
+      recentAiJobs: 'Recent AI jobs',
+      recentRuntimeJobs: 'Recent derived-data jobs',
+      recentJobsEmpty: 'No background jobs recorded yet.',
+      queuedCount: 'Queued',
+      runningCount: 'Running',
+      failedCount: 'Failed',
+      concurrency: 'Workers',
+      queueStatePaused: 'Paused',
+      queueStateLive: 'Live',
+      lastActivity: 'Last activity',
+      lastCompletedAt: 'Last completed',
+      derivedTables: 'Derived tables',
+      retryJob: 'Retry',
+      cancelJob: 'Cancel',
+      createdAt: 'Created',
+      startedAt: 'Started',
+      finishedAt: 'Finished',
+      noErrorDetails: 'No details yet.',
+      sidebarTitle: 'Background work',
+      sidebarNeedsSetup: 'Background work appears after setup.',
+      sidebarUnavailable: 'Background work is unavailable',
+      sidebarPaused: '{queued} queued · paused',
+      sidebarRunning: '{running} running · {queued} queued',
+      sidebarFailed: '{failed} need review',
+      sidebarQueued: '{queued} queued',
+      sidebarIdle: 'All caught up',
+      sidebarIdleDetail: 'No queued background work.',
+      sidebarLastActivity: 'Last activity {relative}',
+      sidebarOpenJobs: 'Open Jobs',
+      openJobs: 'Jobs',
+      now: 'just now',
+      jobStateQueued: 'Queued',
+      jobStateRunning: 'Running',
+      jobStateSucceeded: 'Completed',
+      jobStateFailed: 'Failed',
+      jobStateCancelled: 'Cancelled',
+      jobStatePaused: 'Paused',
+      jobStateStale: 'Needs replay',
     },
     platform: {
       macosLabel: 'macOS LaunchAgent',
@@ -2093,9 +2344,12 @@ const catalog: Record<
         'What are the biggest changes in my recent browsing?',
       scopedViewTitle: 'Profile-scoped view',
       scopedViewBody:
-        'Cards, topics, threads, and summaries are filtered to {profile}. Coverage, storage analytics, and growth signals still use archive-wide data.',
+        'Cards, topics, threads, and summaries are limited to {profile}. Coverage, storage analytics, and growth signals still use the full archive.',
       archiveWideBadge: 'Archive-wide metrics',
       refreshAttentionTitle: 'Refresh needs attention',
+      refreshQueuedTitle: 'Refresh queued',
+      refreshQueuedBody:
+        'Deterministic rebuild job #{jobId} is now in Background Jobs. Keep browsing while PathKeep refreshes the latest derived evidence.',
       window: 'TIME RANGE',
       windowDaysCompact: '{days}d',
       cards: 'HIGHLIGHTS',
@@ -2109,23 +2363,23 @@ const catalog: Record<
       nothingForDayEyebrow: 'ON THIS DAY',
       nothingForDayTitle: 'Nothing from this day',
       nothingForDayDescription:
-        'No browsing history was found for this date in past years.',
+        'No browsing history was found for this date in earlier years.',
       siteAnalytics: 'TOP SITES',
-      currentEvidenceSample: 'Based on current analysis',
+      currentEvidenceSample: 'From this analysis',
       noSiteAnalyticsEyebrow: 'TOP SITES',
       noSiteAnalyticsTitle: 'No site data yet',
       noSiteAnalyticsDescription:
-        'Site stats will appear after the first insights analysis.',
+        'Site stats appear after the first insights run.',
       queryEvolution: 'QUERY EVOLUTION',
       queryEvolutionDescription:
-        'Recent search refinements grouped into traceable search paths.',
+        'Recent search changes grouped into a trail you can follow.',
       queryEvolutionEmptyTitle: 'No query ladders yet',
       queryEvolutionEmptyDescription:
-        'Search refinements appear after Chromium query terms are archived.',
+        'Search trails appear after Chromium search terms are recorded.',
       queryGroups: 'QUERY GROUPS',
       queryGroupsEmptyTitle: 'No query groups yet',
       queryGroupsEmptyDescription:
-        'Query groups appear after deterministic search evidence is rebuilt.',
+        'Grouped search keywords appear after the search evidence is rebuilt.',
       queryEvolutionSteps: '{count} steps',
       queryStageBroad: 'Broad',
       queryStageNarrowing: 'Narrowing',
@@ -2142,13 +2396,13 @@ const catalog: Record<
       referencePages: 'REFERENCE PAGES',
       referencePagesEmptyTitle: 'No reference pages yet',
       referencePagesEmptyDescription:
-        'Reference pages appear after pages start resurfacing across groups and threads.',
+        'Pages that keep resurfacing across searches will show up here.',
       referencePagesBody:
         'Reused across {groups} groups, {threads} threads, and {revisits} revisits.',
       sourceEffectiveness: 'SOURCE EFFECTIVENESS',
       sourceEffectivenessEmptyTitle: 'No source effectiveness data yet',
       sourceEffectivenessEmptyDescription:
-        'Source effectiveness appears after deterministic rebuilds identify stable landing sources.',
+        'This view fills in once PathKeep can compare which sources keep leading to useful results.',
       sourceEffectivenessBody:
         'Appeared in {groups} groups, {references} reference pages, and {landings} stable landings.',
       deterministicModules: 'DETERMINISTIC MODULES',
@@ -2181,7 +2435,7 @@ const catalog: Record<
       storageAnalytics: 'STORAGE',
       growthSignal: 'RECENT GROWTH',
       storageAnalyticsDescription:
-        "See what's using disk space, how much can be reclaimed, and what the latest backup added.",
+        'See what uses disk space, what can be reclaimed, and what the latest backup added.',
       trackedStorage: 'Total used',
       reclaimableSpace: 'Reclaimable',
       dominantStorage: 'Largest category',
@@ -2481,6 +2735,9 @@ const catalog: Record<
       auditLabel: '审计日志',
       auditTitle: '审计日志',
       auditSubtitle: '备份记录和完整性验证',
+      jobsLabel: '后台任务',
+      jobsTitle: '后台任务',
+      jobsSubtitle: '查看进度、日志和恢复状态',
       scheduleLabel: '定时备份',
       scheduleTitle: '定时备份',
       scheduleSubtitle: '自动备份设置',
@@ -2909,10 +3166,10 @@ const catalog: Record<
       browserProfilesBody: '选择要备份的浏览器。只有勾选的浏览器会被纳入存档。',
       aiProvider: 'AI 服务',
       aiProviderBody:
-        '配置 AI 服务用于智能搜索、洞察和助手。AI 功能可选，不开启也能正常使用。',
+        '如果你想用智能搜索或助手，就在这里添加 AI 服务。不开启也不会影响应用正常使用。',
       optional: '可选',
       general: '通用',
-      generalDescription: '语言、数据路径和版本信息。',
+      generalDescription: '语言、数据路径和诊断信息。',
       retentionTitle: '保留与清理',
       retentionDescription:
         '先检查哪些本地文件现在可以清理。PathKeep 只有在你明确执行时才会删除这些工件。',
@@ -2980,8 +3237,8 @@ const catalog: Record<
       openDirectory: '打开文件夹',
       openCrashReport: '打开崩溃报告',
       mcpServer: 'MCP 服务',
-      version: '版本',
-      gitCommit: '构建版本',
+      version: '应用版本',
+      gitCommit: 'Git 哈希',
       latestCrashTitle: '检测到最近的崩溃报告',
       latestCrashBody: '{source} 记录于 {time}。最新消息：{message}',
       latestCrashSourceRust: 'Rust panic',
@@ -3006,7 +3263,7 @@ const catalog: Record<
       updateTitle: '应用更新',
       updateBoundaryTitle: '手动检查并安装',
       updateBoundaryBody:
-        '先检查可用版本、查看发行说明和安装进度，再由 PathKeep 重启切换到新版本。',
+        '先查看可用版本和说明，准备好后再安装。PathKeep 会在更新后重启。',
       updateCurrentVersion: '当前版本',
       updateLatestVersion: '最新可用版本',
       updatePublishedAt: '发布时间',
@@ -3027,7 +3284,7 @@ const catalog: Record<
       s3Compatible: 'S3 兼容',
       remoteBackupSummary: '将存档上传到云端存储',
       remoteBackupBody:
-        '先预览上传内容，检查无误后上传，最后验证备份可以恢复。',
+        '先预览会上传什么，再检查、上传，最后确认这份备份可以恢复。',
       remoteEnabled: '启用云端备份',
       bucketLabel: 'Bucket',
       regionLabel: 'Region',
@@ -3057,13 +3314,13 @@ const catalog: Record<
       executingRemoteBackup: '上传中…',
       verifyingRemoteBackup: '验证中…',
       previewBoundaryTitle: '预览',
-      previewBoundaryBody: '上传前查看文件路径、目标地址和注意事项。',
+      previewBoundaryBody: '上传前先检查文件路径、目标地址和注意事项。',
       previewBoundaryReady: '预览已生成。确认后点击上传。',
       manualBoundaryTitle: '手动上传',
-      manualBoundaryBody: '可以用下方命令手动上传，记得保存恢复步骤。',
+      manualBoundaryBody: '可以用下方命令手动上传，记得把恢复步骤一起保存。',
       previewCommand: '上传命令',
       retentionGuidance:
-        '目前清理和重试需要手动操作。等你熟悉备份格式后再设置自动清理规则。',
+        '目前清理和重试都需要手动操作。熟悉备份格式后，再设置自动清理规则。',
       previewFirstTitle: '请先预览',
       previewFirstBody: '先生成预览，再进行上传操作。',
       executeBoundaryTitle: '上传',
@@ -3084,13 +3341,13 @@ const catalog: Record<
       derivedOnly: '可安全清除',
       derivedStateBoundaryTitle: '影响范围',
       derivedStateBoundaryBody:
-        '只影响分析和洞察数据。你的原始历史记录、审计日志和撤销功能不受影响。',
+        '只会影响分析和洞察资料。你的原始历史纪录、稽核日志和复原功能都不会受影响。',
       firstPartyRuntimeTitle: '仅限内建插件',
       firstPartyRuntimeBody:
-        'PathKeep 目前只运行第一方增强插件。第三方运行时访问会继续延后，直到单独完成 sandbox 和权限评审。',
+        'PathKeep 这里只运行自己的增强插件。第三方运行时访问会先保持关闭，直到我们安全支持它。',
       runtimeQueueTitle: '运行队列',
       runtimeQueueBody:
-        '确定性刷新会重建卡片和特征；增强任务负责补可选的派生证据。它们失败、重试或取消都不会改动原始历史记录。',
+        '完整重建会刷新卡片和派生证据。增强任务只补充可选资料，失败、重试或取消都不会改动原始历史纪录。',
       runtimeQueueSummary:
         '{queued} 个排队 / {running} 个运行 / {failed} 个失败',
       rebuildDerivedState: '重新生成',
@@ -3098,30 +3355,28 @@ const catalog: Record<
       savingDeterministicModules: '正在保存模块设置…',
       titleNormalizationPlugin: '标题规范化',
       titleNormalizationDescription:
-        '在本地规范网页标题，让重复标签、跳转页和噪声后缀收敛成更清晰的证据标签。',
+        '在本地整理网页标题，让重复标签页、跳转页和多余尾码变成更清楚的证据标签。',
       readableContentRefetch: '页面内容抓取',
       readableContentRefetchBody:
-        '自动获取你访问过的网页正文，用于生成更好的摘要和洞察。关闭后不再获取新内容；清除会删除已获取的内容。',
+        '读取你访问过的网页正文，让摘要和洞察有更完整的本地证据。关闭后不会再读取新内容；清除会移除旧内容。',
       readableContentPlugin: '页面内容抓取',
       readableContentDescription:
-        '抓取已访问页面的可读正文，让摘要和确定性洞察可以引用更完整的本地证据。',
+        '读取已访问页面的文字，让摘要和确定性洞察可以引用更完整的本地证据。',
       queryGroupsModule: '查询组',
       queryGroupsModuleDescription:
-        '依据搜索证据、落地页和有边界的连续性规则，构建确定性的查询组和改写路径。',
+        '把相关搜索关键词整理成一条清楚的搜索轨迹。',
       threadsModule: '研究线索',
-      threadsModuleDescription:
-        '用查询家族、锚点页面和重开证据，把相关查询组合并成跨 burst 的研究线索。',
+      threadsModuleDescription: '把相关搜索轨迹整理成更长的研究线索。',
       referencePagesModule: '参考页',
-      referencePagesModuleDescription:
-        '找出在不同查询组、线索和日期里反复被找回来的稳定参考页面。',
+      referencePagesModuleDescription: '找出在不同搜索里不断出现的锚点页面。',
       sourceEffectivenessModule: '来源效果',
       sourceEffectivenessModuleDescription:
-        '评估哪些来源最常成为稳定落点，不使用停留时长或前台时间代理。',
+        '显示哪些来源最常把你带到有用结果。',
       templateSummariesModule: '模板总结',
       templateSummariesModuleDescription:
-        '根据查询组、研究线索、参考页和来源效果生成确定性的总结文本。',
+        '把重复出现的模式整理成简短好读的总结。',
       deterministicModuleFallbackDescription:
-        '在依赖这个确定性 surface 之前，请先检查保存下来的模块 trace。',
+        '在依赖这个结果之前，先检查保存下来的模块 trace。',
       deterministicModuleVersion: '模块版本',
       deterministicModuleDependsOn: '依赖',
       deterministicModuleTables: '派生数据表',
@@ -3132,7 +3387,7 @@ const catalog: Record<
       deterministicModuleDisabled: '已关闭',
       deterministicModuleIdle: '待构建',
       enrichmentPluginFallbackDescription:
-        '启用前请先确认这个插件的边界是否适合日常运行。',
+        '启用前先确认这个插件的边界是否适合日常使用。',
       pluginBoundary: '边界',
       pluginVersion: '版本',
       pluginQueue: '队列',
@@ -3151,6 +3406,7 @@ const catalog: Record<
       enablePlugin: '开启',
       runtimeRecentJobs: '最近运行任务',
       runtimeNoJobs: '下一次确定性刷新后，这里会显示最近的队列活动。',
+      deterministicRebuildJobLabel: '确定性重建',
       runtimeJobAttempt: '第 {attempt} 次尝试',
       retryRuntimeJob: '重试',
       cancelRuntimeJob: '取消',
@@ -3169,6 +3425,9 @@ const catalog: Record<
       rebuildCompletedTitle: '重新生成完成',
       rebuildCompletedBody:
         '处理了 {visits} 条浏览记录，刷新了 {enriched} 条增强数据，生成了 {cards} 张洞察卡片。',
+      rebuildQueuedTitle: '重新生成已加入队列',
+      rebuildQueuedBody:
+        '确定性重新生成任务 #{jobId} 已进入后台任务。PathKeep 会在后台刷新卡片和派生证据，你可以到 Jobs 页面查看进度。',
       clearCompletedTitle: '数据已清除',
       clearCompletedBody:
         '清除了 {enrichments} 条增强数据、{features} 条特征数据和 {cards} 张洞察卡片。原始历史记录未受影响。',
@@ -3541,6 +3800,9 @@ const catalog: Record<
       auditLabel: '稽核日誌',
       auditTitle: '稽核日誌',
       auditSubtitle: '備份紀錄與完整性驗證',
+      jobsLabel: '背景工作',
+      jobsTitle: '背景工作',
+      jobsSubtitle: '查看進度、日誌與恢復狀態',
       scheduleLabel: '定時備份',
       scheduleTitle: '定時備份',
       scheduleSubtitle: '自動備份設定',
@@ -3968,10 +4230,10 @@ const catalog: Record<
       browserProfilesBody: '選擇要備份的瀏覽器。只有勾選的瀏覽器會被納入封存。',
       aiProvider: 'AI 服務',
       aiProviderBody:
-        '設定 AI 服務用於智慧搜尋、洞察和助手。AI 功能為選用，不開啟也能正常使用。',
+        '如果你想用智慧搜尋或助手，就在這裡加入 AI 服務。不開啟也不會影響應用正常使用。',
       optional: '可選',
       general: '一般',
-      generalDescription: '語言、資料路徑和版本資訊。',
+      generalDescription: '語言、資料路徑和診斷資訊。',
       retentionTitle: '保留與清理',
       retentionDescription:
         '先檢查哪些本地檔案現在可以清理。PathKeep 只有在你明確執行時才會刪除這些工件。',
@@ -4039,8 +4301,8 @@ const catalog: Record<
       openDirectory: '開啟資料夾',
       openCrashReport: '開啟崩潰報告',
       mcpServer: 'MCP 服務',
-      version: '版本',
-      gitCommit: '建置版本',
+      version: '應用版本',
+      gitCommit: 'Git 雜湊',
       latestCrashTitle: '偵測到最近的崩潰報告',
       latestCrashBody: '{source} 記錄於 {time}。最新訊息：{message}',
       latestCrashSourceRust: 'Rust panic',
@@ -4065,7 +4327,7 @@ const catalog: Record<
       updateTitle: '應用更新',
       updateBoundaryTitle: '手動檢查並安裝',
       updateBoundaryBody:
-        '先檢查可用版本、查看發行說明和安裝進度，再由 PathKeep 重新啟動切換到新版本。',
+        '先查看可用版本和說明，準備好後再安裝。PathKeep 會在更新後重新啟動。',
       updateCurrentVersion: '目前版本',
       updateLatestVersion: '最新可用版本',
       updatePublishedAt: '發布時間',
@@ -4086,7 +4348,7 @@ const catalog: Record<
       s3Compatible: 'S3 相容',
       remoteBackupSummary: '將封存上傳到雲端儲存',
       remoteBackupBody:
-        '先預覽上傳內容，檢查無誤後上傳，最後驗證備份可以還原。',
+        '先預覽會上傳什麼，再檢查、上傳，最後確認這份備份可以還原。',
       remoteEnabled: '啟用雲端備份',
       bucketLabel: 'Bucket',
       regionLabel: 'Region',
@@ -4116,13 +4378,13 @@ const catalog: Record<
       executingRemoteBackup: '上傳中…',
       verifyingRemoteBackup: '驗證中…',
       previewBoundaryTitle: '預覽',
-      previewBoundaryBody: '上傳前查看檔案路徑、目標位址和注意事項。',
+      previewBoundaryBody: '上傳前先檢查檔案路徑、目標位址和注意事項。',
       previewBoundaryReady: '預覽已產生。確認後點擊上傳。',
       manualBoundaryTitle: '手動上傳',
-      manualBoundaryBody: '可以用下方指令手動上傳，記得保存還原步驟。',
+      manualBoundaryBody: '可以用下方指令手動上傳，記得把還原步驟一起保存。',
       previewCommand: '上傳指令',
       retentionGuidance:
-        '目前清理和重試需要手動操作。等你熟悉備份格式後再設定自動清理規則。',
+        '目前清理和重試都需要手動操作。熟悉備份格式後，再設定自動清理規則。',
       previewFirstTitle: '請先預覽',
       previewFirstBody: '先產生預覽，再進行上傳操作。',
       executeBoundaryTitle: '上傳',
@@ -4143,13 +4405,13 @@ const catalog: Record<
       derivedOnly: '可安全清除',
       derivedStateBoundaryTitle: '影響範圍',
       derivedStateBoundaryBody:
-        '只影響分析和洞察資料。你的原始歷史紀錄、稽核日誌和復原功能不受影響。',
+        '只會影響分析和洞察資料。你的原始歷史紀錄、稽核日誌和復原功能都不會受影響。',
       firstPartyRuntimeTitle: '僅限內建插件',
       firstPartyRuntimeBody:
-        'PathKeep 目前只執行第一方增強插件。第三方 runtime 存取會繼續延後，直到另外完成 sandbox 與權限評審。',
+        'PathKeep 這裡只執行自己的增強插件。第三方 runtime 存取會先保持關閉，直到我們安全支援它。',
       runtimeQueueTitle: '執行佇列',
       runtimeQueueBody:
-        '確定性重新整理會重建卡片與特徵；增強工作則補齊可選的衍生證據。失敗、重試或取消都不會改動原始歷史紀錄。',
+        '完整重建會刷新卡片和衍生證據。增強工作只補充可選資料，失敗、重試或取消都不會改動原始歷史紀錄。',
       runtimeQueueSummary:
         '{queued} 個排隊 / {running} 個執行中 / {failed} 個失敗',
       rebuildDerivedState: '重新產生',
@@ -4157,30 +4419,28 @@ const catalog: Record<
       savingDeterministicModules: '正在儲存模組設定…',
       titleNormalizationPlugin: '標題正規化',
       titleNormalizationDescription:
-        '在本機正規化網頁標題，讓重複分頁、跳轉頁和雜訊尾碼收斂成更清楚的證據標籤。',
+        '在本機整理網頁標題，讓重複分頁、跳轉頁和多餘尾碼變成更清楚的證據標籤。',
       readableContentRefetch: '網頁內容擷取',
       readableContentRefetchBody:
-        '自動擷取你造訪過的網頁文字，用於產生更好的摘要和洞察。關閉後不再擷取新內容；清除會刪除已擷取的內容。',
+        '讀取你造訪過的網頁文字，讓摘要和洞察有更完整的本機證據。關閉後不會再讀取新內容；清除會移除舊內容。',
       readableContentPlugin: '網頁內容擷取',
       readableContentDescription:
-        '擷取已造訪頁面的可讀正文，讓摘要和確定性洞察可以引用更完整的本機證據。',
+        '讀取已造訪頁面的文字，讓摘要和確定性洞察可以引用更完整的本機證據。',
       queryGroupsModule: '查詢群組',
       queryGroupsModuleDescription:
-        '根據搜尋證據、落地頁和有邊界的連續性規則，建立確定性的查詢群組與改寫路徑。',
+        '把相關搜尋關鍵字整理成一條清楚的搜尋軌跡。',
       threadsModule: '研究線索',
-      threadsModuleDescription:
-        '用查詢家族、錨點頁面和重開證據，把相關查詢群組合併成跨 burst 的研究線索。',
+      threadsModuleDescription: '把相關搜尋軌跡整理成更長的研究線索。',
       referencePagesModule: '參考頁',
-      referencePagesModuleDescription:
-        '找出在不同查詢群組、線索和日期裡反覆被找回來的穩定參考頁面。',
+      referencePagesModuleDescription: '找出在不同搜尋裡不斷出現的錨點頁面。',
       sourceEffectivenessModule: '來源效果',
       sourceEffectivenessModuleDescription:
-        '評估哪些來源最常成為穩定落點，不使用停留時長或前景時間代理。',
+        '顯示哪些來源最常把你帶到有用結果。',
       templateSummariesModule: '模板總結',
       templateSummariesModuleDescription:
-        '根據查詢群組、研究線索、參考頁和來源效果產生確定性的總結文字。',
+        '把重複出現的模式整理成簡短好讀的總結。',
       deterministicModuleFallbackDescription:
-        '在依賴這個確定性 surface 之前，請先檢查保存下來的模組 trace。',
+        '在依賴這個結果之前，先檢查保存下來的模組 trace。',
       deterministicModuleVersion: '模組版本',
       deterministicModuleDependsOn: '依賴',
       deterministicModuleTables: '衍生資料表',
@@ -4191,7 +4451,7 @@ const catalog: Record<
       deterministicModuleDisabled: '已關閉',
       deterministicModuleIdle: '待建置',
       enrichmentPluginFallbackDescription:
-        '啟用前請先確認這個插件的邊界是否適合日常執行。',
+        '啟用前先確認這個插件的邊界是否適合日常使用。',
       pluginBoundary: '邊界',
       pluginVersion: '版本',
       pluginQueue: '佇列',
@@ -4211,6 +4471,7 @@ const catalog: Record<
       enablePlugin: '開啟',
       runtimeRecentJobs: '最近執行工作',
       runtimeNoJobs: '下一次確定性重新整理後，這裡會顯示最近的佇列活動。',
+      deterministicRebuildJobLabel: '確定性重建',
       runtimeJobAttempt: '第 {attempt} 次嘗試',
       retryRuntimeJob: '重試',
       cancelRuntimeJob: '取消',
@@ -4229,6 +4490,9 @@ const catalog: Record<
       rebuildCompletedTitle: '重新產生完成',
       rebuildCompletedBody:
         '處理了 {visits} 筆瀏覽紀錄，重新整理了 {enriched} 筆增強資料，產生了 {cards} 張洞察卡片。',
+      rebuildQueuedTitle: '重新產生已加入佇列',
+      rebuildQueuedBody:
+        '確定性重新產生任務 #{jobId} 已進入背景工作。PathKeep 會在背景重新整理卡片和派生證據，你可以到 Jobs 頁面查看進度。',
       clearCompletedTitle: '資料已清除',
       clearCompletedBody:
         '清除了 {enrichments} 筆增強資料、{features} 筆特徵資料和 {cards} 張洞察卡片。原始歷史紀錄未受影響。',

@@ -181,6 +181,19 @@ export function OnboardingPage() {
   }
 
   /**
+   * Prevents the setup wizard from advancing until at least one readable
+   * browser profile is selected for backup.
+   */
+  function handleBrowsersContinue() {
+    setLocalError(null)
+    if (selectedCount === 0) {
+      setLocalError(t('errorSelectProfile'))
+      return
+    }
+    setStep(2)
+  }
+
+  /**
    * Handles finish.
    *
    * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
@@ -502,6 +515,12 @@ export function OnboardingPage() {
             </div>
           )}
 
+          {localError ? (
+            <p className="inline-error" role="alert">
+              {localError}
+            </p>
+          ) : null}
+
           <div className="ob-actions">
             <button
               className="btn-secondary"
@@ -513,7 +532,8 @@ export function OnboardingPage() {
             <button
               className="btn-primary"
               type="button"
-              onClick={() => setStep(2)}
+              disabled={busyAction !== null}
+              onClick={handleBrowsersContinue}
             >
               {t('continueButton')}
             </button>

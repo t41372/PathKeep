@@ -26,6 +26,7 @@ import type { EnrichmentPluginState, EnrichmentSettings } from './types'
 
 export const TITLE_NORMALIZATION_PLUGIN_ID = 'title-normalization'
 export const READABLE_CONTENT_REFETCH_PLUGIN_ID = 'readable-content-refetch'
+// Internal registry markers. Keep them out of normal product chrome.
 export const TITLE_NORMALIZATION_VERSION = 'm5-v1'
 export const READABLE_CONTENT_REFETCH_VERSION = 'm4-v1'
 

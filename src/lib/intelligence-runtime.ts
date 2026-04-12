@@ -48,6 +48,8 @@ export function enrichmentPluginLabel(pluginId: string, t: Translator) {
       return t('titleNormalizationPlugin')
     case 'readable-content-refetch':
       return t('readableContentPlugin')
+    case 'deterministic-rebuild':
+      return t('deterministicRebuildJobLabel')
     default:
       return pluginId
   }

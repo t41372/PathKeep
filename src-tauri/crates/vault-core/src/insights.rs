@@ -24,11 +24,11 @@ use crate::{
     intelligence_runtime::{
         DeterministicModuleRuntimeUpdate, ENRICHMENT_JOB_TYPE, EnrichmentJobPayload,
         LOCAL_PLUGIN_SOURCE_KIND, NETWORK_PLUGIN_SOURCE_KIND, built_in_deterministic_modules,
-        built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_jobs,
-        enqueue_enrichment_job, enrichment_plugin_enabled, ensure_intelligence_runtime_schema,
-        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
-        persist_deterministic_module_runtime_updates, requeue_running_enrichment_jobs,
-        requeue_running_enrichment_jobs_for_run,
+        built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_job_by_id,
+        claim_enrichment_jobs, enqueue_enrichment_job, enrichment_plugin_enabled,
+        ensure_intelligence_runtime_schema, mark_intelligence_job_failed,
+        mark_intelligence_job_succeeded, persist_deterministic_module_runtime_updates,
+        requeue_running_enrichment_jobs, requeue_running_enrichment_jobs_for_run,
     },
     models::{
         AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCanonicalSummary,
@@ -53,7 +53,7 @@ use std::collections::{HashMap, HashSet};
 
 pub use self::runtime::{
     clear_derived_intelligence_state, explain_insight, insight_status, load_insight_thread_detail,
-    load_insights, run_insights,
+    load_insights, run_insights, run_insights_with_progress,
 };
 use self::{
     grouping::{
@@ -77,8 +77,6 @@ const INSIGHT_PIPELINE_VERSION: &str = "insights-v2";
 const ENRICH_TEXT_LIMIT: usize = 12_000;
 const SNIPPET_LIMIT: usize = 3;
 const DEFAULT_WINDOW_DAYS: u32 = 30;
-const DEFAULT_ANALYSIS_LIMIT: usize = 600;
-const MAX_NETWORK_ENRICHMENT_JOBS_PER_RUN: usize = 4;
 const SESSION_GAP_MINUTES: i64 = 30;
 
 const INSIGHT_SCHEMA_SQL: &str = r#"
@@ -514,31 +512,53 @@ fn load_visits(
     connection: &Connection,
     profile_id: Option<&str>,
     window_days: u32,
-    limit: usize,
+    limit: Option<usize>,
 ) -> Result<Vec<VisitRecord>> {
     let start = (Utc::now() - Duration::days(window_days as i64)).to_rfc3339();
     let start_chrome = crate::utils::iso_to_chrome_time_micros(&start).unwrap_or(0);
-    let sql = if profile_id.is_some() {
-        "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                from_visit, transition, visit_duration, external_referrer_url, app_id
-         FROM visit_events
-         WHERE profile_id = ?1 AND visit_time >= ?2
-         ORDER BY visit_time ASC
-         LIMIT ?3"
-    } else {
-        "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                from_visit, transition, visit_duration, external_referrer_url, app_id
-         FROM visit_events
-         WHERE visit_time >= ?1
-         ORDER BY visit_time ASC
-         LIMIT ?2"
+    let sql = match (profile_id.is_some(), limit.is_some()) {
+        (true, true) => {
+            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
+                    from_visit, transition, visit_duration, external_referrer_url, app_id
+             FROM visit_events
+             WHERE profile_id = ?1 AND visit_time >= ?2
+             ORDER BY visit_time ASC
+             LIMIT ?3"
+        }
+        (true, false) => {
+            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
+                    from_visit, transition, visit_duration, external_referrer_url, app_id
+             FROM visit_events
+             WHERE profile_id = ?1 AND visit_time >= ?2
+             ORDER BY visit_time ASC"
+        }
+        (false, true) => {
+            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
+                    from_visit, transition, visit_duration, external_referrer_url, app_id
+             FROM visit_events
+             WHERE visit_time >= ?1
+             ORDER BY visit_time ASC
+             LIMIT ?2"
+        }
+        (false, false) => {
+            "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
+                    from_visit, transition, visit_duration, external_referrer_url, app_id
+             FROM visit_events
+             WHERE visit_time >= ?1
+             ORDER BY visit_time ASC"
+        }
     };
     let mut statement = connection.prepare(sql)?;
-    let rows = if let Some(profile_id) = profile_id {
-        statement
-            .query_map(params![profile_id, start_chrome, limit as i64], visit_record_from_row)?
-    } else {
-        statement.query_map(params![start_chrome, limit as i64], visit_record_from_row)?
+    let rows = match (profile_id, limit) {
+        (Some(profile_id), Some(limit)) => statement
+            .query_map(params![profile_id, start_chrome, limit as i64], visit_record_from_row)?,
+        (Some(profile_id), None) => {
+            statement.query_map(params![profile_id, start_chrome], visit_record_from_row)?
+        }
+        (None, Some(limit)) => {
+            statement.query_map(params![start_chrome, limit as i64], visit_record_from_row)?
+        }
+        (None, None) => statement.query_map(params![start_chrome], visit_record_from_row)?,
     };
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
@@ -549,26 +569,32 @@ fn load_on_this_day(
     limit: usize,
 ) -> Result<Vec<InsightEvidenceItem>> {
     let today_key = Local::now().format("%m-%d").to_string();
+    let current_year = Local::now().format("%Y").to_string();
     let sql = if profile_id.is_some() {
         "SELECT id, profile_id, url, title, visit_time
          FROM visit_events
          WHERE profile_id = ?1
            AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?2
+           AND strftime('%Y', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) != ?3
          ORDER BY visit_time DESC
-         LIMIT ?3"
+         LIMIT ?4"
     } else {
         "SELECT id, profile_id, url, title, visit_time
          FROM visit_events
          WHERE strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?1
+           AND strftime('%Y', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) != ?2
          ORDER BY visit_time DESC
-         LIMIT ?2"
+         LIMIT ?3"
     };
     let mut statement = connection.prepare(sql)?;
     let rows = if let Some(profile_id) = profile_id {
-        statement
-            .query_map(params![profile_id, today_key, limit as i64], insight_evidence_from_row)?
+        statement.query_map(
+            params![profile_id, today_key, current_year, limit as i64],
+            insight_evidence_from_row,
+        )?
     } else {
-        statement.query_map(params![today_key, limit as i64], insight_evidence_from_row)?
+        statement
+            .query_map(params![today_key, current_year, limit as i64], insight_evidence_from_row)?
     };
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
@@ -783,6 +809,7 @@ fn process_enrichment_jobs(
         .collect::<Vec<_>>();
 
     let mut claimed = Vec::new();
+    let mut report = EnrichmentProcessingReport::default();
     if !local_plugin_ids.is_empty() {
         claimed.extend(claim_enrichment_jobs(
             connection,
@@ -792,20 +819,13 @@ fn process_enrichment_jobs(
         )?);
     }
     if !network_plugin_ids.is_empty() {
-        claimed.extend(claim_enrichment_jobs(
-            connection,
-            &network_plugin_ids,
-            &allowed_history_ids,
-            MAX_NETWORK_ENRICHMENT_JOBS_PER_RUN,
-        )?);
+        report.queued_network_jobs = queued_enrichment_jobs(connection, &network_plugin_ids)?;
     }
     if claimed.is_empty() {
-        return Ok(EnrichmentProcessingReport::default());
+        return Ok(report);
     }
 
     let visit_map = visits.iter().map(|visit| (visit.history_id, visit)).collect::<HashMap<_, _>>();
-    let mut report = EnrichmentProcessingReport::default();
-    let mut refetch_client = None::<Client>;
 
     for job in claimed {
         let Some(visit) = visit_map.get(&job.payload.history_id) else {
@@ -819,16 +839,8 @@ fn process_enrichment_jobs(
         };
 
         let enrichment = match job.plugin_id.as_str() {
-            TITLE_NORMALIZATION_PLUGIN_ID => title_normalization_enrichment(visit),
-            READABLE_CONTENT_PLUGIN_ID => {
-                let client = match refetch_client.as_ref() {
-                    Some(client) => client,
-                    None => {
-                        refetch_client = Some(build_refetch_client()?);
-                        refetch_client.as_ref().expect("refetch client")
-                    }
-                };
-                refetch_visit_content(client, &visit.url)
+            TITLE_NORMALIZATION_PLUGIN_ID => {
+                title_normalization_enrichment(&visit.url, visit.title.as_deref())
             }
             _ => {
                 mark_intelligence_job_failed(
@@ -867,11 +879,50 @@ fn process_enrichment_jobs(
         }
     }
 
-    if !network_plugin_ids.is_empty() {
-        report.queued_network_jobs = queued_enrichment_jobs(connection, &network_plugin_ids)?;
+    Ok(report)
+}
+
+pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Result<bool> {
+    let Some(job) = claim_enrichment_job_by_id(connection, job_id)? else {
+        return Ok(false);
+    };
+
+    let enrichment = match job.plugin_id.as_str() {
+        TITLE_NORMALIZATION_PLUGIN_ID => {
+            title_normalization_enrichment(&job.payload.url, job.payload.title.as_deref())
+        }
+        READABLE_CONTENT_PLUGIN_ID => {
+            let client = build_refetch_client()?;
+            refetch_visit_content(&client, &job.payload.url)
+        }
+        _ => {
+            mark_intelligence_job_failed(
+                connection,
+                job.id,
+                &format!("Unknown enrichment plugin {}", job.plugin_id),
+            )?;
+            return Ok(true);
+        }
+    };
+
+    store_enrichment(connection, job.payload.history_id, &job.plugin_id, &enrichment)?;
+    let artifact = json!({
+        "status": enrichment.status,
+        "snippetCount": enrichment.snippets.len(),
+        "textLength": enrichment
+            .readable_text
+            .as_ref()
+            .map(|value| value.len())
+            .unwrap_or(0),
+        "attempt": job.attempt,
+    });
+    if enrichment_is_terminal_failure(&enrichment) {
+        mark_intelligence_job_failed(connection, job.id, &enrichment_failure_message(&enrichment))?;
+    } else {
+        mark_intelligence_job_succeeded(connection, job.id, &artifact)?;
     }
 
-    Ok(report)
+    Ok(true)
 }
 
 fn recover_interrupted_insight_runs(connection: &Connection) -> Result<InterruptedInsightRecovery> {
@@ -961,24 +1012,22 @@ fn plugin_enrichment_is_fresh(
     }
 }
 
-fn title_normalization_enrichment(visit: &VisitRecord) -> EnrichmentResult {
-    let readable_title = visit
-        .title
-        .as_deref()
+fn title_normalization_enrichment(url: &str, title: Option<&str>) -> EnrichmentResult {
+    let readable_title = title
         .map(normalize_whitespace)
         .filter(|value| !value.is_empty())
-        .or_else(|| normalized_title_from_url(&visit.url));
+        .or_else(|| normalized_title_from_url(url));
     let status = if readable_title.is_some() { "success" } else { "empty" };
     let snippets = readable_title.clone().into_iter().collect::<Vec<_>>();
     EnrichmentResult {
         status: status.to_string(),
-        final_url: Some(visit.url.clone()),
+        final_url: Some(url.to_string()),
         language: None,
         readable_title,
         readable_text: None,
         snippets,
         extraction: json!({
-            "strategy": if visit.title.is_some() { "browser-title" } else { "url-fallback" },
+            "strategy": if title.is_some() { "browser-title" } else { "url-fallback" },
         }),
     }
 }
@@ -1343,15 +1392,32 @@ fn hydrate_enrichment_and_embeddings(
     }
 }
 
+#[cfg(test)]
 fn compute_feature_scores(visits: &mut [VisitRecord]) {
-    let mut prior_tokens = Vec::<HashSet<String>>::new();
+    compute_feature_scores_with_progress(visits, |_processed, _total| {});
+}
+
+fn compute_feature_scores_with_progress<F>(visits: &mut [VisitRecord], mut on_progress: F)
+where
+    F: FnMut(usize, usize),
+{
+    let mut seen_token_counts = HashMap::<String, usize>::new();
     let mut revisit_counts = HashMap::<String, usize>::new();
-    for visit in visits.iter_mut() {
+    let total = visits.len();
+    if total == 0 {
+        on_progress(0, 0);
+        return;
+    }
+    let progress_interval = (total / 24).max(2_048);
+    on_progress(0, total);
+    for (index, visit) in visits.iter_mut().enumerate() {
         let tokens = visit.keywords.iter().cloned().collect::<HashSet<_>>();
-        let max_similarity = prior_tokens
-            .iter()
-            .map(|prior| token_similarity(&tokens, prior))
-            .fold(0.0f32, f32::max);
+        let repeated_token_ratio = if tokens.is_empty() {
+            0.0
+        } else {
+            tokens.iter().filter(|token| seen_token_counts.contains_key(*token)).count() as f32
+                / tokens.len() as f32
+        };
         let revisit_key = canonical_visit_key(visit);
         let revisit_count = revisit_counts.entry(revisit_key).or_insert(0);
         *revisit_count += 1;
@@ -1373,7 +1439,7 @@ fn compute_feature_scores(visits: &mut [VisitRecord]) {
             InteractionKind::Discuss | InteractionKind::Discover | InteractionKind::Watch => 0.1,
             InteractionKind::Transact | InteractionKind::Unknown => 0.0,
         };
-        visit.novelty_score = (1.0 - max_similarity).clamp(0.0, 1.0);
+        visit.novelty_score = (1.0 - repeated_token_ratio).clamp(0.0, 1.0);
         visit.importance_score = ((*revisit_count as f32 - 1.0) * 0.35
             + evidence_bonus
             + domain_bonus
@@ -1383,7 +1449,13 @@ fn compute_feature_scores(visits: &mut [VisitRecord]) {
             + if *revisit_count <= 1 { 0.2 } else { 0.0 }
             + if visit.interaction_kind == InteractionKind::Discover { 0.1 } else { 0.0 })
         .clamp(0.0, 1.0);
-        prior_tokens.push(tokens);
+        for token in tokens {
+            *seen_token_counts.entry(token).or_insert(0) += 1;
+        }
+        let processed = index + 1;
+        if processed == total || processed % progress_interval == 0 {
+            on_progress(processed, total);
+        }
     }
 }
 
@@ -2266,7 +2338,7 @@ mod tests {
                 profile_id: Some("chrome:Default".to_string()),
                 window_days: Some(30),
                 full_rebuild: false,
-                limit: Some(20),
+                limit: None,
             },
         )
         .expect("run insights");
@@ -2291,6 +2363,178 @@ mod tests {
         assert!(!snapshot.query_ladders.is_empty());
         assert!(snapshot.query_ladders[0].steps.len() > 1);
         assert!(snapshot.workflow_map.chromium_enhanced);
+    }
+
+    #[test]
+    fn on_this_day_excludes_current_year_visits() {
+        let connection = Connection::open_in_memory().expect("db");
+        create_schema(&connection).expect("core schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        let current_year_visit = Local::now().to_rfc3339();
+        let prior_year_visit = (Local::now() - Duration::days(365)).to_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO visit_events
+                 (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                 VALUES
+                 (1, 'chrome:Default', 1, 1, 'https://example.com/today', 'Today', ?1, NULL, 805306368, 1000, 1, NULL, NULL, NULL, 'today', 'today', ?3),
+                 (2, 'chrome:Default', 2, 2, 'https://example.com/last-year', 'Last year', ?2, NULL, 805306368, 1000, 1, NULL, NULL, NULL, 'last-year', 'last-year', ?4)",
+                params![
+                    iso_to_chrome_time_micros(&current_year_visit).expect("current year chrome time"),
+                    iso_to_chrome_time_micros(&prior_year_visit).expect("prior year chrome time"),
+                    current_year_visit,
+                    prior_year_visit,
+                ],
+            )
+            .expect("insert visits");
+
+        let items =
+            load_on_this_day(&connection, Some("chrome:Default"), 8).expect("load on this day");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].url, "https://example.com/last-year");
+    }
+
+    #[test]
+    fn explicit_analysis_limit_can_still_sample_recent_visits() {
+        let paths = test_paths();
+        let config = test_config();
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        seed_visits(&connection);
+
+        let report = run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: Some(2),
+            },
+        )
+        .expect("run limited insights");
+        assert_eq!(report.processed_visits, 2);
+    }
+
+    #[test]
+    fn feature_scoring_penalizes_repeated_token_sets_without_quadratic_scan() {
+        fn score_visit(history_id: i64, url: &str, keywords: &[&str]) -> VisitRecord {
+            VisitRecord {
+                history_id,
+                profile_id: "chrome:Default".to_string(),
+                source_visit_id: history_id,
+                source_url_id: history_id,
+                url: url.to_string(),
+                title: Some(url.to_string()),
+                visited_at: now_rfc3339(),
+                visit_time: history_id,
+                from_visit: None,
+                transition: None,
+                duration_ms: None,
+                external_referrer_url: None,
+                app_id: None,
+                query_term: None,
+                has_canonical_search_term: false,
+                readable_title: None,
+                readable_text: None,
+                snippets: Vec::new(),
+                source_role: "reference".to_string(),
+                page_type: "docs-page".to_string(),
+                domain_category: DomainCategory::Docs,
+                page_category_v2: PageCategory::DocsPage,
+                interaction_kind: InteractionKind::Learn,
+                evidence_tier: EvidenceTier::TierB,
+                taxonomy_source: "test".to_string(),
+                taxonomy_pack: None,
+                taxonomy_version: None,
+                taxonomy_reason: None,
+                registrable_domain: "example.com".to_string(),
+                keywords: keywords.iter().map(|value| value.to_string()).collect(),
+                entities: Vec::new(),
+                novelty_score: 0.0,
+                importance_score: 0.0,
+                explore_score: 0.0,
+                burst_id: None,
+                query_group_id: None,
+                topic_id: None,
+                thread_id: None,
+                vector: None,
+            }
+        }
+
+        let mut visits = vec![
+            score_visit(1, "https://example.com/docs/rust", &["rust", "sqlite"]),
+            score_visit(2, "https://example.com/docs/rust-2", &["rust", "sqlite"]),
+            score_visit(3, "https://example.com/docs/safari", &["safari", "automation"]),
+        ];
+
+        compute_feature_scores(&mut visits);
+
+        assert!(visits[0].novelty_score > visits[1].novelty_score);
+        assert!(visits[2].novelty_score > visits[1].novelty_score);
+        assert_eq!(visits[1].novelty_score, 0.0);
+    }
+
+    #[test]
+    fn feature_scoring_emits_progress_at_start_and_finish() {
+        fn score_visit(history_id: i64, keyword: &str) -> VisitRecord {
+            VisitRecord {
+                history_id,
+                profile_id: "chrome:Default".to_string(),
+                source_visit_id: history_id,
+                source_url_id: history_id,
+                url: format!("https://example.com/{keyword}/{history_id}"),
+                title: Some(format!("Visit {history_id}")),
+                visited_at: now_rfc3339(),
+                visit_time: history_id,
+                from_visit: None,
+                transition: None,
+                duration_ms: None,
+                external_referrer_url: None,
+                app_id: None,
+                query_term: None,
+                has_canonical_search_term: false,
+                readable_title: None,
+                readable_text: None,
+                snippets: Vec::new(),
+                source_role: "reference".to_string(),
+                page_type: "docs-page".to_string(),
+                domain_category: DomainCategory::Docs,
+                page_category_v2: PageCategory::DocsPage,
+                interaction_kind: InteractionKind::Learn,
+                evidence_tier: EvidenceTier::TierB,
+                taxonomy_source: "test".to_string(),
+                taxonomy_pack: None,
+                taxonomy_version: None,
+                taxonomy_reason: None,
+                registrable_domain: "example.com".to_string(),
+                keywords: vec![keyword.to_string()],
+                entities: Vec::new(),
+                novelty_score: 0.0,
+                importance_score: 0.0,
+                explore_score: 0.0,
+                burst_id: None,
+                query_group_id: None,
+                topic_id: None,
+                thread_id: None,
+                vector: None,
+            }
+        }
+
+        let mut visits =
+            vec![score_visit(1, "alpha"), score_visit(2, "beta"), score_visit(3, "gamma")];
+        let mut progress = Vec::new();
+
+        compute_feature_scores_with_progress(&mut visits, |processed, total| {
+            progress.push((processed, total));
+        });
+
+        assert_eq!(progress.first().copied(), Some((0, 3)));
+        assert_eq!(progress.last().copied(), Some((3, 3)));
     }
 
     #[test]
@@ -2394,6 +2638,57 @@ CREATE TABLE visit_insight_features (
         assert!(snapshot.cards.is_empty());
         assert!(snapshot.threads.is_empty());
         assert!(!snapshot.canonical.on_this_day.is_empty());
+    }
+
+    #[test]
+    fn run_insights_leaves_network_enrichment_jobs_queued_for_later_review() {
+        let paths = test_paths();
+        let config = test_config();
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+        seed_visits(&connection);
+
+        let report = run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("run insights");
+
+        let (queued, running, succeeded) = connection
+            .query_row(
+                "SELECT
+                   SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END)
+                 FROM intelligence_jobs
+                 WHERE job_type = ?1 AND plugin_id = ?2",
+                params![ENRICHMENT_JOB_TYPE, READABLE_CONTENT_PLUGIN_ID],
+                |row: &Row<'_>| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?.unwrap_or(0),
+                        row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                        row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                    ))
+                },
+            )
+            .expect("readable content job counts");
+
+        assert!(queued > 0);
+        assert_eq!(running, 0);
+        assert_eq!(succeeded, 0);
+        assert!(report.enriched_visits > 0);
+        assert!(report.notes.iter().any(|note| note.contains("Deferred")));
     }
 
     #[test]

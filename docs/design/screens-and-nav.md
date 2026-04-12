@@ -30,7 +30,7 @@
 
 ### 目前 export 已覆蓋
 
-- shell chrome：sidebar 分區、brand / version、archive status footer、topbar 搜尋、共享 profile scope switcher 與主 CTA
+- shell chrome：sidebar 分區、brand / version、archive status footer、background-work footer strip、topbar 搜尋、共享 profile scope switcher 與主 CTA
 - Dashboard 視覺語言：stat cards、recent runs table、On This Day、storage breakdown、AI / queue summary 的資訊層級
 - Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Insights、Audit 等核心入口
 
@@ -46,16 +46,17 @@
 
 - Onboarding、shared empty / error / loading、locked / no-data、permission-denied 等 production state，現在以本頁、[ux-principles.md](ux-principles.md) 與對應 feature / milestone docs 為 source of truth；prototype 沒畫到不再代表 UX 未定義。
 - long-running operation、generated artifact review、rollback confirmation、manual fallback 與 verify / rollback hint，全都遵循 PME grammar，而不是各頁自己發明流程。
-- `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」。
+- `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」；`On This Day` 只回看過去幾年的同一天，不得把當前年份今天的紀錄混進去。
 - keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
 - route metadata、sidebar section label、topbar title / subtitle、loading / skeleton label、empty / error / disabled state，以及 browser preview honesty copy 都屬於正式 i18n surface；不能因為 prototype 沒畫到文字細節就留下英文硬編碼。
 - Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
-- Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 plugin version、queue、freshness、derived tables、storage impact，以及 rebuild / clear controls。
+- Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 queue、freshness、derived tables、storage impact，以及 rebuild / clear controls；plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
+- Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Insights 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 - M5-B 起，Insights 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Insights 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
-- Settings 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及需要 manual rebuild 的 honesty copy。
+- Settings 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
 - Schedule 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
@@ -71,7 +72,7 @@
 
 ### M1 導航與 deep-link 規則
 
-- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Insights / Assistant）、`OPERATIONS`（Import / Audit / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
+- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Insights / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
 - 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
@@ -79,7 +80,7 @@
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
 - Onboarding shell header 必須有明確的 `Exit setup` 動作；離開後保留目前已選的 storage / profile / security 決策，避免把使用者困在 setup route。
 - Schedule / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings 也要能透過 callout / quick action 直接跳回這些修復頁，而不是把排障資訊藏在單一路由裡。
-- Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態與 theme toggle 在不捲動主內容區的情況下也要可見。
+- Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態、background-work strip 與 theme toggle 在不捲動主內容區的情況下也要可見。
 - Settings 擁有 day-one 語言切換與平台 troubleshooting；Schedule 擁有 platform-specific Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。
 - 共享 profile scope 存在於 shell chrome，而不是散落在各頁各自記憶；Explorer 若未指定 page-specific `profileId`，必須明講自己目前沿用 shared scope。
 
@@ -89,6 +90,8 @@
 - semantic result、assistant citation、insight evidence 都要能 deep-link 回 `/explorer`，至少可帶 `q`、`profileId`、`domain` 等 canonical filters 讓使用者回看原始記錄。
 - Assistant 的 seeded follow-up 使用 `/assistant?question=...`；Explorer、Insights、Dashboard 都可以透過這個 deep-link 把 scoped 問題帶進 assistant composer。
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Insights；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
+- shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
+- 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Insights 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Settings 是 M4-A 起的 remote backup 與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
 

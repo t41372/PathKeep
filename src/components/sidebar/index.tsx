@@ -23,6 +23,7 @@ import {
   useProfileScope,
 } from '../../lib/profile-scope-context'
 import { BrandMark } from '../brand-mark'
+import { SidebarBackgroundStatus } from './background-status'
 import { SidebarNavItem } from './nav-item'
 
 /**
@@ -42,7 +43,7 @@ interface SidebarProps {
  */
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { language, t } = useI18n()
-  const { buildInfo, dashboard, error, snapshot } = useShellData()
+  const { buildInfo, dashboard, error, refreshKey, snapshot } = useShellData()
   const { activeProfileId } = useProfileScope()
   const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
 
@@ -157,6 +158,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             {t('common.profileScope')}: {profileScopeLabel}
           </span>
         </div>
+        <SidebarBackgroundStatus
+          initialized={Boolean(snapshot?.config.initialized)}
+          refreshKey={refreshKey}
+        />
         <button
           className="theme-toggle"
           type="button"
