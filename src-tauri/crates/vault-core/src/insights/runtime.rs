@@ -11,6 +11,10 @@
 
 use super::surfaces::ContrastWindowSummary;
 use super::*;
+use crate::models::{
+    InsightQueryGroupSummary, InsightReferencePageSummary, InsightSourceEffectivenessSummary,
+    InsightTemplateSummary,
+};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -97,6 +101,79 @@ fn load_contrast_window_summary(
             .collect::<HashSet<_>>()
             .len(),
     })
+}
+
+fn fallback_snapshot_payloads(
+    connection: &Connection,
+    request: &RunInsightsRequest,
+    window_days: u32,
+    query_groups: &[InsightQueryGroupSummary],
+    topics: &[InsightTopicSummary],
+    threads: &[InsightThreadSummary],
+    reference_pages: &[InsightReferencePageSummary],
+    source_effectiveness: &[InsightSourceEffectivenessSummary],
+) -> Result<(
+    Vec<InsightQueryLadder>,
+    Vec<InsightTemplateSummary>,
+    InsightWorkflowMap,
+    Vec<InsightProfileFacet>,
+    InsightCanonicalSummary,
+)> {
+    let visits = load_visits(
+        connection,
+        request.profile_id.as_deref(),
+        window_days,
+        request.limit.map(|limit| limit.max(1) as usize),
+    )?;
+    let on_this_day = load_on_this_day(connection, request.profile_id.as_deref(), 8)?;
+    let features = load_feature_rows(connection, &visits)?;
+    let query_ladders = if query_groups.is_empty() {
+        build_query_ladders(&visits, &features)
+    } else {
+        query_groups
+            .iter()
+            .filter(|group| group.steps.len() > 1)
+            .map(|group| InsightQueryLadder {
+                query_group_id: Some(group.query_group_id.clone()),
+                root_term: group.root_query.clone(),
+                profile_id: group.profile_id.clone(),
+                steps: group.steps.clone(),
+                stages: group.stages.clone(),
+                count: group.visit_count,
+                confidence: group.confidence,
+                evidence_tier: group.evidence_tier.clone(),
+                chromium_only: group.chromium_enhanced,
+            })
+            .collect()
+    };
+    let template_summaries = if !query_groups.is_empty()
+        || !threads.is_empty()
+        || !reference_pages.is_empty()
+        || !source_effectiveness.is_empty()
+    {
+        let contrast_window = load_contrast_window_summary(
+            connection,
+            request.profile_id.as_deref(),
+            window_days,
+            request.limit.map(|limit| limit.max(1) as usize),
+        )?;
+        build_template_summaries(
+            &visits,
+            query_groups,
+            threads,
+            reference_pages,
+            source_effectiveness,
+            request.profile_id.as_deref(),
+            window_days,
+            Some(&contrast_window),
+        )
+    } else {
+        Vec::new()
+    };
+    let workflow_map = build_workflow_map(&visits, &features, request.profile_id.as_deref());
+    let profile_facets = build_profile_facets(&visits, topics, threads);
+    let canonical = build_canonical_summary(&visits, on_this_day);
+    Ok((query_ladders, template_summaries, workflow_map, profile_facets, canonical))
 }
 
 /// Reports whether derived insight state exists and when it last ran successfully.
@@ -192,12 +269,6 @@ where
     ensure_intelligence_runtime_schema(&connection)?;
 
     let recovery = recover_interrupted_insight_runs(&connection)?;
-
-    if request.full_rebuild {
-        let transaction = connection.transaction()?;
-        clear_derived_insight_state(&transaction)?;
-        transaction.commit()?;
-    }
 
     let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
     let profile_scope = request.profile_id.clone().unwrap_or_else(|| "all".to_string());
@@ -313,6 +384,25 @@ where
         } else {
             Vec::new()
         };
+        let query_ladders = if module_enabled(QUERY_GROUPS_MODULE_ID) {
+            query_group_summaries
+                .iter()
+                .filter(|group| group.step_count >= 2)
+                .map(|group| InsightQueryLadder {
+                    query_group_id: Some(group.query_group_id.clone()),
+                    root_term: group.root_query.clone(),
+                    profile_id: group.profile_id.clone(),
+                    steps: group.steps.clone(),
+                    stages: group.stages.clone(),
+                    count: group.visit_count,
+                    confidence: group.confidence,
+                    evidence_tier: group.evidence_tier.clone(),
+                    chromium_only: group.chromium_enhanced,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let topics = if module_enabled(THREADS_MODULE_ID) {
             build_topic_summaries(&visits, &query_group_summaries, &thread_summaries, window_days)
         } else {
@@ -363,6 +453,11 @@ where
             window_days,
             request.profile_id.as_deref(),
         );
+        let features = load_feature_rows(&connection, &visits)?;
+        let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
+        let workflow_map = build_workflow_map(&visits, &features, request.profile_id.as_deref());
+        let profile_facets = build_profile_facets(&visits, &topics, &thread_summaries);
+        let canonical = build_canonical_summary(&visits, on_this_day);
 
         on_progress(InsightsRunProgress::new(
             "Persisting deterministic tables",
@@ -397,6 +492,16 @@ where
             &source_effectiveness,
         )?;
         persist_cards(&transaction, &cards, request.profile_id.as_deref(), window_days)?;
+        persist_snapshot_payloads(
+            &transaction,
+            &profile_scope,
+            window_days,
+            &query_ladders,
+            &template_summaries,
+            &workflow_map,
+            &profile_facets,
+            &canonical,
+        )?;
 
         let finished_at = now_rfc3339();
         let module_updates = built_in_deterministic_modules()
@@ -592,55 +697,30 @@ pub fn load_insights(
     } else {
         Vec::new()
     };
-    let visits = load_visits(
-        &connection,
-        request.profile_id.as_deref(),
-        window_days,
-        request.limit.map(|limit| limit.max(1) as usize),
-    )?;
-    let on_this_day = load_on_this_day(&connection, request.profile_id.as_deref(), 8)?;
-    let features = load_feature_rows(&connection, &visits)?;
-    let query_ladders = if !module_enabled(QUERY_GROUPS_MODULE_ID) {
-        Vec::new()
-    } else if query_groups.is_empty() {
-        build_query_ladders(&visits, &features)
-    } else {
-        query_groups
-            .iter()
-            .filter(|group| group.steps.len() > 1)
-            .map(|group| InsightQueryLadder {
-                query_group_id: Some(group.query_group_id.clone()),
-                root_term: group.root_query.clone(),
-                profile_id: group.profile_id.clone(),
-                steps: group.steps.clone(),
-                stages: group.stages.clone(),
-                count: group.visit_count,
-                confidence: group.confidence,
-                evidence_tier: group.evidence_tier.clone(),
-                chromium_only: group.chromium_enhanced,
-            })
-            .collect()
-    };
-    let template_summaries = if module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
-        let contrast_window = load_contrast_window_summary(
+    let (
+        mut query_ladders,
+        mut template_summaries,
+        mut workflow_map,
+        mut profile_facets,
+        mut canonical,
+    ) = load_snapshot_payloads(&connection, &profile_scope, window_days).or_else(|_| {
+        fallback_snapshot_payloads(
             &connection,
-            request.profile_id.as_deref(),
+            request,
             window_days,
-            request.limit.map(|limit| limit.max(1) as usize),
-        )?;
-        build_template_summaries(
-            &visits,
             &query_groups,
+            &topics,
             &threads,
             &reference_pages,
             &source_effectiveness,
-            request.profile_id.as_deref(),
-            window_days,
-            Some(&contrast_window),
         )
-    } else {
-        Vec::new()
-    };
+    })?;
+    if !module_enabled(QUERY_GROUPS_MODULE_ID) {
+        query_ladders.clear();
+    }
+    if !module_enabled(TEMPLATE_SUMMARIES_MODULE_ID) {
+        template_summaries.clear();
+    }
     cards.retain(|card| match card.kind.as_str() {
         "open-loop" => module_enabled(THREADS_MODULE_ID),
         "reference-page" => module_enabled(REFERENCE_PAGES_MODULE_ID),
@@ -649,9 +729,13 @@ pub fn load_insights(
         }
         _ => true,
     });
-    let workflow_map = build_workflow_map(&visits, &features, request.profile_id.as_deref());
-    let profile_facets = build_profile_facets(&visits, &topics, &threads);
-    let canonical = build_canonical_summary(&visits, on_this_day);
+    workflow_map.profile_id = request.profile_id.clone();
+    canonical.on_this_day.retain(|item| {
+        request.profile_id.as_deref().is_none_or(|profile_id| item.profile_id == profile_id)
+    });
+    if !module_enabled(THREADS_MODULE_ID) {
+        profile_facets.retain(|facet| facet.key != "work-rhythm" && facet.key != "interest-shape");
+    }
     let status = insight_status(paths, config, key)?;
     let mut notes = connection
         .query_row(
@@ -921,6 +1005,7 @@ fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
     connection.execute("DELETE FROM insight_reference_pages", [])?;
     connection.execute("DELETE FROM insight_source_effectiveness", [])?;
     connection.execute("DELETE FROM insight_cards", [])?;
+    connection.execute("DELETE FROM insight_snapshot_payloads", [])?;
     connection.execute("DELETE FROM insight_runs", [])?;
     connection.execute("DELETE FROM intelligence_jobs", [])?;
     crate::intelligence_runtime::mark_all_deterministic_modules_stale(

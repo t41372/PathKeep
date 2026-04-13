@@ -969,6 +969,25 @@ pub fn next_queued_intelligence_job(
         .context("loading next queued intelligence job")
 }
 
+/// Returns the next queued enrichment job in execution order.
+pub fn next_queued_enrichment_job(connection: &Connection) -> Result<Option<i64>> {
+    ensure_intelligence_runtime_schema(connection)?;
+    recover_expired_intelligence_jobs(connection)?;
+    connection
+        .query_row(
+            "SELECT id
+             FROM intelligence_jobs
+             WHERE job_type = ?1
+               AND state = 'queued'
+             ORDER BY priority DESC, scheduled_at ASC, id ASC
+             LIMIT 1",
+            [ENRICHMENT_JOB_TYPE],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .context("loading next queued enrichment job")
+}
+
 /// Requeues any stuck running enrichment jobs that belong to one run.
 pub(crate) fn requeue_running_enrichment_jobs_for_run(
     connection: &Connection,

@@ -31,8 +31,9 @@ pub mod takeout;
 pub mod utils;
 
 pub use ai::{
-    AiIntegrationPreview, AiProviderRuntime, ai_index_status, ai_queue_status,
-    answer_history_question, build_ai_index, load_assistant_run_response, preview_ai_integrations,
+    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, ai_index_status,
+    ai_queue_status, answer_history_question, answer_history_question_with_control, build_ai_index,
+    build_ai_index_with_control, load_assistant_run_response, preview_ai_integrations,
     provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
     semantic_search_history, test_provider_connection,
 };

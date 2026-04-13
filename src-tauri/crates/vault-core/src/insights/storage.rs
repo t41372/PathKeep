@@ -2,8 +2,9 @@
 
 use super::{INSIGHT_PIPELINE_VERSION, VisitRecord, evidence_from_visit};
 use crate::models::{
-    InsightQueryGroupSummary, InsightReferencePageSummary, InsightSourceEffectivenessSummary,
-    InsightTopicSummary,
+    InsightCanonicalSummary, InsightProfileFacet, InsightQueryGroupSummary, InsightQueryLadder,
+    InsightReferencePageSummary, InsightSourceEffectivenessSummary, InsightTemplateSummary,
+    InsightTopicSummary, InsightWorkflowMap,
 };
 use anyhow::Result;
 use rusqlite::{Connection, Row, params};
@@ -312,6 +313,42 @@ pub(super) fn persist_source_effectiveness(
     Ok(())
 }
 
+pub(super) fn persist_snapshot_payloads(
+    connection: &Connection,
+    profile_scope: &str,
+    window_days: u32,
+    query_ladders: &[InsightQueryLadder],
+    template_summaries: &[InsightTemplateSummary],
+    workflow_map: &InsightWorkflowMap,
+    profile_facets: &[InsightProfileFacet],
+    canonical: &InsightCanonicalSummary,
+) -> Result<()> {
+    connection.execute(
+        "INSERT INTO insight_snapshot_payloads
+         (profile_scope, window_days, generated_at, query_ladders_json, template_summaries_json,
+          workflow_map_json, profile_facets_json, canonical_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(profile_scope, window_days) DO UPDATE SET
+           generated_at = excluded.generated_at,
+           query_ladders_json = excluded.query_ladders_json,
+           template_summaries_json = excluded.template_summaries_json,
+           workflow_map_json = excluded.workflow_map_json,
+           profile_facets_json = excluded.profile_facets_json,
+           canonical_json = excluded.canonical_json",
+        params![
+            profile_scope,
+            window_days as i64,
+            crate::utils::now_rfc3339(),
+            serde_json::to_string(query_ladders)?,
+            serde_json::to_string(template_summaries)?,
+            serde_json::to_string(workflow_map)?,
+            serde_json::to_string(profile_facets)?,
+            serde_json::to_string(canonical)?,
+        ],
+    )?;
+    Ok(())
+}
+
 pub(super) fn load_query_groups(
     connection: &Connection,
     profile_scope: &str,
@@ -393,6 +430,42 @@ pub(super) fn load_source_effectiveness(
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub(super) fn load_snapshot_payloads(
+    connection: &Connection,
+    profile_scope: &str,
+    window_days: u32,
+) -> Result<(
+    Vec<InsightQueryLadder>,
+    Vec<InsightTemplateSummary>,
+    InsightWorkflowMap,
+    Vec<InsightProfileFacet>,
+    InsightCanonicalSummary,
+)> {
+    connection
+        .query_row(
+            "SELECT query_ladders_json, template_summaries_json, workflow_map_json,
+                profile_facets_json, canonical_json
+         FROM insight_snapshot_payloads
+         WHERE profile_scope = ?1 AND window_days = ?2",
+            params![profile_scope, window_days as i64],
+            |row| {
+                Ok((
+                    serde_json::from_str::<Vec<InsightQueryLadder>>(&row.get::<_, String>(0)?)
+                        .unwrap_or_default(),
+                    serde_json::from_str::<Vec<InsightTemplateSummary>>(&row.get::<_, String>(1)?)
+                        .unwrap_or_default(),
+                    serde_json::from_str::<InsightWorkflowMap>(&row.get::<_, String>(2)?)
+                        .unwrap_or_default(),
+                    serde_json::from_str::<Vec<InsightProfileFacet>>(&row.get::<_, String>(3)?)
+                        .unwrap_or_default(),
+                    serde_json::from_str::<InsightCanonicalSummary>(&row.get::<_, String>(4)?)
+                        .unwrap_or_default(),
+                ))
+            },
+        )
+        .map_err(Into::into)
 }
 
 pub(super) fn load_thread_query_groups(

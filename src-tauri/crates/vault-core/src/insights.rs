@@ -28,10 +28,10 @@ use crate::{
         LOCAL_PLUGIN_SOURCE_KIND, NETWORK_PLUGIN_SOURCE_KIND, built_in_deterministic_modules,
         built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_job_by_id,
         claim_enrichment_jobs, enqueue_enrichment_job, enrichment_plugin_enabled,
-        ensure_intelligence_runtime_schema, mark_intelligence_job_failed,
-        mark_intelligence_job_succeeded, mark_running_intelligence_job_cancelled,
-        persist_deterministic_module_runtime_updates, requeue_running_enrichment_jobs,
-        requeue_running_enrichment_jobs_for_run,
+        ensure_intelligence_runtime_schema, intelligence_job_stop_requested,
+        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+        mark_running_intelligence_job_cancelled, persist_deterministic_module_runtime_updates,
+        requeue_running_enrichment_jobs, requeue_running_enrichment_jobs_for_run,
     },
     models::{
         AppConfig, ClearDerivedIntelligenceReport, ExplainInsightRequest, InsightCanonicalSummary,
@@ -64,10 +64,10 @@ use self::{
         query_group_summaries_from_records, thread_summaries_from_records,
     },
     storage::{
-        load_query_groups, load_reference_pages, load_source_effectiveness,
+        load_query_groups, load_reference_pages, load_snapshot_payloads, load_source_effectiveness,
         load_thread_query_groups, persist_bursts, persist_query_groups, persist_reference_pages,
-        persist_source_effectiveness, persist_threads as persist_thread_records,
-        persist_topic_summaries,
+        persist_snapshot_payloads, persist_source_effectiveness,
+        persist_threads as persist_thread_records, persist_topic_summaries,
     },
     surfaces::{
         build_cards as build_insight_cards, build_reference_pages, build_source_effectiveness,
@@ -255,6 +255,17 @@ CREATE TABLE IF NOT EXISTS insight_cards (
   evidence_json TEXT NOT NULL,
   generated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS insight_snapshot_payloads (
+  profile_scope TEXT NOT NULL,
+  window_days INTEGER NOT NULL,
+  generated_at TEXT NOT NULL,
+  query_ladders_json TEXT NOT NULL,
+  template_summaries_json TEXT NOT NULL,
+  workflow_map_json TEXT NOT NULL,
+  profile_facets_json TEXT NOT NULL,
+  canonical_json TEXT NOT NULL,
+  PRIMARY KEY(profile_scope, window_days)
+);
 CREATE TABLE IF NOT EXISTS insight_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT NOT NULL,
@@ -297,6 +308,8 @@ CREATE INDEX IF NOT EXISTS idx_insight_source_effectiveness_scope_score
   ON insight_source_effectiveness(profile_scope, effectiveness_score DESC);
 CREATE INDEX IF NOT EXISTS idx_insight_cards_scope_window
   ON insight_cards(profile_scope, window_days, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_insight_snapshot_payloads_scope_window
+  ON insight_snapshot_payloads(profile_scope, window_days, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_insight_runs_scope_window
   ON insight_runs(profile_scope, window_days, started_at DESC);
 "#;
@@ -983,6 +996,10 @@ pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Res
     let Some(job) = claim_enrichment_job_by_id(connection, job_id)? else {
         return Ok(false);
     };
+    if intelligence_job_stop_requested(connection, job.id)? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+        return Ok(true);
+    }
 
     let enrichment = match job.plugin_id.as_str() {
         TITLE_NORMALIZATION_PLUGIN_ID => {
@@ -1007,6 +1024,10 @@ pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Res
             return Ok(true);
         }
     };
+    if intelligence_job_stop_requested(connection, job.id)? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+        return Ok(true);
+    }
 
     store_enrichment(connection, job.payload.history_id, &job.plugin_id, &enrichment)?;
     let artifact = json!({
@@ -2339,7 +2360,10 @@ mod tests {
     use crate::{
         archive::{ensure_archive_initialized, open_archive_connection},
         config::project_paths_with_root,
-        models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSettings, ArchiveMode},
+        models::{
+            AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSettings, ArchiveMode,
+            InsightQueryGroupSummary, InsightReferencePageSummary,
+        },
         utils::iso_to_chrome_time_micros,
     };
     use tempfile::tempdir;
@@ -2609,6 +2633,126 @@ mod tests {
     }
 
     #[test]
+    fn load_insights_can_use_persisted_snapshot_payloads_without_feature_rows() {
+        let paths = test_paths();
+        let config = test_config();
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        seed_visits(&connection);
+
+        run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("run insights");
+
+        connection.execute("DELETE FROM visit_insight_features", []).expect("delete feature rows");
+
+        let snapshot = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load persisted snapshot");
+        assert!(!snapshot.query_ladders.is_empty());
+        assert!(!snapshot.template_summaries.is_empty());
+        assert!(snapshot.workflow_map.chromium_enhanced);
+        assert!(!snapshot.profile_facets.is_empty());
+        assert!(!snapshot.canonical.top_domains.is_empty());
+    }
+
+    #[test]
+    fn failed_full_rebuild_keeps_previous_snapshot_visible() {
+        let paths = test_paths();
+        let config = test_config();
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&connection).expect("schema");
+        ensure_insight_schema(&connection).expect("insight schema");
+        seed_visits(&connection);
+
+        run_insights(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("seed snapshot");
+        let before = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load snapshot before failure");
+
+        let error = run_insights_with_progress(
+            &paths,
+            &config,
+            None,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: true,
+                limit: None,
+            },
+            |progress| {
+                if progress.phase_step >= 7 {
+                    return Err(anyhow::anyhow!("stop before commit"));
+                }
+                Ok(())
+            },
+        )
+        .expect_err("full rebuild should fail before commit");
+        assert!(error.to_string().contains("stop before commit"));
+
+        let after = load_insights(
+            &paths,
+            &config,
+            None,
+            &RunInsightsRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                window_days: Some(30),
+                full_rebuild: false,
+                limit: None,
+            },
+        )
+        .expect("load snapshot after failed rebuild");
+        assert_eq!(after.cards.len(), before.cards.len());
+        assert_eq!(after.query_groups.len(), before.query_groups.len());
+        assert_eq!(after.threads.len(), before.threads.len());
+        assert_eq!(after.canonical.window_visit_count, before.canonical.window_visit_count);
+    }
+
+    #[test]
     fn on_this_day_excludes_current_year_visits() {
         let connection = Connection::open_in_memory().expect("db");
         create_schema(&connection).expect("core schema");
@@ -2819,6 +2963,133 @@ CREATE TABLE visit_insight_features (
 
         assert!(columns.iter().any(|column| column == "burst_id"));
         assert!(columns.iter().any(|column| column == "query_group_id"));
+    }
+
+    #[test]
+    fn source_effectiveness_counts_distinct_reference_pages_per_domain() {
+        let base_visit = VisitRecord {
+            history_id: 1,
+            profile_id: "chrome:Default".to_string(),
+            source_visit_id: 1,
+            source_url_id: 1,
+            url: "https://docs.example.com/a".to_string(),
+            title: Some("A".to_string()),
+            visited_at: now_rfc3339(),
+            visit_time: 1,
+            from_visit: None,
+            transition: None,
+            duration_ms: None,
+            external_referrer_url: None,
+            app_id: None,
+            query_term: Some("sqlite wal".to_string()),
+            has_canonical_search_term: true,
+            readable_title: None,
+            readable_text: None,
+            snippets: Vec::new(),
+            source_role: "docs".to_string(),
+            page_type: "docs-page".to_string(),
+            domain_category: DomainCategory::Docs,
+            page_category_v2: PageCategory::DocsPage,
+            interaction_kind: InteractionKind::Learn,
+            evidence_tier: EvidenceTier::TierA,
+            taxonomy_source: "test".to_string(),
+            taxonomy_pack: None,
+            taxonomy_version: None,
+            taxonomy_reason: None,
+            registrable_domain: "example.com".to_string(),
+            keywords: vec!["sqlite".to_string()],
+            entities: Vec::new(),
+            novelty_score: 0.0,
+            importance_score: 0.0,
+            explore_score: 0.0,
+            burst_id: None,
+            query_group_id: Some("group-a".to_string()),
+            topic_id: None,
+            thread_id: Some("thread-a".to_string()),
+        };
+        let visits = vec![
+            base_visit.clone(),
+            VisitRecord {
+                history_id: 2,
+                source_visit_id: 2,
+                source_url_id: 2,
+                visit_time: 2,
+                ..base_visit
+            },
+        ];
+        let reference_pages = vec![
+            InsightReferencePageSummary {
+                reference_page_id: "page-a".to_string(),
+                profile_id: Some("chrome:Default".to_string()),
+                url: "https://docs.example.com/a".to_string(),
+                title: Some("A".to_string()),
+                domain: "example.com".to_string(),
+                first_seen_at: now_rfc3339(),
+                last_seen_at: now_rfc3339(),
+                revisit_count: 2,
+                cross_day_revisits: 1,
+                query_group_count: 1,
+                thread_count: 1,
+                score: 4.0,
+                evidence_tier: "tier-a".to_string(),
+                evidence: Vec::new(),
+            },
+            InsightReferencePageSummary {
+                reference_page_id: "page-b".to_string(),
+                profile_id: Some("chrome:Default".to_string()),
+                url: "https://docs.example.com/b".to_string(),
+                title: Some("B".to_string()),
+                domain: "example.com".to_string(),
+                first_seen_at: now_rfc3339(),
+                last_seen_at: now_rfc3339(),
+                revisit_count: 1,
+                cross_day_revisits: 1,
+                query_group_count: 1,
+                thread_count: 1,
+                score: 3.0,
+                evidence_tier: "tier-a".to_string(),
+                evidence: Vec::new(),
+            },
+        ];
+
+        let rows = build_source_effectiveness(&visits, "chrome:Default", &reference_pages);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reference_page_count, 2);
+    }
+
+    #[test]
+    fn template_summaries_skip_single_step_query_groups() {
+        let query_groups = vec![InsightQueryGroupSummary {
+            query_group_id: "group-a".to_string(),
+            profile_id: "chrome:Default".to_string(),
+            thread_id: None,
+            title: "SQLite WAL".to_string(),
+            root_query: "sqlite wal".to_string(),
+            latest_query: "sqlite wal".to_string(),
+            first_seen_at: now_rfc3339(),
+            last_seen_at: now_rfc3339(),
+            visit_count: 1,
+            burst_count: 1,
+            step_count: 1,
+            confidence: 0.6,
+            evidence_tier: "tier-a".to_string(),
+            chromium_enhanced: true,
+            steps: vec!["sqlite wal".to_string()],
+            stages: vec!["broad".to_string()],
+            evidence: Vec::new(),
+        }];
+
+        let summaries = build_template_summaries(
+            &[],
+            &query_groups,
+            &[],
+            &[],
+            &[],
+            Some("chrome:Default"),
+            30,
+            None,
+        );
+        assert!(summaries.iter().all(|summary| summary.kind != "query-groups"));
     }
 
     #[test]

@@ -46,8 +46,9 @@ use serde_json::json;
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
+    future::Future,
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -62,6 +63,30 @@ pub use self::read_model::{
 pub struct AiProviderRuntime {
     pub config: AiProviderConfig,
     pub api_key: String,
+}
+
+/// Cooperative cancellation/progress hook for long-running AI work.
+pub trait AiRunControl: Send + Sync {
+    /// Checks whether the current run should stop at this safe boundary.
+    fn checkpoint(&self, detail: &str) -> Result<()>;
+
+    /// Returns whether the current run has already been asked to stop.
+    fn cancelled(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{reason}")]
+/// Error raised when a cooperative AI run stop request is observed.
+pub struct AiRunCancelled {
+    reason: String,
+}
+
+impl AiRunCancelled {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self { reason: reason.into() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,7 +233,7 @@ const EMBEDDING_BATCH_SIZE: usize = 32;
 const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 const SQLITE_BATCH_SIZE: usize = 400;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct SearchContext {
     paths: ProjectPaths,
     config: AppConfig,
@@ -218,6 +243,7 @@ struct SearchContext {
     default_domain: Option<String>,
     default_limit: u32,
     citations: Arc<Mutex<Vec<AiCitation>>>,
+    run_control: Option<Arc<dyn AiRunControl>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,6 +304,11 @@ impl Tool for SearchHistoryTool {
     }
 
     async fn call(&self, args: Self::Args) -> std::result::Result<Self::Output, Self::Error> {
+        if let Some(control) = self.context.run_control.as_ref() {
+            control
+                .checkpoint("Assistant run was cancelled before an additional history search.")
+                .map_err(|error| SearchToolError(error.to_string()))?;
+        }
         let request = AiSearchRequest {
             query: args.query,
             profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
@@ -294,6 +325,11 @@ impl Tool for SearchHistoryTool {
         )
         .await
         .map_err(|error| SearchToolError(error.to_string()))?;
+        if let Some(control) = self.context.run_control.as_ref() {
+            control
+                .checkpoint("Assistant run was cancelled after the latest history search.")
+                .map_err(|error| SearchToolError(error.to_string()))?;
+        }
         let citations = response
             .items
             .iter()
@@ -308,6 +344,37 @@ impl Tool for SearchHistoryTool {
             .collect::<Vec<_>>();
         self.context.citations.lock().await.extend(citations);
         Ok(SearchHistoryOutput { items: response.items })
+    }
+}
+
+fn checkpoint_ai_run(control: Option<&Arc<dyn AiRunControl>>, detail: &str) -> Result<()> {
+    if let Some(control) = control {
+        control.checkpoint(detail)?;
+    }
+    Ok(())
+}
+
+async fn await_with_ai_cancellation<T, F>(
+    control: Option<&Arc<dyn AiRunControl>>,
+    detail: &str,
+    future: F,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    checkpoint_ai_run(control, detail)?;
+    if control.is_none() {
+        return future.await;
+    }
+
+    tokio::pin!(future);
+    loop {
+        tokio::select! {
+            result = &mut future => return result,
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                checkpoint_ai_run(control, detail)?;
+            }
+        }
     }
 }
 
@@ -383,6 +450,18 @@ pub async fn build_ai_index(
     provider: &AiProviderRuntime,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
+    build_ai_index_with_control(paths, config, key, provider, request, None).await
+}
+
+/// Builds the semantic index with optional cooperative stop checkpoints.
+pub async fn build_ai_index_with_control(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    provider: &AiProviderRuntime,
+    request: &AiIndexRequest,
+    run_control: Option<Arc<dyn AiRunControl>>,
+) -> Result<AiIndexReport> {
     validate_provider(provider, AiProviderPurpose::Embedding)?;
     let connection = open_archive_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
@@ -413,6 +492,8 @@ pub async fn build_ai_index(
     )?;
 
     let result: Result<AiIndexReport> = async {
+        let run_control = run_control.as_ref();
+        checkpoint_ai_run(run_control, "Index build was cancelled before collecting stale rows.")?;
         let stale_history_ids = collect_stale_history_ids(&connection, provider)?;
 
         if request.full_rebuild || request.clear_only {
@@ -449,16 +530,21 @@ pub async fn build_ai_index(
             });
         }
 
+        checkpoint_ai_run(run_control, "Index build was cancelled before collecting candidates.")?;
         let candidates = collect_visits_to_index(&connection, provider, request.limit)?;
         if candidates.is_empty() {
-            ai_sidecar::sync_provider_embeddings(
-                paths,
-                &provider.config.id,
-                &provider.config.default_model,
-                &[],
-                request.full_rebuild,
-                false,
-                &stale_history_ids,
+            await_with_ai_cancellation(
+                run_control,
+                "Index build was cancelled before the empty sidecar sync finished.",
+                ai_sidecar::sync_provider_embeddings(
+                    paths,
+                    &provider.config.id,
+                    &provider.config.default_model,
+                    &[],
+                    request.full_rebuild,
+                    false,
+                    &stale_history_ids,
+                ),
             )
             .await?;
             return Ok(AiIndexReport {
@@ -490,8 +576,18 @@ pub async fn build_ai_index(
         .collect::<HashSet<_>>();
 
         for batch in candidates.chunks(EMBEDDING_BATCH_SIZE) {
+            checkpoint_ai_run(
+                run_control,
+                "Index build was cancelled before the next embedding batch started.",
+            )?;
             let texts = batch.iter().map(|visit| visit.content.clone()).collect::<Vec<_>>();
-            match embed_batch_with_retry(provider, &texts).await {
+            match await_with_ai_cancellation(
+                run_control,
+                "Index build was cancelled while waiting for embedding batch results.",
+                embed_batch_with_retry(provider, &texts),
+            )
+            .await
+            {
                 Ok(vectors) if vectors.len() == batch.len() => {
                     for (visit, vector) in batch.iter().zip(vectors.into_iter()) {
                         let had_prior_index = existing_history_ids.contains(&visit.history_id);
@@ -518,8 +614,18 @@ pub async fn build_ai_index(
                 }
                 Ok(_) | Err(_) => {
                     for visit in batch {
+                        checkpoint_ai_run(
+                            run_control,
+                            "Index build was cancelled before an individual retry embedding call.",
+                        )?;
                         let had_prior_index = existing_history_ids.contains(&visit.history_id);
-                        match embed_single_with_retry(provider, &visit.content).await {
+                        match await_with_ai_cancellation(
+                            run_control,
+                            "Index build was cancelled while retrying an individual embedding call.",
+                            embed_single_with_retry(provider, &visit.content),
+                        )
+                        .await
+                        {
                             Ok(vector) => {
                                 upsert_embedding(&connection, provider, visit, &vector, &timestamp)?;
                                 sidecar_rows.push(SidecarEmbeddingRow {
@@ -553,14 +659,18 @@ pub async fn build_ai_index(
                 }
             }
         }
-        let sidecar_synced = ai_sidecar::sync_provider_embeddings(
-            paths,
-            &provider.config.id,
-            &provider.config.default_model,
-            &sidecar_rows,
-            request.full_rebuild,
-            false,
-            &stale_history_ids,
+        let sidecar_synced = await_with_ai_cancellation(
+            run_control,
+            "Index build was cancelled while syncing the semantic sidecar.",
+            ai_sidecar::sync_provider_embeddings(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+                &sidecar_rows,
+                request.full_rebuild,
+                false,
+                &stale_history_ids,
+            ),
         )
         .await?;
 
@@ -668,6 +778,28 @@ pub async fn answer_history_question(
     embedding_provider: Option<&AiProviderRuntime>,
     request: &AiAssistantRequest,
 ) -> Result<AiAssistantResponse> {
+    answer_history_question_with_control(
+        paths,
+        config,
+        key,
+        llm_provider,
+        embedding_provider,
+        request,
+        None,
+    )
+    .await
+}
+
+/// Answers one assistant question with optional cooperative stop checkpoints.
+pub async fn answer_history_question_with_control(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    llm_provider: &AiProviderRuntime,
+    embedding_provider: Option<&AiProviderRuntime>,
+    request: &AiAssistantRequest,
+    run_control: Option<Arc<dyn AiRunControl>>,
+) -> Result<AiAssistantResponse> {
     validate_provider(llm_provider, AiProviderPurpose::Llm)?;
     if !config.ai.enabled || !config.ai.assistant_enabled {
         anyhow::bail!("Enable AI analysis and the assistant in Settings before asking questions.")
@@ -695,9 +827,13 @@ pub async fn answer_history_question(
             limit: Some(config.ai.retrieval_top_k.max(1)),
             cursor: None,
         };
-        let search_response =
-            search_history_internal(paths, config, key, embedding_provider, &retrieval_request)
-                .await?;
+        let run_control = run_control.as_ref();
+        let search_response = await_with_ai_cancellation(
+            run_control,
+            "Assistant run was cancelled before retrieval finished.",
+            search_history_internal(paths, config, key, embedding_provider, &retrieval_request),
+        )
+        .await?;
         let seeded_citations = search_response
             .items
             .iter()
@@ -717,14 +853,20 @@ pub async fn answer_history_question(
             database_key: key.map(ToOwned::to_owned),
             embedding_provider: embedding_provider.cloned(),
             default_profile_id: request.profile_id.clone(),
-            default_domain: request.domain.clone(),
-            default_limit: config.ai.retrieval_top_k.max(1),
-            citations: Arc::clone(&citations),
-        };
+                default_domain: request.domain.clone(),
+                default_limit: config.ai.retrieval_top_k.max(1),
+                citations: Arc::clone(&citations),
+                run_control: run_control.cloned(),
+            };
         let tools: Vec<Box<dyn ToolDyn>> =
             vec![Box::new(SearchHistoryTool { context: tool_context })];
         let preamble = build_assistant_preamble(config, &search_response);
-        let answer = run_llm_agent(llm_provider, &preamble, tools, &request.question).await?;
+        let answer = await_with_ai_cancellation(
+            run_control,
+            "Assistant run was cancelled while waiting for the model response.",
+            run_llm_agent(llm_provider, &preamble, tools, &request.question),
+        )
+        .await?;
 
         let mut final_citations = citations.lock().await.clone();
         final_citations.sort_by_key(|item| item.history_id);
@@ -2006,7 +2148,7 @@ mod tests {
     use rusqlite::params;
     use std::{
         fs,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     };
     use tokio::runtime::Runtime;
 
@@ -2078,6 +2220,36 @@ mod tests {
                 ..AiProviderConfig::default()
             },
             api_key: "secret".to_string(),
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountdownControl {
+        checkpoints_before_cancel: AtomicUsize,
+    }
+
+    impl CountdownControl {
+        fn new(checkpoints_before_cancel: usize) -> Self {
+            Self { checkpoints_before_cancel: AtomicUsize::new(checkpoints_before_cancel) }
+        }
+    }
+
+    impl AiRunControl for CountdownControl {
+        fn checkpoint(&self, detail: &str) -> Result<()> {
+            let remaining = self
+                .checkpoints_before_cancel
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                    Some(value.saturating_sub(1))
+                })
+                .unwrap_or(0);
+            if remaining == 0 {
+                return Err(AiRunCancelled::new(detail).into());
+            }
+            Ok(())
+        }
+
+        fn cancelled(&self) -> bool {
+            self.checkpoints_before_cancel.load(Ordering::Relaxed) == 0
         }
     }
 
@@ -2907,6 +3079,27 @@ CREATE TABLE ai_embeddings (
     }
 
     #[test]
+    fn build_ai_index_with_control_stops_at_batch_boundaries() {
+        let runtime = Runtime::new().expect("runtime");
+        let (paths, config, connection) = prepared_archive();
+        seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+        seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
+        let control: Arc<dyn AiRunControl> = Arc::new(CountdownControl::new(2));
+
+        let error = runtime
+            .block_on(build_ai_index_with_control(
+                &paths,
+                &config,
+                None,
+                &embedding_provider(),
+                &AiIndexRequest::default(),
+                Some(control),
+            ))
+            .expect_err("controlled build should cancel");
+        assert!(error.to_string().contains("cancelled"));
+    }
+
+    #[test]
     fn answer_history_question_checks_feature_gates_before_network() {
         let runtime = Runtime::new().expect("runtime");
         let (paths, mut config, connection) = prepared_archive();
@@ -2927,6 +3120,31 @@ CREATE TABLE ai_embeddings (
             ))
             .expect_err("assistant should require feature gate");
         assert!(error.to_string().contains("assistant"));
+    }
+
+    #[test]
+    fn answer_history_question_with_control_can_cancel_before_model_response() {
+        let runtime = Runtime::new().expect("runtime");
+        let (paths, config, connection) = prepared_archive();
+        seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+        let control: Arc<dyn AiRunControl> = Arc::new(CountdownControl::new(1));
+
+        let error = runtime
+            .block_on(answer_history_question_with_control(
+                &paths,
+                &config,
+                None,
+                &llm_provider(),
+                None,
+                &AiAssistantRequest {
+                    question: "What did I read?".to_string(),
+                    profile_id: None,
+                    domain: None,
+                },
+                Some(control),
+            ))
+            .expect_err("assistant should observe cancellation");
+        assert!(error.to_string().contains("cancelled"));
     }
 
     #[test]
@@ -2952,6 +3170,7 @@ CREATE TABLE ai_embeddings (
                 default_domain: None,
                 default_limit: 3,
                 citations: Arc::clone(&citations),
+                run_control: None,
             },
         };
 

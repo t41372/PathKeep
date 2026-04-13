@@ -252,14 +252,19 @@ pub(super) fn build_source_effectiveness(
         query_groups: HashSet<String>,
         threads: HashSet<String>,
         stable_landing_count: usize,
-        reference_page_count: usize,
+        reference_pages: HashSet<String>,
         reopen_support_count: usize,
         roles: HashMap<String, usize>,
         evidence_tiers: Vec<EvidenceTier>,
     }
 
-    let reference_domains =
-        reference_pages.iter().map(|page| page.domain.clone()).collect::<HashSet<_>>();
+    let reference_pages_by_domain = reference_pages.iter().fold(
+        HashMap::<String, HashSet<String>>::new(),
+        |mut grouped, page| {
+            grouped.entry(page.domain.clone()).or_default().insert(page.reference_page_id.clone());
+            grouped
+        },
+    );
     let mut grouped = HashMap::<String, Acc>::new();
     for (index, visit) in visits.iter().enumerate() {
         let acc = grouped.entry(visit.registrable_domain.clone()).or_default();
@@ -275,8 +280,8 @@ pub(super) fn build_source_effectiveness(
         if visit_is_query_landing(visit) {
             acc.stable_landing_count += 1;
         }
-        if reference_domains.contains(&visit.registrable_domain) {
-            acc.reference_page_count += 1;
+        if let Some(reference_pages) = reference_pages_by_domain.get(&visit.registrable_domain) {
+            acc.reference_pages.extend(reference_pages.iter().cloned());
         }
         if visit.query_group_id.is_some()
             && visit.thread_id.is_some()
@@ -307,10 +312,10 @@ pub(super) fn build_source_effectiveness(
                 query_group_count: acc.query_groups.len(),
                 thread_count: acc.threads.len(),
                 stable_landing_count: acc.stable_landing_count,
-                reference_page_count: acc.reference_page_count,
+                reference_page_count: acc.reference_pages.len(),
                 reopen_support_count: acc.reopen_support_count,
                 effectiveness_score: (acc.stable_landing_count as f32 * 0.3
-                    + acc.reference_page_count as f32 * 0.35
+                    + acc.reference_pages.len() as f32 * 0.35
                     + acc.reopen_support_count as f32 * 0.15
                     + acc.query_groups.len() as f32 * 0.12)
                     .clamp(0.0, 5.0),
@@ -357,7 +362,7 @@ pub(super) fn build_template_summaries(
     if let Some(summary) = build_contrastive_summary(visits, contrast, profile_id, window_days) {
         summaries.push(summary);
     }
-    if let Some(group) = query_groups.first() {
+    if let Some(group) = query_groups.iter().find(|group| group.step_count >= 2) {
         summaries.push(InsightTemplateSummary {
             summary_id: "summary-query-groups".to_string(),
             kind: "query-groups".to_string(),

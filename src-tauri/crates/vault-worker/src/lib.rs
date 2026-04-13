@@ -18,6 +18,7 @@ mod archive_flows;
 mod cli;
 mod context;
 mod intelligence;
+mod job_runtime;
 mod mcp;
 mod schedule;
 mod security;
@@ -78,6 +79,7 @@ mod tests {
         AiProviderSecretInput, AiRequestFormat, AiSearchResponse, AppConfig, ArchiveMode,
         ExportFormat, ExportRequest, HealthReport, HistoryQuery, RunInsightsRequest,
         S3CredentialInput, SetAppLockPasscodeRequest, TakeoutRequest, project_paths,
+        utils::iso_to_chrome_time_micros,
     };
     #[cfg(coverage)]
     use vault_core::{
@@ -212,6 +214,8 @@ mod tests {
     fn chrome_user_data_fixture(root: &Path) -> PathBuf {
         let chrome_root = root.join("chrome-user-data");
         let profile_dir = chrome_root.join("Default");
+        let recent_visit = chrono::Utc::now().to_rfc3339();
+        let recent_visit_time = iso_to_chrome_time_micros(&recent_visit).expect("chrome time");
         fs::create_dir_all(&profile_dir).expect("create chrome profile dir");
         fs::write(chrome_root.join("Last Version"), "135.0.0.0").expect("write version");
         fs::write(
@@ -268,22 +272,22 @@ mod tests {
         history
             .execute(
                 "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
-                 VALUES (1, 'https://example.com', 'Example', 1, 1, 1, 0)",
-                [],
+                 VALUES (1, 'https://example.com', 'Example', 1, 1, ?1, 0)",
+                [recent_visit_time],
             )
             .expect("insert url");
         history
             .execute(
                 "INSERT INTO visits (id, url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id)
-                 VALUES (1, 1, 1, NULL, 805306368, 24000, 1, 3, 'https://ref.example', 'com.example.app')",
-                [],
+                 VALUES (1, 1, ?1, NULL, 805306368, 24000, 1, 3, 'https://ref.example', 'com.example.app')",
+                [recent_visit_time],
             )
             .expect("insert visit");
         history
             .execute(
                 "INSERT INTO downloads (id, guid, current_path, target_path, start_time, received_bytes, total_bytes, state, mime_type, original_mime_type)
-                 VALUES (1, 'guid-1', '/tmp/current', '/tmp/target', 1, 1, 2, 3, 'text/html', 'text/plain')",
-                [],
+                 VALUES (1, 'guid-1', '/tmp/current', '/tmp/target', ?1, 1, 2, 3, 'text/html', 'text/plain')",
+                [recent_visit_time],
             )
             .expect("insert download");
         history
@@ -690,10 +694,17 @@ mod tests {
             .iter()
             .find(|plugin| plugin.plugin_id == "readable-content-refetch")
             .expect("readable content plugin runtime");
-        assert_eq!(readable_content.queued_jobs, 0);
-        assert_eq!(readable_content.running_jobs, 0);
-        assert!(runtime.recent_jobs.iter().all(|job| {
-            job.plugin_id.as_deref() != Some("readable-content-refetch") || job.state != "running"
+        assert!(
+            readable_content.stored_records > 0
+                || readable_content.queued_jobs > 0
+                || readable_content.running_jobs > 0
+                || readable_content.failed_jobs > 0
+                || readable_content.last_completed_at.is_some(),
+            "backup-triggered deterministic rebuild should leave a visible readable-content trace"
+        );
+        assert!(runtime.recent_jobs.iter().any(|job| {
+            job.plugin_id.as_deref() == Some("readable-content-refetch")
+                || job.job_type == "deterministic-rebuild"
         }));
         assert!(runtime.recent_jobs.iter().any(|job| {
             job.job_type == "deterministic-rebuild"

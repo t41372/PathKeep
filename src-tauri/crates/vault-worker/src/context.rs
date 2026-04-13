@@ -18,7 +18,6 @@
 //!   transport or provider errors whenever we can shape them honestly.
 
 use anyhow::{Context, Result};
-use std::{sync::mpsc, thread, time::Duration};
 use tokio::runtime::Runtime;
 use vault_core::{
     AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchResponse,
@@ -288,32 +287,4 @@ pub(crate) fn queue_failure_from_error(error: &anyhow::Error) -> ai_queue::AiJob
         retry_after_seconds: 0,
         summary: Some("This AI job needs manual review before it can be replayed.".to_string()),
     }
-}
-
-/// Starts the lightweight heartbeat used to keep long AI jobs marked as alive.
-pub(crate) fn start_ai_job_heartbeat(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    job_id: i64,
-) -> mpsc::Sender<()> {
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let paths = paths.clone();
-    let config = config.clone();
-    let session_database_key = session_database_key.map(ToOwned::to_owned);
-    thread::spawn(move || {
-        loop {
-            match stop_rx.recv_timeout(Duration::from_secs(30)) {
-                Ok(_) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if let Ok(connection) =
-                        ai_archive_connection(&paths, &config, session_database_key.as_deref())
-                    {
-                        let _ = ai_queue::heartbeat_ai_job(&connection, job_id);
-                    }
-                }
-            }
-        }
-    });
-    stop_tx
 }
