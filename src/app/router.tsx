@@ -22,6 +22,7 @@
 
 import { Navigate, type RouteObject } from 'react-router-dom'
 import { OnboardingShell } from './onboarding-shell'
+import { RouteHydrateFallback } from './route-hydrate-fallback'
 import { RequireLockScreen, RequireUnlockedShell } from './route-guards'
 import { AppShell } from './shell'
 
@@ -323,6 +324,7 @@ export const appRoutes: RouteObject[] = [
         <AppShell />
       </RequireUnlockedShell>
     ),
+    hydrateFallbackElement: <RouteHydrateFallback />,
     children: appRouteChildren,
   },
   {
@@ -336,6 +338,7 @@ export const appRoutes: RouteObject[] = [
         <OnboardingShell />
       </RequireUnlockedShell>
     ),
+    hydrateFallbackElement: <RouteHydrateFallback />,
     handle: withHandle(onboardingScreen),
     children: [
       {

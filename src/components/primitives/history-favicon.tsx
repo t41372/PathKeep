@@ -13,7 +13,7 @@
  * - Favicon availability remains evidence-based: show the stored icon when present, otherwise render the placeholder instead of inventing one.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { HistoryEntry } from '../../lib/types'
 
 /**
@@ -32,14 +32,11 @@ interface HistoryFaviconProps {
  * The placeholder keeps Explorer stable even when favicon coverage is incomplete across browsers or individual rows.
  */
 export function HistoryFavicon({ domain, favicon }: HistoryFaviconProps) {
-  const [loadFailed, setLoadFailed] = useState(false)
-
-  useEffect(() => {
-    setLoadFailed(false)
-  }, [favicon?.dataUrl])
+  const [failedDataUrl, setFailedDataUrl] = useState<string | null>(null)
 
   const fallbackLabel = domain?.trim()?.[0]?.toUpperCase() ?? '?'
-  const showImage = Boolean(favicon?.dataUrl) && !loadFailed
+  const dataUrl = favicon?.dataUrl ?? null
+  const showImage = Boolean(dataUrl) && failedDataUrl !== dataUrl
 
   return (
     <span
@@ -51,8 +48,8 @@ export function HistoryFavicon({ domain, favicon }: HistoryFaviconProps) {
           alt=""
           className="favicon-image"
           loading="lazy"
-          src={favicon!.dataUrl}
-          onError={() => setLoadFailed(true)}
+          src={dataUrl!}
+          onError={() => setFailedDataUrl(dataUrl)}
         />
       ) : (
         fallbackLabel

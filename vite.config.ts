@@ -14,7 +14,11 @@ export default defineConfig({
     port: devServerPort,
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/target/**'],
+      ignored: [
+        '**/src-tauri/target/**',
+        '**/var/playwright/**',
+        '**/cargo-target/**',
+      ],
     },
   },
 })

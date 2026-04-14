@@ -7,6 +7,8 @@
 > **2026-04-10 truth note:** deterministic baseline 已由 [deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 接管。這份文檔仍描述 optional AI / assistant / MCP / M3-M4 shipped surface；任何殘留的 session / dwell / embedding-first deterministic wording，都屬需要被 M5 持續 supersede 的 legacy implementation debt，不再是新的 accepted baseline。
 >
 > **2026-04-10 packaging note:** default desktop install 仍內建 optional AI / assistant / MCP / semantic runtime；`optional` 指 capability 預設關閉、需明確設定 / provider 才會啟用，不代表第一次使用時另裝 helper 或外掛 binary。相關 shipping boundary 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
+>
+> **2026-04-13 current-state note:** 如果你現在要重新盤點 repo 裡 intelligence 的真實 shipped surface、前後端實作狀態、以及哪些設計文檔已經混入 legacy 描述，請先讀 [intelligence-current-state.md](intelligence-current-state.md)。它是目前給設計師與產品盤點用的白話總表。
 
 ---
 
@@ -141,7 +143,7 @@
 
 - 以視覺化的方式展示主題隨時間的變化。
 - 用戶可以點擊任何一個主題，看到具體頁面和時間分布。
-- **實現**：對歷史紀錄做 embedding，用增量聚類算法分成 topic cluster。用 LLM 給每個 cluster 起名。
+- **2026-04-13 truth note:** 現在 shipping 的 topic timeline 已不是這段最早寫下的 embedding-first 方案。當前實作是 deterministic aggregation：先由 burst / query group / thread 建立研究線，再用 thread / query-group title 的 token similarity 收斂 topic label，UI 目前呈現的是 lightweight topic overview，不是完整 semantic topic workspace。embedding 與 LLM naming 只保留為 optional / future additive layer。
 
 ##### 🧵 Task / Thread Detection（任務和研究線偵測）
 

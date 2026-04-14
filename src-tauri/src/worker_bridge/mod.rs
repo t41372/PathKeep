@@ -437,6 +437,22 @@ mod tests {
 
         let doctor = doctor_report_impl(session_key(&session).as_deref()).expect("doctor");
         assert!(!doctor.checks.is_empty());
+        let runtime_before_rekey = (0..50)
+            .find_map(|attempt| {
+                let runtime = load_intelligence_runtime_impl(session_key(&session).as_deref())
+                    .expect("load intelligence runtime before rekey");
+                if runtime.queue.queued == 0 && runtime.queue.running == 0 {
+                    Some(runtime)
+                } else if attempt == 49 {
+                    panic!("intelligence runtime did not go idle before rekey: {runtime:?}");
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    None
+                }
+            })
+            .expect("idle intelligence runtime before rekey");
+        assert_eq!(runtime_before_rekey.queue.queued, 0);
+        assert_eq!(runtime_before_rekey.queue.running, 0);
         let rekey_preview = preview_rekey_archive_impl(
             RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None },
             &session,
