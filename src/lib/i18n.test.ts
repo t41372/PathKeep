@@ -16,6 +16,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  createNamespaceTranslator,
   createTranslator,
   detectSystemLanguage,
   languageLabel,
@@ -129,5 +130,30 @@ describe('i18n helpers', () => {
     expect(pseudoLocalize('Review {count} files')).toBe(
       '［Rëvïëw {count} fïlës］',
     )
+  })
+
+  test('keeps onboarding browser support copy aligned with the validated matrix', () => {
+    const english = createNamespaceTranslator('en', 'onboarding')
+    const simplified = createNamespaceTranslator('zh-CN', 'onboarding')
+    const traditional = createNamespaceTranslator('zh-TW', 'onboarding')
+
+    expect(english('featureBackupDesc')).toContain('Google Chrome')
+    expect(english('featureBackupDesc')).toContain('Safari')
+    expect(english('featureBackupDesc')).not.toContain('Edge')
+    expect(english('featureBackupDesc')).not.toContain('Brave')
+    expect(english('firefoxSafariInfo')).not.toContain('fully supported')
+    expect(english('firefoxSafariInfo')).toContain(
+      'public support commitments',
+    )
+
+    expect(simplified('featureBackupDesc')).toContain('Google Chrome')
+    expect(simplified('featureBackupDesc')).toContain('Safari')
+    expect(simplified('featureBackupDesc')).not.toContain('Edge')
+    expect(simplified('firefoxSafariInfo')).toContain('公开支持承诺')
+
+    expect(traditional('featureBackupDesc')).toContain('Google Chrome')
+    expect(traditional('featureBackupDesc')).toContain('Safari')
+    expect(traditional('featureBackupDesc')).not.toContain('Edge')
+    expect(traditional('firefoxSafariInfo')).toContain('公開支援承諾')
   })
 })

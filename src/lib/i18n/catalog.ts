@@ -2677,7 +2677,7 @@ const catalog: Record<
       welcomeTagline2: 'Back it up. Search it. Learn from it.',
       featureBackupTitle: 'AUTOMATIC BACKUP',
       featureBackupDesc:
-        'Automatically save your browsing history from Chrome, Firefox, Safari, Edge, Brave, and more — all stored locally on your machine.',
+        'Start with Google Chrome today, plus Safari on macOS after Full Disk Access is granted. Other browser adapters may appear in setup before they become public support commitments.',
       featureSearchTitle: 'POWERFUL SEARCH',
       featureSearchDesc:
         'Search across your entire history, even years back. Find any page you ever visited by keyword or natural language.',
@@ -2691,7 +2691,7 @@ const catalog: Record<
       beginSetup: 'Get Started →',
       browserDetectionTitle: 'Choose Your Browsers',
       browserDetectionDesc:
-        "We found these browsers on your system. Pick which ones you'd like to back up.",
+        'We found browser profiles on this system. Choose which ones PathKeep should inspect before your first backup review.',
       scanStatus: '{count} profiles found · {selected} selected',
       detectedProfiles: 'YOUR BROWSERS',
       found: '{count} found',
@@ -2703,7 +2703,7 @@ const catalog: Record<
         'Safari needs Full Disk Access permission. Open System Settings → Privacy & Security → Full Disk Access.',
       cannotReadHint: "Can't read {fileName} yet. Check file permissions.",
       firefoxSafariInfo:
-        'Firefox and Safari are fully supported. Safari may need Full Disk Access on macOS before PathKeep can read its history.',
+        'Google Chrome is part of the validated setup path today. Safari joins that path on macOS after Full Disk Access is granted. Firefox-family and other adapters may appear here before they become public support commitments.',
       backButton: '← Back',
       continueButton: 'Continue →',
       storageTitle: 'Where Your Data Lives',
@@ -3745,7 +3745,7 @@ const catalog: Record<
       welcomeTagline2: '备份它，搜索它，从中发现规律。',
       featureBackupTitle: '自动备份',
       featureBackupDesc:
-        '自动保存 Chrome、Firefox、Safari、Edge、Brave 等浏览器的历史记录，全部存在你自己的电脑上。',
+        '当前先以 Google Chrome 作为已验证路径；在 macOS 上授予完全磁盘访问权限后，也可验证 Safari 的基础备份。其他浏览器适配器可能会先出现在设置里，但还不算公开支持承诺。',
       featureSearchTitle: '强大的搜索',
       featureSearchDesc:
         '搜索你所有的浏览历史，哪怕是几年前访问的页面，也能通过关键词或自然语言找到。',
@@ -3759,7 +3759,7 @@ const catalog: Record<
       beginSetup: '开始设置 →',
       browserDetectionTitle: '选择浏览器',
       browserDetectionDesc:
-        '我们在你的系统上找到了这些浏览器，选择你想备份的。',
+        '我们在这台设备上找到了浏览器 profile，选择要纳入首次备份审查的来源。',
       scanStatus: '找到 {count} 个 · 已选 {selected} 个',
       detectedProfiles: '你的浏览器',
       found: '找到 {count} 个',
@@ -3771,7 +3771,7 @@ const catalog: Record<
         'Safari 需要完全磁盘访问权限。打开系统设置 → 隐私与安全性 → 完全磁盘访问权限。',
       cannotReadHint: '暂时无法读取 {fileName}，请检查文件权限。',
       firefoxSafariInfo:
-        'Firefox 和 Safari 都完全支持。Safari 在 macOS 上可能需要先授予完全磁盘访问权限。',
+        '当前公开验证的设置路径是 Google Chrome；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。Firefox 系和其他适配器可能会先显示在这里，但还不算公开支持承诺。',
       backButton: '← 返回',
       continueButton: '继续 →',
       storageTitle: '数据存储位置',
@@ -4810,7 +4810,7 @@ const catalog: Record<
       welcomeTagline2: '備份它，搜尋它，從中發現規律。',
       featureBackupTitle: '自動備份',
       featureBackupDesc:
-        '自動儲存 Chrome、Firefox、Safari、Edge、Brave 等瀏覽器的歷史紀錄，全部存在你自己的電腦上。',
+        '目前先以 Google Chrome 作為已驗證路徑；在 macOS 上授予完整磁碟取用權限後，也可驗證 Safari 的基礎備份。其他瀏覽器 adapter 可能會先出現在設定裡，但還不算公開支援承諾。',
       featureSearchTitle: '強大的搜尋',
       featureSearchDesc:
         '搜尋你所有的瀏覽歷史，即使是好幾年前看過的頁面，也能透過關鍵字或自然語言找到。',
@@ -4824,7 +4824,7 @@ const catalog: Record<
       beginSetup: '開始設定 →',
       browserDetectionTitle: '選擇瀏覽器',
       browserDetectionDesc:
-        '我們在你的系統上找到了這些瀏覽器，選擇你想備份的。',
+        '我們在這台裝置上找到了瀏覽器 profile，選擇要納入首次備份審查的來源。',
       scanStatus: '找到 {count} 個 · 已選 {selected} 個',
       detectedProfiles: '你的瀏覽器',
       found: '找到 {count} 個',
@@ -4836,7 +4836,7 @@ const catalog: Record<
         'Safari 需要完整磁碟取用權限。前往系統設定 → 隱私權與安全性 → 完整磁碟取用權限。',
       cannotReadHint: '暫時無法讀取 {fileName}，請確認檔案權限。',
       firefoxSafariInfo:
-        'Firefox 和 Safari 都完整支援。Safari 在 macOS 上可能需要先授予完整磁碟取用權限。',
+        '目前公開驗證的設定路徑是 Google Chrome；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。Firefox 系與其他 adapter 可能會先顯示在這裡，但還不算公開支援承諾。',
       backButton: '← 返回',
       continueButton: '繼續 →',
       storageTitle: '資料儲存位置',

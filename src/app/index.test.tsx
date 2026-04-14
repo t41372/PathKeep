@@ -279,6 +279,7 @@ describe('App shell', () => {
     expect(
       await screen.findByRole('button', { name: onboardingT('beginSetup') }),
     ).toBeVisible()
+    expect(screen.getByText(onboardingT('featureBackupDesc'))).toBeVisible()
     expect(screen.getByText(/GPL v3/i)).toBeVisible()
     expect(screen.queryByText(/MIT licensed/i)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: shellT('exitSetup') }))
@@ -307,6 +308,7 @@ describe('App shell', () => {
         name: onboardingT('browserDetectionTitle'),
       }),
     ).toBeVisible()
+    expect(screen.getByText(onboardingT('firefoxSafariInfo'))).toBeVisible()
 
     await user.click(
       screen.getByRole('button', { name: onboardingT('continueButton') }),
