@@ -16,8 +16,22 @@ pub enum ParseError {
         #[source]
         source: rusqlite::Error,
     },
+    #[error("failed to read source at {path}: {source}")]
+    ReadSource {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("failed to inspect SQLite database: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("failed to parse JSON from {path}: {source}")]
+    Json {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("failed to read zip payload: {0}")]
+    Zip(#[from] zip::result::ZipError),
     #[error("required table `{table}` is missing from the provided source")]
     MissingTable { table: &'static str },
     #[error("provider `{provider}` is not implemented yet")]

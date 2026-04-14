@@ -26,7 +26,7 @@ pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, run_migrations};
 pub(crate) use self::search_projection::rebuild_search_projection;
 pub use self::source_evidence::open_source_evidence_connection;
-use self::source_evidence::{
+pub(crate) use self::source_evidence::{
     SourceBatchInput, coverage_stats_json, persist_source_evidence, record_schema_observation,
     upsert_source_batch,
 };

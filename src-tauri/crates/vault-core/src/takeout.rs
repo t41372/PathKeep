@@ -6,8 +6,10 @@
 
 use crate::{
     archive::{
-        create_schema, open_archive_connection, rebuild_search_projection,
-        stats_with_archive_totals, visit_event_fingerprint,
+        SourceBatchInput, coverage_stats_json, create_schema, open_archive_connection,
+        open_source_evidence_connection, persist_source_evidence, rebuild_search_projection,
+        record_schema_observation, stats_with_archive_totals, upsert_source_batch,
+        visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -15,15 +17,21 @@ use crate::{
         AppConfig, ImportBatchDetail, ImportBatchOverview, TakeoutFileReport, TakeoutInspection,
         TakeoutPreviewEntry, TakeoutRequest,
     },
-    utils::{chrome_time_to_rfc3339, iso_to_chrome_time_micros, now_rfc3339, sha256_hex},
+    utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
-use browser_history_parser::chromium::chrome_time_to_unix_ms;
+use browser_history_parser::{
+    ParsedHistory,
+    takeout::{
+        KIND_INDEX, TakeoutPayloadReport, parse_payload as parse_takeout_payload,
+        recognize_payload as recognize_takeout_payload,
+    },
+};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufRead, BufReader, Read},
+    io::Read,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
@@ -42,8 +50,7 @@ struct ParsedTakeoutRecord {
     source_path: String,
     url: String,
     title: Option<String>,
-    visit_time: i64,
-    payload_hash: String,
+    visited_at: String,
     source_visit_id: i64,
 }
 
@@ -54,16 +61,23 @@ struct ImportStats {
     skipped_items: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
+struct ImportedPayload {
+    stats: ImportStats,
+    source_evidence_plan: TakeoutSourceEvidencePlan,
+}
+
 struct CollectedPayload {
+    report: TakeoutPayloadReport,
     records: Vec<ParsedTakeoutRecord>,
     skipped_missing_visit_time: usize,
 }
 
-enum ParseRecordOutcome {
-    Parsed(ParsedTakeoutRecord),
-    Ignore,
-    MissingVisitTime,
+#[derive(Debug, Clone)]
+struct TakeoutSourceEvidencePlan {
+    source_batch: SourceBatchInput,
+    schema_observation: browser_history_parser::SchemaObservation,
+    parsed_history: ParsedHistory,
 }
 
 #[derive(Debug, Clone)]
@@ -99,12 +113,12 @@ pub fn inspect_takeout(
 
         let mut report = TakeoutFileReport {
             path: file.path.clone(),
-            kind: kind.clone(),
+            kind: kind.to_string(),
             status: "recognized".to_string(),
             records: 0,
         };
 
-        if kind == "takeout-index" {
+        if kind == KIND_INDEX {
             inspection.recognized_files.push(report);
             continue;
         }
@@ -117,7 +131,7 @@ pub fn inspect_takeout(
 
         match collect_records_from_payload(&file.path, &kind, &bytes) {
             Ok(payload) => {
-                report.records = payload.records.len();
+                report.records = payload.report.record_count;
                 report.status = if payload.skipped_missing_visit_time > 0 {
                     "previewed-with-skips".to_string()
                 } else {
@@ -185,6 +199,7 @@ pub fn import_takeout(
     let batch_id = create_import_batch(&transaction, &synthetic_profile, request, &inspection)?;
     let files = gather_takeout_files(source)?;
     let mut stats = ImportStats::default();
+    let mut source_evidence_plans = Vec::new();
 
     let import_result = (|| -> Result<()> {
         for file in files {
@@ -192,7 +207,7 @@ pub fn import_takeout(
                 quarantine_takeout_file(paths, source, &file)?;
                 continue;
             };
-            if kind == "takeout-index" {
+            if kind == KIND_INDEX {
                 continue;
             }
 
@@ -207,24 +222,21 @@ pub fn import_takeout(
                 run_id,
                 batch_id,
                 source_profile_id,
-                &synthetic_profile,
                 &file.path,
                 &kind,
                 &bytes,
             )?;
-            stats.imported_items += file_stats.imported_items;
-            stats.duplicate_items += file_stats.duplicate_items;
-            if file_stats.skipped_items > 0 {
+            stats.imported_items += file_stats.stats.imported_items;
+            stats.duplicate_items += file_stats.stats.duplicate_items;
+            source_evidence_plans.push(file_stats.source_evidence_plan);
+            if file_stats.stats.skipped_items > 0 {
                 inspection.notes.push(format!(
                     "Skipped {} records from {} because they were missing a visit timestamp.",
-                    file_stats.skipped_items, file.path
+                    file_stats.stats.skipped_items, file.path
                 ));
             }
         }
 
-        inspection.imported_items = stats.imported_items;
-        inspection.duplicate_items = stats.duplicate_items;
-        finalize_import_batch(&transaction, batch_id, &inspection)?;
         transaction.commit()?;
         Ok(())
     })();
@@ -234,6 +246,20 @@ pub fn import_takeout(
         return Err(error);
     }
 
+    inspection.imported_items = stats.imported_items;
+    inspection.duplicate_items = stats.duplicate_items;
+    if let Err(error) = persist_takeout_source_evidence_plans(
+        paths,
+        config,
+        key,
+        &synthetic_profile,
+        &source_evidence_plans,
+    ) {
+        inspection.notes.push(format!(
+            "Canonical Takeout import completed, but the source-evidence archive needs a rebuild: {error}"
+        ));
+    }
+    finalize_import_batch(&archive, batch_id, &inspection)?;
     finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
     if let Err(error) = rebuild_search_projection(paths, config, key) {
         inspection.notes.push(format!(
@@ -452,18 +478,21 @@ fn import_supported_payload(
     run_id: i64,
     batch_id: i64,
     source_profile_id: i64,
-    _profile_id: &str,
     source_path: &str,
     kind: &str,
     bytes: &[u8],
-) -> Result<ImportStats> {
+) -> Result<ImportedPayload> {
     let payload = collect_records_from_payload(source_path, kind, bytes)?;
     let mut stats =
         ImportStats { skipped_items: payload.skipped_missing_visit_time, ..ImportStats::default() };
+    let mut url_id_map = std::collections::BTreeMap::new();
 
-    for record in payload.records {
-        let visit_time_ms = chrome_time_to_unix_ms(record.visit_time);
-        let visit_time_iso = chrome_time_to_rfc3339(record.visit_time);
+    for url in &payload.report.history.urls {
+        let payload_hash = sha256_hex(
+            serde_json::to_string(url)
+                .context("serializing Takeout URL for payload hash")?
+                .as_bytes(),
+        );
         let url_id = archive.query_row(
             "INSERT INTO urls (
                url,
@@ -481,10 +510,11 @@ fn import_supported_payload(
                payload_hash,
                recorded_at
              )
-             VALUES (?1, ?2, 1, 0, ?3, ?4, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
+             VALUES (?1, ?2, 1, 0, ?3, ?4, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
                url = excluded.url,
                title = excluded.title,
+               hidden = excluded.hidden,
                last_visit_ms = CASE
                  WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
                  ELSE urls.last_visit_ms
@@ -497,18 +527,31 @@ fn import_supported_payload(
                recorded_at = excluded.recorded_at
              RETURNING id",
             params![
-                record.url,
-                record.title,
-                visit_time_ms,
-                visit_time_iso,
+                url.url,
+                url.title,
+                url.last_visit_ms,
+                url.last_visit_iso,
                 source_profile_id,
                 run_id,
-                record.source_visit_id,
-                record.payload_hash,
+                url.source_url_id.to_string(),
+                i64::from(url.hidden),
+                payload_hash,
                 now_rfc3339(),
             ],
             |row| row.get::<_, i64>(0),
         )?;
+        url_id_map.insert(url.source_url_id, url_id);
+    }
+
+    for visit in &payload.report.history.visits {
+        let Some(&url_id) = url_id_map.get(&visit.source_url_id) else {
+            continue;
+        };
+        let payload_hash = sha256_hex(
+            serde_json::to_string(visit)
+                .context("serializing Takeout visit for payload hash")?
+                .as_bytes(),
+        );
         let inserted = archive.execute(
             "INSERT OR IGNORE INTO visits (
                url_id,
@@ -532,21 +575,21 @@ fn import_supported_payload(
              VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
             params![
                 url_id,
-                record.source_visit_id.to_string(),
-                visit_time_ms,
-                visit_time_iso,
+                visit.source_visit_id.to_string(),
+                visit.visit_time_ms,
+                visit.visit_time_iso,
                 source_profile_id,
                 run_id,
-                record.source_path,
+                source_path,
                 visit_event_fingerprint(
                     "takeout",
-                    &record.url,
-                    record.visit_time,
-                    record.title.as_deref(),
+                    &visit.url,
+                    visit.visit_time_ms,
+                    visit.title.as_deref(),
                     None,
                     Some("takeout"),
                 ),
-                record.payload_hash,
+                payload_hash,
                 now_rfc3339(),
                 batch_id,
             ],
@@ -559,7 +602,113 @@ fn import_supported_payload(
         }
     }
 
-    Ok(stats)
+    Ok(ImportedPayload {
+        stats,
+        source_evidence_plan: build_takeout_source_evidence_plan(
+            source_profile_id,
+            run_id,
+            source_path,
+            &payload.report,
+        )?,
+    })
+}
+
+fn build_takeout_source_evidence_plan(
+    source_profile_id: i64,
+    run_id: i64,
+    source_path: &str,
+    report: &TakeoutPayloadReport,
+) -> Result<TakeoutSourceEvidencePlan> {
+    let observation_json = serde_json::to_string(&report.history.schema_observation)?;
+    Ok(TakeoutSourceEvidencePlan {
+        source_batch: SourceBatchInput {
+            source_profile_id,
+            run_id: Some(run_id),
+            source_kind: "takeout".to_string(),
+            browser_version: None,
+            schema_version_text: Some(report.kind.clone()),
+            schema_version_int: None,
+            schema_fingerprint: sha256_hex(observation_json.as_bytes()),
+            capability_snapshot: report.history.capability_snapshot.clone(),
+            coverage_stats_json: coverage_stats_json(&report.history),
+            artifact_refs_json: Some(
+                json!({
+                    "sourcePath": source_path,
+                    "payloadKind": report.kind,
+                })
+                .to_string(),
+            ),
+            notes_json: Some(serde_json::to_string(&report.history.warnings)?),
+        },
+        schema_observation: report.history.schema_observation.clone(),
+        parsed_history: report.history.clone(),
+    })
+}
+
+fn persist_takeout_source_evidence_plans(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    profile_id: &str,
+    plans: &[TakeoutSourceEvidencePlan],
+) -> Result<()> {
+    if plans.is_empty() {
+        return Ok(());
+    }
+
+    let archive = open_archive_connection(paths, config, key)?;
+    let mut source_evidence = open_source_evidence_connection(paths, config, key)?;
+    let transaction = source_evidence.transaction()?;
+    let mut last_source_batch_id = None;
+
+    for plan in plans {
+        let source_batch_id = upsert_source_batch(&transaction, &plan.source_batch)?;
+        record_schema_observation(
+            &transaction,
+            source_batch_id,
+            "takeout-payload",
+            &plan.schema_observation,
+        )?;
+        persist_source_evidence(
+            &transaction,
+            source_batch_id,
+            plan.source_batch.source_profile_id,
+            &plan.parsed_history,
+        )?;
+        last_source_batch_id = Some(source_batch_id);
+    }
+
+    transaction.commit()?;
+    if let Some(source_batch_id) = last_source_batch_id {
+        touch_takeout_source_batch_watermark(&archive, profile_id, source_batch_id)?;
+    }
+    Ok(())
+}
+
+fn touch_takeout_source_batch_watermark(
+    archive: &Connection,
+    profile_id: &str,
+    source_batch_id: i64,
+) -> Result<()> {
+    archive.execute(
+        "INSERT INTO profile_watermarks (
+           profile_id,
+           last_visit_id,
+           last_url_last_visit_time,
+           last_download_id,
+           last_favicon_last_updated,
+           last_checkpoint_at,
+           last_schema_hash,
+           last_source_batch_id,
+           updated_at
+         )
+         VALUES (?1, 0, 0, 0, 0, NULL, NULL, ?2, ?3)
+         ON CONFLICT(profile_id) DO UPDATE SET
+           last_source_batch_id = excluded.last_source_batch_id,
+           updated_at = excluded.updated_at",
+        params![profile_id, source_batch_id, now_rfc3339()],
+    )?;
+    Ok(())
 }
 
 fn create_import_run(archive: &Connection, profile_id: &str, started_at: &str) -> Result<i64> {
@@ -779,7 +928,7 @@ fn create_import_batch(
 }
 
 fn finalize_import_batch(
-    archive: &Transaction<'_>,
+    archive: &Connection,
     batch_id: i64,
     inspection: &TakeoutInspection,
 ) -> Result<()> {
@@ -1090,16 +1239,14 @@ fn summary_count(summary: &Value, key: &str) -> usize {
 #[cfg(test)]
 fn preview_entry_from_payload(
     source_path: &str,
-    payload_json: &str,
+    kind: &str,
+    payload_json: &[u8],
 ) -> Result<TakeoutPreviewEntry> {
-    let record: Value = serde_json::from_str(payload_json)?;
-    let parsed = match parse_record(source_path, 0, &record)? {
-        ParseRecordOutcome::Parsed(parsed) => parsed,
-        ParseRecordOutcome::Ignore | ParseRecordOutcome::MissingVisitTime => {
-            anyhow::bail!("payload did not include a usable history record")
-        }
+    let payload = collect_records_from_payload(source_path, kind, payload_json)?;
+    let Some(record) = payload.records.first() else {
+        anyhow::bail!("payload did not include a usable history record")
     };
-    Ok(preview_entry(&parsed, "imported"))
+    Ok(preview_entry(record, "imported"))
 }
 
 fn preview_entry(record: &ParsedTakeoutRecord, status: &str) -> TakeoutPreviewEntry {
@@ -1107,7 +1254,7 @@ fn preview_entry(record: &ParsedTakeoutRecord, status: &str) -> TakeoutPreviewEn
         source_path: record.source_path.clone(),
         url: record.url.clone(),
         title: record.title.clone(),
-        visited_at: chrome_time_to_rfc3339(record.visit_time),
+        visited_at: record.visited_at.clone(),
         source_visit_id: record.source_visit_id,
         status: status.to_string(),
     }
@@ -1118,88 +1265,25 @@ fn collect_records_from_payload(
     kind: &str,
     bytes: &[u8],
 ) -> Result<CollectedPayload> {
-    if kind == "jsonl" {
-        let reader = BufReader::new(bytes);
-        let mut payload = CollectedPayload::default();
-        for (index, line) in reader.lines().enumerate() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let record: Value = serde_json::from_str(&line)
-                .with_context(|| format!("parsing {source_path} line {}", index + 1))?;
-            match parse_record(source_path, index as i64, &record)? {
-                ParseRecordOutcome::Parsed(parsed) => payload.records.push(parsed),
-                ParseRecordOutcome::Ignore => {}
-                ParseRecordOutcome::MissingVisitTime => payload.skipped_missing_visit_time += 1,
-            }
-        }
-        return Ok(payload);
-    }
-
-    let value: Value = serde_json::from_slice(bytes)?;
-    let records = if let Some(array) = value.as_array() {
-        array.iter().enumerate().collect::<Vec<_>>()
-    } else if let Some(array) = value.get("BrowserHistory").and_then(Value::as_array) {
-        array.iter().enumerate().collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-
-    let mut payload = CollectedPayload::default();
-    for (index, record) in records {
-        match parse_record(source_path, index as i64, record)? {
-            ParseRecordOutcome::Parsed(parsed) => payload.records.push(parsed),
-            ParseRecordOutcome::Ignore => {}
-            ParseRecordOutcome::MissingVisitTime => payload.skipped_missing_visit_time += 1,
-        }
-    }
-    Ok(payload)
-}
-
-fn parse_record(source_path: &str, ordinal: i64, record: &Value) -> Result<ParseRecordOutcome> {
-    let url = record
-        .get("url")
-        .or_else(|| record.get("titleUrl"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    if url.is_empty() {
-        return Ok(ParseRecordOutcome::Ignore);
-    }
-
-    let title = record
-        .get("title")
-        .or_else(|| record.get("pageTitle"))
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
-    let Some(visit_time) = record
-        .get("visitTime")
-        .and_then(Value::as_i64)
-        .or_else(|| record.get("timeUsec").and_then(Value::as_i64))
-        .or_else(|| {
-            record.get("visitedAt").and_then(Value::as_str).and_then(iso_to_chrome_time_micros)
+    let report = parse_takeout_payload(source_path, kind, bytes)
+        .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))?;
+    let records = report
+        .history
+        .visits
+        .iter()
+        .map(|visit| ParsedTakeoutRecord {
+            source_path: source_path.to_string(),
+            url: visit.url.clone(),
+            title: visit.title.clone(),
+            visited_at: visit.visit_time_iso.clone(),
+            source_visit_id: visit.source_visit_id,
         })
-    else {
-        return Ok(ParseRecordOutcome::MissingVisitTime);
-    };
-
-    let payload_json = serde_json::to_string(record)?;
-    let payload_hash = sha256_hex(payload_json.as_bytes());
-    let source_visit_id = ((sha256_hex(format!("{source_path}:{ordinal}:{url}").as_bytes())
-        [0..16])
-        .bytes()
-        .fold(0_i64, |acc, byte| acc.wrapping_mul(31).wrapping_add(byte as i64)))
-    .abs();
-
-    Ok(ParseRecordOutcome::Parsed(ParsedTakeoutRecord {
-        source_path: source_path.to_string(),
-        url,
-        title,
-        visit_time,
-        payload_hash,
-        source_visit_id,
-    }))
+        .collect();
+    Ok(CollectedPayload {
+        skipped_missing_visit_time: report.skipped_missing_visit_time,
+        records,
+        report,
+    })
 }
 
 fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
@@ -1225,16 +1309,7 @@ fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
 }
 
 fn recognize_takeout_file(path: &str) -> Option<String> {
-    let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".jsonl") {
-        Some("jsonl".to_string())
-    } else if lower.ends_with(".json") && (lower.contains("browser") || lower.contains("history")) {
-        Some("browser-json".to_string())
-    } else if lower.ends_with("archive_browser.html") {
-        Some("takeout-index".to_string())
-    } else {
-        None
-    }
+    recognize_takeout_payload(path).map(ToString::to_string)
 }
 
 fn read_zip_entry(source_zip: &Path, entry_name: &str) -> Result<Vec<u8>> {
@@ -1319,7 +1394,9 @@ fn copy_if_exists(source: &str, destination: &Path) -> Result<()> { if Path::new
 mod tests {
     use super::*;
     use crate::{
-        archive::{create_schema, load_audit_run_detail, load_recent_runs},
+        archive::{
+            create_schema, load_audit_run_detail, load_recent_runs, open_source_evidence_connection,
+        },
         config::{ensure_paths, project_paths_with_root},
         models::{AppConfig, ArchiveMode},
     };
@@ -1912,18 +1989,9 @@ mod tests {
                 .expect("collect empty");
         assert!(empty_payload.records.is_empty());
 
-        assert!(matches!(
-            parse_record("source", 0, &json!({"title": "ignored"})).expect("parse ignore"),
-            ParseRecordOutcome::Ignore
-        ));
-        assert!(matches!(
-            parse_record("source", 1, &json!({"url": "https://example.com/missing"}))
-                .expect("parse missing time"),
-            ParseRecordOutcome::MissingVisitTime
-        ));
-
         let unusable_error =
-            preview_entry_from_payload("source", r#"{"title":"ignored"}"#).expect_err("unusable");
+            preview_entry_from_payload("source", "browser-json", br#"{"title":"ignored"}"#)
+                .expect_err("unusable");
         assert!(unusable_error.to_string().contains("usable history record"));
     }
 
@@ -1965,6 +2033,85 @@ mod tests {
                 .any(|file| file.path.ends_with("archive_browser.html")
                     && file.status == "recognized")
         );
+    }
+
+    #[test]
+    fn import_takeout_persists_source_evidence_for_all_recognized_payloads() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = initialized_plaintext_config();
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        drop(archive);
+
+        let source = dir.path().join("rich-takeout");
+        fs::create_dir_all(&source).expect("create rich source");
+        fs::write(
+            source.join("BrowserHistory.json"),
+            r#"{"BrowserHistory":[{"titleUrl":"https://example.com/imported","pageTitle":"Imported","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"client-1"}]}"#,
+        )
+        .expect("write browser history");
+        fs::write(
+            source.join("TypedUrl.json"),
+            r#"{"TypedUrl":[{"url":"https://example.com/imported","title":"Imported","visits":[1711965600000000]}]}"#,
+        )
+        .expect("write typed urls");
+        fs::write(
+            source.join("Session.json"),
+            r#"{"Session":[{"sessionTag":"device-1","tab":[{"tabId":1,"navigation":[{"virtualUrl":"https://example.com/imported"}]}]}]}"#,
+        )
+        .expect("write session");
+
+        let inspection = import_takeout(
+            &paths,
+            &config,
+            None,
+            &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        )
+        .expect("import rich takeout");
+        assert_eq!(inspection.imported_items, 1);
+        assert_eq!(inspection.recognized_files.len(), 3);
+
+        let source_evidence =
+            open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+        let source_batch_count: i64 = source_evidence
+            .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+            .expect("count source batches");
+        assert_eq!(source_batch_count, 3);
+
+        let native_entity_kinds = {
+            let mut statement = source_evidence
+                .prepare("SELECT entity_kind FROM native_entities ORDER BY entity_kind")
+                .expect("prepare native entity query");
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .expect("query native kinds")
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .expect("collect native kinds")
+        };
+        assert!(native_entity_kinds.contains(&"takeout-browser-history".to_string()));
+        assert!(native_entity_kinds.contains(&"takeout-typed-url".to_string()));
+        assert!(native_entity_kinds.contains(&"takeout-session".to_string()));
+
+        let context_rows: i64 = source_evidence
+            .query_row(
+                "SELECT COUNT(*) FROM visit_context_evidence WHERE context_key = 'context.takeout.client_id'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count takeout context rows");
+        assert_eq!(context_rows, 1);
+
+        let last_source_batch_id: Option<i64> = open_archive_connection(&paths, &config, None)
+            .expect("reopen archive")
+            .query_row(
+                "SELECT last_source_batch_id FROM profile_watermarks WHERE profile_id = 'takeout::browser-history'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load watermark");
+        assert!(last_source_batch_id.is_some());
     }
 
     #[test]
