@@ -2500,10 +2500,10 @@ export function SettingsPage() {
             </div>
             <div className="config-row">
               <span className="config-label">
-                {t('settings.aiSemanticMirror')}
+                {t('settings.aiSemanticMetadata')}
               </span>
               <span className="config-value mono">
-                {formatBytes(snapshot.aiStatus.semanticMirrorBytes, language)}
+                {formatBytes(snapshot.aiStatus.semanticMetadataBytes, language)}
               </span>
             </div>
             <div className="config-row">

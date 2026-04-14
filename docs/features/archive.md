@@ -35,7 +35,7 @@
 - 備份是**增量的**：只新增/更新有變化的記錄。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
 - 對於會變動的記錄（如 URL metadata），採用 row versioning，保留所有歷史版本。
-- 原始來源數據的長期方向是 **checkpoint-first**：保留 source checkpoint、schema 指紋、瀏覽器版本、run ID 與 manifest trace。`WORK-QC-R` closeout 前，repo 仍保留 `raw_row_versions` 作為 transitional per-row trace。
+- 原始來源數據採 **checkpoint-first**：保留 source checkpoint、schema 指紋、瀏覽器版本、run ID 與 manifest trace，不再把每筆來源 row 的完整 JSON payload 長期熱存在 canonical archive。
 - 備份不讀取正在運行的瀏覽器的 live 數據庫 — 一律先複製到 staging。
 
 ### 重複處理
@@ -64,7 +64,7 @@
 - **Raw capture 保底**：即使 parser 不認識某些新表或新欄位，raw capture 層仍會把所有原始數據落盤，確保不會因為 parser 更新滯後而丟失信息。
 - canonical archive 的 run ledger 使用共用 `runs` 表；backup、import、rollback、restore、doctor、snapshot restore 都要帶上 `run_id` 與 artifact 關聯。
 - rollback 採 soft-hide visibility：user-visible facts 以 `reverted_at` / `reverted_by_run_id` 隱藏，checkpoint / manifests / snapshots 保持 immutable。
-- canonical archive 現在已和 keyword recall / intelligence runtime 拆成不同 storage plane；但 raw-row trace 與 SQLite semantic mirror 仍屬 `WORK-QC-R` 尚未完全退場的 transitional debt。
+- canonical archive 已和 keyword recall / intelligence runtime 拆成不同 storage plane；canonical archive 只保留 source-of-truth facts 與 immutable audit facts，rebuildable search / intelligence / semantic state 全部留在 derived/search/intelligence/sidecars。
 - import batch 的 un-revert / restore 必須留下獨立 `restore` run，而不是繼續冒充 `rollback`；`snapshot_restore` 則保留給未來真正的 archive snapshot restore flow。
 - v1 shipping 的 `snapshot_restore` 是 **checkpoint replay**：使用者從 Audit review 一個已保存的 browser source checkpoint（`raw-source-checkpoint`）做 Preview / Execute，PathKeep 會把該 checkpoint 重新 ingest 回 canonical archive，留下獨立 `snapshot_restore` run 與 artifact 關聯；既有可見 facts 不會因為 restore 被 destructive 覆寫，重複資料則由 dedupe / watermark 邊界跳過。
 - rekey flow 產生的 archive safety snapshot file 也必須寫進 audit / security summary，保留 open / copy path 與 manifest / run detail；但若該 snapshot 需要舊的 database key，v1 仍保持 manual-first recovery，而不是假裝任何 archive file snapshot 都能自動 replay。

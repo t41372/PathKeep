@@ -313,27 +313,11 @@ struct SnapshotRecord {
 }
 
 #[derive(Debug)]
-struct RawRowInsert<'a> {
-    run_id: i64,
-    source_profile_id: i64,
-    profile_id: &'a str,
-    source_kind: &'a str,
-    table_name: &'a str,
-    source_pk: &'a str,
-    payload_hash: &'a str,
-    payload_json: &'a str,
-    schema_hash: &'a str,
-    chrome_version: Option<&'a str>,
-    import_batch_id: Option<i64>,
-}
-
-#[derive(Debug)]
 struct SerializedPayload {
-    json: String,
     hash: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct UrlVisitBounds {
     first_visit_ms: i64,
     first_visit_iso: String,
@@ -343,7 +327,6 @@ struct UrlVisitBounds {
 
 #[derive(Debug)]
 struct ParsedProfileSnapshot {
-    source_kind: &'static str,
     history: ParsedHistory,
     last_visit_id: i64,
     last_url_marker: Option<i64>,
@@ -665,28 +648,12 @@ fn process_profile_snapshot(
     let mut url_id_map = HashMap::new();
     for url in &parsed_snapshot.history.urls {
         let payload = serialize_payload(url)?;
+        let existing_url = canonical_url_exists(archive, source_profile_id, url.source_url_id)?;
         let canonical_url_id =
             upsert_url(archive, run_id, source_profile_id, &snapshot.profile, url, &payload.hash)?;
         url_id_map.insert(url.source_url_id, canonical_url_id);
-        let inserted = insert_raw_row(
-            archive,
-            RawRowInsert {
-                run_id,
-                source_profile_id,
-                profile_id: &snapshot.profile.profile_id,
-                source_kind: parsed_snapshot.source_kind,
-                table_name: "urls",
-                source_pk: &url.source_url_id.to_string(),
-                payload_hash: &payload.hash,
-                payload_json: &payload.json,
-                schema_hash: &schema_hash,
-                chrome_version: snapshot.profile.browser_version.as_deref(),
-                import_batch_id: None,
-            },
-        )?;
-        if inserted > 0 {
+        if !existing_url {
             summary.new_urls += 1;
-            summary.raw_rows += 1;
         }
     }
 
@@ -709,23 +676,6 @@ fn process_profile_snapshot(
             summary.new_visits += 1;
         }
         track_url_visit_bounds(&mut url_bounds, url_id, visit);
-        insert_raw_row(
-            archive,
-            RawRowInsert {
-                run_id,
-                source_profile_id,
-                profile_id: &snapshot.profile.profile_id,
-                source_kind: parsed_snapshot.source_kind,
-                table_name: "visits",
-                source_pk: &visit.source_visit_id.to_string(),
-                payload_hash: &payload.hash,
-                payload_json: &payload.json,
-                schema_hash: &schema_hash,
-                chrome_version: snapshot.profile.browser_version.as_deref(),
-                import_batch_id: None,
-            },
-        )?;
-        summary.raw_rows += 1;
     }
 
     for (url_id, bounds) in url_bounds {
@@ -739,23 +689,6 @@ fn process_profile_snapshot(
         if inserted > 0 {
             summary.new_downloads += 1;
         }
-        insert_raw_row(
-            archive,
-            RawRowInsert {
-                run_id,
-                source_profile_id,
-                profile_id: &snapshot.profile.profile_id,
-                source_kind: parsed_snapshot.source_kind,
-                table_name: "downloads",
-                source_pk: &download.source_download_id.to_string(),
-                payload_hash: &payload.hash,
-                payload_json: &payload.json,
-                schema_hash: &schema_hash,
-                chrome_version: snapshot.profile.browser_version.as_deref(),
-                import_batch_id: None,
-            },
-        )?;
-        summary.raw_rows += 1;
     }
 
     let mut inserted_search_terms = 0usize;
@@ -866,7 +799,6 @@ fn parse_profile_snapshot(
                 .max();
 
             Ok(ParsedProfileSnapshot {
-                source_kind: "chromium-history",
                 history,
                 last_visit_id,
                 last_url_marker,
@@ -884,7 +816,6 @@ fn parse_profile_snapshot(
                 history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
             let last_url_marker = history.urls.iter().map(|url| url.last_visit_ms).max();
             Ok(ParsedProfileSnapshot {
-                source_kind: "firefox-history",
                 history,
                 last_visit_id,
                 last_url_marker,
@@ -902,7 +833,6 @@ fn parse_profile_snapshot(
                 history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
             let last_url_marker = history.urls.iter().map(|url| url.last_visit_ms).max();
             Ok(ParsedProfileSnapshot {
-                source_kind: "safari-history",
                 history,
                 last_visit_id,
                 last_url_marker,
@@ -1206,43 +1136,23 @@ fn insert_favicon(
         .map_err(Into::into)
 }
 
-fn insert_raw_row(archive: &Transaction<'_>, row: RawRowInsert<'_>) -> Result<usize> {
+fn canonical_url_exists(
+    archive: &Transaction<'_>,
+    source_profile_id: i64,
+    source_url_id: i64,
+) -> Result<bool> {
     archive
-        .execute(
-            "INSERT OR IGNORE INTO raw_row_versions (
-               source_profile_id,
-               source_kind,
-               table_name,
-               source_pk,
-               payload_hash,
-               schema_fingerprint,
-               browser_version,
-               payload_json,
-               recorded_at,
-               run_id,
-               profile_id,
-               schema_hash,
-               chrome_version,
-               import_batch_id
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                row.source_profile_id,
-                row.source_kind,
-                row.table_name,
-                row.source_pk,
-                row.payload_hash,
-                row.schema_hash,
-                row.chrome_version,
-                row.payload_json,
-                now_rfc3339(),
-                row.run_id,
-                row.profile_id,
-                row.schema_hash,
-                row.chrome_version,
-                row.import_batch_id,
-            ],
+        .query_row(
+            "SELECT 1
+             FROM urls
+             WHERE source_profile_id = ?1
+               AND source_url_id = ?2
+             LIMIT 1",
+            params![source_profile_id, source_url_id],
+            |row| row.get::<_, i64>(0),
         )
+        .optional()
+        .map(|value| value.is_some())
         .map_err(Into::into)
 }
 
@@ -1943,8 +1853,6 @@ fn archive_row_counts(connection: &Connection) -> Result<Value> {
         [],
         |row| row.get(0),
     )?;
-    let raw_rows: i64 =
-        connection.query_row("SELECT COUNT(*) FROM raw_row_versions", [], |row| row.get(0))?;
     let manifests: i64 =
         connection.query_row("SELECT COUNT(*) FROM manifests", [], |row| row.get(0))?;
     let snapshots: i64 =
@@ -1953,7 +1861,6 @@ fn archive_row_counts(connection: &Connection) -> Result<Value> {
         "urls": urls,
         "visits": visits,
         "downloads": downloads,
-        "rawRows": raw_rows,
         "manifests": manifests,
         "snapshots": snapshots,
     }))
@@ -2002,7 +1909,7 @@ fn open_readonly_source(path: &Path) -> Result<Connection> {
 fn serialize_payload<T: Serialize>(value: &T) -> Result<SerializedPayload> {
     let json = serde_json::to_string(value)?;
     let hash = sha256_hex(json.as_bytes());
-    Ok(SerializedPayload { json, hash })
+    Ok(SerializedPayload { hash })
 }
 
 /// Merges run-local stats with current visible archive totals.
@@ -2745,9 +2652,9 @@ mod tests {
         intelligence
             .execute(
                 "INSERT INTO ai_embeddings
-                 (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_blob, dimensions, indexed_at)
-                 VALUES (999, 'takeout::browser-history', 'https://example.com/import', 'Imported', 'example.com', ?1, 'Imported', 'hash', 'provider', 'model', ?2, 1, ?1)",
-                rusqlite::params![now_rfc3339(), vec![0xCD_u8, 0xCC, 0xCC, 0x3D]],
+                 (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at)
+                 VALUES (999, 'takeout::browser-history', 'https://example.com/import', 'Imported', 'example.com', ?1, 'hash', 8, 'provider', 'model', ?1)",
+                rusqlite::params![now_rfc3339()],
             )
             .expect("insert stale ai embedding");
         intelligence

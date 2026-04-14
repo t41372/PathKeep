@@ -24,7 +24,7 @@
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - v1 semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 - semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 必須先查 LanceDB sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑做全庫向量掃描。semantic metadata / queue / assistant trace 現在已往 `derived/history-intelligence.sqlite` 收斂；SQLite vector mirror 仍屬 transitional cleanup debt，未來要退出。
+- runtime contract：semantic retrieval 必須先查 LanceDB sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑做全庫向量掃描。semantic metadata / queue / assistant trace 固定落在 `derived/history-intelligence.sqlite`；SQLite 不再承擔向量 payload mirror。
 
 ---
 

@@ -80,7 +80,6 @@ pub struct BackupProfileSummary {
     pub new_visits: usize,
     pub new_urls: usize,
     pub new_downloads: usize,
-    pub raw_rows: usize,
     pub checkpoint_created: bool,
     pub notes: Vec<String>,
 }

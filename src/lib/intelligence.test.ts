@@ -165,7 +165,7 @@ describe('intelligence helpers', () => {
       failedJobs: 0,
       recentJobs: [],
       semanticSidecarBytes: 0,
-      semanticMirrorBytes: 0,
+      semanticMetadataBytes: 0,
       estimatedEmbeddingTokens: 0,
       warning: null,
     }

@@ -263,7 +263,7 @@ const mockSnapshot: AppSnapshot = {
     failedJobs: 0,
     recentJobs: [],
     semanticSidecarBytes: 0,
-    semanticMirrorBytes: 0,
+    semanticMetadataBytes: 0,
     estimatedEmbeddingTokens: 0,
     warning: null,
   },
@@ -2767,7 +2767,6 @@ async function call<T>(
             newVisits: preview.estimatedVisits,
             newUrls: preview.estimatedUrls,
             newDownloads: preview.estimatedDownloads,
-            rawRows: preview.estimatedVisits + preview.estimatedUrls,
             checkpointCreated: false,
             notes: [],
           },
@@ -2901,7 +2900,6 @@ async function call<T>(
             newVisits: 1,
             newUrls: 1,
             newDownloads: 1,
-            rawRows: 4,
             checkpointCreated: true,
             notes: [],
           })),
@@ -3347,7 +3345,7 @@ async function call<T>(
         lastIndexedAt: new Date().toISOString(),
         embeddingProviderId: 'mock-embedding',
         semanticSidecarBytes: 196_608,
-        semanticMirrorBytes: 24_576,
+        semanticMetadataBytes: 24_576,
         estimatedEmbeddingTokens: 1_024,
       }
       syncMockAiStatus(mockState)

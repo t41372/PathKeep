@@ -17,7 +17,7 @@ PathKeep 的核心承諾之一是 recoverability。Import、future rollback、do
 PathKeep 採用 **soft-hide rollback** 模型：
 
 - `visits`、`downloads`、`search_terms` 等 user-visible fact tables 以 `reverted_at` / `reverted_by_run_id` 表示邏輯上已回滾。
-- `raw_row_versions`、`manifests`、`snapshots`、`schema_migrations` 視為 immutable audit facts，不做 soft-delete。
+- `manifests`、`snapshots`、`schema_migrations` 與 source checkpoint trace 視為 immutable audit facts，不做 soft-delete。
 - `urls` / `source_profiles` 作為 canonical anchors，不直接刪除；它們的可見性由關聯 fact rows 的存在與 read model 判定。
 - FTS projection、aggregation tables、AI / insight sidecars 一律視為 derived state。rollback 之後以 rebuild / invalidate 解決，不在每張 derived table 內複製一套 `reverted_at` 欄位。
 

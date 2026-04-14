@@ -121,7 +121,6 @@ pub fn create_schema(connection: &Connection) -> Result<()> {
 
     let result = (|| -> Result<()> {
         ensure_import_batch_schema(connection)?;
-        backfill_runtime_columns(connection)?;
         Ok(())
     })();
 
@@ -202,46 +201,6 @@ fn ensure_import_batch_schema(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn backfill_runtime_columns(connection: &Connection) -> Result<()> {
-    connection.execute_batch(
-        r#"
-UPDATE source_profiles
-SET profile_key = COALESCE(
-      NULLIF(profile_key, ''),
-      browser_kind || ':' || profile_name
-    ),
-    updated_at = COALESCE(updated_at, discovered_at);
-
-UPDATE raw_row_versions
-SET schema_hash = COALESCE(schema_hash, schema_fingerprint),
-    chrome_version = COALESCE(chrome_version, browser_version),
-    profile_id = COALESCE(
-      profile_id,
-      (
-        SELECT profile_key
-        FROM source_profiles
-        WHERE source_profiles.id = raw_row_versions.source_profile_id
-      )
-    )
-WHERE schema_hash IS NULL
-   OR chrome_version IS NULL
-   OR profile_id IS NULL;
-
-UPDATE search_terms
-SET profile_id = COALESCE(
-      profile_id,
-      (
-        SELECT profile_key
-        FROM source_profiles
-        WHERE source_profiles.id = search_terms.source_profile_id
-      )
-    )
-WHERE profile_id IS NULL;
-"#,
-    )?;
-    Ok(())
-}
-
 fn ensure_archive_bootstrapped(
     connection: &Connection,
     archive_database_path: &Path,
@@ -309,7 +268,6 @@ mod tests {
         assert_eq!(current_version(&connection).expect("schema version"), 5);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
-        assert!(has_table(&connection, "raw_row_versions"));
         assert!(has_table(&connection, "profile_watermarks"));
         assert!(has_table(&connection, "import_batches"));
         assert!(!has_table(&connection, "history_search"));

@@ -20,7 +20,7 @@
 - work block 可以拆成多個可 review commit；不要把「work block 變大」誤解成「commit 也要巨大」。
 - 更細的 WBS 仍保留在各 milestone 文檔裡，作為 block 內部的拆解參考，而不是每日追蹤單位。
 
-> **2026-04-13 reset note**：使用者已對 storage-plane hard reset 明確 sign off。repo 現在不再以「繼續修 transitional hot SQLite」為長期方向；`WORK-QC-R` 會直接把 canonical/search/intelligence/sidecars 四層結構變成新的 source of truth，並允許本地 archive 刪除後重建。
+> **2026-04-14 closeout note**：`WORK-QC-R` 已完成。repo 的正式 storage truth 現在是 canonical/search/intelligence/sidecars 四層結構；legacy archive upgrade、runtime compatibility patching、hot-path raw row persistence 都不再是 active strategy。
 
 ---
 

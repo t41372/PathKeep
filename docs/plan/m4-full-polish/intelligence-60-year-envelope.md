@@ -3,6 +3,8 @@
 > `WORK-QC-D` closeout note. This document records what PathKeep could honestly claim about optional intelligence as of 2026-04-09, and just as importantly, what it still could not claim.
 >
 > **2026-04-13 reset note:** 這份文件保留的是 pre-reset truth，方便回看當時哪裡卡住。新的 long-horizon target 不再是「把同一個 hot SQLite 繼續修到能撐住」，而是由 `WORK-QC-R` 直接把 storage plane 重構成 canonical/search/intelligence/sidecars 四層結構。
+>
+> **2026-04-14 closeout note:** `WORK-QC-R` 已完成。新的 performance / storage truth 以 [data-model.md](../../architecture/data-model.md)、[tech-stack.md](../../architecture/tech-stack.md) 與 [ADR-010](../../architecture/decisions/010-storage-plane-reset.md) 為主；本文件保留為 pre-reset evidence archive。
 
 ---
 
@@ -47,11 +49,11 @@
   - `bun run verify` is still the acceptance target for `WORK-M4-J`, and it now reruns green on this machine
   - the remaining blocker is evidence quality, not CI: the checked-in `artifacts/perf/2026-04-09-large-archive-shell-scaling/` bundle is still synthetic and does not replace a true large-profile replay with webview trace plus Rust sampling
 - Code / architecture fixes landed during this closeout:
-  - semantic retrieval now queries the LanceDB sidecar first and only falls back to the SQLite compatibility mirror with explicit notes
-  - SQLite semantic mirror no longer stores JSON vectors; `ensure_ai_schema` migrates legacy `embedding_json` rows to `embedding_blob` and request-path semantic retrieval stays sidecar-first / lexical-only fallback
+  - semantic retrieval now queries the LanceDB sidecar first and falls back only to lexical recall with explicit notes
+  - SQLite intelligence metadata no longer stores vector payload or readable-body text; request-path semantic retrieval stays sidecar-first / lexical-only fallback
   - index state now reports `stale` when archive visibility / import watermark or readable-content enrichment freshness diverges from the last semantic build
   - embedding rebuild now batches requests, retries, and tolerates partial failure instead of doing only one-row-at-a-time indexing
-  - Settings now shows indexed rows, LanceDB sidecar bytes, SQLite mirror bytes, and estimated embedding token volume
+  - Settings now shows indexed rows, LanceDB sidecar bytes, SQLite metadata bytes, and estimated embedding token volume
   - Settings now shows MCP / skill consent, capability, scope-boundary, audit-trace copy, plus preview artifact contents instead of only opaque file paths
   - MCP searches now write dedicated `mcp_query` run-ledger entries, and import restore no longer masquerades as `rollback`
   - selected provider/model readiness is now model-scoped, so switching embedding models no longer reuses readiness from a different model
@@ -124,3 +126,19 @@
 - No: PathKeep should not yet claim a fully verified "60-year, all AI on, smooth on 8 GB / 4-core" baseline.
 - Yes: the current M3 / M4 intelligence slice is now materially more honest and more reviewable. Semantic staleness, cost visibility, MCP consent / scope / audit copy, and run-type truth have all been pulled into the shipped contract.
 - The next promotion from "truthful partial support" to "large-archive signed-off support" requires the storage-plane reset from `WORK-QC-R`, a real large-profile replay bundle, and a replayable corpus definition, not just another synthetic shell artifact or docs-only closeout.
+
+## Post-Reset Benchmark Recipe
+
+- Canonical rerunnable harness:
+  - `cargo run --manifest-path src-tauri/Cargo.toml -p vault-core --example intelligence-benchmark -- --visits 100000 --window-days 365 --horizon-days 21900 --output artifacts/benchmarks/2026-04-14-storage-plane-reset/100k-60y.json`
+  - `cargo run --manifest-path src-tauri/Cargo.toml -p vault-core --example intelligence-benchmark -- --visits 1000000 --window-days 365 --horizon-days 21900 --output artifacts/benchmarks/2026-04-14-storage-plane-reset/1m-60y.json`
+- Checked artifacts generated on 2026-04-14 in this workspace:
+  - `artifacts/benchmarks/2026-04-14-storage-plane-reset/100k-60y.json`: `runInsightsMs = 3364`, `loadInsightsMs = 3`
+  - `artifacts/benchmarks/2026-04-14-storage-plane-reset/1m-60y.json`: `runInsightsMs = 50622`, `loadInsightsMs = 6`
+- What this proves:
+  - deterministic rebuild and snapshot load run against the reset storage plane
+  - canonical archive, search projection, intelligence projection, and blob / semantic sidecar boundaries are exercised without reintroducing hot-path compatibility storage
+- What it does not prove:
+  - 10M / 14.4M full signoff
+  - whole-shell responsiveness under a real desktop replay
+  - semantic / assistant provider latency, which still depends on configured local or remote providers

@@ -93,21 +93,6 @@ pub struct AiJobFailure {
 /// Ensures the persistent AI queue tables exist.
 pub fn ensure_ai_queue_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(AI_QUEUE_SCHEMA_SQL)?;
-    ensure_queue_column(connection, "lease_owner", "TEXT")?;
-    ensure_queue_column(connection, "lease_expires_at", "TEXT")?;
-    ensure_queue_column(connection, "stop_requested", "INTEGER NOT NULL DEFAULT 0")?;
-    Ok(())
-}
-
-fn ensure_queue_column(connection: &Connection, column: &str, definition: &str) -> Result<()> {
-    let mut statement = connection.prepare("PRAGMA table_info(ai_jobs)")?;
-    let columns = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if columns.iter().any(|existing| existing == column) {
-        return Ok(());
-    }
-    connection.execute(&format!("ALTER TABLE ai_jobs ADD COLUMN {column} {definition}"), [])?;
     Ok(())
 }
 

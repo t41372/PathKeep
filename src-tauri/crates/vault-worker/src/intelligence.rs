@@ -398,7 +398,7 @@ fn spawn_intelligence_queue_drain(
                         job.id,
                     );
                 } else {
-                    let _ = execute_enrichment_job_by_id(&connection, job.id);
+                    let _ = execute_enrichment_job_by_id(&paths, &connection, job.id);
                 }
             }
         }
@@ -448,7 +448,7 @@ fn spawn_intelligence_queue_drain(
                 }) else {
                     break;
                 };
-                let _ = execute_enrichment_job_by_id(&connection, job_id);
+                let _ = execute_enrichment_job_by_id(&paths, &connection, job_id);
             }
         },
     );

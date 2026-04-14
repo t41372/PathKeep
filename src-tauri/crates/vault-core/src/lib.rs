@@ -24,6 +24,7 @@ pub mod deterministic;
 pub mod diagnostics;
 pub mod git_audit;
 pub mod insights;
+mod intelligence_blobs;
 pub mod intelligence_runtime;
 pub mod models;
 pub mod remote;

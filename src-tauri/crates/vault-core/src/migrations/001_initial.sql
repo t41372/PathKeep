@@ -112,21 +112,6 @@ CREATE TABLE favicons (
   created_by_run_id INTEGER NOT NULL REFERENCES runs(id)
 );
 
-CREATE TABLE raw_row_versions (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_profile_id  INTEGER NOT NULL REFERENCES source_profiles(id),
-  source_kind        TEXT    NOT NULL,
-  table_name         TEXT    NOT NULL,
-  source_pk          TEXT    NOT NULL,
-  payload_hash       TEXT    NOT NULL,
-  schema_fingerprint TEXT    NOT NULL,
-  browser_version    TEXT,
-  payload_json       TEXT    NOT NULL,
-  recorded_at        TEXT    NOT NULL,
-  run_id             INTEGER NOT NULL REFERENCES runs(id),
-  UNIQUE(source_kind, source_profile_id, table_name, source_pk, payload_hash)
-);
-
 CREATE TABLE manifests (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id             INTEGER NOT NULL REFERENCES runs(id),
@@ -157,4 +142,3 @@ CREATE INDEX idx_urls_profile_last_visit ON urls(source_profile_id, last_visit_m
 CREATE INDEX idx_visits_profile_time ON visits(source_profile_id, visit_time_ms DESC);
 CREATE INDEX idx_downloads_profile_start ON downloads(source_profile_id, start_time_ms DESC);
 CREATE INDEX idx_search_terms_profile_term ON search_terms(source_profile_id, normalized_term);
-CREATE INDEX idx_raw_row_versions_profile_table ON raw_row_versions(source_profile_id, table_name);

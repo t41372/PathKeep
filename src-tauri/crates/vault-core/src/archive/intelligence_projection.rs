@@ -2,9 +2,7 @@
 //!
 //! Canonical archive facts stay in `archive/history-vault.sqlite`. Optional AI,
 //! enrichment, and deterministic insight tables live in a separate SQLite
-//! plane, with read-only temp views back into the canonical archive for the
-//! legacy query helpers that still expect `visit_events` / `search_terms`-like
-//! shapes.
+//! plane, while read paths use the attached canonical archive directly.
 
 use crate::{
     ai::ensure_ai_schema,
@@ -18,66 +16,8 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::time::Duration as StdDuration;
 
-const INTELLIGENCE_ARCHIVE_VIEWS_SQL: &str = r#"
-DROP VIEW IF EXISTS temp.visit_events;
-CREATE TEMP VIEW visit_events AS
-SELECT
-  visits.id AS id,
-  source_profiles.profile_key AS profile_id,
-  CAST(visits.source_visit_id AS INTEGER) AS source_visit_id,
-  urls.id AS source_url_id,
-  urls.url AS url,
-  urls.title AS title,
-  (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
-  visits.from_visit AS from_visit,
-  visits.transition_type AS transition,
-  visits.visit_duration_ms AS visit_duration,
-  visits.is_known_to_sync AS is_known_to_sync,
-  visits.visited_link_id AS visited_link_id,
-  visits.external_referrer_url AS external_referrer_url,
-  visits.app_id AS app_id,
-  visits.event_fingerprint AS event_fingerprint,
-  visits.payload_hash AS payload_hash,
-  visits.recorded_at AS recorded_at,
-  visits.import_batch_id AS import_batch_id
-FROM archive.visits AS visits
-JOIN archive.urls AS urls
-  ON urls.id = visits.url_id
-JOIN archive.source_profiles AS source_profiles
-  ON source_profiles.id = visits.source_profile_id
-WHERE visits.reverted_at IS NULL;
-
-DROP VIEW IF EXISTS temp.search_terms;
-CREATE TEMP VIEW search_terms AS
-SELECT
-  source_profiles.profile_key AS profile_id,
-  search_terms.id AS id,
-  search_terms.url_id AS url_id,
-  search_terms.term AS term,
-  search_terms.normalized_term AS normalized_term,
-  search_terms.reverted_at AS reverted_at
-FROM archive.search_terms AS search_terms
-JOIN archive.source_profiles AS source_profiles
-  ON source_profiles.id = search_terms.source_profile_id;
-
-DROP VIEW IF EXISTS temp.source_profiles;
-CREATE TEMP VIEW source_profiles AS
-SELECT
-  id,
-  browser_kind,
-  browser_version,
-  profile_name,
-  profile_path,
-  discovered_at,
-  enabled,
-  profile_key,
-  user_name,
-  updated_at
-FROM archive.source_profiles;
-"#;
-
 /// Opens the rebuildable intelligence SQLite plane and attaches the canonical
-/// archive for read-only temp views.
+/// archive for direct read access.
 pub fn open_intelligence_connection(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -89,7 +29,6 @@ pub fn open_intelligence_connection(
     connection.busy_timeout(StdDuration::from_secs(5))?;
     connection.pragma_update(None, "foreign_keys", true)?;
     attach_archive_database(&connection, paths, config, key)?;
-    install_archive_views(&connection)?;
     ensure_ai_schema(&connection)?;
     ai_queue::ensure_ai_queue_schema(&connection)?;
     ensure_insight_schema(&connection)?;
@@ -117,13 +56,6 @@ fn attach_archive_database(
     Ok(())
 }
 
-fn install_archive_views(connection: &Connection) -> Result<()> {
-    connection
-        .execute_batch(INTELLIGENCE_ARCHIVE_VIEWS_SQL)
-        .context("installing intelligence temp views over canonical archive")?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,7 +66,7 @@ mod tests {
     };
 
     #[test]
-    fn intelligence_connection_bootstraps_side_db_and_archive_views() {
+    fn intelligence_connection_bootstraps_side_db_and_attached_archive() {
         let root = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
         let config = AppConfig {
@@ -182,11 +114,13 @@ mod tests {
         let intelligence =
             open_intelligence_connection(&paths, &config, None).expect("intelligence");
         let visible_visits: i64 = intelligence
-            .query_row("SELECT COUNT(*) FROM visit_events", [], |row| row.get(0))
-            .expect("temp visit view");
+            .query_row("SELECT COUNT(*) FROM archive.visits WHERE reverted_at IS NULL", [], |row| {
+                row.get(0)
+            })
+            .expect("attached archive visits");
         let term_count: i64 = intelligence
-            .query_row("SELECT COUNT(*) FROM search_terms", [], |row| row.get(0))
-            .expect("temp search-term view");
+            .query_row("SELECT COUNT(*) FROM archive.search_terms", [], |row| row.get(0))
+            .expect("attached archive search terms");
         assert_eq!(visible_visits, 1);
         assert_eq!(term_count, 1);
     }

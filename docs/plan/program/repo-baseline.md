@@ -53,7 +53,7 @@
 - [`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 1916 行、[`src-tauri/crates/vault-core/src/insights.rs`](../../../src-tauri/crates/vault-core/src/insights.rs) 2481 行，很多 intelligence 相關邏輯已經提前塞進 canonical SQLite 旁邊。
 - Rust workspace 現在已有 `browser-history-parser` crate，且 `vault-core` 已用它接通 Chromium、Firefox 與 Safari baseline backup ingest；後續重點已從「多瀏覽器是否存在」轉成 parser 深度、capability caveat 與 fixture 擴充。
 - canonical schema v1 + v2 runtime foundation 已落在 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 與 [`migrations/002_archive_runtime_foundation.sql`](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)；archive init 已統一走 migration executor。
-- [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在同時承擔 migration runtime、runtime backfill，以及 `profiles` / `visit_events` compatibility views，供 AI / insights / takeout 過渡期繼續工作。
+- [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在已退回 canonical archive bootstrap；search / intelligence plane 不再靠 archive-side compatibility views 或 runtime backfill 存活。
 - [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) 暴露了很多 Tauri commands，但命令集合和命名仍然緊貼舊 UI 與舊產品假設。
 - [`src-tauri/crates/vault-worker/src/lib.rs`](../../../src-tauri/crates/vault-worker/src/lib.rs) 1577 行，兼任了 desktop orchestration、CLI worker、MCP server、keyring / schedule bridge 等多個角色。
 - [`src-tauri/crates/vault-platform/src/lib.rs`](../../../src-tauri/crates/vault-platform/src/lib.rs) 已具備 macOS preview / manual / apply 與 Windows / Linux preview / manual schedule surface，Linux timer contract 也已明確切到 `OnCalendar=` + `Persistent=true`。
@@ -78,26 +78,26 @@
 
 ### Current Archive Schema Gap Table（2026-04-09 / `WORK-QC-C`）
 
-| Surface                              | 現況                                                                                                                                                                              | Truthful boundary                                                                                    |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Canonical core tables                | `001_initial.sql` 已落地 `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` / `raw_row_versions` / `manifests` / `snapshots` / `settings` | 這是目前正式 source of truth。                                                                       |
-| Runtime helper / compatibility layer | `002_archive_runtime_foundation.sql` 增加 `profile_watermarks`、`import_batches`、compat views / triggers                                                                         | 這些是 accepted adjunct / transition surface，不是新的 canonical 命名方向。                          |
-| Search projection                    | `003_history_search_fts.sql` 導入 FTS5 `history_search` projection                                                                                                                | 這是 rebuildable derived state，不是 canonical source table。                                        |
-| Legacy DB 升級 harness               | fresh init、migration replay、checksum drift 已有；legacy-to-new one-shot conversion 仍無正式 harness                                                                             | deferred with rationale：目前沒有正式 legacy user base，shipping path 以 fresh canonical init 為主。 |
-| Snapshot restore preview / execute   | Audit 現在可對 saved raw-source checkpoint 做 preview / replay，並留下 `snapshot_restore` run / manifest / artifact；rekey 的 archive safety snapshot 也有 review path            | shipping 的是 checkpoint replay restore；若 archive-file snapshot 需要舊 key，仍維持 manual-first。  |
-| Approval / manual-step 寫入 `runs`   | `runs` 已記錄 trigger / timezone / warnings / stats / artifacts                                                                                                                   | approval reason / manual intervention 仍主要停在 preview artifact 和 UI copy，尚未成為 schema 欄位。 |
+| Surface                              | 現況                                                                                                                                                                   | Truthful boundary                                                                                    |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Canonical core tables                | `001_initial.sql` 已落地 `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` / `manifests` / `snapshots` / `settings`           | 這是目前正式 source of truth。                                                                       |
+| Runtime helper / compatibility layer | `002_archive_runtime_foundation.sql` 增加 `profile_watermarks`、`import_batches`、compat views / triggers                                                              | 這些是 accepted adjunct / transition surface，不是新的 canonical 命名方向。                          |
+| Search projection                    | `003_history_search_fts.sql` 導入 FTS5 `history_search` projection                                                                                                     | 這是 rebuildable derived state，不是 canonical source table。                                        |
+| Legacy DB 升級 harness               | fresh init、migration replay、checksum drift 已有；legacy-to-new one-shot conversion 仍無正式 harness                                                                  | deferred with rationale：目前沒有正式 legacy user base，shipping path 以 fresh canonical init 為主。 |
+| Snapshot restore preview / execute   | Audit 現在可對 saved raw-source checkpoint 做 preview / replay，並留下 `snapshot_restore` run / manifest / artifact；rekey 的 archive safety snapshot 也有 review path | shipping 的是 checkpoint replay restore；若 archive-file snapshot 需要舊 key，仍維持 manual-first。  |
+| Approval / manual-step 寫入 `runs`   | `runs` 已記錄 trigger / timezone / warnings / stats / artifacts                                                                                                        | approval reason / manual intervention 仍主要停在 preview artifact 和 UI copy，尚未成為 schema 欄位。 |
 
 ### Current Intelligence / Derived-State Boundary Table（2026-04-09 / `WORK-QC-D`）
 
-| Surface                               | 目前位置 / 形式                                   | Truthful boundary                                                    |
-| ------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
-| `ai_jobs`, `ai_index_ledger`          | canonical archive SQLite                          | durable operational metadata；不是 canonical history facts           |
-| `ai_embeddings`                       | canonical archive SQLite                          | rebuildable compatibility mirror；不是 semantic source of truth      |
-| LanceDB semantic tables               | app data directory sidecar                        | primary ANN / vector store；整個 sidecar 可刪除後重建                |
-| enrichment / topics / threads / cards | canonical archive SQLite 的 derived tables        | rebuildable derived state；clear / rebuild 不可觸動 canonical visits |
-| MCP / skill integration preview files | preview payload only（command + JSON / markdown） | manual-copy artifact；PathKeep 不會在 preview 時偷偷安裝外部工具設定 |
-| remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth         |
-| `history_search` FTS projection       | SQLite FTS5 rebuildable projection                | fast-path search index；不是 canonical archive table                 |
+| Surface                               | 目前位置 / 形式                                   | Truthful boundary                                                                   |
+| ------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ai_jobs`, `ai_index_ledger`          | canonical archive SQLite                          | durable operational metadata；不是 canonical history facts                          |
+| `ai_embeddings`                       | `derived/history-intelligence.sqlite`             | compact semantic metadata / rebuild accounting；不是 vector payload source of truth |
+| LanceDB semantic tables               | app data directory sidecar                        | primary ANN / vector store；整個 sidecar 可刪除後重建                               |
+| enrichment / topics / threads / cards | canonical archive SQLite 的 derived tables        | rebuildable derived state；clear / rebuild 不可觸動 canonical visits                |
+| MCP / skill integration preview files | preview payload only（command + JSON / markdown） | manual-copy artifact；PathKeep 不會在 preview 時偷偷安裝外部工具設定                |
+| remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth                        |
+| `history_search` FTS projection       | SQLite FTS5 rebuildable projection                | fast-path search index；不是 canonical archive table                                |
 
 ### 待辦
 

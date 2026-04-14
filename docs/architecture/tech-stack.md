@@ -28,7 +28,7 @@
 
 - **Canonical archive：`archive/history-vault.sqlite` / SQLCipher** — 唯一的 source of truth。
 - **全文召回：`derived/history-search.sqlite` + SQLite FTS5** — 核心功能，不是 AI 附件。
-- **Intelligence runtime：`derived/history-intelligence.sqlite`** — queue、assistant trace、deterministic read model、enrichment metadata。2026-04-14 current-state note：SQLite `ai_embeddings` mirror 仍存在於這個 plane，作 metadata / debug / rebuild accounting；request-path semantic retrieval 已不再依賴它。
+- **Intelligence runtime：`derived/history-intelligence.sqlite`** — queue、assistant trace、deterministic read model、enrichment metadata 與 compact semantic metadata / rebuild accounting。向量 payload 不進 SQLite。
 - **向量 / 語義檢索：LanceDB sidecar** — 可替換的衍生狀態，使用 rig.rs 驅動 embedding pipeline。
 - **重型分析：DuckDB（延後引入）** — 只在 SQLite 被證明不夠用時才加入，作為可重建的 analytics mart。
 

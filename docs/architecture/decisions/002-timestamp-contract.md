@@ -24,7 +24,7 @@ PathKeep 凍結 canonical timestamp contract 如下：
 - canonical schema 中不保存「local time」欄位。local time 一律由 `*_ms` 加上 run 或 fallback timezone 在讀取端推導。
 - `runs.timezone` 記錄當次 backup/import/doctor/revert/snapshot restore 執行時的系統 timezone（IANA TZ database name，如 `America/Phoenix`）。
 - `settings` 中保留 `archive.fallback_timezone` 作為缺失 timezone metadata 時的回退值；未顯式設定時，預設使用當前系統 timezone。
-- raw capture 層保留來源原始時間值，不在 `raw_row_versions.payload_json` 中做 destructive rewrite。
+- raw capture 層保留來源原始時間值，不對來源 snapshot / checkpoint 做 destructive rewrite。
 
 ## Rationale
 

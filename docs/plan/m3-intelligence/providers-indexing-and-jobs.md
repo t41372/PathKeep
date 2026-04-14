@@ -35,7 +35,7 @@
 
 ## 2026-04-09 closeout（`WORK-QC-D`）
 
-- semantic retrieval 現在會先查 LanceDB sidecar；sidecar 缺失或失敗時只退化到 lexical / capped candidate recall，並留下明確 notes，而不是靜默掃 SQLite mirror 或全表 cosine scan
+- semantic retrieval 現在會先查 LanceDB sidecar；sidecar 缺失或失敗時只退化到 lexical / capped candidate recall，並留下明確 notes，而不是靜默依賴 SQLite metadata/accounting 表或全表 cosine scan
 - index readiness / stale detection 現在已 model-scoped，並會對 import / rollback / visibility watermark 與 readable-content enrichment freshness 變化回傳 `stale`，要求使用者手動 rebuild
 - embedding build 現在有 batch sizing、retry、partial success handling；逐筆 fallback 只在 batch 失敗時才發生
 - Settings 現在可見 indexed rows、sidecar bytes、mirror bytes、estimated embedding tokens，以及 MCP / skill integration 的 consent / capability / scope / audit preview

@@ -92,7 +92,7 @@ Versioning policy:
   - `visits`
   - `downloads`
   - `search_terms`
-  - `raw_row_versions`
+  - checkpoint / snapshot / manifest trace
   - `manifests`
   - `snapshots`
   - `settings`

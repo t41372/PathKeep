@@ -252,32 +252,6 @@ const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 5] = [
 /// Ensures the persistent intelligence runtime tables exist.
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
-    ensure_runtime_column(connection, "intelligence_jobs", "heartbeat_at", "TEXT")?;
-    ensure_runtime_column(connection, "intelligence_jobs", "lease_owner", "TEXT")?;
-    ensure_runtime_column(connection, "intelligence_jobs", "lease_expires_at", "TEXT")?;
-    ensure_runtime_column(
-        connection,
-        "intelligence_jobs",
-        "stop_requested",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    Ok(())
-}
-
-fn ensure_runtime_column(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-    definition: &str,
-) -> Result<()> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
-    let columns = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if columns.iter().any(|existing| existing == column) {
-        return Ok(());
-    }
-    connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
     Ok(())
 }
 

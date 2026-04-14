@@ -106,7 +106,6 @@ export interface BackupProfileSummary {
   newVisits: number
   newUrls: number
   newDownloads: number
-  rawRows: number
   checkpointCreated: boolean
   notes: string[]
 }

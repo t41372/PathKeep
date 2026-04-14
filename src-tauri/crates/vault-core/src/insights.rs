@@ -23,6 +23,7 @@ use crate::{
         DomainCategory, EvidenceTier, InteractionKind, PageCategory, VisitAnalysisInput,
         analyze_visit, extract_search_query_from_url, tokenize_text,
     },
+    intelligence_blobs::{load_readable_text_blob, store_readable_text_blob},
     intelligence_runtime::{
         DeterministicModuleRuntimeUpdate, ENRICHMENT_JOB_TYPE, EnrichmentJobPayload,
         LOCAL_PLUGIN_SOURCE_KIND, NETWORK_PLUGIN_SOURCE_KIND, built_in_deterministic_modules,
@@ -43,7 +44,7 @@ use crate::{
         RunInsightsRequest, SOURCE_EFFECTIVENESS_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_ID,
         THREADS_MODULE_ID, TITLE_NORMALIZATION_PLUGIN_ID,
     },
-    utils::{chrome_time_to_rfc3339, now_rfc3339, sha256_hex, url_domain},
+    utils::{chrome_time_to_rfc3339, now_rfc3339, url_domain},
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Local, Utc};
@@ -92,7 +93,8 @@ CREATE TABLE IF NOT EXISTS visit_content_enrichments (
   final_url TEXT,
   language TEXT,
   readable_title TEXT,
-  readable_text TEXT,
+  readable_text_blob_path TEXT,
+  readable_text_bytes INTEGER NOT NULL DEFAULT 0,
   text_hash TEXT,
   snippet_json TEXT NOT NULL,
   extraction_json TEXT NOT NULL,
@@ -397,104 +399,6 @@ const SQLITE_BATCH_SIZE: usize = 400;
 /// Ensures all deterministic-insight schema tables and indexes exist.
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INSIGHT_SCHEMA_SQL)?;
-    ensure_visit_insight_feature_column(connection, "burst_id", "TEXT")?;
-    ensure_visit_insight_feature_column(connection, "query_group_id", "TEXT")?;
-    ensure_visit_insight_feature_column(
-        connection,
-        "domain_category",
-        "TEXT NOT NULL DEFAULT 'unknown'",
-    )?;
-    ensure_visit_insight_feature_column(
-        connection,
-        "page_category",
-        "TEXT NOT NULL DEFAULT 'unknown'",
-    )?;
-    ensure_visit_insight_feature_column(
-        connection,
-        "interaction_kind",
-        "TEXT NOT NULL DEFAULT 'unknown'",
-    )?;
-    ensure_visit_insight_feature_column(
-        connection,
-        "evidence_tier",
-        "TEXT NOT NULL DEFAULT 'tier-c'",
-    )?;
-    ensure_visit_insight_feature_column(
-        connection,
-        "taxonomy_source",
-        "TEXT NOT NULL DEFAULT 'unknown'",
-    )?;
-    ensure_visit_insight_feature_column(connection, "taxonomy_pack", "TEXT")?;
-    ensure_visit_insight_feature_column(connection, "taxonomy_version", "TEXT")?;
-    ensure_visit_insight_feature_column(connection, "taxonomy_reason", "TEXT")?;
-    ensure_table_column(
-        connection,
-        "insight_threads",
-        "query_group_count",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_query_groups",
-        "profile_scope",
-        "TEXT NOT NULL DEFAULT 'all'",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_query_groups",
-        "window_days",
-        "INTEGER NOT NULL DEFAULT 30",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_threads",
-        "profile_scope",
-        "TEXT NOT NULL DEFAULT 'all'",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_threads",
-        "window_days",
-        "INTEGER NOT NULL DEFAULT 30",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_reference_pages",
-        "window_days",
-        "INTEGER NOT NULL DEFAULT 30",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_source_effectiveness",
-        "window_days",
-        "INTEGER NOT NULL DEFAULT 30",
-    )?;
-    ensure_table_column(connection, "insight_threads", "confidence", "REAL NOT NULL DEFAULT 0")?;
-    ensure_table_column(
-        connection,
-        "insight_threads",
-        "evidence_tier",
-        "TEXT NOT NULL DEFAULT 'tier-c'",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_runs",
-        "query_group_count",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    ensure_table_column(
-        connection,
-        "insight_runs",
-        "reference_page_count",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    ensure_table_column(connection, "insight_runs", "source_count", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_table_column(
-        connection,
-        "insight_runs",
-        "template_summary_count",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
     connection.execute_batch(
         r#"
 CREATE INDEX IF NOT EXISTS idx_insight_query_groups_scope_window_last_seen
@@ -523,45 +427,10 @@ CREATE INDEX IF NOT EXISTS idx_visit_insight_features_query_group_id
     Ok(())
 }
 
-fn ensure_visit_insight_feature_column(
-    connection: &Connection,
-    column: &str,
-    definition: &str,
-) -> Result<()> {
-    let mut statement = connection.prepare("PRAGMA table_info(visit_insight_features)")?;
-    let columns = statement
-        .query_map([], |row: &Row<'_>| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if columns.iter().any(|existing| existing == column) {
-        return Ok(());
-    }
-    connection.execute(
-        &format!("ALTER TABLE visit_insight_features ADD COLUMN {column} {definition}"),
-        [],
-    )?;
-    Ok(())
-}
-
-fn ensure_table_column(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-    definition: &str,
-) -> Result<()> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
-    let columns = statement
-        .query_map([], |row: &Row<'_>| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if columns.iter().any(|existing| existing == column) {
-        return Ok(());
-    }
-    connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
-    Ok(())
-}
-
 /// Chooses the best text payload to embed for one enriched visit.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn preferred_embedding_content(
+    paths: &ProjectPaths,
     connection: &Connection,
     history_id: i64,
     profile_id: &str,
@@ -569,7 +438,7 @@ pub(crate) fn preferred_embedding_content(
     title: Option<&str>,
     visited_at: &str,
 ) -> Result<String> {
-    let enrichment = best_enrichment_for_history(connection, history_id)?;
+    let enrichment = best_enrichment_for_history(paths, connection, history_id)?;
     Ok(build_embedding_content_from_parts(
         profile_id,
         url,
@@ -625,10 +494,23 @@ fn load_visits_in_range(
     limit: Option<usize>,
 ) -> Result<Vec<VisitRecord>> {
     let mut sql = String::from(
-        "SELECT id, profile_id, source_visit_id, source_url_id, url, title, visit_time,
-                from_visit, transition, visit_duration, external_referrer_url, app_id
-         FROM visit_events
-         WHERE visit_time >= ?1",
+        "SELECT visits.id,
+                source_profiles.profile_key AS profile_id,
+                CAST(visits.source_visit_id AS INTEGER) AS source_visit_id,
+                urls.id AS source_url_id,
+                urls.url,
+                urls.title,
+                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
+                visits.from_visit,
+                visits.transition_type AS transition,
+                visits.visit_duration_ms AS visit_duration,
+                visits.external_referrer_url,
+                visits.app_id
+         FROM archive.visits AS visits
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+         WHERE visits.reverted_at IS NULL
+           AND (visits.visit_time_ms * 1000 + 11644473600000000) >= ?1",
     );
     let mut params: Vec<&dyn rusqlite::ToSql> = vec![&start_chrome];
     let mut next_index = 2;
@@ -644,7 +526,7 @@ fn load_visits_in_range(
         params.push(profile_id);
         next_index += 1;
     }
-    sql.push_str(" ORDER BY visit_time ASC");
+    sql.push_str(" ORDER BY visits.visit_time_ms ASC");
     let limit_value = limit.map(|limit| limit.max(1) as i64);
     if let Some(limit_value) = limit_value.as_ref() {
         sql.push_str(&format!(" LIMIT ?{next_index}"));
@@ -663,17 +545,31 @@ fn load_on_this_day(
     let today_key = Local::now().format("%m-%d").to_string();
     let current_year = Local::now().format("%Y").to_string();
     let sql = if profile_id.is_some() {
-        "SELECT id, profile_id, url, title, visit_time
-         FROM visit_events
-         WHERE profile_id = ?1
+        "SELECT visits.id,
+                source_profiles.profile_key AS profile_id,
+                urls.url,
+                urls.title,
+                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
+         FROM archive.visits AS visits
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+         WHERE visits.reverted_at IS NULL
+           AND source_profiles.profile_key = ?1
            AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?2
            AND strftime('%Y', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) != ?3
          ORDER BY visit_time DESC
          LIMIT ?4"
     } else {
-        "SELECT id, profile_id, url, title, visit_time
-         FROM visit_events
-         WHERE strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?1
+        "SELECT visits.id,
+                source_profiles.profile_key AS profile_id,
+                urls.url,
+                urls.title,
+                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
+         FROM archive.visits AS visits
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+         WHERE visits.reverted_at IS NULL
+           AND strftime('%m-%d', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) = ?1
            AND strftime('%Y', datetime(visit_time / 1000000 - 11644473600, 'unixepoch', 'localtime')) != ?2
          ORDER BY visit_time DESC
          LIMIT ?3"
@@ -787,11 +683,13 @@ fn load_search_term_map(
         for chunk in url_ids.chunks(SQLITE_BATCH_SIZE) {
             let placeholders = vec!["?"; chunk.len()].join(", ");
             let sql = format!(
-                "SELECT profile_id, url_id, normalized_term
-                 FROM search_terms
-                 WHERE profile_id = ?1
-                   AND reverted_at IS NULL
-                   AND url_id IN ({placeholders})"
+                "SELECT source_profiles.profile_key, search_terms.url_id, search_terms.normalized_term
+                 FROM archive.search_terms AS search_terms
+                 JOIN archive.source_profiles AS source_profiles
+                   ON source_profiles.id = search_terms.source_profile_id
+                 WHERE source_profiles.profile_key = ?1
+                   AND search_terms.reverted_at IS NULL
+                   AND search_terms.url_id IN ({placeholders})"
             );
             let mut statement = connection.prepare(&sql)?;
             let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
@@ -827,6 +725,7 @@ fn is_refetch_eligible(visit: &VisitRecord) -> bool {
 }
 
 fn schedule_enrichment_jobs(
+    paths: &ProjectPaths,
     connection: &Connection,
     config: &AppConfig,
     run_id: i64,
@@ -844,7 +743,7 @@ fn schedule_enrichment_jobs(
             if !plugin_is_eligible(plugin.id, visit) {
                 continue;
             }
-            if plugin_enrichment_is_fresh(connection, visit.history_id, plugin.id)? {
+            if plugin_enrichment_is_fresh(paths, connection, visit.history_id, plugin.id)? {
                 continue;
             }
             enqueue_enrichment_job(
@@ -865,6 +764,7 @@ fn schedule_enrichment_jobs(
 }
 
 fn process_enrichment_jobs(
+    paths: &ProjectPaths,
     connection: &Connection,
     config: &AppConfig,
     visits: &[VisitRecord],
@@ -951,7 +851,7 @@ fn process_enrichment_jobs(
             }
         };
 
-        store_enrichment(connection, visit.history_id, &job.plugin_id, &enrichment)?;
+        store_enrichment(paths, connection, visit.history_id, &job.plugin_id, &enrichment)?;
         let artifact = json!({
             "status": enrichment.status,
             "snippetCount": enrichment.snippets.len(),
@@ -992,7 +892,11 @@ fn process_enrichment_jobs(
     Ok(report)
 }
 
-pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Result<bool> {
+pub fn execute_enrichment_job_by_id(
+    paths: &ProjectPaths,
+    connection: &Connection,
+    job_id: i64,
+) -> Result<bool> {
     let Some(job) = claim_enrichment_job_by_id(connection, job_id)? else {
         return Ok(false);
     };
@@ -1029,7 +933,7 @@ pub fn execute_enrichment_job_by_id(connection: &Connection, job_id: i64) -> Res
         return Ok(true);
     }
 
-    store_enrichment(connection, job.payload.history_id, &job.plugin_id, &enrichment)?;
+    store_enrichment(paths, connection, job.payload.history_id, &job.plugin_id, &enrichment)?;
     let artifact = json!({
         "status": enrichment.status,
         "snippetCount": enrichment.snippets.len(),
@@ -1114,11 +1018,12 @@ fn plugin_is_eligible(plugin_id: &str, visit: &VisitRecord) -> bool {
 }
 
 fn plugin_enrichment_is_fresh(
+    paths: &ProjectPaths,
     connection: &Connection,
     history_id: i64,
     plugin_id: &str,
 ) -> Result<bool> {
-    let record = enrichment_for_history_and_source(connection, history_id, plugin_id)?;
+    let record = enrichment_for_history_and_source(paths, connection, history_id, plugin_id)?;
     let Some(record) = record else {
         return Ok(false);
     };
@@ -1365,17 +1270,18 @@ fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
 }
 
 fn store_enrichment(
+    paths: &ProjectPaths,
     connection: &Connection,
     history_id: i64,
     content_source: &str,
     enrichment: &EnrichmentResult,
 ) -> Result<()> {
-    let text_hash = enrichment.readable_text.as_deref().map(|value| sha256_hex(value.as_bytes()));
+    let stored_blob = store_readable_text_blob(paths, enrichment.readable_text.as_deref())?;
     connection.execute(
         "INSERT OR REPLACE INTO visit_content_enrichments
          (history_id, content_source, fetch_status, fetched_at, final_url, language, readable_title,
-          readable_text, text_hash, snippet_json, extraction_json, pipeline_version)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+          readable_text_blob_path, readable_text_bytes, text_hash, snippet_json, extraction_json, pipeline_version)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             history_id,
             content_source,
@@ -1384,8 +1290,9 @@ fn store_enrichment(
             enrichment.final_url,
             enrichment.language,
             enrichment.readable_title,
-            enrichment.readable_text,
-            text_hash,
+            stored_blob.as_ref().map(|blob| blob.relative_path.as_str()),
+            stored_blob.as_ref().map(|blob| blob.byte_len as i64).unwrap_or(0),
+            stored_blob.as_ref().map(|blob| blob.content_hash.as_str()),
             serde_json::to_string(&enrichment.snippets)?,
             serde_json::to_string(&enrichment.extraction)?,
             INSIGHT_PIPELINE_VERSION,
@@ -1395,42 +1302,52 @@ fn store_enrichment(
 }
 
 fn enrichment_for_history_and_source(
+    paths: &ProjectPaths,
     connection: &Connection,
     history_id: i64,
     content_source: &str,
 ) -> Result<Option<StoredEnrichment>> {
     let mut statement = connection.prepare(
         "SELECT content_source, fetch_status, fetched_at, final_url, language, readable_title,
-                readable_text, snippet_json
+                readable_text_blob_path, snippet_json
          FROM visit_content_enrichments
          WHERE history_id = ?1 AND content_source = ?2
          ORDER BY fetched_at DESC
          LIMIT 1",
     )?;
-    statement
+    let row = statement
         .query_row(params![history_id, content_source], |row| {
             let _: Option<String> = row.get(3)?;
             let _: Option<String> = row.get(4)?;
-            Ok(StoredEnrichment {
-                fetch_status: row.get(1)?,
-                fetched_at: row.get(2)?,
-                readable_title: row.get(5)?,
-                readable_text: row.get(6)?,
-                snippet_json: row.get(7)?,
-            })
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+            ))
         })
-        .optional()
-        .map_err(Into::into)
+        .optional()?;
+    row.map_or(Ok(None), |(fetch_status, fetched_at, readable_title, blob_path, snippet_json)| {
+        Ok(Some(StoredEnrichment {
+            fetch_status,
+            fetched_at,
+            readable_title,
+            readable_text: load_readable_text_blob(paths, blob_path.as_deref())?,
+            snippet_json,
+        }))
+    })
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 fn best_enrichment_for_history(
+    paths: &ProjectPaths,
     connection: &Connection,
     history_id: i64,
 ) -> Result<Option<StoredEnrichment>> {
     let mut statement = connection.prepare(
         "SELECT content_source, fetch_status, fetched_at, final_url, language, readable_title,
-                readable_text, snippet_json
+                readable_text_blob_path, snippet_json
          FROM visit_content_enrichments
          WHERE history_id = ?1
          ORDER BY
@@ -1443,23 +1360,32 @@ fn best_enrichment_for_history(
            END,
            fetched_at DESC",
     )?;
-    statement
+    let row = statement
         .query_row([history_id], |row: &Row<'_>| {
             let _: Option<String> = row.get(3)?;
             let _: Option<String> = row.get(4)?;
-            Ok(StoredEnrichment {
-                fetch_status: row.get(1)?,
-                fetched_at: row.get(2)?,
-                readable_title: row.get(5)?,
-                readable_text: row.get(6)?,
-                snippet_json: row.get(7)?,
-            })
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+            ))
         })
-        .optional()
-        .map_err(Into::into)
+        .optional()?;
+    row.map_or(Ok(None), |(fetch_status, fetched_at, readable_title, blob_path, snippet_json)| {
+        Ok(Some(StoredEnrichment {
+            fetch_status,
+            fetched_at,
+            readable_title,
+            readable_text: load_readable_text_blob(paths, blob_path.as_deref())?,
+            snippet_json,
+        }))
+    })
 }
 
 pub(crate) fn load_best_enrichment_map_by_history_ids(
+    paths: &ProjectPaths,
     connection: &Connection,
     history_ids: &[i64],
 ) -> Result<HashMap<i64, StoredEnrichment>> {
@@ -1471,7 +1397,7 @@ pub(crate) fn load_best_enrichment_map_by_history_ids(
     for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
         let sql = format!(
-            "SELECT history_id, fetch_status, fetched_at, readable_title, readable_text, snippet_json
+            "SELECT history_id, fetch_status, fetched_at, readable_title, readable_text_blob_path, snippet_json
              FROM visit_content_enrichments
              WHERE history_id IN ({placeholders})
              ORDER BY
@@ -1490,18 +1416,23 @@ pub(crate) fn load_best_enrichment_map_by_history_ids(
         let rows = statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
             Ok((
                 row.get::<_, i64>(0)?,
-                StoredEnrichment {
-                    fetch_status: row.get(1)?,
-                    fetched_at: row.get(2)?,
-                    readable_title: row.get(3)?,
-                    readable_text: row.get(4)?,
-                    snippet_json: row.get(5)?,
-                },
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
             ))
         })?;
         for row in rows {
-            let (history_id, enrichment) = row?;
-            map.entry(history_id).or_insert(enrichment);
+            let (history_id, fetch_status, fetched_at, readable_title, blob_path, snippet_json) =
+                row?;
+            map.entry(history_id).or_insert(StoredEnrichment {
+                fetch_status,
+                fetched_at,
+                readable_title,
+                readable_text: load_readable_text_blob(paths, blob_path.as_deref())?,
+                snippet_json,
+            });
         }
     }
 
@@ -1509,10 +1440,11 @@ pub(crate) fn load_best_enrichment_map_by_history_ids(
 }
 
 fn load_best_enrichment_map(
+    paths: &ProjectPaths,
     connection: &Connection,
     visits: &[VisitRecord],
 ) -> Result<HashMap<i64, StoredEnrichment>> {
-    load_best_enrichment_map_by_history_ids(connection, &collect_history_ids(visits))
+    load_best_enrichment_map_by_history_ids(paths, connection, &collect_history_ids(visits))
 }
 
 fn hydrate_enrichments(visits: &mut [VisitRecord], enrichments: &HashMap<i64, StoredEnrichment>) {
@@ -2558,37 +2490,6 @@ mod tests {
             .expect("insert test visit");
     }
 
-    fn install_test_visit_events_view(connection: &Connection) {
-        connection
-            .execute_batch(
-                "CREATE TEMP VIEW visit_events AS
-                 SELECT
-                   visits.id AS id,
-                   source_profiles.profile_key AS profile_id,
-                   CAST(visits.source_visit_id AS INTEGER) AS source_visit_id,
-                   urls.id AS source_url_id,
-                   urls.url AS url,
-                   urls.title AS title,
-                   (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
-                   visits.from_visit AS from_visit,
-                   visits.transition_type AS transition,
-                   visits.visit_duration_ms AS visit_duration,
-                   visits.is_known_to_sync AS is_known_to_sync,
-                   visits.visited_link_id AS visited_link_id,
-                   visits.external_referrer_url AS external_referrer_url,
-                   visits.app_id AS app_id,
-                   visits.event_fingerprint AS event_fingerprint,
-                   visits.payload_hash AS payload_hash,
-                   visits.recorded_at AS recorded_at,
-                   visits.import_batch_id AS import_batch_id
-                 FROM visits
-                 JOIN urls ON urls.id = visits.url_id
-                 JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-                 WHERE visits.reverted_at IS NULL;",
-            )
-            .expect("install test visit_events view");
-    }
-
     #[test]
     fn insight_schema_and_snapshot_roundtrip() {
         let paths = test_paths();
@@ -2879,10 +2780,11 @@ mod tests {
 
     #[test]
     fn on_this_day_excludes_current_year_visits() {
-        let connection = Connection::open_in_memory().expect("db");
+        let paths = test_paths();
+        let config = test_config();
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
         create_schema(&connection).expect("core schema");
-        ensure_insight_schema(&connection).expect("insight schema");
-        install_test_visit_events_view(&connection);
         let current_year_visit = Local::now().to_rfc3339();
         let prior_year_visit = (Local::now() - Duration::days(365)).to_rfc3339();
         insert_test_visit(
@@ -2903,9 +2805,13 @@ mod tests {
             None,
             None,
         );
+        drop(connection);
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
 
         let items =
-            load_on_this_day(&connection, Some("chrome:Default"), 8).expect("load on this day");
+            load_on_this_day(&intelligence, Some("chrome:Default"), 8).expect("load on this day");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].url, "https://example.com/last-year");
     }
@@ -3054,7 +2960,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_insight_schema_upgrades_legacy_feature_rows_before_creating_grouping_indexes() {
+    fn ensure_insight_schema_requires_fresh_init_shape_for_visit_features() {
         let connection = Connection::open_in_memory().expect("db");
         connection
             .execute_batch(
@@ -3080,18 +2986,8 @@ CREATE TABLE visit_insight_features (
             )
             .expect("legacy insight feature table");
 
-        ensure_insight_schema(&connection).expect("upgrade legacy schema");
-
-        let mut statement =
-            connection.prepare("PRAGMA table_info(visit_insight_features)").expect("table info");
-        let columns = statement
-            .query_map([], |row: &Row<'_>| row.get::<_, String>(1))
-            .expect("query columns")
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .expect("collect columns");
-
-        assert!(columns.iter().any(|column| column == "burst_id"));
-        assert!(columns.iter().any(|column| column == "query_group_id"));
+        let error = ensure_insight_schema(&connection).expect_err("legacy schema should fail");
+        assert!(error.to_string().contains("burst_id"));
     }
 
     #[test]
@@ -3369,9 +3265,11 @@ CREATE TABLE visit_insight_features (
 
     #[test]
     fn preferred_embedding_content_prefers_enriched_text() {
+        let paths = test_paths();
         let connection = Connection::open_in_memory().expect("db");
         ensure_insight_schema(&connection).expect("schema");
         store_enrichment(
+            &paths,
             &connection,
             7,
             "refetch",
@@ -3387,6 +3285,7 @@ CREATE TABLE visit_insight_features (
         )
         .expect("store enrichment");
         let content = preferred_embedding_content(
+            &paths,
             &connection,
             7,
             "chrome:Default",

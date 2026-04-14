@@ -111,7 +111,9 @@ pub fn repair_health_issues(
             .query_row(
                 "SELECT COUNT(*)
                  FROM ai_embeddings
-                 WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                 WHERE history_id NOT IN (
+                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                 )",
                 [],
                 |row| row.get::<_, i64>(0),
             )?
@@ -127,7 +129,9 @@ pub fn repair_health_issues(
                 .query_row(
                     "SELECT COUNT(*)
                      FROM insight_thread_members
-                     WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                     WHERE history_id NOT IN (
+                       SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                     )",
                     [],
                     |row| row.get::<_, i64>(0),
                 )?
@@ -140,7 +144,9 @@ pub fn repair_health_issues(
                 .query_row(
                     "SELECT COUNT(*)
                      FROM visit_insight_features
-                     WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                     WHERE history_id NOT IN (
+                       SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                     )",
                     [],
                     |row| row.get::<_, i64>(0),
                 )?
@@ -212,7 +218,9 @@ pub fn repair_health_issues(
         let cleared_ai_embeddings = if table_exists(&intelligence, "ai_embeddings")? {
             intelligence.execute(
                 "DELETE FROM ai_embeddings
-                 WHERE history_id NOT IN (SELECT id FROM visit_events)",
+                 WHERE history_id NOT IN (
+                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                 )",
                 [],
             )?
         } else {
@@ -454,7 +462,9 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
         let stale_embeddings: i64 = connection.query_row(
             "SELECT COUNT(*)
              FROM ai_embeddings
-             WHERE history_id NOT IN (SELECT id FROM visit_events)",
+             WHERE history_id NOT IN (
+               SELECT id FROM archive.visits WHERE reverted_at IS NULL
+             )",
             [],
             |row| row.get(0),
         )?;
@@ -467,7 +477,9 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
         let stale_members: i64 = connection.query_row(
             "SELECT COUNT(*)
              FROM insight_thread_members
-             WHERE history_id NOT IN (SELECT id FROM visit_events)",
+             WHERE history_id NOT IN (
+               SELECT id FROM archive.visits WHERE reverted_at IS NULL
+             )",
             [],
             |row| row.get(0),
         )?;
@@ -480,7 +492,9 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
         let stale_features: i64 = connection.query_row(
             "SELECT COUNT(*)
              FROM visit_insight_features
-             WHERE history_id NOT IN (SELECT id FROM visit_events)",
+             WHERE history_id NOT IN (
+               SELECT id FROM archive.visits WHERE reverted_at IS NULL
+             )",
             [],
             |row| row.get(0),
         )?;

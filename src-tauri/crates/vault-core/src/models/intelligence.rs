@@ -372,7 +372,7 @@ pub struct AiIndexStatus {
     pub failed_jobs: u32,
     pub recent_jobs: Vec<AiQueueJob>,
     pub semantic_sidecar_bytes: u64,
-    pub semantic_mirror_bytes: u64,
+    pub semantic_metadata_bytes: u64,
     pub estimated_embedding_tokens: u64,
     pub warning: Option<String>,
 }

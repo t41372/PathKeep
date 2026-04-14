@@ -168,7 +168,7 @@ export interface AiIndexStatus {
   failedJobs: number
   recentJobs: AiQueueJob[]
   semanticSidecarBytes: number
-  semanticMirrorBytes: number
+  semanticMetadataBytes: number
   estimatedEmbeddingTokens: number
   warning?: string | null
 }

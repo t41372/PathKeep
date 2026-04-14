@@ -311,8 +311,8 @@ where
             None,
             Some("Scheduling first-party enrichment jobs for the current window.".to_string()),
         ))?;
-        schedule_enrichment_jobs(&connection, config, run_id, &visits)?;
-        let enrichment_report = process_enrichment_jobs(&connection, config, &visits)?;
+        schedule_enrichment_jobs(paths, &connection, config, run_id, &visits)?;
+        let enrichment_report = process_enrichment_jobs(paths, &connection, config, &visits)?;
 
         on_progress(InsightsRunProgress::new(
             "Hydrating visit evidence",
@@ -323,7 +323,7 @@ where
                 "Joining readable content, normalized titles, and optional embeddings.".to_string(),
             ),
         ))?;
-        let enrichments = load_best_enrichment_map(&connection, &visits)?;
+        let enrichments = load_best_enrichment_map(paths, &connection, &visits)?;
         let _ = embedding_provider;
         hydrate_enrichments(&mut visits, &enrichments);
         on_progress(InsightsRunProgress::new(
@@ -794,10 +794,17 @@ pub fn load_insight_thread_detail(
         thread_summary_from_row,
     )?;
     let mut statement = connection.prepare(
-        "SELECT visit_events.id, visit_events.profile_id, visit_events.url, visit_events.title, visit_events.visit_time
+        "SELECT visits.id,
+                source_profiles.profile_key AS profile_id,
+                urls.url,
+                urls.title,
+                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
          FROM insight_thread_members
-         JOIN visit_events ON visit_events.id = insight_thread_members.history_id
+         JOIN archive.visits AS visits ON visits.id = insight_thread_members.history_id
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
          WHERE insight_thread_members.thread_id = ?1
+           AND visits.reverted_at IS NULL
          ORDER BY insight_thread_members.ordinal ASC",
     )?;
     let visits = statement
@@ -846,7 +853,7 @@ pub fn clear_derived_intelligence_state(
         ],
     };
 
-    clear_derived_insight_state(&connection)?;
+    clear_derived_insight_state(paths, &connection)?;
     Ok(report)
 }
 
@@ -992,8 +999,9 @@ pub fn explain_insight(
 }
 
 /// Clears persisted derived intelligence tables and marks runtime modules stale.
-fn clear_derived_insight_state(connection: &Connection) -> Result<()> {
+fn clear_derived_insight_state(paths: &ProjectPaths, connection: &Connection) -> Result<()> {
     connection.execute("DELETE FROM visit_content_enrichments", [])?;
+    crate::intelligence_blobs::clear_readable_text_blobs(paths)?;
     ensure_intelligence_runtime_schema(connection)?;
     connection.execute("DELETE FROM visit_insight_features", [])?;
     connection.execute("DELETE FROM insight_bursts", [])?;

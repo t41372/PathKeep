@@ -53,3 +53,10 @@ PathKeep 改採 **4-layer storage plane**，並以 hard reset 方式直接切換
 - 文檔必須同步移除任何「legacy upgrade path」、「migration ledger」、「compatibility bridge」仍是正式策略的敘述。
 - Rust 實作必須把 browser snapshot、streaming ingest、projection catch-up、deterministic rebuild resume 等能力收斂成 long-horizon baseline，而不是再依賴 hot SQLite 共住 derived state。
 - 測試與 benchmark 必須改成以 fresh init / re-import 為主，不再維護 legacy DB compatibility acceptance。
+
+## 2026-04-14 Closeout Note
+
+- `archive/history-vault.sqlite`、`derived/history-search.sqlite`、`derived/history-intelligence.sqlite` 與 `sidecars/{semantic-index,intelligence-blobs}` 已全部落地成 repo 目前的正式 storage plane。
+- canonical archive 已移除 `raw_row_versions` hot-path persistence；來源證據改由 checkpoint / snapshot / manifest trace 承接。
+- intelligence plane 不再靠 temp compatibility views 或 runtime `ensure_*_column` patching 存活；讀路徑直接使用 attached `archive.*` 表。
+- SQLite 只保留 compact semantic metadata / rebuild accounting；向量 payload 僅存在 LanceDB sidecar，可讀正文則進 `sidecars/intelligence-blobs/`。

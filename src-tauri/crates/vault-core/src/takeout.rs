@@ -44,7 +44,6 @@ struct ParsedTakeoutRecord {
     title: Option<String>,
     visit_time: i64,
     payload_hash: String,
-    payload_json: String,
     source_visit_id: i64,
 }
 
@@ -453,7 +452,7 @@ fn import_supported_payload(
     run_id: i64,
     batch_id: i64,
     source_profile_id: i64,
-    profile_id: &str,
+    _profile_id: &str,
     source_path: &str,
     kind: &str,
     bytes: &[u8],
@@ -465,21 +464,6 @@ fn import_supported_payload(
     for record in payload.records {
         let visit_time_ms = chrome_time_to_unix_ms(record.visit_time);
         let visit_time_iso = chrome_time_to_rfc3339(record.visit_time);
-        archive.execute(
-            "INSERT OR IGNORE INTO raw_row_versions
-             (source_profile_id, source_kind, table_name, source_pk, payload_hash, schema_fingerprint, browser_version, payload_json, recorded_at, run_id, profile_id, schema_hash, chrome_version, import_batch_id)
-             VALUES (?1, 'takeout', 'records', ?2, ?3, 'takeout', 'takeout', ?4, ?5, ?6, ?7, 'takeout', 'takeout', ?8)",
-            params![
-                source_profile_id,
-                record.source_visit_id.to_string(),
-                record.payload_hash,
-                record.payload_json,
-                now_rfc3339(),
-                run_id,
-                profile_id,
-                batch_id
-            ],
-        )?;
         let url_id = archive.query_row(
             "INSERT INTO urls (
                url,
@@ -937,19 +921,30 @@ fn load_import_batch_detail(connection: &Connection, batch_id: i64) -> Result<Im
     let batch = load_import_batch_record(connection, batch_id)?
         .with_context(|| format!("import batch {batch_id} was not found"))?;
 
-    const PREVIEW_IMPORT_BATCH_SQL: &str = "SELECT payload_json FROM raw_row_versions WHERE import_batch_id = ?1 ORDER BY id DESC LIMIT ?2";
-    #[rustfmt::skip]
+    const PREVIEW_IMPORT_BATCH_SQL: &str = r#"
+        SELECT urls.url, urls.title, visits.visit_time_iso, visits.source_visit_id
+        FROM visits
+        JOIN urls ON urls.id = visits.url_id
+        WHERE visits.import_batch_id = ?1
+          AND visits.reverted_at IS NULL
+        ORDER BY visits.visit_time_ms DESC, visits.id DESC
+        LIMIT ?2
+    "#;
     let mut statement = connection.prepare(PREVIEW_IMPORT_BATCH_SQL)?;
     let rows = statement.query_map(params![batch_id, PREVIEW_LIMIT as i64], |row: &Row<'_>| {
-        row.get::<_, String>(0)
-    })?;
-    let preview_entries = rows
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .filter_map(|payload_json| {
-            preview_entry_from_payload(&batch.overview.source_path, &payload_json).ok()
+        Ok(TakeoutPreviewEntry {
+            source_path: batch.overview.source_path.clone(),
+            url: row.get(0)?,
+            title: row.get(1)?,
+            visited_at: row.get(2)?,
+            source_visit_id: row
+                .get::<_, Option<String>>(3)?
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or_default(),
+            status: "imported".to_string(),
         })
-        .collect::<Vec<_>>();
+    })?;
+    let preview_entries = rows.collect::<rusqlite::Result<Vec<_>>>()?;
 
     Ok(ImportBatchDetail {
         batch: batch.overview,
@@ -1088,6 +1083,7 @@ fn summary_count(summary: &Value, key: &str) -> usize {
     summary.get(key).and_then(Value::as_u64).unwrap_or(0) as usize
 }
 
+#[cfg(test)]
 fn preview_entry_from_payload(
     source_path: &str,
     payload_json: &str,
@@ -1198,7 +1194,6 @@ fn parse_record(source_path: &str, ordinal: i64, record: &Value) -> Result<Parse
         title,
         visit_time,
         payload_hash,
-        payload_json,
         source_visit_id,
     }))
 }
@@ -1619,10 +1614,14 @@ mod tests {
         assert_eq!(history.total, 1);
 
         let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-        let raw_rows: i64 = archive
-            .query_row("SELECT COUNT(*) FROM raw_row_versions", [], |row: &Row<'_>| row.get(0))
-            .expect("raw row count");
-        assert_eq!(raw_rows, 2);
+        let visits: i64 = archive
+            .query_row(
+                "SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL",
+                [],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("visit count");
+        assert_eq!(visits, 1);
     }
 
     #[test]

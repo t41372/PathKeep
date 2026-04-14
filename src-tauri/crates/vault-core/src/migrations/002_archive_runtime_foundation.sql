@@ -50,13 +50,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_favicons_profile_page_icon_payload
   ON favicons(source_profile_id, page_url, icon_url, payload_hash)
   WHERE payload_hash IS NOT NULL;
 
-ALTER TABLE raw_row_versions ADD COLUMN profile_id TEXT;
-ALTER TABLE raw_row_versions ADD COLUMN schema_hash TEXT;
-ALTER TABLE raw_row_versions ADD COLUMN chrome_version TEXT;
-ALTER TABLE raw_row_versions ADD COLUMN import_batch_id INTEGER;
-CREATE INDEX IF NOT EXISTS idx_raw_row_versions_import_batch_id
-  ON raw_row_versions(import_batch_id);
-
 ALTER TABLE manifests ADD COLUMN file_path TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_manifests_content_hash
   ON manifests(content_hash);

@@ -32,7 +32,7 @@
 - 同時保留一份 **ISO 8601 UTC 字串**（如 `2024-03-15T10:30:00.000Z`）作為人類可讀的輔助欄位。
   - 方便 debug、匯出、手動 SQL 查詢時閱讀。
   - 時區一律存 UTC，前端根據用戶 locale 做顯示轉換。
-- Raw capture 層保留原始瀏覽器的時間值不做轉換。`WORK-QC-R` 的 long-horizon 目標是 checkpoint-first raw capture，但目前 repo 仍保留 `raw_row_versions` 作為 transitional hot-path trace。
+- Raw capture 層保留原始瀏覽器的時間值不做轉換，並以 checkpoint-first snapshot / manifest trace 保留來源證據，而不是把每筆來源 row 的完整 JSON payload 長期熱存在 canonical archive。
 - Schema 中需要明確註釋時間格式的選擇理由和轉換規則。
 
 ### 時區處理
@@ -67,9 +67,8 @@
 
 ### PathKeep 2026-04-13 storage reset 方向
 
-- PathKeep 已接受 **storage-plane reset** 作為新的長期方向：把 transitional archive 拆成 canonical archive、search projection、intelligence runtime、semantic / blob sidecars。
-- 這一輪已落地 `derived/history-search.sqlite`、`derived/history-intelligence.sqlite` 與 sidecar 路徑，但 raw capture / semantic metadata 仍有 transitional surface 尚未完全退出 canonical / SQLite mirror。
-- 在這個 reset closeout 完成前，source docs 必須明講哪些邊界已落地、哪些仍在搬遷，不可把 target architecture 誤寫成 current-state truth。
+- PathKeep 已接受並落地 **storage-plane reset**：canonical archive、search projection、intelligence runtime、semantic / blob sidecars 已經是 repo 目前的 source-of-truth 邊界。
+- hard reset 之後，source docs 不再為 legacy archive 升級、runtime compatibility patching 或 hot-path raw row storage 保留敘事空間。
 
 ### 核心策略：追蹤最新，兼容歷史
 
@@ -82,9 +81,9 @@
 ### 設計要點
 
 - 兩層處理：
-- **來源 snapshot / raw capture 層**：對來源 DB 先做一致性 snapshot / checkpoint，保存 source DB snapshot、schema fingerprint、browser version、profile metadata 與 manifest trace。長期目標是不再把每筆來源 row 的完整 JSON payload 長期熱存；目前 `raw_row_versions` 仍是 transitional trace。
+- **來源 snapshot / raw capture 層**：對來源 DB 先做一致性 snapshot / checkpoint，保存 source DB snapshot、schema fingerprint、browser version、profile metadata 與 manifest trace。
 - **Derived normalizer 層**：把 snapshot 中的來源資料映射到統一 schema。新增未知欄位時只降級該欄位，不丟全部數據。
-- canonical archive 現在已拔掉 archive 內的 `profiles` / `visit_events` compatibility view / trigger bridge，不再用 archive bootstrap 替 derived intelligence tables 補 schema。
+- canonical archive 與 intelligence plane 都已拔掉 `profiles` / `visit_events` compatibility bridge，也不再用 archive / intelligence bootstrap 替舊 schema 補欄位。
 - `profile_watermarks` 是 canonical backup pipeline 的正式一部分：每個 profile 分別記錄 visit / URL metadata / download / favicon 的增量 cursor，只在成功 ingest 後前推。
 - 真正的 canonical 寫入面是 `source_profiles`、`urls`、`visits`、`downloads`、`search_terms`、`favicons`；archive 內的舊 `profiles` / `visit_events` bridge 已移除。
 - 關鍵時刻保存完整原生快照（壓縮保存 History/Favicons DB 原檔）：
@@ -133,7 +132,7 @@
 
 - AI queue、assistant trace、semantic metadata、deterministic runtime state 都不再由 canonical archive bootstrap 建表；它們透過 `derived/history-intelligence.sqlite` 持久化。
 - `ai_index_ledger` 以 `(provider_id, model)` 為 key，記錄 `sidecar_table`、`index_version`、`state`、`source_watermark`、`last_run_id`、build started / finished、clear time 與 failure reason。
-- semantic metadata 正在往 intelligence DB 收斂；request path 已只走 LanceDB sidecar，但 repo 目前仍保留 SQLite `ai_embeddings` compatibility mirror 作為 transitional metadata/debug surface。
+- semantic metadata、assistant trace、AI queue 與 deterministic read model 都落在 `derived/history-intelligence.sqlite`。SQLite 僅保留 compact metadata / runtime accounting；向量 payload 不再進 SQLite。
 - `ai_assistant_runs` 保存 run-linked assistant trace：`run_id`、question / answer、LLM provider、retrieval provider、citations JSON 與 notes JSON。queued assistant job 完成後要能回到同一筆 trace，而不是只剩暫時性的 UI state。
 - sidecar 可以整個刪除後再依 `ai_index_ledger` / canonical archive facts 重建；刪 sidecar 不應修改任何 canonical facts。
 
@@ -168,7 +167,7 @@
 重度瀏覽器使用者（每天 ~2,500 visits）在 20 年間可能累積近 2000 萬筆記錄。核心 archive 本身不會是瓶頸（預估僅 40-80 GB），但 AI 相關資產如果設計不當會急速膨脹。
 
 - **AI 資產（embedding、向量索引、enrichment 文本、insight 衍生表）是可重建的衍生狀態**，不是核心數據。清空重跑不會丟失任何原始歷史紀錄。
-- **向量 payload 的長期目標是不進 SQLite**。目前 request path 已只走 LanceDB sidecar；SQLite `ai_embeddings` mirror 仍屬 `WORK-QC-R` 尚待清掉的 transitional storage debt。
+- **向量 payload 不進 SQLite**。semantic retrieval 只走 LanceDB sidecar；SQLite 只保留 compact semantic metadata 與 rebuild accounting。
 - **語義搜尋不能做全表掃描**。幾千萬行 embedding 全量 cosine 計算不可能保持互動性，需要 ANN（近似最近鄰）索引。LanceDB 提供 disk-based IVF-PQ 索引。
 - **AI 資產不能拖慢核心 archive**。FTS、intelligence runtime、embedding / 向量索引、正文 blob 都和 canonical archive 隔離。
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、search projection、intelligence projection、semantic / blob sidecars、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
