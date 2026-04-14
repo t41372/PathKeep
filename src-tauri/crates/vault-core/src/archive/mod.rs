@@ -16,6 +16,7 @@ mod maintenance;
 mod read_models;
 mod schema;
 mod search_projection;
+mod source_evidence;
 
 pub use self::intelligence_projection::open_intelligence_connection;
 use self::read_models::{decode_profile_scope, directory_size, file_size};
@@ -24,6 +25,11 @@ pub(crate) use self::schema::export_archive_database;
 pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, run_migrations};
 pub(crate) use self::search_projection::rebuild_search_projection;
+pub use self::source_evidence::open_source_evidence_connection;
+use self::source_evidence::{
+    SourceBatchInput, coverage_stats_json, persist_source_evidence, record_schema_observation,
+    upsert_source_batch,
+};
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{export_history, list_history},
@@ -260,6 +266,7 @@ struct Watermark {
     last_favicon_last_updated: i64,
     last_checkpoint_at: Option<String>,
     last_schema_hash: Option<String>,
+    last_source_batch_id: Option<i64>,
     updated_at: String,
 }
 
@@ -334,6 +341,15 @@ struct ParsedProfileSnapshot {
     last_favicon_marker: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+struct SourceEvidencePlan {
+    profile_id: String,
+    source_profile_id: i64,
+    source_batch: SourceBatchInput,
+    schema_observation: browser_history_parser::SchemaObservation,
+    parsed_history: ParsedHistory,
+}
+
 /// Runs one backup using a no-op progress callback.
 pub fn run_backup(
     paths: &ProjectPaths,
@@ -361,6 +377,7 @@ where
     }
 
     let mut connection = open_archive_connection(paths, config, key)?;
+    let mut source_evidence = open_source_evidence_connection(paths, config, key)?;
 
     if due_only && let Some(reason) = backup_due_skip_reason(&connection, config)? {
         return Ok(BackupReport {
@@ -421,6 +438,7 @@ where
     let mut profile_summaries = Vec::new();
     let mut source_hashes = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut snapshot_artifacts = Vec::new();
+    let mut source_evidence_plans = Vec::new();
     let mut warnings = skipped_profiles;
 
     let backup_result = (|| -> Result<()> {
@@ -462,6 +480,7 @@ where
                 config,
                 &snapshot,
                 &mut snapshot_artifacts,
+                &mut source_evidence_plans,
                 true,
                 true,
             )
@@ -489,6 +508,14 @@ where
     if let Err(error) = backup_result {
         finalize_failed_run(&connection, run_id, &profile_summaries, &warnings, &error)?;
         return Err(error);
+    }
+
+    if let Err(error) =
+        persist_source_evidence_plans(&mut source_evidence, &connection, &source_evidence_plans)
+    {
+        warnings.push(format!(
+            "Canonical backup completed, but the source-evidence archive needs a rebuild: {error}"
+        ));
     }
 
     let finished_at = now_rfc3339();
@@ -612,6 +639,7 @@ fn collect_skipped_profiles(
     warnings
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_profile_snapshot(
     archive: &Transaction<'_>,
     run_id: i64,
@@ -619,6 +647,7 @@ fn process_profile_snapshot(
     config: &AppConfig,
     snapshot: &ProfileSnapshot,
     snapshot_artifacts: &mut Vec<SnapshotArtifact>,
+    source_evidence_plans: &mut Vec<SourceEvidencePlan>,
     allow_checkpoint: bool,
     use_watermark: bool,
 ) -> Result<BackupProfileSummary> {
@@ -733,6 +762,33 @@ fn process_profile_snapshot(
         summary.checkpoint_created = true;
     }
 
+    source_evidence_plans.push(SourceEvidencePlan {
+        profile_id: snapshot.profile.profile_id.clone(),
+        source_profile_id,
+        source_batch: SourceBatchInput {
+            source_profile_id,
+            run_id: Some(run_id),
+            source_kind: "local_db".to_string(),
+            browser_version: snapshot.profile.browser_version.clone(),
+            schema_version_text: None,
+            schema_version_int: None,
+            schema_fingerprint: schema_hash.clone(),
+            capability_snapshot: parsed_snapshot.history.capability_snapshot.clone(),
+            coverage_stats_json: coverage_stats_json(&parsed_snapshot.history),
+            artifact_refs_json: Some(
+                json!({
+                    "historyPath": snapshot.history_path.display().to_string(),
+                    "faviconsPath": snapshot.favicons_path.as_ref().map(|path| path.display().to_string()),
+                    "sourceHashes": snapshot_source_hashes(snapshot),
+                })
+                .to_string(),
+            ),
+            notes_json: Some(serde_json::to_string(&parsed_snapshot.history.warnings)?),
+        },
+        schema_observation: parsed_snapshot.history.schema_observation.clone(),
+        parsed_history: parsed_snapshot.history.clone(),
+    });
+
     save_watermark(
         archive,
         &snapshot.profile.profile_id,
@@ -756,11 +812,48 @@ fn process_profile_snapshot(
                 watermark.last_checkpoint_at.clone()
             },
             last_schema_hash: Some(schema_hash),
+            last_source_batch_id: watermark.last_source_batch_id,
             updated_at: now_rfc3339(),
         },
     )?;
 
     Ok(summary)
+}
+
+fn persist_source_evidence_plans(
+    source_evidence: &mut Connection,
+    archive: &Connection,
+    plans: &[SourceEvidencePlan],
+) -> Result<()> {
+    let transaction = source_evidence.transaction()?;
+    let mut committed_batch_ids = Vec::new();
+    for plan in plans {
+        let source_batch_id = upsert_source_batch(&transaction, &plan.source_batch)?;
+        record_schema_observation(
+            &transaction,
+            source_batch_id,
+            "primary-source",
+            &plan.schema_observation,
+        )?;
+        persist_source_evidence(
+            &transaction,
+            source_batch_id,
+            plan.source_profile_id,
+            &plan.parsed_history,
+        )?;
+        committed_batch_ids.push((plan.profile_id.clone(), source_batch_id));
+    }
+    transaction.commit()?;
+    for (profile_id, source_batch_id) in committed_batch_ids {
+        archive.execute(
+            "UPDATE profile_watermarks
+             SET last_source_batch_id = ?1,
+                 updated_at = ?2
+             WHERE profile_id = ?3",
+            params![source_batch_id, now_rfc3339(), profile_id],
+        )?;
+    }
+    Ok(())
 }
 
 fn parse_profile_snapshot(
@@ -848,11 +941,14 @@ fn upsert_source_profile(
     archive: &Transaction<'_>,
     profile: &crate::models::BrowserProfile,
 ) -> Result<i64> {
-    let browser_kind = profile.profile_id.split(':').next().unwrap_or(&profile.browser_family);
+    let browser_product =
+        profile.profile_id.split(':').next().unwrap_or(&profile.browser_family).to_string();
     archive
         .query_row(
             "INSERT INTO source_profiles (
            browser_kind,
+           browser_family,
+           browser_product,
            browser_version,
            profile_name,
            profile_path,
@@ -862,9 +958,11 @@ fn upsert_source_profile(
            user_name,
            updated_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10)
          ON CONFLICT(profile_key) DO UPDATE SET
            browser_kind = excluded.browser_kind,
+           browser_family = excluded.browser_family,
+           browser_product = excluded.browser_product,
            browser_version = excluded.browser_version,
            profile_name = excluded.profile_name,
            profile_path = excluded.profile_path,
@@ -873,7 +971,9 @@ fn upsert_source_profile(
            enabled = 1
          RETURNING id",
             params![
-                browser_kind,
+                browser_product,
+                profile.browser_family,
+                browser_product,
                 profile.browser_version,
                 profile.profile_name,
                 profile.profile_path,
@@ -1227,6 +1327,7 @@ fn load_watermark(archive: &Transaction<'_>, profile_id: &str) -> Result<Waterma
                last_favicon_last_updated,
                last_checkpoint_at,
                last_schema_hash,
+               last_source_batch_id,
                updated_at
              FROM profile_watermarks
              WHERE profile_id = ?1",
@@ -1239,7 +1340,8 @@ fn load_watermark(archive: &Transaction<'_>, profile_id: &str) -> Result<Waterma
                     last_favicon_last_updated: row.get(3)?,
                     last_checkpoint_at: row.get(4)?,
                     last_schema_hash: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    last_source_batch_id: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             },
         )
@@ -1264,9 +1366,10 @@ fn save_watermark(
            last_favicon_last_updated,
            last_checkpoint_at,
            last_schema_hash,
+           last_source_batch_id,
            updated_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(profile_id) DO UPDATE SET
            last_visit_id = excluded.last_visit_id,
            last_url_last_visit_time = excluded.last_url_last_visit_time,
@@ -1274,6 +1377,7 @@ fn save_watermark(
            last_favicon_last_updated = excluded.last_favicon_last_updated,
            last_checkpoint_at = excluded.last_checkpoint_at,
            last_schema_hash = excluded.last_schema_hash,
+           last_source_batch_id = excluded.last_source_batch_id,
            updated_at = excluded.updated_at",
         params![
             profile_id,
@@ -1283,6 +1387,7 @@ fn save_watermark(
             watermark.last_favicon_last_updated,
             watermark.last_checkpoint_at,
             watermark.last_schema_hash,
+            watermark.last_source_batch_id,
             watermark.updated_at,
         ],
     )?;

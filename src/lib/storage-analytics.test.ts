@@ -24,6 +24,7 @@ import {
 
 const storage = {
   archiveDatabaseBytes: 150,
+  sourceEvidenceDatabaseBytes: 35,
   searchDatabaseBytes: 15,
   intelligenceDatabaseBytes: 25,
   manifestBytes: 10,
@@ -37,20 +38,20 @@ const storage = {
 
 describe('storage analytics helpers', () => {
   test('sums tracked and reclaimable storage bytes', () => {
-    expect(totalTrackedStorageBytes(storage)).toBe(245)
+    expect(totalTrackedStorageBytes(storage)).toBe(280)
     expect(reclaimableStorageBytes(storage)).toBe(45)
   })
 
   test('returns stable storage slices and dominant category', () => {
     expect(storageAnalyticsSlices(storage)).toEqual([
-      { id: 'core', bytes: 190 },
+      { id: 'core', bytes: 225 },
       { id: 'audit', bytes: 30 },
       { id: 'exports', bytes: 5 },
       { id: 'rebuildable', bytes: 20 },
     ])
     expect(dominantStorageSlice(storage)).toEqual({
       id: 'core',
-      bytes: 190,
+      bytes: 225,
     })
   })
 
@@ -83,9 +84,9 @@ describe('storage analytics helpers', () => {
       latestVisitGrowth: 8,
       latestUrlGrowth: 3,
       latestDownloadGrowth: 1,
-      totalTrackedBytes: 245,
+      totalTrackedBytes: 280,
       reclaimableBytes: 45,
-      dominantSlice: { id: 'core', bytes: 190 },
+      dominantSlice: { id: 'core', bytes: 225 },
     })
     expect(storageGrowthEvidence(null)).toEqual({
       latestRunId: null,

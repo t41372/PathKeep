@@ -6,13 +6,13 @@
 
 ## Crate 責任
 
-| Crate / Layer            | 核心責任                                                                                            | 明確不負責                                                                                 |
-| ------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `browser-history-parser` | 針對「已提供的檔案路徑」做 SQLite schema inspection、row parsing、warning surface                   | Installed browser discovery、staging copy、archive 寫入、Tauri command、keyring、scheduler |
-| `vault-core`             | canonical archive schema、migration ledger、backup/import/rollback/query/export/doctor domain logic | Tauri macros、桌面 IPC facade、scheduler artifact 安裝                                     |
-| `vault-platform`         | OS path heuristics、browser discovery、scheduler artifact、keyring / platform capability adapter    | canonical schema 設計、Tauri command facade                                                |
-| `vault-worker`           | orchestration、background job entrypoint、desktop CLI / MCP bridge                                  | Tauri command 宏與直接 UI 命名                                                             |
-| `src-tauri/src/`         | Tauri command facade 與 session bridge                                                              | 業務邏輯、資料模型決策、parser implementation                                              |
+| Crate / Layer            | 核心責任                                                                                                                                                 | 明確不負責                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `browser-history-parser` | 針對「已提供的檔案路徑」做 schema observation、capability snapshot、canonical fact extraction、typed/native evidence extraction                          | Installed browser discovery、staging copy、archive 寫入、Tauri command、keyring、scheduler |
+| `vault-core`             | hot canonical archive、cold source-evidence archive、backup/import/rollback/query/export/doctor domain logic、field promotion / re-extract orchestration | Tauri macros、桌面 IPC facade、scheduler artifact 安裝                                     |
+| `vault-platform`         | OS path heuristics、browser discovery、scheduler artifact、keyring / platform capability adapter                                                         | canonical schema 設計、Tauri command facade                                                |
+| `vault-worker`           | orchestration、background job entrypoint、desktop CLI / MCP bridge                                                                                       | Tauri command 宏與直接 UI 命名                                                             |
+| `src-tauri/src/`         | Tauri command facade 與 session bridge                                                                                                                   | 業務邏輯、資料模型決策、parser implementation                                              |
 
 ## Current Hotspots And Intended Homes
 
@@ -31,7 +31,7 @@
 | `vault_worker::app_snapshot` / `schedule_status` / `security_status`     | 組裝 desktop-facing read model、平台能力與 session-aware warning                                          | `vault-worker`           | signed-off worker orchestration boundary。                                                                                       |
 | `src_tauri::worker_bridge::*`                                            | 將 Tauri command 轉成 worker 調用與 string-based error envelope                                           | `src-tauri/src`          | signed-off façade boundary；這層不應知道 archive schema 細節。                                                                   |
 | `src_tauri::updater::*`                                                  | updater check / download / install / relaunch 與 progress event                                           | `src-tauri/src`          | 2026-04-10 起作為 desktop-only IPC boundary；前端不再直接調 plugin updater / process guest API。                                 |
-| `browser_history_parser::*`                                              | SQLite inspection、row parsing、warning surface                                                           | `browser-history-parser` | signed-off parser boundary；此 crate 不應新增 archive / Tauri / platform side effect。                                           |
+| `browser_history_parser::*`                                              | schema observation、capability snapshot、canonical facts、typed evidence、native entities                 | `browser-history-parser` | signed-off extractor boundary；此 crate 不應新增 archive / Tauri / platform side effect。                                        |
 
 ---
 
@@ -60,26 +60,29 @@ pathkeep-desktop (src-tauri/src)
 
 ---
 
-## Parser API And Versioning
+## Extractor API And Versioning
 
-`browser-history-parser` 的 day-one public API 先凍結在這個等級：
+`browser-history-parser` 的 public API 改凍結在這個等級：
 
 - Input:
   - `HistoryDatabaseSet` — 呼叫端已提供的 `History` / `Favicons` 路徑
   - provider-specific incremental cursor，例如 `ChromiumReadCursor`
 - Output:
-  - `DatabaseInspection`
-  - provider-specific parsed rows，例如 `ParsedUrl`、`ParsedVisit`、`ParsedDownload`、`ParsedSearchTerm`、`ParsedFavicon`
+  - `SchemaObservation`
+  - `CapabilitySnapshot`
+  - `CanonicalFactsBatch`
+  - `TypedEvidenceBatch`
+  - `NativeEntityBatch`
   - `ParserWarning` / `ParseError`
 - Guarantee:
-  - parser crate 不知道 archive schema、不知道 `run_id`、不知道 Tauri
-  - provider modules 可以新增欄位或 warning code，但不應破壞既有欄位語義
-  - Firefox / Safari provider 已落地 history baseline；後續 richer metadata、downloads / search / favicon coverage 應以 additive 欄位或 warning code 演進，不要打破 module path 與 type boundary
+  - extractor crate 不知道 archive schema、不知道 `run_id`、不知道 Tauri
+  - extractor 一律 `introspection first, version second`
+  - provider modules 可以 additive 地新增 evidence / capability / warning code，但不應破壞既有欄位語義
 
 Versioning policy:
 
 - `0.x` 期間可以調整 API，但所有 breaking changes 都必須同步更新這份文檔與 fixture/tests。
-- 一旦 `vault-core` 在 M1 開始正式消費 parser crate，row type 欄位語義就視為 stability contract，之後若有 breaking changes 必須經過新的 ADR 或 migration note。
+- 一旦 `vault-core` 正式消費 extractor contract，capability tag、typed evidence family、native entity semantics 就視為 stability contract；breaking changes 必須同步更新 ADR / fixture / dev guides。
 
 ---
 
@@ -96,6 +99,11 @@ Versioning policy:
   - `manifests`
   - `snapshots`
   - `settings`
+- Archived source-native evidence:
+  - `source_batches`
+  - schema / capability observation
+  - typed evidence tables
+  - `native_entities`
 - Rebuildable derived state:
   - FTS projection tables
   - aggregation / heatmap / timeline bucket tables

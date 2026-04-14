@@ -149,6 +149,7 @@ export interface BackupProgressEvent {
  */
 export interface StorageSummary {
   archiveDatabaseBytes: number
+  sourceEvidenceDatabaseBytes: number
   searchDatabaseBytes: number
   intelligenceDatabaseBytes: number
   manifestBytes: number

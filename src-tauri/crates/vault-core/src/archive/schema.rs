@@ -29,6 +29,8 @@ const MIGRATION_004_FAVICON_RECALL_INDEX_SQL: &str =
     include_str!("../migrations/004_favicon_recall_index.sql");
 const MIGRATION_005_VISITS_RECALL_LOOKUP_SQL: &str =
     include_str!("../migrations/005_visits_recall_lookup.sql");
+const MIGRATION_006_SOURCE_EVIDENCE_PROVENANCE_SQL: &str =
+    include_str!("../migrations/006_source_evidence_provenance.sql");
 
 static BOOTSTRAPPED_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -60,6 +62,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 3, sql: MIGRATION_003_HISTORY_SEARCH_FTS_SQL },
     MigrationSpec { version: 4, sql: MIGRATION_004_FAVICON_RECALL_INDEX_SQL },
     MigrationSpec { version: 5, sql: MIGRATION_005_VISITS_RECALL_LOOKUP_SQL },
+    MigrationSpec { version: 6, sql: MIGRATION_006_SOURCE_EVIDENCE_PROVENANCE_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -265,7 +268,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 5);
+        assert_eq!(current_version(&connection).expect("schema version"), 6);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -293,7 +296,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 5);
+        assert_eq!(count, 6);
     }
 
     #[test]
@@ -321,7 +324,7 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 5);
+        assert_eq!(current_version(&connection).expect("migrated version"), 6);
     }
 
     #[test]
@@ -350,7 +353,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 5);
+                assert_eq!(join.join().expect("thread join"), 6);
             }
         });
 

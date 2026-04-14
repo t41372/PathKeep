@@ -27,6 +27,7 @@ pub struct ProjectPaths {
     pub app_root: PathBuf,
     pub config_path: PathBuf,
     pub archive_database_path: PathBuf,
+    pub source_evidence_database_path: PathBuf,
     pub derived_dir: PathBuf,
     pub search_database_path: PathBuf,
     pub intelligence_database_path: PathBuf,
@@ -66,6 +67,7 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
     ProjectPaths {
         config_path: root.join("config.json"),
         archive_database_path: root.join("archive").join("history-vault.sqlite"),
+        source_evidence_database_path: root.join("archive").join("source-evidence.sqlite"),
         derived_dir: derived_dir.clone(),
         search_database_path: derived_dir.join("history-search.sqlite"),
         intelligence_database_path: derived_dir.join("history-intelligence.sqlite"),
@@ -107,6 +109,7 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     for dir in [
         &paths.app_root,
         paths.archive_database_path.parent().expect("archive db parent"),
+        paths.source_evidence_database_path.parent().expect("source evidence db parent"),
         &paths.derived_dir,
         &paths.audit_repo_path,
         &paths.manifests_dir,
@@ -178,6 +181,10 @@ mod tests {
 
         assert_eq!(paths.app_root, dir.path());
         assert_eq!(paths.archive_database_path, dir.path().join("archive/history-vault.sqlite"));
+        assert_eq!(
+            paths.source_evidence_database_path,
+            dir.path().join("archive/source-evidence.sqlite")
+        );
         assert_eq!(paths.search_database_path, dir.path().join("derived/history-search.sqlite"));
         assert_eq!(
             paths.intelligence_database_path,

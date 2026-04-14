@@ -117,6 +117,7 @@ pub struct BackupProgressEvent {
 #[serde(rename_all = "camelCase")]
 pub struct StorageSummary {
     pub archive_database_bytes: u64,
+    pub source_evidence_database_bytes: u64,
     pub search_database_bytes: u64,
     pub intelligence_database_bytes: u64,
     pub manifest_bytes: u64,

@@ -6,7 +6,11 @@
 
 use crate::{
     ParseError, ParsedHistory,
-    types::{DatabaseInspection, ParsedUrl, ParsedVisit, ParserWarning},
+    observation::{capability_snapshot, capture_native_rows, inspect_schema},
+    types::{
+        CapabilityCoverage, DatabaseInspection, ParsedUrl, ParsedVisit, ParserWarning,
+        TypedEvidenceBatch,
+    },
 };
 use chrono::{TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, Row, params};
@@ -98,19 +102,68 @@ pub fn parse_history(
     after_url_last_visit_ms: i64,
 ) -> Result<ParsedHistory, ParseError> {
     let inspection = inspect_history(path)?;
+    let schema_observation =
+        inspect_schema(&open_readonly(path)?, &["history_items", "history_visits"])?;
     validate_required_tables(&inspection)?;
 
     let connection = open_readonly(path)?;
     let urls = parse_urls(&connection, after_url_last_visit_ms)?;
     let visits = parse_visits(&connection, after_visit_id)?;
+    let typed_evidence = TypedEvidenceBatch::default();
+    let capability_snapshot = capability_snapshot(vec![CapabilityCoverage {
+        key: "canonical.history_visits".to_string(),
+        available: !visits.is_empty(),
+        populated_rows: visits.len(),
+        total_rows: visits.len(),
+        notes: vec!["Safari History.db baseline".to_string()],
+    }]);
+    let mut native_entities = capture_native_rows(
+        &connection,
+        r#"SELECT * FROM history_items
+           WHERE EXISTS (
+             SELECT 1
+             FROM history_visits
+             WHERE history_visits.history_item = history_items.id
+           )"#,
+        &[],
+        "safari-history-item-row",
+        "id",
+        None,
+    )?;
+    native_entities.extend(capture_native_rows(
+        &connection,
+        "SELECT * FROM history_visits WHERE id > ?1 ORDER BY id ASC",
+        &[&after_visit_id],
+        "safari-history-visit-row",
+        "id",
+        Some("history_item"),
+    )?);
+    for optional_table in ["history_tombstones", "history_tags", "history_items_to_tags"] {
+        if inspection.table_names.iter().any(|existing| existing == optional_table) {
+            let sql = format!("SELECT * FROM {optional_table}");
+            let entity_kind = format!("safari-{}", optional_table.replace('_', "-"));
+            native_entities.extend(capture_native_rows(
+                &connection,
+                &sql,
+                &[],
+                &entity_kind,
+                "id",
+                None,
+            )?);
+        }
+    }
 
     Ok(ParsedHistory {
         inspection: inspection.clone(),
+        schema_observation,
+        capability_snapshot,
         urls,
         visits,
         downloads: Vec::new(),
         search_terms: Vec::new(),
         favicons: Vec::new(),
+        typed_evidence,
+        native_entities,
         warnings: inspection.warnings,
     })
 }

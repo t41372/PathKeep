@@ -84,8 +84,10 @@
 - **來源 snapshot / raw capture 層**：對來源 DB 先做一致性 snapshot / checkpoint，保存 source DB snapshot、schema fingerprint、browser version、profile metadata 與 manifest trace。
 - **Derived normalizer 層**：把 snapshot 中的來源資料映射到統一 schema。新增未知欄位時只降級該欄位，不丟全部數據。
 - canonical archive 與 intelligence plane 都已拔掉 `profiles` / `visit_events` compatibility bridge，也不再用 archive / intelligence bootstrap 替舊 schema 補欄位。
-- `profile_watermarks` 是 canonical backup pipeline 的正式一部分：每個 profile 分別記錄 visit / URL metadata / download / favicon 的增量 cursor，只在成功 ingest 後前推。
+- `profile_watermarks` 是 canonical backup pipeline 的正式一部分：每個 profile 分別記錄 visit / URL metadata / download / favicon 的增量 cursor，只在成功 ingest 後前推，並且要能回鏈最後成功的 `source_batch`。
 - 真正的 canonical 寫入面是 `source_profiles`、`urls`、`visits`、`downloads`、`search_terms`、`favicons`；archive 內的舊 `profiles` / `visit_events` bridge 已移除。
+- `source_profiles` 只保存穩定身份：`browser_family`、`browser_product`、`profile_key`、`profile_name`、`profile_path` 與少量 account/user hint。每次 backup/import 的來源觀測、browser version、schema version / fingerprint、parser version、capability snapshot 與 coverage stats 要落在 `archive/source-evidence.sqlite` 的 `source_batches`。
+- PathKeep 的 ingest / intelligence contract 以 **capability snapshot** 為主，不以 browser/version 為主：版本資訊要保留，但主要用於 provenance、debug 與 extractor heuristics。
 - 關鍵時刻保存完整原生快照（壓縮保存 History/Favicons DB 原檔）：
   - 首次備份
   - 來源 schema 變更時
@@ -97,6 +99,10 @@
 - `archive/history-vault.sqlite`
   - 只保存 canonical facts 與 immutable audit facts
   - 包含 `runs`、`source_profiles`、`urls`、`visits`、`downloads`、`search_terms`、`favicons`、`profile_watermarks`、checkpoint / import / manifest / snapshot trace
+- `archive/source-evidence.sqlite`
+  - 保存 cold archived source-native evidence
+  - 包含 `source_batches`、schema / capability observation、typed evidence tables 與 `native_entities`
+  - 這是 archive contract，不是 derived-state；remote/local bundle 必須和 canonical archive 一起打包
 - `derived/history-search.sqlite`
   - 只保存 lexical recall projection 與 bounded rollups
   - 包含 FTS5、Explorer keyword recall projection、Dashboard / deterministic baseline 的統計 projection
@@ -136,6 +142,17 @@
 - `ai_assistant_runs` 保存 run-linked assistant trace：`run_id`、question / answer、LLM provider、retrieval provider、citations JSON 與 notes JSON。queued assistant job 完成後要能回到同一筆 trace，而不是只剩暫時性的 UI state。
 - sidecar 可以整個刪除後再依 `ai_index_ledger` / canonical archive facts 重建；刪 sidecar 不應修改任何 canonical facts。
 
+### Source-native evidence boundary
+
+- `archive/source-evidence.sqlite` 的 typed evidence tables 目前至少預留：
+  - `visit_search_evidence`
+  - `visit_navigation_evidence`
+  - `visit_engagement_evidence`
+  - `visit_context_evidence`
+- `native_entities` 用來保存非 visit 粒度、尚未 promotion、或 browser-family-specific 的來源資料，例如 Firefox `moz_inputhistory` / metadata、Chromium clusters / annotations / task graph、Safari tombstones / tags、Takeout Session / tab navigation。
+- extractor 遇到新欄位時，預設應保留到 typed/native evidence；只有明確證明低價值且能從 retained raw artifact 無損重建的資料，才可不進 source-evidence archive。
+- source-evidence 讀路徑預設是 cold path：rebuild、explainability、debug attach、field promotion / re-extract 可以讀；Explorer / Dashboard / default shell query path 不得直接退化成掃 native payload。
+
 ### Enrichment / insight derived-state boundary
 
 - `AppConfig.enrichment.plugins[*]` 是 enrichment plugin 的設定 surface，至少保存 `id`、`enabled`、`version`。缺漏設定必須能從 built-in defaults 回補，避免舊 config 因為新增 plugin 而失真。
@@ -154,7 +171,7 @@
 
 ### Remote backup bundle contract
 
-- M4-A 的 remote backup artifact 是 `pathkeep.remote-backup.v1` zip bundle，不是直接把 live archive path 指向 object storage。bundle 至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`、`metadata/bundle-manifest.sha256`，並在存在時附帶 `audit/manifests/` 與 scheduler artifacts；derived search / intelligence DB 與 sidecars 都屬 rebuildable state，不進 canonical remote bundle。
+- M4-A 的 remote backup artifact 是 `pathkeep.remote-backup.v1` zip bundle，不是直接把 live archive path 指向 object storage。bundle 至少包含 `archive/history-vault.sqlite`、`archive/source-evidence.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`、`metadata/bundle-manifest.sha256`，並在存在時附帶 `audit/manifests/` 與 scheduler artifacts；derived search / intelligence DB 與 sidecars 都屬 rebuildable state，不進 canonical remote bundle。
 - `bundle-manifest.json` 是 bundle 內的 restore contract：必須記錄 `bundleVersion`、`appVersion`、`createdAt`、`archiveMode`、`bucket`、`objectKey` 與每個 entry 的 `relativePath` / `sha256` / `sizeBytes`。
 - Verify 不只檢查 zip 能不能打開；它還必須驗證 bundle version、required entries、manifest 宣告的 entry set 是否與實際 zip entry set 一致、detached manifest checksum 是否吻合、每個 manifest file 的 checksum / size，並嘗試用本機 restore path 打開打包後的 SQLite archive。encrypted bundle 驗證需要 session key；plaintext bundle 要留下明確 warning。
 - `bundle-manifest.sha256` 與 entry-set 檢查在 v1 的定位是 corruption / drift detection，不是 detached signing 或 remote authenticity attestation；PathKeep 目前仍不宣稱 bundle 已具備 cryptographic publisher proof。

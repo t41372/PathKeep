@@ -311,6 +311,7 @@ pub(super) fn run_new_downloads(stats: &Value) -> usize {
 pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
     StorageSummary {
         archive_database_bytes: file_size(&paths.archive_database_path),
+        source_evidence_database_bytes: file_size(&paths.source_evidence_database_path),
         search_database_bytes: file_size(&paths.search_database_path),
         intelligence_database_bytes: file_size(&paths.intelligence_database_path),
         manifest_bytes: directory_size(&paths.manifests_dir),

@@ -1627,6 +1627,7 @@ function buildMockDashboardSnapshot(
       recentRuns: state.snapshot.recentRuns,
       storage: {
         archiveDatabaseBytes: 0,
+        sourceEvidenceDatabaseBytes: 0,
         searchDatabaseBytes: 0,
         intelligenceDatabaseBytes: 0,
         manifestBytes: 0,
@@ -1655,6 +1656,7 @@ function buildMockDashboardSnapshot(
     recentRuns: state.snapshot.recentRuns,
     storage: {
       archiveDatabaseBytes: 146_800_640,
+      sourceEvidenceDatabaseBytes: 9_830_400,
       searchDatabaseBytes: 18_432_000,
       intelligenceDatabaseBytes: 24_576_000,
       manifestBytes: 384_000,

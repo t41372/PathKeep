@@ -826,6 +826,8 @@ fn upsert_takeout_profile(
     archive.execute(
         "INSERT INTO source_profiles (
            browser_kind,
+           browser_family,
+           browser_product,
            browser_version,
            profile_name,
            profile_path,
@@ -835,10 +837,12 @@ fn upsert_takeout_profile(
            user_name,
            updated_at
          )
-         VALUES ('takeout', 'takeout', ?1, ?2, ?3, 1, ?4, NULL, ?3)
+         VALUES ('takeout', 'takeout', 'takeout', 'takeout', ?1, ?2, ?3, 1, ?4, NULL, ?3)
          ON CONFLICT(profile_key) DO UPDATE SET
            profile_name = excluded.profile_name,
            profile_path = excluded.profile_path,
+           browser_family = excluded.browser_family,
+           browser_product = excluded.browser_product,
            browser_version = excluded.browser_version,
            updated_at = excluded.updated_at,
            enabled = 1",

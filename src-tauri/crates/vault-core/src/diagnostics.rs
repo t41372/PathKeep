@@ -187,6 +187,7 @@ mod tests {
             app_root: root.to_path_buf(),
             config_path: root.join("config.json"),
             archive_database_path: root.join("archive/history-vault.sqlite"),
+            source_evidence_database_path: root.join("archive/source-evidence.sqlite"),
             derived_dir: root.join("derived"),
             search_database_path: root.join("derived/history-search.sqlite"),
             intelligence_database_path: root.join("derived/history-intelligence.sqlite"),

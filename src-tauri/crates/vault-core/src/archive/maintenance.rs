@@ -102,6 +102,8 @@ pub fn run_snapshot_restore(
     let parent_manifest = latest_manifest_row(&connection)?;
 
     let mut snapshot_artifacts = Vec::new();
+    let mut source_evidence_plans = Vec::new();
+    let mut source_evidence = open_source_evidence_connection(paths, config, key)?;
     let restore_result = (|| -> Result<BackupProfileSummary> {
         let transaction = connection.transaction()?;
         let profile_summary = process_profile_snapshot(
@@ -111,6 +113,7 @@ pub fn run_snapshot_restore(
             config,
             &checkpoint,
             &mut snapshot_artifacts,
+            &mut source_evidence_plans,
             false,
             false,
         )?;
@@ -125,6 +128,7 @@ pub fn run_snapshot_restore(
             return Err(error);
         }
     };
+    persist_source_evidence_plans(&mut source_evidence, &connection, &source_evidence_plans)?;
 
     record_snapshot_reference(
         &connection,

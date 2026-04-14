@@ -53,6 +53,22 @@ Deterministic intelligence 可以使用：
 - canonical `search_terms` rows（若存在）
 - 從 search-result URL extract 出來的 query
 - import / rollback / visibility / run metadata
+- source-batch capability snapshot 與 evidence coverage stats
+
+### 3.1.1 Capability families
+
+deterministic / optional intelligence module 的 feature gate 必須建立在 capability family，而不是 browser/version：
+
+- `search.native_terms`
+- `search.url_extracted_query`
+- `nav.from_visit`
+- `nav.opener_visit`
+- `nav.redirect_edges`
+- `engagement.foreground_ms`
+- `engagement.view_metrics`
+- `context.task_graph`
+
+同一個 capability 可以來自不同 browser family，但 explainability / degrade copy 必須誠實反映 coverage 與 evidence tier。
 
 ### 3.2 Evidence tiers
 
@@ -143,6 +159,7 @@ Deterministic intelligence 可以使用：
 - probable search engine / search-result flag
 - extracted search query（若有）
 - browser / profile
+- source batch / capability snapshot
 - referrer / transition hints
 
 Normalization 要求：
@@ -170,6 +187,7 @@ Normalization 要求：
 - `vault-core::deterministic` 已作為 taxonomy v2 的唯一 foundation home。
 - `visit_insight_features` 現在會持久化 `domain_category`、`page_category`、`interaction_kind`、`evidence_tier`、taxonomy source / pack / version / reason，供 explainability、unknown review 與後續 rebuild contract 使用。
 - deterministic feature scoring 已移除 `duration_ms` 權重，避免把 estimated dwell / session-duration proxy 再包裝成 baseline truth。
+- module runtime 也必須記錄本次 build 使用到的 capability family 與最低 coverage 判斷，避免 UI 把 partial-support 結果包裝成 fully-supported baseline。
 
 ### 5.3 Burst construction
 

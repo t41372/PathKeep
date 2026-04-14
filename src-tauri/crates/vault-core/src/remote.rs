@@ -6,7 +6,10 @@
 //! without pretending a remote store can validate everything for us.
 
 use crate::{
-    archive::{apply_cipher_key, export_archive_database, open_archive_connection},
+    archive::{
+        apply_cipher_key, export_archive_database, open_archive_connection,
+        open_source_evidence_connection,
+    },
     config::{ProjectPaths, ensure_paths, save_config},
     models::{
         AppConfig, ArchiveMode, RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification,
@@ -31,6 +34,7 @@ const TEST_CURL_BIN_ENV: &str = "BHB_TEST_CURL_BIN";
 const REMOTE_BUNDLE_VERSION: &str = "pathkeep.remote-backup.v1";
 const REQUIRED_BUNDLE_ENTRIES: &[&str] = &[
     "archive/history-vault.sqlite",
+    "archive/source-evidence.sqlite",
     "config/config.json",
     "metadata/bundle-manifest.json",
     "metadata/bundle-manifest.sha256",
@@ -288,7 +292,9 @@ fn build_bundle(
 
     let tempdir = tempdir().context("creating remote backup staging dir")?;
     let archive_copy_path = tempdir.path().join("history-vault.sqlite");
+    let source_evidence_copy_path = tempdir.path().join("source-evidence.sqlite");
     copy_archive_database(paths, config, key, &archive_copy_path)?;
+    copy_source_evidence_database(paths, config, key, &source_evidence_copy_path)?;
 
     let mut manifest_files = Vec::new();
     let file = File::create(&bundle_path).context(format!("creating {}", bundle_path.display()))?;
@@ -297,6 +303,8 @@ fn build_bundle(
 
     #[rustfmt::skip]
     add_file_to_zip(&mut zip, &archive_copy_path, "archive/history-vault.sqlite", options, &mut manifest_files)?;
+    #[rustfmt::skip]
+    add_file_to_zip(&mut zip, &source_evidence_copy_path, "archive/source-evidence.sqlite", options, &mut manifest_files)?;
     #[rustfmt::skip]
     add_file_to_zip(&mut zip, &paths.config_path, "config/config.json", options, &mut manifest_files)?;
     #[rustfmt::skip]
@@ -346,6 +354,24 @@ fn copy_archive_database(
         None
     };
     let source = open_archive_connection(paths, config, key)?;
+    export_archive_database(&source, target_path, target_key)?;
+    Ok(())
+}
+
+fn copy_source_evidence_database(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    target_path: &Path,
+) -> Result<()> {
+    let target_key = if matches!(config.archive_mode, ArchiveMode::Encrypted) {
+        Some(key.context(
+            "the encrypted archive must be unlocked before creating a remote backup bundle",
+        )?)
+    } else {
+        None
+    };
+    let source = open_source_evidence_connection(paths, config, key)?;
     export_archive_database(&source, target_path, target_key)?;
     Ok(())
 }
@@ -501,22 +527,32 @@ fn validate_restore_readiness(
         serde_json::from_slice(&config_bytes).context("parsing bundled config.json")?;
 
     let archive_bytes = read_zip_entry(archive, "archive/history-vault.sqlite")?;
+    let source_evidence_bytes = read_zip_entry(archive, "archive/source-evidence.sqlite")?;
     let tempdir = tempdir().context("creating remote restore verification dir")?;
     let extracted_archive_path = tempdir.path().join("history-vault.sqlite");
+    let extracted_source_evidence_path = tempdir.path().join("source-evidence.sqlite");
     fs::write(&extracted_archive_path, archive_bytes)
         .with_context(|| format!("writing {}", extracted_archive_path.display()))?;
+    fs::write(&extracted_source_evidence_path, source_evidence_bytes)
+        .with_context(|| format!("writing {}", extracted_source_evidence_path.display()))?;
 
     let connection = Connection::open(&extracted_archive_path)
         .with_context(|| format!("opening {}", extracted_archive_path.display()))?;
+    let source_evidence_connection = Connection::open(&extracted_source_evidence_path)
+        .with_context(|| format!("opening {}", extracted_source_evidence_path.display()))?;
     if manifest.archive_mode == "encrypted" {
         let key =
             key.context("unlock the archive before verifying an encrypted remote backup bundle")?;
         apply_cipher_key(&connection, key)?;
+        apply_cipher_key(&source_evidence_connection, key)?;
     }
 
     connection
         .query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
         .context("validating the bundled archive sqlite payload")?;
+    source_evidence_connection
+        .query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
+        .context("validating the bundled source-evidence sqlite payload")?;
 
     let warnings = if manifest.archive_mode == "encrypted" {
         vec![
@@ -529,7 +565,7 @@ fn validate_restore_readiness(
 
     Ok((
         true,
-        "Archive payload opened successfully and the bundled config is readable.".to_string(),
+        "Archive payloads opened successfully and the bundled config is readable.".to_string(),
         warnings,
     ))
 }

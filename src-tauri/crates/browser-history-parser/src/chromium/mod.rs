@@ -6,9 +6,12 @@
 
 use crate::{
     error::ParseError,
+    observation::{capability_snapshot, capture_native_rows, inspect_schema},
     types::{
-        ChromiumHistory, ChromiumReadCursor, DatabaseInspection, HistoryDatabaseSet,
+        CapabilityCoverage, ChromiumHistory, ChromiumReadCursor, ContextEvidence,
+        DatabaseInspection, EngagementEvidence, HistoryDatabaseSet, NavigationEvidence,
         ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning,
+        SearchEvidence, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
@@ -84,6 +87,8 @@ pub fn parse_history(
     cursor: ChromiumReadCursor,
 ) -> Result<ChromiumHistory, ParseError> {
     let inspection = inspect_history(source)?;
+    let schema_observation =
+        inspect_schema(&open_readonly(&source.history_path)?, &["urls", "visits"])?;
     validate_required_tables(&inspection)?;
 
     let history = open_readonly(&source.history_path)?;
@@ -122,7 +127,58 @@ pub fn parse_history(
         }
     };
 
-    Ok(ChromiumHistory { inspection, urls, visits, downloads, search_terms, favicons, warnings })
+    let typed_evidence = build_typed_evidence(&search_terms, &visits);
+    let capability_snapshot = build_capability_snapshot(&inspection, &typed_evidence, &visits);
+    let mut native_entities = capture_native_rows(
+        &history,
+        "SELECT * FROM urls WHERE last_visit_time >= ?1 ORDER BY last_visit_time ASC",
+        &[&cursor.after_url_last_visit_time],
+        "chromium-url-row",
+        "id",
+        None,
+    )?;
+    native_entities.extend(capture_native_rows(
+        &history,
+        "SELECT * FROM visits WHERE id > ?1 ORDER BY id ASC",
+        &[&cursor.after_visit_id],
+        "chromium-visit-row",
+        "id",
+        Some("url"),
+    )?);
+    if has_table(&inspection, "downloads") {
+        native_entities.extend(capture_native_rows(
+            &history,
+            "SELECT * FROM downloads WHERE id > ?1 ORDER BY id ASC",
+            &[&cursor.after_download_id],
+            "chromium-download-row",
+            "id",
+            None,
+        )?);
+    }
+    if has_table(&inspection, "keyword_search_terms") {
+        native_entities.extend(capture_native_rows(
+            &history,
+            "SELECT * FROM keyword_search_terms WHERE url_id IN (SELECT id FROM urls WHERE last_visit_time >= ?1)",
+            &[&cursor.after_url_last_visit_time],
+            "chromium-search-term-row",
+            "url_id",
+            None,
+        )?);
+    }
+
+    Ok(ChromiumHistory {
+        inspection,
+        schema_observation,
+        capability_snapshot,
+        urls,
+        visits,
+        downloads,
+        search_terms,
+        favicons,
+        typed_evidence,
+        native_entities,
+        warnings,
+    })
 }
 
 /// Converts Chromium's microsecond timestamp format to Unix milliseconds.
@@ -219,6 +275,134 @@ fn validate_required_tables(inspection: &DatabaseInspection) -> Result<(), Parse
 
 fn has_table(inspection: &DatabaseInspection, table_name: &str) -> bool {
     inspection.table_names.iter().any(|existing| existing == table_name)
+}
+
+fn build_typed_evidence(
+    search_terms: &[ParsedSearchTerm],
+    visits: &[ParsedVisit],
+) -> TypedEvidenceBatch {
+    let search = search_terms
+        .iter()
+        .map(|term| SearchEvidence {
+            source_visit_id: None,
+            source_url_id: Some(term.url_id),
+            evidence_key: "search.native_terms".to_string(),
+            evidence_value: term.term.clone(),
+            normalized_value: Some(term.normalized_term.clone()),
+            source_field: "keyword_search_terms.term".to_string(),
+        })
+        .collect::<Vec<_>>();
+    let navigation = visits
+        .iter()
+        .filter(|visit| {
+            visit.from_visit.is_some()
+                || visit.external_referrer_url.is_some()
+                || visit.transition.is_some()
+        })
+        .map(|visit| NavigationEvidence {
+            source_visit_id: visit.source_visit_id,
+            edge_kind: "visit-navigation".to_string(),
+            target_visit_id: visit.from_visit,
+            target_url: visit.external_referrer_url.clone(),
+            transition: visit.transition,
+            source_field: "visits.from_visit/external_referrer_url/transition".to_string(),
+        })
+        .collect::<Vec<_>>();
+    let engagement = visits
+        .iter()
+        .filter_map(|visit| {
+            visit.visit_duration_ms.map(|value| EngagementEvidence {
+                source_visit_id: visit.source_visit_id,
+                metric_key: "engagement.visit_duration_ms".to_string(),
+                metric_value_int: Some(value),
+                metric_value_real: None,
+                source_field: "visits.visit_duration".to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let context = visits
+        .iter()
+        .flat_map(|visit| {
+            let mut items = Vec::new();
+            if visit.app_id.is_some() {
+                items.push(ContextEvidence {
+                    source_visit_id: Some(visit.source_visit_id),
+                    source_url_id: Some(visit.source_url_id),
+                    context_key: "context.app_id".to_string(),
+                    value_json: serde_json::json!(visit.app_id).to_string(),
+                    source_field: "visits.app_id".to_string(),
+                });
+            }
+            if visit.is_known_to_sync {
+                items.push(ContextEvidence {
+                    source_visit_id: Some(visit.source_visit_id),
+                    source_url_id: Some(visit.source_url_id),
+                    context_key: "context.is_known_to_sync".to_string(),
+                    value_json: "true".to_string(),
+                    source_field: "visits.is_known_to_sync".to_string(),
+                });
+            }
+            if visit.visited_link_id.is_some() {
+                items.push(ContextEvidence {
+                    source_visit_id: Some(visit.source_visit_id),
+                    source_url_id: Some(visit.source_url_id),
+                    context_key: "context.visited_link_id".to_string(),
+                    value_json: serde_json::json!(visit.visited_link_id).to_string(),
+                    source_field: "visits.visited_link_id".to_string(),
+                });
+            }
+            items
+        })
+        .collect::<Vec<_>>();
+
+    TypedEvidenceBatch { search, navigation, engagement, context }
+}
+
+fn build_capability_snapshot(
+    inspection: &DatabaseInspection,
+    typed_evidence: &TypedEvidenceBatch,
+    visits: &[ParsedVisit],
+) -> crate::types::CapabilitySnapshot {
+    capability_snapshot(vec![
+        CapabilityCoverage {
+            key: "search.native_terms".to_string(),
+            available: has_table(inspection, "keyword_search_terms"),
+            populated_rows: typed_evidence.search.len(),
+            total_rows: typed_evidence.search.len(),
+            notes: vec!["Chromium keyword_search_terms table".to_string()],
+        },
+        CapabilityCoverage {
+            key: "nav.from_visit".to_string(),
+            available: visits.iter().any(|visit| visit.from_visit.is_some()),
+            populated_rows: visits.iter().filter(|visit| visit.from_visit.is_some()).count(),
+            total_rows: visits.len(),
+            notes: vec!["Chromium visits.from_visit".to_string()],
+        },
+        CapabilityCoverage {
+            key: "nav.external_referrer".to_string(),
+            available: visits.iter().any(|visit| visit.external_referrer_url.is_some()),
+            populated_rows: visits
+                .iter()
+                .filter(|visit| visit.external_referrer_url.is_some())
+                .count(),
+            total_rows: visits.len(),
+            notes: vec!["Chromium visits.external_referrer_url".to_string()],
+        },
+        CapabilityCoverage {
+            key: "engagement.visit_duration_ms".to_string(),
+            available: visits.iter().any(|visit| visit.visit_duration_ms.is_some()),
+            populated_rows: typed_evidence.engagement.len(),
+            total_rows: visits.len(),
+            notes: vec!["Chromium visits.visit_duration".to_string()],
+        },
+        CapabilityCoverage {
+            key: "context.sync_state".to_string(),
+            available: visits.iter().any(|visit| visit.is_known_to_sync),
+            populated_rows: visits.iter().filter(|visit| visit.is_known_to_sync).count(),
+            total_rows: visits.len(),
+            notes: vec!["Chromium visits.is_known_to_sync".to_string()],
+        },
+    ])
 }
 
 fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {

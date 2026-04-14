@@ -12,6 +12,7 @@
 pub mod chromium;
 pub mod error;
 pub mod firefox;
+mod observation;
 pub mod safari;
 pub mod takeout;
 pub mod types;
@@ -21,6 +22,8 @@ pub use error::ParseError;
 pub type ParsedHistory = types::ChromiumHistory;
 /// Shared parser-side read models returned by the individual browser parsers.
 pub use types::{
-    ChromiumHistory, ChromiumReadCursor, DatabaseInspection, HistoryDatabaseSet, ParsedDownload,
-    ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning,
+    CapabilityCoverage, CapabilitySnapshot, ChromiumHistory, ChromiumReadCursor, ContextEvidence,
+    DatabaseInspection, EngagementEvidence, HistoryDatabaseSet, NativeEntity, NavigationEvidence,
+    ObservedColumn, ObservedTable, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl,
+    ParsedVisit, ParserWarning, SchemaObservation, SearchEvidence, TypedEvidenceBatch,
 };

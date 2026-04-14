@@ -48,10 +48,11 @@ A browser is not allowed into README, onboarding, release docs, or other public-
 1. Discovery is implemented and documented.
 2. Parser coverage is implemented, either by reusing an existing family parser or by adding a new parser module.
 3. Canonical archive ingest is wired end to end.
-4. User-visible caveat / degraded-state copy exists in `en`, `zh-CN`, and `zh-TW`.
-5. Icons, names, and route-level UI touchpoints are aligned.
-6. Parser, discovery, and archive acceptance tests exist.
-7. Local validation evidence is written into the testing / release docs for the current host.
+4. Capability snapshot / source-batch provenance is wired end to end.
+5. User-visible caveat / degraded-state copy exists in `en`, `zh-CN`, and `zh-TW`.
+6. Icons, names, and route-level UI touchpoints are aligned.
+7. Parser, discovery, archive, and capability acceptance tests exist.
+8. Local validation evidence is written into the testing / release docs for the current host.
 
 If any one of these is missing, the browser stays in `implemented, not yet publicly promised`.
 
@@ -71,15 +72,16 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 
 ### 3. Parser Strategy
 
-- Reuse `browser-history-parser` family modules when the browser uses the same database shape.
+- Reuse `browser-history-parser` family extractors when the browser uses the same database shape.
 - Add a new parser module in `src-tauri/crates/browser-history-parser/src/` when the schema is genuinely different.
-- Parser modules must stay provided-path only: no installed-browser discovery, no live-file copying, and no Tauri dependencies.
+- Extractors must stay provided-path only: no installed-browser discovery, no live-file copying, and no Tauri dependencies.
+- Every adapter must produce schema observation, capability snapshot, canonical facts, typed evidence, and native-entity preservation rules.
 
 ### 4. Staging And Ingest
 
 - Define which history DB and sidecar files must be staged before parsing.
 - Keep staging in `vault-core` / `vault-platform`; keep parsing in `browser-history-parser`.
-- Wire the adapter into archive ingest only after schema warnings, watermarks, and source-kind naming are explicit.
+- Wire the adapter into archive ingest only after schema warnings, source-batch provenance, watermarks, capability tags, and source-kind naming are explicit.
 
 ### 5. UI And Copy
 
@@ -92,7 +94,14 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 - Parser tests for happy path and missing-table / damaged-shape behavior
 - Discovery tests for default paths, overrides, and unreadable files
 - Archive acceptance proving backup / recall on that adapter path
+- Capability snapshot / coverage tests for version drift and partial support
 - Route or i18n tests for any new public-support promise copy
+
+### 7. Dev Guides
+
+- Follow [../dev/browser-schema-evolution.md](../dev/browser-schema-evolution.md) when schema changes.
+- Follow [../dev/browser-adapter-guide.md](../dev/browser-adapter-guide.md) when adding a new adapter.
+- Follow [../dev/field-promotion-playbook.md](../dev/field-promotion-playbook.md) when promoting preserved native fields into typed evidence or module capabilities.
 
 ### 7. Local Validation Evidence
 

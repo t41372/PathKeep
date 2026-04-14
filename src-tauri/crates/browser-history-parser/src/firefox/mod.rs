@@ -6,7 +6,11 @@
 
 use crate::{
     ParseError, ParsedHistory,
-    types::{DatabaseInspection, ParsedUrl, ParsedVisit, ParserWarning},
+    observation::{capability_snapshot, capture_native_rows, inspect_schema},
+    types::{
+        CapabilityCoverage, ContextEvidence, DatabaseInspection, NavigationEvidence, ParsedUrl,
+        ParsedVisit, ParserWarning, TypedEvidenceBatch,
+    },
 };
 use chrono::{TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, Row, params};
@@ -76,19 +80,61 @@ pub fn parse_history(
     after_url_last_visit_ms: i64,
 ) -> Result<ParsedHistory, ParseError> {
     let inspection = inspect_history(path)?;
+    let schema_observation =
+        inspect_schema(&open_readonly(path)?, &["moz_places", "moz_historyvisits"])?;
     validate_required_tables(&inspection)?;
 
     let connection = open_readonly(path)?;
     let urls = parse_urls(&connection, after_url_last_visit_ms)?;
     let visits = parse_visits(&connection, after_visit_id)?;
+    let typed_evidence = build_typed_evidence(&visits);
+    let capability_snapshot = build_capability_snapshot(&typed_evidence, &visits);
+    let mut native_entities = capture_native_rows(
+        &connection,
+        r#"SELECT * FROM moz_places
+           WHERE COALESCE(last_visit_date, 0) >= ?1
+           ORDER BY COALESCE(last_visit_date, 0) ASC"#,
+        &[&unix_ms_to_firefox_time(after_url_last_visit_ms)],
+        "firefox-place-row",
+        "id",
+        None,
+    )?;
+    native_entities.extend(capture_native_rows(
+        &connection,
+        "SELECT * FROM moz_historyvisits WHERE id > ?1 ORDER BY id ASC",
+        &[&after_visit_id],
+        "firefox-historyvisit-row",
+        "id",
+        Some("place_id"),
+    )?);
+    for optional_table in
+        ["moz_inputhistory", "moz_places_metadata", "moz_places_metadata_search_queries"]
+    {
+        if inspection.table_names.iter().any(|existing| existing == optional_table) {
+            let sql = format!("SELECT * FROM {optional_table}");
+            let entity_kind = format!("firefox-{}", optional_table.replace('_', "-"));
+            native_entities.extend(capture_native_rows(
+                &connection,
+                &sql,
+                &[],
+                &entity_kind,
+                "id",
+                None,
+            )?);
+        }
+    }
 
     Ok(ParsedHistory {
         inspection: inspection.clone(),
+        schema_observation,
+        capability_snapshot,
         urls,
         visits,
         downloads: Vec::new(),
         search_terms: Vec::new(),
         favicons: Vec::new(),
+        typed_evidence,
+        native_entities,
         warnings: inspection.warnings,
     })
 }
@@ -181,6 +227,54 @@ fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
         external_referrer_url: None,
         app_id: Some("firefox".to_string()),
     })
+}
+
+fn build_typed_evidence(visits: &[ParsedVisit]) -> TypedEvidenceBatch {
+    let navigation = visits
+        .iter()
+        .filter(|visit| visit.from_visit.is_some() || visit.transition.is_some())
+        .map(|visit| NavigationEvidence {
+            source_visit_id: visit.source_visit_id,
+            edge_kind: "visit-navigation".to_string(),
+            target_visit_id: visit.from_visit,
+            target_url: None,
+            transition: visit.transition,
+            source_field: "moz_historyvisits.from_visit/visit_type".to_string(),
+        })
+        .collect::<Vec<_>>();
+    let context = visits
+        .iter()
+        .map(|visit| ContextEvidence {
+            source_visit_id: Some(visit.source_visit_id),
+            source_url_id: Some(visit.source_url_id),
+            context_key: "context.app_id".to_string(),
+            value_json: "\"firefox\"".to_string(),
+            source_field: "derived.firefox-family".to_string(),
+        })
+        .collect::<Vec<_>>();
+    TypedEvidenceBatch { search: Vec::new(), navigation, engagement: Vec::new(), context }
+}
+
+fn build_capability_snapshot(
+    typed_evidence: &TypedEvidenceBatch,
+    visits: &[ParsedVisit],
+) -> crate::types::CapabilitySnapshot {
+    capability_snapshot(vec![
+        CapabilityCoverage {
+            key: "nav.from_visit".to_string(),
+            available: visits.iter().any(|visit| visit.from_visit.is_some()),
+            populated_rows: visits.iter().filter(|visit| visit.from_visit.is_some()).count(),
+            total_rows: visits.len(),
+            notes: vec!["Firefox moz_historyvisits.from_visit".to_string()],
+        },
+        CapabilityCoverage {
+            key: "nav.transition".to_string(),
+            available: visits.iter().any(|visit| visit.transition.is_some()),
+            populated_rows: typed_evidence.navigation.len(),
+            total_rows: visits.len(),
+            notes: vec!["Firefox moz_historyvisits.visit_type".to_string()],
+        },
+    ])
 }
 
 #[cfg(test)]

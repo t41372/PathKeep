@@ -38,6 +38,7 @@ export interface StorageAnalyticsSlice {
 export function totalTrackedStorageBytes(storage: StorageSummary): number {
   return (
     storage.archiveDatabaseBytes +
+    storage.sourceEvidenceDatabaseBytes +
     storage.searchDatabaseBytes +
     storage.intelligenceDatabaseBytes +
     storage.manifestBytes +
@@ -79,6 +80,7 @@ export function storageAnalyticsSlices(
       id: 'core',
       bytes:
         storage.archiveDatabaseBytes +
+        storage.sourceEvidenceDatabaseBytes +
         storage.searchDatabaseBytes +
         storage.intelligenceDatabaseBytes,
     },
