@@ -12,7 +12,10 @@
 //! payloads.
 
 use crate::{
-    context::{ai_archive_connection, load_unlocked_config, resolved_app_lock_status},
+    context::{
+        ai_archive_connection, load_unlocked_config, resolved_app_lock_status,
+        selected_embedding_provider_runtime,
+    },
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
 };
 use anyhow::{Context, Result};
@@ -120,32 +123,34 @@ where
         && config.ai.semantic_index_enabled
         && config.ai.auto_index_after_backup
     {
-        let auto_index_request = config
-            .ai
-            .embedding_provider_id
-            .as_ref()
-            .map(|provider_id| AiIndexRequest {
-                provider_id: Some(provider_id.clone()),
-                ..AiIndexRequest::default()
-            })
-            .unwrap_or_default();
-        match ai_archive_connection(&paths, &config, session_database_key) {
-            Ok(connection) => match ai_queue::enqueue_index_job(
-                &connection,
-                &auto_index_request,
-                config.ai.job_queue_paused,
-            ) {
-                Ok(job) if config.ai.job_queue_paused => report.warnings.push(format!(
-                    "AI auto-index queued job {} while the AI queue is paused.",
-                    job.id
-                )),
-                Ok(_job) => {
-                    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
+        match selected_embedding_provider_runtime(&config, None) {
+            Ok(provider) => {
+                let auto_index_request = AiIndexRequest {
+                    provider_id: Some(provider.config.id),
+                    ..AiIndexRequest::default()
+                };
+                match ai_archive_connection(&paths, &config, session_database_key) {
+                    Ok(connection) => match ai_queue::enqueue_index_job(
+                        &connection,
+                        &auto_index_request,
+                        config.ai.job_queue_paused,
+                    ) {
+                        Ok(job) if config.ai.job_queue_paused => report.warnings.push(format!(
+                            "AI auto-index queued job {} while the AI queue is paused.",
+                            job.id
+                        )),
+                        Ok(_job) => {
+                            maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
+                        }
+                        Err(error) => report.warnings.push(format!(
+                            "AI auto-index could not enqueue a follow-up job: {error}"
+                        )),
+                    },
+                    Err(error) => report.warnings.push(format!(
+                        "AI auto-index is enabled, but the embedding provider is not ready: {error}"
+                    )),
                 }
-                Err(error) => report
-                    .warnings
-                    .push(format!("AI auto-index could not enqueue a follow-up job: {error}")),
-            },
+            }
             Err(error) => report.warnings.push(format!(
                 "AI auto-index is enabled, but the embedding provider is not ready: {error}"
             )),

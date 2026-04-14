@@ -141,16 +141,16 @@ Current recovery-mode note: mutation scripts remain available, but they are temp
 
 ## Docs Map
 
-| Need                                        | Read                                       |
-| ------------------------------------------- | ------------------------------------------ |
-| Contributor workflow                        | [CONTRIBUTING.md](./CONTRIBUTING.md)       |
-| Local environment and repo layout           | [DEVELOPMENT.md](./DEVELOPMENT.md)         |
-| Test surfaces and command matrix            | [TESTING.md](./TESTING.md)                 |
-| Release runbook and artifact matrix         | [RELEASE.md](./RELEASE.md)                 |
-| User troubleshooting and diagnostics        | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
-| Support and bug-report expectations         | [SUPPORT.md](./SUPPORT.md)                 |
+| Need                                        | Read                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Contributor workflow                        | [CONTRIBUTING.md](./CONTRIBUTING.md)                                                                                     |
+| Local environment and repo layout           | [DEVELOPMENT.md](./DEVELOPMENT.md)                                                                                       |
+| Test surfaces and command matrix            | [TESTING.md](./TESTING.md)                                                                                               |
+| Release runbook and artifact matrix         | [RELEASE.md](./RELEASE.md)                                                                                               |
+| User troubleshooting and diagnostics        | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)                                                                               |
+| Support and bug-report expectations         | [SUPPORT.md](./SUPPORT.md)                                                                                               |
 | Browser support truth and adapter promotion | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
-| Product, feature, and milestone source docs | [docs/](./docs/)                           |
+| Product, feature, and milestone source docs | [docs/](./docs/)                                                                                                         |
 
 ## Repository Layout
 

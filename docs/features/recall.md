@@ -72,7 +72,7 @@
 
 **預設顯示：**
 
-- Favicon + 頁面標題
+- Favicon + 頁面標題（若該 history row 沒有已保存的 icon payload，UI 顯示 deterministic placeholder，不顯示 broken image）
 - URL（可展開/摺疊長 URL）
 - 訪問時間
 - 來源瀏覽器 / Profile 標識
@@ -98,7 +98,7 @@
 - 所有訪問時間（如果同一 URL 被多次訪問）
 - 訪問次數、typed count
 - 來源途徑和 referrer
-- Favicon
+- Favicon（若 archive 目前沒有這筆 row 可用的 icon payload，detail 仍保留同樣的 placeholder fallback）
 - 來源瀏覽器 / Profile
 - Provenance：寫入的 run ID、run 時間、run 來源
 - 如果有 metadata 變化歷史，顯示 version diff

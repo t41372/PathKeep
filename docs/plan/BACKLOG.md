@@ -7,6 +7,18 @@
 
 ## 工作塊佇列（按順序）
 
+- [ ] **WORK-QC-O** — Intelligence And Jobs UX Reset Implementation
+  - 讀先：
+    `docs/features/intelligence-current-state.md`
+    `docs/features/deterministic-intelligence.md`
+    `docs/features/intelligence.md`
+    `docs/design/intelligence-ui-redesign-brief.md`
+    `docs/design/jobs-ui-redesign-brief.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 intelligence / Jobs 目前「資料是真的，但 UI 階層與閱讀順序失控」的問題，收斂成 designer-signed-off 並真正落地的 shipping UX，而不是再往現有 panel wall 上補小修小改。
+  - 契約：Insights 必須明確回到 `analysis first, runtime second`；Jobs 必須先回答 `running now / needs review / deferred backlog`；threads 要從 backend-core 概念提升成前台清楚可見的結構；queue 錯誤與 deferred backlog 必須以人話呈現，不能再把 raw runtime status 或大批待抓正文誤導成整條功能失敗。
+  - 驗收：source docs、route IA、shared components / copy、以及手動 truth pass 一起更新；`bun run check && bun run build` 維持通過，並留下 designer handoff artifact / screenshots / state inventory 供後續 review。
+
 - [ ] **WORK-QC-M** — Large-Archive Performance Envelope And Chunked Deterministic Runtime
   - 讀先：
     `docs/features/intelligence.md`

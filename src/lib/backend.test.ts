@@ -719,6 +719,12 @@ describe('backend facade', () => {
         state.snapshot.config.deterministic.modules.map((module, index) =>
           index === 0 ? { ...module, enabled: false } : module,
         )
+      state.snapshot.config.enrichment.plugins =
+        state.snapshot.config.enrichment.plugins.map((plugin) =>
+          plugin.id === 'readable-content-refetch'
+            ? { ...plugin, enabled: false }
+            : plugin,
+        )
     })
 
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
@@ -775,6 +781,24 @@ describe('backend facade', () => {
       }),
     ).resolves.toMatchObject({
       processedVisits: expect.any(Number),
+      enrichedVisits: 0,
+      failedEnrichments: 0,
+      notes: expect.arrayContaining([
+        expect.stringContaining('lexical/archive fields only'),
+      ]),
+    })
+    await expect(
+      backend.loadInsights({
+        profileId: 'chrome:Default',
+        windowDays: 30,
+        fullRebuild: false,
+        limit: null,
+      }),
+    ).resolves.toMatchObject({
+      status: expect.objectContaining({ contentCoverage: 0.18 }),
+      notes: expect.arrayContaining([
+        expect.stringContaining('lexical and structural evidence'),
+      ]),
     })
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
       modules: expect.arrayContaining([
@@ -783,6 +807,61 @@ describe('backend facade', () => {
           enabled: false,
           status: 'disabled',
           notes: ['Disabled in Settings.'],
+        }),
+      ]),
+    })
+  })
+
+  test('queues deterministic rebuild jobs with truthful running and paused preview states', async () => {
+    const request = {
+      profileId: null,
+      windowDays: 30,
+      fullRebuild: false,
+      limit: null,
+    }
+
+    await expect(backend.queueInsightsRebuild(request)).resolves.toMatchObject({
+      state: 'running',
+      notes: [expect.stringContaining('processing it in the background')],
+    })
+    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
+      recentJobs: expect.arrayContaining([
+        expect.objectContaining({
+          jobType: 'deterministic-rebuild',
+          state: 'running',
+          profileId: 'all',
+          startedAt: expect.any(String),
+          heartbeatAt: expect.any(String),
+          progressLabel: 'Loading visits',
+          progressDetail: 'Preparing a deterministic rebuild for all profiles.',
+          progressCurrent: 0,
+          progressTotal: 8,
+          progressPercent: 0,
+        }),
+      ]),
+    })
+
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.config.ai.jobQueuePaused = true
+    })
+
+    await expect(backend.queueInsightsRebuild(request)).resolves.toMatchObject({
+      state: 'queued',
+      notes: [expect.stringContaining('Resume background work')],
+    })
+    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
+      recentJobs: expect.arrayContaining([
+        expect.objectContaining({
+          jobType: 'deterministic-rebuild',
+          state: 'queued',
+          profileId: 'all',
+          startedAt: null,
+          heartbeatAt: null,
+          progressLabel: null,
+          progressDetail: null,
+          progressCurrent: null,
+          progressTotal: null,
+          progressPercent: null,
         }),
       ]),
     })
@@ -2205,6 +2284,11 @@ describe('backend facade', () => {
     await expect(backend.runInsightsNow(insightRequest)).resolves.toEqual({
       ok: true,
     })
+    await expect(backend.queueInsightsRebuild(insightRequest)).resolves.toEqual(
+      {
+        ok: true,
+      },
+    )
     await expect(backend.loadInsights(insightRequest)).resolves.toEqual({
       ok: true,
     })
@@ -2258,24 +2342,27 @@ describe('backend facade', () => {
     expect(invoke).toHaveBeenNthCalledWith(12, 'run_insights_now', {
       request: insightRequest,
     })
-    expect(invoke).toHaveBeenNthCalledWith(13, 'load_insights', {
+    expect(invoke).toHaveBeenNthCalledWith(13, 'queue_insights_rebuild', {
       request: insightRequest,
     })
-    expect(invoke).toHaveBeenNthCalledWith(14, 'load_thread_detail', {
+    expect(invoke).toHaveBeenNthCalledWith(14, 'load_insights', {
+      request: insightRequest,
+    })
+    expect(invoke).toHaveBeenNthCalledWith(15, 'load_thread_detail', {
       threadId: 'thread-001',
     })
-    expect(invoke).toHaveBeenNthCalledWith(15, 'explain_insight', {
+    expect(invoke).toHaveBeenNthCalledWith(16, 'explain_insight', {
       request: explainRequest,
     })
     expect(invoke).toHaveBeenNthCalledWith(
-      16,
+      17,
       'preview_ai_integrations',
       undefined,
     )
-    expect(invoke).toHaveBeenNthCalledWith(17, 'open_path_in_file_manager', {
+    expect(invoke).toHaveBeenNthCalledWith(18, 'open_path_in_file_manager', {
       path: '/tmp/pathkeep',
     })
-    expect(invoke).toHaveBeenNthCalledWith(18, 'open_external_url', {
+    expect(invoke).toHaveBeenNthCalledWith(19, 'open_external_url', {
       url: 'https://example.com/pathkeep',
     })
   })

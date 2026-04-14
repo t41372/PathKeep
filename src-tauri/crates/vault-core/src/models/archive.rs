@@ -237,6 +237,13 @@ impl Default for HistoryQuery {
     }
 }
 
+/// One favicon payload returned alongside a visible history row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFavicon {
+    pub data_url: String,
+}
+
 /// One visible visit row returned by archive recall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -246,6 +253,7 @@ pub struct HistoryEntry {
     pub url: String,
     pub title: Option<String>,
     pub domain: String,
+    pub favicon: Option<HistoryFavicon>,
     pub visited_at: String,
     pub visit_time: i64,
     pub duration_ms: Option<i64>,

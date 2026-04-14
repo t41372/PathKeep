@@ -12,8 +12,11 @@
 
 - 支援自動發現本機安裝的瀏覽器和 profiles。
   - 對外公開承諾目前只包含 `Google Chrome`，以及 macOS 上已授權 Full Disk Access 的 `Safari` 基礎支持。
+  - `Google Chrome` 的 `Favicons` sidecar 屬正式 backup 範圍；Explorer row / detail 目前會顯示 archive 中已保存的 exact-page favicon。
   - Safari 為基礎支持：profile 會被偵測並保留在 UI 中；若缺少 Full Disk Access，必須顯示 needs-access guidance，而不是把 profile 靜默隱藏。
+  - Safari richer favicon coverage 仍保持 deferred follow-up；day-one archive / Explorer truth 只承諾 Safari history baseline，不假裝 `History.db` 已自帶完整 icon payload。
   - Firefox 與其他 Chromium / Firefox-family adapter 可以繼續保留實作與 discovery，但在補齊獨立驗證 evidence 前，不應被寫進 README / onboarding / release docs 的 public support promise。
+  - Firefox richer favicon coverage 同樣保持 additive follow-up，不把 visits / URLs baseline 誤寫成 full favicon parity。
   - browser support 的 promotion 規則以 [browser-support-and-adapter-playbook.md](../architecture/browser-support-and-adapter-playbook.md) 為準：discovery、parser / ingest、caveat copy、tests 與 local validation evidence 全齊後，才可升級成公開承諾。
 - **Profile 選擇是備份的入口**：
   - 用戶在 UI 中看到所有被發現的瀏覽器和 profiles，以勾選的方式選擇要備份哪些。

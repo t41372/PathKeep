@@ -277,6 +277,9 @@ export interface HistoryEntry {
   url: string
   title?: string | null
   domain: string
+  favicon?: {
+    dataUrl: string
+  } | null
   visitedAt: string
   visitTime: number
   durationMs?: number | null

@@ -24,13 +24,13 @@
 | `SHA256SUMS.txt`                     | GitHub `Release` workflow | user-visible checksum validation                                   |
 | `RELEASE-MANIFEST.json`              | GitHub `Release` workflow | operator-facing file inventory and traceability                    |
 
-## Platform Validation Matrix
-
 ## Browser Support Promise
 
 - `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
 - `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
 - Promotion into README / onboarding / release docs follows [../../architecture/browser-support-and-adapter-playbook.md](../../architecture/browser-support-and-adapter-playbook.md), not just the broadest internal implementation surface.
+
+## Platform Validation Matrix
 
 ### macOS
 

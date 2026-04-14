@@ -142,9 +142,7 @@ describe('i18n helpers', () => {
     expect(english('featureBackupDesc')).not.toContain('Edge')
     expect(english('featureBackupDesc')).not.toContain('Brave')
     expect(english('firefoxSafariInfo')).not.toContain('fully supported')
-    expect(english('firefoxSafariInfo')).toContain(
-      'public support commitments',
-    )
+    expect(english('firefoxSafariInfo')).toContain('public support commitments')
 
     expect(simplified('featureBackupDesc')).toContain('Google Chrome')
     expect(simplified('featureBackupDesc')).toContain('Safari')

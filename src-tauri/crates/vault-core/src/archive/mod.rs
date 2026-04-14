@@ -40,11 +40,14 @@ use crate::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupProgressEvent, BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat,
         ExportRequest, ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry,
-        HistoryQuery, HistoryQueryResponse, RetentionBucket, RetentionPreview,
+        HistoryFavicon, HistoryQuery, HistoryQueryResponse, RetentionBucket, RetentionPreview,
         RetentionPruneRequest, RetentionPruneResult, SnapshotRestorePreview,
         SnapshotRestoreRequest, StorageSummary,
     },
-    utils::{file_sha256_hex, now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain},
+    utils::{
+        file_sha256_hex, image_data_to_data_url, now_rfc3339, sha256_hex,
+        unix_micros_to_chrome_time, url_domain,
+    },
 };
 use anyhow::{Context, Result};
 use browser_history_parser::{
@@ -75,7 +78,20 @@ SELECT
   visits.visit_duration_ms,
   visits.transition_type,
   visits.source_visit_id,
-  visits.app_id
+  visits.app_id,
+  (
+    SELECT favicons.image_data
+    FROM favicons
+    WHERE favicons.source_profile_id = source_profiles.id
+      AND favicons.page_url = urls.url
+      AND favicons.image_data IS NOT NULL
+    ORDER BY
+      favicons.last_updated_ms DESC,
+      favicons.width DESC,
+      favicons.height DESC,
+      favicons.id DESC
+    LIMIT 1
+  ) AS favicon_image_data
 FROM visits
 JOIN urls
   ON urls.id = visits.url_id
@@ -139,7 +155,20 @@ SELECT
   visits.visit_duration_ms,
   visits.transition_type,
   visits.source_visit_id,
-  visits.app_id
+  visits.app_id,
+  (
+    SELECT favicons.image_data
+    FROM favicons
+    WHERE favicons.source_profile_id = source_profiles.id
+      AND favicons.page_url = urls.url
+      AND favicons.image_data IS NOT NULL
+    ORDER BY
+      favicons.last_updated_ms DESC,
+      favicons.width DESC,
+      favicons.height DESC,
+      favicons.id DESC
+    LIMIT 1
+  ) AS favicon_image_data
 FROM visits
 JOIN urls
   ON urls.id = visits.url_id
@@ -2202,7 +2231,7 @@ mod tests {
         favicons
             .execute(
                 "INSERT INTO favicon_bitmaps (icon_id, width, height, last_updated, image_data)
-                 VALUES (1, 16, 16, ?1, X'0102')",
+                 VALUES (1, 16, 16, ?1, X'89504E470D0A1A0A01')",
                 [second_visit],
             )
             .expect("insert favicon bitmap");
@@ -2349,6 +2378,12 @@ mod tests {
         )
         .expect("list history");
         assert_eq!(history.total, 2);
+        assert!(history.items.iter().all(|entry| {
+            entry
+                .favicon
+                .as_ref()
+                .is_some_and(|favicon| favicon.data_url.starts_with("data:image/"))
+        }));
 
         let search_term_history = list_history(
             &paths,
@@ -2522,6 +2557,82 @@ mod tests {
         assert_eq!(rerun.run.as_ref().expect("rerun").new_urls, 0);
 
         restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
+        restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+    }
+
+    #[test]
+    fn safari_backup_baseline_ingests_history_without_firefox_or_chrome_dependency() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let safari_root = seed_safari_fixture(dir.path());
+        let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+        let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+        unsafe {
+            std::env::set_var("CHB_CHROME_USER_DATA_DIR", dir.path().join("missing-chrome"));
+            std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["safari:default".to_string()],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let report = run_backup(&paths, &config, None, false).expect("run safari backup");
+        assert_eq!(report.run.as_ref().expect("run").new_visits, 1);
+        assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
+        assert_eq!(report.profiles.len(), 1);
+        assert_eq!(report.profiles[0].profile_id, "safari:default");
+        assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
+
+        let history =
+            list_history(&paths, &config, None, HistoryQuery::default()).expect("history");
+        assert_eq!(history.total, 1);
+        assert_eq!(history.items[0].profile_id, "safari:default");
+
+        restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
+        restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+    }
+
+    #[test]
+    fn backup_keeps_chrome_successful_when_selected_safari_is_unreadable() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = seed_chrome_fixture(dir.path());
+        let safari_root = dir.path().join("Safari");
+        fs::create_dir_all(&safari_root).expect("create safari root");
+        let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+        let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+        unsafe {
+            std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+            std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["chrome:Default".to_string(), "safari:default".to_string()],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let report = run_backup(&paths, &config, None, false).expect("run backup");
+        assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
+        assert_eq!(report.profiles.len(), 1);
+        assert_eq!(report.profiles[0].profile_id, "chrome:Default");
+        assert!(report.warnings.iter().any(|warning| {
+            warning.contains("safari:default")
+                && warning.contains("grant Full Disk Access before the next backup")
+        }));
+
+        let history =
+            list_history(&paths, &config, None, HistoryQuery::default()).expect("history");
+        assert_eq!(history.total, 2);
+        assert!(history.items.iter().all(|entry| entry.profile_id.starts_with("chrome:")));
+
+        restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
         restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
     }
 
