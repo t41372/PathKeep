@@ -26,10 +26,18 @@
 
 ## Platform Validation Matrix
 
+## Browser Support Promise
+
+- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+- Promotion into README / onboarding / release docs follows [../../architecture/browser-support-and-adapter-playbook.md](../../architecture/browser-support-and-adapter-playbook.md), not just the broadest internal implementation surface.
+
 ### macOS
 
 - install app bundle and confirm first-run onboarding succeeds
-- verify first backup on Chromium plus Safari guidance when Full Disk Access is missing
+- verify first backup on Google Chrome
+- verify Safari stays visible with needs-access guidance when Full Disk Access is missing
+- verify Safari baseline backup succeeds after Full Disk Access is granted
 - review LaunchAgent preview, apply, verify, and remove flow
 - confirm encrypted archive unlock, restart, and re-open behavior
 - verify App Lock passcode + Touch ID unlock path, including truthful Touch ID unavailable fallback
@@ -121,6 +129,7 @@ Then perform a traceability sweep:
 - root docs point to the right commands and support stance
 - Settings labels match the docs
 - plan docs, features docs, and design docs do not claim unsupported behavior
+- browser promise copy only names adapters that have current validation evidence
 - blocked work remains explicitly blocked instead of silently implied as shipped
 
 Then generate the release size audit:

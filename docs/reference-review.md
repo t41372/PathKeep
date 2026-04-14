@@ -7,7 +7,9 @@ This project's browser/OS support and data-shape decisions were reviewed against
 
 These repositories are cloned locally under `reference/` and kept out of version control.
 
-## What We Already Cover
+## What The Codebase Already Implements
+
+This section tracks implementation coverage, not the public support promise. The public taxonomy lives in [browser-support-and-adapter-playbook.md](./architecture/browser-support-and-adapter-playbook.md).
 
 - Chromium-family desktop browsers:
   - Google Chrome
@@ -51,4 +53,4 @@ These repositories are cloned locally under `reference/` and kept out of version
 
 ## Current Position
 
-PathKeep is already broader than the original Chrome-only scope and now covers the main desktop browser families directly in the app. The remaining gaps are mostly niche browsers, mobile browser exports, or custom-path onboarding improvements rather than missing support for mainstream desktop browsers.
+PathKeep's internal implementation surface is broader than its public promise. The codebase currently covers the main desktop browser families directly in the app, but README/UI now only promise the adapters backed by current validation evidence. The remaining gaps are mostly promotion evidence, niche browsers, mobile browser exports, or custom-path onboarding improvements.

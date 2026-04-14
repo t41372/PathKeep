@@ -3,13 +3,15 @@
 > 目標：把多來源導入、回滾、Doctor、PME、i18n 和跨平台支持做完整，讓產品從「可備份」進化到「可長期信任地使用」。
 >
 > **狀態註記（2026-04-07）**：`WORK-M2-A` 與 `WORK-M2-B` 都已完成，Google Takeout import / rollback / restore、Firefox 正式支持、Safari baseline support、doctor / repair、trust UX、namespace-based i18n 與跨平台 guidance 都已落地。M3 接手 optional intelligence。
+>
+> **2026-04-13 truth-pass 註記**：Firefox-family 與額外 Chromium-family adapter 的實作仍保留，但 public promise 已收斂為 Google Chrome 與 macOS Safari baseline。README / onboarding / release docs 只有在補齊獨立 promotion evidence 後，才可重新把其他 adapter 升級成公開承諾。
 
 ---
 
 ## M2 的完成定義
 
 - Google Takeout import 有完整 dry-run / preview / quarantine / import / rollback 路徑。
-- Firefox 支持完成，Safari 基礎支持完成。
+- Firefox ingest implementation 已落地；Safari 基礎支持完成。
 - Run 歷史、manifest chain、rollback / un-revert、Doctor 報告在 UI 裡都可操作。
 - PME 模式從 schedule 擴展到 import / rekey / high-risk operations。
 - i18n 和跨平台排程支持正式落地。

@@ -10,6 +10,12 @@ This is the contributor-facing release runbook. The implementation-level source 
 | Windows  | Preview | CI builds installers, but maintainers must explicitly own the code-signing path they want to use.                              |
 | Linux    | Preview | CI builds packages when host tooling is present; checksums are part of the release contract, signatures are not yet universal. |
 
+## Browser Support Promise
+
+- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+- Promotion into README / onboarding / release claims requires the gate in [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md).
+
 ## Artifact Matrix
 
 | Artifact                            | Produced By                   | Audience              | Notes                                                                                                           |
@@ -130,7 +136,9 @@ Every release rehearsal should cover:
 
 - fresh install
 - first-run onboarding
-- first local backup
+- first local backup on Google Chrome
+- Safari visible-but-unreadable guidance before Full Disk Access
+- Safari baseline backup after Full Disk Access is granted
 - schedule preview / install / verify / remove
 - encrypted archive unlock and re-open
 - remote backup preview / execute / verify
@@ -163,6 +171,7 @@ If a release is bad:
 ## Known Limitations
 
 - Safari access on macOS still depends on Full Disk Access outside the app.
+- Firefox and other browser adapters remain implementation coverage until they have dedicated promotion evidence.
 - Windows SmartScreen reputation depends on maintainer signing policy and reputation, not just a successful CI build.
 - Linux keyring behavior varies by desktop environment; encrypted mode remains supported, but unattended unlock can degrade.
 - App Lock remains a session-only boundary; only macOS currently ships a real Touch ID unlock path.

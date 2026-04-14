@@ -48,6 +48,14 @@ The app keeps canonical history facts, rollback state, audit artifacts, schedule
 - Platform troubleshooting callouts exist for Safari Full Disk Access, scheduler mismatch / manual review, and keyring degradation.
 - User-facing support docs, troubleshooting guidance, and issue templates are bundled in-repo instead of living only in chat or tribal knowledge.
 
+## Browser Support Today
+
+PathKeep separates implemented adapters from publicly validated support so the README only promises the browser paths that are currently backed by local validation evidence.
+
+- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+- `Adapter candidates`: browsers that are not yet wired into discovery, parser selection, and canonical archive ingest.
+
 ## Platform Support
 
 | Platform | Channel | Notes                                                                                                                           |
@@ -141,6 +149,7 @@ Current recovery-mode note: mutation scripts remain available, but they are temp
 | Release runbook and artifact matrix         | [RELEASE.md](./RELEASE.md)                 |
 | User troubleshooting and diagnostics        | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
 | Support and bug-report expectations         | [SUPPORT.md](./SUPPORT.md)                 |
+| Browser support truth and adapter promotion | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
 | Product, feature, and milestone source docs | [docs/](./docs/)                           |
 
 ## Repository Layout

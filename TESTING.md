@@ -70,6 +70,22 @@ bun run check:rust
 - Platform validation for macOS / Windows / Linux lives in [RELEASE.md](./RELEASE.md) and [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).
 - User-facing support diagnostics and redaction rules live in [SUPPORT.md](./SUPPORT.md).
 
+## Browser Support Truth
+
+- Public browser support claims must follow [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md), not just the broadest code path currently implemented in the repo.
+- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+
+## Local Browser Validation Recipe
+
+Use this recipe before promoting any browser into README or onboarding promise copy:
+
+1. Verify one successful Google Chrome backup / recall path on the current local host.
+2. Verify Safari remains visible but unreadable when `History.db` cannot be accessed.
+3. Verify Safari baseline backup succeeds after Full Disk Access is granted.
+
+Additional adapters may keep shipping as implementation coverage, but they stay out of public promise copy until the same recipe is documented for them.
+
 ## Release Closeout Command Order
 
 Use this order for release rehearsal:

@@ -4,6 +4,8 @@
 > 這份文檔是 Recall & Trust 的資料層和操作層主計劃。
 >
 > **狀態註記（2026-04-07）**：`WORK-M2-A` 已完成。現有基線包含 Google Takeout dry-run / preview / quarantine / import / revert / restore、Firefox 正式 ingest、Safari history-only baseline ingest + Full Disk Access guidance，以及 doctor / repair 對 import artifact、visibility、derived state 的修復。剩餘 PME UI / trust copy / reusable guidance component 收斂到 `M2-TX`。
+>
+> **2026-04-13 truth-pass 註記**：這裡記錄的是 M2 已經落地的 implementation coverage，而不是今天的 public promise。Firefox 與其他 adapter 仍保留實作；但 README / onboarding / release docs 現在只公開承諾 Google Chrome 與 macOS Safari baseline，直到有獨立 promotion evidence。
 
 ---
 
@@ -21,7 +23,7 @@
 ## 本工作包要交付什麼
 
 - Google Takeout 的 dry-run、preview、quarantine、import、rollback
-- Firefox 正式支持與 Safari 基礎支持
+- Firefox ingest implementation 與 Safari 基礎支持
 - rollback / un-revert / visibility model 的實際落地
 - doctor 深化和資料完整性修復工具
 
@@ -78,6 +80,6 @@
 ## Exit Artifacts
 
 - Google Takeout import pipeline
-- Firefox 正式支持
+- Firefox ingest implementation
 - Safari 基礎支持
 - rollback / un-revert / doctor 強化
