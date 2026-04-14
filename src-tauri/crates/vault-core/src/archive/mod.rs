@@ -2509,6 +2509,53 @@ mod tests {
             plan.iter().any(|detail| detail.contains("VIRTUAL TABLE INDEX")),
             "unexpected query plan: {plan:?}"
         );
+        assert!(
+            plan.iter().any(|detail| detail.contains("idx_visits_visible_url_time")),
+            "fts history query is not using the visible visit lookup index: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|detail| detail == "SCAN visits"),
+            "fts history query still scans the whole visits table: {plan:?}"
+        );
+
+        let mut favicon_statement = connection
+            .prepare(
+                "EXPLAIN QUERY PLAN
+                 SELECT visits.id,
+                        (
+                          SELECT favicons.image_data
+                          FROM favicons
+                          WHERE favicons.source_profile_id = source_profiles.id
+                            AND favicons.page_url = urls.url
+                            AND favicons.image_data IS NOT NULL
+                          ORDER BY
+                            favicons.last_updated_ms DESC,
+                            favicons.width DESC,
+                            favicons.height DESC,
+                            favicons.id DESC
+                          LIMIT 1
+                        ) AS favicon_image_data
+                 FROM visits
+                 JOIN urls ON urls.id = visits.url_id
+                 JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+                 WHERE visits.reverted_at IS NULL
+                 ORDER BY visits.visit_time_ms DESC, visits.id DESC
+                 LIMIT 150",
+            )
+            .expect("prepare favicon query plan");
+        let favicon_plan = favicon_statement
+            .query_map([], |row| row.get::<_, String>(3))
+            .expect("query favicon plan rows")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect favicon query plan");
+        assert!(
+            favicon_plan.iter().any(|detail| detail.contains("idx_favicons_recall_lookup")),
+            "unexpected favicon query plan: {favicon_plan:?}"
+        );
+        assert!(
+            !favicon_plan.iter().any(|detail| detail.contains("SCAN favicons")),
+            "favicon lookup still scans the whole table: {favicon_plan:?}"
+        );
 
         restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
     }
