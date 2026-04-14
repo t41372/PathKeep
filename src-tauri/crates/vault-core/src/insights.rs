@@ -17,7 +17,7 @@ mod topics;
 use crate::archive::create_schema;
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
-    archive::open_archive_connection,
+    archive::open_intelligence_connection,
     config::ProjectPaths,
     deterministic::{
         DomainCategory, EvidenceTier, InteractionKind, PageCategory, VisitAnalysisInput,
@@ -2364,7 +2364,6 @@ mod tests {
             AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSettings, ArchiveMode,
             InsightQueryGroupSummary, InsightReferencePageSummary,
         },
-        utils::iso_to_chrome_time_micros,
     };
     use tempfile::tempdir;
 
@@ -2403,27 +2402,68 @@ mod tests {
         let visit_six = (Utc::now() - Duration::days(365)).to_rfc3339();
         connection
             .execute(
-                "INSERT INTO visit_events
-                 (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [now_rfc3339()],
+            )
+            .expect("insert test run");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (1, 'chrome', 'test', 'Default', '/tmp/chrome-default', ?1, 1, 'chrome:Default', ?1)",
+                [now_rfc3339()],
+            )
+            .expect("insert test profile");
+        connection
+            .execute(
+                "INSERT INTO urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
                  VALUES
-                 (1, 'chrome:Default', 1, 1, 'https://example.com/docs/archive', 'Archive docs', ?1, NULL, 805306368, 24000, 1, NULL, 'https://google.com', NULL, 'a', 'a', ?6),
-                 (2, 'chrome:Default', 2, 2, 'https://github.com/example/repo/issues/1', 'Issue one', ?2, 1, 805306368, 12000, 1, NULL, NULL, NULL, 'b', 'b', ?7),
-                 (3, 'chrome:Default', 3, 3, 'https://www.google.com/search?q=archive+tool+compare', 'Google Search', ?3, NULL, 805306368, 6000, 1, NULL, NULL, NULL, 'c', 'c', ?8),
-                 (4, 'chrome:Default', 4, 4, 'https://www.google.com/search?q=archive+tool+compare+github', 'Google Search Refined', ?4, NULL, 805306368, 8000, 1, NULL, NULL, NULL, 'd', 'd', ?9),
-                 (5, 'chrome:Default', 5, 5, 'https://example.com/pricing', 'Pricing', ?5, NULL, 805306368, 5000, 1, NULL, NULL, NULL, 'e', 'e', ?10),
-                 (6, 'chrome:Default', 6, 6, 'https://example.com/on-this-day', 'On this day', ?11, NULL, 805306368, 5000, 1, NULL, NULL, NULL, 'f', 'f', ?12)",
+                 (1, 'https://example.com/docs/archive', 'Archive docs', 1, 0, ?1, ?6, ?1, ?6, 1, 1, 1, 0, 'a', ?6),
+                 (2, 'https://github.com/example/repo/issues/1', 'Issue one', 1, 0, ?2, ?7, ?2, ?7, 1, 1, 2, 0, 'b', ?7),
+                 (3, 'https://www.google.com/search?q=archive+tool+compare', 'Google Search', 1, 0, ?3, ?8, ?3, ?8, 1, 1, 3, 0, 'c', ?8),
+                 (4, 'https://www.google.com/search?q=archive+tool+compare+github', 'Google Search Refined', 1, 0, ?4, ?9, ?4, ?9, 1, 1, 4, 0, 'd', ?9),
+                 (5, 'https://example.com/pricing', 'Pricing', 1, 0, ?5, ?10, ?5, ?10, 1, 1, 5, 0, 'e', ?10),
+                 (6, 'https://example.com/on-this-day', 'On this day', 1, 0, ?11, ?12, ?11, ?12, 1, 1, 6, 0, 'f', ?12)",
                 params![
-                    iso_to_chrome_time_micros(&visit_one).expect("visit one chrome time"),
-                    iso_to_chrome_time_micros(&visit_two).expect("visit two chrome time"),
-                    iso_to_chrome_time_micros(&visit_three).expect("visit three chrome time"),
-                    iso_to_chrome_time_micros(&visit_four).expect("visit four chrome time"),
-                    iso_to_chrome_time_micros(&visit_five).expect("visit five chrome time"),
+                    DateTime::parse_from_rfc3339(&visit_one).expect("visit one time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_two).expect("visit two time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_three).expect("visit three time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_four).expect("visit four time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_five).expect("visit five time").timestamp_millis(),
                     visit_one,
                     visit_two,
                     visit_three,
                     visit_four,
                     visit_five,
-                    iso_to_chrome_time_micros(&visit_six).expect("visit six chrome time"),
+                    DateTime::parse_from_rfc3339(&visit_six).expect("visit six time").timestamp_millis(),
+                    visit_six,
+                ],
+            )
+            .expect("insert urls");
+        connection
+            .execute(
+                "INSERT INTO visits
+                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, external_referrer_url, event_fingerprint, payload_hash, recorded_at)
+                 VALUES
+                 (1, 1, '1', ?1, ?6, 805306368, 24000, 1, 1, NULL, 1, 'https://google.com', 'a', 'a', ?6),
+                 (2, 2, '2', ?2, ?7, 805306368, 12000, 1, 1, 1, 1, NULL, 'b', 'b', ?7),
+                 (3, 3, '3', ?3, ?8, 805306368, 6000, 1, 1, NULL, 1, NULL, 'c', 'c', ?8),
+                 (4, 4, '4', ?4, ?9, 805306368, 8000, 1, 1, NULL, 1, NULL, 'd', 'd', ?9),
+                 (5, 5, '5', ?5, ?10, 805306368, 5000, 1, 1, NULL, 1, NULL, 'e', 'e', ?10),
+                 (6, 6, '6', ?11, ?12, 805306368, 5000, 1, 1, NULL, 1, NULL, 'f', 'f', ?12)",
+                params![
+                    DateTime::parse_from_rfc3339(&visit_one).expect("visit one time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_two).expect("visit two time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_three).expect("visit three time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_four).expect("visit four time").timestamp_millis(),
+                    DateTime::parse_from_rfc3339(&visit_five).expect("visit five time").timestamp_millis(),
+                    visit_one,
+                    visit_two,
+                    visit_three,
+                    visit_four,
+                    visit_five,
+                    DateTime::parse_from_rfc3339(&visit_six).expect("visit six time").timestamp_millis(),
                     visit_six,
                 ],
             )
@@ -2466,15 +2506,97 @@ mod tests {
             .expect("insert search term");
     }
 
+    fn insert_test_visit(
+        connection: &Connection,
+        history_id: i64,
+        url: &str,
+        title: &str,
+        visited_at_iso: &str,
+        from_visit: Option<i64>,
+        external_referrer_url: Option<&str>,
+    ) {
+        let visit_time_ms =
+            DateTime::parse_from_rfc3339(visited_at_iso).expect("visit time").timestamp_millis();
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [now_rfc3339()],
+            )
+            .expect("insert test run");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (1, 'chrome', 'test', 'Default', '/tmp/chrome-default', ?1, 1, 'chrome:Default', ?1)",
+                [now_rfc3339()],
+            )
+            .expect("insert test profile");
+        connection
+            .execute(
+                "INSERT INTO urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?1, 0, ?6, ?5)",
+                params![history_id, url, title, visit_time_ms, visited_at_iso, format!("payload-{history_id}")],
+            )
+            .expect("insert test url");
+        connection
+            .execute(
+                "INSERT INTO visits
+                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, external_referrer_url, event_fingerprint, payload_hash, recorded_at)
+                 VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 1000, 1, 1, ?5, 1, ?6, ?7, ?8, ?4)",
+                params![
+                    history_id,
+                    history_id.to_string(),
+                    visit_time_ms,
+                    visited_at_iso,
+                    from_visit,
+                    external_referrer_url,
+                    format!("fp-{history_id}"),
+                    format!("payload-{history_id}"),
+                ],
+            )
+            .expect("insert test visit");
+    }
+
+    fn install_test_visit_events_view(connection: &Connection) {
+        connection
+            .execute_batch(
+                "CREATE TEMP VIEW visit_events AS
+                 SELECT
+                   visits.id AS id,
+                   source_profiles.profile_key AS profile_id,
+                   CAST(visits.source_visit_id AS INTEGER) AS source_visit_id,
+                   urls.id AS source_url_id,
+                   urls.url AS url,
+                   urls.title AS title,
+                   (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
+                   visits.from_visit AS from_visit,
+                   visits.transition_type AS transition,
+                   visits.visit_duration_ms AS visit_duration,
+                   visits.is_known_to_sync AS is_known_to_sync,
+                   visits.visited_link_id AS visited_link_id,
+                   visits.external_referrer_url AS external_referrer_url,
+                   visits.app_id AS app_id,
+                   visits.event_fingerprint AS event_fingerprint,
+                   visits.payload_hash AS payload_hash,
+                   visits.recorded_at AS recorded_at,
+                   visits.import_batch_id AS import_batch_id
+                 FROM visits
+                 JOIN urls ON urls.id = visits.url_id
+                 JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+                 WHERE visits.reverted_at IS NULL;",
+            )
+            .expect("install test visit_events view");
+    }
+
     #[test]
     fn insight_schema_and_snapshot_roundtrip() {
         let paths = test_paths();
         let config = test_config();
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
-        create_schema(&connection).expect("schema");
-        ensure_insight_schema(&connection).expect("insight schema");
-        seed_visits(&connection);
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        seed_visits(&archive);
 
         let report = run_insights(
             &paths,
@@ -2530,21 +2652,24 @@ mod tests {
 
         let older_visit_one = (Utc::now() - Duration::days(90)).to_rfc3339();
         let older_visit_two = (Utc::now() - Duration::days(60)).to_rfc3339();
-        connection
-            .execute(
-                "INSERT INTO visit_events
-                 (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-                 VALUES
-                 (100, 'chrome:Default', 100, 100, 'https://example.com/docs/archive', 'Archive docs', ?1, NULL, 805306368, 12000, 1, NULL, NULL, NULL, 'older-a', 'older-a', ?3),
-                 (101, 'chrome:Default', 101, 101, 'https://example.com/docs/archive', 'Archive docs', ?2, 100, 805306368, 12000, 1, NULL, NULL, NULL, 'older-b', 'older-b', ?4)",
-                params![
-                    iso_to_chrome_time_micros(&older_visit_one).expect("older visit one"),
-                    iso_to_chrome_time_micros(&older_visit_two).expect("older visit two"),
-                    older_visit_one,
-                    older_visit_two,
-                ],
-            )
-            .expect("insert older visits");
+        insert_test_visit(
+            &connection,
+            100,
+            "https://example.com/docs/archive",
+            "Archive docs",
+            &older_visit_one,
+            None,
+            None,
+        );
+        insert_test_visit(
+            &connection,
+            101,
+            "https://example.com/docs/archive",
+            "Archive docs",
+            &older_visit_two,
+            Some(100),
+            None,
+        );
 
         run_insights(
             &paths,
@@ -2757,23 +2882,27 @@ mod tests {
         let connection = Connection::open_in_memory().expect("db");
         create_schema(&connection).expect("core schema");
         ensure_insight_schema(&connection).expect("insight schema");
+        install_test_visit_events_view(&connection);
         let current_year_visit = Local::now().to_rfc3339();
         let prior_year_visit = (Local::now() - Duration::days(365)).to_rfc3339();
-        connection
-            .execute(
-                "INSERT INTO visit_events
-                 (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-                 VALUES
-                 (1, 'chrome:Default', 1, 1, 'https://example.com/today', 'Today', ?1, NULL, 805306368, 1000, 1, NULL, NULL, NULL, 'today', 'today', ?3),
-                 (2, 'chrome:Default', 2, 2, 'https://example.com/last-year', 'Last year', ?2, NULL, 805306368, 1000, 1, NULL, NULL, NULL, 'last-year', 'last-year', ?4)",
-                params![
-                    iso_to_chrome_time_micros(&current_year_visit).expect("current year chrome time"),
-                    iso_to_chrome_time_micros(&prior_year_visit).expect("prior year chrome time"),
-                    current_year_visit,
-                    prior_year_visit,
-                ],
-            )
-            .expect("insert visits");
+        insert_test_visit(
+            &connection,
+            1,
+            "https://example.com/today",
+            "Today",
+            &current_year_visit,
+            None,
+            None,
+        );
+        insert_test_visit(
+            &connection,
+            2,
+            "https://example.com/last-year",
+            "Last year",
+            &prior_year_visit,
+            None,
+            None,
+        );
 
         let items =
             load_on_this_day(&connection, Some("chrome:Default"), 8).expect("load on this day");
@@ -3210,6 +3339,8 @@ CREATE TABLE visit_insight_features (
         )
         .expect("run insights");
 
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
         let (queued, running, succeeded) = connection
             .query_row(
                 "SELECT
@@ -3281,11 +3412,13 @@ CREATE TABLE visit_insight_features (
             plugin.enabled = false;
         }
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
-        create_schema(&connection).expect("schema");
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        seed_visits(&archive);
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
         ensure_insight_schema(&connection).expect("insight schema");
         ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        seed_visits(&connection);
 
         let now = now_rfc3339();
         connection
@@ -3329,11 +3462,13 @@ CREATE TABLE visit_insight_features (
             plugin.enabled = false;
         }
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
-        create_schema(&connection).expect("schema");
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        seed_visits(&archive);
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
         ensure_insight_schema(&connection).expect("insight schema");
         ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        seed_visits(&connection);
 
         let now = now_rfc3339();
         connection

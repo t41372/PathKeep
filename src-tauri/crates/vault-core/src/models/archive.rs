@@ -118,11 +118,15 @@ pub struct BackupProgressEvent {
 #[serde(rename_all = "camelCase")]
 pub struct StorageSummary {
     pub archive_database_bytes: u64,
+    pub search_database_bytes: u64,
+    pub intelligence_database_bytes: u64,
     pub manifest_bytes: u64,
     pub snapshot_bytes: u64,
     pub export_bytes: u64,
     pub staging_bytes: u64,
     pub quarantine_bytes: u64,
+    pub semantic_sidecar_bytes: u64,
+    pub intelligence_blob_bytes: u64,
 }
 
 /// Dashboard snapshot used by the archive home surface.

@@ -6,7 +6,8 @@
 
 use crate::{
     archive::{
-        create_schema, open_archive_connection, stats_with_archive_totals, visit_event_fingerprint,
+        create_schema, open_archive_connection, rebuild_search_projection,
+        stats_with_archive_totals, visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -235,6 +236,11 @@ pub fn import_takeout(
     }
 
     finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
+    if let Err(error) = rebuild_search_projection(paths, config, key) {
+        inspection.notes.push(format!(
+            "Import completed, but the keyword-recall projection needs a rebuild: {error}"
+        ));
+    }
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("imported"))?;
 
@@ -255,7 +261,7 @@ pub fn load_import_batches(
 
     let connection = open_archive_connection(paths, config, key)?;
     create_schema(&connection)?;
-    const LOAD_IMPORT_BATCHES_SQL: &str = "SELECT id, source_kind, source_path, profile_id, created_at, imported_at, reverted_at, status, summary_json, audit_path, git_commit, (SELECT COUNT(*) FROM visit_events WHERE import_batch_id = import_batches.id) AS visible_items FROM import_batches ORDER BY id DESC LIMIT 16";
+    const LOAD_IMPORT_BATCHES_SQL: &str = "SELECT id, source_kind, source_path, profile_id, created_at, imported_at, reverted_at, status, summary_json, audit_path, git_commit, (SELECT COUNT(*) FROM visits WHERE import_batch_id = import_batches.id AND reverted_at IS NULL) AS visible_items FROM import_batches ORDER BY id DESC LIMIT 16";
     #[rustfmt::skip]
     let mut statement = connection.prepare(LOAD_IMPORT_BATCHES_SQL)?;
     let rows = statement.query_map([], |row: &Row<'_>| {
@@ -361,10 +367,16 @@ pub fn revert_import_batch(
         }),
     )?;
     transaction.commit()?;
+    let rebuild_warning = rebuild_search_projection(paths, config, key).err().map(|error| {
+        format!("Revert completed, but the keyword-recall projection needs a rebuild: {error}")
+    });
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("reverted"))?;
-
-    preview_import_batch(paths, config, key, batch_id)
+    let mut detail = preview_import_batch(paths, config, key, batch_id)?;
+    if let Some(warning) = rebuild_warning {
+        detail.notes.push(warning);
+    }
+    Ok(detail)
 }
 
 /// Restores a previously reverted import batch to the visible archive surface.
@@ -424,10 +436,16 @@ pub fn restore_import_batch(
         }),
     )?;
     transaction.commit()?;
+    let rebuild_warning = rebuild_search_projection(paths, config, key).err().map(|error| {
+        format!("Restore completed, but the keyword-recall projection needs a rebuild: {error}")
+    });
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("restored"))?;
-
-    preview_import_batch(paths, config, key, batch_id)
+    let mut detail = preview_import_batch(paths, config, key, batch_id)?;
+    if let Some(warning) = rebuild_warning {
+        detail.notes.push(warning);
+    }
+    Ok(detail)
 }
 
 fn import_supported_payload(
@@ -960,7 +978,7 @@ fn load_import_batch_record(
                 summary_json,
                 audit_path,
                 git_commit,
-                (SELECT COUNT(*) FROM visit_events WHERE import_batch_id = import_batches.id) AS visible_items
+                (SELECT COUNT(*) FROM visits WHERE import_batch_id = import_batches.id AND reverted_at IS NULL) AS visible_items
              FROM import_batches
              WHERE id = ?1",
             [batch_id],
@@ -1474,7 +1492,9 @@ mod tests {
         let archive = open_archive_connection(&paths, &config, None).expect("open archive");
         let (profile_name, profile_path, chrome_version): (String, String, String) = archive
             .query_row(
-                "SELECT profile_name, profile_path, chrome_version FROM profiles WHERE profile_id = 'takeout::browser-history'",
+                "SELECT profile_name, profile_path, browser_version
+                 FROM source_profiles
+                 WHERE profile_key = 'takeout::browser-history'",
                 [],
                 |row: &Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )

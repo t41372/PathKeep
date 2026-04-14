@@ -101,6 +101,10 @@ const mockSnapshot: AppSnapshot = {
       '~/Library/Application Support/com.yi-ting.pathkeep/config.json',
     archiveDatabasePath:
       '~/Library/Application Support/com.yi-ting.pathkeep/archive/history-vault.sqlite',
+    searchDatabasePath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/derived/history-search.sqlite',
+    intelligenceDatabasePath:
+      '~/Library/Application Support/com.yi-ting.pathkeep/derived/history-intelligence.sqlite',
     auditRepoPath: '~/Library/Application Support/com.yi-ting.pathkeep/audit',
     manifestsDir:
       '~/Library/Application Support/com.yi-ting.pathkeep/audit/manifests',
@@ -111,6 +115,10 @@ const mockSnapshot: AppSnapshot = {
     quarantineDir:
       '~/Library/Application Support/com.yi-ting.pathkeep/quarantine',
     scheduleDir: '~/Library/Application Support/com.yi-ting.pathkeep/schedule',
+    semanticIndexDir:
+      '~/Library/Application Support/com.yi-ting.pathkeep/sidecars/semantic-index',
+    intelligenceBlobsDir:
+      '~/Library/Application Support/com.yi-ting.pathkeep/sidecars/intelligence-blobs',
     logsDir: '~/Library/Application Support/com.yi-ting.pathkeep/logs',
     rustLogPath:
       '~/Library/Application Support/com.yi-ting.pathkeep/logs/rust.log',
@@ -1619,11 +1627,15 @@ function buildMockDashboardSnapshot(
       recentRuns: state.snapshot.recentRuns,
       storage: {
         archiveDatabaseBytes: 0,
+        searchDatabaseBytes: 0,
+        intelligenceDatabaseBytes: 0,
         manifestBytes: 0,
         snapshotBytes: 0,
         exportBytes: 0,
         stagingBytes: 0,
         quarantineBytes: 0,
+        semanticSidecarBytes: 0,
+        intelligenceBlobBytes: 0,
       },
       nextAction:
         'Initialize the archive, confirm at least one Chromium profile, and run the first manual backup.',
@@ -1643,11 +1655,15 @@ function buildMockDashboardSnapshot(
     recentRuns: state.snapshot.recentRuns,
     storage: {
       archiveDatabaseBytes: 146_800_640,
+      searchDatabaseBytes: 18_432_000,
+      intelligenceDatabaseBytes: 24_576_000,
       manifestBytes: 384_000,
       snapshotBytes: 1_228_800,
       exportBytes: 96_000,
       stagingBytes: 0,
       quarantineBytes: 0,
+      semanticSidecarBytes: 41_943_040,
+      intelligenceBlobBytes: 12_582_912,
     },
     nextAction:
       state.snapshot.recentRuns.length === 0

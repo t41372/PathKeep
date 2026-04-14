@@ -185,7 +185,7 @@ pub fn insight_status(
     if !config.initialized || !paths.archive_database_path.exists() {
         return Ok(InsightStatus::default());
     }
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_insight_schema(&connection)?;
     let runs = connection
         .query_row("SELECT COUNT(*) FROM insight_runs", [], |row: &Row<'_>| row.get::<_, i64>(0))
@@ -263,7 +263,7 @@ pub fn run_insights_with_progress<F>(
 where
     F: FnMut(InsightsRunProgress) -> Result<()>,
 {
-    let mut connection = open_archive_connection(paths, config, key)?;
+    let mut connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     ensure_insight_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
@@ -657,7 +657,7 @@ pub fn load_insights(
     key: Option<&str>,
     request: &RunInsightsRequest,
 ) -> Result<InsightSnapshot> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_insight_schema(&connection)?;
     let window_days = request.window_days.unwrap_or(DEFAULT_WINDOW_DAYS).clamp(7, 365);
     let profile_scope = request.profile_id.clone().unwrap_or_else(|| "all".to_string());
@@ -783,7 +783,7 @@ pub fn load_insight_thread_detail(
     key: Option<&str>,
     thread_id: &str,
 ) -> Result<InsightThreadDetail> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_insight_schema(&connection)?;
     let summary = connection.query_row(
         "SELECT thread_id, profile_id, title, status, first_seen_at, last_seen_at, visit_count,
@@ -823,7 +823,7 @@ pub fn clear_derived_intelligence_state(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<ClearDerivedIntelligenceReport> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_insight_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
 

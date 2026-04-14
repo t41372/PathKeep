@@ -35,6 +35,7 @@
 - [x] `PG-RD-ARCH-006` 設計 aggregation strategy：canonical v1 不把 timeline / heatmap / daily counts 當 source of truth；materialized table 只作 derived state。見 [data-model.md](../../architecture/data-model.md)。（2026-04-06）
 - [x] `PG-RD-ARCH-007` 定義 `browser-history-parser` 的 public API 和 versioning policy，明確它不依賴 archive schema 或 Tauri。見 [module-boundary-map.md](../../architecture/module-boundary-map.md)。（2026-04-06）
 - [x] `PG-RD-ARCH-008` 定義 fixture strategy：Chromium / Firefox / Safari / Takeout 都要有可重跑、可公開測試的最小樣本和 edge-case 樣本。見 [imports-browsers-and-rollback.md](../m2-recall-and-trust/imports-browsers-and-rollback.md) 的 QA 基線與對應 parser / archive 測試夾具。（2026-04-07，WORK-M2-A）
+- [x] `PG-RD-ARCH-009` 重新打開 storage-plane boundary，針對 4 核 3GHz / 8GB RAM、60 年、至少 1440 萬 visits baseline 收斂出 hard-reset 的理想結構。結論：canonical archive、lexical recall、intelligence runtime、semantic / blob sidecars 必須分成四層；不再為 pre-reset archive 設計 migration 或 compatibility bridge，raw capture 改採 checkpoint-first，semantic metadata 與向量 payload 明確分離。見 [ADR-010](../../architecture/decisions/010-storage-plane-reset.md)、[../../architecture/data-model.md](../../architecture/data-model.md)、[../../architecture/tech-stack.md](../../architecture/tech-stack.md) 與 [../../database-selection-decision-2026-04-05.md](../../database-selection-decision-2026-04-05.md)。（2026-04-13，`WORK-QC-R`）
 
 ---
 

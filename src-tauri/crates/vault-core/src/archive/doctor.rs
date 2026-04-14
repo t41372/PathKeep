@@ -20,8 +20,13 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
     ensure_paths(paths)?;
     let discovered_profiles = discover_profiles().unwrap_or_default();
     let status = archive_status(paths, config, key)?;
-    let connection = if status.initialized && status.unlocked {
+    let archive = if status.initialized && status.unlocked {
         Some(open_archive_connection(paths, config, key)?)
+    } else {
+        None
+    };
+    let intelligence = if status.initialized && status.unlocked {
+        Some(open_intelligence_connection(paths, config, key)?)
     } else {
         None
     };
@@ -59,7 +64,7 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
         },
     });
 
-    if let Some(connection) = connection.as_ref() {
+    if let Some(connection) = archive.as_ref() {
         create_schema(connection)?;
         checks.push(HealthCheck {
             name: "Schema version".to_string(),
@@ -70,6 +75,8 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
         checks.push(check_snapshot_files(connection)?);
         checks.push(check_import_audit_artifacts(connection)?);
         checks.push(check_broken_visibility(connection)?);
+    }
+    if let Some(connection) = intelligence.as_ref() {
         checks.push(check_stale_derived_state(connection)?);
     }
 
@@ -83,10 +90,11 @@ pub fn repair_health_issues(
     key: Option<&str>,
 ) -> Result<HealthRepairReport> {
     ensure_paths(paths)?;
-    let connection = open_archive_connection(paths, config, key)?;
+    let archive = open_archive_connection(paths, config, key)?;
+    let intelligence = open_intelligence_connection(paths, config, key)?;
 
-    let missing_import_audits = missing_import_audit_batches(&connection)?;
-    let broken_visibility_rows: usize = connection
+    let missing_import_audits = missing_import_audit_batches(&archive)?;
+    let broken_visibility_rows: usize = archive
         .query_row(
             "SELECT COUNT(*)
              FROM visits
@@ -98,8 +106,8 @@ pub fn repair_health_issues(
             |row| row.get::<_, i64>(0),
         )?
         .max(0) as usize;
-    let stale_ai_embeddings = if table_exists(&connection, "ai_embeddings")? {
-        connection
+    let stale_ai_embeddings = if table_exists(&intelligence, "ai_embeddings")? {
+        intelligence
             .query_row(
                 "SELECT COUNT(*)
                  FROM ai_embeddings
@@ -111,11 +119,11 @@ pub fn repair_health_issues(
     } else {
         0
     };
-    let stale_insight_state = if table_exists(&connection, "insight_thread_members")?
-        || table_exists(&connection, "visit_insight_features")?
+    let stale_insight_state = if table_exists(&intelligence, "insight_thread_members")?
+        || table_exists(&intelligence, "visit_insight_features")?
     {
-        let stale_members = if table_exists(&connection, "insight_thread_members")? {
-            connection
+        let stale_members = if table_exists(&intelligence, "insight_thread_members")? {
+            intelligence
                 .query_row(
                     "SELECT COUNT(*)
                      FROM insight_thread_members
@@ -127,8 +135,8 @@ pub fn repair_health_issues(
         } else {
             0
         };
-        let stale_features = if table_exists(&connection, "visit_insight_features")? {
-            connection
+        let stale_features = if table_exists(&intelligence, "visit_insight_features")? {
+            intelligence
                 .query_row(
                     "SELECT COUNT(*)
                      FROM visit_insight_features
@@ -159,12 +167,12 @@ pub fn repair_health_issues(
 
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
-    connection.execute(
+    archive.execute(
         "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
          VALUES ('doctor', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
         params![started_at, timezone],
     )?;
-    let run_id = connection.last_insert_rowid();
+    let run_id = archive.last_insert_rowid();
 
     let repair_result = (|| -> Result<HealthRepairReport> {
         let mut notes = Vec::new();
@@ -172,7 +180,7 @@ pub fn repair_health_issues(
             rewrite_import_audit_artifacts(paths, config, key, &missing_import_audits)?;
         let repaired_import_audits = repaired_audit_paths.len();
         for (batch_id, audit_path) in &repaired_audit_paths {
-            connection.execute(
+            archive.execute(
                 "UPDATE import_batches SET audit_path = ?1 WHERE id = ?2",
                 params![audit_path, batch_id],
             )?;
@@ -184,7 +192,7 @@ pub fn repair_health_issues(
             ));
         }
 
-        let repaired_visibility_rows = connection.execute(
+        let repaired_visibility_rows = archive.execute(
             "UPDATE visits
              SET reverted_by_run_id = ?1
              WHERE reverted_at IS NOT NULL
@@ -201,8 +209,8 @@ pub fn repair_health_issues(
             ));
         }
 
-        let cleared_ai_embeddings = if table_exists(&connection, "ai_embeddings")? {
-            connection.execute(
+        let cleared_ai_embeddings = if table_exists(&intelligence, "ai_embeddings")? {
+            intelligence.execute(
                 "DELETE FROM ai_embeddings
                  WHERE history_id NOT IN (SELECT id FROM visit_events)",
                 [],
@@ -218,7 +226,7 @@ pub fn repair_health_issues(
         }
 
         let cleared_insight_rows =
-            if stale_insight_state > 0 { invalidate_insight_state(&connection)? } else { 0 };
+            if stale_insight_state > 0 { invalidate_insight_state(&intelligence)? } else { 0 };
         if cleared_insight_rows > 0 {
             notes.push(format!(
                 "Cleared {} stale insight rows so the next insight run rebuilds from visible history only.",
@@ -234,7 +242,7 @@ pub fn repair_health_issues(
         };
         if let Some(git_commit) = git_commit {
             for batch_id in &missing_import_audits {
-                connection.execute(
+                archive.execute(
                     "UPDATE import_batches SET git_commit = ?1 WHERE id = ?2",
                     params![git_commit, batch_id],
                 )?;
@@ -256,7 +264,7 @@ pub fn repair_health_issues(
 
     match repair_result {
         Ok(report) => {
-            connection.execute(
+            archive.execute(
                 "UPDATE runs
                  SET finished_at = ?1,
                      status = 'success',
@@ -277,7 +285,7 @@ pub fn repair_health_issues(
             Ok(report)
         }
         Err(error) => {
-            connection.execute(
+            archive.execute(
                 "UPDATE runs
                  SET finished_at = ?1,
                      status = 'failed',

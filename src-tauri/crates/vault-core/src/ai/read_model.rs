@@ -9,7 +9,7 @@
 
 use super::*;
 
-/// Ensures the AI compatibility tables exist in the canonical archive.
+/// Ensures the AI compatibility tables exist in the rebuildable intelligence plane.
 pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(AI_SCHEMA_SQL)?;
     migrate_ai_embeddings_to_blob(connection)?;
@@ -151,7 +151,7 @@ pub fn ai_index_status(
         });
     }
 
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     let queue_status = ai_queue::load_ai_queue_status(
         &connection,
@@ -288,7 +288,7 @@ pub fn ai_queue_status(
         });
     }
 
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     ai_queue::load_ai_queue_status(
         &connection,
@@ -312,7 +312,7 @@ pub fn reconcile_ai_queue_controls(
         return Ok(());
     }
 
-    let connection = open_archive_connection(paths, next_config, key)?;
+    let connection = open_intelligence_connection(paths, next_config, key)?;
     ensure_ai_schema(&connection)?;
     ai_queue::ensure_ai_queue_schema(&connection)?;
 
@@ -397,7 +397,7 @@ pub fn load_assistant_run_response(
     key: Option<&str>,
     run_id: i64,
 ) -> Result<AiAssistantResponse> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     connection
         .query_row(

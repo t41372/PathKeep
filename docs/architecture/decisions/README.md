@@ -56,3 +56,4 @@ agent 只需要把它們正式化成 ADR 文件即可：
 7. **ADR-007** — [macOS Touch ID session unlock](007-macos-biometric-session-unlock.md)（Accepted：macOS Touch ID 是 additive session convenience，不改寫 ADR-005 的 session-only boundary）
 8. **ADR-008** — [Consented frontend analytics boundary](008-consented-frontend-analytics-boundary.md)（Accepted：analytics 必須 explicit opt-in、frontend-only、coarse、first-party JSON、無 hidden telemetry）
 9. **ADR-009** — [Default desktop optional intelligence shipping](009-default-desktop-optional-intelligence-shipping.md)（Accepted：optional AI / MCP / semantic runtime 維持與 default desktop binary 一起 in-process shipping）
+10. **ADR-010** — [Storage plane reset](010-storage-plane-reset.md)（Accepted：hard reset 到 canonical/search/intelligence/sidecars 四層存儲，不保留 legacy DB upgrade path 或 compatibility bridge）

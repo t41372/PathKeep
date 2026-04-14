@@ -19,7 +19,7 @@
   - 契約：Insights 必須明確回到 `analysis first, runtime second`；Jobs 必須先回答 `running now / needs review / deferred backlog`；threads 要從 backend-core 概念提升成前台清楚可見的結構；queue 錯誤與 deferred backlog 必須以人話呈現，不能再把 raw runtime status 或大批待抓正文誤導成整條功能失敗。
   - 驗收：source docs、route IA、shared components / copy、以及手動 truth pass 一起更新；`bun run check && bun run build` 維持通過，並留下 designer handoff artifact / screenshots / state inventory 供後續 review。
 
-- [ ] **WORK-QC-M** — Large-Archive Performance Envelope And Chunked Deterministic Runtime
+- [ ] **WORK-QC-M** — Large-Archive Performance Envelope And Chunked Deterministic Runtime `[!blocked: WORK-QC-R storage-plane reset]`
   - 讀先：
     `docs/features/intelligence.md`
     `docs/features/deterministic-intelligence.md`

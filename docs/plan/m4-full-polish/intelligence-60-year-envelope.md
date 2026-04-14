@@ -1,6 +1,8 @@
 # Intelligence 60-Year Support Envelope
 
-> `WORK-QC-D` closeout note. This document records what PathKeep can honestly claim about optional intelligence as of 2026-04-09, and just as importantly, what it still cannot claim.
+> `WORK-QC-D` closeout note. This document records what PathKeep could honestly claim about optional intelligence as of 2026-04-09, and just as importantly, what it still could not claim.
+>
+> **2026-04-13 reset note:** 這份文件保留的是 pre-reset truth，方便回看當時哪裡卡住。新的 long-horizon target 不再是「把同一個 hot SQLite 繼續修到能撐住」，而是由 `WORK-QC-R` 直接把 storage plane 重構成 canonical/search/intelligence/sidecars 四層結構。
 
 ---
 
@@ -41,7 +43,7 @@
     - `artifacts/benchmarks/2026-04-12-intelligence-rewrite/100k-60y.json` (`100k` visits, 60-year horizon): `runInsightsMs = 1032`, `loadInsightsMs = 91`
     - `artifacts/benchmarks/2026-04-12-intelligence-rewrite/1m-60y.json` (`1,000,000` visits, 60-year horizon): `runInsightsMs = 13052`, `loadInsightsMs = 921`
   - these artifacts specifically exercise deterministic rebuild + snapshot read on synthetic corpora; they still do **not** close queue recovery RSS profiling or 10M-scale signoff
-- Current signoff blockers:
+- Pre-reset signoff blockers:
   - `bun run verify` is still the acceptance target for `WORK-M4-J`, and it now reruns green on this machine
   - the remaining blocker is evidence quality, not CI: the checked-in `artifacts/perf/2026-04-09-large-archive-shell-scaling/` bundle is still synthetic and does not replace a true large-profile replay with webview trace plus Rust sampling
 - Code / architecture fixes landed during this closeout:
@@ -94,7 +96,7 @@
   - per-plugin queue family with independent retry / cancel / concurrency controls
 - Only partially closed:
   - invalidation is honest and visible, but v1 does not auto-enqueue a rebuild every time visibility or enrichment changes
-  - the SQLite embedding mirror still exists as metadata/debug state and storage cost, so semantic sidecar is the only retrieval path but not yet the only persistence surface
+  - the pre-reset storage plane still leaves FTS, intelligence runtime, and semantic compatibility state too close to the hot archive
   - the deterministic pipeline is now materially more honest and faster on a 64k real archive plus synthetic 100k / 1M corpora, but it still materializes the active analysis window in memory and has not yet been reworked into a chunked / resumable / low-RAM 10M-scale pipeline
 - Not honestly signed off:
   - a blanket claim that "all features remain smooth with 60 years of data and all AI enabled on an 8 GB / 4-core machine"
@@ -121,4 +123,4 @@
 - No: PathKeep should not yet be documented as having completed every intelligence requirement in the design docs.
 - No: PathKeep should not yet claim a fully verified "60-year, all AI on, smooth on 8 GB / 4-core" baseline.
 - Yes: the current M3 / M4 intelligence slice is now materially more honest and more reviewable. Semantic staleness, cost visibility, MCP consent / scope / audit copy, and run-type truth have all been pulled into the shipped contract.
-- The next promotion from "truthful partial support" to "large-archive signed-off support" requires a real large-profile replay bundle plus a replayable corpus definition, not just another synthetic shell artifact or docs-only closeout.
+- The next promotion from "truthful partial support" to "large-archive signed-off support" requires the storage-plane reset from `WORK-QC-R`, a real large-profile replay bundle, and a replayable corpus definition, not just another synthetic shell artifact or docs-only closeout.

@@ -10,7 +10,6 @@ use vault_core::{
     load_insights,
     models::{AppConfig, ArchiveMode, RunInsightsRequest},
     run_insights_with_progress,
-    utils::iso_to_chrome_time_micros,
 };
 
 #[derive(Debug, Clone)]
@@ -136,12 +135,30 @@ fn seed_synthetic_archive(
     let now = Utc::now();
     let horizon_start = now - Duration::days(horizon_days as i64);
     let transaction = connection.unchecked_transaction()?;
+    transaction.execute(
+        "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+         VALUES (1, 'backup', 'benchmark', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+        params![now.to_rfc3339()],
+    )?;
+    for (id, profile_id) in
+        [(1_i64, "chrome:Default"), (2, "chrome:Work"), (3, "edge:Default"), (4, "brave:Default")]
+    {
+        let browser_kind = profile_id.split(':').next().unwrap_or("legacy");
+        transaction.execute(
+            "INSERT INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+             VALUES (?1, ?2, 'benchmark', ?3, ?4, ?5, 1, ?3, ?5)",
+            params![id, browser_kind, profile_id, format!("/tmp/{profile_id}"), now.to_rfc3339()],
+        )?;
+    }
+    let mut url_statement = transaction.prepare(
+        "INSERT INTO urls
+         (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+         VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
+    )?;
     let mut visit_statement = transaction.prepare(
-        "INSERT INTO visit_events
-         (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit,
-          transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url,
-          app_id, event_fingerprint, payload_hash, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 805306368, ?9, 1, NULL, ?10, NULL, ?11, ?12, ?13)",
+        "INSERT INTO visits
+         (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, external_referrer_url, event_fingerprint, payload_hash, recorded_at)
+         VALUES (?1, ?1, ?2, ?3, ?4, 805306368, ?5, ?6, 1, ?7, 1, ?8, ?9, ?10, ?4)",
     )?;
     let mut search_statement = transaction.prepare(
         "INSERT INTO search_terms
@@ -157,12 +174,17 @@ fn seed_synthetic_archive(
             2 => "edge:Default",
             _ => "brave:Default",
         };
+        let profile_row_id = match profile_id {
+            "chrome:Default" => 1,
+            "chrome:Work" => 2,
+            "edge:Default" => 3,
+            _ => 4,
+        };
         let day_offset = (index as i64 % horizon_days as i64).max(1);
         let minute_offset = (index as i64 % 1_440).max(1);
         let visited_at =
             horizon_start + Duration::days(day_offset) + Duration::minutes(minute_offset);
-        let visit_time =
-            iso_to_chrome_time_micros(&visited_at.to_rfc3339()).context("encoding chrome time")?;
+        let visit_time_ms = visited_at.timestamp_millis();
         let query_term = format!("topic {} pattern {}", index % 400, index % 13);
         let (url, title, referrer) = match index % 6 {
             0 => (
@@ -196,20 +218,26 @@ fn seed_synthetic_archive(
                 None,
             ),
         };
-        visit_statement.execute(params![
-            history_id,
-            profile_id,
-            history_id,
+        url_statement.execute(params![
             history_id,
             url,
             title,
-            visit_time,
-            (index > 0).then_some(history_id - 1),
+            visit_time_ms,
+            visited_at.to_rfc3339(),
+            profile_row_id,
+            format!("payload-{history_id}"),
+        ])?;
+        visit_statement.execute(params![
+            history_id,
+            history_id.to_string(),
+            visit_time_ms,
+            visited_at.to_rfc3339(),
             5_000 + (index % 20) as i64 * 400,
+            profile_row_id,
+            (index > 0).then_some(history_id - 1),
             referrer,
             format!("fp-{history_id}"),
             format!("payload-{history_id}"),
-            visited_at.to_rfc3339(),
         ])?;
         if index % 6 == 0 {
             search_statement.execute(params![
@@ -223,6 +251,7 @@ fn seed_synthetic_archive(
         }
     }
     drop(search_statement);
+    drop(url_statement);
     drop(visit_statement);
     transaction.commit()?;
     Ok(())

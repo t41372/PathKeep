@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-010
 
 ## Context
 
@@ -28,12 +28,6 @@ PathKeep 採用 **fresh schema** 策略作為 canonical archive 的起點。
 
 ## Consequences
 
-- M0 後續的 schema、run ledger、rollback visibility 和 timestamp contract 可以直接對齊新產品模型，不需要為舊命名和舊欄位妥協。
-- 我們必須實作一條明確的 legacy-to-v1 升級路徑，至少包含：
-  - 偵測舊 archive schema
-  - 建立新 v1 DB
-  - 執行資料搬運與欄位映射
-  - 產出 upgrade report / audit artifact
-  - 保留原始 DB 或 migration 前 snapshot，確保 recoverability
-- `src-tauri/crates/vault-core/src/archive-schema.sql` 從現在開始只視為 legacy reference；新的 canonical schema 會以 migration 檔案與 ADR 為 source of truth。
-- 測試與驗收需要分成兩條路徑：fresh init（直接建立 v1）和 one-time upgrade（從 legacy DB 轉入 v1）。
+- 這份 ADR 為 M0/M1 的 fresh-schema 重寫提供了起點，但它仍假設 PathKeep 會為 transitional / legacy archive 提供 one-time upgrade path，並維持 runtime bootstrap 與 migration ledger 並存。
+- 2026-04-13 起，專案方向改為更激進的 hard reset：不再為 pre-reset archive 提供升級邏輯，也不再把 compatibility view / trigger bridge 或 runtime ad-hoc patching 視為可接受的長期策略。
+- 新的 storage-plane、reset-required boundary、以及「不為舊 DB 設計遷移故事」的決策，改由 [ADR-010](010-storage-plane-reset.md) 接手。

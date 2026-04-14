@@ -150,11 +150,15 @@ export interface BackupProgressEvent {
  */
 export interface StorageSummary {
   archiveDatabaseBytes: number
+  searchDatabaseBytes: number
+  intelligenceDatabaseBytes: number
   manifestBytes: number
   snapshotBytes: number
   exportBytes: number
   stagingBytes: number
   quarantineBytes: number
+  semanticSidecarBytes: number
+  intelligenceBlobBytes: number
 }
 
 /**

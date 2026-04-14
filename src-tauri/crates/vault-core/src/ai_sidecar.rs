@@ -179,7 +179,7 @@ pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
 
 /// Returns the root directory where sidecar vector tables live.
 pub fn sidecar_root(paths: &ProjectPaths) -> PathBuf {
-    paths.app_root.join("sidecars").join("semantic-index")
+    paths.semantic_index_dir.clone()
 }
 
 /// Derives the stable sidecar table name for one provider/model pair.

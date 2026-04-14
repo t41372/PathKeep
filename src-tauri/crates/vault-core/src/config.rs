@@ -27,6 +27,9 @@ pub struct ProjectPaths {
     pub app_root: PathBuf,
     pub config_path: PathBuf,
     pub archive_database_path: PathBuf,
+    pub derived_dir: PathBuf,
+    pub search_database_path: PathBuf,
+    pub intelligence_database_path: PathBuf,
     pub audit_repo_path: PathBuf,
     pub manifests_dir: PathBuf,
     pub exports_dir: PathBuf,
@@ -34,6 +37,9 @@ pub struct ProjectPaths {
     pub staging_dir: PathBuf,
     pub quarantine_dir: PathBuf,
     pub schedule_dir: PathBuf,
+    pub sidecars_dir: PathBuf,
+    pub semantic_index_dir: PathBuf,
+    pub intelligence_blobs_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub rust_log_path: PathBuf,
     pub frontend_log_path: PathBuf,
@@ -55,9 +61,14 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
     let root = root.to_path_buf();
     let logs_dir = root.join("logs");
     let crash_reports_dir = root.join("diagnostics").join("crash-reports");
+    let derived_dir = root.join("derived");
+    let sidecars_dir = root.join("sidecars");
     ProjectPaths {
         config_path: root.join("config.json"),
         archive_database_path: root.join("archive").join("history-vault.sqlite"),
+        derived_dir: derived_dir.clone(),
+        search_database_path: derived_dir.join("history-search.sqlite"),
+        intelligence_database_path: derived_dir.join("history-intelligence.sqlite"),
         audit_repo_path: root.join("audit"),
         manifests_dir: root.join("audit").join("manifests"),
         exports_dir: root.join("exports"),
@@ -65,6 +76,9 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
         staging_dir: root.join("staging"),
         quarantine_dir: root.join("quarantine"),
         schedule_dir: root.join("schedule"),
+        sidecars_dir: sidecars_dir.clone(),
+        semantic_index_dir: sidecars_dir.join("semantic-index"),
+        intelligence_blobs_dir: sidecars_dir.join("intelligence-blobs"),
         logs_dir: logs_dir.clone(),
         rust_log_path: logs_dir.join("rust.log"),
         frontend_log_path: logs_dir.join("frontend.log"),
@@ -93,6 +107,7 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     for dir in [
         &paths.app_root,
         paths.archive_database_path.parent().expect("archive db parent"),
+        &paths.derived_dir,
         &paths.audit_repo_path,
         &paths.manifests_dir,
         &paths.exports_dir,
@@ -100,6 +115,9 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
         &paths.staging_dir,
         &paths.quarantine_dir,
         &paths.schedule_dir,
+        &paths.sidecars_dir,
+        &paths.semantic_index_dir,
+        &paths.intelligence_blobs_dir,
         &paths.logs_dir,
         &paths.crash_reports_dir,
     ] {
@@ -160,6 +178,11 @@ mod tests {
 
         assert_eq!(paths.app_root, dir.path());
         assert_eq!(paths.archive_database_path, dir.path().join("archive/history-vault.sqlite"));
+        assert_eq!(paths.search_database_path, dir.path().join("derived/history-search.sqlite"));
+        assert_eq!(
+            paths.intelligence_database_path,
+            dir.path().join("derived/history-intelligence.sqlite")
+        );
     }
 
     #[test]
@@ -170,6 +193,9 @@ mod tests {
         ensure_paths(&paths).expect("ensure paths");
         assert!(paths.stronghold_salt_path.exists());
         assert!(paths.manifests_dir.exists());
+        assert!(paths.derived_dir.exists());
+        assert!(paths.semantic_index_dir.exists());
+        assert!(paths.intelligence_blobs_dir.exists());
 
         let config = AppConfig {
             initialized: true,

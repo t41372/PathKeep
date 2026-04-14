@@ -311,11 +311,15 @@ pub(super) fn run_new_downloads(stats: &Value) -> usize {
 pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
     StorageSummary {
         archive_database_bytes: file_size(&paths.archive_database_path),
+        search_database_bytes: file_size(&paths.search_database_path),
+        intelligence_database_bytes: file_size(&paths.intelligence_database_path),
         manifest_bytes: directory_size(&paths.manifests_dir),
         snapshot_bytes: directory_size(&paths.raw_snapshots_dir),
         export_bytes: directory_size(&paths.exports_dir),
         staging_bytes: directory_size(&paths.staging_dir),
         quarantine_bytes: directory_size(&paths.quarantine_dir),
+        semantic_sidecar_bytes: directory_size(&paths.semantic_index_dir),
+        intelligence_blob_bytes: directory_size(&paths.intelligence_blobs_dir),
     }
 }
 

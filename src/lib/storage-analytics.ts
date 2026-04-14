@@ -38,11 +38,15 @@ export interface StorageAnalyticsSlice {
 export function totalTrackedStorageBytes(storage: StorageSummary): number {
   return (
     storage.archiveDatabaseBytes +
+    storage.searchDatabaseBytes +
+    storage.intelligenceDatabaseBytes +
     storage.manifestBytes +
     storage.snapshotBytes +
     storage.exportBytes +
     storage.stagingBytes +
-    storage.quarantineBytes
+    storage.quarantineBytes +
+    storage.semanticSidecarBytes +
+    storage.intelligenceBlobBytes
   )
 }
 
@@ -56,7 +60,9 @@ export function reclaimableStorageBytes(storage: StorageSummary): number {
     storage.snapshotBytes +
     storage.exportBytes +
     storage.stagingBytes +
-    storage.quarantineBytes
+    storage.quarantineBytes +
+    storage.semanticSidecarBytes +
+    storage.intelligenceBlobBytes
   )
 }
 
@@ -71,7 +77,10 @@ export function storageAnalyticsSlices(
   return [
     {
       id: 'core',
-      bytes: storage.archiveDatabaseBytes,
+      bytes:
+        storage.archiveDatabaseBytes +
+        storage.searchDatabaseBytes +
+        storage.intelligenceDatabaseBytes,
     },
     {
       id: 'audit',
@@ -83,7 +92,11 @@ export function storageAnalyticsSlices(
     },
     {
       id: 'rebuildable',
-      bytes: storage.stagingBytes + storage.quarantineBytes,
+      bytes:
+        storage.stagingBytes +
+        storage.quarantineBytes +
+        storage.semanticSidecarBytes +
+        storage.intelligenceBlobBytes,
     },
   ]
 }

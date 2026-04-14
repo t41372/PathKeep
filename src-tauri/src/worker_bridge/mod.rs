@@ -441,7 +441,12 @@ mod tests {
             .find_map(|attempt| {
                 let runtime = load_intelligence_runtime_impl(session_key(&session).as_deref())
                     .expect("load intelligence runtime before rekey");
-                if runtime.queue.queued == 0 && runtime.queue.running == 0 {
+                let only_deferred_network_backlog = runtime.queue.running == 0
+                    && runtime.recent_jobs.iter().all(|job| {
+                        job.state != "queued"
+                            || job.plugin_id.as_deref() == Some("readable-content-refetch")
+                    });
+                if only_deferred_network_backlog {
                     Some(runtime)
                 } else if attempt == 49 {
                     panic!("intelligence runtime did not go idle before rekey: {runtime:?}");
@@ -451,8 +456,14 @@ mod tests {
                 }
             })
             .expect("idle intelligence runtime before rekey");
-        assert_eq!(runtime_before_rekey.queue.queued, 0);
         assert_eq!(runtime_before_rekey.queue.running, 0);
+        assert!(
+            runtime_before_rekey.recent_jobs.iter().all(|job| {
+                job.state != "queued"
+                    || job.plugin_id.as_deref() == Some("readable-content-refetch")
+            }),
+            "expected only deferred network backlog before rekey: {runtime_before_rekey:?}"
+        );
         let rekey_preview = preview_rekey_archive_impl(
             RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None },
             &session,

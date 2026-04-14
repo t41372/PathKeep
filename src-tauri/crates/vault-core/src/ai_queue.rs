@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ai_jobs (
   attempt INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 1,
   payload_json TEXT NOT NULL,
-  run_id INTEGER REFERENCES runs(id),
+  run_id INTEGER,
   summary TEXT,
   available_at TEXT NOT NULL,
   created_at TEXT NOT NULL,

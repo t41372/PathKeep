@@ -204,13 +204,13 @@ pub(crate) fn search_response_with_resolution_note(
     response
 }
 
-/// Opens the canonical archive and ensures the worker-owned AI schemas exist.
+/// Opens the rebuildable intelligence storage plane for worker-owned AI state.
 pub(crate) fn ai_archive_connection(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
 ) -> Result<rusqlite::Connection> {
-    archive::open_archive_connection(paths, config, session_database_key)
+    archive::open_intelligence_connection(paths, config, session_database_key)
 }
 
 /// Looks up the provider config referenced by a request before resolving secrets.

@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：PG / M5 — Awaiting Next Work Block**
+**當前 Milestone：PG / M6 — Storage Plane Reset**
 
 ---
 
@@ -11,6 +11,19 @@
 > 這裡的單位是 **work block**，每個 block 的份量大約是半個 milestone。
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
+
+- [ ] **WORK-QC-R** — Storage Plane Reset And Large-Archive Hard Rebase
+  - 讀先：
+    `docs/database-selection-decision-2026-04-05.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/tech-stack.md`
+    `docs/features/archive.md`
+    `docs/features/intelligence.md`
+    `docs/features/deterministic-intelligence.md`
+    `docs/plan/m4-full-polish/intelligence-60-year-envelope.md`
+  - 目標：把目前「canonical archive + FTS + intelligence runtime 大量共住同一個 hot SQLite」的 transitional 狀態，直接重構成 long-horizon baseline 可簽字的 4-layer storage plane：canonical archive、search projection、intelligence projection、semantic sidecar / blob store。
+  - 契約：這是一個 hard reset，不做 legacy DB migration、不保留 compatibility view / trigger bridge、不再用 runtime `ensure_*_column` ad-hoc patching 幫舊 schema 續命；既有測試資料庫一律允許 reset 後重建。4 核 3GHz / 8GB RAM、60 年、至少 1440 萬 visits 的 baseline 下，canonical archive、keyword recall、Explorer、Dashboard 與 deterministic baseline 必須優先保持可驗證的時間 / 記憶體 / 空間邊界。
+  - 驗收：source docs / ADR / planning docs 與實作同步；`bun run check && bun run build`；至少留下一條可重跑的 large-archive benchmark / artifact recipe，能證明新 storage plane 的 hot-path boundary，而不是只靠口頭判斷。
 
 - [x] **WORK-QC-L** — Intelligence Recovery And Desktop Truth Gate
   - 讀先：

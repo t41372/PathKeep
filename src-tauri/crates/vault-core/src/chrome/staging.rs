@@ -5,6 +5,7 @@
 //! worker-owned staging directory before `vault-core` or the parser reads them.
 
 use super::*;
+use rusqlite::{Connection, MAIN_DB, OpenFlags};
 
 /// Returns the on-disk size for one file, treating missing files as zero.
 fn file_size(path: &Path) -> u64 {
@@ -71,8 +72,13 @@ pub(super) fn copy_database_with_sidecars(
     base_name: &str,
     destination_dir: &Path,
 ) -> Result<PathBuf> {
+    let source = source_dir.join(base_name);
     let destination = destination_dir.join(base_name);
-    copy_with_context(&source_dir.join(base_name), &destination)?;
+    if snapshot_sqlite_database(&source, &destination).is_ok() {
+        return Ok(destination);
+    }
+
+    copy_with_context(&source, &destination)?;
 
     for suffix in ["-wal", "-shm", "-journal"] {
         let source_sidecar = source_dir.join(format!("{base_name}{suffix}"));
@@ -83,6 +89,22 @@ pub(super) fn copy_database_with_sidecars(
     }
 
     Ok(destination)
+}
+
+fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
+    let source_connection = Connection::open_with_flags(
+        source,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .with_context(|| format!("opening source database {}", source.display()))?;
+    source_connection.backup(MAIN_DB, destination, None).with_context(|| {
+        format!(
+            "creating online SQLite snapshot from {} to {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(())
 }
 
 /// Copies one file while preserving the source/destination context in errors.

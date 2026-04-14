@@ -12,6 +12,8 @@
 最終選型：
 
 - Canonical archive database: **SQLite**
+- Lexical recall projection database: **SQLite**
+- Intelligence runtime projection database: **SQLite**
 - Encryption: **SQLCipher**
 - Full-text recall: **SQLite FTS5**
 - Vector / semantic retrieval sidecar: **LanceDB**
@@ -65,12 +67,11 @@ Why:
 
 What SQLite owns:
 
-- raw immutable capture
 - canonical normalized facts
 - run ledger and audit state
 - rollback / tombstone state
-- schema migrations
-- recall projections and aggregates
+- lexical recall projections and aggregates
+- intelligence runtime projections and read models
 
 What SQLite must not be forced to own:
 
@@ -138,17 +139,15 @@ If added later, DuckDB must remain: optional, derived, rebuildable, non-authorit
 
 ### 4.1 Source Of Truth Boundary
 
-Only SQLite may hold canonical source-of-truth archive data.
+Only `archive/history-vault.sqlite` may hold canonical source-of-truth archive data.
 
 This includes:
 
 - visits
 - URL metadata versions
-- raw row versions
 - import and backup runs
 - rollback state
-- schema migration state
-- recall aggregates
+- checkpoint / manifest facts
 
 This explicitly excludes:
 
@@ -159,9 +158,11 @@ This explicitly excludes:
 - generated summaries
 - rerank caches
 
+`derived/history-search.sqlite` 與 `derived/history-intelligence.sqlite` 都可以使用 SQLite，但它們不是 canonical archive。它們只保存可重建 projection / runtime state。
+
 ### 4.2 Rebuildability
 
-All AI-derived state must be deletable and rebuildable from canonical SQLite data.
+All AI-derived state must be deletable and rebuildable from canonical archive facts.
 
 The product must be able to:
 

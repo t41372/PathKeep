@@ -11,15 +11,19 @@
 
 mod doctor;
 mod history;
+mod intelligence_projection;
 mod maintenance;
 mod read_models;
 mod schema;
+mod search_projection;
 
+pub use self::intelligence_projection::open_intelligence_connection;
 use self::read_models::{decode_profile_scope, directory_size, file_size};
 pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;
 pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, run_migrations};
+pub(crate) use self::search_projection::rebuild_search_projection;
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{export_history, list_history},
@@ -174,7 +178,7 @@ JOIN urls
   ON urls.id = visits.url_id
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
-JOIN history_search
+JOIN search.history_search AS history_search
   ON history_search.rowid = urls.id
 WHERE visits.reverted_at IS NULL
   AND history_search MATCH :ftsQuery
@@ -215,7 +219,7 @@ JOIN urls
   ON urls.id = visits.url_id
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
-JOIN history_search
+JOIN search.history_search AS history_search
   ON history_search.rowid = urls.id
 WHERE visits.reverted_at IS NULL
   AND history_search MATCH :ftsQuery
@@ -550,6 +554,12 @@ where
         &warnings,
         &manifest_hash,
     )?;
+
+    if let Err(error) = rebuild_search_projection(paths, config, key) {
+        warnings.push(format!(
+            "Canonical backup completed, but the keyword-recall projection needs a rebuild: {error}"
+        ));
+    }
 
     let git_commit = if config.git_enabled {
         git_audit::ensure_repo(&paths.audit_repo_path)?;
@@ -2487,7 +2497,7 @@ mod tests {
         let report_again = run_backup(&paths, &config, None, false).expect("rerun backup");
         assert_eq!(report_again.run.as_ref().expect("run").new_visits, 0);
 
-        let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
         let mut statement = connection
             .prepare(
                 "EXPLAIN QUERY PLAN
@@ -2495,7 +2505,7 @@ mod tests {
                  FROM visits
                  JOIN urls ON urls.id = visits.url_id
                  JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-                 JOIN history_search ON history_search.rowid = urls.id
+                 JOIN search.history_search AS history_search ON history_search.rowid = urls.id
                  WHERE visits.reverted_at IS NULL
                    AND history_search MATCH ?1",
             )
@@ -2730,7 +2740,9 @@ mod tests {
                 params![now_rfc3339(), batch.id],
             )
             .expect("break visibility");
-        connection
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
+        intelligence
             .execute(
                 "INSERT INTO ai_embeddings
                  (history_id, profile_id, url, title, domain, visited_at, content, content_hash, provider_id, model, embedding_blob, dimensions, indexed_at)
@@ -2738,14 +2750,14 @@ mod tests {
                 rusqlite::params![now_rfc3339(), vec![0xCD_u8, 0xCC, 0xCC, 0x3D]],
             )
             .expect("insert stale ai embedding");
-        connection
+        intelligence
             .execute(
                 "INSERT INTO insight_thread_members (thread_id, history_id, ordinal, visited_at)
                  VALUES ('thread-1', 999, 0, ?1)",
                 [now_rfc3339()],
             )
             .expect("insert stale insight member");
-        connection
+        intelligence
             .execute(
                 "INSERT INTO visit_insight_features
                  (history_id, profile_id, topic_id, thread_id, page_type, source_role, query_term, query_stage, novelty_score, importance_score, explore_score, keywords_json, entities_json, updated_at, pipeline_version)

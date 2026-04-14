@@ -5,10 +5,8 @@
 //! higher-level archive flows assume these migrations have already run.
 
 use crate::{
-    ai::ensure_ai_schema,
+    archive::search_projection::{attach_search_database, seed_search_projection_if_missing},
     config::{ProjectPaths, ensure_paths},
-    insights::ensure_insight_schema,
-    intelligence_runtime::ensure_intelligence_runtime_schema,
     models::{AppConfig, ArchiveMode},
     utils::{now_rfc3339, sha256_hex},
 };
@@ -50,219 +48,6 @@ CREATE TABLE IF NOT EXISTS import_batches (
 );
 "#;
 
-const LEGACY_PROFILES_VIEW_SQL: &str = r#"
-CREATE VIEW profiles AS
-SELECT
-  profile_key AS profile_id,
-  profile_name,
-  user_name,
-  profile_path,
-  browser_version AS chrome_version,
-  COALESCE(updated_at, discovered_at) AS updated_at
-FROM source_profiles;
-"#;
-
-const LEGACY_VISIT_EVENTS_VIEW_SQL: &str = r#"
-CREATE VIEW visit_events AS
-SELECT
-  visits.id AS id,
-  source_profiles.profile_key AS profile_id,
-  CAST(visits.source_visit_id AS INTEGER) AS source_visit_id,
-  urls.id AS source_url_id,
-  urls.url AS url,
-  urls.title AS title,
-  (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
-  visits.from_visit AS from_visit,
-  visits.transition_type AS transition,
-  visits.visit_duration_ms AS visit_duration,
-  visits.is_known_to_sync AS is_known_to_sync,
-  visits.visited_link_id AS visited_link_id,
-  visits.external_referrer_url AS external_referrer_url,
-  visits.app_id AS app_id,
-  visits.event_fingerprint AS event_fingerprint,
-  visits.payload_hash AS payload_hash,
-  visits.recorded_at AS recorded_at,
-  visits.import_batch_id AS import_batch_id
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
-JOIN source_profiles
-  ON source_profiles.id = visits.source_profile_id
-WHERE visits.reverted_at IS NULL;
-"#;
-
-const LEGACY_VIEW_TRIGGER_SQL: &str = r#"
-CREATE TRIGGER profiles_insert
-INSTEAD OF INSERT ON profiles
-BEGIN
-  INSERT INTO source_profiles (
-    browser_kind,
-    browser_version,
-    profile_name,
-    profile_path,
-    discovered_at,
-    enabled,
-    profile_key,
-    user_name,
-    updated_at
-  )
-  VALUES (
-    CASE
-      WHEN instr(NEW.profile_id, ':') > 0 THEN substr(NEW.profile_id, 1, instr(NEW.profile_id, ':') - 1)
-      ELSE COALESCE(NEW.profile_id, 'legacy')
-    END,
-    NEW.chrome_version,
-    NEW.profile_name,
-    NEW.profile_path,
-    COALESCE(NEW.updated_at, CURRENT_TIMESTAMP),
-    1,
-    NEW.profile_id,
-    NEW.user_name,
-    COALESCE(NEW.updated_at, CURRENT_TIMESTAMP)
-  )
-  ON CONFLICT(profile_key) DO UPDATE SET
-    browser_version = excluded.browser_version,
-    profile_name = excluded.profile_name,
-    profile_path = excluded.profile_path,
-    user_name = excluded.user_name,
-    updated_at = excluded.updated_at,
-    enabled = 1;
-END;
-
-CREATE TRIGGER visit_events_insert
-INSTEAD OF INSERT ON visit_events
-BEGIN
-  INSERT INTO source_profiles (
-    browser_kind,
-    browser_version,
-    profile_name,
-    profile_path,
-    discovered_at,
-    enabled,
-    profile_key,
-    updated_at
-  )
-  VALUES (
-    CASE
-      WHEN instr(NEW.profile_id, ':') > 0 THEN substr(NEW.profile_id, 1, instr(NEW.profile_id, ':') - 1)
-      ELSE COALESCE(NEW.profile_id, 'legacy')
-    END,
-    NULL,
-    COALESCE(NEW.profile_id, 'legacy'),
-    COALESCE(NEW.profile_id, 'legacy'),
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
-    1,
-    NEW.profile_id,
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP)
-  )
-  ON CONFLICT(profile_key) DO UPDATE SET
-    updated_at = excluded.updated_at,
-    enabled = 1;
-
-  INSERT INTO urls (
-    url,
-    title,
-    visit_count,
-    typed_count,
-    first_visit_ms,
-    first_visit_iso,
-    last_visit_ms,
-    last_visit_iso,
-    source_profile_id,
-    created_by_run_id,
-    source_url_id,
-    hidden,
-    payload_hash,
-    recorded_at
-  )
-  VALUES (
-    NEW.url,
-    NEW.title,
-    1,
-    0,
-    CAST((NEW.visit_time - 11644473600000000) / 1000 AS INTEGER),
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
-    CAST((NEW.visit_time - 11644473600000000) / 1000 AS INTEGER),
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
-    (SELECT id FROM source_profiles WHERE profile_key = NEW.profile_id),
-    0,
-    NEW.source_url_id,
-    0,
-    COALESCE(NEW.payload_hash, NEW.event_fingerprint, 'legacy-view'),
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP)
-  )
-  ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
-    url = excluded.url,
-    title = excluded.title,
-    payload_hash = excluded.payload_hash,
-    recorded_at = excluded.recorded_at,
-    last_visit_ms = CASE
-      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
-      ELSE urls.last_visit_ms
-    END,
-    last_visit_iso = CASE
-      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
-      ELSE urls.last_visit_iso
-    END;
-
-  INSERT OR REPLACE INTO visits (
-    id,
-    url_id,
-    source_visit_id,
-    visit_time_ms,
-    visit_time_iso,
-    transition_type,
-    visit_duration_ms,
-    source_profile_id,
-    created_by_run_id,
-    from_visit,
-    is_known_to_sync,
-    visited_link_id,
-    external_referrer_url,
-    app_id,
-    event_fingerprint,
-    payload_hash,
-    recorded_at,
-    import_batch_id
-  )
-  VALUES (
-    NEW.id,
-    (
-      SELECT id
-      FROM urls
-      WHERE source_profile_id = (SELECT id FROM source_profiles WHERE profile_key = NEW.profile_id)
-        AND source_url_id = NEW.source_url_id
-    ),
-    CAST(NEW.source_visit_id AS TEXT),
-    CAST((NEW.visit_time - 11644473600000000) / 1000 AS INTEGER),
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
-    NEW.transition,
-    NEW.visit_duration,
-    (SELECT id FROM source_profiles WHERE profile_key = NEW.profile_id),
-    0,
-    NEW.from_visit,
-    COALESCE(NEW.is_known_to_sync, 0),
-    NEW.visited_link_id,
-    NEW.external_referrer_url,
-    NEW.app_id,
-    NEW.event_fingerprint,
-    COALESCE(NEW.payload_hash, NEW.event_fingerprint, 'legacy-view'),
-    COALESCE(NEW.recorded_at, CURRENT_TIMESTAMP),
-    NEW.import_batch_id
-  );
-END;
-
-CREATE TRIGGER visit_events_delete
-INSTEAD OF DELETE ON visit_events
-BEGIN
-  UPDATE visits
-  SET reverted_at = CURRENT_TIMESTAMP,
-      reverted_by_run_id = COALESCE(reverted_by_run_id, 0)
-  WHERE id = OLD.id
-    AND reverted_at IS NULL;
-END;
-"#;
-
 #[derive(Clone, Copy)]
 struct MigrationSpec<'a> {
     version: i64,
@@ -293,6 +78,8 @@ pub fn open_archive_connection(
         apply_cipher_key(&connection, key)?;
     }
     ensure_archive_bootstrapped(&connection, &paths.archive_database_path)?;
+    attach_search_database(&connection, paths)?;
+    seed_search_projection_if_missing(&connection, paths)?;
     Ok(connection)
 }
 
@@ -335,11 +122,6 @@ pub fn create_schema(connection: &Connection) -> Result<()> {
     let result = (|| -> Result<()> {
         ensure_import_batch_schema(connection)?;
         backfill_runtime_columns(connection)?;
-        install_legacy_views(connection)?;
-        ensure_ai_schema(connection)?;
-        ensure_insight_schema(connection)?;
-        crate::ai_queue::ensure_ai_queue_schema(connection)?;
-        ensure_intelligence_runtime_schema(connection)?;
         Ok(())
     })();
 
@@ -460,21 +242,6 @@ WHERE profile_id IS NULL;
     Ok(())
 }
 
-fn install_legacy_views(connection: &Connection) -> Result<()> {
-    if legacy_views_ready(connection)? {
-        return Ok(());
-    }
-    create_or_replace_view(connection, "profiles", LEGACY_PROFILES_VIEW_SQL)?;
-    create_or_replace_view(connection, "visit_events", LEGACY_VISIT_EVENTS_VIEW_SQL)?;
-    connection.execute_batch(
-        "DROP TRIGGER IF EXISTS profiles_insert;
-         DROP TRIGGER IF EXISTS visit_events_insert;
-         DROP TRIGGER IF EXISTS visit_events_delete;",
-    )?;
-    connection.execute_batch(LEGACY_VIEW_TRIGGER_SQL)?;
-    Ok(())
-}
-
 fn ensure_archive_bootstrapped(
     connection: &Connection,
     archive_database_path: &Path,
@@ -489,44 +256,6 @@ fn ensure_archive_bootstrapped(
     create_schema(connection)?;
     bootstrapped.insert(cache_key);
     Ok(())
-}
-
-fn create_or_replace_view(connection: &Connection, name: &str, sql: &str) -> Result<()> {
-    match object_type(connection, name)? {
-        Some(kind) if kind == "table" => return Ok(()),
-        Some(kind) if kind == "view" => {
-            connection.execute_batch(&format!("DROP VIEW IF EXISTS {name};"))?;
-        }
-        _ => {}
-    }
-    connection.execute_batch(sql)?;
-    Ok(())
-}
-
-fn object_type(connection: &Connection, object_name: &str) -> Result<Option<String>> {
-    connection
-        .query_row(
-            "SELECT type
-             FROM sqlite_master
-             WHERE name = ?1
-             LIMIT 1",
-            [object_name],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
-fn legacy_views_ready(connection: &Connection) -> Result<bool> {
-    let profiles_ready =
-        matches!(object_type(connection, "profiles")?.as_deref(), Some("view") | Some("table"));
-    let visit_events_ready =
-        matches!(object_type(connection, "visit_events")?.as_deref(), Some("view") | Some("table"));
-    let triggers_ready =
-        ["profiles_insert", "visit_events_insert", "visit_events_delete"].into_iter().all(|name| {
-            matches!(object_type(connection, name).ok().flatten().as_deref(), Some("trigger"))
-        });
-    Ok(profiles_ready && visit_events_ready && triggers_ready)
 }
 
 fn load_applied_migrations(connection: &Connection) -> Result<BTreeMap<i64, String>> {
@@ -583,11 +312,17 @@ mod tests {
         assert!(has_table(&connection, "raw_row_versions"));
         assert!(has_table(&connection, "profile_watermarks"));
         assert!(has_table(&connection, "import_batches"));
-        assert!(has_table(&connection, "history_search"));
-        assert_eq!(
-            object_type(&connection, "visit_events").expect("view type"),
-            Some("view".to_string())
-        );
+        assert!(!has_table(&connection, "history_search"));
+        let legacy_surface_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM sqlite_master
+                 WHERE name IN ('profiles', 'visit_events', 'profiles_insert', 'visit_events_insert', 'visit_events_delete')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("legacy surface count");
+        assert_eq!(legacy_surface_count, 0);
     }
 
     #[test]
@@ -632,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_archive_opens_bootstrap_once_without_trigger_races() {
+    fn concurrent_archive_opens_bootstrap_once_without_legacy_bridge_artifacts() {
         let root = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
         let config = AppConfig {
@@ -662,17 +397,15 @@ mod tests {
         });
 
         let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
-        assert!(legacy_views_ready(&connection).expect("legacy views ready"));
-        let trigger_count = connection
+        let legacy_surface_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*)
                  FROM sqlite_master
-                 WHERE type = 'trigger'
-                   AND name IN ('profiles_insert', 'visit_events_insert', 'visit_events_delete')",
+                 WHERE name IN ('profiles', 'visit_events', 'profiles_insert', 'visit_events_insert', 'visit_events_delete')",
                 [],
-                |row| row.get::<_, i64>(0),
+                |row| row.get(0),
             )
-            .expect("count legacy triggers");
-        assert_eq!(trigger_count, 3);
+            .expect("count legacy bridge objects");
+        assert_eq!(legacy_surface_count, 0);
     }
 }

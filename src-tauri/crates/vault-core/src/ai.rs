@@ -15,7 +15,7 @@ use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self, SidecarEmbeddingRow},
-    archive::{list_history, open_archive_connection},
+    archive::{list_history, open_archive_connection, open_intelligence_connection},
     config::ProjectPaths,
     insights::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
@@ -191,7 +191,7 @@ const AI_SCHEMA_SQL: &str = r#"
     );
     CREATE TABLE IF NOT EXISTS ai_assistant_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id INTEGER REFERENCES runs(id),
+      run_id INTEGER,
       question TEXT NOT NULL,
       answer TEXT NOT NULL,
       provider_id TEXT NOT NULL,
@@ -207,7 +207,7 @@ const AI_SCHEMA_SQL: &str = r#"
       index_version TEXT NOT NULL,
       state TEXT NOT NULL,
       source_watermark INTEGER,
-      last_run_id INTEGER REFERENCES runs(id),
+      last_run_id INTEGER,
       build_started_at TEXT,
       build_finished_at TEXT,
       last_indexed_at TEXT,
@@ -463,14 +463,15 @@ pub async fn build_ai_index_with_control(
     run_control: Option<Arc<dyn AiRunControl>>,
 ) -> Result<AiIndexReport> {
     validate_provider(provider, AiProviderPurpose::Embedding)?;
-    let connection = open_archive_connection(paths, config, key)?;
+    let archive = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     let started_at = now_rfc3339();
     let source_watermark = current_source_watermark(&connection)?;
     let sidecar_table =
         ai_sidecar::provider_table_name(&provider.config.id, &provider.config.default_model);
     let run_id = begin_ai_run(
-        &connection,
+        &archive,
         "ai_index",
         "manual",
         json!({
@@ -713,7 +714,7 @@ pub async fn build_ai_index_with_control(
     match result {
         Ok(report) => {
             finalize_ai_run_success(
-                &connection,
+                &archive,
                 run_id,
                 json!({
                     "providerId": report.provider_id,
@@ -736,7 +737,7 @@ pub async fn build_ai_index_with_control(
         }
         Err(error) => {
             finalize_ai_run_failure(
-                &connection,
+                &archive,
                 run_id,
                 &error.to_string(),
                 json!({
@@ -804,10 +805,11 @@ pub async fn answer_history_question_with_control(
     if !config.ai.enabled || !config.ai.assistant_enabled {
         anyhow::bail!("Enable AI analysis and the assistant in Settings before asking questions.")
     }
-    let connection = open_archive_connection(paths, config, key)?;
+    let archive = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     let run_id = begin_ai_run(
-        &connection,
+        &archive,
         "assistant",
         "manual",
         json!({
@@ -903,7 +905,7 @@ pub async fn answer_history_question_with_control(
     match result {
         Ok(response) => {
             finalize_ai_run_success(
-                &connection,
+                &archive,
                 run_id,
                 json!({
                     "providerId": response.provider_id,
@@ -915,7 +917,7 @@ pub async fn answer_history_question_with_control(
         }
         Err(error) => {
             finalize_ai_run_failure(
-                &connection,
+                &archive,
                 run_id,
                 &error.to_string(),
                 json!({
@@ -1528,7 +1530,7 @@ async fn semantic_matches(
     provider: &AiProviderRuntime,
     request: &AiSearchRequest,
 ) -> Result<SemanticMatchReport> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
     let mut notes = Vec::new();
     let ledger =
@@ -2145,6 +2147,7 @@ mod tests {
         config::project_paths_with_root,
         models::{AiSettings, ArchiveMode},
     };
+    use browser_history_parser::chromium::chrome_time_to_unix_ms;
     use rusqlite::params;
     use std::{
         fs,
@@ -2275,22 +2278,61 @@ mod tests {
         title: Option<&str>,
         visit_time: i64,
     ) {
+        let browser_kind = profile_id.split(':').next().unwrap_or("legacy");
+        let profile_row_id = profile_id.bytes().fold(0_i64, |acc, value| acc + value as i64).max(1);
         connection
             .execute(
-                "INSERT INTO visit_events
-                 (id, profile_id, source_visit_id, source_url_id, url, title, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, 805306368, 0, 1, 0, NULL, NULL, ?8, ?9, ?10)",
+                "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [now_rfc3339()],
+            )
+            .expect("insert canonical run");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (?1, ?2, 'test', ?3, ?4, ?5, 1, ?6, ?5)",
                 params![
-                    history_id,
+                    profile_row_id,
+                    browser_kind,
                     profile_id,
-                    history_id,
+                    format!("/tmp/{profile_id}"),
+                    now_rfc3339(),
+                    profile_id,
+                ],
+            )
+            .expect("insert canonical profile");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?8)",
+                params![
                     history_id,
                     url,
                     title,
-                    visit_time,
-                    format!("fp-{history_id}"),
+                    chrome_time_to_unix_ms(visit_time),
+                    crate::utils::chrome_time_to_rfc3339(visit_time),
+                    profile_row_id,
                     format!("payload-{history_id}"),
                     now_rfc3339()
+                ],
+            )
+            .expect("insert canonical url");
+        connection
+            .execute(
+                "INSERT INTO archive.visits
+                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
+                params![
+                    history_id,
+                    history_id,
+                    history_id.to_string(),
+                    chrome_time_to_unix_ms(visit_time),
+                    crate::utils::chrome_time_to_rfc3339(visit_time),
+                    profile_row_id,
+                    format!("fp-{history_id}"),
+                    format!("payload-{history_id}"),
+                    now_rfc3339(),
                 ],
             )
             .expect("insert visit");
@@ -2382,8 +2424,10 @@ mod tests {
         let paths = test_paths();
         let config = base_config();
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
-        create_schema(&connection).expect("create schema");
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("create schema");
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
         ensure_ai_schema(&connection).expect("ensure ai schema");
         (paths, config, connection)
     }
@@ -2842,7 +2886,8 @@ mod tests {
         let paths = test_paths();
         let config = base_config();
         ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection = open_archive_connection(&paths, &config, None).expect("open");
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
         ensure_ai_schema(&connection).expect("schema");
         let count: i64 = connection
             .query_row(
@@ -2858,10 +2903,11 @@ mod tests {
     fn ensure_ai_schema_migrates_legacy_embedding_json_rows_to_blob() {
         let paths = test_paths();
         std::fs::create_dir_all(
-            paths.archive_database_path.parent().expect("archive database parent"),
+            paths.intelligence_database_path.parent().expect("intelligence database parent"),
         )
         .expect("create archive dir");
-        let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+        let connection =
+            Connection::open(&paths.intelligence_database_path).expect("open intelligence");
         connection
             .execute_batch(
                 r#"
@@ -3311,7 +3357,8 @@ CREATE TABLE ai_embeddings (
         assert_eq!(assistant.embedding_provider_id, "embed");
         assert!(!assistant.citations.is_empty());
 
-        let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
         let runs: i64 = connection
             .query_row("SELECT COUNT(*) FROM ai_assistant_runs", [], |row: &Row<'_>| row.get(0))
             .expect("assistant run count");

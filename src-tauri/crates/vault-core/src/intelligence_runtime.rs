@@ -6,7 +6,7 @@
 //! insight data.
 
 use crate::{
-    archive::open_archive_connection,
+    archive::open_intelligence_connection,
     config::ProjectPaths,
     models::{
         AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus,
@@ -1035,7 +1035,7 @@ pub fn load_intelligence_runtime(
         });
     }
 
-    let mut connection = open_archive_connection(paths, config, key)?;
+    let mut connection = open_intelligence_connection(paths, config, key)?;
     ensure_intelligence_runtime_schema(&connection)?;
     if should_recover_runtime_jobs(&paths.archive_database_path) {
         let recovered_deterministic_jobs = recover_interrupted_deterministic_jobs(&connection)?;
@@ -1071,7 +1071,7 @@ pub fn retry_intelligence_job(
     key: Option<&str>,
     job_id: i64,
 ) -> Result<IntelligenceRuntimeSnapshot> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_intelligence_runtime_schema(&connection)?;
     let state = load_job_state(&connection, job_id)?;
     if !matches!(state.as_str(), "failed" | "cancelled") {
@@ -1100,7 +1100,7 @@ pub fn cancel_intelligence_job(
     key: Option<&str>,
     job_id: i64,
 ) -> Result<IntelligenceRuntimeSnapshot> {
-    let connection = open_archive_connection(paths, config, key)?;
+    let connection = open_intelligence_connection(paths, config, key)?;
     ensure_intelligence_runtime_schema(&connection)?;
     let state = load_job_state(&connection, job_id)?;
     if !matches!(state.as_str(), "queued" | "running") {
@@ -1496,7 +1496,7 @@ mod tests {
             ..AppConfig::default()
         };
         let connection =
-            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+            open_intelligence_connection(&paths, &config, None).expect("open runtime archive");
         ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
         (root, paths, config)
     }
@@ -1841,7 +1841,7 @@ mod tests {
     fn retry_and_cancel_require_valid_job_states() {
         let (_root, paths, config) = setup_runtime_archive();
         let connection =
-            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+            open_intelligence_connection(&paths, &config, None).expect("open runtime archive");
         let now = now_rfc3339();
         connection
             .execute(
@@ -1900,7 +1900,7 @@ mod tests {
     fn load_intelligence_runtime_recovers_interrupted_deterministic_jobs() {
         let (_root, paths, config) = setup_runtime_archive();
         let connection =
-            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+            open_intelligence_connection(&paths, &config, None).expect("open runtime archive");
         let now = now_rfc3339();
         connection
             .execute(
@@ -1944,7 +1944,7 @@ mod tests {
     fn load_intelligence_runtime_recovers_interrupted_enrichment_jobs() {
         let (_root, paths, config) = setup_runtime_archive();
         let connection =
-            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+            open_intelligence_connection(&paths, &config, None).expect("open runtime archive");
         let now = now_rfc3339();
         connection
             .execute(
@@ -1988,7 +1988,7 @@ mod tests {
     fn load_intelligence_runtime_only_recovers_running_jobs_once_per_archive() {
         let (_root, paths, config) = setup_runtime_archive();
         let connection =
-            open_archive_connection(&paths, &config, None).expect("open runtime archive");
+            open_intelligence_connection(&paths, &config, None).expect("open runtime archive");
         let now = now_rfc3339();
         connection
             .execute(

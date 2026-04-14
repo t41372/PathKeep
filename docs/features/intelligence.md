@@ -24,7 +24,7 @@
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - v1 semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 - semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 必須先查 LanceDB sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑對 SQLite compatibility mirror 做全庫向量掃描。SQLite mirror 只保留 metadata / debug / stale-cleanup projection。
+- runtime contract：semantic retrieval 必須先查 LanceDB sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑做全庫向量掃描。semantic metadata / queue / assistant trace 現在已往 `derived/history-intelligence.sqlite` 收斂；SQLite vector mirror 仍屬 transitional cleanup debt，未來要退出。
 
 ---
 
@@ -295,7 +295,7 @@
 - **成功**：結果寫入對應的表，標記任務完成。
 - **失敗**：記錄錯誤原因，按可配置的策略自動重試（最多 N 次，指數退避）。
 - **暫停**：用戶可以隨時暫停所有計算任務，之後恢復。
-- queue persistence 存在 canonical archive 的 SQLite `ai_jobs` 表；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
+- queue persistence 現在存在 `derived/history-intelligence.sqlite` 的 `ai_jobs` / `intelligence_jobs`；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
 - queue state 精確包含 `queued`、`running`、`succeeded`、`failed`、`paused`、`cancelled`、`stale`。
 - manual replay 只允許 `failed` / `cancelled` / `paused` / `stale` job；`running` job 在當前 worker 不支援 mid-flight cancel。
 
@@ -320,7 +320,7 @@
 ### 設計原則
 
 - 計算任務系統完全獨立於核心備份流程 — 備份不等待 AI 計算完成。
-- 計算結果存入獨立的表 / sidecar — 即使清空所有計算結果，重跑一遍就能恢復。
+- 計算結果存入獨立的 intelligence projection / sidecar — 即使清空所有計算結果，重跑一遍就能恢復。
 - 沒有配置 AI provider 的用戶完全看不到這個系統。
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
 - v1 invalidation contract 先以 honest stale detection + manual rebuild 落地：import / rollback / visibility change / approved enrichment freshness 改變時，UI 必須把 index state 標成 stale。是否自動 re-enqueue rebuild 屬後續 work，不可假裝 day-one 已完成。

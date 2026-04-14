@@ -251,6 +251,8 @@ export interface AppDirectories {
   appRoot: string
   configPath: string
   archiveDatabasePath: string
+  searchDatabasePath: string
+  intelligenceDatabasePath: string
   auditRepoPath: string
   manifestsDir: string
   exportsDir: string
@@ -258,6 +260,8 @@ export interface AppDirectories {
   stagingDir: string
   quarantineDir: string
   scheduleDir: string
+  semanticIndexDir: string
+  intelligenceBlobsDir: string
   logsDir: string
   rustLogPath: string
   frontendLogPath: string
