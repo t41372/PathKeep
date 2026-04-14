@@ -33,6 +33,12 @@
 | `src_tauri::updater::*`                                                  | updater check / download / install / relaunch 與 progress event                                           | `src-tauri/src`          | 2026-04-10 起作為 desktop-only IPC boundary；前端不再直接調 plugin updater / process guest API。                                 |
 | `browser_history_parser::*`                                              | schema observation、capability snapshot、canonical facts、typed evidence、native entities                 | `browser-history-parser` | signed-off extractor boundary；此 crate 不應新增 archive / Tauri / platform side effect。                                        |
 
+2026-04-14 backend rustdoc follow-up:
+
+- `vault-worker/src/lib.rs`、`vault-core/src/{chrome,ai,insights,archive/mod}.rs` 的大型 regression suites 已移到 sibling `tests.rs` 模組。
+- 這些 runtime 主檔現在保留 orchestration / public boundary / helper contract，test-only fixtures 不再和 shipping code 混在同一個 mega-file。
+- 後續若再拆 hotspot，優先拆 runtime 責任本身，不要把 regression suite 又塞回主檔充當“順手一起放”的雜物間。
+
 ---
 
 ## 依賴方向
