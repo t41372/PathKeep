@@ -18,6 +18,7 @@ import {
   formatDuration,
   formatRelativeTime,
 } from '../../../lib/format'
+import { HistoryFavicon } from '../../../components/primitives/history-favicon'
 import { EmptyState } from '../../../components/primitives/empty-state'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { ExportFormat, HistoryQueryResponse } from '../../../lib/types'
@@ -108,9 +109,7 @@ export function ExplorerResultsPanel({
                 activateRecordSelection(event, () => onSelectHistory(item.id))
               }
             >
-              <div className="favicon-placeholder">
-                {(item.domain ?? '?')[0].toUpperCase()}
-              </div>
+              <HistoryFavicon domain={item.domain} favicon={item.favicon} />
               <div className="record-main">
                 <div className="record-title">{item.title || item.url}</div>
                 <div className="record-url dim mono">{item.url}</div>
@@ -210,7 +209,11 @@ export function ExplorerResultsPanel({
             <div className="detail-section">
               <div className="detail-field">
                 <span className="field-label">{explorerT('fieldTitle')}</span>
-                <span className="field-value">
+                <span className="field-value with-favicon">
+                  <HistoryFavicon
+                    domain={selectedEntry.domain}
+                    favicon={selectedEntry.favicon}
+                  />
                   {selectedEntry.title || selectedEntry.url}
                 </span>
               </div>

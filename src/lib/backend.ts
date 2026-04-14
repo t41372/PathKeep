@@ -377,6 +377,10 @@ const mockHistory: HistoryQueryResponse = {
       url: 'https://developer.chrome.com/docs/devtools/storage/sqlite',
       title: 'SQLite inspection in browser developer tools',
       domain: 'developer.chrome.com',
+      favicon: {
+        dataUrl:
+          'data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%230f172a%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%229%22 fill=%22%2338bdf8%22/%3E%3C/svg%3E',
+      },
       visitedAt: new Date().toISOString(),
       visitTime: Date.now(),
       durationMs: 24000,
@@ -390,6 +394,10 @@ const mockHistory: HistoryQueryResponse = {
       url: 'https://chromium.googlesource.com/chromium/src/+/main/components/history/core/browser/history_database.cc',
       title: 'Chromium history schema',
       domain: 'chromium.googlesource.com',
+      favicon: {
+        dataUrl:
+          'data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23111827%22/%3E%3Cpath d=%22M16 6a10 10 0 1 0 10 10A10 10 0 0 0 16 6Zm0 3.2a6.8 6.8 0 0 1 5.9 3.4H16Zm-6 6.8a6 6 0 0 1 .1-1.1H16v7a6.8 6.8 0 0 1-6-5.9Zm9.2 5.9V16H23a6.8 6.8 0 0 1-3.8 5.9Z%22 fill=%22%23f59e0b%22/%3E%3C/svg%3E',
+      },
       visitedAt: new Date(Date.now() - 3_600_000).toISOString(),
       visitTime: Date.now() - 3_600_000,
       durationMs: 18000,

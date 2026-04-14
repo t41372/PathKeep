@@ -479,6 +479,11 @@ pub(super) fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryE
         domain: url_domain(&url),
         url,
         title: row.get(3)?,
+        favicon: row
+            .get::<_, Option<Vec<u8>>>(9)?
+            .as_deref()
+            .and_then(image_data_to_data_url)
+            .map(|data_url| HistoryFavicon { data_url }),
         visited_at: row.get(4).map(|ms: i64| {
             DateTime::<Utc>::from_timestamp_millis(ms).unwrap_or_else(Utc::now).to_rfc3339()
         })?,

@@ -40,11 +40,14 @@ use crate::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupProgressEvent, BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat,
         ExportRequest, ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry,
-        HistoryQuery, HistoryQueryResponse, RetentionBucket, RetentionPreview,
+        HistoryFavicon, HistoryQuery, HistoryQueryResponse, RetentionBucket, RetentionPreview,
         RetentionPruneRequest, RetentionPruneResult, SnapshotRestorePreview,
         SnapshotRestoreRequest, StorageSummary,
     },
-    utils::{file_sha256_hex, now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain},
+    utils::{
+        file_sha256_hex, image_data_to_data_url, now_rfc3339, sha256_hex,
+        unix_micros_to_chrome_time, url_domain,
+    },
 };
 use anyhow::{Context, Result};
 use browser_history_parser::{
@@ -75,7 +78,20 @@ SELECT
   visits.visit_duration_ms,
   visits.transition_type,
   visits.source_visit_id,
-  visits.app_id
+  visits.app_id,
+  (
+    SELECT favicons.image_data
+    FROM favicons
+    WHERE favicons.source_profile_id = source_profiles.id
+      AND favicons.page_url = urls.url
+      AND favicons.image_data IS NOT NULL
+    ORDER BY
+      favicons.last_updated_ms DESC,
+      favicons.width DESC,
+      favicons.height DESC,
+      favicons.id DESC
+    LIMIT 1
+  ) AS favicon_image_data
 FROM visits
 JOIN urls
   ON urls.id = visits.url_id
@@ -139,7 +155,20 @@ SELECT
   visits.visit_duration_ms,
   visits.transition_type,
   visits.source_visit_id,
-  visits.app_id
+  visits.app_id,
+  (
+    SELECT favicons.image_data
+    FROM favicons
+    WHERE favicons.source_profile_id = source_profiles.id
+      AND favicons.page_url = urls.url
+      AND favicons.image_data IS NOT NULL
+    ORDER BY
+      favicons.last_updated_ms DESC,
+      favicons.width DESC,
+      favicons.height DESC,
+      favicons.id DESC
+    LIMIT 1
+  ) AS favicon_image_data
 FROM visits
 JOIN urls
   ON urls.id = visits.url_id
@@ -2202,7 +2231,7 @@ mod tests {
         favicons
             .execute(
                 "INSERT INTO favicon_bitmaps (icon_id, width, height, last_updated, image_data)
-                 VALUES (1, 16, 16, ?1, X'0102')",
+                 VALUES (1, 16, 16, ?1, X'89504E470D0A1A0A01')",
                 [second_visit],
             )
             .expect("insert favicon bitmap");
@@ -2349,6 +2378,12 @@ mod tests {
         )
         .expect("list history");
         assert_eq!(history.total, 2);
+        assert!(history.items.iter().all(|entry| {
+            entry
+                .favicon
+                .as_ref()
+                .is_some_and(|favicon| favicon.data_url.starts_with("data:image/"))
+        }));
 
         let search_term_history = list_history(
             &paths,

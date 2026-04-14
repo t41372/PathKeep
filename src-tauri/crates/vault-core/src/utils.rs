@@ -74,6 +74,12 @@ pub fn url_domain(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or(url).trim().to_string()
 }
 
+/// Converts stored favicon bytes into a data URL when the image format is recognized.
+pub fn image_data_to_data_url(bytes: &[u8]) -> Option<String> {
+    let mime_type = sniff_image_mime_type(bytes)?;
+    Some(format!("data:{mime_type};base64,{}", base64_blob(bytes)))
+}
+
 /// Converts one SQLite value into a JSON value for diagnostics and audit payloads.
 pub fn sqlite_value_to_json(value: ValueRef<'_>) -> Value {
     match value {
@@ -120,6 +126,38 @@ fn base64_blob(bytes: &[u8]) -> String {
         index += 3;
     }
     output
+}
+
+/// Identifies common favicon payload formats without needing a full image decoder.
+fn sniff_image_mime_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("image/png");
+    }
+
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+
+    if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
+        return Some("image/x-icon");
+    }
+
+    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        return Some("image/webp");
+    }
+
+    let sniff_window = &bytes[..bytes.len().min(256)];
+    let prefix = String::from_utf8_lossy(sniff_window);
+    let prefix = prefix.trim_start_matches(|character: char| character.is_ascii_whitespace());
+    if prefix.starts_with("<svg") || (prefix.starts_with("<?xml") && prefix.contains("<svg")) {
+        return Some("image/svg+xml");
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -184,6 +222,22 @@ mod tests {
     fn domain_extraction_handles_urls_and_bare_hosts() {
         assert_eq!(url_domain("https://example.com/path?q=1"), "example.com");
         assert_eq!(url_domain("example.org/path"), "example.org");
+    }
+
+    #[test]
+    fn image_data_to_data_url_detects_common_favicon_formats() {
+        assert_eq!(
+            image_data_to_data_url(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x01]),
+            Some("data:image/png;base64,iVBORw0KGgoB".to_string())
+        );
+        assert_eq!(
+            image_data_to_data_url(br#"<?xml version="1.0"?><svg viewBox="0 0 1 1"></svg>"#),
+            Some(
+                "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB2aWV3Qm94PSIwIDAgMSAxIj48L3N2Zz4="
+                    .to_string()
+            )
+        );
+        assert!(image_data_to_data_url(b"not-an-image").is_none());
     }
 
     #[test]
