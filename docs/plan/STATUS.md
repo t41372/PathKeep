@@ -23,18 +23,6 @@
   - 契約：backup / import 後 deterministic rebuild 必須自動排入並留下可 review 的 runtime trace；`On This Day` 只能回看過去年份；主產品 UI 不得外露 `m4-v1` / `m5b-v1` 這類內部里程碑版本字串；desktop bridge 必須驗到 live Rust flow，而不是只停在 health / build-info smoke。
   - 驗收：`bun run build`、targeted Rust / Vitest regression tests、`test:e2e:desktop-bridge:truth` 能在有權限的 host 上穩定跑完；source docs 與 plan tracking 同步回寫真實邊界。
 
-- [ ] **WORK-QC-P** — Browser Support Truth Pass And Adapter Playbook
-  - 讀先：
-    `README.md`
-    `docs/features/archive.md`
-    `TESTING.md`
-    `RELEASE.md`
-    `docs/plan/m4-full-polish/release-readiness-runbook.md`
-    `docs/reference-review.md`
-  - 目標：收斂 PathKeep 對外瀏覽器承諾，只公開承諾目前有本機驗證 evidence 的 Google Chrome 與 macOS Safari baseline，並補一份其他瀏覽器 adapter playbook 給後續開發者。
-  - 契約：Firefox 與其他 Chromium / Firefox-family adapter 仍保留實作，但 README / onboarding / root docs 不得再把它們寫成已 shipping promise；browser adapter 要有 discovery / parser / ingest / caveat / tests / local validation evidence 才能升級成 public support。
-  - 驗收：README / root docs / source docs / onboarding i18n 與 regression tests 同步更新；Safari 有獨立 baseline acceptance 或 unreadable regression；`bun run check && bun run build`
-
 - [ ] **WORK-QC-N** — Backend Rustdoc Sweep And Module Decomposition
   - 讀先：
     `docs/architecture/data-model.md`

@@ -2561,6 +2561,82 @@ mod tests {
     }
 
     #[test]
+    fn safari_backup_baseline_ingests_history_without_firefox_or_chrome_dependency() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let safari_root = seed_safari_fixture(dir.path());
+        let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+        let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+        unsafe {
+            std::env::set_var("CHB_CHROME_USER_DATA_DIR", dir.path().join("missing-chrome"));
+            std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["safari:default".to_string()],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let report = run_backup(&paths, &config, None, false).expect("run safari backup");
+        assert_eq!(report.run.as_ref().expect("run").new_visits, 1);
+        assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
+        assert_eq!(report.profiles.len(), 1);
+        assert_eq!(report.profiles[0].profile_id, "safari:default");
+        assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
+
+        let history =
+            list_history(&paths, &config, None, HistoryQuery::default()).expect("history");
+        assert_eq!(history.total, 1);
+        assert_eq!(history.items[0].profile_id, "safari:default");
+
+        restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
+        restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+    }
+
+    #[test]
+    fn backup_keeps_chrome_successful_when_selected_safari_is_unreadable() {
+        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = seed_chrome_fixture(dir.path());
+        let safari_root = dir.path().join("Safari");
+        fs::create_dir_all(&safari_root).expect("create safari root");
+        let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+        let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+        unsafe {
+            std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+            std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+        }
+
+        let paths = sample_paths(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["chrome:Default".to_string(), "safari:default".to_string()],
+            ..AppConfig::default()
+        };
+
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let report = run_backup(&paths, &config, None, false).expect("run backup");
+        assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
+        assert_eq!(report.profiles.len(), 1);
+        assert_eq!(report.profiles[0].profile_id, "chrome:Default");
+        assert!(report.warnings.iter().any(|warning| {
+            warning.contains("safari:default")
+                && warning.contains("grant Full Disk Access before the next backup")
+        }));
+
+        let history =
+            list_history(&paths, &config, None, HistoryQuery::default()).expect("history");
+        assert_eq!(history.total, 2);
+        assert!(history.items.iter().all(|entry| entry.profile_id.starts_with("chrome:")));
+
+        restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
+        restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+    }
+
+    #[test]
     fn doctor_detects_missing_snapshot_artifacts() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
