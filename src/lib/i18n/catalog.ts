@@ -206,6 +206,65 @@ const zhCnM3Namespaces = {
     dow_thu: '四',
     dow_fri: '五',
     dow_sat: '六',
+
+    // Session Groups
+    sessionGroupEmpty: '该时间范围内没有会话记录。',
+    sessionGroupSummary: '共 {count} 个会话 · 第 {page} 页',
+    sessionUntitled: '未命名会话',
+    sessionVisitLabel: '个页面',
+    sessionSearchLabel: '次搜索',
+    sessionDeepDive: '深度研究会话',
+    sessionDetailError: '无法加载会话详情。',
+
+    // Trail Groups
+    trailGroupEmpty: '该时间范围内没有搜索旅程。',
+    trailGroupSummary: '共 {count} 条搜索旅程 · 第 {page} 页',
+    trailReformulation: '次改写',
+    trailEvolution: '搜索演化',
+    trailLanding: '落地页',
+
+    // Navigation Tracer
+    tracerTitle: '你是怎么找到这里的',
+    tracerHere: '你在这里',
+    tracerEmpty: '没有找到这个页面的导航路径。',
+
+    // Top Sites Sort
+    topSitesSearch: '搜索网站…',
+    topSitesSort: '排序方式',
+    topSitesSortVisits: '访问次数',
+    topSitesSortDays: '独立天数',
+    topSitesSortAvg: '日均访问',
+    topSitesDays: '天',
+    topSitesAvgSuffix: '/天',
+
+    // Refind Score Factors
+    refindShowFactors: '查看得分因子',
+    refindScore: '得分',
+    refindFactorDays: '跨天重访次数',
+    refindFactorTrails: '出现在搜索旅程数',
+    refindFactorSearch: '从搜索进入次数',
+    refindFactorTyped: '直接输入访问次数',
+
+    // Query Families
+    queryFamilyMemberCount: '个查询',
+    queryFamilyMore: '更多',
+
+    // Explainability Panel
+    explainTitle: '了解这个结论',
+    explainRule: '触发规则',
+    explainFactors: '得分因子',
+    explainFactorName: '因子',
+    explainFactorRaw: '原始值',
+    explainFactorWeight: '权重',
+    explainFactorContribution: '贡献',
+    explainVisits: '{count} 条相关记录',
+    explainUnavailable: '暂无法获取详细解释。',
+
+    // View Mode
+    viewModeLabel: '排列方式',
+    viewModeTime: '时间',
+    viewModeSession: '会话',
+    viewModeTrail: '搜索旅程',
   },
   explorer: {
     waitingForQuery: '输入关键词开始搜索',
@@ -785,6 +844,65 @@ const zhTwM3Namespaces = {
     dow_thu: '四',
     dow_fri: '五',
     dow_sat: '六',
+
+    // Session Groups
+    sessionGroupEmpty: '該時間範圍內沒有會話紀錄。',
+    sessionGroupSummary: '共 {count} 個會話 · 第 {page} 頁',
+    sessionUntitled: '未命名會話',
+    sessionVisitLabel: '個頁面',
+    sessionSearchLabel: '次搜尋',
+    sessionDeepDive: '深度研究會話',
+    sessionDetailError: '無法載入會話詳情。',
+
+    // Trail Groups
+    trailGroupEmpty: '該時間範圍內沒有搜尋旅程。',
+    trailGroupSummary: '共 {count} 條搜尋旅程 · 第 {page} 頁',
+    trailReformulation: '次改寫',
+    trailEvolution: '搜尋演化',
+    trailLanding: '落地頁',
+
+    // Navigation Tracer
+    tracerTitle: '你是怎麼找到這裡的',
+    tracerHere: '你在這裡',
+    tracerEmpty: '沒有找到這個頁面的導航路徑。',
+
+    // Top Sites Sort
+    topSitesSearch: '搜尋網站…',
+    topSitesSort: '排序方式',
+    topSitesSortVisits: '造訪次數',
+    topSitesSortDays: '獨立天數',
+    topSitesSortAvg: '日均造訪',
+    topSitesDays: '天',
+    topSitesAvgSuffix: '/天',
+
+    // Refind Score Factors
+    refindShowFactors: '查看得分因子',
+    refindScore: '得分',
+    refindFactorDays: '跨天重訪次數',
+    refindFactorTrails: '出現在搜尋旅程數',
+    refindFactorSearch: '從搜尋進入次數',
+    refindFactorTyped: '直接輸入造訪次數',
+
+    // Query Families
+    queryFamilyMemberCount: '個查詢',
+    queryFamilyMore: '更多',
+
+    // Explainability Panel
+    explainTitle: '了解這個結論',
+    explainRule: '觸發規則',
+    explainFactors: '得分因子',
+    explainFactorName: '因子',
+    explainFactorRaw: '原始值',
+    explainFactorWeight: '權重',
+    explainFactorContribution: '貢獻',
+    explainVisits: '{count} 筆相關紀錄',
+    explainUnavailable: '暫無法取得詳細解釋。',
+
+    // View Mode
+    viewModeLabel: '排列方式',
+    viewModeTime: '時間',
+    viewModeSession: '會話',
+    viewModeTrail: '搜尋旅程',
   },
   explorer: {
     waitingForQuery: '輸入關鍵字開始搜尋',
@@ -2535,6 +2653,65 @@ const catalog: Record<
       dow_thu: 'Thu',
       dow_fri: 'Fri',
       dow_sat: 'Sat',
+
+      // Session Groups
+      sessionGroupEmpty: 'No sessions found in this time range.',
+      sessionGroupSummary: '{count} sessions · Page {page}',
+      sessionUntitled: 'Untitled Session',
+      sessionVisitLabel: 'pages',
+      sessionSearchLabel: 'searches',
+      sessionDeepDive: 'Deep Dive Session',
+      sessionDetailError: 'Could not load session details.',
+
+      // Trail Groups
+      trailGroupEmpty: 'No search trails found in this time range.',
+      trailGroupSummary: '{count} search trails · Page {page}',
+      trailReformulation: 'reformulations',
+      trailEvolution: 'Query Evolution',
+      trailLanding: 'Landing',
+
+      // Navigation Tracer
+      tracerTitle: 'How did you get here',
+      tracerHere: 'You are here',
+      tracerEmpty: 'No navigation path found for this page.',
+
+      // Top Sites Sort
+      topSitesSearch: 'Search sites…',
+      topSitesSort: 'Sort by',
+      topSitesSortVisits: 'Visit count',
+      topSitesSortDays: 'Unique days',
+      topSitesSortAvg: 'Daily average',
+      topSitesDays: 'days',
+      topSitesAvgSuffix: '/day',
+
+      // Refind Score Factors
+      refindShowFactors: 'Show score factors',
+      refindScore: 'Score',
+      refindFactorDays: 'Cross-day revisits',
+      refindFactorTrails: 'Distinct trail appearances',
+      refindFactorSearch: 'Search arrivals',
+      refindFactorTyped: 'Typed revisits',
+
+      // Query Families
+      queryFamilyMemberCount: 'queries',
+      queryFamilyMore: 'more',
+
+      // Explainability Panel
+      explainTitle: 'How this was determined',
+      explainRule: 'Trigger Rule',
+      explainFactors: 'Score Factors',
+      explainFactorName: 'Factor',
+      explainFactorRaw: 'Raw',
+      explainFactorWeight: 'Weight',
+      explainFactorContribution: 'Contribution',
+      explainVisits: '{count} related records',
+      explainUnavailable: 'Explanation not available.',
+
+      // View Mode
+      viewModeLabel: 'View by',
+      viewModeTime: 'Time',
+      viewModeSession: 'Session',
+      viewModeTrail: 'Search Trail',
     },
     explorer: {
       waitingForQuery: 'Type to search',
