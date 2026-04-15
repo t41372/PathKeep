@@ -25,6 +25,8 @@ import {
   type EngineRanking,
   type SearchConcept,
   type KpiMetric,
+  type RefindPage,
+  type QueryFamily,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 
@@ -272,41 +274,95 @@ function OnThisDaySection({ t }: { t: T }) {
 // --- Top Sites ---
 
 function TopSitesSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
+  const [sortBy, setSortBy] = useState('visit_count')
+  const [search, setSearch] = useState('')
+
   const { data, loading } = useAsyncData(
-    () => api.getTopSites(dateRange, null, 'visit_count', 10),
-    [dateRange],
+    () => api.getTopSites(dateRange, null, sortBy, 20),
+    [dateRange, sortBy],
   )
+
+  const filteredData = data?.filter((site) => {
+    if (!search.trim()) return true
+    const needle = search.toLowerCase()
+    return (
+      site.registrableDomain.toLowerCase().includes(needle) ||
+      (site.displayName?.toLowerCase().includes(needle) ?? false)
+    )
+  })
 
   return (
     <section className="intelligence-section top-sites-section">
       <h2 className="intelligence-section__title">{t('topSitesTitle')}</h2>
+      <div className="top-sites-controls">
+        <input
+          className="top-sites-controls__search"
+          type="search"
+          placeholder={t('topSitesSearch')}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label={t('topSitesSearch')}
+        />
+        <select
+          className="top-sites-controls__sort"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          aria-label={t('topSitesSort')}
+        >
+          <option value="visit_count">{t('topSitesSortVisits')}</option>
+          <option value="unique_days">{t('topSitesSortDays')}</option>
+          <option value="avg_daily">{t('topSitesSortAvg')}</option>
+        </select>
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : !filteredData || filteredData.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('topSitesEmpty')}</p>
         </div>
       ) : (
         <div className="top-sites-list">
-          {data.map((site, i) => (
-            <div key={site.registrableDomain} className="top-site-row">
-              <span className="top-site-row__rank">{i + 1}.</span>
-              <span className="top-site-row__domain">
-                {site.displayName ?? site.registrableDomain}
-              </span>
-              <span className="top-site-row__bar">
-                <span
-                  className="top-site-row__bar-fill"
-                  style={{
-                    width: `${Math.round((site.visitCount / data[0].visitCount) * 100)}%`,
-                  }}
-                />
-              </span>
-              <span className="top-site-row__count">
-                {formatNumber(site.visitCount)} {t('visits')}
-              </span>
-            </div>
-          ))}
+          {filteredData.map((site, i) => {
+            const maxVal =
+              sortBy === 'unique_days'
+                ? filteredData[0].uniqueDays
+                : sortBy === 'avg_daily'
+                  ? filteredData[0].averageDailyVisits
+                  : filteredData[0].visitCount
+            const val =
+              sortBy === 'unique_days'
+                ? site.uniqueDays
+                : sortBy === 'avg_daily'
+                  ? site.averageDailyVisits
+                  : site.visitCount
+            const displayVal =
+              sortBy === 'avg_daily' ? val.toFixed(1) : formatNumber(val)
+            const suffix =
+              sortBy === 'unique_days'
+                ? t('topSitesDays')
+                : sortBy === 'avg_daily'
+                  ? t('topSitesAvgSuffix')
+                  : t('visits')
+            return (
+              <div key={site.registrableDomain} className="top-site-row">
+                <span className="top-site-row__rank">{i + 1}.</span>
+                <span className="top-site-row__domain">
+                  {site.displayName ?? site.registrableDomain}
+                </span>
+                <span className="top-site-row__bar">
+                  <span
+                    className="top-site-row__bar-fill"
+                    style={{
+                      width: `${maxVal > 0 ? Math.round((val / maxVal) * 100) : 0}%`,
+                    }}
+                  />
+                </span>
+                <span className="top-site-row__count">
+                  {displayVal} {suffix}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
     </section>
@@ -368,11 +424,7 @@ function SearchActivitySection({
           />
         )}
         {tab === 'families' && (
-          <div className="intelligence-empty">
-            <p className="intelligence-empty__text">
-              {t('queryFamiliesPlaceholder')}
-            </p>
-          </div>
+          <QueryFamiliesPanel dateRange={dateRange} t={t} />
         )}
       </div>
     </section>
@@ -491,24 +543,71 @@ function RefindPagesSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
       ) : (
         <div className="refind-list">
           {data.map((page) => (
-            <div key={page.canonicalUrl} className="refind-card">
-              <div className="refind-card__header">
-                <span className="refind-card__icon">📄</span>
-                <span className="refind-card__title">
-                  {page.title ?? page.url}
-                </span>
-              </div>
-              <p className="refind-card__description">
-                {t('refindDescription', {
-                  days: page.crossDayCount,
-                  searches: page.searchArrivalCount,
-                })}
-              </p>
-            </div>
+            <RefindCard key={page.canonicalUrl} page={page} t={t} />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+function RefindCard({ page, t }: { page: RefindPage; t: T }) {
+  const [showFactors, setShowFactors] = useState(false)
+
+  const factors = [
+    { label: t('refindFactorDays'), value: page.crossDayCount, weight: 3 },
+    { label: t('refindFactorTrails'), value: page.trailCount, weight: 3 },
+    {
+      label: t('refindFactorSearch'),
+      value: page.searchArrivalCount,
+      weight: 2,
+    },
+    { label: t('refindFactorTyped'), value: page.typedRevisitCount, weight: 1 },
+  ]
+  const maxContribution = Math.max(...factors.map((f) => f.value * f.weight), 1)
+
+  return (
+    <div className="refind-card">
+      <div className="refind-card__header">
+        <span className="refind-card__icon">📄</span>
+        <span className="refind-card__title">{page.title ?? page.url}</span>
+      </div>
+      <p className="refind-card__description">
+        {t('refindDescription', {
+          days: page.crossDayCount,
+          searches: page.searchArrivalCount,
+        })}
+      </p>
+      <button
+        className="refind-card__expand-toggle"
+        type="button"
+        onClick={() => setShowFactors(!showFactors)}
+      >
+        <span>{showFactors ? '▾' : '▸'}</span>
+        <span>{t('refindShowFactors')}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-code)' }}>
+          {t('refindScore')}: {page.refindScore.toFixed(1)}
+        </span>
+      </button>
+      {showFactors && (
+        <div className="refind-card__factors">
+          {factors.map((f) => (
+            <div key={f.label} className="refind-card__factor">
+              <span className="refind-card__factor-label">{f.label}</span>
+              <span
+                className="refind-card__factor-bar"
+                style={{
+                  width: `${Math.round(((f.value * f.weight) / maxContribution) * 80)}px`,
+                }}
+              />
+              <span className="refind-card__factor-value">
+                {f.value} ×{f.weight}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -531,23 +630,37 @@ function ActivityMixSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
         </div>
       ) : (
         <div className="activity-mix">
-          {data.categories.map((cat) => (
-            <div key={cat.domainCategory} className="activity-mix__row">
-              <span className="activity-mix__category">
-                {t(`category_${cat.domainCategory}`) || cat.domainCategory}
-              </span>
-              <span className="activity-mix__bar">
-                <span
-                  className="activity-mix__bar-fill"
-                  style={{ width: `${Math.round(cat.share * 100)}%` }}
-                  data-category={cat.domainCategory}
-                />
-              </span>
-              <span className="activity-mix__share">
-                {Math.round(cat.share * 100)}%
-              </span>
-            </div>
-          ))}
+          {data.categories.map((cat) => {
+            const change = data.changeVsPrevious.find(
+              (c) => c.domainCategory === cat.domainCategory,
+            )
+            const changePts = change?.changePoints ?? 0
+            return (
+              <div key={cat.domainCategory} className="activity-mix__row">
+                <span className="activity-mix__category">
+                  {t(`category_${cat.domainCategory}`) || cat.domainCategory}
+                </span>
+                <span className="activity-mix__bar">
+                  <span
+                    className="activity-mix__bar-fill"
+                    style={{ width: `${Math.round(cat.share * 100)}%` }}
+                    data-category={cat.domainCategory}
+                  />
+                </span>
+                <span className="activity-mix__share">
+                  {Math.round(cat.share * 100)}%
+                </span>
+                {changePts !== 0 && (
+                  <span
+                    className={`activity-mix__change activity-mix__change--${changePts > 0 ? 'positive' : 'negative'}`}
+                  >
+                    {changePts > 0 ? '+' : ''}
+                    {Math.round(changePts * 100)}%
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </section>
@@ -637,6 +750,74 @@ function BrowsingRhythmSection({
         </div>
       )}
     </section>
+  )
+}
+
+// --- Query Families Panel ---
+
+function QueryFamiliesPanel({ dateRange, t }: { dateRange: DateRange; t: T }) {
+  const { data, loading, error } = useAsyncData(
+    () => api.getQueryFamilies(dateRange, null, { page: 1, pageSize: 10 }),
+    [dateRange],
+  )
+
+  if (loading) {
+    return <div className="intelligence-skeleton intelligence-skeleton--list" />
+  }
+
+  if (error || !data || data.families.length === 0) {
+    return (
+      <div className="intelligence-empty">
+        <p className="intelligence-empty__text">
+          {error || t('queryFamiliesPlaceholder')}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="query-families">
+      {data.families.map((family) => (
+        <QueryFamilyCard key={family.familyId} family={family} t={t} />
+      ))}
+    </div>
+  )
+}
+
+function QueryFamilyCard({ family, t }: { family: QueryFamily; t: T }) {
+  const [expanded, setExpanded] = useState(false)
+  const visibleQueries = expanded ? family.queries : family.queries.slice(0, 3)
+
+  return (
+    <div className="query-family-card">
+      <div className="query-family-card__header">
+        <span className="query-family-card__anchor">
+          "{family.anchorQuery}"
+        </span>
+        <span className="query-family-card__engine">{family.searchEngine}</span>
+        <span className="query-family-card__count">
+          {family.memberCount} {t('queryFamilyMemberCount')}
+        </span>
+      </div>
+      <div className="query-family-card__members">
+        {visibleQueries.map((q, i) => (
+          <span key={i} className="query-family-card__member">
+            "{q}"
+          </span>
+        ))}
+        {family.queries.length > 3 && !expanded && (
+          <button
+            className="intelligence-link"
+            onClick={() => setExpanded(true)}
+          >
+            +{family.queries.length - 3} {t('queryFamilyMore')}
+          </button>
+        )}
+      </div>
+      <span className="query-family-card__dates">
+        {family.firstSeenAt} — {family.lastSeenAt}
+      </span>
+    </div>
   )
 }
 
