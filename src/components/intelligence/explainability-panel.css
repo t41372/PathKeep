@@ -1,0 +1,177 @@
+/**
+ * Styles for the Explainability Panel component.
+ *
+ * Why this file exists:
+ * - Keeps explainability-panel-specific styles out of the global sheet.
+ * - Consumes design tokens from `src/styles/tokens.css` via CSS variables.
+ *
+ * Source-of-truth:
+ * - `docs/features/core-intelligence-ultimate-design.md` §4.A
+ * - `docs/design/design-tokens.md`
+ */
+
+/* ---------- Panel Container ---------- */
+
+.explainability-panel {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  margin-top: var(--space-2);
+}
+
+/* ---------- Toggle ---------- */
+
+.explainability-panel__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.explainability-panel__toggle:hover {
+  color: var(--accent);
+}
+
+.explainability-panel__toggle-icon {
+  font-size: 0.625rem;
+  flex-shrink: 0;
+}
+
+.explainability-panel__toggle-label {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---------- Body ---------- */
+
+.explainability-panel__body {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.explainability-panel__error {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ---------- Trigger Rule ---------- */
+
+.explainability-panel__rule {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.explainability-panel__rule-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.explainability-panel__rule-value {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+/* ---------- Factors Table ---------- */
+
+.explainability-panel__factors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.explainability-panel__factors-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.explainability-panel__factors-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.explainability-panel__factors-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.explainability-panel__factors-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.explainability-panel__factor-label {
+  color: var(--text);
+}
+
+.explainability-panel__factor-value {
+  font-family: var(--font-code);
+  color: var(--text-muted);
+  position: relative;
+}
+
+.explainability-panel__factor-bar {
+  display: inline-block;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 2px;
+  margin-right: var(--space-1);
+  vertical-align: middle;
+  opacity: 0.6;
+  min-width: 2px;
+}
+
+/* ---------- Visit IDs ---------- */
+
+.explainability-panel__visits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.explainability-panel__visits-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.explainability-panel__visit-ids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.explainability-panel__visit-id {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 1px var(--space-1);
+  border: 1px solid var(--border);
+}
