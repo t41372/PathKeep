@@ -13,8 +13,6 @@ mod storage;
 mod surfaces;
 mod topics;
 
-#[cfg(test)]
-use crate::archive::create_schema;
 use crate::{
     ai::{AiProviderRuntime, ensure_ai_schema},
     archive::open_intelligence_connection,
@@ -428,7 +426,7 @@ CREATE INDEX IF NOT EXISTS idx_visit_insight_features_query_group_id
     Ok(())
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 /// Chooses the strongest available text payload for semantic indexing or assistant context.
 pub(crate) fn preferred_embedding_content(
     paths: &ProjectPaths,
@@ -1341,7 +1339,7 @@ fn enrichment_for_history_and_source(
     })
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 fn best_enrichment_for_history(
     paths: &ProjectPaths,
     connection: &Connection,
@@ -1490,6 +1488,7 @@ fn hydrate_enrichments(visits: &mut [VisitRecord], enrichments: &HashMap<i64, St
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 fn compute_feature_scores(visits: &mut [VisitRecord]) {
     compute_feature_scores_with_progress(visits, |_processed, _total| Ok(()))
         .expect("score visits");
@@ -2289,6 +2288,3 @@ fn is_chromium_profile(profile_id: &str) -> bool {
             | "opera-gx"
     )
 }
-
-#[cfg(test)]
-mod tests;

@@ -15,26 +15,58 @@ pub const READABLE_CONTENT_PLUGIN_ID: &str = "readable-content-refetch";
 pub const TITLE_NORMALIZATION_PLUGIN_VERSION: &str = "m5-v1";
 /// Current version string for the readable-content plugin.
 pub const READABLE_CONTENT_PLUGIN_VERSION: &str = "m4-v1";
-/// Built-in deterministic module ID for grouped search/query sessions.
-pub const QUERY_GROUPS_MODULE_ID: &str = "query-groups";
-/// Built-in deterministic module ID for long-lived research threads.
-pub const THREADS_MODULE_ID: &str = "threads";
-/// Built-in deterministic module ID for reference-page summaries.
-pub const REFERENCE_PAGES_MODULE_ID: &str = "reference-pages";
-/// Built-in deterministic module ID for source-effectiveness summaries.
-pub const SOURCE_EFFECTIVENESS_MODULE_ID: &str = "source-effectiveness";
-/// Built-in deterministic module ID for template summaries.
-pub const TEMPLATE_SUMMARIES_MODULE_ID: &str = "template-summaries";
-/// Current version string for the query-groups module.
-pub const QUERY_GROUPS_MODULE_VERSION: &str = "m5b-v1";
-/// Current version string for the threads module.
-pub const THREADS_MODULE_VERSION: &str = "m5b-v1";
-/// Current version string for the reference-pages module.
-pub const REFERENCE_PAGES_MODULE_VERSION: &str = "m5b-v1";
-/// Current version string for the source-effectiveness module.
-pub const SOURCE_EFFECTIVENESS_MODULE_VERSION: &str = "m5b-v1";
-/// Current version string for the template-summaries module.
-pub const TEMPLATE_SUMMARIES_MODULE_VERSION: &str = "m5b-v1";
+/// Built-in deterministic module ID for visit-derived facts.
+pub const VISIT_DERIVED_FACTS_MODULE_ID: &str = "visit-derived-facts";
+/// Built-in deterministic module ID for daily rollups.
+pub const DAILY_ROLLUPS_MODULE_ID: &str = "daily-rollups";
+/// Built-in deterministic module ID for browsing sessions.
+pub const SESSIONS_MODULE_ID: &str = "sessions";
+/// Built-in deterministic module ID for search trails and families.
+pub const SEARCH_TRAILS_MODULE_ID: &str = "search-trails";
+/// Built-in deterministic module ID for refind pages and source role signals.
+pub const REFIND_PAGES_MODULE_ID: &str = "refind-pages";
+/// Built-in deterministic module ID for activity-mix and digest composition.
+pub const ACTIVITY_MIX_MODULE_ID: &str = "activity-mix";
+/// Built-in deterministic module ID for search effectiveness / reopened investigations.
+pub const SEARCH_EFFECTIVENESS_MODULE_ID: &str = "search-effectiveness";
+/// Built-in deterministic module ID for domain deep-dive / rhythm / discovery surfaces.
+pub const DOMAIN_DEEP_DIVE_MODULE_ID: &str = "domain-deep-dive";
+/// Current version string for the visit-derived-facts module.
+pub const VISIT_DERIVED_FACTS_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the daily-rollups module.
+pub const DAILY_ROLLUPS_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the sessions module.
+pub const SESSIONS_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the search-trails module.
+pub const SEARCH_TRAILS_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the refind-pages module.
+pub const REFIND_PAGES_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the activity-mix module.
+pub const ACTIVITY_MIX_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the search-effectiveness module.
+pub const SEARCH_EFFECTIVENESS_MODULE_VERSION: &str = "ci-v1";
+/// Current version string for the domain-deep-dive module.
+pub const DOMAIN_DEEP_DIVE_MODULE_VERSION: &str = "ci-v1";
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const QUERY_GROUPS_MODULE_ID: &str = SEARCH_TRAILS_MODULE_ID;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const THREADS_MODULE_ID: &str = SESSIONS_MODULE_ID;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const REFERENCE_PAGES_MODULE_ID: &str = REFIND_PAGES_MODULE_ID;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const SOURCE_EFFECTIVENESS_MODULE_ID: &str = SEARCH_EFFECTIVENESS_MODULE_ID;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const TEMPLATE_SUMMARIES_MODULE_ID: &str = ACTIVITY_MIX_MODULE_ID;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const QUERY_GROUPS_MODULE_VERSION: &str = SEARCH_TRAILS_MODULE_VERSION;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const THREADS_MODULE_VERSION: &str = SESSIONS_MODULE_VERSION;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const REFERENCE_PAGES_MODULE_VERSION: &str = REFIND_PAGES_MODULE_VERSION;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const SOURCE_EFFECTIVENESS_MODULE_VERSION: &str = SEARCH_EFFECTIVENESS_MODULE_VERSION;
+/// Legacy alias retained temporarily while old `insights` code is still being removed.
+pub const TEMPLATE_SUMMARIES_MODULE_VERSION: &str = ACTIVITY_MIX_MODULE_VERSION;
 
 /// Default for whether optional enrichment plugins are enabled at all.
 fn default_enrichment_enabled() -> bool {
@@ -156,29 +188,44 @@ pub struct DeterministicModuleState {
 pub fn default_deterministic_module_states() -> Vec<DeterministicModuleState> {
     vec![
         DeterministicModuleState {
-            id: QUERY_GROUPS_MODULE_ID.to_string(),
+            id: VISIT_DERIVED_FACTS_MODULE_ID.to_string(),
             enabled: true,
-            version: QUERY_GROUPS_MODULE_VERSION.to_string(),
+            version: VISIT_DERIVED_FACTS_MODULE_VERSION.to_string(),
         },
         DeterministicModuleState {
-            id: THREADS_MODULE_ID.to_string(),
+            id: DAILY_ROLLUPS_MODULE_ID.to_string(),
             enabled: true,
-            version: THREADS_MODULE_VERSION.to_string(),
+            version: DAILY_ROLLUPS_MODULE_VERSION.to_string(),
         },
         DeterministicModuleState {
-            id: REFERENCE_PAGES_MODULE_ID.to_string(),
+            id: SESSIONS_MODULE_ID.to_string(),
             enabled: true,
-            version: REFERENCE_PAGES_MODULE_VERSION.to_string(),
+            version: SESSIONS_MODULE_VERSION.to_string(),
         },
         DeterministicModuleState {
-            id: SOURCE_EFFECTIVENESS_MODULE_ID.to_string(),
+            id: SEARCH_TRAILS_MODULE_ID.to_string(),
             enabled: true,
-            version: SOURCE_EFFECTIVENESS_MODULE_VERSION.to_string(),
+            version: SEARCH_TRAILS_MODULE_VERSION.to_string(),
         },
         DeterministicModuleState {
-            id: TEMPLATE_SUMMARIES_MODULE_ID.to_string(),
+            id: REFIND_PAGES_MODULE_ID.to_string(),
             enabled: true,
-            version: TEMPLATE_SUMMARIES_MODULE_VERSION.to_string(),
+            version: REFIND_PAGES_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: ACTIVITY_MIX_MODULE_ID.to_string(),
+            enabled: true,
+            version: ACTIVITY_MIX_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: SEARCH_EFFECTIVENESS_MODULE_ID.to_string(),
+            enabled: true,
+            version: SEARCH_EFFECTIVENESS_MODULE_VERSION.to_string(),
+        },
+        DeterministicModuleState {
+            id: DOMAIN_DEEP_DIVE_MODULE_ID.to_string(),
+            enabled: true,
+            version: DOMAIN_DEEP_DIVE_MODULE_VERSION.to_string(),
         },
     ]
 }

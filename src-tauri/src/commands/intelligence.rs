@@ -116,53 +116,242 @@ pub(crate) fn ask_ai_assistant(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Executes a deterministic insights rebuild now instead of waiting for background work.
-pub(crate) fn run_insights_now(
-    request: vault_core::RunInsightsRequest,
+/// Executes a Core Intelligence rebuild now instead of waiting for background work.
+pub(crate) fn run_core_intelligence_now(
+    request: vault_core::CoreIntelligenceRebuildRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::RunInsightsReport, String> {
-    worker_bridge::run_insights_now_impl(request, state.get_key().as_deref())
+) -> Result<vault_core::CoreIntelligenceRebuildReport, String> {
+    worker_bridge::run_core_intelligence_now_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Queues one deterministic rebuild so it can run through the background jobs surface.
+/// Queues one Core Intelligence rebuild so it can run through the background jobs surface.
 #[allow(dead_code)]
-pub(crate) fn queue_insights_rebuild(
-    request: vault_core::RunInsightsRequest,
+pub(crate) fn queue_core_intelligence_rebuild(
+    request: vault_core::CoreIntelligenceRebuildRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::DeterministicRebuildQueueReport, String> {
-    worker_bridge::queue_insights_rebuild_impl(request, state.get_key().as_deref())
+) -> Result<vault_core::CoreIntelligenceQueueReport, String> {
+    worker_bridge::queue_core_intelligence_rebuild_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads the latest deterministic insights snapshot for the requested scope.
-pub(crate) fn load_insights(
-    request: vault_core::RunInsightsRequest,
+/// Loads one paginated sessions list.
+pub(crate) fn get_sessions(
+    request: vault_core::PagedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::InsightSnapshot, String> {
-    worker_bridge::load_insights_impl(request, state.get_key().as_deref())
+) -> Result<vault_core::SessionListResult, String> {
+    worker_bridge::get_sessions_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads one deterministic insight thread in detail.
-pub(crate) fn load_thread_detail(
-    thread_id: String,
+/// Loads one session detail read model.
+pub(crate) fn get_session_detail(
+    session_id: String,
     state: State<'_, SessionState>,
-) -> Result<vault_core::InsightThreadDetail, String> {
-    worker_bridge::load_thread_detail_impl(thread_id, state.get_key().as_deref())
+) -> Result<vault_core::SessionDetail, String> {
+    worker_bridge::get_session_detail_impl(session_id, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Produces a human-readable explanation for one deterministic insight.
-pub(crate) fn explain_insight(
-    request: vault_core::ExplainInsightRequest,
+/// Loads one paginated search-trail list.
+pub(crate) fn get_search_trails(
+    request: vault_core::SearchTrailQueryRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::InsightExplanation, String> {
-    worker_bridge::explain_insight_impl(request, state.get_key().as_deref())
+) -> Result<vault_core::TrailListResult, String> {
+    worker_bridge::get_search_trails_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_trail_detail(
+    trail_id: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::TrailDetail, String> {
+    worker_bridge::get_trail_detail_impl(trail_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_navigation_path(
+    visit_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::NavigationPath, String> {
+    worker_bridge::get_navigation_path_impl(visit_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_hub_pages(
+    request: vault_core::TopSitesRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::HubPage>, String> {
+    worker_bridge::get_hub_pages_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_search_engine_ranking(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::EngineRanking>, String> {
+    worker_bridge::get_search_engine_ranking_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_top_search_concepts(
+    request: vault_core::TopSearchConceptsRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SearchConcept>, String> {
+    worker_bridge::get_top_search_concepts_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_query_families(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::QueryFamilyResult, String> {
+    worker_bridge::get_query_families_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_top_sites(
+    request: vault_core::TopSitesRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::TopSite>, String> {
+    worker_bridge::get_top_sites_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_domain_trend(
+    request: vault_core::DomainTrendRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::DomainTrend, String> {
+    worker_bridge::get_domain_trend_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_refind_pages(
+    request: vault_core::RefindPagesRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::RefindPage>, String> {
+    worker_bridge::get_refind_pages_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn explain_refind(
+    request: vault_core::ExplainRefindRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RefindExplanation, String> {
+    worker_bridge::explain_refind_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_activity_mix(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ActivityMix, String> {
+    worker_bridge::get_activity_mix_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_activity_mix_trend(
+    request: vault_core::GranularityDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ActivityMixTrend, String> {
+    worker_bridge::get_activity_mix_trend_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_digest_summary(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::DigestSummary, String> {
+    worker_bridge::get_digest_summary_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_stable_sources(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::StableSource>, String> {
+    worker_bridge::get_stable_sources_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_search_effectiveness(
+    request: vault_core::SearchEffectivenessRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::SearchEffectiveness, String> {
+    worker_bridge::get_search_effectiveness_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_friction_signals(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::FrictionSignal>, String> {
+    worker_bridge::get_friction_signals_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_reopened_investigations(
+    request: vault_core::PagedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::ReopenedInvestigation>, String> {
+    worker_bridge::get_reopened_investigations_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_domain_deep_dive(
+    request: vault_core::DomainDeepDiveRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::DomainDeepDive, String> {
+    worker_bridge::get_domain_deep_dive_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_browsing_rhythm(
+    request: vault_core::CategoryFilteredDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RhythmHeatmap, String> {
+    worker_bridge::get_browsing_rhythm_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_discovery_trend(
+    request: vault_core::GranularityDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::DiscoveryTrend, String> {
+    worker_bridge::get_discovery_trend_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_on_this_day(
+    profile_id: Option<String>,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::OnThisDayEntry>, String> {
+    worker_bridge::get_on_this_day_impl(profile_id, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

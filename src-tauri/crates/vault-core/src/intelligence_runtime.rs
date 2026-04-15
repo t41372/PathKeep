@@ -9,13 +9,16 @@ use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
     models::{
-        AppConfig, DeterministicModuleRuntimeStatus, EnrichmentPluginStatus,
-        IntelligenceJobOverview, IntelligenceQueueStatus, IntelligenceRuntimeSnapshot,
-        QUERY_GROUPS_MODULE_ID, QUERY_GROUPS_MODULE_VERSION, READABLE_CONTENT_PLUGIN_ID,
-        REFERENCE_PAGES_MODULE_ID, REFERENCE_PAGES_MODULE_VERSION, RunInsightsRequest,
-        SOURCE_EFFECTIVENESS_MODULE_ID, SOURCE_EFFECTIVENESS_MODULE_VERSION,
-        TEMPLATE_SUMMARIES_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_VERSION, THREADS_MODULE_ID,
-        THREADS_MODULE_VERSION, TITLE_NORMALIZATION_PLUGIN_ID, merge_enrichment_plugin_preferences,
+        ACTIVITY_MIX_MODULE_ID, ACTIVITY_MIX_MODULE_VERSION, AppConfig,
+        CoreIntelligenceRebuildRequest, DAILY_ROLLUPS_MODULE_ID, DAILY_ROLLUPS_MODULE_VERSION,
+        DOMAIN_DEEP_DIVE_MODULE_ID, DOMAIN_DEEP_DIVE_MODULE_VERSION,
+        DeterministicModuleRuntimeStatus, EnrichmentPluginStatus, IntelligenceJobOverview,
+        IntelligenceQueueStatus, IntelligenceRuntimeSnapshot, READABLE_CONTENT_PLUGIN_ID,
+        REFIND_PAGES_MODULE_ID, REFIND_PAGES_MODULE_VERSION, SEARCH_EFFECTIVENESS_MODULE_ID,
+        SEARCH_EFFECTIVENESS_MODULE_VERSION, SEARCH_TRAILS_MODULE_ID, SEARCH_TRAILS_MODULE_VERSION,
+        SESSIONS_MODULE_ID, SESSIONS_MODULE_VERSION, TITLE_NORMALIZATION_PLUGIN_ID,
+        VISIT_DERIVED_FACTS_MODULE_ID, VISIT_DERIVED_FACTS_MODULE_VERSION,
+        merge_enrichment_plugin_preferences,
     },
     utils::now_rfc3339,
 };
@@ -87,10 +90,26 @@ CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
 
 /// Queue job type identifier used for enrichment plugin jobs.
 pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
-/// Queue job type identifier used for deterministic rebuild jobs.
-pub const DETERMINISTIC_REBUILD_JOB_TYPE: &str = "deterministic-rebuild";
-/// Deterministic rebuilds must run before optional enrichment so baseline insights stay usable.
-const DETERMINISTIC_REBUILD_PRIORITY: i64 = 50;
+/// Queue job type identifier used for visit-derived-facts rebuild work.
+pub const VISIT_DERIVE_JOB_TYPE: &str = "visit-derive";
+/// Queue job type identifier used for daily-rollup work.
+pub const DAILY_ROLLUP_JOB_TYPE: &str = "daily-rollup";
+/// Queue job type identifier used for structural entity rebuild work.
+pub const STRUCTURAL_REBUILD_JOB_TYPE: &str = "structural-rebuild";
+/// Queue job type identifier used for a full Core Intelligence rebuild.
+pub const FULL_REBUILD_JOB_TYPE: &str = "full-rebuild";
+/// Transitional alias kept while worker glue is moving from legacy naming.
+pub const DETERMINISTIC_REBUILD_JOB_TYPE: &str = FULL_REBUILD_JOB_TYPE;
+/// Transitional alias kept while tests and worker glue still reference the legacy constant.
+#[allow(dead_code)]
+const DETERMINISTIC_REBUILD_PRIORITY: i64 = FULL_REBUILD_PRIORITY;
+#[allow(dead_code)]
+const VISIT_DERIVE_PRIORITY: i64 = 20;
+#[allow(dead_code)]
+const DAILY_ROLLUP_PRIORITY: i64 = 30;
+#[allow(dead_code)]
+const STRUCTURAL_REBUILD_PRIORITY: i64 = 40;
+const FULL_REBUILD_PRIORITY: i64 = 50;
 const INTELLIGENCE_JOB_LEASE_SECONDS: i64 = 300;
 /// Source-kind identifier for local-only enrichment plugins.
 pub(crate) const LOCAL_PLUGIN_SOURCE_KIND: &str = "local";
@@ -138,7 +157,7 @@ pub(crate) struct EnrichmentJobPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeterministicRebuildJobPayload {
-    pub request: RunInsightsRequest,
+    pub request: CoreIntelligenceRebuildRequest,
     pub reason: String,
 }
 
@@ -216,36 +235,65 @@ const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = [
     },
 ];
 
-const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 5] = [
+const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 8] = [
     DeterministicModuleDefinition {
-        id: QUERY_GROUPS_MODULE_ID,
-        version: QUERY_GROUPS_MODULE_VERSION,
+        id: VISIT_DERIVED_FACTS_MODULE_ID,
+        version: VISIT_DERIVED_FACTS_MODULE_VERSION,
         depends_on: &[],
-        derived_tables: &["insight_bursts", "insight_query_groups", "insight_query_group_members"],
+        derived_tables: &["visit_derived_facts"],
     },
     DeterministicModuleDefinition {
-        id: THREADS_MODULE_ID,
-        version: THREADS_MODULE_VERSION,
-        depends_on: &[QUERY_GROUPS_MODULE_ID],
-        derived_tables: &["insight_threads", "insight_thread_members"],
+        id: DAILY_ROLLUPS_MODULE_ID,
+        version: DAILY_ROLLUPS_MODULE_VERSION,
+        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID],
+        derived_tables: &[
+            "domain_daily_rollups",
+            "category_daily_rollups",
+            "engine_daily_rollups",
+            "daily_summary_rollups",
+        ],
     },
     DeterministicModuleDefinition {
-        id: REFERENCE_PAGES_MODULE_ID,
-        version: REFERENCE_PAGES_MODULE_VERSION,
-        depends_on: &[QUERY_GROUPS_MODULE_ID, THREADS_MODULE_ID],
-        derived_tables: &["insight_reference_pages"],
+        id: SESSIONS_MODULE_ID,
+        version: SESSIONS_MODULE_VERSION,
+        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID],
+        derived_tables: &["sessions"],
     },
     DeterministicModuleDefinition {
-        id: SOURCE_EFFECTIVENESS_MODULE_ID,
-        version: SOURCE_EFFECTIVENESS_MODULE_VERSION,
-        depends_on: &[QUERY_GROUPS_MODULE_ID, THREADS_MODULE_ID, REFERENCE_PAGES_MODULE_ID],
-        derived_tables: &["insight_source_effectiveness"],
+        id: SEARCH_TRAILS_MODULE_ID,
+        version: SEARCH_TRAILS_MODULE_VERSION,
+        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, SESSIONS_MODULE_ID],
+        derived_tables: &[
+            "search_trails",
+            "search_trail_members",
+            "search_events",
+            "search_event_terms",
+            "query_families",
+        ],
     },
     DeterministicModuleDefinition {
-        id: TEMPLATE_SUMMARIES_MODULE_ID,
-        version: TEMPLATE_SUMMARIES_MODULE_VERSION,
-        depends_on: &[QUERY_GROUPS_MODULE_ID, THREADS_MODULE_ID, REFERENCE_PAGES_MODULE_ID],
-        derived_tables: &["insight_cards"],
+        id: REFIND_PAGES_MODULE_ID,
+        version: REFIND_PAGES_MODULE_VERSION,
+        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, SEARCH_TRAILS_MODULE_ID],
+        derived_tables: &["refind_pages", "source_effectiveness"],
+    },
+    DeterministicModuleDefinition {
+        id: ACTIVITY_MIX_MODULE_ID,
+        version: ACTIVITY_MIX_MODULE_VERSION,
+        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
+        derived_tables: &[],
+    },
+    DeterministicModuleDefinition {
+        id: SEARCH_EFFECTIVENESS_MODULE_ID,
+        version: SEARCH_EFFECTIVENESS_MODULE_VERSION,
+        depends_on: &[SEARCH_TRAILS_MODULE_ID, REFIND_PAGES_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
+        derived_tables: &["reopened_investigations"],
+    },
+    DeterministicModuleDefinition {
+        id: DOMAIN_DEEP_DIVE_MODULE_ID,
+        version: DOMAIN_DEEP_DIVE_MODULE_VERSION,
+        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
+        derived_tables: &["habit_patterns", "path_flows"],
     },
 ];
 
@@ -423,7 +471,7 @@ pub(crate) fn enqueue_enrichment_job(
 /// Enqueues one deterministic rebuild job for the requested scope.
 pub fn enqueue_deterministic_rebuild_job(
     connection: &Connection,
-    request: &RunInsightsRequest,
+    request: &CoreIntelligenceRebuildRequest,
     reason: &str,
 ) -> Result<i64> {
     ensure_intelligence_runtime_schema(connection)?;
@@ -432,9 +480,8 @@ pub fn enqueue_deterministic_rebuild_job(
         DeterministicRebuildJobPayload { request: request.clone(), reason: reason.to_string() };
     let payload_json = serde_json::to_string(&payload)?;
     let dedupe_key = format!(
-        "deterministic:{}:{}:{}:{}",
+        "core-intelligence:{}:{}:{}",
         request.profile_id.as_deref().unwrap_or("all"),
-        request.window_days.unwrap_or(30),
         request.full_rebuild,
         request.limit.map(|limit| limit.max(1).to_string()).unwrap_or_else(|| "full".to_string()),
     );
@@ -466,7 +513,7 @@ pub fn enqueue_deterministic_rebuild_job(
                      cancellation_reason = NULL,
                      stop_requested = 0
                  WHERE id = ?4",
-                params![DETERMINISTIC_REBUILD_PRIORITY, now, payload_json, job_id],
+                params![FULL_REBUILD_PRIORITY, now, payload_json, job_id],
             )?;
         }
         return Ok(job_id);
@@ -477,13 +524,7 @@ pub fn enqueue_deterministic_rebuild_job(
          (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
           artifact_json, created_at, scheduled_at, updated_at)
          VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5)",
-        params![
-            DETERMINISTIC_REBUILD_JOB_TYPE,
-            DETERMINISTIC_REBUILD_PRIORITY,
-            dedupe_key,
-            payload_json,
-            now
-        ],
+        params![FULL_REBUILD_JOB_TYPE, FULL_REBUILD_PRIORITY, dedupe_key, payload_json, now],
     )?;
     let job_id = connection.last_insert_rowid();
     record_intelligence_job_trigger(connection, job_id, None, Some(reason), &now)?;
@@ -515,7 +556,7 @@ pub fn claim_deterministic_rebuild_job(
          WHERE id = ?4
            AND job_type = ?5
            AND state = 'queued'",
-        params![now, lease_owner, lease_expires_at, job_id, DETERMINISTIC_REBUILD_JOB_TYPE],
+        params![now, lease_owner, lease_expires_at, job_id, FULL_REBUILD_JOB_TYPE],
     )?;
     if updated == 0 {
         return Ok(None);
@@ -525,7 +566,7 @@ pub fn claim_deterministic_rebuild_job(
             "SELECT payload_json
              FROM intelligence_jobs
              WHERE id = ?1 AND job_type = ?2",
-            params![job_id, DETERMINISTIC_REBUILD_JOB_TYPE],
+            params![job_id, FULL_REBUILD_JOB_TYPE],
             |row| row.get::<_, String>(0),
         )
         .optional()?
@@ -932,11 +973,11 @@ pub fn next_queued_intelligence_job(
              FROM intelligence_jobs
              WHERE state = 'queued'
              ORDER BY CASE WHEN job_type = ?1 THEN 1 ELSE 0 END DESC,
-                      priority DESC,
+                      priority ASC,
                       scheduled_at ASC,
                       id ASC
              LIMIT 1",
-            [DETERMINISTIC_REBUILD_JOB_TYPE],
+            [FULL_REBUILD_JOB_TYPE],
             |row| Ok(QueuedIntelligenceJob { id: row.get(0)?, job_type: row.get(1)? }),
         )
         .optional()
@@ -1132,7 +1173,7 @@ fn recover_interrupted_deterministic_jobs(connection: &Connection) -> Result<usi
              stop_requested = 0
          WHERE job_type = ?3
            AND state = 'running'",
-        params![now, DETERMINISTIC_REBUILD_PRIORITY, DETERMINISTIC_REBUILD_JOB_TYPE],
+        params![now, FULL_REBUILD_PRIORITY, FULL_REBUILD_JOB_TYPE],
     )?;
     Ok(updated)
 }
@@ -1300,9 +1341,8 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
             let title = match job_type.as_str() {
                 DETERMINISTIC_REBUILD_JOB_TYPE => rebuild_payload.as_ref().map(|payload| {
                     format!(
-                        "{} · {} days",
+                        "{} · core intelligence rebuild",
                         payload.request.profile_id.as_deref().unwrap_or("All profiles"),
-                        payload.request.window_days.unwrap_or(30)
                     )
                 }),
                 _ => payload.as_ref().and_then(|value| value.title.clone()),
@@ -1519,9 +1559,8 @@ mod tests {
 
         let job_id = enqueue_deterministic_rebuild_job(
             &connection,
-            &RunInsightsRequest {
+            &CoreIntelligenceRebuildRequest {
                 profile_id: Some("chrome:Default".to_string()),
-                window_days: Some(30),
                 full_rebuild: true,
                 limit: None,
             },
@@ -1542,7 +1581,7 @@ mod tests {
         let jobs = load_recent_jobs(&connection).expect("recent jobs");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].job_type, DETERMINISTIC_REBUILD_JOB_TYPE);
-        assert_eq!(jobs[0].title.as_deref(), Some("chrome:Default · 30 days"));
+        assert_eq!(jobs[0].title.as_deref(), Some("chrome:Default · core intelligence rebuild"));
     }
 
     #[test]
@@ -1552,7 +1591,7 @@ mod tests {
 
         let job_id = enqueue_deterministic_rebuild_job(
             &connection,
-            &RunInsightsRequest::default(),
+            &CoreIntelligenceRebuildRequest::default(),
             "Archive changed.",
         )
         .expect("enqueue deterministic rebuild");
@@ -1603,7 +1642,7 @@ mod tests {
 
         let deterministic_job_id = enqueue_deterministic_rebuild_job(
             &connection,
-            &RunInsightsRequest::default(),
+            &CoreIntelligenceRebuildRequest::default(),
             "Archive changed.",
         )
         .expect("enqueue deterministic rebuild");
@@ -1881,12 +1920,12 @@ mod tests {
                 "INSERT INTO intelligence_jobs
                  (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
                   artifact_json, created_at, scheduled_at, started_at, updated_at)
-                 VALUES (?1, NULL, NULL, 'running', 5, 1, 'deterministic:all:30:false:full', ?2,
+                 VALUES (?1, NULL, NULL, 'running', 5, 1, 'core-intelligence:all:false:full', ?2,
                          '{}', ?3, ?3, ?3, ?3)",
                 params![
                     DETERMINISTIC_REBUILD_JOB_TYPE,
                     serde_json::to_string(&DeterministicRebuildJobPayload {
-                        request: RunInsightsRequest::default(),
+                        request: CoreIntelligenceRebuildRequest::default(),
                         reason: "recover me".to_string(),
                     })
                     .expect("payload"),
@@ -1969,13 +2008,13 @@ mod tests {
                 "INSERT INTO intelligence_jobs
                  (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
                   artifact_json, created_at, scheduled_at, started_at, updated_at)
-                 VALUES (?1, NULL, NULL, 'running', ?2, 1, 'deterministic:all:30:false:full', ?3,
+                 VALUES (?1, NULL, NULL, 'running', ?2, 1, 'core-intelligence:all:false:full', ?3,
                          '{}', ?4, ?4, ?4, ?4)",
                 params![
                     DETERMINISTIC_REBUILD_JOB_TYPE,
                     DETERMINISTIC_REBUILD_PRIORITY,
                     serde_json::to_string(&DeterministicRebuildJobPayload {
-                        request: RunInsightsRequest::default(),
+                        request: CoreIntelligenceRebuildRequest::default(),
                         reason: "recover me".to_string(),
                     })
                     .expect("payload"),

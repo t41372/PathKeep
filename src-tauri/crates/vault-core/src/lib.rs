@@ -24,6 +24,7 @@ pub mod deterministic;
 pub mod diagnostics;
 pub mod git_audit;
 pub mod insights;
+pub mod intelligence;
 mod intelligence_blobs;
 pub mod intelligence_runtime;
 pub mod models;
@@ -54,10 +55,15 @@ pub use archive::{
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
-pub use insights::{
-    InsightsRunCancelled, clear_derived_intelligence_state, execute_enrichment_job_by_id,
-    explain_insight, insight_status, load_insight_thread_detail, load_insights, run_insights,
-    run_insights_with_progress,
+pub use insights::execute_enrichment_job_by_id;
+pub use intelligence::{
+    clear_derived_intelligence_state, get_activity_mix, get_activity_mix_trend,
+    get_browsing_rhythm, get_digest_summary, get_discovery_trend, get_domain_deep_dive,
+    get_domain_trend, get_friction_signals, get_hub_pages, get_navigation_path, get_on_this_day,
+    get_query_families, get_refind_pages, get_reopened_investigations, get_search_effectiveness,
+    get_search_engine_ranking, get_search_trails, get_session_detail, get_sessions,
+    get_stable_sources, get_top_search_concepts, get_top_sites, get_trail_detail, insight_status,
+    run_core_intelligence, run_core_intelligence_with_progress,
 };
 pub use intelligence_runtime::{
     cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,

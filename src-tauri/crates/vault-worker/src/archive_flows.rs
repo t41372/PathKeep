@@ -20,10 +20,10 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use vault_core::{
-    AiIndexRequest, BackupProgressEvent, ClearDerivedIntelligenceReport, DashboardSnapshot,
-    ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
-    ImportBatchDetail, RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification,
-    RunInsightsRequest, TakeoutInspection, TakeoutRequest, ai_queue,
+    AiIndexRequest, BackupProgressEvent, ClearDerivedIntelligenceReport,
+    CoreIntelligenceRebuildRequest, DashboardSnapshot, ExportRequest, HealthRepairReport,
+    HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, RemoteBackupPreview,
+    RemoteBackupResult, RemoteBackupVerification, TakeoutInspection, TakeoutRequest, ai_queue,
     clear_derived_intelligence_state, doctor, export_history, import_takeout, inspect_takeout,
     intelligence_runtime::enqueue_deterministic_rebuild_job, list_history, load_audit_run_detail,
     load_dashboard_snapshot, preview_import_batch, preview_remote_backup, repair_health_issues,
@@ -324,11 +324,11 @@ fn enqueue_and_spawn_deterministic_refresh(
     session_database_key: Option<&str>,
 ) -> Result<i64> {
     let connection = ai_archive_connection(paths, config, session_database_key)?;
-    let request = RunInsightsRequest::default();
+    let request = CoreIntelligenceRebuildRequest::default();
     let job_id = enqueue_deterministic_rebuild_job(
         &connection,
         &request,
-        "Archive data changed and deterministic insights need a refresh.",
+        "Archive data changed and Core Intelligence needs a refresh.",
     )?;
     if !config.ai.job_queue_paused {
         maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, 1);

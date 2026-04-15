@@ -573,61 +573,46 @@ mod tests {
             .expect_err("missing assistant job should not load");
         assert!(assistant_job.contains("999"));
 
-        let insights_run =
-            run_insights_now_impl(RunInsightsRequest::default(), session_key(&session).as_deref())
-                .expect("insights run should fall back when no embedding provider secret is ready");
-        assert!(!insights_run.last_run_at.is_empty());
-        assert!(insights_run.notes.iter().any(|note| note.contains("fell back to lexical")));
-        let insights_snapshot =
-            load_insights_impl(RunInsightsRequest::default(), session_key(&session).as_deref())
-                .expect("insight snapshot should load after the fallback run");
-        assert!(insights_snapshot.status.runs >= 1);
-        assert!(
-            !insights_snapshot.cards.is_empty()
-                || !insights_snapshot.template_summaries.is_empty()
-                || !insights_snapshot.query_groups.is_empty()
-                || !insights_snapshot.threads.is_empty()
-        );
-        assert!(insights_snapshot.notes.iter().any(|note| note.contains("fell back to lexical")));
-        if let Some(thread) = insights_snapshot.threads.first() {
-            let detail =
-                load_thread_detail_impl(thread.thread_id.clone(), session_key(&session).as_deref())
-                    .expect("thread detail should load when deterministic threads exist");
-            assert_eq!(detail.summary.thread_id, thread.thread_id);
-        } else {
-            let thread_detail =
-                load_thread_detail_impl("thread-001".to_string(), session_key(&session).as_deref())
-                    .expect_err("thread detail should not load without deterministic threads");
-            assert!(!thread_detail.is_empty());
-        }
-        let (insight_id, insight_kind) = if let Some(card) = insights_snapshot.cards.first() {
-            (card.card_id.clone(), "card".to_string())
-        } else if let Some(summary) = insights_snapshot.template_summaries.first() {
-            (summary.summary_id.clone(), "template-summary".to_string())
-        } else if let Some(group) = insights_snapshot.query_groups.first() {
-            (group.query_group_id.clone(), "query-group".to_string())
-        } else if let Some(reference_page) = insights_snapshot.reference_pages.first() {
-            (reference_page.reference_page_id.clone(), "reference-page".to_string())
-        } else if let Some(thread) = insights_snapshot.threads.first() {
-            (thread.thread_id.clone(), "thread".to_string())
-        } else {
-            let summary = insights_snapshot.topics.first().expect(
-                "fallback run should persist at least one explainable deterministic surface",
-            );
-            (summary.topic_id.clone(), "topic".to_string())
-        };
-        let explanation = explain_insight_impl(
-            ExplainInsightRequest {
-                insight_id,
-                insight_kind,
+        let intelligence_run = run_core_intelligence_now_impl(
+            vault_core::CoreIntelligenceRebuildRequest::default(),
+            session_key(&session).as_deref(),
+        )
+        .expect("core intelligence run should complete");
+        assert!(!intelligence_run.last_run_at.is_empty());
+        let sessions = get_sessions_impl(
+            vault_core::PagedDateRangeRequest {
+                date_range: vault_core::DateRange {
+                    start: "1970-01-01".to_string(),
+                    end: "2100-01-01".to_string(),
+                },
                 profile_id: None,
-                window_days: Some(30),
+                page: 0,
+                page_size: 10,
             },
             session_key(&session).as_deref(),
         )
-        .expect("insight explain should work from the persisted deterministic surface");
-        assert!(!explanation.explanation.is_empty());
-        assert!(!explanation.used_llm);
+        .expect("sessions should load after the rebuild");
+        assert!(sessions.total >= 1);
+        let refind_pages = get_refind_pages_impl(
+            vault_core::RefindPagesRequest {
+                date_range: vault_core::DateRange {
+                    start: "1970-01-01".to_string(),
+                    end: "2100-01-01".to_string(),
+                },
+                profile_id: None,
+                limit: Some(10),
+            },
+            session_key(&session).as_deref(),
+        )
+        .expect("refind pages should load");
+        if let Some(page) = refind_pages.first() {
+            let explanation = explain_refind_impl(
+                vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },
+                session_key(&session).as_deref(),
+            )
+            .expect("refind explanation should load");
+            assert!(!explanation.factors.is_empty());
+        }
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

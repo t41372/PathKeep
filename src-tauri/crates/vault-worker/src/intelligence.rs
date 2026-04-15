@@ -28,23 +28,28 @@ use std::{
     time::Duration,
 };
 use vault_core::{
-    AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
-    AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
-    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, DeterministicRebuildQueueReport,
-    ExplainInsightRequest, InsightExplanation, InsightSnapshot, InsightThreadDetail,
-    InsightsRunCancelled, IntelligenceRuntimeSnapshot, RunInsightsReport, RunInsightsRequest,
-    ai_queue, answer_history_question_with_control, build_ai_index_with_control,
-    cancel_intelligence_job, execute_enrichment_job_by_id, explain_insight,
-    intelligence_job_stop_requested,
+    ActivityMix, ActivityMixTrend, AiAssistantRequest, AiAssistantResponse, AiIndexReport,
+    AiIndexRequest, AiIntegrationPreview, AiProviderConnectionTestReport,
+    AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest,
+    AiSearchResponse, AppConfig, CategoryFilteredDateRangeRequest, CoreIntelligenceQueueReport,
+    CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest, DigestSummary, DiscoveryTrend,
+    DomainDeepDive, DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
+    FrictionSignal, GranularityDateRangeRequest, HubPage, IntelligenceRuntimeSnapshot,
+    NavigationPath, OnThisDayEntry, PagedDateRangeRequest, QueryFamilyResult, RefindExplanation,
+    RefindPage, RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, SearchConcept,
+    SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail,
+    SessionListResult, StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest,
+    TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
+    build_ai_index_with_control, cancel_intelligence_job, execute_enrichment_job_by_id,
+    intelligence, intelligence_job_stop_requested,
     intelligence_runtime::{
         DETERMINISTIC_REBUILD_JOB_TYPE, claim_deterministic_rebuild_job,
         enqueue_deterministic_rebuild_job, mark_intelligence_job_failed,
         mark_intelligence_job_succeeded, mark_running_intelligence_job_cancelled,
         next_queued_enrichment_job, next_queued_intelligence_job, update_intelligence_job_artifact,
     },
-    load_assistant_run_response, load_insight_thread_detail, load_insights,
-    load_intelligence_runtime, preview_ai_integrations, retry_intelligence_job, run_insights,
-    run_insights_with_progress, semantic_search_history, test_provider_connection,
+    load_assistant_run_response, load_intelligence_runtime, preview_ai_integrations,
+    retry_intelligence_job, semantic_search_history, test_provider_connection,
 };
 
 static AI_QUEUE_ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
@@ -708,30 +713,39 @@ pub fn preview_ai_integration_files() -> Result<AiIntegrationPreview> {
     preview_ai_integrations(&paths, &config)
 }
 
-/// Runs the insights rebuild flow, using embeddings only when the runtime is ready.
-pub fn run_insights_now(
-    session_database_key: Option<&str>,
-    request: &RunInsightsRequest,
-) -> Result<RunInsightsReport> {
+fn with_core_intelligence<R>(
+    _session_database_key: Option<&str>,
+    f: impl FnOnce(&vault_core::ProjectPaths, &AppConfig) -> Result<R>,
+) -> Result<R> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let embedding_provider = selected_optional_embedding_runtime(&config).ok().flatten();
-    run_insights(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
+    f(&paths, &config)
 }
 
-/// Queues one manual deterministic rebuild so heavy work can stay off the foreground UI thread.
+/// Runs a Core Intelligence rebuild immediately.
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn queue_insights_rebuild(
+pub fn run_core_intelligence_now(
     session_database_key: Option<&str>,
-    request: &RunInsightsRequest,
-) -> Result<DeterministicRebuildQueueReport> {
+    request: &CoreIntelligenceRebuildRequest,
+) -> Result<CoreIntelligenceRebuildReport> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::run_core_intelligence(paths, config, session_database_key, request)
+    })
+}
+
+/// Queues one manual Core Intelligence rebuild so heavy work can stay off the foreground UI thread.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn queue_core_intelligence_rebuild(
+    session_database_key: Option<&str>,
+    request: &CoreIntelligenceRebuildRequest,
+) -> Result<CoreIntelligenceQueueReport> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     let job_id = enqueue_deterministic_rebuild_job(
         &connection,
         request,
-        "User requested a deterministic rebuild from the UI.",
+        "User requested a Core Intelligence rebuild from the UI.",
     )?;
     let state = connection
         .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
@@ -739,19 +753,16 @@ pub fn queue_insights_rebuild(
         })
         .unwrap_or_else(|_| "queued".to_string());
     maybe_spawn_intelligence_queue_drain(&paths, &config, session_database_key, 1);
-    Ok(DeterministicRebuildQueueReport {
+    Ok(CoreIntelligenceQueueReport {
         job_id,
         state: state.clone(),
         notes: vec![if config.ai.job_queue_paused {
-            format!(
-                "Queued deterministic rebuild job {}. Resume background work to process it.",
-                job_id
-            )
+            format!("Queued Core Intelligence job {} while the runtime queue is paused.", job_id)
         } else if state == "running" {
-            format!("Deterministic rebuild job {} is already running in the background.", job_id)
+            format!("Core Intelligence job {} is already running in the background.", job_id)
         } else {
             format!(
-                "Queued deterministic rebuild job {}. PathKeep is processing it in the background.",
+                "Queued Core Intelligence job {}. PathKeep is processing it in the background.",
                 job_id
             )
         }],
@@ -768,54 +779,47 @@ fn execute_deterministic_rebuild_job(
     let Some(payload) = claim_deterministic_rebuild_job(&connection, job_id)? else {
         return Ok(false);
     };
-    let refresh_config = config.clone();
-    let embedding_provider = selected_optional_embedding_runtime(&refresh_config).ok().flatten();
     let initial_profile =
         payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
     let cancel_requested = |detail: &str| -> Result<()> {
         if intelligence_job_stop_requested(&connection, job_id)? {
             let _ =
                 mark_running_intelligence_job_cancelled(&connection, job_id, "cancelled from UI");
-            return Err(InsightsRunCancelled::new(detail).into());
+            anyhow::bail!(detail.to_string());
         }
         Ok(())
     };
-    cancel_requested("Deterministic rebuild was cancelled before work started.")?;
+    cancel_requested("Core Intelligence rebuild was cancelled before work started.")?;
     let _ = update_intelligence_job_artifact(
         &connection,
         job_id,
         &json!({
-            "kind": "deterministic-rebuild",
-            "phase": "Queued work started",
-            "detail": format!("Preparing a deterministic rebuild for {initial_profile}."),
-            "completedSteps": 0,
-            "totalSteps": 8,
+            "kind": "core-intelligence-rebuild",
+            "phase": "queued",
+            "detail": format!("Preparing a Core Intelligence rebuild for {initial_profile}."),
             "progressPercent": 0.0
         }),
     );
-    match run_insights_with_progress(
+    match intelligence::run_core_intelligence_with_progress(
         paths,
-        &refresh_config,
+        config,
         session_database_key,
-        embedding_provider.as_ref(),
         &payload.request,
         |progress| {
             cancel_requested(
-                "Deterministic rebuild was cancelled while progress was being reported.",
+                "Core Intelligence rebuild was cancelled while progress was being reported.",
             )?;
             let artifact = json!({
-                "kind": "deterministic-rebuild",
-                "phase": progress.phase_label,
+                "kind": "core-intelligence-rebuild",
+                "phase": progress.phase,
                 "detail": progress.detail,
-                "completedSteps": progress.phase_step,
-                "totalSteps": progress.phase_count,
                 "processedItems": progress.processed_items,
                 "totalItems": progress.total_items,
-                "progressPercent": progress.percent(),
+                "progressPercent": progress.progress_percent,
             });
             let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
             cancel_requested(
-                "Deterministic rebuild was cancelled after the latest progress update.",
+                "Core Intelligence rebuild was cancelled after the latest progress update.",
             )?;
             Ok(())
         },
@@ -833,22 +837,21 @@ fn execute_deterministic_rebuild_job(
                 &connection,
                 job_id,
                 &json!({
-                    "kind": "deterministic-rebuild",
-                    "phase": "Completed",
+                    "kind": "core-intelligence-rebuild",
+                    "phase": "completed",
                     "detail": format!(
-                        "{} visits processed, {} cards ready.",
+                        "{} visits processed, {} trails ready.",
                         report.processed_visits,
-                        report.card_count
+                        report.search_trails
                     ),
-                    "completedSteps": 8,
-                    "totalSteps": 8,
                     "processedItems": report.processed_visits,
                     "totalItems": report.processed_visits,
                     "progressPercent": 100.0,
                     "processedVisits": report.processed_visits,
-                    "cardCount": report.card_count,
-                    "queryGroupCount": report.query_group_count,
-                    "threadCount": report.thread_count,
+                    "sessionCount": report.sessions,
+                    "trailCount": report.search_trails,
+                    "queryFamilyCount": report.query_families,
+                    "refindPageCount": report.refind_pages,
                     "notes": report.notes,
                 }),
             )? {
@@ -861,7 +864,7 @@ fn execute_deterministic_rebuild_job(
             Ok(true)
         }
         Err(error) => {
-            if error.downcast_ref::<InsightsRunCancelled>().is_some() {
+            if error.to_string().contains("cancelled") {
                 let _ = mark_running_intelligence_job_cancelled(
                     &connection,
                     job_id,
@@ -875,34 +878,220 @@ fn execute_deterministic_rebuild_job(
     }
 }
 
-/// Loads the current insight snapshot read model.
-pub fn load_insights_snapshot(
+/// Loads one paginated sessions list.
+pub fn get_sessions(
     session_database_key: Option<&str>,
-    request: &RunInsightsRequest,
-) -> Result<InsightSnapshot> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    load_insights(&paths, &config, session_database_key, request)
+    request: &PagedDateRangeRequest,
+) -> Result<SessionListResult> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_sessions(paths, config, session_database_key, request)
+    })
 }
 
-/// Loads one insight thread detail record.
-pub fn load_insight_thread(
+/// Loads one session detail read model.
+pub fn get_session_detail(
     session_database_key: Option<&str>,
-    thread_id: &str,
-) -> Result<InsightThreadDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    load_insight_thread_detail(&paths, &config, session_database_key, thread_id)
+    session_id: &str,
+) -> Result<SessionDetail> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_session_detail(paths, config, session_database_key, session_id)
+    })
 }
 
-/// Explains one persisted insight card or thread summary.
-pub fn explain_insight_now(
+/// Loads one paginated search trail list.
+pub fn get_search_trails(
     session_database_key: Option<&str>,
-    request: &ExplainInsightRequest,
-) -> Result<InsightExplanation> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    explain_insight(&paths, &config, session_database_key, request)
+    request: &SearchTrailQueryRequest,
+) -> Result<TrailListResult> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_search_trails(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_trail_detail(session_database_key: Option<&str>, trail_id: &str) -> Result<TrailDetail> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_trail_detail(paths, config, session_database_key, trail_id)
+    })
+}
+
+pub fn get_navigation_path(
+    session_database_key: Option<&str>,
+    visit_id: i64,
+) -> Result<NavigationPath> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_navigation_path(paths, config, session_database_key, visit_id)
+    })
+}
+
+pub fn get_hub_pages(
+    session_database_key: Option<&str>,
+    request: &TopSitesRequest,
+) -> Result<Vec<HubPage>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_hub_pages(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_search_engine_ranking(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<Vec<EngineRanking>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_search_engine_ranking(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_top_search_concepts(
+    session_database_key: Option<&str>,
+    request: &TopSearchConceptsRequest,
+) -> Result<Vec<SearchConcept>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_top_search_concepts(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_query_families(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<QueryFamilyResult> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_query_families(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_top_sites(
+    session_database_key: Option<&str>,
+    request: &TopSitesRequest,
+) -> Result<Vec<TopSite>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_top_sites(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_domain_trend(
+    session_database_key: Option<&str>,
+    request: &DomainTrendRequest,
+) -> Result<DomainTrend> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_domain_trend(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_refind_pages(
+    session_database_key: Option<&str>,
+    request: &RefindPagesRequest,
+) -> Result<Vec<RefindPage>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_refind_pages(paths, config, session_database_key, request)
+    })
+}
+
+pub fn explain_refind(
+    session_database_key: Option<&str>,
+    request: &vault_core::ExplainRefindRequest,
+) -> Result<RefindExplanation> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::explain_refind(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_activity_mix(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<ActivityMix> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_activity_mix(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_activity_mix_trend(
+    session_database_key: Option<&str>,
+    request: &GranularityDateRangeRequest,
+) -> Result<ActivityMixTrend> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_activity_mix_trend(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_digest_summary(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<DigestSummary> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_digest_summary(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_stable_sources(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<Vec<StableSource>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_stable_sources(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_search_effectiveness(
+    session_database_key: Option<&str>,
+    request: &SearchEffectivenessRequest,
+) -> Result<SearchEffectiveness> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_search_effectiveness(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_friction_signals(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<Vec<FrictionSignal>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_friction_signals(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_reopened_investigations(
+    session_database_key: Option<&str>,
+    request: &PagedDateRangeRequest,
+) -> Result<Vec<ReopenedInvestigation>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_reopened_investigations(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_domain_deep_dive(
+    session_database_key: Option<&str>,
+    request: &DomainDeepDiveRequest,
+) -> Result<DomainDeepDive> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_domain_deep_dive(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_browsing_rhythm(
+    session_database_key: Option<&str>,
+    request: &CategoryFilteredDateRangeRequest,
+) -> Result<RhythmHeatmap> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_browsing_rhythm(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_discovery_trend(
+    session_database_key: Option<&str>,
+    request: &GranularityDateRangeRequest,
+) -> Result<DiscoveryTrend> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_discovery_trend(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_on_this_day(
+    session_database_key: Option<&str>,
+    profile_id: Option<&str>,
+) -> Result<Vec<OnThisDayEntry>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_on_this_day(paths, config, session_database_key, profile_id)
+    })
 }
 
 /// Loads the Settings-facing intelligence runtime snapshot.

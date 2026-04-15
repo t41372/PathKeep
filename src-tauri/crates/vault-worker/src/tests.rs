@@ -10,13 +10,12 @@ use tempfile::tempdir;
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConfig, AiProviderPurpose, AiProviderSecretInput,
     AiRequestFormat, AiSearchResponse, AppConfig, ArchiveMode, ExportFormat, ExportRequest,
-    HealthReport, HistoryQuery, RunInsightsRequest, S3CredentialInput, SetAppLockPasscodeRequest,
-    TakeoutRequest, project_paths, utils::iso_to_chrome_time_micros,
+    HealthReport, HistoryQuery, PagedDateRangeRequest, S3CredentialInput,
+    SetAppLockPasscodeRequest, TakeoutRequest, project_paths, utils::iso_to_chrome_time_micros,
 };
 #[cfg(coverage)]
 use vault_core::{
-    AiIndexReport, AiProviderConnectionTestRequest, AiSearchRequest, ExplainInsightRequest,
-    RemoteBackupResult,
+    AiIndexReport, AiProviderConnectionTestRequest, AiSearchRequest, RemoteBackupResult,
 };
 use vault_platform::keyring_set_provider_api_key;
 
@@ -616,31 +615,24 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
             load_intelligence_runtime_snapshot(None).expect("reload intelligence runtime snapshot");
     }
 
-    let insights =
-        load_insights_snapshot(None, &RunInsightsRequest::default()).expect("load insights");
-    assert!(insights.status.runs >= 1);
-    assert!(!insights.notes.is_empty());
-    let readable_content = runtime
-        .plugins
-        .iter()
-        .find(|plugin| plugin.plugin_id == "readable-content-refetch")
-        .expect("readable content plugin runtime");
-    assert!(
-        readable_content.stored_records > 0
-            || readable_content.queued_jobs > 0
-            || readable_content.running_jobs > 0
-            || readable_content.failed_jobs > 0
-            || readable_content.last_completed_at.is_some(),
-        "backup-triggered deterministic rebuild should leave a visible readable-content trace"
-    );
+    let sessions = get_sessions(
+        None,
+        &PagedDateRangeRequest {
+            date_range: vault_core::DateRange {
+                start: "1970-01-01".to_string(),
+                end: "2100-01-01".to_string(),
+            },
+            profile_id: None,
+            page: 0,
+            page_size: 10,
+        },
+    )
+    .expect("load sessions");
+    assert!(sessions.total >= 1);
+    assert!(runtime.recent_jobs.iter().any(|job| { job.job_type == "full-rebuild" }));
     assert!(runtime.recent_jobs.iter().any(|job| {
-        job.plugin_id.as_deref() == Some("readable-content-refetch")
-            || job.job_type == "deterministic-rebuild"
-    }));
-    assert!(runtime.recent_jobs.iter().any(|job| {
-        job.job_type == "deterministic-rebuild"
+        job.job_type == "full-rebuild"
             && job.state == "succeeded"
-            && job.progress_label.as_deref() == Some("Completed")
             && job.progress_percent == Some(100.0)
     }));
 
@@ -1123,47 +1115,46 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
         .expect_err("assistant job should not exist");
     assert!(assistant_job.to_string().contains("999"));
 
-    let run_report = run_insights_now(Some("vault-passphrase"), &RunInsightsRequest::default())
-        .expect("insights run should fall back when no embedding secret is ready");
-    assert!(!run_report.last_run_at.is_empty());
-    assert!(run_report.notes.iter().any(|note| note.contains("fell back to lexical")));
-    let snapshot = load_insights_snapshot(Some("vault-passphrase"), &RunInsightsRequest::default())
-        .expect("insight snapshot should load after the fallback run");
-    assert!(snapshot.status.runs >= 1);
-    assert!(snapshot.notes.iter().any(|note| note.contains("fell back to lexical")));
-    let thread_error = load_insight_thread(Some("vault-passphrase"), "thread-001")
-        .expect_err("thread detail should still fail for a missing thread id");
-    assert!(!thread_error.to_string().is_empty());
-    let paths = project_paths().expect("project paths");
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, Some("vault-passphrase"))
-            .expect("open archive for synthetic card");
-    connection
-        .execute(
-            "INSERT INTO insight_cards
-             (card_id, profile_scope, window_days, kind, title, summary, score,
-              chromium_enhanced, evidence_json, generated_at)
-             VALUES (?1, 'all', 30, 'summary', ?2, ?3, 1.0, 0, '[]', ?4)",
-            rusqlite::params![
-                "coverage-card",
-                "Coverage insight",
-                "Synthetic fallback insight for coverage validation.",
-                "2026-04-01T00:00:00+00:00",
-            ],
-        )
-        .expect("insert synthetic insight card");
-    let explain_report = explain_insight_now(
+    let run_report = run_core_intelligence_now(
         Some("vault-passphrase"),
-        &ExplainInsightRequest {
-            insight_id: "coverage-card".to_string(),
-            insight_kind: "card".to_string(),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("core intelligence run should complete");
+    assert!(!run_report.last_run_at.is_empty());
+    let sessions = get_sessions(
+        Some("vault-passphrase"),
+        &PagedDateRangeRequest {
+            date_range: vault_core::DateRange {
+                start: "1970-01-01".to_string(),
+                end: "2100-01-01".to_string(),
+            },
             profile_id: None,
-            window_days: Some(30),
+            page: 0,
+            page_size: 10,
         },
     )
-    .expect("explain insight should work from the persisted card summary");
-    assert!(!explain_report.explanation.is_empty());
-    assert!(!explain_report.used_llm);
+    .expect("sessions should load after core intelligence rebuild");
+    assert!(sessions.total >= 1);
+    let refind_pages = get_refind_pages(
+        Some("vault-passphrase"),
+        &vault_core::RefindPagesRequest {
+            date_range: vault_core::DateRange {
+                start: "1970-01-01".to_string(),
+                end: "2100-01-01".to_string(),
+            },
+            profile_id: None,
+            limit: Some(10),
+        },
+    )
+    .expect("refind pages should load");
+    if let Some(page) = refind_pages.first() {
+        let explain_report = explain_refind(
+            Some("vault-passphrase"),
+            &vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },
+        )
+        .expect("explain refind should work from the persisted surface");
+        assert!(!explain_report.factors.is_empty());
+    }
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

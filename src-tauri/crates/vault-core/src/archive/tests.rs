@@ -627,19 +627,19 @@ fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state(
         .expect("insert stale ai embedding");
     intelligence
         .execute(
-            "INSERT INTO insight_thread_members (thread_id, history_id, ordinal, visited_at)
-             VALUES ('thread-1', 999, 0, ?1)",
-            [now_rfc3339()],
+            "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
+             VALUES ('trail-1', 'takeout::browser-history', 999, 0, 'result')",
+            [],
         )
-        .expect("insert stale insight member");
+        .expect("insert stale trail member");
     intelligence
         .execute(
-            "INSERT INTO visit_insight_features
-             (history_id, profile_id, topic_id, thread_id, page_type, source_role, query_term, query_stage, novelty_score, importance_score, explore_score, keywords_json, entities_json, updated_at, pipeline_version)
-             VALUES (999, 'takeout::browser-history', 'topic', 'thread-1', 'doc', 'research', NULL, NULL, 0.1, 0.2, 0.3, '[]', '[]', ?1, 'test-pipeline')",
+            "INSERT INTO visit_derived_facts
+             (visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url, domain_category, page_category, search_engine, search_query, is_new_domain, is_search_event, evidence_tier, taxonomy_source, taxonomy_pack, taxonomy_version, computed_at)
+             VALUES (999, 'takeout::browser-history', 'session-1', 'trail-1', 'example.com', 'https://example.com/import', 'reference', 'article', NULL, NULL, 0, 0, 'tier-c', 'builtin', 'core-intelligence', 'test', ?1)",
             [now_rfc3339()],
         )
-        .expect("insert stale insight feature");
+        .expect("insert stale visit-derived facts");
 
     let report = doctor(&paths, &config, None).expect("doctor before repair");
     assert!(report.checks.iter().any(|check| check.name == "Import audit artifacts" && !check.ok));

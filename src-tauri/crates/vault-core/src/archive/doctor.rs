@@ -121,15 +121,15 @@ pub fn repair_health_issues(
     } else {
         0
     };
-    let stale_insight_state = if table_exists(&intelligence, "insight_thread_members")?
-        || table_exists(&intelligence, "visit_insight_features")?
+    let stale_insight_state = if table_exists(&intelligence, "search_trail_members")?
+        || table_exists(&intelligence, "visit_derived_facts")?
     {
-        let stale_members = if table_exists(&intelligence, "insight_thread_members")? {
+        let stale_members = if table_exists(&intelligence, "search_trail_members")? {
             intelligence
                 .query_row(
                     "SELECT COUNT(*)
-                     FROM insight_thread_members
-                     WHERE history_id NOT IN (
+                     FROM search_trail_members
+                     WHERE visit_id NOT IN (
                        SELECT id FROM archive.visits WHERE reverted_at IS NULL
                      )",
                     [],
@@ -139,12 +139,12 @@ pub fn repair_health_issues(
         } else {
             0
         };
-        let stale_features = if table_exists(&intelligence, "visit_insight_features")? {
+        let stale_features = if table_exists(&intelligence, "visit_derived_facts")? {
             intelligence
                 .query_row(
                     "SELECT COUNT(*)
-                     FROM visit_insight_features
-                     WHERE history_id NOT IN (
+                     FROM visit_derived_facts
+                     WHERE visit_id NOT IN (
                        SELECT id FROM archive.visits WHERE reverted_at IS NULL
                      )",
                     [],
@@ -237,7 +237,7 @@ pub fn repair_health_issues(
             if stale_insight_state > 0 { invalidate_insight_state(&intelligence)? } else { 0 };
         if cleared_insight_rows > 0 {
             notes.push(format!(
-                "Cleared {} stale insight rows so the next insight run rebuilds from visible history only.",
+                "Cleared {} stale Core Intelligence rows so the next rebuild runs from visible history only.",
                 cleared_insight_rows
             ));
         }
@@ -473,33 +473,33 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
         }
     }
 
-    if table_exists(connection, "insight_thread_members")? {
+    if table_exists(connection, "search_trail_members")? {
         let stale_members: i64 = connection.query_row(
             "SELECT COUNT(*)
-             FROM insight_thread_members
-             WHERE history_id NOT IN (
+             FROM search_trail_members
+             WHERE visit_id NOT IN (
                SELECT id FROM archive.visits WHERE reverted_at IS NULL
              )",
             [],
             |row| row.get(0),
         )?;
         if stale_members > 0 {
-            stale_details.push(format!("{stale_members} stale insight thread members"));
+            stale_details.push(format!("{stale_members} stale search trail members"));
         }
     }
 
-    if table_exists(connection, "visit_insight_features")? {
+    if table_exists(connection, "visit_derived_facts")? {
         let stale_features: i64 = connection.query_row(
             "SELECT COUNT(*)
-             FROM visit_insight_features
-             WHERE history_id NOT IN (
+             FROM visit_derived_facts
+             WHERE visit_id NOT IN (
                SELECT id FROM archive.visits WHERE reverted_at IS NULL
              )",
             [],
             |row| row.get(0),
         )?;
         if stale_features > 0 {
-            stale_details.push(format!("{stale_features} stale insight feature rows"));
+            stale_details.push(format!("{stale_features} stale visit-derived-fact rows"));
         }
     }
 
@@ -507,7 +507,8 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
         HealthCheck {
             name: "Derived state freshness".to_string(),
             ok: true,
-            detail: "Derived AI and insight tables match the visible visit set.".to_string(),
+            detail: "Derived AI and Core Intelligence tables match the visible visit set."
+                .to_string(),
         }
     } else {
         HealthCheck {
@@ -575,17 +576,22 @@ fn rewrite_import_audit_artifacts(
 fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
     let mut cleared_rows = 0usize;
     for table_name in [
-        "insight_cards",
-        "insight_reference_pages",
-        "insight_source_effectiveness",
-        "insight_query_group_members",
-        "insight_query_groups",
-        "insight_bursts",
-        "insight_thread_members",
-        "insight_threads",
-        "insight_topics",
-        "visit_insight_features",
-        "insight_runs",
+        "path_flows",
+        "reopened_investigations",
+        "habit_patterns",
+        "source_effectiveness",
+        "refind_pages",
+        "query_families",
+        "search_event_terms",
+        "search_events",
+        "search_trail_members",
+        "search_trails",
+        "sessions",
+        "daily_summary_rollups",
+        "engine_daily_rollups",
+        "category_daily_rollups",
+        "domain_daily_rollups",
+        "visit_derived_facts",
     ] {
         if table_exists(connection, table_name)? {
             cleared_rows += connection
@@ -596,7 +602,7 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
     crate::intelligence_runtime::ensure_intelligence_runtime_schema(connection)?;
     crate::intelligence_runtime::mark_all_deterministic_modules_stale(
         connection,
-        "Archive visibility or rollback state changed after the last deterministic rebuild.",
+        "Archive visibility or rollback state changed after the last Core Intelligence rebuild.",
     )?;
     Ok(cleared_rows)
 }

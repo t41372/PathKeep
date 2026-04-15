@@ -7,6 +7,7 @@
 pub mod app;
 pub mod archive;
 pub mod audit;
+pub mod core_intelligence;
 pub mod import;
 pub mod intelligence;
 pub mod remote;
@@ -15,16 +16,18 @@ pub mod security;
 
 /// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
-    app::*, archive::*, audit::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
+    app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*, remote::*,
+    schedule::*, security::*,
 };
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AiSearchRequest, AppConfig, InsightStatus, QUERY_GROUPS_MODULE_ID,
-        READABLE_CONTENT_PLUGIN_ID, READABLE_CONTENT_PLUGIN_VERSION, REFERENCE_PAGES_MODULE_ID,
-        SOURCE_EFFECTIVENESS_MODULE_ID, TEMPLATE_SUMMARIES_MODULE_ID, THREADS_MODULE_ID,
-        TITLE_NORMALIZATION_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_VERSION,
+        ACTIVITY_MIX_MODULE_ID, AiSearchRequest, AppConfig, DAILY_ROLLUPS_MODULE_ID,
+        DOMAIN_DEEP_DIVE_MODULE_ID, InsightStatus, READABLE_CONTENT_PLUGIN_ID,
+        READABLE_CONTENT_PLUGIN_VERSION, REFIND_PAGES_MODULE_ID, SEARCH_EFFECTIVENESS_MODULE_ID,
+        SEARCH_TRAILS_MODULE_ID, SESSIONS_MODULE_ID, TITLE_NORMALIZATION_PLUGIN_ID,
+        TITLE_NORMALIZATION_PLUGIN_VERSION, VISIT_DERIVED_FACTS_MODULE_ID,
         default_deterministic_module_states, default_enrichment_plugin_states,
         merge_deterministic_module_states, merge_enrichment_plugin_preferences,
         merge_enrichment_plugin_states, normalize_app_config,
@@ -88,25 +91,31 @@ mod tests {
     #[test]
     fn deterministic_module_defaults_include_all_built_ins() {
         let defaults = default_deterministic_module_states();
-        assert_eq!(defaults.len(), 5);
-        assert_eq!(defaults[0].id, QUERY_GROUPS_MODULE_ID);
-        assert_eq!(defaults[1].id, THREADS_MODULE_ID);
-        assert_eq!(defaults[2].id, REFERENCE_PAGES_MODULE_ID);
-        assert_eq!(defaults[3].id, SOURCE_EFFECTIVENESS_MODULE_ID);
-        assert_eq!(defaults[4].id, TEMPLATE_SUMMARIES_MODULE_ID);
+        assert_eq!(defaults.len(), 8);
+        assert_eq!(defaults[0].id, VISIT_DERIVED_FACTS_MODULE_ID);
+        assert_eq!(defaults[1].id, DAILY_ROLLUPS_MODULE_ID);
+        assert_eq!(defaults[2].id, SESSIONS_MODULE_ID);
+        assert_eq!(defaults[3].id, SEARCH_TRAILS_MODULE_ID);
+        assert_eq!(defaults[4].id, REFIND_PAGES_MODULE_ID);
+        assert_eq!(defaults[5].id, ACTIVITY_MIX_MODULE_ID);
+        assert_eq!(defaults[6].id, SEARCH_EFFECTIVENESS_MODULE_ID);
+        assert_eq!(defaults[7].id, DOMAIN_DEEP_DIVE_MODULE_ID);
     }
 
     #[test]
     fn deterministic_module_state_merge_with_defaults() {
         let merged = merge_deterministic_module_states(&[super::DeterministicModuleState {
-            id: THREADS_MODULE_ID.to_string(),
+            id: SEARCH_TRAILS_MODULE_ID.to_string(),
             enabled: false,
             version: String::new(),
         }]);
-        assert_eq!(merged.len(), 5);
-        assert_eq!(merged[1].id, THREADS_MODULE_ID);
-        assert!(!merged[1].enabled);
-        assert!(!merged[1].version.is_empty());
+        assert_eq!(merged.len(), 8);
+        let search_trails = merged
+            .iter()
+            .find(|item| item.id == SEARCH_TRAILS_MODULE_ID)
+            .expect("search trails module");
+        assert!(!search_trails.enabled);
+        assert!(!search_trails.version.is_empty());
     }
 
     #[test]
@@ -119,7 +128,7 @@ mod tests {
 
         assert_eq!(config.enrichment.plugins.len(), 2);
         assert_eq!(config.ai.enrichment_plugins.len(), 2);
-        assert_eq!(config.deterministic.modules.len(), 5);
+        assert_eq!(config.deterministic.modules.len(), 8);
         assert!(config.ai.enrichment_enabled);
     }
 }

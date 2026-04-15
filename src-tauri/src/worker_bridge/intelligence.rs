@@ -2,7 +2,10 @@
 
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
-    AiSearchRequest, ExplainInsightRequest, RunInsightsRequest,
+    AiSearchRequest, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
+    DomainDeepDiveRequest, DomainTrendRequest, ExplainRefindRequest, GranularityDateRangeRequest,
+    PagedDateRangeRequest, RefindPagesRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
+    TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -114,49 +117,217 @@ pub(crate) fn preview_ai_integrations_impl() -> Result<vault_core::AiIntegration
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Rebuilds deterministic insights immediately.
-pub(crate) fn run_insights_now_impl(
-    request: RunInsightsRequest,
+/// Rebuilds Core Intelligence immediately.
+pub(crate) fn run_core_intelligence_now_impl(
+    request: CoreIntelligenceRebuildRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::RunInsightsReport, String> {
-    worker_result(vault_worker::run_insights_now(session_database_key, &request))
+) -> Result<vault_core::CoreIntelligenceRebuildReport, String> {
+    worker_result(vault_worker::run_core_intelligence_now(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 #[cfg_attr(not(test), allow(dead_code))]
-/// Queues one deterministic rebuild so the desktop shell can keep heavy work in the background.
-pub(crate) fn queue_insights_rebuild_impl(
-    request: RunInsightsRequest,
+/// Queues one Core Intelligence rebuild so heavy work can stay in the background.
+pub(crate) fn queue_core_intelligence_rebuild_impl(
+    request: CoreIntelligenceRebuildRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::DeterministicRebuildQueueReport, String> {
-    worker_result(vault_worker::queue_insights_rebuild(session_database_key, &request))
+) -> Result<vault_core::CoreIntelligenceQueueReport, String> {
+    worker_result(vault_worker::queue_core_intelligence_rebuild(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Loads the current deterministic insight snapshot.
-pub(crate) fn load_insights_impl(
-    request: RunInsightsRequest,
+/// Loads one paginated sessions list.
+pub(crate) fn get_sessions_impl(
+    request: PagedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::InsightSnapshot, String> {
-    worker_result(vault_worker::load_insights_snapshot(session_database_key, &request))
+) -> Result<vault_core::SessionListResult, String> {
+    worker_result(vault_worker::get_sessions(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Loads one deterministic insight thread in detail.
-pub(crate) fn load_thread_detail_impl(
-    thread_id: String,
+/// Loads one session detail read model.
+pub(crate) fn get_session_detail_impl(
+    session_id: String,
     session_database_key: Option<&str>,
-) -> Result<vault_core::InsightThreadDetail, String> {
-    worker_result(vault_worker::load_insight_thread(session_database_key, &thread_id))
+) -> Result<vault_core::SessionDetail, String> {
+    worker_result(vault_worker::get_session_detail(session_database_key, &session_id))
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Generates a human-readable explanation for one deterministic insight.
-pub(crate) fn explain_insight_impl(
-    request: ExplainInsightRequest,
+/// Loads one paginated search-trail list.
+pub(crate) fn get_search_trails_impl(
+    request: SearchTrailQueryRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::InsightExplanation, String> {
-    worker_result(vault_worker::explain_insight_now(session_database_key, &request))
+) -> Result<vault_core::TrailListResult, String> {
+    worker_result(vault_worker::get_search_trails(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_trail_detail_impl(
+    trail_id: String,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::TrailDetail, String> {
+    worker_result(vault_worker::get_trail_detail(session_database_key, &trail_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_navigation_path_impl(
+    visit_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::NavigationPath, String> {
+    worker_result(vault_worker::get_navigation_path(session_database_key, visit_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_hub_pages_impl(
+    request: TopSitesRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::HubPage>, String> {
+    worker_result(vault_worker::get_hub_pages(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_search_engine_ranking_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::EngineRanking>, String> {
+    worker_result(vault_worker::get_search_engine_ranking(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_top_search_concepts_impl(
+    request: TopSearchConceptsRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::SearchConcept>, String> {
+    worker_result(vault_worker::get_top_search_concepts(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_query_families_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::QueryFamilyResult, String> {
+    worker_result(vault_worker::get_query_families(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_top_sites_impl(
+    request: TopSitesRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::TopSite>, String> {
+    worker_result(vault_worker::get_top_sites(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_domain_trend_impl(
+    request: DomainTrendRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::DomainTrend, String> {
+    worker_result(vault_worker::get_domain_trend(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_refind_pages_impl(
+    request: RefindPagesRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::RefindPage>, String> {
+    worker_result(vault_worker::get_refind_pages(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn explain_refind_impl(
+    request: ExplainRefindRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::RefindExplanation, String> {
+    worker_result(vault_worker::explain_refind(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_activity_mix_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ActivityMix, String> {
+    worker_result(vault_worker::get_activity_mix(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_activity_mix_trend_impl(
+    request: GranularityDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ActivityMixTrend, String> {
+    worker_result(vault_worker::get_activity_mix_trend(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_digest_summary_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::DigestSummary, String> {
+    worker_result(vault_worker::get_digest_summary(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_stable_sources_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::StableSource>, String> {
+    worker_result(vault_worker::get_stable_sources(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_search_effectiveness_impl(
+    request: SearchEffectivenessRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::SearchEffectiveness, String> {
+    worker_result(vault_worker::get_search_effectiveness(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_friction_signals_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::FrictionSignal>, String> {
+    worker_result(vault_worker::get_friction_signals(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_reopened_investigations_impl(
+    request: PagedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::ReopenedInvestigation>, String> {
+    worker_result(vault_worker::get_reopened_investigations(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_domain_deep_dive_impl(
+    request: DomainDeepDiveRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::DomainDeepDive, String> {
+    worker_result(vault_worker::get_domain_deep_dive(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_browsing_rhythm_impl(
+    request: CategoryFilteredDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::RhythmHeatmap, String> {
+    worker_result(vault_worker::get_browsing_rhythm(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_discovery_trend_impl(
+    request: GranularityDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::DiscoveryTrend, String> {
+    worker_result(vault_worker::get_discovery_trend(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_on_this_day_impl(
+    profile_id: Option<String>,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::OnThisDayEntry>, String> {
+    worker_result(vault_worker::get_on_this_day(session_database_key, profile_id.as_deref()))
 }
 
 #[cfg_attr(test, allow(dead_code))]

@@ -931,7 +931,7 @@ fn build_ai_index_with_control_stops_at_batch_boundaries() {
     let (paths, config, connection) = prepared_archive();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
-    let control: Arc<dyn AiRunControl> = Arc::new(CountdownControl::new(2));
+    let control: Arc<dyn AiRunControl> = Arc::new(CountdownControl::new(1));
 
     let error = runtime
         .block_on(build_ai_index_with_control(

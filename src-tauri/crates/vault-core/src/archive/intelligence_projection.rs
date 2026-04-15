@@ -8,7 +8,7 @@ use crate::{
     ai::ensure_ai_schema,
     ai_queue,
     config::{ProjectPaths, ensure_paths},
-    insights::ensure_insight_schema,
+    intelligence::ensure_core_intelligence_schema,
     intelligence_runtime::ensure_intelligence_runtime_schema,
     models::{AppConfig, ArchiveMode},
 };
@@ -31,7 +31,7 @@ pub fn open_intelligence_connection(
     attach_archive_database(&connection, paths, config, key)?;
     ensure_ai_schema(&connection)?;
     ai_queue::ensure_ai_queue_schema(&connection)?;
-    ensure_insight_schema(&connection)?;
+    ensure_core_intelligence_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
     Ok(connection)
 }

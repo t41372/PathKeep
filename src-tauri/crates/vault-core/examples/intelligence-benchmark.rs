@@ -7,9 +7,13 @@ use tempfile::tempdir;
 use vault_core::{
     archive::open_archive_connection,
     config::project_paths_with_root,
-    load_insights,
-    models::{AppConfig, ArchiveMode, RunInsightsRequest},
-    run_insights_with_progress,
+    get_digest_summary, get_query_families, get_refind_pages, get_search_trails, get_sessions,
+    get_top_search_concepts, get_top_sites,
+    models::{
+        AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, PagedDateRangeRequest,
+        RefindPagesRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
+    },
+    run_core_intelligence_with_progress,
 };
 
 #[derive(Debug, Clone)]
@@ -38,20 +42,64 @@ fn main() -> Result<()> {
     )?;
     drop(connection);
 
-    let request = RunInsightsRequest {
+    let rebuild_request =
+        CoreIntelligenceRebuildRequest { profile_id: None, full_rebuild: true, limit: None };
+    let query_range = DateRange {
+        start: (Utc::now() - Duration::days(options.window_days as i64)).date_naive().to_string(),
+        end: Utc::now().date_naive().to_string(),
+    };
+    let paged_request = PagedDateRangeRequest {
+        date_range: query_range.clone(),
         profile_id: None,
-        window_days: Some(options.window_days),
-        full_rebuild: true,
-        limit: None,
+        page: 0,
+        page_size: 20,
     };
 
     let rebuild_started = Instant::now();
-    let rebuild = run_insights_with_progress(&paths, &config, None, None, &request, |_| Ok(()))?;
+    let rebuild =
+        run_core_intelligence_with_progress(&paths, &config, None, &rebuild_request, |_| Ok(()))?;
     let rebuild_elapsed_ms = rebuild_started.elapsed().as_millis();
 
-    let snapshot_started = Instant::now();
-    let snapshot = load_insights(&paths, &config, None, &request)?;
-    let snapshot_elapsed_ms = snapshot_started.elapsed().as_millis();
+    let query_started = Instant::now();
+    let sessions = get_sessions(&paths, &config, None, &paged_request)?;
+    let trails = get_search_trails(
+        &paths,
+        &config,
+        None,
+        &SearchTrailQueryRequest {
+            date_range: query_range.clone(),
+            profile_id: None,
+            engine: None,
+            page: 0,
+            page_size: 20,
+        },
+    )?;
+    let digest = get_digest_summary(&paths, &config, None, &paged_request)?;
+    let query_families = get_query_families(&paths, &config, None, &paged_request)?;
+    let top_sites = get_top_sites(
+        &paths,
+        &config,
+        None,
+        &TopSitesRequest {
+            date_range: query_range.clone(),
+            profile_id: None,
+            sort_by: Some("visit_count".to_string()),
+            limit: Some(10),
+        },
+    )?;
+    let refind_pages = get_refind_pages(
+        &paths,
+        &config,
+        None,
+        &RefindPagesRequest { date_range: query_range.clone(), profile_id: None, limit: Some(10) },
+    )?;
+    let top_concepts = get_top_search_concepts(
+        &paths,
+        &config,
+        None,
+        &TopSearchConceptsRequest { date_range: query_range, profile_id: None, limit: Some(15) },
+    )?;
+    let query_elapsed_ms = query_started.elapsed().as_millis();
 
     let archive_bytes = fs::metadata(&paths.archive_database_path)
         .map(|metadata| metadata.len())
@@ -64,17 +112,27 @@ fn main() -> Result<()> {
             "archiveBytes": archive_bytes,
         },
         "timings": {
-            "runInsightsMs": rebuild_elapsed_ms,
-            "loadInsightsMs": snapshot_elapsed_ms,
+            "runCoreIntelligenceMs": rebuild_elapsed_ms,
+            "querySurfacesMs": query_elapsed_ms,
         },
         "report": rebuild,
-        "snapshot": {
-            "cards": snapshot.cards.len(),
-            "queryGroups": snapshot.query_groups.len(),
-            "threads": snapshot.threads.len(),
-            "referencePages": snapshot.reference_pages.len(),
-            "sourceEffectiveness": snapshot.source_effectiveness.len(),
-            "templateSummaries": snapshot.template_summaries.len(),
+        "surfaces": {
+            "sessions": sessions.sessions.len(),
+            "sessionTotal": sessions.total,
+            "searchTrails": trails.trails.len(),
+            "searchTrailTotal": trails.total,
+            "queryFamilies": query_families.families.len(),
+            "queryFamilyTotal": query_families.total,
+            "topSites": top_sites.len(),
+            "refindPages": refind_pages.len(),
+            "topConcepts": top_concepts.len(),
+            "digest": {
+                "totalVisits": digest.total_visits.value,
+                "totalSearches": digest.total_searches.value,
+                "newDomains": digest.new_domains.value,
+                "deepReadPages": digest.deep_read_pages.value,
+                "refindPages": digest.refind_pages.value,
+            }
         }
     });
 
