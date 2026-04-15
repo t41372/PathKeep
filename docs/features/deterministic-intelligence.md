@@ -1,7 +1,7 @@
 # DETERMINISTIC INTELLIGENCE — Evidence-First Analytics
 
-> **狀態：Accepted (M5 baseline, 2026-04-10)**  
-> 這份文檔是 `ADR-006` 的正式 feature spec。M5 之後，PathKeep 的 deterministic baseline 以這裡為準；[intelligence.md](intelligence.md) 仍保留 optional AI / assistant / MCP contract 與現行 shipping truth note，但不再是新的 deterministic heuristic source of truth。
+> **狀態：Superseded (2026-04-15)**  
+> 這份文檔曾是 `ADR-006` 的正式 feature spec。自 2026-04-15 起，PathKeep 的 deterministic / Core Intelligence baseline 已改由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 接管。這份文檔保留作為 M5 evidence-first hardening 的歷史背景，不再是新的 product contract。
 
 ---
 

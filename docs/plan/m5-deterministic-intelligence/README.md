@@ -5,6 +5,8 @@
 >
 > **狀態：Active**  
 > 2026-04-10 起，[ADR-006](../../architecture/decisions/006-deterministic-intelligence-boundary.md) 已接受，M5 可正式 supersede 現行 [features/intelligence.md](../../features/intelligence.md) 裡的 session / dwell / embedding-first deterministic baseline。
+>
+> **2026-04-15 reset note:** 這個 milestone 交出的 evidence-first foundation 已被 [features/core-intelligence-ultimate-design.md](../../features/core-intelligence-ultimate-design.md) 升級成更激進的 Core Intelligence hard-reset baseline。這份 README 保留作為 pre-reset M5 closeout archive，不再單獨定義最新 deterministic product contract。
 
 ---
 

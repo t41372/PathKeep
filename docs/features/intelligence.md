@@ -4,7 +4,7 @@
 > Intelligence 是建立在 Archive 夠好的基礎上的增值層。  
 > 所有 AI 功能預設關閉，可以在設定中開啟。
 >
-> **2026-04-10 truth note:** deterministic baseline 已由 [deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 接管。這份文檔仍描述 optional AI / assistant / MCP / M3-M4 shipped surface；任何殘留的 session / dwell / embedding-first deterministic wording，都屬需要被 M5 持續 supersede 的 legacy implementation debt，不再是新的 accepted baseline。
+> **2026-04-15 truth note:** deterministic baseline 已由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 正式接管；[deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 保留為它的歷史與 trade-off 背景。這份文檔現在只應描述 optional AI / assistant / MCP / semantic runtime / queue review 的 shipping contract；任何殘留的 deterministic insights / session / dwell / embedding-first baseline wording，都屬 legacy 敘述，不再是 accepted source of truth。
 >
 > **2026-04-10 packaging note:** default desktop install 仍內建 optional AI / assistant / MCP / semantic runtime；`optional` 指 capability 預設關閉、需明確設定 / provider 才會啟用，不代表第一次使用時另裝 helper 或外掛 binary。相關 shipping boundary 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
 >
@@ -216,7 +216,7 @@
 - built-in enrichment runtime 目前仍是 first-party only：Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
-- `load_insights()` 的主路徑必須讀 persisted read model，而不是每次重新載入整個 active window 的 visits / features 才現場拼 `query_ladders`、`template_summaries`、`workflow_map`、`profile_facets`、`canonical`。若 snapshot payload 缺失，允許有限 fallback，但不能把昂貴重算重新變成預設讀路徑。
+- 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`source_effectiveness`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
 - Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
 - Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / On This Day / summary，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。
 - clear derived state 必須回傳清除數量報告，至少涵蓋 enrichment rows、feature rows、topics、threads、cards、runs，並明講 canonical archive、manifests、rollback state 完全未被動到。
