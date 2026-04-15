@@ -102,6 +102,13 @@ const allowedAdvisories = new Map([
   ],
 ])
 
+const allowedNonAdvisoryWarnings = new Map([
+  [
+    'yanked:core2@0.4.0',
+    'core2 0.4.0 is only pulled transitively through libsodium-sys-stable/libflate in the Stronghold build dependency chain; PathKeep does not depend on it directly and upstream has not published a replacement in that stack yet.',
+  ],
+])
+
 function fail(message, details = []) {
   console.error(message)
   for (const line of details) {
@@ -170,27 +177,44 @@ if (vulnerabilities.length > 0) {
 
 const unexpectedWarnings = []
 const encounteredAdvisories = new Map()
+const encounteredNonAdvisoryWarnings = new Map()
 
 for (const entry of warnings) {
-  const summary = `${entry.advisory.id} (${entry.package.name}@${entry.package.version})`
-  encounteredAdvisories.set(entry.advisory.id, summary)
-  if (!allowedAdvisories.has(entry.advisory.id)) {
-    unexpectedWarnings.push(`${summary}: ${entry.advisory.title}`)
+  const packageSummary = `${entry.package.name}@${entry.package.version}`
+  if (entry.advisory) {
+    const summary = `${entry.advisory.id} (${packageSummary})`
+    encounteredAdvisories.set(entry.advisory.id, summary)
+    if (!allowedAdvisories.has(entry.advisory.id)) {
+      unexpectedWarnings.push(`${summary}: ${entry.advisory.title}`)
+    }
+    continue
+  }
+
+  const nonAdvisoryKey = `${entry.kind}:${packageSummary}`
+  encounteredNonAdvisoryWarnings.set(nonAdvisoryKey, entry.kind)
+  if (!allowedNonAdvisoryWarnings.has(nonAdvisoryKey)) {
+    unexpectedWarnings.push(
+      `${nonAdvisoryKey}: cargo audit reported a non-advisory ${entry.kind} warning for ${packageSummary}.`,
+    )
   }
 }
 
-const staleAllowlist = [...allowedAdvisories.keys()]
+const staleAdvisoryAllowlist = [...allowedAdvisories.keys()]
   .filter((id) => !encounteredAdvisories.has(id))
   .map((id) => `${id}: ${allowedAdvisories.get(id)}`)
+
+const staleNonAdvisoryAllowlist = [...allowedNonAdvisoryWarnings.keys()]
+  .filter((key) => !encounteredNonAdvisoryWarnings.has(key))
+  .map((key) => `${key}: ${allowedNonAdvisoryWarnings.get(key)}`)
 
 if (unexpectedWarnings.length > 0) {
   fail('Unexpected RustSec warnings were detected.', unexpectedWarnings)
 }
 
-if (staleAllowlist.length > 0) {
+if (staleAdvisoryAllowlist.length > 0 || staleNonAdvisoryAllowlist.length > 0) {
   fail(
-    'The RustSec advisory allowlist contains entries that are no longer present.',
-    staleAllowlist,
+    'The Rust supply-chain allowlist contains entries that are no longer present.',
+    [...staleAdvisoryAllowlist, ...staleNonAdvisoryAllowlist],
   )
 }
 
@@ -203,7 +227,14 @@ if (audit.status !== 0) {
 
 console.log('Rust supply-chain audit passed.')
 console.log(`Allowed RustSec advisories: ${encounteredAdvisories.size}`)
+console.log(
+  `Allowed non-advisory warnings: ${encounteredNonAdvisoryWarnings.size}`,
+)
 
 for (const id of [...encounteredAdvisories.keys()].sort()) {
   console.log(`- ${id}: ${allowedAdvisories.get(id)}`)
+}
+
+for (const key of [...encounteredNonAdvisoryWarnings.keys()].sort()) {
+  console.log(`- ${key}: ${allowedNonAdvisoryWarnings.get(key)}`)
 }
