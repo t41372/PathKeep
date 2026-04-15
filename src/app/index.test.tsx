@@ -39,7 +39,7 @@ const dashboardT = createNamespaceTranslator('en', 'dashboard')
 const shellT = createNamespaceTranslator('en', 'shell')
 const onboardingT = createNamespaceTranslator('en', 'onboarding')
 const assistantT = createNamespaceTranslator('en', 'assistant')
-const insightsT = createNamespaceTranslator('en', 'insights')
+const intelligenceT = createNamespaceTranslator('en', 'intelligence')
 const scheduleT = createNamespaceTranslator('en', 'schedule')
 const securityT = createNamespaceTranslator('en', 'security')
 const settingsT = createNamespaceTranslator('en', 'settings')
@@ -634,9 +634,9 @@ describe('App shell', () => {
       sentinel: assistantT('disabledTitle'),
     },
     {
-      entry: '/insights',
-      pageTestId: 'insights-page',
-      sentinel: insightsT('onThisDay'),
+      entry: '/intelligence',
+      pageTestId: null,
+      sentinel: intelligenceT('digestTitle'),
     },
     {
       entry: '/settings',
@@ -660,11 +660,7 @@ describe('App shell', () => {
       }
 
       const page = await screen.findByTestId(pageTestId)
-      if (entry === '/insights') {
-        expect(await within(page).findAllByText(sentinel)).toHaveLength(2)
-      } else {
-        expect(await within(page).findByText(sentinel)).toBeVisible()
-      }
+      expect(await within(page).findByText(sentinel)).toBeVisible()
     },
   )
 
@@ -1093,11 +1089,13 @@ describe('App shell', () => {
             href: '/explorer',
           }),
           expect.objectContaining({
-            id: 'insights',
-            labelKey: 'navigation.insightsLabel',
-            subtitleKey: 'navigation.insightsSubtitle',
+            id: 'intelligence',
+            labelKey: 'navigation.intelligenceLabel',
+            subtitleKey: 'navigation.intelligenceSubtitle',
+            titleKey: 'navigation.intelligenceTitle',
+            section: 'CORE',
             icon: '◈',
-            href: '/insights',
+            href: '/intelligence',
           }),
           expect.objectContaining({
             id: 'assistant',
