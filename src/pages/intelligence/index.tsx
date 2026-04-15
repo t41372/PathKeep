@@ -27,6 +27,9 @@ import {
   type KpiMetric,
   type RefindPage,
   type QueryFamily,
+  type StableSource,
+  type FrictionSignal,
+  type DiscoveryTrendPoint,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 
@@ -60,6 +63,17 @@ export function IntelligencePage() {
           <ActivityMixSection dateRange={dateRange} t={t} />
           <BrowsingRhythmSection dateRange={dateRange} t={t} />
         </div>
+
+        {/* Phase 2 — Deep Insights */}
+        <div className="intelligence-row intelligence-row--two-col">
+          <StableSourcesSection dateRange={dateRange} t={t} />
+          <SearchEffectivenessSection dateRange={dateRange} t={t} />
+        </div>
+        <div className="intelligence-row intelligence-row--two-col">
+          <FrictionDetectionSection dateRange={dateRange} t={t} />
+          <ReopenedInvestigationsSection dateRange={dateRange} t={t} />
+        </div>
+        <DiscoveryTrendSection dateRange={dateRange} t={t} />
       </div>
     </div>
   )
@@ -818,6 +832,366 @@ function QueryFamilyCard({ family, t }: { family: QueryFamily; t: T }) {
         {family.firstSeenAt} — {family.lastSeenAt}
       </span>
     </div>
+  )
+}
+
+// --- Stable Sources (P2-1b) ---
+
+function StableSourcesSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getStableSources(dateRange, null),
+    [dateRange],
+  )
+
+  const entries = data?.filter((s: StableSource) => s.sourceRole === 'entry')
+  const landings = data?.filter((s: StableSource) => s.sourceRole === 'landing')
+
+  return (
+    <section className="intelligence-section stable-sources-section">
+      <h2 className="intelligence-section__title">{t('stableSourcesTitle')}</h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : !data || data.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('stableSourcesEmpty')}</p>
+        </div>
+      ) : (
+        <div className="stable-sources">
+          <div className="stable-sources__column">
+            <h3 className="stable-sources__subtitle">
+              {t('stableSourcesEntry')}
+            </h3>
+            {entries?.slice(0, 5).map((s, i) => (
+              <div key={s.registrableDomain} className="stable-source-row">
+                <span className="stable-source-row__rank">{i + 1}.</span>
+                <span className="stable-source-row__domain">
+                  {s.displayName ?? s.registrableDomain}
+                </span>
+                <span className="stable-source-row__count">
+                  {s.trailCount} {t('stableSourcesTrails')}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="stable-sources__column">
+            <h3 className="stable-sources__subtitle">
+              {t('stableSourcesLanding')}
+            </h3>
+            {landings?.slice(0, 5).map((s, i) => (
+              <div key={s.registrableDomain} className="stable-source-row">
+                <span className="stable-source-row__rank">{i + 1}.</span>
+                <span className="stable-source-row__domain">
+                  {s.displayName ?? s.registrableDomain}
+                </span>
+                <span className="stable-source-row__count">
+                  {s.stableLandingCount} {t('stableSourcesLandings')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// --- Search Effectiveness (P2-2b) ---
+
+function SearchEffectivenessSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getSearchEffectiveness(dateRange, null),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section search-effectiveness-section">
+      <h2 className="intelligence-section__title">
+        {t('searchEffectivenessTitle')}
+      </h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--chart" />
+      ) : !data || data.engineStats.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">
+            {t('searchEffectivenessEmpty')}
+          </p>
+        </div>
+      ) : (
+        <div className="search-effectiveness">
+          <div className="search-effectiveness__engines">
+            {data.engineStats.map((engine) => {
+              const barWidth = Math.min(
+                100,
+                Math.round(
+                  (engine.avgReformulations /
+                    Math.max(
+                      ...data.engineStats.map((e) => e.avgReformulations),
+                    )) *
+                    100,
+                ),
+              )
+              return (
+                <div
+                  key={engine.searchEngine}
+                  className="search-effectiveness__engine-row"
+                >
+                  <span className="search-effectiveness__engine-name">
+                    {engine.displayName ?? engine.searchEngine}
+                  </span>
+                  <span className="search-effectiveness__engine-bar">
+                    <span
+                      className="search-effectiveness__engine-bar-fill"
+                      style={{ width: `${barWidth}%` }}
+                    />
+                  </span>
+                  <span className="search-effectiveness__engine-stat">
+                    {engine.avgReformulations.toFixed(1)}{' '}
+                    {t('searchEffectivenessReformulations')}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          {data.hardestTopics.length > 0 && (
+            <div className="search-effectiveness__hard-topics">
+              <h3 className="search-effectiveness__subtitle">
+                {t('searchEffectivenessHardest')}
+              </h3>
+              {data.hardestTopics.slice(0, 3).map((topic) => (
+                <div
+                  key={topic.queryFamily}
+                  className="search-effectiveness__topic-row"
+                >
+                  <span className="search-effectiveness__topic-query">
+                    "{topic.queryFamily}"
+                  </span>
+                  <span className="search-effectiveness__topic-stat">
+                    {topic.reformulationCount}{' '}
+                    {t('searchEffectivenessReformulations')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// --- Friction Detection (P2-3b) ---
+
+function FrictionDetectionSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getFrictionSignals(dateRange, null),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section friction-section">
+      <h2 className="intelligence-section__title">{t('frictionTitle')}</h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : !data || data.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('frictionEmpty')}</p>
+        </div>
+      ) : (
+        <div className="friction-list">
+          {data.slice(0, 8).map((signal, i) => (
+            <FrictionSignalCard key={i} signal={signal} t={t} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function FrictionSignalCard({ signal, t }: { signal: FrictionSignal; t: T }) {
+  return (
+    <div className="friction-card">
+      <div className="friction-card__header">
+        <span
+          className={`friction-card__evidence-badge friction-card__evidence-badge--${signal.evidenceType}`}
+        >
+          {signal.evidenceType === 'strong'
+            ? t('frictionStrong')
+            : t('frictionWeak')}
+        </span>
+        <span className="friction-card__domain">
+          {signal.registrableDomain ?? signal.url ?? '—'}
+        </span>
+        <span className="friction-card__count">{signal.occurrenceCount}×</span>
+      </div>
+      <p className="friction-card__description">{signal.description}</p>
+    </div>
+  )
+}
+
+// --- Reopened Investigations (P2-4b) ---
+
+function ReopenedInvestigationsSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getReopenedInvestigations(dateRange, null),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section reopened-section">
+      <h2 className="intelligence-section__title">{t('reopenedTitle')}</h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : !data || data.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('reopenedEmpty')}</p>
+        </div>
+      ) : (
+        <div className="reopened-list">
+          {data.slice(0, 8).map((item) => (
+            <div key={item.investigationId} className="reopened-card">
+              <div className="reopened-card__header">
+                <span
+                  className={`reopened-card__anchor-badge reopened-card__anchor-badge--${item.anchorType}`}
+                >
+                  {item.anchorType === 'query_family'
+                    ? t('reopenedAnchorQuery')
+                    : t('reopenedAnchorPage')}
+                </span>
+                <span className="reopened-card__label">{item.anchorLabel}</span>
+              </div>
+              <div className="reopened-card__meta">
+                <span>
+                  {t('reopenedOccurrences', {
+                    count: item.occurrenceCount,
+                  })}
+                </span>
+                <span>
+                  {t('reopenedDistinctDays', {
+                    days: item.distinctDays,
+                  })}
+                </span>
+              </div>
+              <span className="reopened-card__dates">
+                {item.firstSeenAt} — {item.lastSeenAt}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// --- Discovery Trend (P2-7b) ---
+
+function DiscoveryTrendSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getDiscoveryTrend(dateRange, null, 'week'),
+    [dateRange],
+  )
+
+  const maxRate = data
+    ? Math.max(
+        ...data.points.map((p: DiscoveryTrendPoint) => p.discoveryRate),
+        0.01,
+      )
+    : 1
+  const maxNewDomains = data
+    ? Math.max(
+        ...data.points.map((p: DiscoveryTrendPoint) => p.newDomainCount),
+        1,
+      )
+    : 1
+
+  return (
+    <section className="intelligence-section discovery-trend-section">
+      <h2 className="intelligence-section__title">
+        {t('discoveryTrendTitle')}
+      </h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--chart" />
+      ) : !data || data.points.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('discoveryTrendEmpty')}</p>
+        </div>
+      ) : (
+        <div className="discovery-trend">
+          <div className="discovery-trend__chart">
+            {data.points.map((point: DiscoveryTrendPoint) => {
+              const rateHeight = Math.round(
+                (point.discoveryRate / maxRate) * 100,
+              )
+              const barHeight = Math.round(
+                (point.newDomainCount / maxNewDomains) * 100,
+              )
+              return (
+                <div
+                  key={point.dateKey}
+                  className="discovery-trend__bar-group"
+                  title={`${point.dateKey}: ${Math.round(point.discoveryRate * 100)}% · ${point.newDomainCount} ${t('discoveryTrendNewDomains')}`}
+                >
+                  <div className="discovery-trend__rate-bar-container">
+                    <span
+                      className="discovery-trend__rate-bar"
+                      style={{ height: `${rateHeight}%` }}
+                    />
+                  </div>
+                  <div className="discovery-trend__domain-bar-container">
+                    <span
+                      className="discovery-trend__domain-bar"
+                      style={{ height: `${barHeight}%` }}
+                    />
+                  </div>
+                  <span className="discovery-trend__date-label">
+                    {point.dateKey.slice(5)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="discovery-trend__legend">
+            <span className="discovery-trend__legend-item">
+              <span className="discovery-trend__legend-swatch discovery-trend__legend-swatch--rate" />
+              {t('discoveryTrendRateLabel')}
+            </span>
+            <span className="discovery-trend__legend-item">
+              <span className="discovery-trend__legend-swatch discovery-trend__legend-swatch--domains" />
+              {t('discoveryTrendDomainsLabel')}
+            </span>
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 

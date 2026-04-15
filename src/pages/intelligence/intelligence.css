@@ -1347,6 +1347,498 @@
   color: var(--accent);
 }
 
+/* ---------- Stable Sources (P2-1b) ---------- */
+
+.stable-sources {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.stable-sources__column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stable-sources__subtitle {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-1);
+}
+
+.stable-source-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.stable-source-row__rank {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  width: 20px;
+  text-align: right;
+}
+
+.stable-source-row__domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stable-source-row__count {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ---------- Search Effectiveness (P2-2b) ---------- */
+
+.search-effectiveness {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.search-effectiveness__engines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.search-effectiveness__engine-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.search-effectiveness__engine-name {
+  font-size: 0.8125rem;
+  color: var(--text);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.search-effectiveness__engine-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-elevated);
+  position: relative;
+  overflow: hidden;
+}
+
+.search-effectiveness__engine-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--warning);
+  opacity: 0.75;
+  transition: width var(--transition);
+}
+
+.search-effectiveness__engine-stat {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 80px;
+  text-align: right;
+}
+
+.search-effectiveness__hard-topics {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.search-effectiveness__subtitle {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-2);
+}
+
+.search-effectiveness__topic-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.search-effectiveness__topic-query {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-style: italic;
+  flex: 1;
+}
+
+.search-effectiveness__topic-stat {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+/* ---------- Friction Detection (P2-3b) ---------- */
+
+.friction-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.friction-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.friction-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.friction-card__evidence-badge {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px var(--space-2);
+  flex-shrink: 0;
+}
+
+.friction-card__evidence-badge--strong {
+  background: var(--error);
+  color: var(--bg);
+}
+
+.friction-card__evidence-badge--weak {
+  background: var(--warning);
+  color: var(--bg);
+}
+
+.friction-card__domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friction-card__count {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--error);
+  flex-shrink: 0;
+}
+
+.friction-card__description {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ---------- Reopened Investigations (P2-4b) ---------- */
+
+.reopened-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reopened-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reopened-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.reopened-card__anchor-badge {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px var(--space-2);
+  flex-shrink: 0;
+}
+
+.reopened-card__anchor-badge--query_family {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.reopened-card__anchor-badge--reference_page {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.reopened-card__label {
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reopened-card__meta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.reopened-card__dates {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* ---------- Discovery Trend (P2-7b) ---------- */
+
+.discovery-trend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.discovery-trend__chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  padding-bottom: 20px;
+  position: relative;
+}
+
+.discovery-trend__bar-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  position: relative;
+}
+
+.discovery-trend__rate-bar-container,
+.discovery-trend__domain-bar-container {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.discovery-trend__rate-bar {
+  width: 60%;
+  background: var(--accent);
+  opacity: 0.7;
+  transition: height var(--transition);
+}
+
+.discovery-trend__domain-bar {
+  width: 60%;
+  background: var(--success);
+  opacity: 0.6;
+  transition: height var(--transition);
+}
+
+.discovery-trend__date-label {
+  position: absolute;
+  bottom: -18px;
+  font-family: var(--font-code);
+  font-size: 0.5625rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.discovery-trend__legend {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+}
+
+.discovery-trend__legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.discovery-trend__legend-swatch {
+  width: 12px;
+  height: 4px;
+}
+
+.discovery-trend__legend-swatch--rate {
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.discovery-trend__legend-swatch--domains {
+  background: var(--success);
+  opacity: 0.6;
+}
+
+/* ---------- Domain Deep Dive (P2-5b) ---------- */
+
+.domain-deep-dive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.domain-deep-dive__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.domain-deep-dive__domain-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.domain-deep-dive__category-badge {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px var(--space-2);
+}
+
+.domain-deep-dive__kpi-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.domain-deep-dive__kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  min-width: 80px;
+}
+
+.domain-deep-dive__kpi-value {
+  font-family: var(--font-code);
+  font-size: 1.125rem;
+  color: var(--text);
+}
+
+.domain-deep-dive__kpi-label {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.domain-deep-dive__arrival-breakdown {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.domain-deep-dive__arrival-bar {
+  height: 8px;
+  transition: width var(--transition);
+}
+
+.domain-deep-dive__arrival-bar--search {
+  background: var(--accent);
+}
+
+.domain-deep-dive__arrival-bar--link {
+  background: var(--success);
+}
+
+.domain-deep-dive__arrival-bar--typed {
+  background: var(--warning);
+}
+
+.domain-deep-dive__arrival-bar--other {
+  background: var(--text-faint);
+}
+
+.domain-deep-dive__arrival-legend {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.domain-deep-dive__sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.domain-deep-dive__section-title {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-2);
+}
+
+.domain-deep-dive__page-row,
+.domain-deep-dive__flow-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: 0.8125rem;
+}
+
+.domain-deep-dive__page-path {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-deep-dive__flow-domain {
+  color: var(--text);
+  flex: 1;
+}
+
+.domain-deep-dive__page-count,
+.domain-deep-dive__flow-count {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 900px) {

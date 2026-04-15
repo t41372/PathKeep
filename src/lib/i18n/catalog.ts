@@ -265,6 +265,56 @@ const zhCnM3Namespaces = {
     viewModeTime: '时间',
     viewModeSession: '会话',
     viewModeTrail: '搜索旅程',
+
+    // P2: Stable Sources
+    stableSourcesTitle: '稳定答案来源',
+    stableSourcesEmpty: '数据不足，暂无法显示稳定来源。',
+    stableSourcesEntry: '常作为入口的来源',
+    stableSourcesLanding: '常作为落地点的来源',
+    stableSourcesTrails: '条旅程',
+    stableSourcesLandings: '次落地',
+
+    // P2: Search Effectiveness
+    searchEffectivenessTitle: '搜索效率分析',
+    searchEffectivenessEmpty: '数据不足，暂无法显示搜索效率。',
+    searchEffectivenessReformulations: '次平均改写',
+    searchEffectivenessHardest: '最难找的主题',
+
+    // P2: Friction Detection
+    frictionTitle: '碰壁与高摩擦侦测',
+    frictionEmpty: '没有检测到碰壁信号。',
+    frictionStrong: '强证据',
+    frictionWeak: '弱证据',
+
+    // P2: Reopened Investigations
+    reopenedTitle: '反复回来查的问题',
+    reopenedEmpty: '没有检测到反复查找的问题。',
+    reopenedAnchorQuery: '查询',
+    reopenedAnchorPage: '页面',
+    reopenedOccurrences: '出现 {count} 次',
+    reopenedDistinctDays: '跨 {days} 天',
+
+    // P2: Discovery Trend
+    discoveryTrendTitle: '探索率趋势',
+    discoveryTrendEmpty: '数据不足，暂无法显示探索率。',
+    discoveryTrendNewDomains: '个新网站',
+    discoveryTrendRateLabel: '探索率 %',
+    discoveryTrendDomainsLabel: '新网站数',
+
+    // P2: Domain Deep Dive
+    domainDeepDiveEmpty: '无法加载该网站的深度分析。',
+    domainDeepDiveBack: '返回',
+    domainDeepDiveVisits: '访问次数',
+    domainDeepDiveActiveDays: '活跃天数',
+    domainDeepDiveTrails: '搜索旅程',
+    domainDeepDiveArrival: '到达方式',
+    domainDeepDiveArrival_search: '搜索',
+    domainDeepDiveArrival_link: '链接',
+    domainDeepDiveArrival_typed: '直接输入',
+    domainDeepDiveTopPages: '热门页面',
+    domainDeepDiveReferrers: '主要来源',
+    domainDeepDiveExits: '主要去向',
+    domainDeepDiveTrend: '访问趋势',
   },
   explorer: {
     waitingForQuery: '输入关键词开始搜索',
@@ -903,6 +953,56 @@ const zhTwM3Namespaces = {
     viewModeTime: '時間',
     viewModeSession: '會話',
     viewModeTrail: '搜尋旅程',
+
+    // P2: Stable Sources
+    stableSourcesTitle: '穩定答案來源',
+    stableSourcesEmpty: '資料不足，暫無法顯示穩定來源。',
+    stableSourcesEntry: '常作為入口的來源',
+    stableSourcesLanding: '常作為落地點的來源',
+    stableSourcesTrails: '條旅程',
+    stableSourcesLandings: '次落地',
+
+    // P2: Search Effectiveness
+    searchEffectivenessTitle: '搜尋效率分析',
+    searchEffectivenessEmpty: '資料不足，暫無法顯示搜尋效率。',
+    searchEffectivenessReformulations: '次平均改寫',
+    searchEffectivenessHardest: '最難找的主題',
+
+    // P2: Friction Detection
+    frictionTitle: '碰壁與高摩擦偵測',
+    frictionEmpty: '沒有檢測到碰壁信號。',
+    frictionStrong: '強證據',
+    frictionWeak: '弱證據',
+
+    // P2: Reopened Investigations
+    reopenedTitle: '反覆回來查的問題',
+    reopenedEmpty: '沒有檢測到反覆查找的問題。',
+    reopenedAnchorQuery: '查詢',
+    reopenedAnchorPage: '頁面',
+    reopenedOccurrences: '出現 {count} 次',
+    reopenedDistinctDays: '跨 {days} 天',
+
+    // P2: Discovery Trend
+    discoveryTrendTitle: '探索率趨勢',
+    discoveryTrendEmpty: '資料不足，暫無法顯示探索率。',
+    discoveryTrendNewDomains: '個新網站',
+    discoveryTrendRateLabel: '探索率 %',
+    discoveryTrendDomainsLabel: '新網站數',
+
+    // P2: Domain Deep Dive
+    domainDeepDiveEmpty: '無法載入該網站的深度分析。',
+    domainDeepDiveBack: '返回',
+    domainDeepDiveVisits: '造訪次數',
+    domainDeepDiveActiveDays: '活躍天數',
+    domainDeepDiveTrails: '搜尋旅程',
+    domainDeepDiveArrival: '到達方式',
+    domainDeepDiveArrival_search: '搜尋',
+    domainDeepDiveArrival_link: '鏈接',
+    domainDeepDiveArrival_typed: '直接輸入',
+    domainDeepDiveTopPages: '熱門頁面',
+    domainDeepDiveReferrers: '主要來源',
+    domainDeepDiveExits: '主要去向',
+    domainDeepDiveTrend: '造訪趨勢',
   },
   explorer: {
     waitingForQuery: '輸入關鍵字開始搜尋',
@@ -2712,6 +2812,56 @@ const catalog: Record<
       viewModeTime: 'Time',
       viewModeSession: 'Session',
       viewModeTrail: 'Search Trail',
+
+      // P2: Stable Sources
+      stableSourcesTitle: 'Stable Answer Sources',
+      stableSourcesEmpty: 'Not enough data to show stable sources.',
+      stableSourcesEntry: 'Frequent Entry Sources',
+      stableSourcesLanding: 'Frequent Landing Sources',
+      stableSourcesTrails: 'trails',
+      stableSourcesLandings: 'landings',
+
+      // P2: Search Effectiveness
+      searchEffectivenessTitle: 'Search Effectiveness',
+      searchEffectivenessEmpty: 'Not enough data to show search effectiveness.',
+      searchEffectivenessReformulations: 'avg reformulations',
+      searchEffectivenessHardest: 'Hardest Topics',
+
+      // P2: Friction Detection
+      frictionTitle: 'Friction & Dead Ends',
+      frictionEmpty: 'No friction signals detected.',
+      frictionStrong: 'Strong',
+      frictionWeak: 'Weak',
+
+      // P2: Reopened Investigations
+      reopenedTitle: 'Reopened Investigations',
+      reopenedEmpty: 'No reopened investigations detected.',
+      reopenedAnchorQuery: 'Query',
+      reopenedAnchorPage: 'Page',
+      reopenedOccurrences: '{count} occurrences',
+      reopenedDistinctDays: 'across {days} days',
+
+      // P2: Discovery Trend
+      discoveryTrendTitle: 'Discovery Trend',
+      discoveryTrendEmpty: 'Not enough data to show discovery trend.',
+      discoveryTrendNewDomains: 'new sites',
+      discoveryTrendRateLabel: 'Discovery Rate %',
+      discoveryTrendDomainsLabel: 'New Sites',
+
+      // P2: Domain Deep Dive
+      domainDeepDiveEmpty: "Could not load this site's deep analysis.",
+      domainDeepDiveBack: 'Back',
+      domainDeepDiveVisits: 'Visits',
+      domainDeepDiveActiveDays: 'Active Days',
+      domainDeepDiveTrails: 'Trails',
+      domainDeepDiveArrival: 'How You Arrived',
+      domainDeepDiveArrival_search: 'Search',
+      domainDeepDiveArrival_link: 'Link',
+      domainDeepDiveArrival_typed: 'Typed',
+      domainDeepDiveTopPages: 'Top Pages',
+      domainDeepDiveReferrers: 'Top Referrers',
+      domainDeepDiveExits: 'Top Exits',
+      domainDeepDiveTrend: 'Visit Trend',
     },
     explorer: {
       waitingForQuery: 'Type to search',
