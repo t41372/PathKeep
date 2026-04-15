@@ -21,6 +21,8 @@
 - 更細的 WBS 仍保留在各 milestone 文檔裡，作為 block 內部的拆解參考，而不是每日追蹤單位。
 
 > **2026-04-14 closeout note**：`WORK-QC-R` 已完成。repo 的正式 storage truth 現在是 canonical/search/intelligence/sidecars 四層結構；legacy archive upgrade、runtime compatibility patching、hot-path raw row persistence 都不再是 active strategy。
+>
+> **2026-04-15 closeout note**：`WORK-QC-T` 已完成。deterministic product contract 已從 legacy Insights snapshot hard-cut 到 Core Intelligence baseline；`core-intelligence-ultimate-design.md` 現在是 accepted source of truth，`/intelligence` 與新的 Tauri/worker query surface 取代舊 `run_insights_now` / `load_insights` / `explain_insight` 主路徑。
 
 ---
 
