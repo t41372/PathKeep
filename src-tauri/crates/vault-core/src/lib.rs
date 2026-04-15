@@ -57,10 +57,12 @@ pub use config::{ProjectPaths, load_config, project_paths, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
 pub use insights::execute_enrichment_job_by_id;
 pub use intelligence::{
-    clear_derived_intelligence_state, get_activity_mix, get_activity_mix_trend,
-    get_browsing_rhythm, get_digest_summary, get_discovery_trend, get_domain_deep_dive,
-    get_domain_trend, get_friction_signals, get_hub_pages, get_navigation_path, get_on_this_day,
-    get_query_families, get_refind_pages, get_reopened_investigations, get_search_effectiveness,
+    clear_derived_intelligence_state, get_activity_mix, get_activity_mix_trend, get_breadth_index,
+    get_browsing_rhythm, get_compare_sets, get_digest_summary, get_discovery_trend,
+    get_domain_deep_dive, get_domain_trend, get_friction_signals, get_habit_patterns,
+    get_hub_pages, get_interrupted_habits, get_multi_browser_diff, get_navigation_path,
+    get_observed_interactions, get_on_this_day, get_path_flows, get_query_families,
+    get_refind_pages, get_reopened_investigations, get_search_effectiveness,
     get_search_engine_ranking, get_search_trails, get_session_detail, get_sessions,
     get_stable_sources, get_top_search_concepts, get_top_sites, get_trail_detail, insight_status,
     run_core_intelligence, run_core_intelligence_with_progress,

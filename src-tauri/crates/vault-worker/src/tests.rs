@@ -606,7 +606,7 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
         if runtime
             .recent_jobs
             .iter()
-            .any(|job| job.job_type == "deterministic-rebuild" && job.state == "succeeded")
+            .any(|job| job.job_type == "structural-rebuild" && job.state == "succeeded")
         {
             break;
         }
@@ -629,9 +629,18 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
     )
     .expect("load sessions");
     assert!(sessions.total >= 1);
-    assert!(runtime.recent_jobs.iter().any(|job| { job.job_type == "full-rebuild" }));
     assert!(runtime.recent_jobs.iter().any(|job| {
-        job.job_type == "full-rebuild"
+        job.job_type == "visit-derive"
+            && job.state == "succeeded"
+            && job.progress_percent == Some(100.0)
+    }));
+    assert!(runtime.recent_jobs.iter().any(|job| {
+        job.job_type == "daily-rollup"
+            && job.state == "succeeded"
+            && job.progress_percent == Some(100.0)
+    }));
+    assert!(runtime.recent_jobs.iter().any(|job| {
+        job.job_type == "structural-rebuild"
             && job.state == "succeeded"
             && job.progress_percent == Some(100.0)
     }));
@@ -706,9 +715,7 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     .expect("import takeout");
     let batch_id = imported.import_batch.expect("import batch").id;
     assert_eq!(imported.imported_items, 1);
-    assert!(
-        imported.notes.iter().any(|note| { note.contains("Deterministic insights refresh job") })
-    );
+    assert!(imported.notes.iter().any(|note| { note.contains("Core Intelligence refresh jobs") }));
     let import_preview = preview_import_batch_detail(None, batch_id).expect("preview batch");
     assert_eq!(import_preview.batch.status, "imported");
     let reverted = revert_import_batch_detail(None, batch_id).expect("revert batch");

@@ -31,22 +31,25 @@ use vault_core::{
     ActivityMix, ActivityMixTrend, AiAssistantRequest, AiAssistantResponse, AiIndexReport,
     AiIndexRequest, AiIntegrationPreview, AiProviderConnectionTestReport,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest,
-    AiSearchResponse, AppConfig, CategoryFilteredDateRangeRequest, CoreIntelligenceQueueReport,
-    CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest, DigestSummary, DiscoveryTrend,
-    DomainDeepDive, DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
-    FrictionSignal, GranularityDateRangeRequest, HubPage, IntelligenceRuntimeSnapshot,
-    NavigationPath, OnThisDayEntry, PagedDateRangeRequest, QueryFamilyResult, RefindExplanation,
-    RefindPage, RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, SearchConcept,
-    SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail,
-    SessionListResult, StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest,
-    TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
+    AiSearchResponse, AppConfig, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
+    CompareSet, CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport,
+    CoreIntelligenceRebuildRequest, DigestSummary, DiscoveryTrend, DomainDeepDive,
+    DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking, FrictionSignal,
+    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceRuntimeSnapshot,
+    InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
+    PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyResult, RefindExplanation,
+    RefindPage, RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
+    SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest,
+    SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
+    TopSitesRequest, TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
     build_ai_index_with_control, cancel_intelligence_job, execute_enrichment_job_by_id,
     intelligence, intelligence_job_stop_requested,
     intelligence_runtime::{
-        DETERMINISTIC_REBUILD_JOB_TYPE, claim_deterministic_rebuild_job,
-        enqueue_deterministic_rebuild_job, mark_intelligence_job_failed,
-        mark_intelligence_job_succeeded, mark_running_intelligence_job_cancelled,
-        next_queued_enrichment_job, next_queued_intelligence_job, update_intelligence_job_artifact,
+        DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
+        claim_core_intelligence_job, enqueue_deterministic_rebuild_job,
+        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+        mark_running_intelligence_job_cancelled, next_queued_enrichment_job,
+        next_queued_intelligence_job, update_intelligence_job_artifact,
     },
     load_assistant_run_response, load_intelligence_runtime, preview_ai_integrations,
     retry_intelligence_job, semantic_search_history, test_provider_connection,
@@ -395,16 +398,13 @@ fn spawn_intelligence_queue_drain(
                     break;
                 };
 
-                if job.job_type == DETERMINISTIC_REBUILD_JOB_TYPE {
-                    let _ = execute_deterministic_rebuild_job(
-                        &paths,
-                        &config,
-                        session_database_key.as_deref(),
-                        job.id,
-                    );
-                } else {
-                    let _ = execute_enrichment_job_by_id(&paths, &connection, job.id);
-                }
+                let _ = execute_core_intelligence_job(
+                    &paths,
+                    &config,
+                    session_database_key.as_deref(),
+                    job.id,
+                    &job.job_type,
+                );
             }
         }
     });
@@ -769,18 +769,28 @@ pub fn queue_core_intelligence_rebuild(
     })
 }
 
-fn execute_deterministic_rebuild_job(
+fn execute_core_intelligence_job(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
     job_id: i64,
+    job_type: &str,
 ) -> Result<bool> {
     let connection = ai_archive_connection(paths, config, session_database_key)?;
-    let Some(payload) = claim_deterministic_rebuild_job(&connection, job_id)? else {
+    let Some(payload) = claim_core_intelligence_job(&connection, job_id)? else {
         return Ok(false);
     };
+    if payload.job_type != job_type {
+        return Ok(false);
+    }
     let initial_profile =
         payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
+    let job_label = match job_type {
+        VISIT_DERIVE_JOB_TYPE => "visit-derived facts refresh",
+        DAILY_ROLLUP_JOB_TYPE => "daily rollup refresh",
+        STRUCTURAL_REBUILD_JOB_TYPE => "structural entity rebuild",
+        _ => "Core Intelligence rebuild",
+    };
     let cancel_requested = |detail: &str| -> Result<()> {
         if intelligence_job_stop_requested(&connection, job_id)? {
             let _ =
@@ -789,28 +799,29 @@ fn execute_deterministic_rebuild_job(
         }
         Ok(())
     };
-    cancel_requested("Core Intelligence rebuild was cancelled before work started.")?;
+    cancel_requested(&format!("{job_label} was cancelled before work started."))?;
     let _ = update_intelligence_job_artifact(
         &connection,
         job_id,
         &json!({
-            "kind": "core-intelligence-rebuild",
+            "kind": job_type,
             "phase": "queued",
-            "detail": format!("Preparing a Core Intelligence rebuild for {initial_profile}."),
+            "detail": format!("Preparing a {job_label} for {initial_profile}."),
             "progressPercent": 0.0
         }),
     );
-    match intelligence::run_core_intelligence_with_progress(
+    match intelligence::run_core_intelligence_job_type_with_progress(
         paths,
         config,
         session_database_key,
+        job_type,
         &payload.request,
         |progress| {
-            cancel_requested(
-                "Core Intelligence rebuild was cancelled while progress was being reported.",
-            )?;
+            cancel_requested(&format!(
+                "{job_label} was cancelled while progress was being reported."
+            ))?;
             let artifact = json!({
-                "kind": "core-intelligence-rebuild",
+                "kind": job_type,
                 "phase": progress.phase,
                 "detail": progress.detail,
                 "processedItems": progress.processed_items,
@@ -818,9 +829,9 @@ fn execute_deterministic_rebuild_job(
                 "progressPercent": progress.progress_percent,
             });
             let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
-            cancel_requested(
-                "Core Intelligence rebuild was cancelled after the latest progress update.",
-            )?;
+            cancel_requested(&format!(
+                "{job_label} was cancelled after the latest progress update."
+            ))?;
             Ok(())
         },
     ) {
@@ -837,12 +848,12 @@ fn execute_deterministic_rebuild_job(
                 &connection,
                 job_id,
                 &json!({
-                    "kind": "core-intelligence-rebuild",
+                    "kind": job_type,
                     "phase": "completed",
                     "detail": format!(
-                        "{} visits processed, {} trails ready.",
+                        "{} finished with {} visits processed.",
+                        job_label,
                         report.processed_visits,
-                        report.search_trails
                     ),
                     "processedItems": report.processed_visits,
                     "totalItems": report.processed_visits,
@@ -934,7 +945,7 @@ pub fn get_hub_pages(
 
 pub fn get_search_engine_ranking(
     session_database_key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<EngineRanking>> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_search_engine_ranking(paths, config, session_database_key, request)
@@ -997,7 +1008,7 @@ pub fn explain_refind(
 
 pub fn get_activity_mix(
     session_database_key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<ActivityMix> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_activity_mix(paths, config, session_database_key, request)
@@ -1015,7 +1026,7 @@ pub fn get_activity_mix_trend(
 
 pub fn get_digest_summary(
     session_database_key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<DigestSummary> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_digest_summary(paths, config, session_database_key, request)
@@ -1024,7 +1035,7 @@ pub fn get_digest_summary(
 
 pub fn get_stable_sources(
     session_database_key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<StableSource>> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_stable_sources(paths, config, session_database_key, request)
@@ -1042,7 +1053,7 @@ pub fn get_search_effectiveness(
 
 pub fn get_friction_signals(
     session_database_key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<FrictionSignal>> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_friction_signals(paths, config, session_database_key, request)
@@ -1051,7 +1062,7 @@ pub fn get_friction_signals(
 
 pub fn get_reopened_investigations(
     session_database_key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<ReopenedInvestigation>> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_reopened_investigations(paths, config, session_database_key, request)
@@ -1091,6 +1102,69 @@ pub fn get_on_this_day(
 ) -> Result<Vec<OnThisDayEntry>> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_on_this_day(paths, config, session_database_key, profile_id)
+    })
+}
+
+pub fn get_breadth_index(
+    session_database_key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<BreadthIndex> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_breadth_index(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_habit_patterns(
+    session_database_key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<HabitPattern>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_habit_patterns(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_interrupted_habits(
+    session_database_key: Option<&str>,
+    request: &ProfileScopedRequest,
+) -> Result<Vec<InterruptedHabit>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_interrupted_habits(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_path_flows(
+    session_database_key: Option<&str>,
+    request: &PathFlowRequest,
+) -> Result<Vec<PathFlow>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_path_flows(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_observed_interactions(
+    session_database_key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<ObservedInteraction>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_observed_interactions(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_compare_sets(
+    session_database_key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<CompareSet>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_compare_sets(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_multi_browser_diff(
+    session_database_key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<BrowserDiff> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_multi_browser_diff(paths, config, session_database_key, request)
     })
 }
 

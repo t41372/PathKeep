@@ -7,6 +7,8 @@
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod phase_four;
+mod phase_three;
 mod site_dictionary;
 
 use self::site_dictionary::{
@@ -31,10 +33,11 @@ use crate::{
         QueryFamilyResult, REFIND_PAGES_MODULE_ID, RefindExplanation, RefindPage,
         RefindPagesRequest, RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap,
         RhythmHeatmapCell, SEARCH_EFFECTIVENESS_MODULE_ID, SEARCH_TRAILS_MODULE_ID,
-        SESSIONS_MODULE_ID, SearchConcept, SearchEffectiveness, SearchEffectivenessRequest,
-        SearchTrailQueryRequest, SessionDetail, SessionListResult, SessionSummary, SessionVisit,
-        StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail,
-        TrailListResult, TrailMember, TrailSummary, VISIT_DERIVED_FACTS_MODULE_ID,
+        SESSIONS_MODULE_ID, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
+        SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
+        SessionSummary, SessionVisit, StableSource, TopSearchConceptsRequest, TopSite,
+        TopSitesRequest, TrailDetail, TrailListResult, TrailMember, TrailSummary,
+        VISIT_DERIVED_FACTS_MODULE_ID,
     },
     utils::now_rfc3339,
 };
@@ -43,6 +46,12 @@ use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Timeli
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+pub use self::phase_four::{get_compare_sets, get_multi_browser_diff};
+pub use self::phase_three::{
+    get_breadth_index, get_habit_patterns, get_interrupted_habits, get_observed_interactions,
+    get_path_flows,
+};
 
 const CORE_INTELLIGENCE_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS visit_content_enrichments (
@@ -310,6 +319,71 @@ pub struct CoreIntelligenceProgress {
     pub progress_percent: Option<f32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreIntelligenceJobKind {
+    VisitDerive,
+    DailyRollup,
+    StructuralRebuild,
+    FullRebuild,
+}
+
+impl CoreIntelligenceJobKind {
+    fn from_job_type(job_type: &str) -> Result<Self> {
+        match job_type {
+            "visit-derive" => Ok(Self::VisitDerive),
+            "daily-rollup" => Ok(Self::DailyRollup),
+            "structural-rebuild" => Ok(Self::StructuralRebuild),
+            "full-rebuild" => Ok(Self::FullRebuild),
+            _ => anyhow::bail!("'{job_type}' is not a supported Core Intelligence job type."),
+        }
+    }
+
+    fn requires_visit_derived_facts(self) -> bool {
+        matches!(self, Self::VisitDerive | Self::FullRebuild)
+    }
+
+    fn requires_daily_rollups(self) -> bool {
+        matches!(self, Self::DailyRollup | Self::FullRebuild)
+    }
+
+    fn requires_structural_entities(self) -> bool {
+        matches!(self, Self::StructuralRebuild | Self::FullRebuild)
+    }
+
+    fn module_ids(self) -> &'static [&'static str] {
+        match self {
+            Self::VisitDerive => &[VISIT_DERIVED_FACTS_MODULE_ID],
+            Self::DailyRollup => &[DAILY_ROLLUPS_MODULE_ID, ACTIVITY_MIX_MODULE_ID],
+            Self::StructuralRebuild => &[
+                SESSIONS_MODULE_ID,
+                SEARCH_TRAILS_MODULE_ID,
+                REFIND_PAGES_MODULE_ID,
+                SEARCH_EFFECTIVENESS_MODULE_ID,
+                DOMAIN_DEEP_DIVE_MODULE_ID,
+            ],
+            Self::FullRebuild => &[
+                VISIT_DERIVED_FACTS_MODULE_ID,
+                DAILY_ROLLUPS_MODULE_ID,
+                SESSIONS_MODULE_ID,
+                SEARCH_TRAILS_MODULE_ID,
+                REFIND_PAGES_MODULE_ID,
+                ACTIVITY_MIX_MODULE_ID,
+                SEARCH_EFFECTIVENESS_MODULE_ID,
+                DOMAIN_DEEP_DIVE_MODULE_ID,
+            ],
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::VisitDerive => "visit-derived facts refresh",
+            Self::DailyRollup => "daily rollup refresh",
+            Self::StructuralRebuild => "structural entity rebuild",
+            Self::FullRebuild => "full Core Intelligence rebuild",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct VisitRecord {
     visit_id: i64,
@@ -560,13 +634,62 @@ pub fn run_core_intelligence(
     key: Option<&str>,
     request: &CoreIntelligenceRebuildRequest,
 ) -> Result<CoreIntelligenceRebuildReport> {
-    run_core_intelligence_with_progress(paths, config, key, request, |_progress| Ok(()))
+    run_core_intelligence_job_with_progress(
+        paths,
+        config,
+        key,
+        CoreIntelligenceJobKind::FullRebuild,
+        request,
+        |_progress| Ok(()),
+    )
 }
 
 pub fn run_core_intelligence_with_progress<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
+    request: &CoreIntelligenceRebuildRequest,
+    on_progress: F,
+) -> Result<CoreIntelligenceRebuildReport>
+where
+    F: FnMut(CoreIntelligenceProgress) -> Result<()>,
+{
+    run_core_intelligence_job_with_progress(
+        paths,
+        config,
+        key,
+        CoreIntelligenceJobKind::FullRebuild,
+        request,
+        on_progress,
+    )
+}
+
+pub fn run_core_intelligence_job_type_with_progress<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    job_type: &str,
+    request: &CoreIntelligenceRebuildRequest,
+    on_progress: F,
+) -> Result<CoreIntelligenceRebuildReport>
+where
+    F: FnMut(CoreIntelligenceProgress) -> Result<()>,
+{
+    run_core_intelligence_job_with_progress(
+        paths,
+        config,
+        key,
+        CoreIntelligenceJobKind::from_job_type(job_type)?,
+        request,
+        on_progress,
+    )
+}
+
+fn run_core_intelligence_job_with_progress<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    job_kind: CoreIntelligenceJobKind,
     request: &CoreIntelligenceRebuildRequest,
     mut on_progress: F,
 ) -> Result<CoreIntelligenceRebuildReport>
@@ -577,19 +700,23 @@ where
     ensure_core_intelligence_schema(&connection)?;
     let run_id = Utc::now().timestamp_millis();
     let computed_at = now_rfc3339();
-    let mut notes = Vec::new();
-    if request.profile_id.is_none() && request.full_rebuild {
+    let mut notes = vec![format!("Completed a {}.", job_kind.label())];
+    if request.profile_id.is_none()
+        && request.full_rebuild
+        && job_kind == CoreIntelligenceJobKind::FullRebuild
+    {
         notes.push(
             "Performed a full Core Intelligence rebuild over all visible profiles.".to_string(),
         );
     }
     let visits = load_visible_visits(&connection, request.profile_id.as_deref(), request.limit)?;
     if visits.is_empty() {
-        clear_core_tables(&connection, request.profile_id.as_deref())?;
+        clear_core_tables_for_job_kind(&connection, request.profile_id.as_deref(), job_kind)?;
         persist_ready_module_updates(
             &connection,
             run_id,
             Some(computed_at.clone()),
+            job_kind.module_ids(),
             &["No visible visits matched the requested rebuild scope.".to_string()],
         )?;
         return Ok(CoreIntelligenceRebuildReport {
@@ -607,10 +734,14 @@ where
         });
     }
 
-    on_progress(progress_for_phase(0, Some(0), Some(visits.len())))?;
+    let total_visible_visits = visits.len();
+    on_progress(progress_for_phase(0, Some(0), Some(total_visible_visits)))?;
     let by_profile = build_profile_state(visits);
     on_progress(progress_for_phase(1, None, None))?;
 
+    let needs_visit_derived_facts = job_kind.requires_visit_derived_facts();
+    let needs_daily_rollups = job_kind.requires_daily_rollups();
+    let needs_structural_entities = job_kind.requires_structural_entities();
     let mut all_visits = Vec::new();
     let mut all_sessions = Vec::new();
     let mut all_search_events = Vec::new();
@@ -626,26 +757,31 @@ where
     let profile_total = by_profile.len();
     for (profile_index, (profile_id, mut profile_visits)) in by_profile.into_iter().enumerate() {
         compute_is_new_domain(&mut profile_visits);
-        let sessions = build_sessions(&mut profile_visits);
-        let (search_events, trails) = build_search_trails(&mut profile_visits);
-        let query_families = build_query_families(&search_events);
-        let refind_pages = build_refind_pages(&profile_visits);
-        let source_effectiveness = build_source_effectiveness(&trails, &refind_pages);
-        let reopened = build_reopened_investigations(&query_families, &refind_pages);
-        let path_flows = build_path_flows(&profile_visits);
-        let habits = build_habit_patterns(&profile_visits);
-        merge_rollups(&mut rollups, build_daily_rollups(&profile_visits));
-
-        all_visits.extend(profile_visits);
-        all_sessions.extend(sessions);
-        all_search_events.extend(search_events);
-        all_trails.extend(trails);
-        all_query_families.extend(query_families);
-        all_refind_pages.extend(refind_pages);
-        all_source_effectiveness.extend(source_effectiveness);
-        all_reopened.extend(reopened);
-        all_path_flows.extend(path_flows);
-        all_habits.extend(habits);
+        if needs_structural_entities {
+            let sessions = build_sessions(&mut profile_visits);
+            let (search_events, trails) = build_search_trails(&mut profile_visits);
+            let query_families = build_query_families(&search_events);
+            let refind_pages = build_refind_pages(&profile_visits);
+            let source_effectiveness = build_source_effectiveness(&trails, &refind_pages);
+            let reopened = build_reopened_investigations(&query_families, &refind_pages);
+            let path_flows = build_path_flows(&profile_visits);
+            let habits = build_habit_patterns(&profile_visits);
+            all_sessions.extend(sessions);
+            all_search_events.extend(search_events);
+            all_trails.extend(trails);
+            all_query_families.extend(query_families);
+            all_refind_pages.extend(refind_pages);
+            all_source_effectiveness.extend(source_effectiveness);
+            all_reopened.extend(reopened);
+            all_path_flows.extend(path_flows);
+            all_habits.extend(habits);
+        }
+        if needs_daily_rollups {
+            merge_rollups(&mut rollups, build_daily_rollups(&profile_visits));
+        }
+        if needs_visit_derived_facts {
+            all_visits.extend(profile_visits);
+        }
         on_progress(CoreIntelligenceProgress {
             phase: "profile-build".to_string(),
             detail: format!("Built Core Intelligence entities for profile {profile_id}"),
@@ -658,9 +794,10 @@ where
     }
 
     on_progress(progress_for_phase(4, None, None))?;
-    persist_core_state(
+    persist_core_state_for_job_kind(
         &connection,
         request.profile_id.as_deref(),
+        job_kind,
         &computed_at,
         &all_visits,
         &rollups,
@@ -674,13 +811,19 @@ where
         &all_reopened,
         &all_path_flows,
     )?;
-    on_progress(progress_for_phase(6, Some(all_visits.len()), Some(all_visits.len())))?;
+    on_progress(progress_for_phase(6, Some(total_visible_visits), Some(total_visible_visits)))?;
 
-    persist_ready_module_updates(&connection, run_id, Some(computed_at.clone()), &notes)?;
+    persist_ready_module_updates(
+        &connection,
+        run_id,
+        Some(computed_at.clone()),
+        job_kind.module_ids(),
+        &notes,
+    )?;
 
     Ok(CoreIntelligenceRebuildReport {
         run_id,
-        processed_visits: all_visits.len(),
+        processed_visits: total_visible_visits,
         visit_derived_facts: all_visits.len(),
         sessions: all_sessions.len(),
         search_trails: all_trails.len(),
@@ -720,6 +863,7 @@ fn persist_ready_module_updates(
     connection: &Connection,
     run_id: i64,
     built_at: Option<String>,
+    module_ids: &[&str],
     notes: &[String],
 ) -> Result<()> {
     let shared_notes = if notes.is_empty() {
@@ -727,16 +871,10 @@ fn persist_ready_module_updates(
     } else {
         notes.to_vec()
     };
-    let updates = vec![
-        module_update(VISIT_DERIVED_FACTS_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(DAILY_ROLLUPS_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(SESSIONS_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(SEARCH_TRAILS_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(REFIND_PAGES_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(ACTIVITY_MIX_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(SEARCH_EFFECTIVENESS_MODULE_ID, run_id, built_at.clone(), &shared_notes),
-        module_update(DOMAIN_DEEP_DIVE_MODULE_ID, run_id, built_at, &shared_notes),
-    ];
+    let updates = module_ids
+        .iter()
+        .map(|module_id| module_update(module_id, run_id, built_at.clone(), &shared_notes))
+        .collect::<Vec<_>>();
     persist_deterministic_module_runtime_updates(connection, &updates)
 }
 
@@ -1317,35 +1455,60 @@ fn build_reopened_investigations(
 }
 
 fn build_path_flows(visits: &[VisitRecord]) -> Vec<PathFlowRecord> {
-    let domains = visits
-        .iter()
-        .map(|visit| {
-            (visit.profile_id.clone(), visit.registrable_domain.clone(), visit.visit_time_ms)
-        })
-        .collect::<Vec<_>>();
     let mut flows = HashMap::<(String, String, i64), (i64, i64)>::new();
-    for window in domains.windows(2) {
-        if window[0].0 != window[1].0 || window[0].1 == window[1].1 {
-            continue;
+    let mut current_session = None::<String>;
+    let mut current_profile = None::<String>;
+    let mut current_sequence = Vec::<(String, i64)>::new();
+
+    let mut flush_sequence = |profile_id: &str, sequence: &[(String, i64)]| {
+        for step_count in [2_usize, 3_usize] {
+            if sequence.len() < step_count {
+                continue;
+            }
+            for window in sequence.windows(step_count) {
+                let flow_pattern = window
+                    .iter()
+                    .map(|(domain, _)| domain.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" → ");
+                let last_seen_ms =
+                    window.iter().map(|(_, visit_time_ms)| *visit_time_ms).max().unwrap_or(0);
+                let key = (profile_id.to_string(), flow_pattern, step_count as i64);
+                let entry = flows.entry(key).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 = entry.1.max(last_seen_ms);
+            }
         }
-        let key = (window[0].0.clone(), format!("{} → {}", window[0].1, window[1].1), 2);
-        let entry = flows.entry(key).or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 = entry.1.max(window[1].2);
-    }
-    for window in domains.windows(3) {
-        if window[0].0 != window[1].0 || window[1].0 != window[2].0 {
-            continue;
+    };
+
+    for visit in visits {
+        let session_id = visit
+            .session_id
+            .clone()
+            .unwrap_or_else(|| format!("sessionless:{}:{}", visit.profile_id, visit.visit_id));
+        if current_session.as_deref() != Some(session_id.as_str()) {
+            if let (Some(profile_id), false) =
+                (current_profile.as_deref(), current_sequence.is_empty())
+            {
+                flush_sequence(profile_id, &current_sequence);
+            }
+            current_session = Some(session_id);
+            current_profile = Some(visit.profile_id.clone());
+            current_sequence.clear();
         }
-        let key = (
-            window[0].0.clone(),
-            format!("{} → {} → {}", window[0].1, window[1].1, window[2].1),
-            3,
-        );
-        let entry = flows.entry(key).or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 = entry.1.max(window[2].2);
+        if current_sequence
+            .last()
+            .is_none_or(|(last_domain, _)| *last_domain != visit.registrable_domain)
+        {
+            current_sequence.push((visit.registrable_domain.clone(), visit.visit_time_ms));
+        } else if let Some((_, last_seen_ms)) = current_sequence.last_mut() {
+            *last_seen_ms = visit.visit_time_ms;
+        }
     }
+    if let (Some(profile_id), false) = (current_profile.as_deref(), current_sequence.is_empty()) {
+        flush_sequence(profile_id, &current_sequence);
+    }
+
     flows
         .into_iter()
         .map(|((profile_id, flow_pattern, step_count), (occurrence_count, last_seen_ms))| {
@@ -1355,13 +1518,13 @@ fn build_path_flows(visits: &[VisitRecord]) -> Vec<PathFlowRecord> {
 }
 
 fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRecord> {
-    let mut by_domain = HashMap::<String, BTreeSet<String>>::new();
+    let mut by_domain = HashMap::<String, BTreeSet<NaiveDate>>::new();
     let mut last_visit = HashMap::<String, i64>::new();
     for visit in visits {
         by_domain
             .entry(visit.registrable_domain.clone())
             .or_default()
-            .insert(local_date_key(visit.visit_time_ms));
+            .insert(local_datetime_from_millis(visit.visit_time_ms).date_naive());
         last_visit
             .entry(visit.registrable_domain.clone())
             .and_modify(|value| *value = (*value).max(visit.visit_time_ms))
@@ -1370,13 +1533,13 @@ fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRecord> {
     by_domain
         .into_iter()
         .filter_map(|(domain, days)| {
-            if days.len() < 3 {
+            if days.len() < 5 {
                 return None;
             }
-            let parsed_days = days
-                .iter()
-                .filter_map(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
-                .collect::<Vec<_>>();
+            let parsed_days = days.into_iter().collect::<Vec<_>>();
+            if (*parsed_days.last()? - *parsed_days.first()?).num_days() < 14 {
+                return None;
+            }
             let intervals = parsed_days
                 .windows(2)
                 .map(|window| (window[1] - window[0]).num_days() as f32)
@@ -1389,13 +1552,15 @@ fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRecord> {
                 / intervals.len() as f32;
             let std_dev = variance.sqrt();
             let cv = if mean == 0.0 { 0.0 } else { std_dev / mean };
-            let habit_type = if mean <= 1.5 {
-                "daily_habit"
-            } else if mean <= 8.0 {
-                "weekly_habit"
+            let habit_type = if mean < 2.0 && cv < 0.5 {
+                Some("daily_habit")
+            } else if (5.0..=10.0).contains(&mean) && cv < 0.6 {
+                Some("weekly_habit")
+            } else if mean > 10.0 && cv < 0.8 {
+                Some("periodic_reference")
             } else {
-                "periodic_reference"
-            };
+                None
+            }?;
             let last_visited_ms = *last_visit.get(&domain).unwrap_or(&0);
             let days_since_last =
                 ((Utc::now().timestamp_millis() - last_visited_ms) as f32 / 86_400_000.0).max(0.0);
@@ -1548,9 +1713,10 @@ fn merge_rollups(target: &mut DailyRollupBundle, next: DailyRollupBundle) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn persist_core_state(
+fn persist_core_state_for_job_kind(
     connection: &Connection,
     profile_id: Option<&str>,
+    job_kind: CoreIntelligenceJobKind,
     computed_at: &str,
     visits: &[VisitRecord],
     rollups: &DailyRollupBundle,
@@ -1565,7 +1731,7 @@ fn persist_core_state(
     path_flows: &[PathFlowRecord],
 ) -> Result<()> {
     let tx = connection.unchecked_transaction()?;
-    clear_core_tables(&tx, profile_id)?;
+    clear_core_tables_for_job_kind(&tx, profile_id, job_kind)?;
 
     for visit in visits {
         tx.execute(
@@ -1859,8 +2025,36 @@ fn persist_core_state(
 }
 
 fn clear_core_tables(connection: &Connection, profile_id: Option<&str>) -> Result<()> {
-    if let Some(profile_id) = profile_id {
-        for table in [
+    clear_core_tables_for_job_kind(connection, profile_id, CoreIntelligenceJobKind::FullRebuild)
+}
+
+fn clear_core_tables_for_job_kind(
+    connection: &Connection,
+    profile_id: Option<&str>,
+    job_kind: CoreIntelligenceJobKind,
+) -> Result<()> {
+    let tables: &[&str] = match job_kind {
+        CoreIntelligenceJobKind::VisitDerive => &["visit_derived_facts"],
+        CoreIntelligenceJobKind::DailyRollup => &[
+            "domain_daily_rollups",
+            "category_daily_rollups",
+            "engine_daily_rollups",
+            "daily_summary_rollups",
+        ],
+        CoreIntelligenceJobKind::StructuralRebuild => &[
+            "sessions",
+            "search_trails",
+            "search_trail_members",
+            "search_events",
+            "search_event_terms",
+            "query_families",
+            "refind_pages",
+            "source_effectiveness",
+            "habit_patterns",
+            "reopened_investigations",
+            "path_flows",
+        ],
+        CoreIntelligenceJobKind::FullRebuild => &[
             "visit_derived_facts",
             "domain_daily_rollups",
             "category_daily_rollups",
@@ -1877,13 +2071,17 @@ fn clear_core_tables(connection: &Connection, profile_id: Option<&str>) -> Resul
             "habit_patterns",
             "reopened_investigations",
             "path_flows",
-        ] {
-            if table == "search_trail_members" {
+        ],
+    };
+
+    if let Some(profile_id) = profile_id {
+        for table in tables {
+            if *table == "search_trail_members" {
                 connection.execute(
                     "DELETE FROM search_trail_members WHERE profile_id = ?1",
                     [profile_id],
                 )?;
-            } else if table == "search_event_terms" {
+            } else if *table == "search_event_terms" {
                 connection.execute(
                     "DELETE FROM search_event_terms WHERE profile_id = ?1",
                     [profile_id],
@@ -1894,24 +2092,7 @@ fn clear_core_tables(connection: &Connection, profile_id: Option<&str>) -> Resul
             }
         }
     } else {
-        for table in [
-            "visit_derived_facts",
-            "domain_daily_rollups",
-            "category_daily_rollups",
-            "engine_daily_rollups",
-            "daily_summary_rollups",
-            "sessions",
-            "search_trails",
-            "search_trail_members",
-            "search_events",
-            "search_event_terms",
-            "query_families",
-            "refind_pages",
-            "source_effectiveness",
-            "habit_patterns",
-            "reopened_investigations",
-            "path_flows",
-        ] {
+        for table in tables {
             connection.execute(&format!("DELETE FROM {table}"), [])?;
         }
     }
@@ -1948,11 +2129,11 @@ fn table_row_count(connection: &Connection, table: &str) -> Result<usize> {
         .map_err(Into::into)
 }
 
-fn local_date_key(visit_time_ms: i64) -> String {
+pub(super) fn local_date_key(visit_time_ms: i64) -> String {
     local_datetime_from_millis(visit_time_ms).format("%Y-%m-%d").to_string()
 }
 
-fn rfc3339_from_millis(visit_time_ms: i64) -> String {
+pub(super) fn rfc3339_from_millis(visit_time_ms: i64) -> String {
     local_datetime_from_millis(visit_time_ms).with_timezone(&Utc).to_rfc3339()
 }
 
@@ -1963,7 +2144,7 @@ fn local_datetime_from_millis(visit_time_ms: i64) -> chrono::DateTime<Local> {
     }
 }
 
-fn date_range_bounds(range: &DateRange) -> Result<(i64, i64)> {
+pub(super) fn date_range_bounds(range: &DateRange) -> Result<(i64, i64)> {
     let start = NaiveDate::parse_from_str(&range.start, "%Y-%m-%d")
         .with_context(|| format!("parsing start date {}", range.start))?;
     let end = NaiveDate::parse_from_str(&range.end, "%Y-%m-%d")
@@ -2296,7 +2477,7 @@ pub fn get_search_engine_ranking(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<EngineRanking>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
@@ -2610,7 +2791,7 @@ pub fn get_activity_mix(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<ActivityMix> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
@@ -2710,7 +2891,7 @@ pub fn get_digest_summary(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<DigestSummary> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
@@ -2744,7 +2925,7 @@ pub fn get_stable_sources(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<StableSource>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
@@ -2759,25 +2940,17 @@ pub fn get_stable_sources(
          LIMIT ?4",
     )?;
     statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                start_ms,
-                end_ms,
-                request.page_size.max(10) as i64
-            ],
-            |row| {
-                let domain: String = row.get(0)?;
-                Ok(StableSource {
-                    display_name: display_name_for_domain(&domain),
-                    registrable_domain: domain,
-                    source_role: row.get(1)?,
-                    trail_count: row.get(2)?,
-                    stable_landing_count: row.get(3)?,
-                    effectiveness_score: row.get(4)?,
-                })
-            },
-        )?
+        .query_map(params![request.profile_id.as_deref(), start_ms, end_ms, 10_i64], |row| {
+            let domain: String = row.get(0)?;
+            Ok(StableSource {
+                display_name: display_name_for_domain(&domain),
+                registrable_domain: domain,
+                source_role: row.get(1)?,
+                trail_count: row.get(2)?,
+                stable_landing_count: row.get(3)?,
+                effectiveness_score: row.get(4)?,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -2823,11 +2996,9 @@ pub fn get_search_effectiveness(
         paths,
         config,
         key,
-        &PagedDateRangeRequest {
+        &ScopedDateRangeRequest {
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
-            page: 0,
-            page_size: 5,
         },
     )?;
     let mut family_statement = connection.prepare(
@@ -2862,7 +3033,7 @@ pub fn get_friction_signals(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<FrictionSignal>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
@@ -2878,40 +3049,26 @@ pub fn get_friction_signals(
          LIMIT ?4",
     )?;
     statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                start_ms,
-                end_ms,
-                request.page_size.max(10) as i64
-            ],
-            |row| {
-                let landing_domain: Option<String> = row.get(1)?;
-                let reformulation_count: i64 = row.get(2)?;
-                let visit_count: i64 = row.get(3)?;
-                let signal_kind = if reformulation_count >= 2 {
-                    "excessive_reformulation"
-                } else {
-                    "bounce_pattern"
-                };
-                let description = if reformulation_count >= 2 {
-                    format!(
-                        "Repeated search reformulation after query '{}'.",
-                        row.get::<_, String>(0)?
-                    )
-                } else {
-                    "Search trail did not settle on a stable landing page.".to_string()
-                };
-                Ok(FrictionSignal {
-                    registrable_domain: landing_domain,
-                    url: None,
-                    evidence_type: "weak".to_string(),
-                    signal_kind: signal_kind.to_string(),
-                    occurrence_count: visit_count.max(reformulation_count),
-                    description,
-                })
-            },
-        )?
+        .query_map(params![request.profile_id.as_deref(), start_ms, end_ms, 10_i64], |row| {
+            let landing_domain: Option<String> = row.get(1)?;
+            let reformulation_count: i64 = row.get(2)?;
+            let visit_count: i64 = row.get(3)?;
+            let signal_kind =
+                if reformulation_count >= 2 { "excessive_reformulation" } else { "bounce_pattern" };
+            let description = if reformulation_count >= 2 {
+                format!("Repeated search reformulation after query '{}'.", row.get::<_, String>(0)?)
+            } else {
+                "Search trail did not settle on a stable landing page.".to_string()
+            };
+            Ok(FrictionSignal {
+                registrable_domain: landing_domain,
+                url: None,
+                evidence_type: "weak".to_string(),
+                signal_kind: signal_kind.to_string(),
+                occurrence_count: visit_count.max(reformulation_count),
+                description,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -2920,7 +3077,7 @@ pub fn get_reopened_investigations(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    request: &PagedDateRangeRequest,
+    request: &ScopedDateRangeRequest,
 ) -> Result<Vec<ReopenedInvestigation>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
@@ -2936,26 +3093,18 @@ pub fn get_reopened_investigations(
          LIMIT ?4",
     )?;
     statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                start_ms,
-                end_ms,
-                request.page_size.max(10) as i64
-            ],
-            |row| {
-                Ok(ReopenedInvestigation {
-                    investigation_id: row.get(0)?,
-                    anchor_type: row.get(1)?,
-                    anchor_id: row.get(2)?,
-                    anchor_label: row.get(3)?,
-                    occurrence_count: row.get(4)?,
-                    distinct_days: row.get(5)?,
-                    first_seen_at: rfc3339_from_millis(row.get(6)?),
-                    last_seen_at: rfc3339_from_millis(row.get(7)?),
-                })
-            },
-        )?
+        .query_map(params![request.profile_id.as_deref(), start_ms, end_ms, 10_i64], |row| {
+            Ok(ReopenedInvestigation {
+                investigation_id: row.get(0)?,
+                anchor_type: row.get(1)?,
+                anchor_id: row.get(2)?,
+                anchor_label: row.get(3)?,
+                occurrence_count: row.get(4)?,
+                distinct_days: row.get(5)?,
+                first_seen_at: rfc3339_from_millis(row.get(6)?),
+                last_seen_at: rfc3339_from_millis(row.get(7)?),
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }

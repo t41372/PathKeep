@@ -157,6 +157,7 @@ pub(crate) struct EnrichmentJobPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeterministicRebuildJobPayload {
+    pub job_type: String,
     pub request: CoreIntelligenceRebuildRequest,
     pub reason: String,
 }
@@ -296,6 +297,34 @@ const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 8] = [
         derived_tables: &["habit_patterns", "path_flows"],
     },
 ];
+
+fn is_core_intelligence_job_type(job_type: &str) -> bool {
+    matches!(
+        job_type,
+        VISIT_DERIVE_JOB_TYPE
+            | DAILY_ROLLUP_JOB_TYPE
+            | STRUCTURAL_REBUILD_JOB_TYPE
+            | FULL_REBUILD_JOB_TYPE
+    )
+}
+
+fn core_intelligence_job_priority(job_type: &str) -> i64 {
+    match job_type {
+        VISIT_DERIVE_JOB_TYPE => VISIT_DERIVE_PRIORITY,
+        DAILY_ROLLUP_JOB_TYPE => DAILY_ROLLUP_PRIORITY,
+        STRUCTURAL_REBUILD_JOB_TYPE => STRUCTURAL_REBUILD_PRIORITY,
+        _ => FULL_REBUILD_PRIORITY,
+    }
+}
+
+fn core_intelligence_job_label(job_type: &str) -> &'static str {
+    match job_type {
+        VISIT_DERIVE_JOB_TYPE => "visit facts refresh",
+        DAILY_ROLLUP_JOB_TYPE => "daily rollup refresh",
+        STRUCTURAL_REBUILD_JOB_TYPE => "structural intelligence rebuild",
+        _ => "core intelligence rebuild",
+    }
+}
 
 /// Ensures the persistent intelligence runtime tables exist.
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
@@ -468,19 +497,27 @@ pub(crate) fn enqueue_enrichment_job(
     Ok(())
 }
 
-/// Enqueues one deterministic rebuild job for the requested scope.
-pub fn enqueue_deterministic_rebuild_job(
+/// Enqueues one Core Intelligence job for the requested scope and stage.
+pub fn enqueue_core_intelligence_job(
     connection: &Connection,
+    job_type: &str,
     request: &CoreIntelligenceRebuildRequest,
     reason: &str,
 ) -> Result<i64> {
     ensure_intelligence_runtime_schema(connection)?;
+    if !is_core_intelligence_job_type(job_type) {
+        anyhow::bail!("'{job_type}' is not a valid Core Intelligence job type.");
+    }
     let now = now_rfc3339();
-    let payload =
-        DeterministicRebuildJobPayload { request: request.clone(), reason: reason.to_string() };
+    let payload = DeterministicRebuildJobPayload {
+        job_type: job_type.to_string(),
+        request: request.clone(),
+        reason: reason.to_string(),
+    };
     let payload_json = serde_json::to_string(&payload)?;
     let dedupe_key = format!(
-        "core-intelligence:{}:{}:{}",
+        "core-intelligence:{}:{}:{}:{}",
+        job_type,
         request.profile_id.as_deref().unwrap_or("all"),
         request.full_rebuild,
         request.limit.map(|limit| limit.max(1).to_string()).unwrap_or_else(|| "full".to_string()),
@@ -501,19 +538,26 @@ pub fn enqueue_deterministic_rebuild_job(
                 "UPDATE intelligence_jobs
                  SET state = 'queued',
                      priority = ?1,
-                     scheduled_at = ?2,
-                     payload_json = ?3,
+                     job_type = ?2,
+                     scheduled_at = ?3,
+                     payload_json = ?4,
                      started_at = NULL,
                      finished_at = NULL,
                      heartbeat_at = NULL,
                      lease_owner = NULL,
                      lease_expires_at = NULL,
-                     updated_at = ?2,
+                     updated_at = ?3,
                      last_error = NULL,
                      cancellation_reason = NULL,
                      stop_requested = 0
-                 WHERE id = ?4",
-                params![FULL_REBUILD_PRIORITY, now, payload_json, job_id],
+                 WHERE id = ?5",
+                params![
+                    core_intelligence_job_priority(job_type),
+                    job_type,
+                    now,
+                    payload_json,
+                    job_id
+                ],
             )?;
         }
         return Ok(job_id);
@@ -524,15 +568,24 @@ pub fn enqueue_deterministic_rebuild_job(
          (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
           artifact_json, created_at, scheduled_at, updated_at)
          VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5)",
-        params![FULL_REBUILD_JOB_TYPE, FULL_REBUILD_PRIORITY, dedupe_key, payload_json, now],
+        params![job_type, core_intelligence_job_priority(job_type), dedupe_key, payload_json, now],
     )?;
     let job_id = connection.last_insert_rowid();
     record_intelligence_job_trigger(connection, job_id, None, Some(reason), &now)?;
     Ok(job_id)
 }
 
-/// Claims one deterministic rebuild job by id and returns its request payload.
-pub fn claim_deterministic_rebuild_job(
+/// Enqueues one full Core Intelligence rebuild job for the requested scope.
+pub fn enqueue_deterministic_rebuild_job(
+    connection: &Connection,
+    request: &CoreIntelligenceRebuildRequest,
+    reason: &str,
+) -> Result<i64> {
+    enqueue_core_intelligence_job(connection, FULL_REBUILD_JOB_TYPE, request, reason)
+}
+
+/// Claims one Core Intelligence job by id and returns its request payload.
+pub fn claim_core_intelligence_job(
     connection: &Connection,
     job_id: i64,
 ) -> Result<Option<DeterministicRebuildJobPayload>> {
@@ -554,9 +607,8 @@ pub fn claim_deterministic_rebuild_job(
              cancellation_reason = NULL,
              stop_requested = 0
          WHERE id = ?4
-           AND job_type = ?5
            AND state = 'queued'",
-        params![now, lease_owner, lease_expires_at, job_id, FULL_REBUILD_JOB_TYPE],
+        params![now, lease_owner, lease_expires_at, job_id],
     )?;
     if updated == 0 {
         return Ok(None);
@@ -565,14 +617,23 @@ pub fn claim_deterministic_rebuild_job(
         .query_row(
             "SELECT payload_json
              FROM intelligence_jobs
-             WHERE id = ?1 AND job_type = ?2",
-            params![job_id, FULL_REBUILD_JOB_TYPE],
+             WHERE id = ?1",
+            [job_id],
             |row| row.get::<_, String>(0),
         )
         .optional()?
         .map(|payload_json| serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json))
         .transpose()
         .map_err(Into::into)
+}
+
+/// Claims one full rebuild job by id and returns its request payload when the row matches.
+pub fn claim_deterministic_rebuild_job(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<Option<DeterministicRebuildJobPayload>> {
+    Ok(claim_core_intelligence_job(connection, job_id)?
+        .filter(|payload| payload.job_type == FULL_REBUILD_JOB_TYPE))
 }
 
 /// Persists runtime bookkeeping updates for deterministic modules.
@@ -621,10 +682,7 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
 }
 
 /// Marks every deterministic module as stale so the next rebuild can refresh them.
-pub(crate) fn mark_all_deterministic_modules_stale(
-    connection: &Connection,
-    reason: &str,
-) -> Result<()> {
+pub fn mark_all_deterministic_modules_stale(connection: &Connection, reason: &str) -> Result<()> {
     let now = now_rfc3339();
     let updates = built_in_deterministic_modules()
         .iter()
@@ -972,12 +1030,17 @@ pub fn next_queued_intelligence_job(
             "SELECT id, job_type
              FROM intelligence_jobs
              WHERE state = 'queued'
-             ORDER BY CASE WHEN job_type = ?1 THEN 1 ELSE 0 END DESC,
-                      priority ASC,
+               AND job_type IN (?1, ?2, ?3, ?4)
+             ORDER BY priority ASC,
                       scheduled_at ASC,
                       id ASC
              LIMIT 1",
-            [FULL_REBUILD_JOB_TYPE],
+            [
+                VISIT_DERIVE_JOB_TYPE,
+                DAILY_ROLLUP_JOB_TYPE,
+                STRUCTURAL_REBUILD_JOB_TYPE,
+                FULL_REBUILD_JOB_TYPE,
+            ],
             |row| Ok(QueuedIntelligenceJob { id: row.get(0)?, job_type: row.get(1)? }),
         )
         .optional()
@@ -1157,24 +1220,32 @@ pub fn cancel_intelligence_job(
 
 fn recover_interrupted_deterministic_jobs(connection: &Connection) -> Result<usize> {
     let now = now_rfc3339();
-    let updated = connection.execute(
-        "UPDATE intelligence_jobs
-         SET state = 'queued',
-             priority = ?2,
-             scheduled_at = ?1,
-             updated_at = ?1,
-             started_at = NULL,
-             finished_at = NULL,
-             heartbeat_at = NULL,
-             lease_owner = NULL,
-             lease_expires_at = NULL,
-             last_error = 'PathKeep restarted before this deterministic rebuild finished.',
-             cancellation_reason = NULL,
-             stop_requested = 0
-         WHERE job_type = ?3
-           AND state = 'running'",
-        params![now, FULL_REBUILD_PRIORITY, FULL_REBUILD_JOB_TYPE],
-    )?;
+    let mut updated = 0;
+    for job_type in [
+        VISIT_DERIVE_JOB_TYPE,
+        DAILY_ROLLUP_JOB_TYPE,
+        STRUCTURAL_REBUILD_JOB_TYPE,
+        FULL_REBUILD_JOB_TYPE,
+    ] {
+        updated += connection.execute(
+            "UPDATE intelligence_jobs
+             SET state = 'queued',
+                 priority = ?2,
+                 scheduled_at = ?1,
+                 updated_at = ?1,
+                 started_at = NULL,
+                 finished_at = NULL,
+                 heartbeat_at = NULL,
+                 lease_owner = NULL,
+                 lease_expires_at = NULL,
+                 last_error = 'PathKeep restarted before this Core Intelligence job finished.',
+                 cancellation_reason = NULL,
+                 stop_requested = 0
+             WHERE job_type = ?3
+               AND state = 'running'",
+            params![now, core_intelligence_job_priority(job_type), job_type],
+        )?;
+    }
     Ok(updated)
 }
 
@@ -1339,12 +1410,15 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
                 serde_json::from_str::<IntelligenceJobArtifact>(&artifact_json).unwrap_or_default();
             let state = row.get::<_, String>(3)?;
             let title = match job_type.as_str() {
-                DETERMINISTIC_REBUILD_JOB_TYPE => rebuild_payload.as_ref().map(|payload| {
-                    format!(
-                        "{} · core intelligence rebuild",
-                        payload.request.profile_id.as_deref().unwrap_or("All profiles"),
-                    )
-                }),
+                type_id if is_core_intelligence_job_type(type_id) => {
+                    rebuild_payload.as_ref().map(|payload| {
+                        format!(
+                            "{} · {}",
+                            payload.request.profile_id.as_deref().unwrap_or("All profiles"),
+                            core_intelligence_job_label(type_id),
+                        )
+                    })
+                }
                 _ => payload.as_ref().and_then(|value| value.title.clone()),
             };
             let progress_percent = artifact.progress_percent.map(|value| value.clamp(0.0, 100.0));
@@ -1925,6 +1999,7 @@ mod tests {
                 params![
                     DETERMINISTIC_REBUILD_JOB_TYPE,
                     serde_json::to_string(&DeterministicRebuildJobPayload {
+                        job_type: DETERMINISTIC_REBUILD_JOB_TYPE.to_string(),
                         request: CoreIntelligenceRebuildRequest::default(),
                         reason: "recover me".to_string(),
                     })
@@ -1949,7 +2024,7 @@ mod tests {
         assert!(
             last_error
                 .expect("recovery note")
-                .contains("restarted before this deterministic rebuild finished")
+                .contains("restarted before this Core Intelligence job finished")
         );
     }
 
@@ -2014,6 +2089,7 @@ mod tests {
                     DETERMINISTIC_REBUILD_JOB_TYPE,
                     DETERMINISTIC_REBUILD_PRIORITY,
                     serde_json::to_string(&DeterministicRebuildJobPayload {
+                        job_type: DETERMINISTIC_REBUILD_JOB_TYPE.to_string(),
                         request: CoreIntelligenceRebuildRequest::default(),
                         reason: "recover me".to_string(),
                     })

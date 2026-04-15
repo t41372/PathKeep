@@ -25,10 +25,13 @@ use vault_core::{
     HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, RemoteBackupPreview,
     RemoteBackupResult, RemoteBackupVerification, TakeoutInspection, TakeoutRequest, ai_queue,
     clear_derived_intelligence_state, doctor, export_history, import_takeout, inspect_takeout,
-    intelligence_runtime::enqueue_deterministic_rebuild_job, list_history, load_audit_run_detail,
-    load_dashboard_snapshot, preview_import_batch, preview_remote_backup, repair_health_issues,
-    restore_import_batch, revert_import_batch, run_backup_with_progress, run_remote_backup,
-    verify_remote_backup,
+    intelligence_runtime::{
+        DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
+        enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
+    },
+    list_history, load_audit_run_detail, load_dashboard_snapshot, preview_import_batch,
+    preview_remote_backup, repair_health_issues, restore_import_batch, revert_import_batch,
+    run_backup_with_progress, run_remote_backup, verify_remote_backup,
 };
 use vault_platform::keyring_get_s3_credentials;
 
@@ -162,7 +165,7 @@ where
         {
             report
                 .warnings
-                .push(format!("Deterministic insights could not refresh after backup: {error}"));
+                .push(format!("Core Intelligence could not refresh after backup: {error}"));
         }
     }
     Ok(report)
@@ -259,11 +262,16 @@ pub fn import_takeout_source(
     let mut inspection = import_takeout(&paths, &config, session_database_key, request)?;
     if inspection.imported_items > 0 {
         match enqueue_and_spawn_deterministic_refresh(&paths, &config, session_database_key) {
-            Ok(job_id) => inspection.notes.push(format!(
-                "Deterministic insights refresh job {job_id} was queued automatically after import and will finish in the background."
+            Ok(job_ids) => inspection.notes.push(format!(
+                "Core Intelligence refresh jobs {} were queued automatically after import and will finish in the background.",
+                job_ids
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )),
             Err(error) => inspection.notes.push(format!(
-                "Deterministic insights could not refresh automatically after import: {error}"
+                "Core Intelligence could not refresh automatically after import: {error}"
             )),
         }
     }
@@ -322,16 +330,35 @@ fn enqueue_and_spawn_deterministic_refresh(
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     session_database_key: Option<&str>,
-) -> Result<i64> {
+) -> Result<Vec<i64>> {
     let connection = ai_archive_connection(paths, config, session_database_key)?;
-    let request = CoreIntelligenceRebuildRequest::default();
-    let job_id = enqueue_deterministic_rebuild_job(
+    mark_all_deterministic_modules_stale(
         &connection,
-        &request,
-        "Archive data changed and Core Intelligence needs a refresh.",
+        "Archive data changed and Core Intelligence refresh jobs were queued.",
     )?;
+    let request = CoreIntelligenceRebuildRequest::default();
+    let job_ids = vec![
+        enqueue_core_intelligence_job(
+            &connection,
+            VISIT_DERIVE_JOB_TYPE,
+            &request,
+            "Archive data changed and visit-derived facts need a refresh.",
+        )?,
+        enqueue_core_intelligence_job(
+            &connection,
+            DAILY_ROLLUP_JOB_TYPE,
+            &request,
+            "Archive data changed and daily rollups need a refresh.",
+        )?,
+        enqueue_core_intelligence_job(
+            &connection,
+            STRUCTURAL_REBUILD_JOB_TYPE,
+            &request,
+            "Archive data changed and structural Core Intelligence entities need a refresh.",
+        )?,
+    ];
     if !config.ai.job_queue_paused {
-        maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, 1);
+        maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, job_ids.len());
     }
-    Ok(job_id)
+    Ok(job_ids)
 }

@@ -4,7 +4,8 @@ use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
     DomainDeepDiveRequest, DomainTrendRequest, ExplainRefindRequest, GranularityDateRangeRequest,
-    PagedDateRangeRequest, RefindPagesRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
     TopSearchConceptsRequest, TopSitesRequest,
 };
 
@@ -188,7 +189,7 @@ pub(crate) fn get_hub_pages_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_search_engine_ranking_impl(
-    request: PagedDateRangeRequest,
+    request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
 ) -> Result<Vec<vault_core::EngineRanking>, String> {
     worker_result(vault_worker::get_search_engine_ranking(session_database_key, &request))
@@ -244,7 +245,7 @@ pub(crate) fn explain_refind_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_activity_mix_impl(
-    request: PagedDateRangeRequest,
+    request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::ActivityMix, String> {
     worker_result(vault_worker::get_activity_mix(session_database_key, &request))
@@ -260,7 +261,7 @@ pub(crate) fn get_activity_mix_trend_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_digest_summary_impl(
-    request: PagedDateRangeRequest,
+    request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::DigestSummary, String> {
     worker_result(vault_worker::get_digest_summary(session_database_key, &request))
@@ -268,7 +269,7 @@ pub(crate) fn get_digest_summary_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_stable_sources_impl(
-    request: PagedDateRangeRequest,
+    request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
 ) -> Result<Vec<vault_core::StableSource>, String> {
     worker_result(vault_worker::get_stable_sources(session_database_key, &request))
@@ -284,7 +285,7 @@ pub(crate) fn get_search_effectiveness_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_friction_signals_impl(
-    request: PagedDateRangeRequest,
+    request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
 ) -> Result<Vec<vault_core::FrictionSignal>, String> {
     worker_result(vault_worker::get_friction_signals(session_database_key, &request))
@@ -292,7 +293,7 @@ pub(crate) fn get_friction_signals_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_reopened_investigations_impl(
-    request: PagedDateRangeRequest,
+    request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
 ) -> Result<Vec<vault_core::ReopenedInvestigation>, String> {
     worker_result(vault_worker::get_reopened_investigations(session_database_key, &request))
@@ -328,6 +329,62 @@ pub(crate) fn get_on_this_day_impl(
     session_database_key: Option<&str>,
 ) -> Result<Vec<vault_core::OnThisDayEntry>, String> {
     worker_result(vault_worker::get_on_this_day(session_database_key, profile_id.as_deref()))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_breadth_index_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::BreadthIndex, String> {
+    worker_result(vault_worker::get_breadth_index(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_habit_patterns_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::HabitPattern>, String> {
+    worker_result(vault_worker::get_habit_patterns(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_interrupted_habits_impl(
+    request: ProfileScopedRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::InterruptedHabit>, String> {
+    worker_result(vault_worker::get_interrupted_habits(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_path_flows_impl(
+    request: PathFlowRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::PathFlow>, String> {
+    worker_result(vault_worker::get_path_flows(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_observed_interactions_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::ObservedInteraction>, String> {
+    worker_result(vault_worker::get_observed_interactions(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_compare_sets_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::CompareSet>, String> {
+    worker_result(vault_worker::get_compare_sets(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_multi_browser_diff_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::BrowserDiff, String> {
+    worker_result(vault_worker::get_multi_browser_diff(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

@@ -195,7 +195,7 @@ pub(crate) fn get_hub_pages(
 #[cfg(not(test))]
 #[tauri::command]
 pub(crate) fn get_search_engine_ranking(
-    request: vault_core::PagedDateRangeRequest,
+    request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::EngineRanking>, String> {
     worker_bridge::get_search_engine_ranking_impl(request, state.get_key().as_deref())
@@ -258,7 +258,7 @@ pub(crate) fn explain_refind(
 #[cfg(not(test))]
 #[tauri::command]
 pub(crate) fn get_activity_mix(
-    request: vault_core::PagedDateRangeRequest,
+    request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ActivityMix, String> {
     worker_bridge::get_activity_mix_impl(request, state.get_key().as_deref())
@@ -276,7 +276,7 @@ pub(crate) fn get_activity_mix_trend(
 #[cfg(not(test))]
 #[tauri::command]
 pub(crate) fn get_digest_summary(
-    request: vault_core::PagedDateRangeRequest,
+    request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::DigestSummary, String> {
     worker_bridge::get_digest_summary_impl(request, state.get_key().as_deref())
@@ -285,7 +285,7 @@ pub(crate) fn get_digest_summary(
 #[cfg(not(test))]
 #[tauri::command]
 pub(crate) fn get_stable_sources(
-    request: vault_core::PagedDateRangeRequest,
+    request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::StableSource>, String> {
     worker_bridge::get_stable_sources_impl(request, state.get_key().as_deref())
@@ -303,7 +303,7 @@ pub(crate) fn get_search_effectiveness(
 #[cfg(not(test))]
 #[tauri::command]
 pub(crate) fn get_friction_signals(
-    request: vault_core::PagedDateRangeRequest,
+    request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::FrictionSignal>, String> {
     worker_bridge::get_friction_signals_impl(request, state.get_key().as_deref())
@@ -312,7 +312,7 @@ pub(crate) fn get_friction_signals(
 #[cfg(not(test))]
 #[tauri::command]
 pub(crate) fn get_reopened_investigations(
-    request: vault_core::PagedDateRangeRequest,
+    request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::ReopenedInvestigation>, String> {
     worker_bridge::get_reopened_investigations_impl(request, state.get_key().as_deref())
@@ -352,6 +352,69 @@ pub(crate) fn get_on_this_day(
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::OnThisDayEntry>, String> {
     worker_bridge::get_on_this_day_impl(profile_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_breadth_index(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::BreadthIndex, String> {
+    worker_bridge::get_breadth_index_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_habit_patterns(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::HabitPattern>, String> {
+    worker_bridge::get_habit_patterns_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_interrupted_habits(
+    request: vault_core::ProfileScopedRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::InterruptedHabit>, String> {
+    worker_bridge::get_interrupted_habits_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_path_flows(
+    request: vault_core::PathFlowRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::PathFlow>, String> {
+    worker_bridge::get_path_flows_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_observed_interactions(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::ObservedInteraction>, String> {
+    worker_bridge::get_observed_interactions_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_compare_sets(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::CompareSet>, String> {
+    worker_bridge::get_compare_sets_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_multi_browser_diff(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::BrowserDiff, String> {
+    worker_bridge::get_multi_browser_diff_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

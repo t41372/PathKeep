@@ -72,6 +72,21 @@ pub struct PagedDateRangeRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Common request shape for non-paginated, profile-scoped Core Intelligence reads.
+pub struct ScopedDateRangeRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Common request shape for profile-scoped reads that do not need a date window.
+pub struct ProfileScopedRequest {
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Request shape for engine-scoped or filtered search-trail reads.
 pub struct SearchTrailQueryRequest {
     pub date_range: DateRange,
@@ -95,6 +110,7 @@ pub struct TopSitesRequest {
 #[serde(rename_all = "camelCase")]
 /// Request shape for one domain trend series.
 pub struct DomainTrendRequest {
+    #[serde(alias = "domain")]
     pub registrable_domain: String,
     pub date_range: DateRange,
 }
@@ -155,6 +171,7 @@ pub struct SearchEffectivenessRequest {
 #[serde(rename_all = "camelCase")]
 /// Request shape for one domain deep-dive read.
 pub struct DomainDeepDiveRequest {
+    #[serde(alias = "domain")]
     pub registrable_domain: String,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
@@ -168,6 +185,14 @@ pub struct PathFlowRequest {
     pub profile_id: Option<String>,
     pub step_count: u32,
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request shape for generic explainability lookups.
+pub struct EntityExplanationRequest {
+    pub entity_type: String,
+    pub entity_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

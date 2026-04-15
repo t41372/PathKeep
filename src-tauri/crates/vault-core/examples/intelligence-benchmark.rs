@@ -11,7 +11,8 @@ use vault_core::{
     get_top_search_concepts, get_top_sites,
     models::{
         AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, PagedDateRangeRequest,
-        RefindPagesRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
+        RefindPagesRequest, ScopedDateRangeRequest, SearchTrailQueryRequest,
+        TopSearchConceptsRequest, TopSitesRequest,
     },
     run_core_intelligence_with_progress,
 };
@@ -74,7 +75,12 @@ fn main() -> Result<()> {
             page_size: 20,
         },
     )?;
-    let digest = get_digest_summary(&paths, &config, None, &paged_request)?;
+    let digest = get_digest_summary(
+        &paths,
+        &config,
+        None,
+        &ScopedDateRangeRequest { date_range: query_range.clone(), profile_id: None },
+    )?;
     let query_families = get_query_families(&paths, &config, None, &paged_request)?;
     let top_sites = get_top_sites(
         &paths,
