@@ -13,31 +13,31 @@ mod site_dictionary;
 
 use self::site_dictionary::{
     SiteDictionaryEntry, classify_visit, display_name_for_domain, display_name_for_search_engine,
-    normalize_query,
+    ensure_site_dictionary_override_schema, load_site_dictionary_overrides, normalize_query,
 };
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
+    intelligence_catalog::{RebuildMode, module_descriptor_for_entity_type},
     intelligence_runtime::DeterministicModuleRuntimeUpdate,
     intelligence_runtime::persist_deterministic_module_runtime_updates,
     models::{
-        ACTIVITY_MIX_MODULE_ID, ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, AppConfig,
-        ArrivalBreakdown, CategoryChangeEntry, CategoryFilteredDateRangeRequest, CategoryMixEntry,
+        ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, AppConfig, ArrivalBreakdown,
+        CategoryChangeEntry, CategoryFilteredDateRangeRequest, CategoryMixEntry,
         ClearDerivedIntelligenceReport, CoreIntelligenceRebuildReport,
-        CoreIntelligenceRebuildRequest, DAILY_ROLLUPS_MODULE_ID, DOMAIN_DEEP_DIVE_MODULE_ID,
-        DateRange, DigestSummary, DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive,
-        DomainDeepDiveRequest, DomainFlowStat, DomainPageStat, DomainTrend, DomainTrendPoint,
-        DomainTrendRequest, EngineEffectiveness, EngineRanking, ExplainRefindRequest,
-        FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage, InsightStatus, KpiMetric,
-        NavigationPath, NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily,
-        QueryFamilyResult, REFIND_PAGES_MODULE_ID, RefindExplanation, RefindPage,
+        CoreIntelligenceRebuildRequest, DateRange, DigestSummary, DiscoveryTrend,
+        DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat, DomainPageStat,
+        DomainTrend, DomainTrendPoint, DomainTrendRequest, EngineEffectiveness, EngineRanking,
+        EntityExplanationRequest, ExplainRefindRequest, ExplainabilityFactor, Explanation,
+        FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage, InsightStatus,
+        IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
+        IntelligenceWidgetSnapshot, KpiMetric, NavigationPath, NavigationPathStep, OnThisDayEntry,
+        PagedDateRangeRequest, QueryFamily, QueryFamilyResult, RefindExplanation, RefindPage,
         RefindPagesRequest, RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap,
-        RhythmHeatmapCell, SEARCH_EFFECTIVENESS_MODULE_ID, SEARCH_TRAILS_MODULE_ID,
-        SESSIONS_MODULE_ID, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
+        RhythmHeatmapCell, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
         SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
         SessionSummary, SessionVisit, StableSource, TopSearchConceptsRequest, TopSite,
         TopSitesRequest, TrailDetail, TrailListResult, TrailMember, TrailSummary,
-        VISIT_DERIVED_FACTS_MODULE_ID,
     },
     utils::now_rfc3339,
 };
@@ -284,6 +284,34 @@ CREATE TABLE IF NOT EXISTS path_flows (
 );
 "#;
 
+const INTELLIGENCE_SCHEMA_MIGRATIONS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS intelligence_schema_migrations (
+  version     INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  applied_at  TEXT NOT NULL
+);
+"#;
+
+#[derive(Clone, Copy)]
+struct IntelligenceMigrationSpec {
+    version: i64,
+    name: &'static str,
+    apply: fn(&Connection) -> Result<()>,
+}
+
+const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
+    IntelligenceMigrationSpec {
+        version: 1,
+        name: "core-intelligence-baseline",
+        apply: apply_core_intelligence_baseline_migration,
+    },
+    IntelligenceMigrationSpec {
+        version: 2,
+        name: "site-dictionary-overrides",
+        apply: apply_site_dictionary_override_migration,
+    },
+];
+
 const LEGACY_INSIGHT_TABLES: &[&str] = &[
     "insight_bursts",
     "insight_query_groups",
@@ -317,71 +345,6 @@ pub struct CoreIntelligenceProgress {
     pub processed_items: Option<usize>,
     pub total_items: Option<usize>,
     pub progress_percent: Option<f32>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CoreIntelligenceJobKind {
-    VisitDerive,
-    DailyRollup,
-    StructuralRebuild,
-    FullRebuild,
-}
-
-impl CoreIntelligenceJobKind {
-    fn from_job_type(job_type: &str) -> Result<Self> {
-        match job_type {
-            "visit-derive" => Ok(Self::VisitDerive),
-            "daily-rollup" => Ok(Self::DailyRollup),
-            "structural-rebuild" => Ok(Self::StructuralRebuild),
-            "full-rebuild" => Ok(Self::FullRebuild),
-            _ => anyhow::bail!("'{job_type}' is not a supported Core Intelligence job type."),
-        }
-    }
-
-    fn requires_visit_derived_facts(self) -> bool {
-        matches!(self, Self::VisitDerive | Self::FullRebuild)
-    }
-
-    fn requires_daily_rollups(self) -> bool {
-        matches!(self, Self::DailyRollup | Self::FullRebuild)
-    }
-
-    fn requires_structural_entities(self) -> bool {
-        matches!(self, Self::StructuralRebuild | Self::FullRebuild)
-    }
-
-    fn module_ids(self) -> &'static [&'static str] {
-        match self {
-            Self::VisitDerive => &[VISIT_DERIVED_FACTS_MODULE_ID],
-            Self::DailyRollup => &[DAILY_ROLLUPS_MODULE_ID, ACTIVITY_MIX_MODULE_ID],
-            Self::StructuralRebuild => &[
-                SESSIONS_MODULE_ID,
-                SEARCH_TRAILS_MODULE_ID,
-                REFIND_PAGES_MODULE_ID,
-                SEARCH_EFFECTIVENESS_MODULE_ID,
-                DOMAIN_DEEP_DIVE_MODULE_ID,
-            ],
-            Self::FullRebuild => &[
-                VISIT_DERIVED_FACTS_MODULE_ID,
-                DAILY_ROLLUPS_MODULE_ID,
-                SESSIONS_MODULE_ID,
-                SEARCH_TRAILS_MODULE_ID,
-                REFIND_PAGES_MODULE_ID,
-                ACTIVITY_MIX_MODULE_ID,
-                SEARCH_EFFECTIVENESS_MODULE_ID,
-                DOMAIN_DEEP_DIVE_MODULE_ID,
-            ],
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::VisitDerive => "visit-derived facts refresh",
-            Self::DailyRollup => "daily rollup refresh",
-            Self::StructuralRebuild => "structural entity rebuild",
-            Self::FullRebuild => "full Core Intelligence rebuild",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -553,8 +516,46 @@ struct DailyRollupBundle {
     summary_rows: Vec<(String, String, i64, i64, i64, i64, f32, f32)>,
 }
 
-pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result<()> {
+fn apply_core_intelligence_baseline_migration(connection: &Connection) -> Result<()> {
     connection.execute_batch(CORE_INTELLIGENCE_SCHEMA_SQL)?;
+    Ok(())
+}
+
+fn apply_site_dictionary_override_migration(connection: &Connection) -> Result<()> {
+    ensure_site_dictionary_override_schema(connection)
+}
+
+fn load_applied_intelligence_migrations(connection: &Connection) -> Result<BTreeSet<i64>> {
+    connection.execute_batch(INTELLIGENCE_SCHEMA_MIGRATIONS_SQL)?;
+    let mut statement = connection.prepare(
+        "SELECT version
+         FROM intelligence_schema_migrations
+         ORDER BY version ASC",
+    )?;
+    statement
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()
+        .map_err(Into::into)
+}
+
+fn run_core_intelligence_migrations(connection: &Connection) -> Result<()> {
+    let applied = load_applied_intelligence_migrations(connection)?;
+    for migration in INTELLIGENCE_MIGRATIONS {
+        if applied.contains(&migration.version) {
+            continue;
+        }
+        (migration.apply)(connection)?;
+        connection.execute(
+            "INSERT INTO intelligence_schema_migrations (version, name, applied_at)
+             VALUES (?1, ?2, ?3)",
+            params![migration.version, migration.name, now_rfc3339()],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result<()> {
+    run_core_intelligence_migrations(connection)?;
     drop_legacy_insight_tables(connection)?;
     Ok(())
 }
@@ -638,7 +639,7 @@ pub fn run_core_intelligence(
         paths,
         config,
         key,
-        CoreIntelligenceJobKind::FullRebuild,
+        RebuildMode::FullRebuild,
         request,
         |_progress| Ok(()),
     )
@@ -658,7 +659,7 @@ where
         paths,
         config,
         key,
-        CoreIntelligenceJobKind::FullRebuild,
+        RebuildMode::FullRebuild,
         request,
         on_progress,
     )
@@ -679,7 +680,7 @@ where
         paths,
         config,
         key,
-        CoreIntelligenceJobKind::from_job_type(job_type)?,
+        RebuildMode::from_job_type(job_type)?,
         request,
         on_progress,
     )
@@ -689,7 +690,7 @@ fn run_core_intelligence_job_with_progress<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-    job_kind: CoreIntelligenceJobKind,
+    job_kind: RebuildMode,
     request: &CoreIntelligenceRebuildRequest,
     mut on_progress: F,
 ) -> Result<CoreIntelligenceRebuildReport>
@@ -701,9 +702,7 @@ where
     let run_id = Utc::now().timestamp_millis();
     let computed_at = now_rfc3339();
     let mut notes = vec![format!("Completed a {}.", job_kind.label())];
-    if request.profile_id.is_none()
-        && request.full_rebuild
-        && job_kind == CoreIntelligenceJobKind::FullRebuild
+    if request.profile_id.is_none() && request.full_rebuild && job_kind == RebuildMode::FullRebuild
     {
         notes.push(
             "Performed a full Core Intelligence rebuild over all visible profiles.".to_string(),
@@ -716,7 +715,7 @@ where
             &connection,
             run_id,
             Some(computed_at.clone()),
-            job_kind.module_ids(),
+            &job_kind.module_ids(),
             &["No visible visits matched the requested rebuild scope.".to_string()],
         )?;
         return Ok(CoreIntelligenceRebuildReport {
@@ -817,7 +816,7 @@ where
         &connection,
         run_id,
         Some(computed_at.clone()),
-        job_kind.module_ids(),
+        &job_kind.module_ids(),
         &notes,
     )?;
 
@@ -963,6 +962,7 @@ fn visit_from_row(row: &Row<'_>) -> rusqlite::Result<VisitRecord> {
 }
 
 fn hydrate_search_terms(connection: &Connection, visits: &mut [VisitRecord]) -> Result<()> {
+    let overrides = load_site_dictionary_overrides(connection)?;
     let profile_url_ids =
         visits.iter().fold(HashMap::<String, HashSet<i64>>::new(), |mut acc, visit| {
             acc.entry(visit.profile_id.clone()).or_default().insert(visit.source_url_id);
@@ -1004,6 +1004,7 @@ fn hydrate_search_terms(connection: &Connection, visits: &mut [VisitRecord]) -> 
             query.is_some(),
             visit.external_referrer_url.as_deref(),
             visit.from_visit,
+            &overrides,
         );
         apply_site_dictionary(visit, query, dictionary);
     }
@@ -1093,7 +1094,13 @@ fn build_sessions(visits: &mut [VisitRecord]) -> Vec<SessionRecord> {
             members.iter().map(|visit| visit.registrable_domain.clone()).collect::<HashSet<_>>();
         session.domain_count = domains.len() as i64;
         session.auto_title = build_session_title(&members);
-        session.is_deep_dive = session.visit_count >= 10 && session.search_count >= 2;
+        let navigation_chain_depth =
+            members.iter().filter(|visit| visit.from_visit.is_some()).count() as i64;
+        let new_domain_count = members.iter().filter(|visit| visit.is_new_domain).count() as i64;
+        session.is_deep_dive = navigation_chain_depth >= 4
+            && session.domain_count >= 5
+            && session.visit_count >= 8
+            && new_domain_count >= 1;
     }
     sessions
 }
@@ -1716,7 +1723,7 @@ fn merge_rollups(target: &mut DailyRollupBundle, next: DailyRollupBundle) {
 fn persist_core_state_for_job_kind(
     connection: &Connection,
     profile_id: Option<&str>,
-    job_kind: CoreIntelligenceJobKind,
+    job_kind: RebuildMode,
     computed_at: &str,
     visits: &[VisitRecord],
     rollups: &DailyRollupBundle,
@@ -2025,23 +2032,23 @@ fn persist_core_state_for_job_kind(
 }
 
 fn clear_core_tables(connection: &Connection, profile_id: Option<&str>) -> Result<()> {
-    clear_core_tables_for_job_kind(connection, profile_id, CoreIntelligenceJobKind::FullRebuild)
+    clear_core_tables_for_job_kind(connection, profile_id, RebuildMode::FullRebuild)
 }
 
 fn clear_core_tables_for_job_kind(
     connection: &Connection,
     profile_id: Option<&str>,
-    job_kind: CoreIntelligenceJobKind,
+    job_kind: RebuildMode,
 ) -> Result<()> {
     let tables: &[&str] = match job_kind {
-        CoreIntelligenceJobKind::VisitDerive => &["visit_derived_facts"],
-        CoreIntelligenceJobKind::DailyRollup => &[
+        RebuildMode::VisitDerive => &["visit_derived_facts"],
+        RebuildMode::DailyRollup => &[
             "domain_daily_rollups",
             "category_daily_rollups",
             "engine_daily_rollups",
             "daily_summary_rollups",
         ],
-        CoreIntelligenceJobKind::StructuralRebuild => &[
+        RebuildMode::StructuralRebuild => &[
             "sessions",
             "search_trails",
             "search_trail_members",
@@ -2054,7 +2061,7 @@ fn clear_core_tables_for_job_kind(
             "reopened_investigations",
             "path_flows",
         ],
-        CoreIntelligenceJobKind::FullRebuild => &[
+        RebuildMode::FullRebuild => &[
             "visit_derived_facts",
             "domain_daily_rollups",
             "category_daily_rollups",
@@ -2748,6 +2755,55 @@ pub fn explain_refind(
 ) -> Result<RefindExplanation> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    build_refind_explanation(&connection, &request.canonical_url)
+}
+
+pub fn explain_entity(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &EntityExplanationRequest,
+) -> Result<Explanation> {
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let entity_type = request.entity_type.as_str();
+    module_descriptor_for_entity_type(entity_type).with_context(|| {
+        format!("Core Intelligence explainability does not support entity type '{entity_type}'.")
+    })?;
+    match entity_type {
+        "session" => explain_session(&connection, &request.entity_id),
+        "search_trail" => explain_search_trail(&connection, &request.entity_id),
+        "query_family" => explain_query_family(&connection, &request.entity_id),
+        "refind_page" => {
+            let explanation = build_refind_explanation(&connection, &request.entity_id)?;
+            Ok(Explanation {
+                entity_type: "refind_page".to_string(),
+                entity_id: explanation.canonical_url.clone(),
+                trigger_rule: format!("Refind score >= {:.1}", explanation.refind_score),
+                factors: explanation
+                    .factors
+                    .into_iter()
+                    .map(|factor| ExplainabilityFactor {
+                        label: factor.signal,
+                        raw_value: factor.raw_value,
+                        weight: factor.weight,
+                        contribution: factor.contribution,
+                    })
+                    .collect(),
+                participating_visit_ids: explanation.visit_ids,
+            })
+        }
+        "reopened_investigation" => explain_reopened_investigation(&connection, &request.entity_id),
+        "habit_pattern" => explain_habit_pattern(&connection, &request.entity_id),
+        "path_flow" => explain_path_flow(&connection, &request.entity_id),
+        _ => unreachable!("unsupported entity types were rejected by the registry"),
+    }
+}
+
+fn build_refind_explanation(
+    connection: &Connection,
+    canonical_url: &str,
+) -> Result<RefindExplanation> {
     let (canonical_url, refind_score, evidence_json) = connection
         .query_row(
             "SELECT canonical_url, refind_score, evidence_json
@@ -2755,11 +2811,11 @@ pub fn explain_refind(
              WHERE canonical_url = ?1
              ORDER BY refind_score DESC
              LIMIT 1",
-            [request.canonical_url.as_str()],
+            [canonical_url],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?, row.get::<_, String>(2)?)),
         )
         .optional()?
-        .with_context(|| format!("refind page {} was not found", request.canonical_url))?;
+        .with_context(|| format!("refind page {canonical_url} was not found"))?;
     let evidence: serde_json::Value = serde_json::from_str(&evidence_json).unwrap_or_default();
     let factors = evidence
         .get("factors")
@@ -2785,6 +2841,509 @@ pub fn explain_refind(
         .filter_map(|value| value.as_i64())
         .collect::<Vec<_>>();
     Ok(RefindExplanation { canonical_url, refind_score, factors, visit_ids })
+}
+
+fn explain_session(connection: &Connection, session_id: &str) -> Result<Explanation> {
+    let (visit_count, search_count, domain_count, is_deep_dive, first_visit_ms, last_visit_ms) =
+        connection
+            .query_row(
+                "SELECT visit_count, search_count, domain_count, is_deep_dive, first_visit_ms, last_visit_ms
+                 FROM sessions
+                 WHERE session_id = ?1",
+                [session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)? != 0,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                },
+            )
+            .optional()?
+            .with_context(|| format!("session {session_id} was not found"))?;
+    let visit_ids = connection
+        .prepare(
+            "SELECT visit_id
+             FROM visit_derived_facts
+             WHERE session_id = ?1
+             ORDER BY visit_id ASC",
+        )?
+        .query_map([session_id], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let navigation_chain_depth = connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM visit_derived_facts
+             JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+             WHERE visit_derived_facts.session_id = ?1
+               AND visits.from_visit IS NOT NULL",
+            [session_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    let duration_minutes = ((last_visit_ms - first_visit_ms).max(0) as f32) / 60_000.0;
+    Ok(Explanation {
+        entity_type: "session".to_string(),
+        entity_id: session_id.to_string(),
+        trigger_rule: if is_deep_dive {
+            "Deep dive session matched the navigation-depth, domain-count, and visit-count thresholds."
+                .to_string()
+        } else {
+            "Visits were grouped into one session because adjacent gaps stayed within 30 minutes."
+                .to_string()
+        },
+        factors: vec![
+            explainability_factor("visit_count", visit_count as f32, 1.0, visit_count as f32),
+            explainability_factor(
+                "search_count",
+                search_count as f32,
+                0.5,
+                search_count as f32 * 0.5,
+            ),
+            explainability_factor(
+                "unique_domain_count",
+                domain_count as f32,
+                0.6,
+                domain_count as f32 * 0.6,
+            ),
+            explainability_factor(
+                "navigation_chain_depth",
+                navigation_chain_depth as f32,
+                0.7,
+                navigation_chain_depth as f32 * 0.7,
+            ),
+            explainability_factor(
+                "duration_minutes",
+                duration_minutes,
+                0.15,
+                duration_minutes * 0.15,
+            ),
+        ],
+        participating_visit_ids: visit_ids,
+    })
+}
+
+fn explain_search_trail(connection: &Connection, trail_id: &str) -> Result<Explanation> {
+    let (initial_query, reformulation_count, visit_count, max_depth, landing_domain) = connection
+        .query_row(
+            "SELECT initial_query, reformulation_count, visit_count, max_depth, landing_domain
+             FROM search_trails
+             WHERE trail_id = ?1",
+            [trail_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .with_context(|| format!("search trail {trail_id} was not found"))?;
+    let visit_ids = connection
+        .prepare(
+            "SELECT visit_id
+             FROM search_trail_members
+             WHERE trail_id = ?1
+             ORDER BY ordinal ASC, visit_id ASC",
+        )?
+        .query_map([trail_id], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let landing_score = if landing_domain.is_some() { 1.0 } else { 0.0 };
+    Ok(Explanation {
+        entity_type: "search_trail".to_string(),
+        entity_id: trail_id.to_string(),
+        trigger_rule: format!(
+            "Search trail anchored by '{}' and extended through navigation ancestry within the session window.",
+            initial_query
+        ),
+        factors: vec![
+            explainability_factor("visit_count", visit_count as f32, 1.0, visit_count as f32),
+            explainability_factor(
+                "reformulation_count",
+                reformulation_count as f32,
+                0.8,
+                reformulation_count as f32 * 0.8,
+            ),
+            explainability_factor("max_depth", max_depth as f32, 0.6, max_depth as f32 * 0.6),
+            explainability_factor("landing_detected", landing_score, 0.5, landing_score * 0.5),
+        ],
+        participating_visit_ids: visit_ids,
+    })
+}
+
+fn explain_query_family(connection: &Connection, family_id: &str) -> Result<Explanation> {
+    let (profile_id, anchor_query, member_count, search_engine, queries_json) = connection
+        .query_row(
+            "SELECT profile_id, anchor_query, member_count, search_engine, queries_json
+             FROM query_families
+             WHERE family_id = ?1",
+            [family_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .with_context(|| format!("query family {family_id} was not found"))?;
+    let queries = serde_json::from_str::<Vec<String>>(&queries_json).unwrap_or_default();
+    let normalized_queries =
+        queries.iter().map(|query| normalize_query(query)).collect::<HashSet<_>>();
+    let visit_ids = load_query_family_visit_ids(connection, &profile_id, &search_engine, &queries)?;
+    Ok(Explanation {
+        entity_type: "query_family".to_string(),
+        entity_id: family_id.to_string(),
+        trigger_rule: format!(
+            "Queries were merged into one family because their Jaccard or containment similarity matched '{}'.",
+            anchor_query
+        ),
+        factors: vec![
+            explainability_factor("member_count", member_count as f32, 1.0, member_count as f32),
+            explainability_factor(
+                "distinct_query_count",
+                normalized_queries.len() as f32,
+                0.7,
+                normalized_queries.len() as f32 * 0.7,
+            ),
+        ],
+        participating_visit_ids: visit_ids,
+    })
+}
+
+fn explain_reopened_investigation(
+    connection: &Connection,
+    investigation_id: &str,
+) -> Result<Explanation> {
+    let (anchor_type, anchor_id, occurrence_count, distinct_days, evidence_json) = connection
+        .query_row(
+            "SELECT anchor_type, anchor_id, occurrence_count, distinct_days, evidence_json
+             FROM reopened_investigations
+             WHERE investigation_id = ?1",
+            [investigation_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .with_context(|| format!("reopened investigation {investigation_id} was not found"))?;
+    let participating_visit_ids = match anchor_type.as_str() {
+        "query_family" => {
+            let (profile_id, search_engine, queries_json) = connection.query_row(
+                "SELECT profile_id, search_engine, queries_json
+                 FROM query_families
+                 WHERE family_id = ?1",
+                [anchor_id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )?;
+            let queries = serde_json::from_str::<Vec<String>>(&queries_json).unwrap_or_default();
+            load_query_family_visit_ids(connection, &profile_id, &search_engine, &queries)?
+        }
+        "reference_page" => extract_visit_ids_from_evidence_json(&evidence_json),
+        _ => Vec::new(),
+    };
+    Ok(Explanation {
+        entity_type: "reopened_investigation".to_string(),
+        entity_id: investigation_id.to_string(),
+        trigger_rule: "This investigation reopened because the same anchor reappeared across distinct days or repeated deterministic evidence."
+            .to_string(),
+        factors: vec![
+            explainability_factor(
+                "occurrence_count",
+                occurrence_count as f32,
+                1.0,
+                occurrence_count as f32,
+            ),
+            explainability_factor(
+                "distinct_days",
+                distinct_days as f32,
+                0.8,
+                distinct_days as f32 * 0.8,
+            ),
+        ],
+        participating_visit_ids,
+    })
+}
+
+fn explain_habit_pattern(connection: &Connection, entity_id: &str) -> Result<Explanation> {
+    let (profile_id, registrable_domain) = parse_two_part_entity_id(entity_id, "habit_pattern")?;
+    let (habit_type, mean_interval_days, cv, visit_count, is_interrupted) = connection
+        .query_row(
+            "SELECT habit_type, mean_interval_days, cv, visit_count, is_interrupted
+             FROM habit_patterns
+             WHERE profile_id = ?1
+               AND registrable_domain = ?2",
+            params![profile_id, registrable_domain],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, f32>(1)?,
+                    row.get::<_, f32>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)? != 0,
+                ))
+            },
+        )
+        .optional()?
+        .with_context(|| format!("habit pattern {entity_id} was not found"))?;
+    let visit_ids = load_domain_visit_ids(connection, profile_id, registrable_domain)?;
+    Ok(Explanation {
+        entity_type: "habit_pattern".to_string(),
+        entity_id: entity_id.to_string(),
+        trigger_rule: if is_interrupted {
+            format!(
+                "{} cadence was detected and later crossed its interruption threshold.",
+                habit_type
+            )
+        } else {
+            format!("{} cadence was detected from repeated cross-day visits.", habit_type)
+        },
+        factors: vec![
+            explainability_factor("visit_count", visit_count as f32, 1.0, visit_count as f32),
+            explainability_factor(
+                "mean_interval_days",
+                mean_interval_days,
+                0.7,
+                mean_interval_days * 0.7,
+            ),
+            explainability_factor("coefficient_of_variation", cv, -0.6, cv * -0.6),
+            explainability_factor(
+                "interrupted",
+                if is_interrupted { 1.0 } else { 0.0 },
+                0.4,
+                if is_interrupted { 0.4 } else { 0.0 },
+            ),
+        ],
+        participating_visit_ids: visit_ids,
+    })
+}
+
+fn explain_path_flow(connection: &Connection, entity_id: &str) -> Result<Explanation> {
+    let (profile_id, step_count, flow_pattern) = parse_path_flow_entity_id(entity_id)?;
+    let (occurrence_count, _) = connection
+        .query_row(
+            "SELECT occurrence_count, last_seen_ms
+             FROM path_flows
+             WHERE profile_id = ?1
+               AND step_count = ?2
+               AND flow_pattern = ?3",
+            params![profile_id, step_count, flow_pattern],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?
+        .with_context(|| format!("path flow {entity_id} was not found"))?;
+    let participating_visit_ids =
+        load_recent_path_flow_visit_ids(connection, profile_id, step_count, flow_pattern)?;
+    Ok(Explanation {
+        entity_type: "path_flow".to_string(),
+        entity_id: entity_id.to_string(),
+        trigger_rule: "This flow pattern recurs across session-local domain n-grams.".to_string(),
+        factors: vec![
+            explainability_factor("step_count", step_count as f32, 0.6, step_count as f32 * 0.6),
+            explainability_factor(
+                "occurrence_count",
+                occurrence_count as f32,
+                1.0,
+                occurrence_count as f32,
+            ),
+        ],
+        participating_visit_ids,
+    })
+}
+
+fn explainability_factor(
+    label: &str,
+    raw_value: f32,
+    weight: f32,
+    contribution: f32,
+) -> ExplainabilityFactor {
+    ExplainabilityFactor { label: label.to_string(), raw_value, weight, contribution }
+}
+
+fn extract_visit_ids_from_evidence_json(evidence_json: &str) -> Vec<i64> {
+    serde_json::from_str::<serde_json::Value>(evidence_json)
+        .ok()
+        .and_then(|value| value.get("visitIds").cloned())
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_i64())
+        .collect()
+}
+
+fn parse_two_part_entity_id<'a>(
+    entity_id: &'a str,
+    entity_type: &str,
+) -> Result<(&'a str, &'a str)> {
+    entity_id.split_once("::").with_context(|| {
+        format!("{entity_type} explanations use the '<profile_id>::<entity>' entity_id format.")
+    })
+}
+
+fn parse_path_flow_entity_id(entity_id: &str) -> Result<(&str, i64, &str)> {
+    let mut parts = entity_id.splitn(3, "::");
+    let profile_id = parts.next().filter(|value| !value.is_empty()).context(
+        "path_flow explanations use the '<profile_id>::<step_count>::<flow_pattern>' entity_id format.",
+    )?;
+    let step_count = parts
+        .next()
+        .context("missing path_flow step_count")?
+        .parse::<i64>()
+        .context("path_flow step_count must be an integer")?;
+    let flow_pattern =
+        parts.next().filter(|value| !value.is_empty()).context("missing path_flow flow_pattern")?;
+    Ok((profile_id, step_count, flow_pattern))
+}
+
+fn load_query_family_visit_ids(
+    connection: &Connection,
+    profile_id: &str,
+    search_engine: &str,
+    queries: &[String],
+) -> Result<Vec<i64>> {
+    if queries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let normalized_queries = queries.iter().map(|query| normalize_query(query)).collect::<Vec<_>>();
+    let placeholders =
+        std::iter::repeat_n("?", normalized_queries.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT visit_id
+         FROM search_events
+         WHERE profile_id = ?1
+           AND search_engine = ?2
+           AND normalized_query IN ({placeholders})
+         ORDER BY visit_id ASC"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+        .chain(std::iter::once(&search_engine as &dyn rusqlite::ToSql))
+        .chain(normalized_queries.iter().map(|query| query as &dyn rusqlite::ToSql));
+    statement
+        .query_map(rusqlite::params_from_iter(params), |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_domain_visit_ids(
+    connection: &Connection,
+    profile_id: &str,
+    registrable_domain: &str,
+) -> Result<Vec<i64>> {
+    connection
+        .prepare(
+            "SELECT visit_id
+             FROM visit_derived_facts
+             WHERE profile_id = ?1
+               AND registrable_domain = ?2
+             ORDER BY visit_id ASC",
+        )?
+        .query_map(params![profile_id, registrable_domain], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_recent_path_flow_visit_ids(
+    connection: &Connection,
+    profile_id: &str,
+    step_count: i64,
+    flow_pattern: &str,
+) -> Result<Vec<i64>> {
+    let target_domains =
+        flow_pattern.split(" → ").map(|value| value.to_string()).collect::<Vec<_>>();
+    let mut statement = connection.prepare(
+        "SELECT visit_derived_facts.session_id,
+                visit_derived_facts.registrable_domain,
+                visit_derived_facts.visit_id,
+                visits.visit_time_ms
+         FROM visit_derived_facts
+         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND visit_derived_facts.session_id IS NOT NULL
+         ORDER BY visit_derived_facts.session_id ASC, visits.visit_time_ms ASC, visits.id ASC",
+    )?;
+    let rows = statement
+        .query_map([profile_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut current_session = String::new();
+    let mut current_sequence = Vec::<(String, i64, i64)>::new();
+    let mut latest_match = None::<(i64, Vec<i64>)>;
+    for (session_id, domain, visit_id, visit_time_ms) in rows {
+        if current_session != session_id {
+            update_latest_path_flow_match(
+                &current_sequence,
+                step_count as usize,
+                &target_domains,
+                &mut latest_match,
+            );
+            current_session = session_id;
+            current_sequence.clear();
+        }
+        if current_sequence.last().is_none_or(|(last_domain, _, _)| last_domain != &domain) {
+            current_sequence.push((domain, visit_id, visit_time_ms));
+        } else if let Some((_, last_visit_id, last_seen_ms)) = current_sequence.last_mut() {
+            *last_visit_id = visit_id;
+            *last_seen_ms = visit_time_ms;
+        }
+    }
+    update_latest_path_flow_match(
+        &current_sequence,
+        step_count as usize,
+        &target_domains,
+        &mut latest_match,
+    );
+    Ok(latest_match.map(|(_, visit_ids)| visit_ids).unwrap_or_default())
+}
+
+fn update_latest_path_flow_match(
+    sequence: &[(String, i64, i64)],
+    step_count: usize,
+    target_domains: &[String],
+    latest_match: &mut Option<(i64, Vec<i64>)>,
+) {
+    if sequence.len() < step_count || target_domains.len() != step_count {
+        return;
+    }
+    for window in sequence.windows(step_count) {
+        let domains = window.iter().map(|(domain, _, _)| domain).collect::<Vec<_>>();
+        if domains.iter().zip(target_domains).all(|(left, right)| *left == right) {
+            let last_seen_ms =
+                window.iter().map(|(_, _, visit_time_ms)| *visit_time_ms).max().unwrap_or(0);
+            let visit_ids = window.iter().map(|(_, visit_id, _)| *visit_id).collect::<Vec<_>>();
+            match latest_match {
+                Some((current_last_seen_ms, _)) if *current_last_seen_ms >= last_seen_ms => {}
+                _ => *latest_match = Some((last_seen_ms, visit_ids)),
+            }
+        }
+    }
 }
 
 pub fn get_activity_mix(
@@ -3346,6 +3905,219 @@ pub fn get_on_this_day(
         .collect())
 }
 
+pub fn get_intelligence_embed_cards(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &IntelligenceEmbedCardsRequest,
+) -> Result<Vec<IntelligenceEmbedCardPayload>> {
+    let scoped = ScopedDateRangeRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+    };
+    let digest = get_digest_summary(paths, config, key, &scoped)?;
+    let top_sites = get_top_sites(
+        paths,
+        config,
+        key,
+        &TopSitesRequest {
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            sort_by: Some("visit_count".to_string()),
+            limit: Some(3),
+        },
+    )?;
+    let refind_pages = get_refind_pages(
+        paths,
+        config,
+        key,
+        &RefindPagesRequest {
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            limit: Some(2),
+        },
+    )?;
+    let stable_sources = get_stable_sources(paths, config, key, &scoped)?;
+    let on_this_day = get_on_this_day(paths, config, key, request.profile_id.as_deref())?;
+    let mut cards = vec![
+        IntelligenceEmbedCardPayload {
+            card_id: "digest:visits".to_string(),
+            card_type: "digest".to_string(),
+            title: "Visits".to_string(),
+            eyebrow: Some(format!("{} → {}", request.date_range.start, request.date_range.end)),
+            body: "Total visits in the selected intelligence window.".to_string(),
+            metric_label: Some("visit_count".to_string()),
+            metric_value: Some(digest.total_visits.value.to_string()),
+            href: None,
+            internal_only: false,
+        },
+        IntelligenceEmbedCardPayload {
+            card_id: "digest:searches".to_string(),
+            card_type: "digest".to_string(),
+            title: "Searches".to_string(),
+            eyebrow: Some(format!("{} → {}", request.date_range.start, request.date_range.end)),
+            body: "Total search events observed in the selected intelligence window.".to_string(),
+            metric_label: Some("search_count".to_string()),
+            metric_value: Some(digest.total_searches.value.to_string()),
+            href: None,
+            internal_only: false,
+        },
+    ];
+    if let Some(site) = top_sites.first() {
+        cards.push(IntelligenceEmbedCardPayload {
+            card_id: format!("top-site:{}", site.registrable_domain),
+            card_type: "top_site".to_string(),
+            title: site.display_name.clone().unwrap_or_else(|| site.registrable_domain.clone()),
+            eyebrow: Some("Top site".to_string()),
+            body: format!(
+                "{} was one of the most frequently visited domains in this window.",
+                site.registrable_domain
+            ),
+            metric_label: Some("visit_count".to_string()),
+            metric_value: Some(site.visit_count.to_string()),
+            href: Some(site.registrable_domain.clone()),
+            internal_only: false,
+        });
+    }
+    if let Some(page) = refind_pages.first() {
+        cards.push(IntelligenceEmbedCardPayload {
+            card_id: format!("refind:{}", page.canonical_url),
+            card_type: "refind_page".to_string(),
+            title: page.title.clone().unwrap_or_else(|| page.registrable_domain.clone()),
+            eyebrow: Some("Refind".to_string()),
+            body: format!(
+                "This page kept resurfacing across {} days and {} trails.",
+                page.cross_day_count, page.trail_count
+            ),
+            metric_label: Some("refind_score".to_string()),
+            metric_value: Some(format!("{:.2}", page.refind_score)),
+            href: Some(page.canonical_url.clone()),
+            internal_only: true,
+        });
+    }
+    if let Some(source) = stable_sources.first() {
+        cards.push(IntelligenceEmbedCardPayload {
+            card_id: format!("stable-source:{}", source.registrable_domain),
+            card_type: "stable_source".to_string(),
+            title: source.display_name.clone().unwrap_or_else(|| source.registrable_domain.clone()),
+            eyebrow: Some("Stable source".to_string()),
+            body: format!(
+                "{} often resolves trails as a {} source.",
+                source.registrable_domain, source.source_role
+            ),
+            metric_label: Some("effectiveness_score".to_string()),
+            metric_value: Some(format!("{:.2}", source.effectiveness_score)),
+            href: None,
+            internal_only: false,
+        });
+    }
+    if let Some(entry) = on_this_day.first() {
+        cards.push(IntelligenceEmbedCardPayload {
+            card_id: format!("on-this-day:{}", entry.year),
+            card_type: "on_this_day".to_string(),
+            title: format!("On This Day · {}", entry.year),
+            eyebrow: Some(entry.date.clone()),
+            body: entry.summary.clone().unwrap_or_else(|| {
+                format!(
+                    "{} visits and {} deep-dive sessions on this day.",
+                    entry.total_visits, entry.deep_dive_sessions
+                )
+            }),
+            metric_label: Some("visit_count".to_string()),
+            metric_value: Some(entry.total_visits.to_string()),
+            href: None,
+            internal_only: false,
+        });
+    }
+    cards.truncate(request.limit.unwrap_or(6).max(1) as usize);
+    Ok(cards)
+}
+
+pub fn get_intelligence_widget_snapshot(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &IntelligenceEmbedCardsRequest,
+) -> Result<IntelligenceWidgetSnapshot> {
+    let digest_summary = get_digest_summary(
+        paths,
+        config,
+        key,
+        &ScopedDateRangeRequest {
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+        },
+    )?;
+    let highlights = get_intelligence_embed_cards(
+        paths,
+        config,
+        key,
+        &IntelligenceEmbedCardsRequest {
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            limit: Some(request.limit.unwrap_or(4).min(4)),
+        },
+    )?;
+    Ok(IntelligenceWidgetSnapshot {
+        generated_at: now_rfc3339(),
+        date_range: request.date_range.clone(),
+        digest_summary,
+        highlights,
+        notes: vec![
+            "Widget snapshots only expose aggregate Core Intelligence read models.".to_string(),
+            "Cards marked internal_only should stay inside trusted PathKeep surfaces.".to_string(),
+        ],
+    })
+}
+
+pub fn get_intelligence_public_snapshot(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<IntelligencePublicSnapshot> {
+    let digest_summary = get_digest_summary(paths, config, key, request)?;
+    let top_domains = get_top_sites(
+        paths,
+        config,
+        key,
+        &TopSitesRequest {
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            sort_by: Some("visit_count".to_string()),
+            limit: Some(5),
+        },
+    )?
+    .into_iter()
+    .map(|site| site.display_name.unwrap_or(site.registrable_domain))
+    .collect::<Vec<_>>();
+    let search_engines = get_search_engine_ranking(paths, config, key, request)?;
+    let discovery_trend = get_discovery_trend(
+        paths,
+        config,
+        key,
+        &GranularityDateRangeRequest {
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            granularity: "week".to_string(),
+        },
+    )?;
+    Ok(IntelligencePublicSnapshot {
+        generated_at: now_rfc3339(),
+        date_range: request.date_range.clone(),
+        digest_summary,
+        top_domains,
+        search_engines,
+        discovery_trend,
+        notes: vec![
+            "Public snapshots intentionally omit visit-level identifiers and direct page URLs."
+                .to_string(),
+            "Use trusted internal Core Intelligence surfaces for entity-level drilldown."
+                .to_string(),
+        ],
+    })
+}
+
 fn load_session_visits(connection: &Connection, session_id: &str) -> Result<Vec<SessionVisit>> {
     let mut statement = connection.prepare(
         "SELECT visits.id, urls.url, urls.title, visit_derived_facts.registrable_domain, visits.visit_time_ms,
@@ -3697,7 +4469,20 @@ fn path_from_url(url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_kpi, collapse_date_key, normalize_query};
+    use super::{
+        build_kpi, collapse_date_key, ensure_core_intelligence_schema, explain_entity,
+        get_intelligence_embed_cards, get_intelligence_public_snapshot, normalize_query,
+        run_core_intelligence,
+    };
+    use crate::{
+        archive::{open_archive_connection, open_intelligence_connection},
+        config::project_paths_with_root,
+        models::{
+            AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange,
+            EntityExplanationRequest, IntelligenceEmbedCardsRequest, ScopedDateRangeRequest,
+        },
+    };
+    use rusqlite::Connection;
 
     #[test]
     fn collapse_date_key_supports_week_and_month() {
@@ -3715,5 +4500,164 @@ mod tests {
     #[test]
     fn normalize_query_trims_and_lowercases() {
         assert_eq!(normalize_query("  WAL   Checkpoint "), "wal checkpoint");
+    }
+
+    #[test]
+    fn ensure_core_intelligence_schema_records_versioned_migrations() {
+        let connection = Connection::open_in_memory().expect("in memory sqlite");
+        ensure_core_intelligence_schema(&connection).expect("ensure intelligence schema");
+        ensure_core_intelligence_schema(&connection).expect("ensure intelligence schema twice");
+
+        let migration_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
+            .expect("migration count");
+        assert_eq!(migration_count, 2);
+    }
+
+    #[test]
+    fn explain_entity_and_provider_snapshots_build_from_core_intelligence_tables() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        let rebuild = run_core_intelligence(
+            &paths,
+            &config,
+            None,
+            &CoreIntelligenceRebuildRequest::default(),
+        )
+        .expect("run core intelligence");
+        assert!(rebuild.processed_visits >= 3);
+
+        let session_explanation = explain_entity(
+            &paths,
+            &config,
+            None,
+            &EntityExplanationRequest {
+                entity_type: "session".to_string(),
+                entity_id: "session:chrome:Default:0001".to_string(),
+            },
+        )
+        .expect("session explanation");
+        assert_eq!(session_explanation.entity_type, "session");
+        assert!(!session_explanation.participating_visit_ids.is_empty());
+
+        let refind_explanation = explain_entity(
+            &paths,
+            &config,
+            None,
+            &EntityExplanationRequest {
+                entity_type: "refind_page".to_string(),
+                entity_id: "https://github.com/example/repo/issues/42".to_string(),
+            },
+        )
+        .expect("refind explanation");
+        assert_eq!(refind_explanation.entity_type, "refind_page");
+        assert!(refind_explanation.factors.iter().any(|factor| factor.label == "cross_day_count"));
+
+        let embed_cards = get_intelligence_embed_cards(
+            &paths,
+            &config,
+            None,
+            &IntelligenceEmbedCardsRequest {
+                date_range: DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+                limit: Some(4),
+            },
+        )
+        .expect("embed cards");
+        assert!(!embed_cards.is_empty());
+        assert!(embed_cards.iter().any(|card| card.card_type == "digest"));
+
+        let public_snapshot = get_intelligence_public_snapshot(
+            &paths,
+            &config,
+            None,
+            &ScopedDateRangeRequest {
+                date_range: DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("public snapshot");
+        assert!(!public_snapshot.top_domains.is_empty());
+        assert!(
+            public_snapshot.notes.iter().any(|note| note.contains("omit visit-level identifiers"))
+        );
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let migration_count: i64 = intelligence
+            .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
+            .expect("migration count");
+        assert_eq!(migration_count, 2);
+    }
+
+    fn seed_core_intelligence_fixture(connection: &Connection) {
+        connection
+            .execute(
+                "INSERT INTO runs (
+                    id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only
+                 ) VALUES (
+                    1, 'backup', 'manual', '2026-04-14T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0
+                 )",
+                [],
+            )
+            .expect("run");
+        connection
+            .execute(
+                "INSERT INTO source_profiles (
+                    id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at
+                 ) VALUES (
+                    1, 'chrome', '1', 'Default', '/tmp/profile', '2026-04-14T00:00:00Z', 1, 'chrome:Default', '2026-04-14T00:00:00Z'
+                 )",
+                [],
+            )
+            .expect("profile");
+        connection
+            .execute(
+                "INSERT INTO urls (
+                    id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+                    source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                 ) VALUES
+                 (1, 'https://www.google.com/search?q=sqlite+wal', 'sqlite wal - Google Search', 1, 0, 1, '1970-01-01T00:00:00Z', 1, '1970-01-01T00:00:00Z', 1, 1, 11, 0, 'hash-1', '2026-04-14T00:00:00Z'),
+                 (2, 'https://github.com/example/repo/issues/42', 'Issue 42', 2, 1, 2, '1970-01-01T00:00:02Z', 86400002, '1970-01-02T00:00:00Z', 1, 1, 12, 0, 'hash-2', '2026-04-14T00:00:00Z')",
+                [],
+            )
+            .expect("urls");
+        connection
+            .execute(
+                "INSERT INTO visits (
+                    id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
+                    source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
+                 ) VALUES
+                 (1, 1, '1', 1711929600000, '2024-04-01T00:00:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-1', 'visit-hash-1', '2026-04-14T00:00:00Z'),
+                 (2, 2, '2', 1711929660000, '2024-04-01T00:01:00Z', 1, 0, 1, 1, 1, 0, 'fingerprint-2', 'visit-hash-2', '2026-04-14T00:00:00Z'),
+                 (3, 2, '3', 1712016000000, '2024-04-02T00:00:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-3', 'visit-hash-3', '2026-04-14T00:00:00Z')",
+                [],
+            )
+            .expect("visits");
+        connection
+            .execute(
+                "INSERT INTO search_terms (
+                    id, url_id, term, normalized_term, source_profile_id, created_by_run_id, profile_id
+                 ) VALUES (
+                    1, 1, 'sqlite wal', 'sqlite wal', 1, 1, 'chrome:Default'
+                 )",
+                [],
+            )
+            .expect("search term");
     }
 }

@@ -160,9 +160,20 @@ where
         }
     }
     if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
-        if let Err(error) =
-            enqueue_and_spawn_deterministic_refresh(&paths, &config, session_database_key)
-        {
+        let dirty_profiles = report
+            .profiles
+            .iter()
+            .filter(|profile| {
+                profile.new_visits > 0 || profile.new_urls > 0 || profile.new_downloads > 0
+            })
+            .map(|profile| profile.profile_id.clone())
+            .collect::<Vec<_>>();
+        if let Err(error) = enqueue_and_spawn_deterministic_refresh(
+            &paths,
+            &config,
+            session_database_key,
+            &dirty_profiles,
+        ) {
             report
                 .warnings
                 .push(format!("Core Intelligence could not refresh after backup: {error}"));
@@ -261,7 +272,12 @@ pub fn import_takeout_source(
     let config = load_unlocked_config(&paths)?;
     let mut inspection = import_takeout(&paths, &config, session_database_key, request)?;
     if inspection.imported_items > 0 {
-        match enqueue_and_spawn_deterministic_refresh(&paths, &config, session_database_key) {
+        match enqueue_and_spawn_deterministic_refresh(
+            &paths,
+            &config,
+            session_database_key,
+            &["takeout::browser-history".to_string()],
+        ) {
             Ok(job_ids) => inspection.notes.push(format!(
                 "Core Intelligence refresh jobs {} were queued automatically after import and will finish in the background.",
                 job_ids
@@ -330,33 +346,48 @@ fn enqueue_and_spawn_deterministic_refresh(
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     session_database_key: Option<&str>,
+    dirty_profiles: &[String],
 ) -> Result<Vec<i64>> {
     let connection = ai_archive_connection(paths, config, session_database_key)?;
     mark_all_deterministic_modules_stale(
         &connection,
         "Archive data changed and Core Intelligence refresh jobs were queued.",
     )?;
-    let request = CoreIntelligenceRebuildRequest::default();
-    let job_ids = vec![
-        enqueue_core_intelligence_job(
+    let rebuild_scopes = if dirty_profiles.is_empty() {
+        vec![CoreIntelligenceRebuildRequest::default()]
+    } else {
+        dirty_profiles
+            .iter()
+            .map(|profile_id| CoreIntelligenceRebuildRequest {
+                profile_id: Some(profile_id.clone()),
+                ..CoreIntelligenceRebuildRequest::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut job_ids = Vec::with_capacity(rebuild_scopes.len() * 3);
+    for request in &rebuild_scopes {
+        let scope_label = request.profile_id.as_deref().unwrap_or("all profiles").to_string();
+        job_ids.push(enqueue_core_intelligence_job(
             &connection,
             VISIT_DERIVE_JOB_TYPE,
-            &request,
-            "Archive data changed and visit-derived facts need a refresh.",
-        )?,
-        enqueue_core_intelligence_job(
+            request,
+            &format!(
+                "Archive data changed and visit-derived facts need a refresh for {scope_label}."
+            ),
+        )?);
+        job_ids.push(enqueue_core_intelligence_job(
             &connection,
             DAILY_ROLLUP_JOB_TYPE,
-            &request,
-            "Archive data changed and daily rollups need a refresh.",
-        )?,
-        enqueue_core_intelligence_job(
+            request,
+            &format!("Archive data changed and daily rollups need a refresh for {scope_label}."),
+        )?);
+        job_ids.push(enqueue_core_intelligence_job(
             &connection,
             STRUCTURAL_REBUILD_JOB_TYPE,
-            &request,
-            "Archive data changed and structural Core Intelligence entities need a refresh.",
-        )?,
-    ];
+            request,
+            &format!("Archive data changed and structural Core Intelligence entities need a refresh for {scope_label}."),
+        )?);
+    }
     if !config.ai.job_queue_paused {
         maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, job_ids.len());
     }

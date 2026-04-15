@@ -5,6 +5,7 @@
 //! status, and insight snapshots. The types stay data-oriented on purpose so
 //! the worker, Tauri shell, and tests can share one honest contract.
 
+use crate::intelligence_catalog::built_in_intelligence_modules;
 use serde::{Deserialize, Serialize};
 
 /// Built-in enrichment plugin ID for title normalization.
@@ -186,48 +187,17 @@ pub struct DeterministicModuleState {
 
 /// Returns the accepted default runtime state for built-in deterministic modules.
 pub fn default_deterministic_module_states() -> Vec<DeterministicModuleState> {
-    vec![
-        DeterministicModuleState {
-            id: VISIT_DERIVED_FACTS_MODULE_ID.to_string(),
-            enabled: true,
-            version: VISIT_DERIVED_FACTS_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: DAILY_ROLLUPS_MODULE_ID.to_string(),
-            enabled: true,
-            version: DAILY_ROLLUPS_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: SESSIONS_MODULE_ID.to_string(),
-            enabled: true,
-            version: SESSIONS_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: SEARCH_TRAILS_MODULE_ID.to_string(),
-            enabled: true,
-            version: SEARCH_TRAILS_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: REFIND_PAGES_MODULE_ID.to_string(),
-            enabled: true,
-            version: REFIND_PAGES_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: ACTIVITY_MIX_MODULE_ID.to_string(),
-            enabled: true,
-            version: ACTIVITY_MIX_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: SEARCH_EFFECTIVENESS_MODULE_ID.to_string(),
-            enabled: true,
-            version: SEARCH_EFFECTIVENESS_MODULE_VERSION.to_string(),
-        },
-        DeterministicModuleState {
-            id: DOMAIN_DEEP_DIVE_MODULE_ID.to_string(),
-            enabled: true,
-            version: DOMAIN_DEEP_DIVE_MODULE_VERSION.to_string(),
-        },
-    ]
+    built_in_intelligence_modules()
+        .iter()
+        .map(|module| {
+            let descriptor = module.descriptor();
+            DeterministicModuleState {
+                id: descriptor.id.to_string(),
+                enabled: true,
+                version: descriptor.version.to_string(),
+            }
+        })
+        .collect()
 }
 
 /// Merges persisted deterministic module state with current built-in defaults.

@@ -30,8 +30,9 @@ use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, AppConfig, AppUpdateInstallRequest, CategoryFilteredDateRangeRequest,
     CoreIntelligenceRebuildRequest, DomainDeepDiveRequest, DomainTrendRequest,
-    ExplainRefindRequest, ExportRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
-    HistoryQuery, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
+    EntityExplanationRequest, ExplainRefindRequest, ExportRequest, FrontendErrorReportRequest,
+    GranularityDateRangeRequest, HistoryQuery, IntelligenceEmbedCardsRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
     RetentionPruneRequest, S3CredentialInput, SchedulePlan, ScopedDateRangeRequest,
     SearchEffectivenessRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
     SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
@@ -692,6 +693,13 @@ async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "explain_entity" => {
+            let payload = parse_payload::<WrappedRequest<EntityExplanationRequest>>(payload)?;
+            json_value!(worker_bridge::explain_entity_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "get_activity_mix" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_activity_mix_impl(
@@ -759,6 +767,27 @@ async fn dispatch_command(
         "get_discovery_trend" => {
             let payload = parse_payload::<WrappedRequest<GranularityDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_discovery_trend_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_intelligence_embed_cards" => {
+            let payload = parse_payload::<WrappedRequest<IntelligenceEmbedCardsRequest>>(payload)?;
+            json_value!(worker_bridge::get_intelligence_embed_cards_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_intelligence_widget_snapshot" => {
+            let payload = parse_payload::<WrappedRequest<IntelligenceEmbedCardsRequest>>(payload)?;
+            json_value!(worker_bridge::get_intelligence_widget_snapshot_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_intelligence_public_snapshot" => {
+            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            json_value!(worker_bridge::get_intelligence_public_snapshot_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

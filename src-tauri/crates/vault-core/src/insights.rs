@@ -4,6 +4,13 @@
 //! deterministic insights such as grouped queries, threads, reference pages,
 //! source effectiveness, and summaries. It keeps the derived-state story
 //! explicit: everything here can be rebuilt from canonical facts.
+//!
+//! Legacy note: this module is now crate-internal. The accepted deterministic
+//! product contract has moved to `intelligence/`; `insights` remains only so
+//! optional enrichment/readable-content evidence can keep using the older
+//! storage helpers while that code is retired in place.
+
+#![allow(dead_code, unused_imports)]
 
 mod grouping;
 mod runtime;
@@ -53,7 +60,8 @@ use serde_json::{Value, json};
 use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
-pub use self::runtime::{
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use self::runtime::{
     InsightsRunCancelled, clear_derived_intelligence_state, explain_insight, insight_status,
     load_insight_thread_detail, load_insights, run_insights, run_insights_with_progress,
 };

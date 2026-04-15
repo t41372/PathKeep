@@ -100,6 +100,14 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2026-0097',
     "rand 0.7/0.8/0.9 is currently only present through transitive LanceDB/DataFusion, Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
   ],
+  [
+    'RUSTSEC-2026-0098',
+    'rustls-webpki 0.103.10 is only present transitively through reqwest/hyper-rustls in the Tauri updater, rig-core, and LanceDB networking stack; PathKeep does not implement custom URI SAN name-constraint evaluation and is waiting on upstream rustls/request clients to publish the coordinated fix.',
+  ],
+  [
+    'RUSTSEC-2026-0099',
+    'rustls-webpki 0.103.10 is only present transitively through reqwest/hyper-rustls in the Tauri updater, rig-core, and LanceDB networking stack; PathKeep does not own certificate wildcard constraint parsing and is waiting on the upstream rustls/request stack to roll the fix.',
+  ],
 ])
 
 const allowedNonAdvisoryWarnings = new Map([
@@ -164,19 +172,25 @@ if (audit.error) {
 const auditReport = parseAuditJson(audit.stdout, audit.stderr)
 const vulnerabilities = auditReport.vulnerabilities?.list ?? []
 const warnings = Object.values(auditReport.warnings ?? {}).flat()
+const unexpectedVulnerabilities = []
+const encounteredAdvisories = new Map()
 
-if (vulnerabilities.length > 0) {
+for (const entry of vulnerabilities) {
+  const summary = `${entry.advisory.id} (${entry.package.name}@${entry.package.version})`
+  encounteredAdvisories.set(entry.advisory.id, summary)
+  if (!allowedAdvisories.has(entry.advisory.id)) {
+    unexpectedVulnerabilities.push(`${summary}: ${entry.advisory.title}`)
+  }
+}
+
+if (unexpectedVulnerabilities.length > 0) {
   fail(
     'Unexpected RustSec vulnerabilities were detected.',
-    vulnerabilities.map(
-      ({ advisory, package: pkg }) =>
-        `${advisory.id} (${pkg.name}@${pkg.version}): ${advisory.title}`,
-    ),
+    unexpectedVulnerabilities,
   )
 }
 
 const unexpectedWarnings = []
-const encounteredAdvisories = new Map()
 const encounteredNonAdvisoryWarnings = new Map()
 
 for (const entry of warnings) {
@@ -218,7 +232,7 @@ if (staleAdvisoryAllowlist.length > 0 || staleNonAdvisoryAllowlist.length > 0) {
   )
 }
 
-if (audit.status !== 0) {
+if (audit.status !== 0 && encounteredAdvisories.size === 0) {
   fail(
     '`cargo audit --json` exited unsuccessfully without a reportable advisory delta.',
     [`Exit status: ${audit.status ?? 'unknown'}`],
@@ -226,6 +240,11 @@ if (audit.status !== 0) {
 }
 
 console.log('Rust supply-chain audit passed.')
+if (audit.status !== 0) {
+  console.log(
+    `cargo audit exited with status ${audit.status}, but every advisory/warning was explicitly allowlisted.`,
+  )
+}
 console.log(`Allowed RustSec advisories: ${encounteredAdvisories.size}`)
 console.log(
   `Allowed non-advisory warnings: ${encounteredNonAdvisoryWarnings.size}`,

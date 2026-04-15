@@ -189,6 +189,15 @@ pub struct PathFlowRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request shape for shareable/embed-oriented intelligence payloads.
+pub struct IntelligenceEmbedCardsRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Request shape for generic explainability lookups.
 pub struct EntityExplanationRequest {
     pub entity_type: String,
@@ -726,4 +735,40 @@ pub struct Explanation {
     pub trigger_rule: String,
     pub factors: Vec<ExplainabilityFactor>,
     pub participating_visit_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceEmbedCardPayload {
+    pub card_id: String,
+    pub card_type: String,
+    pub title: String,
+    pub eyebrow: Option<String>,
+    pub body: String,
+    pub metric_label: Option<String>,
+    pub metric_value: Option<String>,
+    pub href: Option<String>,
+    pub internal_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceWidgetSnapshot {
+    pub generated_at: String,
+    pub date_range: DateRange,
+    pub digest_summary: DigestSummary,
+    pub highlights: Vec<IntelligenceEmbedCardPayload>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligencePublicSnapshot {
+    pub generated_at: String,
+    pub date_range: DateRange,
+    pub digest_summary: DigestSummary,
+    pub top_domains: Vec<String>,
+    pub search_engines: Vec<EngineRanking>,
+    pub discovery_trend: DiscoveryTrend,
+    pub notes: Vec<String>,
 }

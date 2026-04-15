@@ -8,16 +8,14 @@
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
+    intelligence_catalog::{
+        IntelligenceModuleDescriptor, RebuildMode, built_in_intelligence_module_descriptor,
+        built_in_intelligence_module_descriptors,
+    },
     models::{
-        ACTIVITY_MIX_MODULE_ID, ACTIVITY_MIX_MODULE_VERSION, AppConfig,
-        CoreIntelligenceRebuildRequest, DAILY_ROLLUPS_MODULE_ID, DAILY_ROLLUPS_MODULE_VERSION,
-        DOMAIN_DEEP_DIVE_MODULE_ID, DOMAIN_DEEP_DIVE_MODULE_VERSION,
-        DeterministicModuleRuntimeStatus, EnrichmentPluginStatus, IntelligenceJobOverview,
-        IntelligenceQueueStatus, IntelligenceRuntimeSnapshot, READABLE_CONTENT_PLUGIN_ID,
-        REFIND_PAGES_MODULE_ID, REFIND_PAGES_MODULE_VERSION, SEARCH_EFFECTIVENESS_MODULE_ID,
-        SEARCH_EFFECTIVENESS_MODULE_VERSION, SEARCH_TRAILS_MODULE_ID, SEARCH_TRAILS_MODULE_VERSION,
-        SESSIONS_MODULE_ID, SESSIONS_MODULE_VERSION, TITLE_NORMALIZATION_PLUGIN_ID,
-        VISIT_DERIVED_FACTS_MODULE_ID, VISIT_DERIVED_FACTS_MODULE_VERSION,
+        AppConfig, CoreIntelligenceRebuildRequest, DeterministicModuleRuntimeStatus,
+        EnrichmentPluginStatus, IntelligenceJobOverview, IntelligenceQueueStatus,
+        IntelligenceRuntimeSnapshot, READABLE_CONTENT_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_ID,
         merge_enrichment_plugin_preferences,
     },
     utils::now_rfc3339,
@@ -126,13 +124,7 @@ pub(crate) struct EnrichmentPluginDefinition {
     pub priority: i64,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DeterministicModuleDefinition {
-    pub id: &'static str,
-    pub version: &'static str,
-    pub depends_on: &'static [&'static str],
-    pub derived_tables: &'static [&'static str],
-}
+pub(crate) type DeterministicModuleDefinition = IntelligenceModuleDescriptor;
 
 #[derive(Debug, Clone)]
 pub(crate) struct DeterministicModuleRuntimeUpdate {
@@ -236,68 +228,6 @@ const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = [
     },
 ];
 
-const BUILT_IN_DETERMINISTIC_MODULES: [DeterministicModuleDefinition; 8] = [
-    DeterministicModuleDefinition {
-        id: VISIT_DERIVED_FACTS_MODULE_ID,
-        version: VISIT_DERIVED_FACTS_MODULE_VERSION,
-        depends_on: &[],
-        derived_tables: &["visit_derived_facts"],
-    },
-    DeterministicModuleDefinition {
-        id: DAILY_ROLLUPS_MODULE_ID,
-        version: DAILY_ROLLUPS_MODULE_VERSION,
-        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID],
-        derived_tables: &[
-            "domain_daily_rollups",
-            "category_daily_rollups",
-            "engine_daily_rollups",
-            "daily_summary_rollups",
-        ],
-    },
-    DeterministicModuleDefinition {
-        id: SESSIONS_MODULE_ID,
-        version: SESSIONS_MODULE_VERSION,
-        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID],
-        derived_tables: &["sessions"],
-    },
-    DeterministicModuleDefinition {
-        id: SEARCH_TRAILS_MODULE_ID,
-        version: SEARCH_TRAILS_MODULE_VERSION,
-        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, SESSIONS_MODULE_ID],
-        derived_tables: &[
-            "search_trails",
-            "search_trail_members",
-            "search_events",
-            "search_event_terms",
-            "query_families",
-        ],
-    },
-    DeterministicModuleDefinition {
-        id: REFIND_PAGES_MODULE_ID,
-        version: REFIND_PAGES_MODULE_VERSION,
-        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, SEARCH_TRAILS_MODULE_ID],
-        derived_tables: &["refind_pages", "source_effectiveness"],
-    },
-    DeterministicModuleDefinition {
-        id: ACTIVITY_MIX_MODULE_ID,
-        version: ACTIVITY_MIX_MODULE_VERSION,
-        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
-        derived_tables: &[],
-    },
-    DeterministicModuleDefinition {
-        id: SEARCH_EFFECTIVENESS_MODULE_ID,
-        version: SEARCH_EFFECTIVENESS_MODULE_VERSION,
-        depends_on: &[SEARCH_TRAILS_MODULE_ID, REFIND_PAGES_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
-        derived_tables: &["reopened_investigations"],
-    },
-    DeterministicModuleDefinition {
-        id: DOMAIN_DEEP_DIVE_MODULE_ID,
-        version: DOMAIN_DEEP_DIVE_MODULE_VERSION,
-        depends_on: &[VISIT_DERIVED_FACTS_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
-        derived_tables: &["habit_patterns", "path_flows"],
-    },
-];
-
 fn is_core_intelligence_job_type(job_type: &str) -> bool {
     matches!(
         job_type,
@@ -318,12 +248,9 @@ fn core_intelligence_job_priority(job_type: &str) -> i64 {
 }
 
 fn core_intelligence_job_label(job_type: &str) -> &'static str {
-    match job_type {
-        VISIT_DERIVE_JOB_TYPE => "visit facts refresh",
-        DAILY_ROLLUP_JOB_TYPE => "daily rollup refresh",
-        STRUCTURAL_REBUILD_JOB_TYPE => "structural intelligence rebuild",
-        _ => "core intelligence rebuild",
-    }
+    RebuildMode::from_job_type(job_type)
+        .map(|mode| mode.label())
+        .unwrap_or("core intelligence rebuild")
 }
 
 /// Ensures the persistent intelligence runtime tables exist.
@@ -382,15 +309,16 @@ pub(crate) fn built_in_enrichment_plugin(
 }
 
 /// Returns the built-in deterministic module catalog.
-pub(crate) fn built_in_deterministic_modules() -> &'static [DeterministicModuleDefinition] {
-    &BUILT_IN_DETERMINISTIC_MODULES
+pub(crate) fn built_in_deterministic_modules() -> &'static [&'static DeterministicModuleDefinition]
+{
+    built_in_intelligence_module_descriptors()
 }
 
 /// Looks up one built-in deterministic module definition by ID.
 pub(crate) fn built_in_deterministic_module(
     module_id: &str,
 ) -> Option<&'static DeterministicModuleDefinition> {
-    built_in_deterministic_modules().iter().find(|module| module.id == module_id)
+    built_in_intelligence_module_descriptor(module_id)
 }
 
 /// Returns whether one deterministic module is enabled in the current config.
@@ -581,7 +509,7 @@ pub fn enqueue_deterministic_rebuild_job(
     request: &CoreIntelligenceRebuildRequest,
     reason: &str,
 ) -> Result<i64> {
-    enqueue_core_intelligence_job(connection, FULL_REBUILD_JOB_TYPE, request, reason)
+    enqueue_core_intelligence_job(connection, RebuildMode::FullRebuild.job_type(), request, reason)
 }
 
 /// Claims one Core Intelligence job by id and returns its request payload.
@@ -633,7 +561,7 @@ pub fn claim_deterministic_rebuild_job(
     job_id: i64,
 ) -> Result<Option<DeterministicRebuildJobPayload>> {
     Ok(claim_core_intelligence_job(connection, job_id)?
-        .filter(|payload| payload.job_type == FULL_REBUILD_JOB_TYPE))
+        .filter(|payload| payload.job_type == RebuildMode::FullRebuild.job_type()))
 }
 
 /// Persists runtime bookkeeping updates for deterministic modules.
@@ -1655,7 +1583,10 @@ mod tests {
         let jobs = load_recent_jobs(&connection).expect("recent jobs");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].job_type, DETERMINISTIC_REBUILD_JOB_TYPE);
-        assert_eq!(jobs[0].title.as_deref(), Some("chrome:Default · core intelligence rebuild"));
+        assert_eq!(
+            jobs[0].title.as_deref(),
+            Some("chrome:Default · full Core Intelligence rebuild")
+        );
     }
 
     #[test]

@@ -5,11 +5,13 @@
 //! accepted deterministic taxonomy packs and overrides used by the insights
 //! system.
 
+use publicsuffix::{IcannList, Psl};
 use reqwest::Url;
+use std::sync::LazyLock;
 
 const SEARCH_QUERY_KEYS: &[&str] =
     &["q", "query", "query_text", "search_query", "p", "wd", "word", "text", "keyword", "k"];
-const MULTI_LABEL_PUBLIC_SUFFIXES: &[&str] = &[
+const COMMON_MULTI_LABEL_PUBLIC_SUFFIXES: &[&str] = &[
     "co.jp", "co.kr", "co.uk", "com.au", "com.cn", "com.hk", "com.sg", "com.tr", "com.tw",
     "net.cn", "org.cn",
 ];
@@ -18,6 +20,7 @@ const LATIN_STOP_WORDS: &[&str] = &[
     "when", "where", "about", "http", "https", "www", "com", "org", "net", "html",
 ];
 const TAXONOMY_VERSION: &str = "m5-taxonomy-v1";
+static PUBLIC_SUFFIX_LIST: LazyLock<IcannList> = LazyLock::new(IcannList::default);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// URL normalized for deterministic analysis and taxonomy matching.
@@ -905,19 +908,36 @@ pub fn registrable_domain_for_host(host: &str) -> String {
     if host.is_empty() {
         return String::new();
     }
+    let fallback = fallback_registrable_domain_for_host(&host);
+    match (PUBLIC_SUFFIX_LIST.domain(host.as_bytes()), PUBLIC_SUFFIX_LIST.suffix(host.as_bytes())) {
+        (Some(domain), Some(suffix)) if domain.as_bytes() != suffix.as_bytes() => {
+            let candidate = String::from_utf8_lossy(domain.as_bytes()).to_string();
+            if candidate.split('.').count() < fallback.split('.').count() {
+                fallback
+            } else {
+                candidate
+            }
+        }
+        _ => fallback,
+    }
+}
+
+fn fallback_registrable_domain_for_host(host: &str) -> String {
     let segments = host.split('.').collect::<Vec<_>>();
     if segments.len() <= 2 {
-        return host;
+        host.to_string()
+    } else if segments.len() >= 3 {
+        let suffix = format!("{}.{}", segments[segments.len() - 2], segments[segments.len() - 1]);
+        if COMMON_MULTI_LABEL_PUBLIC_SUFFIXES
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(&suffix))
+        {
+            return segments[segments.len() - 3..].join(".");
+        }
+        segments[segments.len() - 2..].join(".")
+    } else {
+        segments[segments.len() - 2..].join(".")
     }
-
-    let suffix = format!("{}.{}", segments[segments.len() - 2], segments[segments.len() - 1]);
-    if MULTI_LABEL_PUBLIC_SUFFIXES.iter().any(|candidate| candidate.eq_ignore_ascii_case(&suffix))
-        && segments.len() >= 3
-    {
-        return segments[segments.len() - 3..].join(".");
-    }
-
-    segments[segments.len() - 2..].join(".")
 }
 
 fn assess_visit_evidence(

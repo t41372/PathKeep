@@ -257,6 +257,15 @@ pub(crate) fn explain_refind(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn explain_entity(
+    request: vault_core::EntityExplanationRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::Explanation, String> {
+    worker_bridge::explain_entity_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_activity_mix(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -343,6 +352,33 @@ pub(crate) fn get_discovery_trend(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::DiscoveryTrend, String> {
     worker_bridge::get_discovery_trend_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_intelligence_embed_cards(
+    request: vault_core::IntelligenceEmbedCardsRequest,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::IntelligenceEmbedCardPayload>, String> {
+    worker_bridge::get_intelligence_embed_cards_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_intelligence_widget_snapshot(
+    request: vault_core::IntelligenceEmbedCardsRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligenceWidgetSnapshot, String> {
+    worker_bridge::get_intelligence_widget_snapshot_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_intelligence_public_snapshot(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligencePublicSnapshot, String> {
+    worker_bridge::get_intelligence_public_snapshot_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

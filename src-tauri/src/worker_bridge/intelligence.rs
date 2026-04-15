@@ -3,10 +3,10 @@
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
-    DomainDeepDiveRequest, DomainTrendRequest, ExplainRefindRequest, GranularityDateRangeRequest,
-    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
-    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
-    TopSearchConceptsRequest, TopSitesRequest,
+    DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
+    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, PagedDateRangeRequest,
+    PathFlowRequest, ProfileScopedRequest, RefindPagesRequest, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -244,6 +244,14 @@ pub(crate) fn explain_refind_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+pub(crate) fn explain_entity_impl(
+    request: EntityExplanationRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::Explanation, String> {
+    worker_result(vault_worker::explain_entity(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_activity_mix_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
@@ -321,6 +329,30 @@ pub(crate) fn get_discovery_trend_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::DiscoveryTrend, String> {
     worker_result(vault_worker::get_discovery_trend(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_intelligence_embed_cards_impl(
+    request: IntelligenceEmbedCardsRequest,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::IntelligenceEmbedCardPayload>, String> {
+    worker_result(vault_worker::get_intelligence_embed_cards(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_intelligence_widget_snapshot_impl(
+    request: IntelligenceEmbedCardsRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligenceWidgetSnapshot, String> {
+    worker_result(vault_worker::get_intelligence_widget_snapshot(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_intelligence_public_snapshot_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligencePublicSnapshot, String> {
+    worker_result(vault_worker::get_intelligence_public_snapshot(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

@@ -34,8 +34,10 @@ use vault_core::{
     AiSearchResponse, AppConfig, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
     CompareSet, CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport,
     CoreIntelligenceRebuildRequest, DigestSummary, DiscoveryTrend, DomainDeepDive,
-    DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking, FrictionSignal,
-    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceRuntimeSnapshot,
+    DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
+    EntityExplanationRequest, Explanation, FrictionSignal, GranularityDateRangeRequest,
+    HabitPattern, HubPage, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
+    IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot, IntelligenceWidgetSnapshot,
     InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
     PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyResult, RefindExplanation,
     RefindPage, RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
@@ -1006,6 +1008,15 @@ pub fn explain_refind(
     })
 }
 
+pub fn explain_entity(
+    session_database_key: Option<&str>,
+    request: &EntityExplanationRequest,
+) -> Result<Explanation> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::explain_entity(paths, config, session_database_key, request)
+    })
+}
+
 pub fn get_activity_mix(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1102,6 +1113,33 @@ pub fn get_on_this_day(
 ) -> Result<Vec<OnThisDayEntry>> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_on_this_day(paths, config, session_database_key, profile_id)
+    })
+}
+
+pub fn get_intelligence_embed_cards(
+    session_database_key: Option<&str>,
+    request: &IntelligenceEmbedCardsRequest,
+) -> Result<Vec<IntelligenceEmbedCardPayload>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_intelligence_embed_cards(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_intelligence_widget_snapshot(
+    session_database_key: Option<&str>,
+    request: &IntelligenceEmbedCardsRequest,
+) -> Result<IntelligenceWidgetSnapshot> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_intelligence_widget_snapshot(paths, config, session_database_key, request)
+    })
+}
+
+pub fn get_intelligence_public_snapshot(
+    session_database_key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<IntelligencePublicSnapshot> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::get_intelligence_public_snapshot(paths, config, session_database_key, request)
     })
 }
 

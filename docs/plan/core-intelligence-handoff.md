@@ -34,9 +34,8 @@ That means:
 
 What is **not** done:
 
-- generic `explain_entity` is still not the accepted cross-entity explainability entrypoint; `explain_refind` remains the only shipping explainability command
-- legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse
-- external snippet / embed / widget backend work from Phase 4 is still not delivered
+- legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
+- external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend only ships data-provider payloads now
 
 ---
 
@@ -76,6 +75,7 @@ The backend command surface that is implemented and safe to wire now is:
 - `get_domain_trend`
 - `get_refind_pages`
 - `explain_refind`
+- `explain_entity`
 - `get_activity_mix`
 - `get_activity_mix_trend`
 - `get_digest_summary`
@@ -94,13 +94,15 @@ The backend command surface that is implemented and safe to wire now is:
 - `get_observed_interactions`
 - `get_compare_sets`
 - `get_multi_browser_diff`
+- `get_intelligence_embed_cards`
+- `get_intelligence_widget_snapshot`
+- `get_intelligence_public_snapshot`
 
 ### Important Frontend Caveat
 
 The command surface above is implemented, but the frontend should still assume:
 
-- `explain_entity` is draft-only
-- P4 external snippet/embed surfaces are not available
+- P4 external snippet/embed hosts are not available yet; only backend payload providers are shipping
 - `observed interactions` is capability-gated and may legitimately return an empty list on archives without supported source evidence
 
 ### Frontend Testing Note
@@ -120,6 +122,7 @@ Relevant file:
 New backend ownership root:
 
 - [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/intelligence/mod.rs)
+- [`src-tauri/crates/vault-core/src/intelligence_catalog.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/intelligence_catalog.rs)
 - [`src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs)
 - [`src-tauri/crates/vault-core/src/models/core_intelligence.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/models/core_intelligence.rs)
 
@@ -161,7 +164,9 @@ Legacy `insight_*` tables are dropped during Core Intelligence bootstrap.
 
 The backend already delivers:
 
+- trait-backed Core Intelligence module registry with `RebuildMode`, settings-schema descriptors, module dependency resolution, and explainability ownership
 - site dictionary / URL normalization wrapper
+- persisted site-dictionary overrides + versioned intelligence-side schema bootstrap
 - visit-derived facts materialization
 - daily rollups
 - sessions
@@ -189,7 +194,10 @@ The backend already delivers:
 - observed interactions
 - compare sets
 - multi-browser diff
+- generic `explain_entity`
+- read-only embed / widget / public snapshot payload providers
 - staged queue semantics for `visit-derive`, `daily-rollup`, `structural-rebuild`, and `full-rebuild`
+- profile-scoped auto-enqueue for backup/import follow-up rebuilds
 
 ### What Is Still Left
 
@@ -201,23 +209,22 @@ The next backend owner is expected to finish the rest of **all backend Core Inte
 
 These are still pending as real shipping backend scope:
 
-- `explain_entity` as the generic explainability command
-- any remaining P4 service/snippet/embed backend surfaces
+- any remaining P4 host/service integrations beyond the new payload-provider commands
 
 #### 2. Finish the cutover cleanup
 
 The reset is working, but there is still technical cleanup to do:
 
-- remove or reduce remaining legacy `vault-core::insights` product-role code
+- remove or reduce remaining legacy `vault-core::insights` implementation code
 - keep only the parts still genuinely needed for enrichment/readable-content support
-- decide whether the staged queue should become more incremental than the current “stage-specific tables, archive-wide recompute” implementation
+- decide whether the staged queue should become more incremental than the current “stage-specific tables, mostly profile-scoped recompute” implementation
 
 ### Do Not Accidentally Regress These
 
 - Do not reintroduce `load_insights()` as the accepted deterministic read path
 - Do not reintroduce `/insights` as the accepted route name
 - Do not remove `visit_content_enrichments` unless you also replace the readable-text evidence path for AI/enrichment
-- Do not treat `src/lib/core-intelligence/types.ts` as fully implemented; `explain_entity` and the P4 external service surfaces are still draft-only
+- Do not treat `src/lib/core-intelligence/types.ts` as fully implemented; the backend now ships `explain_entity` plus data-provider payload commands, but P4 host/service integrations are still draft-only
 
 ### Validation Commands
 
