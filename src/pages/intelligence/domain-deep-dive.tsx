@@ -14,6 +14,7 @@ import { useI18n } from '../../lib/i18n/hooks'
 import {
   useTimeRange,
   useAsyncData,
+  type DateRange,
   type DomainTrendPoint,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
@@ -24,6 +25,7 @@ import * as api from '../../lib/core-intelligence/api'
 
 interface DomainDeepDivePageProps {
   domain: string
+  dateRange?: DateRange
   onBack?: () => void
 }
 
@@ -33,10 +35,12 @@ interface DomainDeepDivePageProps {
 
 export function DomainDeepDivePage({
   domain,
+  dateRange: providedDateRange,
   onBack,
 }: DomainDeepDivePageProps) {
   const { t } = useI18n('intelligence')
-  const { dateRange } = useTimeRange('month')
+  const { dateRange: fallbackDateRange } = useTimeRange('month')
+  const dateRange = providedDateRange ?? fallbackDateRange
 
   const { data, loading, error } = useAsyncData(
     () => api.getDomainDeepDive(domain, dateRange, null),

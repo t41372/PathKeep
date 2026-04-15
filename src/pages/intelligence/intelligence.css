@@ -59,6 +59,13 @@
   margin: 0;
 }
 
+.intelligence-section__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 /* ---------- Empty & Skeleton States ---------- */
 
 .intelligence-empty {
@@ -357,11 +364,24 @@
 }
 
 .top-site-row {
+  background: none;
+  border: none;
+  width: 100%;
   display: grid;
   grid-template-columns: 28px 1fr 120px auto;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) 0;
+  text-align: left;
+}
+
+.top-site-row--interactive {
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.top-site-row--interactive:hover {
+  transform: translateX(2px);
 }
 
 .top-site-row__rank {
@@ -1460,6 +1480,14 @@
   padding-top: var(--space-3);
 }
 
+.search-effectiveness__sources {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .search-effectiveness__subtitle {
   font-size: 0.6875rem;
   text-transform: uppercase;
@@ -1487,6 +1515,30 @@
   font-size: 0.6875rem;
   color: var(--warning);
   flex-shrink: 0;
+}
+
+.search-effectiveness__source-row {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-effectiveness__source-domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.search-effectiveness__source-meta {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* ---------- Friction Detection (P2-3b) ---------- */

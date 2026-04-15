@@ -17,6 +17,7 @@ import './intelligence.css'
 
 import { useState } from 'react'
 import { useI18n } from '../../lib/i18n/hooks'
+import { DomainDeepDivePage } from './domain-deep-dive'
 import {
   useTimeRange,
   useAsyncData,
@@ -40,6 +41,17 @@ import * as api from '../../lib/core-intelligence/api'
 export function IntelligencePage() {
   const { t } = useI18n('intelligence')
   const { preset, dateRange, setPreset, setCustomRange } = useTimeRange('month')
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
+
+  if (selectedDomain) {
+    return (
+      <DomainDeepDivePage
+        domain={selectedDomain}
+        dateRange={dateRange}
+        onBack={() => setSelectedDomain(null)}
+      />
+    )
+  }
 
   return (
     <div className="intelligence-page">
@@ -55,7 +67,11 @@ export function IntelligencePage() {
         <DigestSection dateRange={dateRange} t={t} />
         <div className="intelligence-row intelligence-row--two-col">
           <OnThisDaySection t={t} />
-          <TopSitesSection dateRange={dateRange} t={t} />
+          <TopSitesSection
+            dateRange={dateRange}
+            t={t}
+            onSelectDomain={setSelectedDomain}
+          />
         </div>
         <SearchActivitySection dateRange={dateRange} t={t} />
         <RefindPagesSection dateRange={dateRange} t={t} />
@@ -67,7 +83,11 @@ export function IntelligencePage() {
         {/* Phase 2 — Deep Insights */}
         <div className="intelligence-row intelligence-row--two-col">
           <StableSourcesSection dateRange={dateRange} t={t} />
-          <SearchEffectivenessSection dateRange={dateRange} t={t} />
+          <SearchEffectivenessSection
+            dateRange={dateRange}
+            t={t}
+            onSelectDomain={setSelectedDomain}
+          />
         </div>
         <div className="intelligence-row intelligence-row--two-col">
           <FrictionDetectionSection dateRange={dateRange} t={t} />
@@ -250,10 +270,13 @@ function TrendBadge({ metric, t }: { metric: KpiMetric; t: T }) {
   )
 }
 
-// --- On This Day ---
+// --- On This Day (P2-8b enhanced) ---
 
 function OnThisDaySection({ t }: { t: T }) {
   const { data, loading } = useAsyncData(() => api.getOnThisDay(), [])
+  const [expanded, setExpanded] = useState(false)
+
+  const visibleEntries = expanded ? (data ?? []) : (data ?? []).slice(0, 3)
 
   return (
     <section className="intelligence-section on-this-day-section">
@@ -267,17 +290,50 @@ function OnThisDaySection({ t }: { t: T }) {
         </div>
       ) : (
         <div className="on-this-day-list">
-          {data.slice(0, 3).map((entry) => (
+          {visibleEntries.map((entry) => (
             <div key={entry.year} className="on-this-day-entry">
-              <span className="on-this-day-entry__date">📅 {entry.date}</span>
-              <span className="on-this-day-entry__summary">
-                {entry.summary ??
-                  t('onThisDayVisits', { count: entry.totalVisits })}
-              </span>
+              <div className="on-this-day-entry__header">
+                <span className="on-this-day-entry__year">{entry.year}</span>
+                <span className="on-this-day-entry__visits">
+                  {t('onThisDayVisits', { count: entry.totalVisits })}
+                </span>
+                {entry.deepDiveSessions > 0 && (
+                  <span
+                    className="on-this-day-entry__deep-dive-badge"
+                    title={t('onThisDayDeepDive', {
+                      count: entry.deepDiveSessions,
+                    })}
+                  >
+                    🔬 {entry.deepDiveSessions}
+                  </span>
+                )}
+              </div>
+              {entry.summary && (
+                <p className="on-this-day-entry__summary">{entry.summary}</p>
+              )}
+              {entry.topDomains.length > 0 && (
+                <div className="on-this-day-entry__domains">
+                  {entry.topDomains.slice(0, 4).map((domain) => (
+                    <span
+                      key={domain}
+                      className="on-this-day-entry__domain-tag"
+                    >
+                      {domain}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
           {data.length > 3 && (
-            <button className="intelligence-link">{t('onThisDayMore')}</button>
+            <button
+              className="intelligence-link"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded
+                ? t('onThisDayCollapse')
+                : t('onThisDayMore', { count: data.length - 3 })}
+            </button>
           )}
         </div>
       )}
@@ -287,7 +343,15 @@ function OnThisDaySection({ t }: { t: T }) {
 
 // --- Top Sites ---
 
-function TopSitesSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
+function TopSitesSection({
+  dateRange,
+  t,
+  onSelectDomain,
+}: {
+  dateRange: DateRange
+  t: T
+  onSelectDomain?: (domain: string) => void
+}) {
   const [sortBy, setSortBy] = useState('visit_count')
   const [search, setSearch] = useState('')
 
@@ -358,7 +422,12 @@ function TopSitesSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
                   ? t('topSitesAvgSuffix')
                   : t('visits')
             return (
-              <div key={site.registrableDomain} className="top-site-row">
+              <button
+                key={site.registrableDomain}
+                className={`top-site-row${onSelectDomain ? ' top-site-row--interactive' : ''}`}
+                type="button"
+                onClick={() => onSelectDomain?.(site.registrableDomain)}
+              >
                 <span className="top-site-row__rank">{i + 1}.</span>
                 <span className="top-site-row__domain">
                   {site.displayName ?? site.registrableDomain}
@@ -374,7 +443,7 @@ function TopSitesSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
                 <span className="top-site-row__count">
                   {displayVal} {suffix}
                 </span>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -681,7 +750,7 @@ function ActivityMixSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
   )
 }
 
-// --- Browsing Rhythm Heatmap ---
+// --- Browsing Rhythm Heatmap (P2-6b enhanced) ---
 
 function BrowsingRhythmSection({
   dateRange,
@@ -690,9 +759,11 @@ function BrowsingRhythmSection({
   dateRange: DateRange
   t: T
 }) {
+  const [category, setCategory] = useState<string | undefined>(undefined)
+
   const { data, loading } = useAsyncData(
-    () => api.getBrowsingRhythm(dateRange),
-    [dateRange],
+    () => api.getBrowsingRhythm(dateRange, null, category),
+    [dateRange, category],
   )
 
   const days = [
@@ -705,9 +776,35 @@ function BrowsingRhythmSection({
     t('dow_sat'),
   ]
 
+  const categoryOptions = [
+    { value: '', label: t('rhythmAllCategories') },
+    { value: 'developer', label: t('category_developer') },
+    { value: 'docs', label: t('category_docs') },
+    { value: 'social', label: t('category_social') },
+    { value: 'shopping', label: t('category_shopping') },
+    { value: 'news', label: t('category_news') },
+    { value: 'entertainment', label: t('category_entertainment') },
+    { value: 'search', label: t('category_search') },
+    { value: 'ai', label: t('category_ai') },
+  ]
+
   return (
     <section className="intelligence-section rhythm-section">
-      <h2 className="intelligence-section__title">{t('rhythmTitle')}</h2>
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('rhythmTitle')}</h2>
+        <select
+          className="top-sites-controls__sort"
+          value={category ?? ''}
+          onChange={(e) => setCategory(e.target.value || undefined)}
+          aria-label={t('rhythmCategoryFilter')}
+        >
+          {categoryOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--heatmap" />
       ) : !data || data.cells.length === 0 ? (
@@ -771,7 +868,7 @@ function BrowsingRhythmSection({
 
 function QueryFamiliesPanel({ dateRange, t }: { dateRange: DateRange; t: T }) {
   const { data, loading, error } = useAsyncData(
-    () => api.getQueryFamilies(dateRange, null, { page: 1, pageSize: 10 }),
+    () => api.getQueryFamilies(dateRange, null, { page: 0, pageSize: 10 }),
     [dateRange],
   )
 
@@ -906,9 +1003,11 @@ function StableSourcesSection({
 function SearchEffectivenessSection({
   dateRange,
   t,
+  onSelectDomain,
 }: {
   dateRange: DateRange
   t: T
+  onSelectDomain?: (domain: string) => void
 }) {
   const { data, loading } = useAsyncData(
     () => api.getSearchEffectiveness(dateRange, null),
@@ -964,6 +1063,28 @@ function SearchEffectivenessSection({
               )
             })}
           </div>
+          {data.topResolvingSources.length > 0 && (
+            <div className="search-effectiveness__sources">
+              <h3 className="search-effectiveness__subtitle">
+                {t('searchEffectivenessSources')}
+              </h3>
+              {data.topResolvingSources.slice(0, 5).map((source) => (
+                <button
+                  key={`${source.sourceRole}:${source.registrableDomain}`}
+                  className="search-effectiveness__source-row"
+                  type="button"
+                  onClick={() => onSelectDomain?.(source.registrableDomain)}
+                >
+                  <span className="search-effectiveness__source-domain">
+                    {source.displayName ?? source.registrableDomain}
+                  </span>
+                  <span className="search-effectiveness__source-meta">
+                    {source.stableLandingCount} {t('stableSourcesLandings')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           {data.hardestTopics.length > 0 && (
             <div className="search-effectiveness__hard-topics">
               <h3 className="search-effectiveness__subtitle">

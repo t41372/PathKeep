@@ -162,6 +162,8 @@ const zhCnM3Namespaces = {
     onThisDayEmpty: '过去的年份中没有找到今天的浏览记录。',
     onThisDayVisits: '浏览了 {count} 个页面',
     onThisDayMore: '查看更多年份 →',
+    onThisDayCollapse: '收起年份',
+    onThisDayDeepDive: '{count} 次深度研究会话',
 
     topSitesTitle: '最常访问',
     topSitesEmpty: '浏览数据不足，暂无法显示最常访问网站。',
@@ -198,6 +200,8 @@ const zhCnM3Namespaces = {
     rhythmTitle: '浏览节奏',
     rhythmEmpty: '数据不足，暂无法显示浏览节奏。',
     rhythmLabel: '每周浏览活动热力图',
+    rhythmAllCategories: '所有分类',
+    rhythmCategoryFilter: '按分类筛选浏览节奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次访问',
     dow_sun: '日',
     dow_mon: '一',
@@ -278,6 +282,7 @@ const zhCnM3Namespaces = {
     searchEffectivenessTitle: '搜索效率分析',
     searchEffectivenessEmpty: '数据不足，暂无法显示搜索效率。',
     searchEffectivenessReformulations: '次平均改写',
+    searchEffectivenessSources: '常带来结果的来源',
     searchEffectivenessHardest: '最难找的主题',
 
     // P2: Friction Detection
@@ -850,6 +855,8 @@ const zhTwM3Namespaces = {
     onThisDayEmpty: '過去的年份中沒有找到今天的瀏覽紀錄。',
     onThisDayVisits: '瀏覽了 {count} 個頁面',
     onThisDayMore: '查看更多年份 →',
+    onThisDayCollapse: '收起年份',
+    onThisDayDeepDive: '{count} 次深度研究會話',
 
     topSitesTitle: '最常造訪',
     topSitesEmpty: '瀏覽資料不足，暫無法顯示最常造訪網站。',
@@ -886,6 +893,8 @@ const zhTwM3Namespaces = {
     rhythmTitle: '瀏覽節奏',
     rhythmEmpty: '資料不足，暫無法顯示瀏覽節奏。',
     rhythmLabel: '每週瀏覽活動熱力圖',
+    rhythmAllCategories: '所有分類',
+    rhythmCategoryFilter: '按分類篩選瀏覽節奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次造訪',
     dow_sun: '日',
     dow_mon: '一',
@@ -966,6 +975,7 @@ const zhTwM3Namespaces = {
     searchEffectivenessTitle: '搜尋效率分析',
     searchEffectivenessEmpty: '資料不足，暫無法顯示搜尋效率。',
     searchEffectivenessReformulations: '次平均改寫',
+    searchEffectivenessSources: '常帶來結果的來源',
     searchEffectivenessHardest: '最難找的主題',
 
     // P2: Friction Detection
@@ -2703,6 +2713,8 @@ const catalog: Record<
       onThisDayEmpty: 'No history found for this date in past years.',
       onThisDayVisits: '{count} pages visited',
       onThisDayMore: 'See more years →',
+      onThisDayCollapse: 'Collapse years',
+      onThisDayDeepDive: '{count} deep-dive sessions',
 
       // Top Sites
       topSitesTitle: 'Top Sites',
@@ -2745,6 +2757,8 @@ const catalog: Record<
       rhythmTitle: 'Browsing Rhythm',
       rhythmEmpty: 'Not enough data to show browsing patterns.',
       rhythmLabel: 'Weekly browsing activity heatmap',
+      rhythmAllCategories: 'All categories',
+      rhythmCategoryFilter: 'Filter browsing rhythm by category',
       rhythmCellTooltip: '{day} {hour}:00 — {count} visits',
       dow_sun: 'Sun',
       dow_mon: 'Mon',
@@ -2825,6 +2839,7 @@ const catalog: Record<
       searchEffectivenessTitle: 'Search Effectiveness',
       searchEffectivenessEmpty: 'Not enough data to show search effectiveness.',
       searchEffectivenessReformulations: 'avg reformulations',
+      searchEffectivenessSources: 'Sources that often resolve searches',
       searchEffectivenessHardest: 'Hardest Topics',
 
       // P2: Friction Detection

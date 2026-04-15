@@ -50,6 +50,13 @@ import type {
   Explanation,
 } from './types'
 
+function invokeRequest<TResponse, TRequest extends Record<string, unknown>>(
+  command: string,
+  request: TRequest,
+) {
+  return invokeCommand<TResponse>(command, { request })
+}
+
 // ---------------------------------------------------------------------------
 // 1.1 Digest Summary
 // ---------------------------------------------------------------------------
@@ -58,7 +65,10 @@ export function getDigestSummary(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<DigestSummary>('get_digest_summary', {
+  return invokeRequest<
+    DigestSummary,
+    { dateRange: DateRange; profileId?: string | null }
+  >('get_digest_summary', {
     dateRange,
     profileId,
   })
@@ -82,7 +92,15 @@ export function getTopSites(
   sortBy?: string,
   limit?: number,
 ) {
-  return invokeCommand<TopSite[]>('get_top_sites', {
+  return invokeRequest<
+    TopSite[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      sortBy?: string
+      limit?: number
+    }
+  >('get_top_sites', {
     dateRange,
     profileId,
     sortBy,
@@ -91,7 +109,13 @@ export function getTopSites(
 }
 
 export function getDomainTrend(domain: string, dateRange: DateRange) {
-  return invokeCommand<DomainTrend>('get_domain_trend', { domain, dateRange })
+  return invokeRequest<
+    DomainTrend,
+    {
+      registrableDomain: string
+      dateRange: DateRange
+    }
+  >('get_domain_trend', { registrableDomain: domain, dateRange })
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +126,13 @@ export function getSearchEngineRanking(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<EngineRanking[]>('get_search_engine_ranking', {
+  return invokeRequest<
+    EngineRanking[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_search_engine_ranking', {
     dateRange,
     profileId,
   })
@@ -113,7 +143,14 @@ export function getTopSearchConcepts(
   profileId?: string | null,
   limit?: number,
 ) {
-  return invokeCommand<SearchConcept[]>('get_top_search_concepts', {
+  return invokeRequest<
+    SearchConcept[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      limit?: number
+    }
+  >('get_top_search_concepts', {
     dateRange,
     profileId,
     limit,
@@ -125,10 +162,18 @@ export function getQueryFamilies(
   profileId?: string | null,
   pagination?: PaginationParams,
 ) {
-  return invokeCommand<QueryFamilyResult>('get_query_families', {
+  return invokeRequest<
+    QueryFamilyResult,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      page: number
+      pageSize: number
+    }
+  >('get_query_families', {
     dateRange,
     profileId,
-    page: pagination?.page ?? 1,
+    page: pagination?.page ?? 0,
     pageSize: pagination?.pageSize ?? 20,
   })
 }
@@ -142,7 +187,14 @@ export function getRefindPages(
   profileId?: string | null,
   limit?: number,
 ) {
-  return invokeCommand<RefindPage[]>('get_refind_pages', {
+  return invokeRequest<
+    RefindPage[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      limit?: number
+    }
+  >('get_refind_pages', {
     dateRange,
     profileId,
     limit,
@@ -150,7 +202,10 @@ export function getRefindPages(
 }
 
 export function explainRefind(canonicalUrl: string) {
-  return invokeCommand<RefindExplanation>('explain_refind', { canonicalUrl })
+  return invokeRequest<RefindExplanation, { canonicalUrl: string }>(
+    'explain_refind',
+    { canonicalUrl },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -161,16 +216,25 @@ export function getHabitPatterns(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<HabitPattern[]>('get_habit_patterns', {
+  return invokeRequest<
+    HabitPattern[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_habit_patterns', {
     dateRange,
     profileId,
   })
 }
 
 export function getInterruptedHabits(profileId?: string | null) {
-  return invokeCommand<InterruptedHabit[]>('get_interrupted_habits', {
-    profileId,
-  })
+  return invokeRequest<InterruptedHabit[], { profileId?: string | null }>(
+    'get_interrupted_habits',
+    {
+      profileId,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +246,18 @@ export function getSessions(
   profileId?: string | null,
   pagination?: PaginationParams,
 ) {
-  return invokeCommand<SessionListResult>('get_sessions', {
+  return invokeRequest<
+    SessionListResult,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      page: number
+      pageSize: number
+    }
+  >('get_sessions', {
     dateRange,
     profileId,
-    page: pagination?.page ?? 1,
+    page: pagination?.page ?? 0,
     pageSize: pagination?.pageSize ?? 20,
   })
 }
@@ -204,11 +276,20 @@ export function getSearchTrails(
   engine?: string,
   pagination?: PaginationParams,
 ) {
-  return invokeCommand<TrailListResult>('get_search_trails', {
+  return invokeRequest<
+    TrailListResult,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      engine?: string
+      page: number
+      pageSize: number
+    }
+  >('get_search_trails', {
     dateRange,
     profileId,
     engine,
-    page: pagination?.page ?? 1,
+    page: pagination?.page ?? 0,
     pageSize: pagination?.pageSize ?? 20,
   })
 }
@@ -230,7 +311,14 @@ export function getHubPages(
   profileId?: string | null,
   limit?: number,
 ) {
-  return invokeCommand<HubPage[]>('get_hub_pages', {
+  return invokeRequest<
+    HubPage[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      limit?: number
+    }
+  >('get_hub_pages', {
     dateRange,
     profileId,
     limit,
@@ -246,8 +334,15 @@ export function getDomainDeepDive(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<DomainDeepDive>('get_domain_deep_dive', {
-    domain,
+  return invokeRequest<
+    DomainDeepDive,
+    {
+      registrableDomain: string
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_domain_deep_dive', {
+    registrableDomain: domain,
     dateRange,
     profileId,
   })
@@ -261,7 +356,13 @@ export function getStableSources(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<StableSource[]>('get_stable_sources', {
+  return invokeRequest<
+    StableSource[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_stable_sources', {
     dateRange,
     profileId,
   })
@@ -276,7 +377,14 @@ export function getSearchEffectiveness(
   profileId?: string | null,
   engine?: string,
 ) {
-  return invokeCommand<SearchEffectiveness>('get_search_effectiveness', {
+  return invokeRequest<
+    SearchEffectiveness,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      engine?: string
+    }
+  >('get_search_effectiveness', {
     dateRange,
     profileId,
     engine,
@@ -291,7 +399,13 @@ export function getFrictionSignals(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<FrictionSignal[]>('get_friction_signals', {
+  return invokeRequest<
+    FrictionSignal[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_friction_signals', {
     dateRange,
     profileId,
   })
@@ -305,7 +419,13 @@ export function getReopenedInvestigations(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<ReopenedInvestigation[]>('get_reopened_investigations', {
+  return invokeRequest<
+    ReopenedInvestigation[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_reopened_investigations', {
     dateRange,
     profileId,
   })
@@ -320,7 +440,14 @@ export function getBrowsingRhythm(
   profileId?: string | null,
   category?: string,
 ) {
-  return invokeCommand<RhythmHeatmap>('get_browsing_rhythm', {
+  return invokeRequest<
+    RhythmHeatmap,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      category?: string
+    }
+  >('get_browsing_rhythm', {
     dateRange,
     profileId,
     category,
@@ -336,7 +463,14 @@ export function getDiscoveryTrend(
   profileId?: string | null,
   granularity?: string,
 ) {
-  return invokeCommand<DiscoveryTrend>('get_discovery_trend', {
+  return invokeRequest<
+    DiscoveryTrend,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      granularity?: string
+    }
+  >('get_discovery_trend', {
     dateRange,
     profileId,
     granularity,
@@ -351,7 +485,13 @@ export function getActivityMix(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<ActivityMix>('get_activity_mix', {
+  return invokeRequest<
+    ActivityMix,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_activity_mix', {
     dateRange,
     profileId,
   })
@@ -362,7 +502,14 @@ export function getActivityMixTrend(
   profileId?: string | null,
   granularity?: string,
 ) {
-  return invokeCommand<ActivityMixTrend>('get_activity_mix_trend', {
+  return invokeRequest<
+    ActivityMixTrend,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      granularity?: string
+    }
+  >('get_activity_mix_trend', {
     dateRange,
     profileId,
     granularity,
@@ -377,7 +524,13 @@ export function getBreadthIndex(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<BreadthIndex>('get_breadth_index', {
+  return invokeRequest<
+    BreadthIndex,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_breadth_index', {
     dateRange,
     profileId,
   })
@@ -393,7 +546,15 @@ export function getPathFlows(
   stepCount?: number,
   limit?: number,
 ) {
-  return invokeCommand<PathFlow[]>('get_path_flows', {
+  return invokeRequest<
+    PathFlow[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      stepCount?: number
+      limit?: number
+    }
+  >('get_path_flows', {
     dateRange,
     profileId,
     stepCount,
@@ -409,7 +570,13 @@ export function getCompareSets(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<CompareSet[]>('get_compare_sets', {
+  return invokeRequest<
+    CompareSet[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_compare_sets', {
     dateRange,
     profileId,
   })
@@ -420,7 +587,10 @@ export function getCompareSets(
 // ---------------------------------------------------------------------------
 
 export function getMultiBrowserDiff(dateRange: DateRange) {
-  return invokeCommand<BrowserDiff>('get_multi_browser_diff', { dateRange })
+  return invokeRequest<BrowserDiff, { dateRange: DateRange }>(
+    'get_multi_browser_diff',
+    { dateRange },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +601,13 @@ export function getObservedInteractions(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeCommand<ObservedInteraction[]>('get_observed_interactions', {
+  return invokeRequest<
+    ObservedInteraction[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_observed_interactions', {
     dateRange,
     profileId,
   })
@@ -442,8 +618,11 @@ export function getObservedInteractions(
 // ---------------------------------------------------------------------------
 
 export function explainEntity(entityType: string, entityId: string) {
-  return invokeCommand<Explanation>('explain_entity', {
-    entityType,
-    entityId,
-  })
+  return invokeRequest<Explanation, { entityType: string; entityId: string }>(
+    'explain_entity',
+    {
+      entityType,
+      entityId,
+    },
+  )
 }

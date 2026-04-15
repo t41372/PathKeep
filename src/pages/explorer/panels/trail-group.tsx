@@ -46,7 +46,7 @@ export function TrailGroupPanel({
   intelligenceT,
   onSelectVisitUrl,
 }: TrailGroupPanelProps) {
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(0)
 
   const { data, loading, error } = useAsyncData(
     () =>
@@ -83,7 +83,7 @@ export function TrailGroupPanel({
         <span className="trail-group-panel__summary">
           {intelligenceT('trailGroupSummary', {
             count: data.total,
-            page: data.page,
+            page: data.page + 1,
           })}
         </span>
       </div>
@@ -103,18 +103,18 @@ export function TrailGroupPanel({
         <button
           className="btn-secondary"
           type="button"
-          disabled={page <= 1}
-          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          disabled={page <= 0}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
         >
           {explorerT('previousPage')}
         </button>
         <span className="trail-group-panel__page-label">
-          {page} / {Math.ceil(data.total / 20)}
+          {page + 1} / {Math.max(1, Math.ceil(data.total / 20))}
         </span>
         <button
           className="btn-secondary"
           type="button"
-          disabled={page * 20 >= data.total}
+          disabled={(page + 1) * 20 >= data.total}
           onClick={() => setPage((p) => p + 1)}
         >
           {explorerT('nextPage')}
