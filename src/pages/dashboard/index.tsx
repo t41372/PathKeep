@@ -667,7 +667,7 @@ export function DashboardPage() {
                 <Link className="btn-secondary" to="/assistant">
                   {t('dashboard.openAssistantAction')}
                 </Link>
-                <Link className="btn-secondary" to="/insights">
+                <Link className="btn-secondary" to="/intelligence">
                   {t('dashboard.reviewInsightsAction')}
                 </Link>
               </div>
@@ -677,7 +677,7 @@ export function DashboardPage() {
           <div className="panel">
             <div className="panel-header">
               <span className="panel-title">{insightsT('onThisDay')}</span>
-              <Link className="panel-action" to="/insights">
+              <Link className="panel-action" to="/intelligence">
                 {t('dashboard.reviewInsightsAction')}
               </Link>
             </div>

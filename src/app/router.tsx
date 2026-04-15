@@ -34,7 +34,7 @@ import { AppShell } from './shell'
 export type AppRouteId =
   | 'dashboard'
   | 'explorer'
-  | 'insights'
+  | 'intelligence'
   | 'assistant'
   | 'import'
   | 'audit'
@@ -101,12 +101,12 @@ const appShellScreens: AppScreen[] = [
     section: 'CORE',
   },
   {
-    id: 'insights',
-    labelKey: 'navigation.insightsLabel',
-    titleKey: 'navigation.insightsTitle',
-    subtitleKey: 'navigation.insightsSubtitle',
+    id: 'intelligence',
+    labelKey: 'navigation.intelligenceLabel',
+    titleKey: 'navigation.intelligenceTitle',
+    subtitleKey: 'navigation.intelligenceSubtitle',
     icon: '◈',
-    href: '/insights',
+    href: '/intelligence',
     section: 'CORE',
   },
   {
@@ -246,10 +246,10 @@ const appRouteChildren: RouteObject[] = [
     handle: withHandle(appShellScreens[1]),
   },
   {
-    path: 'insights',
+    path: 'intelligence',
     lazy: async () => {
-      const module = await import('../pages/insights')
-      return { Component: module.InsightsPage }
+      const module = await import('../pages/intelligence')
+      return { Component: module.IntelligencePage }
     },
     handle: withHandle(appShellScreens[2]),
   },
