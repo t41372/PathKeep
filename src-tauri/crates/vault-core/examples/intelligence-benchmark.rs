@@ -8,7 +8,7 @@ use vault_core::{
     archive::{open_archive_connection, open_intelligence_connection},
     config::project_paths_with_root,
     get_digest_summary, get_query_families, get_refind_pages, get_search_trails, get_sessions,
-    get_top_search_concepts, get_top_sites,
+    get_top_search_concepts, get_top_sites, insight_status,
     intelligence::run_core_intelligence_job_type_with_progress,
     intelligence_runtime::load_intelligence_runtime,
     load_config,
@@ -30,6 +30,7 @@ struct Options {
     app_root: Option<PathBuf>,
     persist_app_root: Option<PathBuf>,
     session_key: Option<String>,
+    skip_baseline_rebuild: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +65,7 @@ fn main() -> Result<()> {
     let options = parse_args()?;
     let context = prepare_benchmark_context(&options)?;
     let session_key = context.session_key.as_deref();
+    validate_skip_baseline_rebuild(&options, &context)?;
 
     let rebuild_request =
         CoreIntelligenceRebuildRequest { profile_id: None, full_rebuild: true, limit: None };
@@ -76,15 +78,19 @@ fn main() -> Result<()> {
         page_size: 20,
     };
 
-    let rebuild_started = Instant::now();
-    let baseline_rebuild = run_core_intelligence_with_progress(
-        &context.paths,
-        &context.config,
-        session_key,
-        &rebuild_request,
-        |_| Ok(()),
-    )?;
-    let baseline_rebuild_elapsed_ms = rebuild_started.elapsed().as_millis();
+    let (baseline_rebuild, baseline_rebuild_elapsed_ms) = if options.skip_baseline_rebuild {
+        (None, 0)
+    } else {
+        let rebuild_started = Instant::now();
+        let report = run_core_intelligence_with_progress(
+            &context.paths,
+            &context.config,
+            session_key,
+            &rebuild_request,
+            |_| Ok(()),
+        )?;
+        (Some(report), rebuild_started.elapsed().as_millis())
+    };
     let baseline_memory = memory_snapshot_json();
 
     let follow_up = match options.scenario {
@@ -159,6 +165,7 @@ fn main() -> Result<()> {
             "baselineRunCoreIntelligenceMs": baseline_rebuild_elapsed_ms,
             "querySurfacesMs": query_elapsed_ms,
         },
+        "baselineRebuildSkipped": options.skip_baseline_rebuild,
         "memory": {
             "baseline": baseline_memory,
             "afterQueries": memory_snapshot_json(),
@@ -208,6 +215,7 @@ fn parse_args() -> Result<Options> {
     let mut app_root = None;
     let mut persist_app_root = None;
     let mut session_key = None;
+    let mut skip_baseline_rebuild = false;
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -249,6 +257,9 @@ fn parse_args() -> Result<Options> {
             "--session-key" => {
                 session_key = Some(args.next().context("--session-key requires a value")?);
             }
+            "--skip-baseline-rebuild" => {
+                skip_baseline_rebuild = true;
+            }
             flag => anyhow::bail!("unknown flag {flag}"),
         }
     }
@@ -261,7 +272,26 @@ fn parse_args() -> Result<Options> {
         app_root,
         persist_app_root,
         session_key,
+        skip_baseline_rebuild,
     })
+}
+
+fn validate_skip_baseline_rebuild(options: &Options, context: &BenchmarkContext) -> Result<()> {
+    if !options.skip_baseline_rebuild {
+        return Ok(());
+    }
+    if options.app_root.is_none() {
+        anyhow::bail!(
+            "--skip-baseline-rebuild requires --app-root because synthetic benchmarks must seed and rebuild Core Intelligence first"
+        );
+    }
+    let status = insight_status(&context.paths, &context.config, context.session_key.as_deref())?;
+    if !status.ready {
+        anyhow::bail!(
+            "--skip-baseline-rebuild requires an existing Core Intelligence read model in the replayed app root"
+        );
+    }
+    Ok(())
 }
 
 fn prepare_benchmark_context(options: &Options) -> Result<BenchmarkContext> {
@@ -392,6 +422,9 @@ fn replay_command(options: &Options) -> String {
         if let Some(path) = options.persist_app_root.as_ref() {
             parts.push(format!("--persist-app-root '{}'", path.display()));
         }
+    }
+    if options.skip_baseline_rebuild {
+        parts.push("--skip-baseline-rebuild".to_string());
     }
     if let Some(output) = options.output.as_ref() {
         parts.push(format!("--output '{}'", output.display()));
@@ -960,4 +993,48 @@ fn seed_synthetic_archive(
     drop(visit_statement);
     transaction.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        Options, Scenario, prepare_benchmark_context, seed_synthetic_archive,
+        validate_skip_baseline_rebuild,
+    };
+    use tempfile::tempdir;
+    use vault_core::{
+        archive::open_archive_connection,
+        config::{project_paths_with_root, save_config},
+        models::{AppConfig, ArchiveMode},
+    };
+
+    #[test]
+    fn skip_baseline_rebuild_requires_existing_intelligence_state() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        save_config(&paths, &config).expect("save config");
+        let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_synthetic_archive(&mut archive, 32, 30, 365).expect("seed archive");
+        drop(archive);
+
+        let options = Options {
+            visits: 100_000,
+            window_days: 30,
+            horizon_days: 365,
+            scenario: Scenario::Full,
+            output: None,
+            app_root: Some(root.path().to_path_buf()),
+            persist_app_root: None,
+            session_key: None,
+            skip_baseline_rebuild: true,
+        };
+        let context = prepare_benchmark_context(&options).expect("benchmark context");
+        let error = validate_skip_baseline_rebuild(&options, &context).expect_err("missing state");
+        assert!(error.to_string().contains("existing Core Intelligence read model"));
+    }
 }
