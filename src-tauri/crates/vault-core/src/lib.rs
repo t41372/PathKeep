@@ -57,7 +57,7 @@ pub use archive::{
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
-pub use insights::execute_enrichment_job_by_id;
+pub use enrichment::execute_enrichment_job_by_id;
 pub use intelligence::{
     clear_derived_intelligence_state, explain_entity, get_activity_mix, get_activity_mix_trend,
     get_breadth_index, get_browsing_rhythm, get_compare_sets, get_digest_summary,

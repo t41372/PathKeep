@@ -15,7 +15,6 @@
 mod grouping;
 mod runtime;
 mod shared;
-mod site_adapters;
 mod storage;
 mod surfaces;
 mod topics;
@@ -29,16 +28,16 @@ use crate::{
         analyze_visit, extract_search_query_from_url, tokenize_text,
     },
     enrichment::{
-        StoredEnrichment, ensure_visit_content_enrichment_schema,
-        load_best_enrichment_map_by_history_ids,
+        StoredEnrichment, enrichment_failure_message, enrichment_is_terminal_failure,
+        ensure_visit_content_enrichment_schema, load_best_enrichment_map_by_history_ids,
+        store_enrichment, title_normalization_enrichment,
     },
-    intelligence_blobs::{load_readable_text_blob, store_readable_text_blob},
+    intelligence_blobs::load_readable_text_blob,
     intelligence_runtime::{
         DeterministicModuleRuntimeUpdate, ENRICHMENT_JOB_TYPE, EnrichmentJobPayload,
         LOCAL_PLUGIN_SOURCE_KIND, NETWORK_PLUGIN_SOURCE_KIND, built_in_deterministic_modules,
-        built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_job_by_id,
-        claim_enrichment_jobs, enqueue_enrichment_job, enrichment_plugin_enabled,
-        ensure_intelligence_runtime_schema, intelligence_job_stop_requested,
+        built_in_enrichment_plugin, built_in_enrichment_plugins, claim_enrichment_jobs,
+        enqueue_enrichment_job, enrichment_plugin_enabled, ensure_intelligence_runtime_schema,
         mark_intelligence_job_failed, mark_intelligence_job_succeeded,
         mark_running_intelligence_job_cancelled, persist_deterministic_module_runtime_updates,
         requeue_running_enrichment_jobs, requeue_running_enrichment_jobs_for_run,
@@ -57,11 +56,8 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Local, Utc};
-use reqwest::blocking::Client;
 use rusqlite::{Connection, OptionalExtension, Row, params};
-use scraper::{Html, Selector};
 use serde_json::{Value, json};
-use site_adapters::adapt_site_content;
 use std::collections::{HashMap, HashSet};
 
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -88,8 +84,6 @@ use self::{
 };
 
 const INSIGHT_PIPELINE_VERSION: &str = "insights-v2";
-const ENRICH_TEXT_LIMIT: usize = 12_000;
-const SNIPPET_LIMIT: usize = 3;
 const DEFAULT_WINDOW_DAYS: u32 = 30;
 const SESSION_GAP_MINUTES: i64 = 30;
 
@@ -348,17 +342,6 @@ struct VisitRecord {
     query_group_id: Option<String>,
     topic_id: Option<String>,
     thread_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct EnrichmentResult {
-    status: String,
-    final_url: Option<String>,
-    language: Option<String>,
-    readable_title: Option<String>,
-    readable_text: Option<String>,
-    snippets: Vec<String>,
-    extraction: Value,
 }
 
 #[derive(Debug, Default)]
@@ -851,78 +834,6 @@ fn process_enrichment_jobs(
     Ok(report)
 }
 
-/// Claims and executes one persisted enrichment job from the intelligence queue.
-pub fn execute_enrichment_job_by_id(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    job_id: i64,
-) -> Result<bool> {
-    let Some(job) = claim_enrichment_job_by_id(connection, job_id)? else {
-        return Ok(false);
-    };
-    if intelligence_job_stop_requested(connection, job.id)? {
-        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
-        return Ok(true);
-    }
-
-    let enrichment = match job.plugin_id.as_str() {
-        TITLE_NORMALIZATION_PLUGIN_ID => {
-            title_normalization_enrichment(&job.payload.url, job.payload.title.as_deref())
-        }
-        READABLE_CONTENT_PLUGIN_ID => {
-            let client = build_refetch_client()?;
-            refetch_visit_content(&client, &job.payload.url)
-        }
-        _ => {
-            if !mark_intelligence_job_failed(
-                connection,
-                job.id,
-                &format!("Unknown enrichment plugin {}", job.plugin_id),
-            )? {
-                let _ = mark_running_intelligence_job_cancelled(
-                    connection,
-                    job.id,
-                    "cancelled from UI",
-                );
-            }
-            return Ok(true);
-        }
-    };
-    if intelligence_job_stop_requested(connection, job.id)? {
-        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
-        return Ok(true);
-    }
-
-    store_enrichment(paths, connection, job.payload.history_id, &job.plugin_id, &enrichment)?;
-    let artifact = json!({
-        "status": enrichment.status,
-        "snippetCount": enrichment.snippets.len(),
-        "textLength": enrichment
-            .readable_text
-            .as_ref()
-            .map(|value| value.len())
-            .unwrap_or(0),
-        "attempt": job.attempt,
-    });
-    if enrichment_is_terminal_failure(&enrichment) {
-        if !mark_intelligence_job_failed(
-            connection,
-            job.id,
-            &enrichment_failure_message(&enrichment),
-        )? {
-            let _ =
-                mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
-        }
-    } else {
-        if !mark_intelligence_job_succeeded(connection, job.id, &artifact)? {
-            let _ =
-                mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
-        }
-    }
-
-    Ok(true)
-}
-
 fn recover_interrupted_insight_runs(connection: &Connection) -> Result<InterruptedInsightRecovery> {
     let recovered_runs = connection
         .query_row(
@@ -1009,256 +920,6 @@ fn plugin_enrichment_is_fresh(
         }
         _ => Ok(false),
     }
-}
-
-fn title_normalization_enrichment(url: &str, title: Option<&str>) -> EnrichmentResult {
-    let readable_title = title
-        .map(normalize_whitespace)
-        .filter(|value| !value.is_empty())
-        .or_else(|| normalized_title_from_url(url));
-    let status = if readable_title.is_some() { "success" } else { "empty" };
-    let snippets = readable_title.clone().into_iter().collect::<Vec<_>>();
-    EnrichmentResult {
-        status: status.to_string(),
-        final_url: Some(url.to_string()),
-        language: None,
-        readable_title,
-        readable_text: None,
-        snippets,
-        extraction: json!({
-            "strategy": if title.is_some() { "browser-title" } else { "url-fallback" },
-        }),
-    }
-}
-
-fn normalized_title_from_url(url: &str) -> Option<String> {
-    let parsed = reqwest::Url::parse(url).ok()?;
-    let last_segment = parsed
-        .path_segments()
-        .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
-        .map(percent_decode)?;
-    let candidate = normalize_whitespace(&last_segment.replace(['-', '_'], " "));
-    if candidate.is_empty() { None } else { Some(candidate) }
-}
-
-fn enrichment_is_terminal_failure(enrichment: &EnrichmentResult) -> bool {
-    matches!(enrichment.status.as_str(), "fetch-error" | "decode-error" | "unsupported-content")
-}
-
-fn enrichment_failure_message(enrichment: &EnrichmentResult) -> String {
-    match enrichment.status.as_str() {
-        "unsupported-content" => {
-            let content_type = enrichment
-                .extraction
-                .get("contentType")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or("non-HTML response");
-            format!("Skipped non-readable content ({content_type}).")
-        }
-        "fetch-error" => enrichment
-            .extraction
-            .get("error")
-            .and_then(Value::as_str)
-            .map(|error| format!("Could not fetch the page again. {error}"))
-            .unwrap_or_else(|| "Could not fetch the page again.".to_string()),
-        "decode-error" => {
-            let content_type = enrichment
-                .extraction
-                .get("contentType")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty());
-            let error = enrichment
-                .extraction
-                .get("error")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty());
-            match (content_type, error) {
-                (Some(content_type), Some(error)) => {
-                    format!("Could not decode the response body ({content_type}). {error}")
-                }
-                (Some(content_type), None) => {
-                    format!("Could not decode the response body ({content_type}).")
-                }
-                (None, Some(error)) => format!("Could not decode the response body. {error}"),
-                (None, None) => "Could not decode the response body.".to_string(),
-            }
-        }
-        _ => enrichment
-            .extraction
-            .get("error")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| format!("Enrichment failed with status {}", enrichment.status)),
-    }
-}
-
-fn build_refetch_client() -> Result<Client> {
-    Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .connect_timeout(std::time::Duration::from_secs(3))
-        .timeout(std::time::Duration::from_secs(4))
-        .user_agent("PathKeep Enrichment/0.1")
-        .build()
-        .context("building content refetch client")
-}
-
-fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
-    let response = match client.get(url).send() {
-        Ok(response) => response,
-        Err(error) => {
-            return EnrichmentResult {
-                status: "fetch-error".to_string(),
-                extraction: json!({ "error": error.to_string() }),
-                ..EnrichmentResult::default()
-            };
-        }
-    };
-    let final_url = Some(response.url().to_string());
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
-    let text = match response.text() {
-        Ok(text) => text,
-        Err(error) => {
-            return EnrichmentResult {
-                status: "decode-error".to_string(),
-                final_url,
-                extraction: json!({ "error": error.to_string(), "contentType": content_type }),
-                ..EnrichmentResult::default()
-            };
-        }
-    };
-    if !content_type.is_empty() && !content_type.contains("html") {
-        return EnrichmentResult {
-            status: "unsupported-content".to_string(),
-            final_url,
-            extraction: json!({ "contentType": content_type }),
-            ..EnrichmentResult::default()
-        };
-    }
-    let document = Html::parse_document(&text);
-    let title_selector = Selector::parse("title").expect("selector");
-    let html_selector = Selector::parse("html").expect("selector");
-    let body_selector = Selector::parse("main, article, body").expect("selector");
-    let block_selector =
-        Selector::parse("p, li, h1, h2, h3, h4, h5, h6, pre, code").expect("selector");
-
-    let readable_title = document
-        .select(&title_selector)
-        .next()
-        .map(|node| normalize_whitespace(&node.text().collect::<Vec<_>>().join(" ")))
-        .filter(|value| !value.is_empty());
-    let language = document
-        .select(&html_selector)
-        .next()
-        .and_then(|node| node.value().attr("lang"))
-        .map(ToString::to_string);
-
-    let mut blocks = Vec::new();
-    if let Some(root) = document.select(&body_selector).next() {
-        for node in root.select(&block_selector) {
-            let value = normalize_whitespace(&node.text().collect::<Vec<_>>().join(" "));
-            if !value.is_empty() {
-                blocks.push(value);
-            }
-        }
-        if blocks.is_empty() {
-            let fallback = normalize_whitespace(&root.text().collect::<Vec<_>>().join(" "));
-            if !fallback.is_empty() {
-                blocks.push(fallback);
-            }
-        }
-    }
-
-    let snippets = blocks.iter().take(SNIPPET_LIMIT).cloned().collect::<Vec<_>>();
-    let readable_text = truncate_text(&blocks.join("\n\n"), ENRICH_TEXT_LIMIT);
-    let generic_result = EnrichmentResult {
-        status: if readable_text.is_empty() { "empty".to_string() } else { "success".to_string() },
-        final_url,
-        language,
-        readable_title,
-        readable_text: (!readable_text.is_empty()).then_some(readable_text),
-        snippets: snippets.clone(),
-        extraction: json!({
-            "contentType": content_type,
-            "snippetCount": snippets.len(),
-            "textLength": snippets.iter().map(|value| value.len()).sum::<usize>(),
-        }),
-    };
-
-    if let Some(adapter) = adapt_site_content(url, &document) {
-        let readable_title =
-            adapter.readable_title.or_else(|| generic_result.readable_title.clone());
-        let readable_text = adapter
-            .readable_text
-            .map(|value| truncate_text(&value, ENRICH_TEXT_LIMIT))
-            .or_else(|| generic_result.readable_text.clone());
-        let snippets = if adapter.snippets.is_empty() {
-            generic_result.snippets.clone()
-        } else {
-            adapter.snippets.into_iter().take(SNIPPET_LIMIT).collect()
-        };
-
-        return EnrichmentResult {
-            status: if readable_text.as_deref().is_some_and(|value| !value.is_empty()) {
-                "success".to_string()
-            } else {
-                generic_result.status
-            },
-            final_url: generic_result.final_url,
-            language: generic_result.language,
-            readable_title,
-            readable_text,
-            snippets: snippets.clone(),
-            extraction: json!({
-                "contentType": content_type,
-                "snippetCount": snippets.len(),
-                "textLength": snippets.iter().map(|value| value.len()).sum::<usize>(),
-                "siteAdapter": {
-                    "id": adapter.adapter_id,
-                    "metadata": adapter.metadata,
-                },
-            }),
-        };
-    }
-
-    generic_result
-}
-
-fn store_enrichment(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    history_id: i64,
-    content_source: &str,
-    enrichment: &EnrichmentResult,
-) -> Result<()> {
-    let stored_blob = store_readable_text_blob(paths, enrichment.readable_text.as_deref())?;
-    connection.execute(
-        "INSERT OR REPLACE INTO visit_content_enrichments
-         (history_id, content_source, fetch_status, fetched_at, final_url, language, readable_title,
-          readable_text_blob_path, readable_text_bytes, text_hash, snippet_json, extraction_json, pipeline_version)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![
-            history_id,
-            content_source,
-            enrichment.status,
-            now_rfc3339(),
-            enrichment.final_url,
-            enrichment.language,
-            enrichment.readable_title,
-            stored_blob.as_ref().map(|blob| blob.relative_path.as_str()),
-            stored_blob.as_ref().map(|blob| blob.byte_len as i64).unwrap_or(0),
-            stored_blob.as_ref().map(|blob| blob.content_hash.as_str()),
-            serde_json::to_string(&enrichment.snippets)?,
-            serde_json::to_string(&enrichment.extraction)?,
-            INSIGHT_PIPELINE_VERSION,
-        ],
-    )?;
-    Ok(())
 }
 
 fn enrichment_for_history_and_source(
@@ -1922,30 +1583,6 @@ fn build_taxonomy_review_notes(visits: &[VisitRecord]) -> Vec<String> {
 
 fn query_term_from_url(url: &str) -> Option<String> {
     extract_search_query_from_url(url)
-}
-
-fn percent_decode(input: &str) -> String {
-    let mut output = String::new();
-    let bytes = input.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'+' => output.push(' '),
-            b'%' if index + 2 < bytes.len() => {
-                let hi = (bytes[index + 1] as char).to_digit(16);
-                let lo = (bytes[index + 2] as char).to_digit(16);
-                if let (Some(hi), Some(lo)) = (hi, lo) {
-                    output.push(char::from_u32(hi * 16 + lo).unwrap_or('%'));
-                    index += 2;
-                } else {
-                    output.push('%');
-                }
-            }
-            value => output.push(value as char),
-        }
-        index += 1;
-    }
-    output
 }
 
 fn normalize_whitespace(input: &str) -> String {
