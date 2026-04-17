@@ -557,7 +557,7 @@ function EngineRankingPanel({
     )
   }
 
-  const max = data[0].searchCount
+  const max = Math.max(data[0]?.searchCount ?? 0, 1)
   return (
     <div className="engine-ranking">
       {data.map((engine) => (
@@ -603,7 +603,7 @@ function ConceptCloudPanel({
     )
   }
 
-  const maxFreq = Math.max(...data.map((c) => c.frequency))
+  const maxFreq = Math.max(...data.map((c) => c.frequency), 1)
   return (
     <div
       className="concept-cloud"
@@ -1055,14 +1055,14 @@ function SearchEffectivenessSection({
         <div className="search-effectiveness">
           <div className="search-effectiveness__engines">
             {data.engineStats.map((engine) => {
+              const maxReformulations = Math.max(
+                ...data.engineStats.map((e) => e.avgReformulations),
+                1,
+              )
               const barWidth = Math.min(
                 100,
                 Math.round(
-                  (engine.avgReformulations /
-                    Math.max(
-                      ...data.engineStats.map((e) => e.avgReformulations),
-                    )) *
-                    100,
+                  (engine.avgReformulations / maxReformulations) * 100,
                 ),
               )
               return (
