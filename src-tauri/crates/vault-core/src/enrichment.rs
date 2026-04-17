@@ -129,6 +129,29 @@ pub(crate) fn build_embedding_content_from_parts(
     content
 }
 
+#[allow(dead_code)]
+/// Chooses the strongest available text payload for semantic indexing or assistant context.
+pub(crate) fn preferred_embedding_content(
+    paths: &ProjectPaths,
+    connection: &Connection,
+    history_id: i64,
+    profile_id: &str,
+    url: &str,
+    title: Option<&str>,
+    visited_at: &str,
+) -> Result<String> {
+    let mut enrichments = load_best_enrichment_map_by_history_ids(paths, connection, &[history_id])?;
+    let enrichment = enrichments.remove(&history_id);
+    Ok(build_embedding_content_from_parts(
+        profile_id,
+        url,
+        title,
+        visited_at,
+        enrichment.as_ref().and_then(|value| value.readable_title.as_deref()),
+        enrichment.as_ref().and_then(|value| value.readable_text.as_deref()),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

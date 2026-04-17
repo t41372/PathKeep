@@ -3,6 +3,7 @@ use super::*;
 use crate::{
     archive::{ensure_archive_initialized, open_archive_connection},
     config::project_paths_with_root,
+    enrichment::preferred_embedding_content,
     models::{
         AiProviderConfig, AiProviderPurpose, AiRequestFormat, AiSettings, ArchiveMode,
         InsightQueryGroupSummary, InsightReferencePageSummary,
