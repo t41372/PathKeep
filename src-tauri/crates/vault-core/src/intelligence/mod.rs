@@ -25,6 +25,7 @@ use self::site_dictionary::{
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
+    enrichment::ensure_visit_content_enrichment_schema,
     intelligence_catalog::{RebuildMode, module_descriptor_for_entity_type},
     intelligence_runtime::DeterministicModuleRuntimeUpdate,
     intelligence_runtime::persist_deterministic_module_runtime_updates,
@@ -61,28 +62,6 @@ pub use self::phase_three::{
 };
 
 const CORE_INTELLIGENCE_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS visit_content_enrichments (
-  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  history_id          INTEGER NOT NULL,
-  content_source      TEXT NOT NULL,
-  fetch_status        TEXT NOT NULL,
-  fetched_at          TEXT NOT NULL,
-  final_url           TEXT,
-  language            TEXT,
-  readable_title      TEXT,
-  readable_text_blob_path TEXT,
-  readable_text_bytes INTEGER NOT NULL DEFAULT 0,
-  text_hash           TEXT,
-  snippet_json        TEXT NOT NULL,
-  extraction_json     TEXT NOT NULL,
-  pipeline_version    TEXT NOT NULL,
-  UNIQUE(history_id, content_source)
-);
-CREATE INDEX IF NOT EXISTS idx_visit_content_enrichments_history_id
-  ON visit_content_enrichments(history_id);
-CREATE INDEX IF NOT EXISTS idx_visit_content_enrichments_status
-  ON visit_content_enrichments(fetch_status, fetched_at);
-
 CREATE TABLE IF NOT EXISTS visit_derived_facts (
   visit_id           INTEGER PRIMARY KEY,
   profile_id         TEXT NOT NULL,
@@ -547,6 +526,7 @@ struct StageRunResult {
 }
 
 fn apply_core_intelligence_baseline_migration(connection: &Connection) -> Result<()> {
+    ensure_visit_content_enrichment_schema(connection)?;
     connection.execute_batch(CORE_INTELLIGENCE_SCHEMA_SQL)?;
     Ok(())
 }

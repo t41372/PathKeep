@@ -17,7 +17,7 @@ use crate::{
     ai_sidecar::{self, SidecarEmbeddingRow},
     archive::{list_history, open_archive_connection, open_intelligence_connection},
     config::ProjectPaths,
-    insights::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
+    enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
         AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
         AiIndexStatus, AiProviderCapabilityReport, AiProviderConfig,

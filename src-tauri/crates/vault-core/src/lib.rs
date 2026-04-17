@@ -22,6 +22,7 @@ pub mod chrome;
 pub mod config;
 pub mod deterministic;
 pub mod diagnostics;
+mod enrichment;
 pub mod git_audit;
 mod insights;
 pub mod intelligence;

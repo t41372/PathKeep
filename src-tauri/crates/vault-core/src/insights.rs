@@ -28,6 +28,10 @@ use crate::{
         DomainCategory, EvidenceTier, InteractionKind, PageCategory, VisitAnalysisInput,
         analyze_visit, extract_search_query_from_url, tokenize_text,
     },
+    enrichment::{
+        StoredEnrichment, build_embedding_content_from_parts,
+        ensure_visit_content_enrichment_schema, load_best_enrichment_map_by_history_ids,
+    },
     intelligence_blobs::{load_readable_text_blob, store_readable_text_blob},
     intelligence_runtime::{
         DeterministicModuleRuntimeUpdate, ENRICHMENT_JOB_TYPE, EnrichmentJobPayload,
@@ -90,23 +94,6 @@ const DEFAULT_WINDOW_DAYS: u32 = 30;
 const SESSION_GAP_MINUTES: i64 = 30;
 
 const INSIGHT_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS visit_content_enrichments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  history_id INTEGER NOT NULL,
-  content_source TEXT NOT NULL,
-  fetch_status TEXT NOT NULL,
-  fetched_at TEXT NOT NULL,
-  final_url TEXT,
-  language TEXT,
-  readable_title TEXT,
-  readable_text_blob_path TEXT,
-  readable_text_bytes INTEGER NOT NULL DEFAULT 0,
-  text_hash TEXT,
-  snippet_json TEXT NOT NULL,
-  extraction_json TEXT NOT NULL,
-  pipeline_version TEXT NOT NULL,
-  UNIQUE(history_id, content_source)
-);
 CREATE TABLE IF NOT EXISTS visit_insight_features (
   history_id INTEGER PRIMARY KEY,
   profile_id TEXT NOT NULL,
@@ -296,10 +283,6 @@ CREATE TABLE IF NOT EXISTS insight_runs (
   warning TEXT,
   notes_json TEXT NOT NULL DEFAULT '[]'
 );
-CREATE INDEX IF NOT EXISTS idx_visit_content_enrichments_history_id
-  ON visit_content_enrichments(history_id);
-CREATE INDEX IF NOT EXISTS idx_visit_content_enrichments_status
-  ON visit_content_enrichments(fetch_status, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_visit_insight_features_topic_id
   ON visit_insight_features(topic_id);
 CREATE INDEX IF NOT EXISTS idx_visit_insight_features_thread_id
@@ -378,16 +361,6 @@ struct EnrichmentResult {
     extraction: Value,
 }
 
-#[derive(Debug, Clone)]
-/// Best available enrichment payload for one history row after source prioritization.
-pub(crate) struct StoredEnrichment {
-    pub(crate) fetch_status: String,
-    pub(crate) fetched_at: String,
-    pub(crate) readable_title: Option<String>,
-    pub(crate) readable_text: Option<String>,
-    pub(crate) snippet_json: String,
-}
-
 #[derive(Debug, Default)]
 struct EnrichmentProcessingReport {
     enriched_visits: usize,
@@ -405,6 +378,7 @@ const SQLITE_BATCH_SIZE: usize = 400;
 
 /// Ensures all deterministic-insight schema tables and indexes exist.
 pub(crate) fn ensure_insight_schema(connection: &Connection) -> Result<()> {
+    ensure_visit_content_enrichment_schema(connection)?;
     connection.execute_batch(INSIGHT_SCHEMA_SQL)?;
     connection.execute_batch(
         r#"
@@ -445,7 +419,9 @@ pub(crate) fn preferred_embedding_content(
     title: Option<&str>,
     visited_at: &str,
 ) -> Result<String> {
-    let enrichment = best_enrichment_for_history(paths, connection, history_id)?;
+    let mut enrichments =
+        load_best_enrichment_map_by_history_ids(paths, connection, &[history_id])?;
+    let enrichment = enrichments.remove(&history_id);
     Ok(build_embedding_content_from_parts(
         profile_id,
         url,
@@ -1347,107 +1323,6 @@ fn enrichment_for_history_and_source(
     })
 }
 
-#[allow(dead_code)]
-fn best_enrichment_for_history(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    history_id: i64,
-) -> Result<Option<StoredEnrichment>> {
-    let mut statement = connection.prepare(
-        "SELECT content_source, fetch_status, fetched_at, final_url, language, readable_title,
-                readable_text_blob_path, snippet_json
-         FROM visit_content_enrichments
-         WHERE history_id = ?1
-         ORDER BY
-           CASE fetch_status WHEN 'success' THEN 0 WHEN 'empty' THEN 1 ELSE 2 END,
-           CASE content_source
-             WHEN 'capture' THEN 0
-             WHEN 'readable-content-refetch' THEN 1
-             WHEN 'title-normalization' THEN 2
-             ELSE 3
-           END,
-           fetched_at DESC",
-    )?;
-    let row = statement
-        .query_row([history_id], |row: &Row<'_>| {
-            let _: Option<String> = row.get(3)?;
-            let _: Option<String> = row.get(4)?;
-            Ok((
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, String>(7)?,
-            ))
-        })
-        .optional()?;
-    row.map_or(Ok(None), |(fetch_status, fetched_at, readable_title, blob_path, snippet_json)| {
-        Ok(Some(StoredEnrichment {
-            fetch_status,
-            fetched_at,
-            readable_title,
-            readable_text: load_readable_text_blob(paths, blob_path.as_deref())?,
-            snippet_json,
-        }))
-    })
-}
-
-/// Loads the preferred enrichment payload for a batch of history ids.
-pub(crate) fn load_best_enrichment_map_by_history_ids(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    history_ids: &[i64],
-) -> Result<HashMap<i64, StoredEnrichment>> {
-    if history_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    let mut map = HashMap::new();
-    for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
-        let sql = format!(
-            "SELECT history_id, fetch_status, fetched_at, readable_title, readable_text_blob_path, snippet_json
-             FROM visit_content_enrichments
-             WHERE history_id IN ({placeholders})
-             ORDER BY
-               history_id ASC,
-               CASE fetch_status WHEN 'success' THEN 0 WHEN 'empty' THEN 1 ELSE 2 END,
-               CASE content_source
-                 WHEN 'capture' THEN 0
-                 WHEN 'readable-content-refetch' THEN 1
-                 WHEN 'title-normalization' THEN 2
-                 ELSE 3
-               END,
-               fetched_at DESC"
-        );
-        let mut statement = connection.prepare(&sql)?;
-        let params = chunk.iter().map(|history_id| history_id as &dyn rusqlite::ToSql);
-        let rows = statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
-            ))
-        })?;
-        for row in rows {
-            let (history_id, fetch_status, fetched_at, readable_title, blob_path, snippet_json) =
-                row?;
-            map.entry(history_id).or_insert(StoredEnrichment {
-                fetch_status,
-                fetched_at,
-                readable_title,
-                readable_text: load_readable_text_blob(paths, blob_path.as_deref())?,
-                snippet_json,
-            });
-        }
-    }
-
-    Ok(map)
-}
-
 fn load_best_enrichment_map(
     paths: &ProjectPaths,
     connection: &Connection,
@@ -2119,30 +1994,6 @@ fn truncate_text(input: &str, limit: usize) -> String {
         return input.to_string();
     }
     input.chars().take(limit).collect::<String>()
-}
-
-/// Builds the canonical text blob fed into semantic indexing from visit/enrichment parts.
-pub(crate) fn build_embedding_content_from_parts(
-    profile_id: &str,
-    url: &str,
-    title: Option<&str>,
-    visited_at: &str,
-    readable_title: Option<&str>,
-    readable_text: Option<&str>,
-) -> String {
-    let title = title.unwrap_or("(untitled)");
-    let mut content = format!(
-        "Profile: {profile_id}\nVisited at: {visited_at}\nURL: {url}\nDomain: {}\nTitle: {title}",
-        url_domain(url)
-    );
-    if let Some(readable_title) = readable_title.filter(|value| !value.trim().is_empty()) {
-        content.push_str(&format!("\nReadable title: {}", readable_title.trim()));
-    }
-    if let Some(readable_text) = readable_text.filter(|value| !value.trim().is_empty()) {
-        content.push_str("\nReadable text:\n");
-        content.push_str(readable_text.trim());
-    }
-    content
 }
 
 fn legacy_source_role(visit: &VisitRecord) -> &'static str {
