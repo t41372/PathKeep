@@ -22,6 +22,11 @@ const LATIN_STOP_WORDS: &[&str] = &[
 const TAXONOMY_VERSION: &str = "m5-taxonomy-v1";
 static PUBLIC_SUFFIX_LIST: LazyLock<IcannList> = LazyLock::new(IcannList::default);
 
+/// Returns the current deterministic taxonomy baseline version.
+pub(crate) const fn taxonomy_version() -> &'static str {
+    TAXONOMY_VERSION
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// URL normalized for deterministic analysis and taxonomy matching.
 pub struct NormalizedVisitUrl {

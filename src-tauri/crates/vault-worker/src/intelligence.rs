@@ -865,6 +865,11 @@ fn execute_core_intelligence_job(
                     "trailCount": report.search_trails,
                     "queryFamilyCount": report.query_families,
                     "refindPageCount": report.refind_pages,
+                    "executionMode": report.execution_mode,
+                    "affectedProfiles": report.affected_profiles,
+                    "dirtyVisitCount": report.dirty_visit_count,
+                    "dirtyDateKeys": report.dirty_date_keys,
+                    "fallbackReason": report.fallback_reason,
                     "notes": report.notes,
                 }),
             )? {

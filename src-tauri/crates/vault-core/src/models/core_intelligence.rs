@@ -47,6 +47,11 @@ pub struct CoreIntelligenceRebuildReport {
     pub refind_pages: usize,
     pub source_effectiveness: usize,
     pub reopened_investigations: usize,
+    pub execution_mode: Option<String>,
+    pub affected_profiles: Option<Vec<String>>,
+    pub dirty_visit_count: Option<usize>,
+    pub dirty_date_keys: Option<Vec<String>>,
+    pub fallback_reason: Option<String>,
     pub notes: Vec<String>,
     pub last_run_at: String,
 }

@@ -7,10 +7,17 @@
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod incremental;
 mod phase_four;
 mod phase_three;
 mod site_dictionary;
 
+use self::incremental::{
+    ProfileSourceWatermark, StageCheckpoint, StageExecutionMode, delete_stage_checkpoints,
+    ensure_core_intelligence_stage_checkpoint_schema, list_core_intelligence_profiles,
+    load_profile_source_watermark, load_stage_checkpoint, save_stage_checkpoint, stage_name,
+    stage_version, watermark_regressed,
+};
 use self::site_dictionary::{
     SiteDictionaryEntry, classify_visit, display_name_for_domain, display_name_for_search_engine,
     ensure_site_dictionary_override_schema, load_site_dictionary_overrides, normalize_query,
@@ -310,6 +317,11 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "site-dictionary-overrides",
         apply: apply_site_dictionary_override_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 3,
+        name: "stage-checkpoints",
+        apply: apply_core_intelligence_stage_checkpoint_migration,
+    },
 ];
 
 const LEGACY_INSIGHT_TABLES: &[&str] = &[
@@ -516,6 +528,24 @@ struct DailyRollupBundle {
     summary_rows: Vec<(String, String, i64, i64, i64, i64, f32, f32)>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct StageRunResult {
+    processed_visits: usize,
+    visit_derived_facts: usize,
+    sessions: usize,
+    search_trails: usize,
+    query_families: usize,
+    refind_pages: usize,
+    source_effectiveness: usize,
+    reopened_investigations: usize,
+    execution_mode: Option<String>,
+    affected_profiles: Vec<String>,
+    dirty_visit_count: Option<usize>,
+    dirty_date_keys: Vec<String>,
+    fallback_reason: Option<String>,
+    notes: Vec<String>,
+}
+
 fn apply_core_intelligence_baseline_migration(connection: &Connection) -> Result<()> {
     connection.execute_batch(CORE_INTELLIGENCE_SCHEMA_SQL)?;
     Ok(())
@@ -523,6 +553,10 @@ fn apply_core_intelligence_baseline_migration(connection: &Connection) -> Result
 
 fn apply_site_dictionary_override_migration(connection: &Connection) -> Result<()> {
     ensure_site_dictionary_override_schema(connection)
+}
+
+fn apply_core_intelligence_stage_checkpoint_migration(connection: &Connection) -> Result<()> {
+    ensure_core_intelligence_stage_checkpoint_schema(connection)
 }
 
 fn load_applied_intelligence_migrations(connection: &Connection) -> Result<BTreeSet<i64>> {
@@ -697,17 +731,158 @@ fn run_core_intelligence_job_with_progress<F>(
 where
     F: FnMut(CoreIntelligenceProgress) -> Result<()>,
 {
+    if request.limit.is_some() {
+        return run_core_intelligence_legacy_job_with_progress(
+            paths,
+            config,
+            key,
+            job_kind,
+            request,
+            on_progress,
+        );
+    }
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let run_id = Utc::now().timestamp_millis();
     let computed_at = now_rfc3339();
-    let mut notes = vec![format!("Completed a {}.", job_kind.label())];
-    if request.profile_id.is_none() && request.full_rebuild && job_kind == RebuildMode::FullRebuild
-    {
-        notes.push(
-            "Performed a full Core Intelligence rebuild over all visible profiles.".to_string(),
-        );
+    let profile_ids = list_core_intelligence_profiles(&connection, request.profile_id.as_deref())?;
+    if profile_ids.is_empty() {
+        clear_core_tables_for_job_kind(&connection, request.profile_id.as_deref(), job_kind)?;
+        delete_stage_checkpoints(&connection, request.profile_id.as_deref())?;
+        let notes = vec!["No visible visits matched the requested rebuild scope.".to_string()];
+        persist_ready_module_updates(
+            &connection,
+            run_id,
+            Some(computed_at.clone()),
+            &job_kind.module_ids(),
+            &notes,
+        )?;
+        return Ok(CoreIntelligenceRebuildReport {
+            run_id,
+            processed_visits: 0,
+            visit_derived_facts: 0,
+            sessions: 0,
+            search_trails: 0,
+            query_families: 0,
+            refind_pages: 0,
+            source_effectiveness: 0,
+            reopened_investigations: 0,
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: Some(Vec::new()),
+            dirty_visit_count: Some(0),
+            dirty_date_keys: Some(Vec::new()),
+            fallback_reason: None,
+            notes,
+            last_run_at: computed_at,
+        });
     }
+
+    let mut aggregate = StageRunResult {
+        execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+        ..StageRunResult::default()
+    };
+    let profile_total = profile_ids.len();
+    for (profile_index, profile_id) in profile_ids.iter().enumerate() {
+        let watermark = load_profile_source_watermark(&connection, profile_id)?;
+        on_progress(CoreIntelligenceProgress {
+            phase: "profile-scan".to_string(),
+            detail: format!("Preparing {} for {}.", job_kind.label(), profile_id),
+            processed_items: Some(profile_index),
+            total_items: Some(profile_total),
+            progress_percent: Some((profile_index as f32 / profile_total.max(1) as f32) * 100.0),
+        })?;
+        let result = match job_kind {
+            RebuildMode::VisitDerive => execute_visit_derive_stage(
+                &connection,
+                profile_id,
+                &watermark,
+                request.full_rebuild,
+                run_id,
+                &computed_at,
+            )?,
+            RebuildMode::DailyRollup => execute_daily_rollup_stage(
+                &connection,
+                profile_id,
+                &watermark,
+                request.full_rebuild,
+                run_id,
+                &computed_at,
+            )?,
+            RebuildMode::StructuralRebuild => execute_structural_stage(
+                &connection,
+                profile_id,
+                &watermark,
+                request.full_rebuild,
+                run_id,
+                &computed_at,
+            )?,
+            RebuildMode::FullRebuild => execute_full_rebuild_stages(
+                &connection,
+                profile_id,
+                &watermark,
+                run_id,
+                &computed_at,
+            )?,
+        };
+        merge_stage_run_result(&mut aggregate, result, job_kind);
+        on_progress(CoreIntelligenceProgress {
+            phase: "profile-build".to_string(),
+            detail: format!("Updated {} for profile {}.", job_kind.label(), profile_id),
+            processed_items: Some(profile_index + 1),
+            total_items: Some(profile_total),
+            progress_percent: Some(
+                ((profile_index + 1) as f32 / profile_total.max(1) as f32) * 100.0,
+            ),
+        })?;
+    }
+
+    if aggregate.notes.is_empty() {
+        aggregate.notes.push(format!("Completed a {}.", job_kind.label()));
+    }
+    persist_ready_module_updates(
+        &connection,
+        run_id,
+        Some(computed_at.clone()),
+        &job_kind.module_ids(),
+        &aggregate.notes,
+    )?;
+    Ok(CoreIntelligenceRebuildReport {
+        run_id,
+        processed_visits: aggregate.processed_visits,
+        visit_derived_facts: aggregate.visit_derived_facts,
+        sessions: aggregate.sessions,
+        search_trails: aggregate.search_trails,
+        query_families: aggregate.query_families,
+        refind_pages: aggregate.refind_pages,
+        source_effectiveness: aggregate.source_effectiveness,
+        reopened_investigations: aggregate.reopened_investigations,
+        execution_mode: aggregate.execution_mode,
+        affected_profiles: Some(aggregate.affected_profiles),
+        dirty_visit_count: aggregate.dirty_visit_count,
+        dirty_date_keys: Some(aggregate.dirty_date_keys),
+        fallback_reason: aggregate.fallback_reason,
+        notes: aggregate.notes,
+        last_run_at: computed_at,
+    })
+}
+
+fn run_core_intelligence_legacy_job_with_progress<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    job_kind: RebuildMode,
+    request: &CoreIntelligenceRebuildRequest,
+    mut on_progress: F,
+) -> Result<CoreIntelligenceRebuildReport>
+where
+    F: FnMut(CoreIntelligenceProgress) -> Result<()>,
+{
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let run_id = Utc::now().timestamp_millis();
+    let computed_at = now_rfc3339();
+    let notes =
+        vec![format!("Completed a {} through the scoped debug fallback path.", job_kind.label())];
     let visits = load_visible_visits(&connection, request.profile_id.as_deref(), request.limit)?;
     if visits.is_empty() {
         clear_core_tables_for_job_kind(&connection, request.profile_id.as_deref(), job_kind)?;
@@ -728,6 +903,14 @@ where
             refind_pages: 0,
             source_effectiveness: 0,
             reopened_investigations: 0,
+            execution_mode: Some(StageExecutionMode::FallbackFull.as_str().to_string()),
+            affected_profiles: request.profile_id.clone().map(|profile_id| vec![profile_id]),
+            dirty_visit_count: Some(0),
+            dirty_date_keys: Some(Vec::new()),
+            fallback_reason: Some(
+                "Scoped debug rebuilds use the legacy full recompute path and do not advance incremental checkpoints."
+                    .to_string(),
+            ),
             notes,
             last_run_at: computed_at,
         });
@@ -754,7 +937,9 @@ where
     let mut rollups = DailyRollupBundle::default();
 
     let profile_total = by_profile.len();
+    let mut affected_profiles = Vec::new();
     for (profile_index, (profile_id, mut profile_visits)) in by_profile.into_iter().enumerate() {
+        affected_profiles.push(profile_id.clone());
         compute_is_new_domain(&mut profile_visits);
         if needs_structural_entities {
             let sessions = build_sessions(&mut profile_visits);
@@ -830,9 +1015,1381 @@ where
         refind_pages: all_refind_pages.len(),
         source_effectiveness: all_source_effectiveness.len(),
         reopened_investigations: all_reopened.len(),
+        execution_mode: Some(StageExecutionMode::FallbackFull.as_str().to_string()),
+        affected_profiles: Some(affected_profiles),
+        dirty_visit_count: Some(total_visible_visits),
+        dirty_date_keys: Some(Vec::new()),
+        fallback_reason: Some(
+            "Scoped debug rebuilds use the legacy full recompute path and do not advance incremental checkpoints."
+                .to_string(),
+        ),
         notes,
         last_run_at: computed_at,
     })
+}
+
+fn merge_stage_run_result(
+    aggregate: &mut StageRunResult,
+    next: StageRunResult,
+    job_kind: RebuildMode,
+) {
+    let execution_mode = next.execution_mode.clone();
+    aggregate.visit_derived_facts += next.visit_derived_facts;
+    aggregate.sessions += next.sessions;
+    aggregate.search_trails += next.search_trails;
+    aggregate.query_families += next.query_families;
+    aggregate.refind_pages += next.refind_pages;
+    aggregate.source_effectiveness += next.source_effectiveness;
+    aggregate.reopened_investigations += next.reopened_investigations;
+    if matches!(job_kind, RebuildMode::VisitDerive | RebuildMode::FullRebuild) {
+        aggregate.processed_visits += next.processed_visits;
+    } else {
+        aggregate.processed_visits = aggregate.processed_visits.max(next.processed_visits);
+    }
+    if matches!(execution_mode.as_deref(), Some("fallback-full"))
+        || aggregate.execution_mode.is_none()
+        || matches!(aggregate.execution_mode.as_deref(), Some("noop"))
+    {
+        aggregate.execution_mode = execution_mode;
+    }
+    aggregate.affected_profiles.extend(next.affected_profiles);
+    aggregate.affected_profiles.sort();
+    aggregate.affected_profiles.dedup();
+    if let Some(value) = next.dirty_visit_count {
+        aggregate.dirty_visit_count = Some(aggregate.dirty_visit_count.unwrap_or(0) + value);
+    }
+    aggregate.dirty_date_keys.extend(next.dirty_date_keys);
+    aggregate.dirty_date_keys.sort();
+    aggregate.dirty_date_keys.dedup();
+    if aggregate.fallback_reason.is_none() {
+        aggregate.fallback_reason = next.fallback_reason;
+    }
+    aggregate.notes.extend(next.notes);
+}
+
+fn execute_full_rebuild_stages(
+    connection: &Connection,
+    profile_id: &str,
+    watermark: &ProfileSourceWatermark,
+    run_id: i64,
+    computed_at: &str,
+) -> Result<StageRunResult> {
+    let mut combined =
+        execute_visit_derive_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+    let daily =
+        execute_daily_rollup_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+    let structural =
+        execute_structural_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+    merge_stage_run_result(&mut combined, daily, RebuildMode::DailyRollup);
+    merge_stage_run_result(&mut combined, structural, RebuildMode::StructuralRebuild);
+    combined.execution_mode = Some(StageExecutionMode::FallbackFull.as_str().to_string());
+    combined.dirty_visit_count = Some(watermark.visible_visit_count.max(0) as usize);
+    combined.notes.push(format!("Performed a full Core Intelligence rebuild for {}.", profile_id));
+    Ok(combined)
+}
+
+fn execute_visit_derive_stage(
+    connection: &Connection,
+    profile_id: &str,
+    watermark: &ProfileSourceWatermark,
+    force_full: bool,
+    run_id: i64,
+    computed_at: &str,
+) -> Result<StageRunResult> {
+    let current_version = stage_version(connection, RebuildMode::VisitDerive)?;
+    let checkpoint = load_stage_checkpoint(connection, profile_id, RebuildMode::VisitDerive)?;
+    if watermark.visible_visit_count == 0 {
+        clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::VisitDerive)?;
+        save_stage_checkpoint(
+            connection,
+            &StageCheckpoint {
+                profile_id: profile_id.to_string(),
+                stage: stage_name(RebuildMode::VisitDerive).to_string(),
+                stage_version: current_version,
+                source_watermark: watermark.clone(),
+                last_processed_visit_id: 0,
+                last_run_id: Some(run_id),
+                updated_at: computed_at.to_string(),
+                ..StageCheckpoint::default()
+            },
+        )?;
+        return Ok(StageRunResult {
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: vec![profile_id.to_string()],
+            notes: vec![format!(
+                "No visible visits remained for {profile_id}; cleared visit-derived facts."
+            )],
+            ..StageRunResult::default()
+        });
+    }
+
+    let mut fallback_reason = if force_full {
+        Some("Manual full rebuild requested for visit-derived facts.".to_string())
+    } else {
+        None
+    };
+    if !force_full {
+        match checkpoint.as_ref() {
+            None => fallback_reason =
+                Some("No visit-derived checkpoint was recorded for this profile yet.".to_string()),
+            Some(checkpoint) if checkpoint.stage_version != current_version => {
+                fallback_reason =
+                    Some("Visit-derived rules changed since the last successful rebuild.".to_string())
+            }
+            Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => {
+                fallback_reason = Some(
+                    "Archive visibility regressed or source counters moved backwards for visit-derived facts."
+                        .to_string(),
+                )
+            }
+            _ => {}
+        }
+    }
+
+    if fallback_reason.is_none()
+        && checkpoint.as_ref().is_some_and(|checkpoint| checkpoint.source_watermark == *watermark)
+    {
+        save_stage_checkpoint(
+            connection,
+            &StageCheckpoint {
+                profile_id: profile_id.to_string(),
+                stage: stage_name(RebuildMode::VisitDerive).to_string(),
+                stage_version: current_version,
+                source_watermark: watermark.clone(),
+                last_processed_visit_id: checkpoint
+                    .as_ref()
+                    .map(|value| value.last_processed_visit_id)
+                    .unwrap_or_default(),
+                last_run_id: Some(run_id),
+                updated_at: computed_at.to_string(),
+                ..StageCheckpoint::default()
+            },
+        )?;
+        return Ok(StageRunResult {
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: vec![profile_id.to_string()],
+            notes: vec![format!("Visit-derived facts for {profile_id} were already up to date.")],
+            ..StageRunResult::default()
+        });
+    }
+
+    let (visits, execution_mode, dirty_visit_count, dirty_date_keys) =
+        if let Some(_reason) = fallback_reason.clone() {
+            let mut visits = load_visible_visits(connection, Some(profile_id), None)?;
+            compute_is_new_domain(&mut visits);
+            (
+                visits,
+                StageExecutionMode::FallbackFull,
+                watermark.visible_visit_count.max(0) as usize,
+                unique_date_keys(&load_visible_visits(connection, Some(profile_id), None)?),
+            )
+        } else {
+            let last_processed_visit_id =
+                checkpoint.as_ref().map(|value| value.last_processed_visit_id).unwrap_or_default();
+            let mut visits =
+                load_visible_visits_after_id(connection, profile_id, last_processed_visit_id)?;
+            let expected_delta = (watermark.visible_visit_count
+                - checkpoint
+                    .as_ref()
+                    .map(|value| value.source_watermark.visible_visit_count)
+                    .unwrap_or_default())
+            .max(0) as usize;
+            if visits.is_empty() || visits.len() != expected_delta {
+                let mut full_visits = load_visible_visits(connection, Some(profile_id), None)?;
+                compute_is_new_domain(&mut full_visits);
+                fallback_reason = Some(
+                    "Visit-derived delta rows no longer matched the current archive watermark."
+                        .to_string(),
+                );
+                (
+                    full_visits.clone(),
+                    StageExecutionMode::FallbackFull,
+                    watermark.visible_visit_count.max(0) as usize,
+                    unique_date_keys(&full_visits),
+                )
+            } else {
+                let mut seen_domains = load_seen_domains(connection, profile_id)?;
+                compute_is_new_domain_with_seen(&mut visits, &mut seen_domains);
+                let dirty_date_keys = unique_date_keys(&visits);
+                (visits, StageExecutionMode::Incremental, expected_delta, dirty_date_keys)
+            }
+        };
+
+    if execution_mode == StageExecutionMode::FallbackFull {
+        clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::VisitDerive)?;
+    }
+    persist_visit_derived_facts(connection, &visits, computed_at)?;
+    save_stage_checkpoint(
+        connection,
+        &StageCheckpoint {
+            profile_id: profile_id.to_string(),
+            stage: stage_name(RebuildMode::VisitDerive).to_string(),
+            stage_version: current_version,
+            source_watermark: watermark.clone(),
+            last_processed_visit_id: watermark.max_visit_id,
+            dirty_from_visit_ms: visits.first().map(|visit| visit.visit_time_ms),
+            dirty_date_key: dirty_date_keys.first().cloned(),
+            last_run_id: Some(run_id),
+            fallback_reason: fallback_reason.clone(),
+            updated_at: computed_at.to_string(),
+        },
+    )?;
+    Ok(StageRunResult {
+        processed_visits: visits.len(),
+        visit_derived_facts: visits.len(),
+        execution_mode: Some(execution_mode.as_str().to_string()),
+        affected_profiles: vec![profile_id.to_string()],
+        dirty_visit_count: Some(dirty_visit_count),
+        dirty_date_keys,
+        fallback_reason: fallback_reason.clone(),
+        notes: vec![match execution_mode {
+            StageExecutionMode::Incremental => {
+                format!("Incrementally refreshed visit-derived facts for {profile_id}.")
+            }
+            StageExecutionMode::FallbackFull => {
+                format!("Rebuilt visit-derived facts for {profile_id} with a scoped full refresh.")
+            }
+            StageExecutionMode::Noop => unreachable!(),
+        }],
+        ..StageRunResult::default()
+    })
+}
+
+fn execute_daily_rollup_stage(
+    connection: &Connection,
+    profile_id: &str,
+    watermark: &ProfileSourceWatermark,
+    force_full: bool,
+    run_id: i64,
+    computed_at: &str,
+) -> Result<StageRunResult> {
+    let current_version = stage_version(connection, RebuildMode::DailyRollup)?;
+    let checkpoint = load_stage_checkpoint(connection, profile_id, RebuildMode::DailyRollup)?;
+    if watermark.visible_visit_count == 0 {
+        clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::DailyRollup)?;
+        save_stage_checkpoint(
+            connection,
+            &StageCheckpoint {
+                profile_id: profile_id.to_string(),
+                stage: stage_name(RebuildMode::DailyRollup).to_string(),
+                stage_version: current_version,
+                source_watermark: watermark.clone(),
+                last_processed_visit_id: 0,
+                last_run_id: Some(run_id),
+                updated_at: computed_at.to_string(),
+                ..StageCheckpoint::default()
+            },
+        )?;
+        return Ok(StageRunResult {
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: vec![profile_id.to_string()],
+            notes: vec![format!(
+                "No visible visits remained for {profile_id}; cleared daily rollups."
+            )],
+            ..StageRunResult::default()
+        });
+    }
+
+    let mut fallback_reason = if force_full {
+        Some("Manual full rebuild requested for daily rollups.".to_string())
+    } else {
+        None
+    };
+    if !force_full {
+        match checkpoint.as_ref() {
+            None => fallback_reason =
+                Some("No daily-rollup checkpoint was recorded for this profile yet.".to_string()),
+            Some(checkpoint) if checkpoint.stage_version != current_version => {
+                fallback_reason = Some("Daily rollup logic changed since the last successful rebuild.".to_string())
+            }
+            Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => {
+                fallback_reason = Some(
+                    "Archive visibility regressed or source counters moved backwards for daily rollups."
+                        .to_string(),
+                )
+            }
+            _ => {}
+        }
+    }
+
+    if fallback_reason.is_none()
+        && checkpoint.as_ref().is_some_and(|checkpoint| checkpoint.source_watermark == *watermark)
+    {
+        save_stage_checkpoint(
+            connection,
+            &StageCheckpoint {
+                profile_id: profile_id.to_string(),
+                stage: stage_name(RebuildMode::DailyRollup).to_string(),
+                stage_version: current_version,
+                source_watermark: watermark.clone(),
+                last_processed_visit_id: checkpoint
+                    .as_ref()
+                    .map(|value| value.last_processed_visit_id)
+                    .unwrap_or_default(),
+                last_run_id: Some(run_id),
+                updated_at: computed_at.to_string(),
+                ..StageCheckpoint::default()
+            },
+        )?;
+        return Ok(StageRunResult {
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: vec![profile_id.to_string()],
+            notes: vec![format!("Daily rollups for {profile_id} were already up to date.")],
+            ..StageRunResult::default()
+        });
+    }
+
+    let (visits, execution_mode, dirty_visit_count, dirty_date_keys) =
+        if let Some(_reason) = fallback_reason.clone() {
+            let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
+            let dirty_date_keys = unique_date_keys(&visits);
+            (
+                visits,
+                StageExecutionMode::FallbackFull,
+                watermark.visible_visit_count as usize,
+                dirty_date_keys,
+            )
+        } else {
+            let last_processed_visit_id =
+                checkpoint.as_ref().map(|value| value.last_processed_visit_id).unwrap_or_default();
+            let delta_visits = load_profile_derived_visits(
+                connection,
+                profile_id,
+                None,
+                Some(last_processed_visit_id),
+            )?;
+            let expected_delta = (watermark.visible_visit_count
+                - checkpoint
+                    .as_ref()
+                    .map(|value| value.source_watermark.visible_visit_count)
+                    .unwrap_or_default())
+            .max(0) as usize;
+            if delta_visits.is_empty() || delta_visits.len() != expected_delta {
+                fallback_reason = Some(
+                    "Daily rollup delta rows no longer matched the current archive watermark."
+                        .to_string(),
+                );
+                let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
+                let dirty_date_keys = unique_date_keys(&visits);
+                (
+                    visits,
+                    StageExecutionMode::FallbackFull,
+                    watermark.visible_visit_count as usize,
+                    dirty_date_keys,
+                )
+            } else {
+                let dirty_date_keys = unique_date_keys(&delta_visits);
+                let visits = load_profile_derived_visits_for_date_keys(
+                    connection,
+                    profile_id,
+                    &dirty_date_keys,
+                )?;
+                (visits, StageExecutionMode::Incremental, expected_delta, dirty_date_keys)
+            }
+        };
+
+    let rollups = build_daily_rollups(&visits);
+    replace_daily_rollups(
+        connection,
+        profile_id,
+        if execution_mode == StageExecutionMode::FallbackFull {
+            None
+        } else {
+            Some(&dirty_date_keys)
+        },
+        &rollups,
+    )?;
+    save_stage_checkpoint(
+        connection,
+        &StageCheckpoint {
+            profile_id: profile_id.to_string(),
+            stage: stage_name(RebuildMode::DailyRollup).to_string(),
+            stage_version: current_version,
+            source_watermark: watermark.clone(),
+            last_processed_visit_id: watermark.max_visit_id,
+            dirty_from_visit_ms: visits.first().map(|visit| visit.visit_time_ms),
+            dirty_date_key: dirty_date_keys.first().cloned(),
+            last_run_id: Some(run_id),
+            fallback_reason: fallback_reason.clone(),
+            updated_at: computed_at.to_string(),
+        },
+    )?;
+    Ok(StageRunResult {
+        processed_visits: visits.len(),
+        execution_mode: Some(execution_mode.as_str().to_string()),
+        affected_profiles: vec![profile_id.to_string()],
+        dirty_visit_count: Some(dirty_visit_count),
+        dirty_date_keys,
+        fallback_reason: fallback_reason.clone(),
+        notes: vec![match execution_mode {
+            StageExecutionMode::Incremental => {
+                format!("Refreshed dirty daily rollups for {profile_id}.")
+            }
+            StageExecutionMode::FallbackFull => {
+                format!("Rebuilt all daily rollups for {profile_id}.")
+            }
+            StageExecutionMode::Noop => unreachable!(),
+        }],
+        ..StageRunResult::default()
+    })
+}
+
+fn execute_structural_stage(
+    connection: &Connection,
+    profile_id: &str,
+    watermark: &ProfileSourceWatermark,
+    force_full: bool,
+    run_id: i64,
+    computed_at: &str,
+) -> Result<StageRunResult> {
+    let current_version = stage_version(connection, RebuildMode::StructuralRebuild)?;
+    let checkpoint = load_stage_checkpoint(connection, profile_id, RebuildMode::StructuralRebuild)?;
+    if watermark.visible_visit_count == 0 {
+        clear_core_tables_for_job_kind(
+            connection,
+            Some(profile_id),
+            RebuildMode::StructuralRebuild,
+        )?;
+        save_stage_checkpoint(
+            connection,
+            &StageCheckpoint {
+                profile_id: profile_id.to_string(),
+                stage: stage_name(RebuildMode::StructuralRebuild).to_string(),
+                stage_version: current_version,
+                source_watermark: watermark.clone(),
+                last_processed_visit_id: 0,
+                last_run_id: Some(run_id),
+                updated_at: computed_at.to_string(),
+                ..StageCheckpoint::default()
+            },
+        )?;
+        return Ok(StageRunResult {
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: vec![profile_id.to_string()],
+            notes: vec![format!(
+                "No visible visits remained for {profile_id}; cleared structural entities."
+            )],
+            ..StageRunResult::default()
+        });
+    }
+
+    let mut fallback_reason = if force_full {
+        Some("Manual full rebuild requested for structural entities.".to_string())
+    } else {
+        None
+    };
+    if !force_full {
+        match checkpoint.as_ref() {
+            None => fallback_reason = Some(
+                "No structural checkpoint was recorded for this profile yet.".to_string(),
+            ),
+            Some(checkpoint) if checkpoint.stage_version != current_version => {
+                fallback_reason =
+                    Some("Structural rebuild logic changed since the last successful rebuild.".to_string())
+            }
+            Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => {
+                fallback_reason = Some(
+                    "Archive visibility regressed or source counters moved backwards for structural entities."
+                        .to_string(),
+                )
+            }
+            _ => {}
+        }
+    }
+
+    if fallback_reason.is_none()
+        && checkpoint.as_ref().is_some_and(|checkpoint| checkpoint.source_watermark == *watermark)
+    {
+        save_stage_checkpoint(
+            connection,
+            &StageCheckpoint {
+                profile_id: profile_id.to_string(),
+                stage: stage_name(RebuildMode::StructuralRebuild).to_string(),
+                stage_version: current_version,
+                source_watermark: watermark.clone(),
+                last_processed_visit_id: checkpoint
+                    .as_ref()
+                    .map(|value| value.last_processed_visit_id)
+                    .unwrap_or_default(),
+                last_run_id: Some(run_id),
+                updated_at: computed_at.to_string(),
+                ..StageCheckpoint::default()
+            },
+        )?;
+        return Ok(StageRunResult {
+            execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
+            affected_profiles: vec![profile_id.to_string()],
+            notes: vec![format!("Structural entities for {profile_id} were already up to date.")],
+            ..StageRunResult::default()
+        });
+    }
+
+    let (tail_visits, execution_mode, dirty_visit_count, dirty_date_keys, structural_start_ms) =
+        if let Some(_reason) = fallback_reason.clone() {
+            let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
+            let dirty_date_keys = unique_date_keys(&visits);
+            (
+                visits,
+                StageExecutionMode::FallbackFull,
+                watermark.visible_visit_count as usize,
+                dirty_date_keys,
+                None,
+            )
+        } else {
+            let last_processed_visit_id =
+                checkpoint.as_ref().map(|value| value.last_processed_visit_id).unwrap_or_default();
+            let delta_visits = load_profile_derived_visits(
+                connection,
+                profile_id,
+                None,
+                Some(last_processed_visit_id),
+            )?;
+            let expected_delta = (watermark.visible_visit_count
+                - checkpoint
+                    .as_ref()
+                    .map(|value| value.source_watermark.visible_visit_count)
+                    .unwrap_or_default())
+            .max(0) as usize;
+            if delta_visits.is_empty() || delta_visits.len() != expected_delta {
+                fallback_reason = Some(
+                    "Structural delta rows no longer matched the current archive watermark."
+                        .to_string(),
+                );
+                let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
+                let dirty_date_keys = unique_date_keys(&visits);
+                (
+                    visits,
+                    StageExecutionMode::FallbackFull,
+                    watermark.visible_visit_count as usize,
+                    dirty_date_keys,
+                    None,
+                )
+            } else {
+                let dirty_from_visit_ms =
+                    delta_visits.iter().map(|visit| visit.visit_time_ms).min().unwrap_or_default();
+                let start_ms =
+                    expand_structural_rebuild_start(connection, profile_id, dirty_from_visit_ms)?;
+                let visits =
+                    load_profile_derived_visits(connection, profile_id, Some(start_ms), None)?;
+                let dirty_date_keys = unique_date_keys(&delta_visits);
+                (
+                    visits,
+                    StageExecutionMode::Incremental,
+                    expected_delta,
+                    dirty_date_keys,
+                    Some(start_ms),
+                )
+            }
+        };
+
+    let mut rebuild_visits = tail_visits.clone();
+    let sessions = build_sessions(&mut rebuild_visits);
+    let (search_events, trails) = build_search_trails(&mut rebuild_visits);
+    replace_structural_tail_state(
+        connection,
+        profile_id,
+        structural_start_ms,
+        &rebuild_visits,
+        &sessions,
+        &search_events,
+        &trails,
+        computed_at,
+    )?;
+
+    let all_events = load_profile_search_events(connection, profile_id)?;
+    let query_families = build_query_families(&all_events);
+    replace_query_families(connection, profile_id, &query_families, computed_at)?;
+
+    let all_profile_visits = load_profile_derived_visits(connection, profile_id, None, None)?;
+    let refind_pages = build_refind_pages(&all_profile_visits);
+    let all_trails = load_profile_trails(connection, profile_id)?;
+    let source_effectiveness = build_source_effectiveness(&all_trails, &refind_pages);
+    let reopened = build_reopened_investigations(&query_families, &refind_pages);
+    let path_flows = build_path_flows(&all_profile_visits);
+    let habits = build_habit_patterns(&all_profile_visits);
+    replace_structural_profile_aggregates(
+        connection,
+        profile_id,
+        &refind_pages,
+        &source_effectiveness,
+        &habits,
+        &reopened,
+        &path_flows,
+        computed_at,
+    )?;
+
+    save_stage_checkpoint(
+        connection,
+        &StageCheckpoint {
+            profile_id: profile_id.to_string(),
+            stage: stage_name(RebuildMode::StructuralRebuild).to_string(),
+            stage_version: current_version,
+            source_watermark: watermark.clone(),
+            last_processed_visit_id: watermark.max_visit_id,
+            dirty_from_visit_ms: rebuild_visits.first().map(|visit| visit.visit_time_ms),
+            dirty_date_key: dirty_date_keys.first().cloned(),
+            last_run_id: Some(run_id),
+            fallback_reason: fallback_reason.clone(),
+            updated_at: computed_at.to_string(),
+        },
+    )?;
+
+    Ok(StageRunResult {
+        processed_visits: if execution_mode == StageExecutionMode::FallbackFull {
+            all_profile_visits.len()
+        } else {
+            rebuild_visits.len()
+        },
+        sessions: sessions.len(),
+        search_trails: trails.len(),
+        query_families: query_families.len(),
+        refind_pages: refind_pages.len(),
+        source_effectiveness: source_effectiveness.len(),
+        reopened_investigations: reopened.len(),
+        execution_mode: Some(execution_mode.as_str().to_string()),
+        affected_profiles: vec![profile_id.to_string()],
+        dirty_visit_count: Some(dirty_visit_count),
+        dirty_date_keys,
+        fallback_reason: fallback_reason.clone(),
+        notes: vec![match execution_mode {
+            StageExecutionMode::Incremental => {
+                format!("Rebuilt structural tail entities for {profile_id}.")
+            }
+            StageExecutionMode::FallbackFull => {
+                format!("Rebuilt all structural entities for {profile_id}.")
+            }
+            StageExecutionMode::Noop => unreachable!(),
+        }],
+        ..StageRunResult::default()
+    })
+}
+
+fn load_visible_visits_after_id(
+    connection: &Connection,
+    profile_id: &str,
+    last_processed_visit_id: i64,
+) -> Result<Vec<VisitRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visits.id,
+                source_profiles.profile_key,
+                visits.source_profile_id,
+                CAST(visits.source_visit_id AS INTEGER),
+                urls.id,
+                urls.url,
+                urls.title,
+                visits.visit_time_ms,
+                visits.from_visit,
+                visits.transition_type,
+                visits.external_referrer_url
+         FROM archive.visits AS visits
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+         WHERE visits.reverted_at IS NULL
+           AND source_profiles.profile_key = ?1
+           AND visits.id > ?2
+         ORDER BY visits.visit_time_ms ASC, visits.id ASC",
+    )?;
+    let rows = statement.query_map(params![profile_id, last_processed_visit_id], visit_from_row)?;
+    let mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    hydrate_search_terms(connection, &mut visits)?;
+    Ok(visits)
+}
+
+fn load_profile_derived_visits(
+    connection: &Connection,
+    profile_id: &str,
+    start_ms: Option<i64>,
+    last_processed_visit_id: Option<i64>,
+) -> Result<Vec<VisitRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visits.id,
+                visit_derived_facts.profile_id,
+                visits.source_profile_id,
+                CAST(visits.source_visit_id AS INTEGER),
+                urls.id,
+                urls.url,
+                urls.title,
+                visits.visit_time_ms,
+                visits.from_visit,
+                visits.transition_type,
+                visits.external_referrer_url,
+                visit_derived_facts.canonical_url,
+                visit_derived_facts.registrable_domain,
+                visit_derived_facts.domain_category,
+                visit_derived_facts.page_category,
+                visit_derived_facts.search_engine,
+                visit_derived_facts.search_query,
+                visit_derived_facts.is_new_domain,
+                visit_derived_facts.is_search_event,
+                visit_derived_facts.evidence_tier,
+                visit_derived_facts.taxonomy_source,
+                visit_derived_facts.taxonomy_pack,
+                visit_derived_facts.taxonomy_version,
+                visit_derived_facts.session_id,
+                visit_derived_facts.trail_id
+         FROM visit_derived_facts
+         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND visits.reverted_at IS NULL
+           AND (?2 IS NULL OR visits.visit_time_ms >= ?2)
+           AND (?3 IS NULL OR visit_derived_facts.visit_id > ?3)
+         ORDER BY visits.visit_time_ms ASC, visits.id ASC",
+    )?;
+    statement
+        .query_map(params![profile_id, start_ms, last_processed_visit_id], |row| {
+            Ok(VisitRecord {
+                visit_id: row.get(0)?,
+                profile_id: row.get(1)?,
+                source_profile_id: row.get(2)?,
+                source_visit_id: row.get(3)?,
+                source_url_id: row.get(4)?,
+                url: row.get(5)?,
+                title: row.get(6)?,
+                visit_time_ms: row.get(7)?,
+                from_visit: row.get(8)?,
+                transition_type: row.get(9)?,
+                external_referrer_url: row.get(10)?,
+                canonical_url: row.get(11)?,
+                registrable_domain: row.get(12)?,
+                domain_category: row.get(13)?,
+                page_category: row.get(14)?,
+                search_engine: row.get(15)?,
+                search_query: row.get(16)?,
+                is_new_domain: row.get::<_, i64>(17)? != 0,
+                is_search_event: row.get::<_, i64>(18)? != 0,
+                evidence_tier: row.get(19)?,
+                taxonomy_source: row.get(20)?,
+                taxonomy_pack: row.get(21)?,
+                taxonomy_version: row.get(22)?,
+                display_name: display_name_for_domain(&row.get::<_, String>(12)?),
+                session_id: row.get(23)?,
+                trail_id: row.get(24)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_profile_derived_visits_for_date_keys(
+    connection: &Connection,
+    profile_id: &str,
+    date_keys: &[String],
+) -> Result<Vec<VisitRecord>> {
+    if date_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let start_ms = local_day_start_ms(
+        date_keys.iter().min().context("missing minimum dirty date key for daily rollup")?,
+    )?;
+    let end_ms = local_day_end_exclusive_ms(
+        date_keys.iter().max().context("missing maximum dirty date key for daily rollup")?,
+    )?;
+    Ok(load_profile_derived_visits(connection, profile_id, Some(start_ms), None)?
+        .into_iter()
+        .filter(|visit| {
+            let date_key = local_date_key(visit.visit_time_ms);
+            date_keys.iter().any(|candidate| candidate == &date_key) && visit.visit_time_ms < end_ms
+        })
+        .collect())
+}
+
+fn load_profile_search_events(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<Vec<SearchEventRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at
+         FROM search_events
+         WHERE profile_id = ?1
+         ORDER BY visit_id ASC",
+    )?;
+    statement
+        .query_map([profile_id], |row| {
+            let visit_id = row.get::<_, i64>(0)?;
+            let visit_time_ms = connection.query_row(
+                "SELECT visit_time_ms FROM archive.visits WHERE id = ?1",
+                [visit_id],
+                |visit_row| visit_row.get::<_, i64>(0),
+            )?;
+            Ok(SearchEventRecord {
+                visit_id,
+                profile_id: row.get(1)?,
+                search_engine: row.get(2)?,
+                raw_query: row.get(3)?,
+                normalized_query: row.get(4)?,
+                trail_id: row.get(5)?,
+                visit_time_ms,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_profile_trails(connection: &Connection, profile_id: &str) -> Result<Vec<TrailRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count,
+                visit_count, landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
+         FROM search_trails
+         WHERE profile_id = ?1
+         ORDER BY first_visit_ms ASC, trail_id ASC",
+    )?;
+    statement
+        .query_map([profile_id], |row| {
+            let queries_json: String = row.get(12)?;
+            Ok(TrailRecord {
+                trail_id: row.get(0)?,
+                profile_id: row.get(1)?,
+                session_id: row.get(2)?,
+                initial_query: row.get(3)?,
+                search_engine: row.get(4)?,
+                reformulation_count: row.get(5)?,
+                visit_count: row.get(6)?,
+                landing_url: row.get(7)?,
+                landing_domain: row.get(8)?,
+                first_visit_ms: row.get(9)?,
+                last_visit_ms: row.get(10)?,
+                max_depth: row.get(11)?,
+                queries: serde_json::from_str(&queries_json).unwrap_or_default(),
+                members: Vec::new(),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_seen_domains(connection: &Connection, profile_id: &str) -> Result<HashSet<String>> {
+    let mut statement = connection.prepare(
+        "SELECT registrable_domain
+         FROM visit_derived_facts
+         WHERE profile_id = ?1",
+    )?;
+    statement
+        .query_map([profile_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<HashSet<_>>>()
+        .map_err(Into::into)
+}
+
+fn compute_is_new_domain_with_seen(visits: &mut [VisitRecord], seen_domains: &mut HashSet<String>) {
+    for visit in visits {
+        visit.is_new_domain = seen_domains.insert(visit.registrable_domain.clone());
+    }
+}
+
+fn unique_date_keys(visits: &[VisitRecord]) -> Vec<String> {
+    visits
+        .iter()
+        .map(|visit| local_date_key(visit.visit_time_ms))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn persist_visit_derived_facts(
+    connection: &Connection,
+    visits: &[VisitRecord],
+    computed_at: &str,
+) -> Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    for visit in visits {
+        tx.execute(
+            "INSERT INTO visit_derived_facts (
+               visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url,
+               domain_category, page_category, search_engine, search_query, is_new_domain,
+               is_search_event, evidence_tier, taxonomy_source, taxonomy_pack, taxonomy_version,
+               computed_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+             ON CONFLICT(visit_id) DO UPDATE SET
+               profile_id = excluded.profile_id,
+               session_id = excluded.session_id,
+               trail_id = excluded.trail_id,
+               registrable_domain = excluded.registrable_domain,
+               canonical_url = excluded.canonical_url,
+               domain_category = excluded.domain_category,
+               page_category = excluded.page_category,
+               search_engine = excluded.search_engine,
+               search_query = excluded.search_query,
+               is_new_domain = excluded.is_new_domain,
+               is_search_event = excluded.is_search_event,
+               evidence_tier = excluded.evidence_tier,
+               taxonomy_source = excluded.taxonomy_source,
+               taxonomy_pack = excluded.taxonomy_pack,
+               taxonomy_version = excluded.taxonomy_version,
+               computed_at = excluded.computed_at",
+            params![
+                visit.visit_id,
+                visit.profile_id,
+                visit.session_id,
+                visit.trail_id,
+                visit.registrable_domain,
+                visit.canonical_url,
+                visit.domain_category,
+                visit.page_category,
+                visit.search_engine,
+                visit.search_query,
+                i64::from(visit.is_new_domain),
+                i64::from(visit.is_search_event),
+                visit.evidence_tier,
+                visit.taxonomy_source,
+                visit.taxonomy_pack,
+                visit.taxonomy_version,
+                computed_at,
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn replace_daily_rollups(
+    connection: &Connection,
+    profile_id: &str,
+    dirty_date_keys: Option<&[String]>,
+    rollups: &DailyRollupBundle,
+) -> Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    if let Some(date_keys) = dirty_date_keys {
+        for date_key in date_keys {
+            tx.execute(
+                "DELETE FROM domain_daily_rollups WHERE profile_id = ?1 AND date_key = ?2",
+                params![profile_id, date_key],
+            )?;
+            tx.execute(
+                "DELETE FROM category_daily_rollups WHERE profile_id = ?1 AND date_key = ?2",
+                params![profile_id, date_key],
+            )?;
+            tx.execute(
+                "DELETE FROM engine_daily_rollups WHERE profile_id = ?1 AND date_key = ?2",
+                params![profile_id, date_key],
+            )?;
+            tx.execute(
+                "DELETE FROM daily_summary_rollups WHERE profile_id = ?1 AND date_key = ?2",
+                params![profile_id, date_key],
+            )?;
+        }
+    } else {
+        tx.execute("DELETE FROM domain_daily_rollups WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM category_daily_rollups WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM engine_daily_rollups WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM daily_summary_rollups WHERE profile_id = ?1", [profile_id])?;
+    }
+
+    for row in &rollups.domain_rows {
+        tx.execute(
+            "INSERT INTO domain_daily_rollups
+             (date_key, profile_id, registrable_domain, domain_category, visit_count, search_count, new_domain_visits, unique_urls)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7],
+        )?;
+    }
+    for row in &rollups.category_rows {
+        tx.execute(
+            "INSERT INTO category_daily_rollups
+             (date_key, profile_id, domain_category, visit_count, unique_domains)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![row.0, row.1, row.2, row.3, row.4],
+        )?;
+    }
+    for row in &rollups.engine_rows {
+        tx.execute(
+            "INSERT INTO engine_daily_rollups
+             (date_key, profile_id, search_engine, search_count)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![row.0, row.1, row.2, row.3],
+        )?;
+    }
+    for row in &rollups.summary_rows {
+        tx.execute(
+            "INSERT INTO daily_summary_rollups
+             (date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn replace_structural_tail_state(
+    connection: &Connection,
+    profile_id: &str,
+    start_ms: Option<i64>,
+    visits: &[VisitRecord],
+    sessions: &[SessionRecord],
+    search_events: &[SearchEventRecord],
+    trails: &[TrailRecord],
+    computed_at: &str,
+) -> Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    if let Some(start_ms) = start_ms {
+        tx.execute(
+            "DELETE FROM sessions WHERE profile_id = ?1 AND last_visit_ms >= ?2",
+            params![profile_id, start_ms],
+        )?;
+        tx.execute(
+            "DELETE FROM search_trails WHERE profile_id = ?1 AND last_visit_ms >= ?2",
+            params![profile_id, start_ms],
+        )?;
+    } else {
+        tx.execute("DELETE FROM sessions WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM search_trails WHERE profile_id = ?1", [profile_id])?;
+    }
+
+    for visit in visits {
+        tx.execute(
+            "UPDATE visit_derived_facts
+             SET session_id = NULL, trail_id = NULL, computed_at = ?2
+             WHERE visit_id = ?1",
+            params![visit.visit_id, computed_at],
+        )?;
+    }
+    for session in sessions {
+        tx.execute(
+            "INSERT INTO sessions
+             (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                session.session_id,
+                session.profile_id,
+                session.first_visit_ms,
+                session.last_visit_ms,
+                session.visit_count,
+                session.search_count,
+                session.domain_count,
+                i64::from(session.is_deep_dive),
+                session.auto_title,
+                computed_at,
+            ],
+        )?;
+    }
+
+    let tail_visit_ids = visits.iter().map(|visit| visit.visit_id).collect::<Vec<_>>();
+    delete_structural_memberships(&tx, profile_id, &tail_visit_ids)?;
+
+    for trail in trails {
+        tx.execute(
+            "INSERT INTO search_trails
+             (trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
+              landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                trail.trail_id,
+                trail.profile_id,
+                trail.session_id,
+                trail.initial_query,
+                trail.search_engine,
+                trail.reformulation_count,
+                trail.visit_count,
+                trail.landing_url,
+                trail.landing_domain,
+                trail.first_visit_ms,
+                trail.last_visit_ms,
+                trail.max_depth,
+                serde_json::to_string(&trail.queries)?,
+                computed_at,
+            ],
+        )?;
+        for member in &trail.members {
+            tx.execute(
+                "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    member.trail_id,
+                    member.profile_id,
+                    member.visit_id,
+                    member.ordinal,
+                    member.role,
+                ],
+            )?;
+        }
+    }
+
+    for event in search_events {
+        tx.execute(
+            "INSERT INTO search_events
+             (visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                event.visit_id,
+                event.profile_id,
+                event.search_engine,
+                event.raw_query,
+                event.normalized_query,
+                event.trail_id,
+                computed_at,
+            ],
+        )?;
+        for term in
+            tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
+        {
+            tx.execute(
+                "INSERT INTO search_event_terms (visit_id, profile_id, term)
+                 VALUES (?1, ?2, ?3)",
+                params![event.visit_id, event.profile_id, term],
+            )?;
+        }
+    }
+
+    update_tail_visit_assignments(&tx, visits, computed_at)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn replace_query_families(
+    connection: &Connection,
+    profile_id: &str,
+    query_families: &[QueryFamilyRecord],
+    computed_at: &str,
+) -> Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    tx.execute("DELETE FROM query_families WHERE profile_id = ?1", [profile_id])?;
+    for family in query_families {
+        tx.execute(
+            "INSERT INTO query_families
+             (family_id, profile_id, anchor_query, member_count, search_engine, first_seen_ms, last_seen_ms, queries_json, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                family.family_id,
+                family.profile_id,
+                family.anchor_query,
+                family.member_count,
+                family.search_engine,
+                family.first_seen_ms,
+                family.last_seen_ms,
+                serde_json::to_string(&family.queries)?,
+                computed_at,
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn replace_structural_profile_aggregates(
+    connection: &Connection,
+    profile_id: &str,
+    refind_pages: &[RefindPageRecord],
+    source_effectiveness: &[SourceEffectivenessRecord],
+    habits: &[HabitPatternRecord],
+    reopened: &[ReopenedInvestigationRecord],
+    path_flows: &[PathFlowRecord],
+    computed_at: &str,
+) -> Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    tx.execute("DELETE FROM refind_pages WHERE profile_id = ?1", [profile_id])?;
+    tx.execute("DELETE FROM source_effectiveness WHERE profile_id = ?1", [profile_id])?;
+    tx.execute("DELETE FROM habit_patterns WHERE profile_id = ?1", [profile_id])?;
+    tx.execute("DELETE FROM reopened_investigations WHERE profile_id = ?1", [profile_id])?;
+    tx.execute("DELETE FROM path_flows WHERE profile_id = ?1", [profile_id])?;
+
+    for page in refind_pages {
+        tx.execute(
+            "INSERT INTO refind_pages
+             (profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count, search_arrival_count,
+              typed_revisit_count, refind_score, evidence_json, first_seen_ms, last_seen_ms, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                page.profile_id,
+                page.canonical_url,
+                page.url,
+                page.title,
+                page.registrable_domain,
+                page.cross_day_count,
+                page.trail_count,
+                page.search_arrival_count,
+                page.typed_revisit_count,
+                page.refind_score,
+                page.evidence_json,
+                page.first_seen_ms,
+                page.last_seen_ms,
+                computed_at,
+            ],
+        )?;
+    }
+    for source in source_effectiveness {
+        tx.execute(
+            "INSERT INTO source_effectiveness
+             (profile_id, registrable_domain, source_role, trail_count, stable_landing_count, effectiveness_score,
+              evidence_json, first_seen_ms, last_seen_ms, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                source.profile_id,
+                source.registrable_domain,
+                source.source_role,
+                source.trail_count,
+                source.stable_landing_count,
+                source.effectiveness_score,
+                source.evidence_json,
+                source.first_seen_ms,
+                source.last_seen_ms,
+                computed_at,
+            ],
+        )?;
+    }
+    for habit in habits {
+        tx.execute(
+            "INSERT INTO habit_patterns
+             (profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                habit.profile_id,
+                habit.registrable_domain,
+                habit.habit_type,
+                habit.mean_interval_days,
+                habit.cv,
+                habit.visit_count,
+                habit.last_visited_ms,
+                i64::from(habit.is_interrupted),
+                computed_at,
+            ],
+        )?;
+    }
+    for record in reopened {
+        tx.execute(
+            "INSERT INTO reopened_investigations
+             (investigation_id, profile_id, anchor_type, anchor_id, anchor_label, occurrence_count, distinct_days,
+              first_seen_ms, last_seen_ms, evidence_json, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                record.investigation_id,
+                record.profile_id,
+                record.anchor_type,
+                record.anchor_id,
+                record.anchor_label,
+                record.occurrence_count,
+                record.distinct_days,
+                record.first_seen_ms,
+                record.last_seen_ms,
+                record.evidence_json,
+                computed_at,
+            ],
+        )?;
+    }
+    for flow in path_flows {
+        tx.execute(
+            "INSERT INTO path_flows
+             (profile_id, flow_pattern, step_count, occurrence_count, last_seen_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                flow.profile_id,
+                flow.flow_pattern,
+                flow.step_count,
+                flow.occurrence_count,
+                flow.last_seen_ms,
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn delete_structural_memberships(
+    tx: &rusqlite::Transaction<'_>,
+    profile_id: &str,
+    visit_ids: &[i64],
+) -> Result<()> {
+    if visit_ids.is_empty() {
+        return Ok(());
+    }
+    for chunk in visit_ids.chunks(400) {
+        let placeholders = std::iter::repeat_n("?", chunk.len()).collect::<Vec<_>>().join(", ");
+        let delete_members_sql = format!(
+            "DELETE FROM search_trail_members
+             WHERE profile_id = ?1 AND visit_id IN ({placeholders})"
+        );
+        let delete_terms_sql = format!(
+            "DELETE FROM search_event_terms
+             WHERE profile_id = ?1 AND visit_id IN ({placeholders})"
+        );
+        let delete_events_sql = format!(
+            "DELETE FROM search_events
+             WHERE profile_id = ?1 AND visit_id IN ({placeholders})"
+        );
+        let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+            .chain(chunk.iter().map(|value| value as &dyn rusqlite::ToSql));
+        tx.execute(&delete_members_sql, rusqlite::params_from_iter(params))?;
+        let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+            .chain(chunk.iter().map(|value| value as &dyn rusqlite::ToSql));
+        tx.execute(&delete_terms_sql, rusqlite::params_from_iter(params))?;
+        let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+            .chain(chunk.iter().map(|value| value as &dyn rusqlite::ToSql));
+        tx.execute(&delete_events_sql, rusqlite::params_from_iter(params))?;
+    }
+    Ok(())
+}
+
+fn update_tail_visit_assignments(
+    tx: &rusqlite::Transaction<'_>,
+    visits: &[VisitRecord],
+    computed_at: &str,
+) -> Result<()> {
+    for visit in visits {
+        tx.execute(
+            "UPDATE visit_derived_facts
+             SET session_id = ?2, trail_id = ?3, computed_at = ?4
+             WHERE visit_id = ?1",
+            params![visit.visit_id, visit.session_id, visit.trail_id, computed_at],
+        )?;
+    }
+    Ok(())
+}
+
+fn expand_structural_rebuild_start(
+    connection: &Connection,
+    profile_id: &str,
+    dirty_from_visit_ms: i64,
+) -> Result<i64> {
+    let session_start = connection
+        .query_row(
+            "SELECT MIN(first_visit_ms)
+             FROM sessions
+             WHERE profile_id = ?1
+               AND last_visit_ms >= ?2",
+            params![profile_id, dirty_from_visit_ms - SESSION_GAP_MS],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()?
+        .flatten();
+    let trail_start = connection
+        .query_row(
+            "SELECT MIN(first_visit_ms)
+             FROM search_trails
+             WHERE profile_id = ?1
+               AND last_visit_ms >= ?2",
+            params![profile_id, dirty_from_visit_ms - TRAIL_GAP_MS],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(session_start.into_iter().chain(trail_start).min().unwrap_or(dirty_from_visit_ms))
+}
+
+fn local_day_start_ms(date_key: &str) -> Result<i64> {
+    let date = NaiveDate::parse_from_str(date_key, "%Y-%m-%d")
+        .with_context(|| format!("parsing local date key '{date_key}'"))?;
+    let start = date.and_hms_opt(0, 0, 0).context("building local day start")?;
+    match Local.from_local_datetime(&start) {
+        LocalResult::Single(value) => Ok(value.timestamp_millis()),
+        LocalResult::Ambiguous(first, _) => Ok(first.timestamp_millis()),
+        LocalResult::None => {
+            Err(anyhow::anyhow!("Local timezone could not represent day start for {date_key}."))
+        }
+    }
+}
+
+fn local_day_end_exclusive_ms(date_key: &str) -> Result<i64> {
+    let date = NaiveDate::parse_from_str(date_key, "%Y-%m-%d")
+        .with_context(|| format!("parsing local date key '{date_key}'"))?;
+    let next = date.succ_opt().context("computing next local day for dirty rollup range")?;
+    let start = next.and_hms_opt(0, 0, 0).context("building local day end")?;
+    match Local.from_local_datetime(&start) {
+        LocalResult::Single(value) => Ok(value.timestamp_millis()),
+        LocalResult::Ambiguous(first, _) => Ok(first.timestamp_millis()),
+        LocalResult::None => Err(anyhow::anyhow!(
+            "Local timezone could not represent next day start for {date_key}."
+        )),
+    }
 }
 
 fn progress_for_phase(
@@ -1062,7 +2619,7 @@ fn build_sessions(visits: &mut [VisitRecord]) -> Vec<SessionRecord> {
                 sessions.push(session);
             }
             current = Some(SessionRecord {
-                session_id: format!("session:{}:{:04}", visit.profile_id, sessions.len() + 1),
+                session_id: format!("session:{}:{}", visit.profile_id, visit.visit_id),
                 profile_id: visit.profile_id.clone(),
                 first_visit_ms: visit.visit_time_ms,
                 last_visit_ms: visit.visit_time_ms,
@@ -1145,7 +2702,7 @@ fn build_search_trails(visits: &mut [VisitRecord]) -> (Vec<SearchEventRecord>, V
                 trails.push(trail);
             }
             let query = visit_query.unwrap_or_else(|| "search".to_string());
-            let trail_id = format!("trail:{}:{:04}", visit.profile_id, trails.len() + 1);
+            let trail_id = format!("trail:{}:{}", visit.profile_id, visit.visit_id);
             visit.trail_id = Some(trail_id.clone());
             if let Some(last) = search_events.last_mut() {
                 last.trail_id = Some(trail_id.clone());
@@ -1356,10 +2913,8 @@ fn build_source_effectiveness(
         if let Some(domain) = &trail.landing_domain {
             *landing_counts.entry(domain.clone()).or_default() += 1;
         }
-        let members =
-            trail.members.iter().map(|member| member.trail_id.clone()).collect::<HashSet<_>>();
         if let Some(domain) = &trail.landing_domain {
-            trail_counts.entry(domain.clone()).or_default().extend(members.clone());
+            trail_counts.entry(domain.clone()).or_default().insert(trail.trail_id.clone());
         }
         first_seen
             .entry(trail.landing_domain.clone().unwrap_or_else(|| "unknown".to_string()))
@@ -1468,7 +3023,7 @@ fn build_path_flows(visits: &[VisitRecord]) -> Vec<PathFlowRecord> {
     let mut current_sequence = Vec::<(String, i64)>::new();
 
     let mut flush_sequence = |profile_id: &str, sequence: &[(String, i64)]| {
-        for step_count in [2_usize, 3_usize] {
+        for step_count in [2_usize, 3_usize, 4_usize] {
             if sequence.len() < step_count {
                 continue;
             }
@@ -1898,7 +3453,9 @@ fn persist_core_state_for_job_kind(
                 computed_at,
             ],
         )?;
-        for term in tokenize_query_terms(&event.normalized_query) {
+        for term in
+            tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
+        {
             tx.execute(
                 "INSERT INTO search_event_terms (visit_id, profile_id, term) VALUES (?1, ?2, ?3)",
                 params![event.visit_id, event.profile_id, term],
@@ -4387,6 +5944,7 @@ fn load_domain_visits(
          JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
          JOIN archive.urls AS urls ON urls.id = visits.url_id
          WHERE visit_derived_facts.registrable_domain = ?1
+           AND visits.reverted_at IS NULL
            AND (?2 IS NULL OR visit_derived_facts.profile_id = ?2)
            AND visits.visit_time_ms >= ?3
            AND visits.visit_time_ms < ?4
@@ -4471,18 +6029,21 @@ fn path_from_url(url: &str) -> String {
 mod tests {
     use super::{
         build_kpi, collapse_date_key, ensure_core_intelligence_schema, explain_entity,
-        get_intelligence_embed_cards, get_intelligence_public_snapshot, normalize_query,
-        run_core_intelligence,
+        get_intelligence_embed_cards, get_intelligence_public_snapshot, get_path_flows,
+        local_date_key, normalize_query, run_core_intelligence,
+        run_core_intelligence_job_type_with_progress,
     };
     use crate::{
         archive::{open_archive_connection, open_intelligence_connection},
         config::project_paths_with_root,
         models::{
             AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange,
-            EntityExplanationRequest, IntelligenceEmbedCardsRequest, ScopedDateRangeRequest,
+            EntityExplanationRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
+            ScopedDateRangeRequest,
         },
     };
     use rusqlite::Connection;
+    use std::collections::BTreeMap;
 
     #[test]
     fn collapse_date_key_supports_week_and_month() {
@@ -4511,7 +6072,7 @@ mod tests {
         let migration_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 3);
     }
 
     #[test]
@@ -4542,7 +6103,7 @@ mod tests {
             None,
             &EntityExplanationRequest {
                 entity_type: "session".to_string(),
-                entity_id: "session:chrome:Default:0001".to_string(),
+                entity_id: "session:chrome:Default:1".to_string(),
             },
         )
         .expect("session explanation");
@@ -4602,7 +6163,458 @@ mod tests {
         let migration_count: i64 = intelligence
             .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 3);
+    }
+
+    #[test]
+    fn visit_derive_stage_processes_only_new_visible_visits() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://docs.example.com/sqlite/wal-checkpoint",
+            "SQLite WAL Checkpoint",
+            1712102400000,
+            None,
+            None,
+        );
+        drop(archive);
+
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive stage");
+        assert_eq!(report.execution_mode.as_deref(), Some("incremental"));
+        assert_eq!(report.dirty_visit_count, Some(1));
+        assert_eq!(report.visit_derived_facts, 1);
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let checkpoint = intelligence
+            .query_row(
+                "SELECT last_processed_visit_id
+                 FROM core_intelligence_stage_checkpoints
+                 WHERE profile_id = 'chrome:Default' AND stage = 'visit-derive'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("stage checkpoint");
+        assert_eq!(checkpoint, 4);
+    }
+
+    #[test]
+    fn daily_rollup_stage_recomputes_only_dirty_days() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://docs.example.com/sqlite/wal-checkpoint",
+            "SQLite WAL Checkpoint",
+            1712059200000,
+            None,
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            5,
+            "https://example.com/deep-dive",
+            "Deep Dive",
+            1712145600000,
+            None,
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive stage");
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "daily-rollup",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("daily rollup stage");
+        let expected_dirty_dates =
+            vec![local_date_key(1712059200000), local_date_key(1712145600000)];
+        let expected_totals = [
+            1711929600000_i64,
+            1711929660000_i64,
+            1712016000000_i64,
+            1712059200000_i64,
+            1712145600000_i64,
+        ]
+        .into_iter()
+        .fold(BTreeMap::<String, i64>::new(), |mut acc, timestamp| {
+            *acc.entry(local_date_key(timestamp)).or_default() += 1;
+            acc
+        });
+        assert_eq!(report.execution_mode.as_deref(), Some("incremental"));
+        assert_eq!(report.dirty_date_keys.as_deref(), Some(expected_dirty_dates.as_slice()));
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let first_dirty_total: i64 = intelligence
+            .query_row(
+                "SELECT total_visits
+                 FROM daily_summary_rollups
+                 WHERE profile_id = 'chrome:Default' AND date_key = ?1",
+                [expected_dirty_dates[0].as_str()],
+                |row| row.get(0),
+            )
+            .expect("first dirty rollup");
+        let second_dirty_total: i64 = intelligence
+            .query_row(
+                "SELECT total_visits
+                 FROM daily_summary_rollups
+                 WHERE profile_id = 'chrome:Default' AND date_key = ?1",
+                [expected_dirty_dates[1].as_str()],
+                |row| row.get(0),
+            )
+            .expect("second dirty rollup");
+        let summary_row_count: i64 = intelligence
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM daily_summary_rollups
+                 WHERE profile_id = 'chrome:Default'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("summary row count");
+        assert_eq!(first_dirty_total, *expected_totals.get(&expected_dirty_dates[0]).unwrap_or(&0));
+        assert_eq!(
+            second_dirty_total,
+            *expected_totals.get(&expected_dirty_dates[1]).unwrap_or(&0)
+        );
+        assert_eq!(summary_row_count, expected_totals.len() as i64);
+    }
+
+    #[test]
+    fn structural_stage_updates_tail_assignments_incrementally() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://github.com/example/repo/pulls/7",
+            "Pull Request 7",
+            1711929900000,
+            Some(2),
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive stage");
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "structural-rebuild",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("structural stage");
+        assert_eq!(report.execution_mode.as_deref(), Some("incremental"));
+        assert_eq!(report.dirty_visit_count, Some(1));
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let assignments = intelligence
+            .prepare(
+                "SELECT visit_id, session_id, trail_id
+                 FROM visit_derived_facts
+                 WHERE visit_id IN (1, 2, 4)
+                 ORDER BY visit_id ASC",
+            )
+            .expect("prepare assignments")
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .expect("query assignments")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect assignments");
+        assert_eq!(assignments[0].1.as_deref(), Some("session:chrome:Default:1"));
+        assert_eq!(assignments[1].1.as_deref(), Some("session:chrome:Default:1"));
+        assert_eq!(assignments[2].1.as_deref(), Some("session:chrome:Default:1"));
+        assert_eq!(assignments[0].2.as_deref(), Some("trail:chrome:Default:1"));
+        assert_eq!(assignments[1].2.as_deref(), Some("trail:chrome:Default:1"));
+        assert_eq!(assignments[2].2.as_deref(), Some("trail:chrome:Default:1"));
+    }
+
+    #[test]
+    fn visit_derive_stage_falls_back_full_after_visibility_regression() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+        archive
+            .execute("UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = 2", [])
+            .expect("revert visit");
+        drop(archive);
+
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive fallback");
+        assert_eq!(report.execution_mode.as_deref(), Some("fallback-full"));
+        assert!(
+            report
+                .fallback_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("visibility regressed"))
+        );
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let row_count: i64 = intelligence
+            .query_row("SELECT COUNT(*) FROM visit_derived_facts", [], |row| row.get(0))
+            .expect("row count");
+        assert_eq!(row_count, 2);
+    }
+
+    #[test]
+    fn path_flows_support_four_step_queries_and_explanations() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://alpha-docs.dev/guide",
+            "Guide",
+            1712145600000,
+            None,
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            5,
+            "https://beta-community.dev/thread",
+            "Thread",
+            1712145660000,
+            Some(4),
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            6,
+            "https://gamma-news.dev/article",
+            "Article",
+            1712145720000,
+            Some(5),
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            7,
+            "https://delta-shop.dev/item",
+            "Item",
+            1712145780000,
+            Some(6),
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let flows = get_path_flows(
+            &paths,
+            &config,
+            None,
+            &PathFlowRequest {
+                date_range: DateRange {
+                    start: "2024-03-30".to_string(),
+                    end: "2024-04-10".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+                step_count: 4,
+                limit: Some(10),
+            },
+        )
+        .expect("path flows");
+        let flow = flows.iter().find(|entry| entry.step_count == 4).expect("four-step flow");
+        let explanation = explain_entity(
+            &paths,
+            &config,
+            None,
+            &EntityExplanationRequest {
+                entity_type: "path_flow".to_string(),
+                entity_id: format!("chrome:Default::4::{}", flow.flow_pattern),
+            },
+        )
+        .expect("path flow explanation");
+        assert!(
+            explanation
+                .factors
+                .iter()
+                .any(|factor| factor.label == "step_count" && factor.raw_value == 4.0)
+        );
+    }
+
+    fn append_fixture_visit(
+        connection: &Connection,
+        visit_id: i64,
+        url: &str,
+        title: &str,
+        visit_time_ms: i64,
+        from_visit: Option<i64>,
+        normalized_search_term: Option<&str>,
+    ) {
+        let url_id = visit_id + 10;
+        let visit_time_iso =
+            chrono::DateTime::from_timestamp_millis(visit_time_ms).expect("timestamp millis");
+        connection
+            .execute(
+                "INSERT INTO urls (
+                    id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+                    source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                 ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?6, 0, ?7, '2026-04-14T00:00:00Z')",
+                rusqlite::params![
+                    url_id,
+                    url,
+                    title,
+                    visit_time_ms,
+                    visit_time_iso.to_rfc3339(),
+                    url_id + 100,
+                    format!("hash-{visit_id}")
+                ],
+            )
+            .expect("insert url");
+        connection
+            .execute(
+                "INSERT INTO visits (
+                    id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
+                    source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, 1, 0, 1, 1, ?6, 0, ?7, ?8, '2026-04-14T00:00:00Z')",
+                rusqlite::params![
+                    visit_id,
+                    url_id,
+                    visit_id.to_string(),
+                    visit_time_ms,
+                    visit_time_iso.to_rfc3339(),
+                    from_visit,
+                    format!("fingerprint-{visit_id}"),
+                    format!("visit-hash-{visit_id}")
+                ],
+            )
+            .expect("insert visit");
+        if let Some(normalized_search_term) = normalized_search_term {
+            connection
+                .execute(
+                    "INSERT INTO search_terms (
+                        id, url_id, term, normalized_term, source_profile_id, created_by_run_id, profile_id
+                     ) VALUES (?1, ?2, ?3, ?3, 1, 1, 'chrome:Default')",
+                    rusqlite::params![visit_id + 1000, url_id, normalized_search_term],
+                )
+                .expect("insert search term");
+        }
     }
 
     fn seed_core_intelligence_fixture(connection: &Connection) {

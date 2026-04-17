@@ -169,6 +169,11 @@ struct IntelligenceJobArtifact {
     card_count: Option<usize>,
     query_group_count: Option<usize>,
     thread_count: Option<usize>,
+    execution_mode: Option<String>,
+    affected_profiles: Option<Vec<String>>,
+    dirty_visit_count: Option<usize>,
+    dirty_date_keys: Option<Vec<String>>,
+    fallback_reason: Option<String>,
     notes: Option<Vec<String>>,
 }
 
@@ -1378,6 +1383,11 @@ fn load_recent_jobs(connection: &Connection) -> Result<Vec<IntelligenceJobOvervi
                 progress_current,
                 progress_total,
                 progress_percent,
+                execution_mode: artifact.execution_mode,
+                affected_profiles: artifact.affected_profiles,
+                dirty_visit_count: artifact.dirty_visit_count,
+                dirty_date_keys: artifact.dirty_date_keys,
+                fallback_reason: artifact.fallback_reason,
                 last_error: row.get(12)?,
                 retryable: matches!(state.as_str(), "failed" | "cancelled"),
                 cancellable: match state.as_str() {
@@ -1612,7 +1622,12 @@ mod tests {
                 "totalSteps": 8,
                 "processedItems": 12_000,
                 "totalItems": 64_781,
-                "progressPercent": 43.5
+                "progressPercent": 43.5,
+                "executionMode": "incremental",
+                "affectedProfiles": ["chrome:Default"],
+                "dirtyVisitCount": 321,
+                "dirtyDateKeys": ["2024-04-02", "2024-04-03"],
+                "fallbackReason": null
             }),
         )
         .expect("update progress artifact");
@@ -1624,6 +1639,13 @@ mod tests {
         assert_eq!(jobs[0].progress_current, Some(12_000));
         assert_eq!(jobs[0].progress_total, Some(64_781));
         assert_eq!(jobs[0].progress_percent, Some(43.5));
+        assert_eq!(jobs[0].execution_mode.as_deref(), Some("incremental"));
+        assert_eq!(jobs[0].affected_profiles.as_deref(), Some(&["chrome:Default".to_string()][..]));
+        assert_eq!(jobs[0].dirty_visit_count, Some(321));
+        assert_eq!(
+            jobs[0].dirty_date_keys.as_deref(),
+            Some(&["2024-04-02".to_string(), "2024-04-03".to_string()][..])
+        );
         assert!(jobs[0].heartbeat_at.is_some());
     }
 

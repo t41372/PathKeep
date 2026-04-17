@@ -178,7 +178,7 @@ pub fn get_path_flows(
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let step_count = request.step_count.clamp(2, 3) as usize;
+    let step_count = request.step_count.clamp(2, 4) as usize;
     let limit = request.limit.unwrap_or(20).max(1) as usize;
     let mut statement = connection.prepare(
         "SELECT visit_derived_facts.session_id, visit_derived_facts.registrable_domain, visits.visit_time_ms

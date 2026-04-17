@@ -9,6 +9,7 @@ use vault_core::{
     config::project_paths_with_root,
     get_digest_summary, get_query_families, get_refind_pages, get_search_trails, get_sessions,
     get_top_search_concepts, get_top_sites,
+    intelligence::run_core_intelligence_job_type_with_progress,
     models::{
         AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, PagedDateRangeRequest,
         RefindPagesRequest, ScopedDateRangeRequest, SearchTrailQueryRequest,
@@ -22,7 +23,25 @@ struct Options {
     visits: usize,
     window_days: u32,
     horizon_days: u32,
+    scenario: Scenario,
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scenario {
+    Full,
+    AppendDelta,
+    VisibilityRegressionFallback,
+}
+
+impl Scenario {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::AppendDelta => "append-delta",
+            Self::VisibilityRegressionFallback => "visibility-regression-fallback",
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -57,9 +76,17 @@ fn main() -> Result<()> {
     };
 
     let rebuild_started = Instant::now();
-    let rebuild =
+    let baseline_rebuild =
         run_core_intelligence_with_progress(&paths, &config, None, &rebuild_request, |_| Ok(()))?;
-    let rebuild_elapsed_ms = rebuild_started.elapsed().as_millis();
+    let baseline_rebuild_elapsed_ms = rebuild_started.elapsed().as_millis();
+
+    let follow_up = match options.scenario {
+        Scenario::Full => None,
+        Scenario::AppendDelta => Some(run_append_delta_scenario(&paths, &config)?),
+        Scenario::VisibilityRegressionFallback => {
+            Some(run_visibility_regression_scenario(&paths, &config)?)
+        }
+    };
 
     let query_started = Instant::now();
     let sessions = get_sessions(&paths, &config, None, &paged_request)?;
@@ -117,11 +144,13 @@ fn main() -> Result<()> {
             "horizonDays": options.horizon_days,
             "archiveBytes": archive_bytes,
         },
+        "scenario": options.scenario.as_str(),
         "timings": {
-            "runCoreIntelligenceMs": rebuild_elapsed_ms,
+            "baselineRunCoreIntelligenceMs": baseline_rebuild_elapsed_ms,
             "querySurfacesMs": query_elapsed_ms,
         },
-        "report": rebuild,
+        "baselineReport": baseline_rebuild,
+        "followUp": follow_up,
         "surfaces": {
             "sessions": sessions.sessions.len(),
             "sessionTotal": sessions.total,
@@ -160,6 +189,7 @@ fn parse_args() -> Result<Options> {
     let mut visits = 100_000usize;
     let mut window_days = 365u32;
     let mut horizon_days = 730u32;
+    let mut scenario = Scenario::Full;
     let mut output = None;
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
@@ -176,6 +206,17 @@ fn parse_args() -> Result<Options> {
                 let value = args.next().context("--horizon-days requires a value")?;
                 horizon_days = value.parse().context("parsing --horizon-days")?;
             }
+            "--scenario" => {
+                let value = args.next().context("--scenario requires a value")?;
+                scenario = match value.as_str() {
+                    "full" => Scenario::Full,
+                    "append-delta" => Scenario::AppendDelta,
+                    "visibility-regression-fallback" => Scenario::VisibilityRegressionFallback,
+                    _ => anyhow::bail!(
+                        "unknown --scenario {value}; expected full, append-delta, or visibility-regression-fallback"
+                    ),
+                };
+            }
             "--output" => {
                 output = Some(PathBuf::from(args.next().context("--output requires a value")?));
             }
@@ -186,8 +227,212 @@ fn parse_args() -> Result<Options> {
         visits,
         window_days: window_days.clamp(7, 365),
         horizon_days: horizon_days.max(window_days.clamp(7, 365) * 2),
+        scenario,
         output,
     })
+}
+
+fn run_append_delta_scenario(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+) -> Result<serde_json::Value> {
+    let mut archive = open_archive_connection(paths, config, None)?;
+    let appended = append_synthetic_delta_visits(
+        &mut archive,
+        "chrome:Default",
+        Utc::now().timestamp_millis(),
+        64,
+    )?;
+    drop(archive);
+
+    let request = CoreIntelligenceRebuildRequest {
+        profile_id: Some("chrome:Default".to_string()),
+        ..CoreIntelligenceRebuildRequest::default()
+    };
+    let visit_started = Instant::now();
+    let visit_derive = run_core_intelligence_job_type_with_progress(
+        paths,
+        config,
+        None,
+        "visit-derive",
+        &request,
+        |_| Ok(()),
+    )?;
+    let visit_elapsed_ms = visit_started.elapsed().as_millis();
+    let rollup_started = Instant::now();
+    let daily_rollup = run_core_intelligence_job_type_with_progress(
+        paths,
+        config,
+        None,
+        "daily-rollup",
+        &request,
+        |_| Ok(()),
+    )?;
+    let rollup_elapsed_ms = rollup_started.elapsed().as_millis();
+    let structural_started = Instant::now();
+    let structural = run_core_intelligence_job_type_with_progress(
+        paths,
+        config,
+        None,
+        "structural-rebuild",
+        &request,
+        |_| Ok(()),
+    )?;
+    let structural_elapsed_ms = structural_started.elapsed().as_millis();
+
+    Ok(json!({
+        "scenario": Scenario::AppendDelta.as_str(),
+        "appendedVisits": appended,
+        "timings": {
+            "visitDeriveMs": visit_elapsed_ms,
+            "dailyRollupMs": rollup_elapsed_ms,
+            "structuralRebuildMs": structural_elapsed_ms,
+        },
+        "reports": {
+            "visitDerive": visit_derive,
+            "dailyRollup": daily_rollup,
+            "structuralRebuild": structural,
+        }
+    }))
+}
+
+fn run_visibility_regression_scenario(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+) -> Result<serde_json::Value> {
+    let archive = open_archive_connection(paths, config, None)?;
+    let reverted = archive.execute(
+        "UPDATE visits
+         SET reverted_at = ?1
+         WHERE id IN (
+             SELECT visits.id
+             FROM visits
+             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE source_profiles.profile_key = 'chrome:Default'
+               AND visits.reverted_at IS NULL
+             ORDER BY visits.id DESC
+             LIMIT 24
+         )",
+        params![Utc::now().to_rfc3339()],
+    )?;
+    drop(archive);
+
+    let request = CoreIntelligenceRebuildRequest {
+        profile_id: Some("chrome:Default".to_string()),
+        ..CoreIntelligenceRebuildRequest::default()
+    };
+    let started = Instant::now();
+    let visit_derive = run_core_intelligence_job_type_with_progress(
+        paths,
+        config,
+        None,
+        "visit-derive",
+        &request,
+        |_| Ok(()),
+    )?;
+    let elapsed_ms = started.elapsed().as_millis();
+
+    Ok(json!({
+        "scenario": Scenario::VisibilityRegressionFallback.as_str(),
+        "revertedVisits": reverted,
+        "timings": {
+            "visitDeriveMs": elapsed_ms,
+        },
+        "reports": {
+            "visitDerive": visit_derive,
+        }
+    }))
+}
+
+fn append_synthetic_delta_visits(
+    connection: &mut Connection,
+    profile_id: &str,
+    start_time_ms: i64,
+    count: usize,
+) -> Result<usize> {
+    let profile_row_id: i64 = connection.query_row(
+        "SELECT id FROM source_profiles WHERE profile_key = ?1",
+        [profile_id],
+        |row| row.get(0),
+    )?;
+    let next_id: i64 =
+        connection
+            .query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM visits", [], |row| row.get(0))?;
+    let transaction = connection.unchecked_transaction()?;
+    let mut url_statement = transaction.prepare(
+        "INSERT INTO urls
+         (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+         VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
+    )?;
+    let mut visit_statement = transaction.prepare(
+        "INSERT INTO visits
+         (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, external_referrer_url, event_fingerprint, payload_hash, recorded_at)
+         VALUES (?1, ?1, ?2, ?3, ?4, 1, 0, ?5, 1, ?6, 1, NULL, ?7, ?8, ?4)",
+    )?;
+    let mut search_statement = transaction.prepare(
+        "INSERT INTO search_terms
+         (url_id, term, normalized_term, source_profile_id, created_by_run_id, profile_id, keyword_id, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7)",
+    )?;
+    for index in 0..count {
+        let history_id = next_id + index as i64;
+        let visited_at_ms = start_time_ms + (index as i64 * 60_000);
+        let visited_at = chrono::DateTime::from_timestamp_millis(visited_at_ms)
+            .context("building append-delta timestamp")?;
+        let query = format!("incremental topic {}", index % 9);
+        let (url, title, from_visit) = match index % 3 {
+            0 => (
+                format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
+                format!("Search {query}"),
+                None,
+            ),
+            1 => (
+                format!("https://docs.incremental-{}.dev/guide/{}", index % 7, index),
+                format!("Guide {index}"),
+                Some(history_id - 1),
+            ),
+            _ => (
+                format!("https://reference.incremental-{}.dev/page/{}", index % 5, index),
+                format!("Reference {index}"),
+                Some(history_id - 1),
+            ),
+        };
+        url_statement.execute(params![
+            history_id,
+            url,
+            title,
+            visited_at_ms,
+            visited_at.to_rfc3339(),
+            profile_row_id,
+            format!("append-url-hash-{history_id}")
+        ])?;
+        visit_statement.execute(params![
+            history_id,
+            history_id.to_string(),
+            visited_at_ms,
+            visited_at.to_rfc3339(),
+            profile_row_id,
+            from_visit.filter(|_| index % 3 != 0),
+            format!("append-fingerprint-{history_id}"),
+            format!("append-visit-hash-{history_id}")
+        ])?;
+        if index % 3 == 0 {
+            search_statement.execute(params![
+                history_id,
+                query,
+                query.to_lowercase(),
+                profile_row_id,
+                profile_id,
+                history_id,
+                visited_at.to_rfc3339()
+            ])?;
+        }
+    }
+    drop(search_statement);
+    drop(visit_statement);
+    drop(url_statement);
+    transaction.commit()?;
+    Ok(count)
 }
 
 fn seed_synthetic_archive(
