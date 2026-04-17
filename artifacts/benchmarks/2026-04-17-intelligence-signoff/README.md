@@ -11,10 +11,12 @@
 
 - live queued enrichment execution moved out of legacy `vault-core::insights` and into `enrichment.rs`
 - benchmark harness now supports `--persist-app-root` so large synthetic corpora can be replayed without reseeding every scenario
+- benchmark harness now also supports `--skip-baseline-rebuild` for existing `--app-root` follow-up scenarios, and it refuses that flag unless the replay target already has a Core Intelligence read model
 - `daily-rollup` full/fallback rebuilds now aggregate in SQLite instead of hydrating every derived visit row into Rust
 - `visit-derive` fallback persistence now uses a prepared statement inside one transaction
 - structural rebuild no longer clones the full `tail_visits` buffer before session/trail assignment
 - `build_sessions` no longer does an `O(sessions × visits)` second-pass rescan; session aggregates are accumulated during the first pass
+- structural rebuild now streams tail visits in batches, range-clears affected memberships instead of collecting giant `visit_id` lists, and rebuilds `source_effectiveness` from batched `search_trails` reads rather than a whole-profile reload
 
 ## Completed smoke evidence
 
@@ -38,6 +40,31 @@ Observed:
 - peak RSS: about `22.8 MiB`
 
 This smoke was enough to verify the new persisted-root harness path, but it is **not** large-host signoff evidence.
+
+### Debug `1M / 60y` full rebuild after structural streaming
+
+Command:
+
+```bash
+cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- \
+  --visits 1000000 \
+  --window-days 365 \
+  --horizon-days 21900 \
+  --scenario full \
+  --output artifacts/benchmarks/2026-04-17-intelligence-signoff/full-1m-60y-post-streaming.json
+```
+
+Observed:
+
+- baseline full rebuild: `383,083 ms`
+- query surfaces: `403 ms`
+- peak RSS: about `118 MiB`
+- corpus: `1,000,000` visits, archive about `522.5 MiB`, URL chars about `42.3M`
+
+Conclusion:
+
+- structural streaming keeps the `1M` debug run memory-flat enough to emit a replayable artifact
+- the remaining finish-line risk is no longer obvious `1M` RSS blow-up; it is higher-horizon `10M+` wall-clock completion
 
 ## Large-host attempts
 
@@ -107,16 +134,17 @@ cargo run --release -p vault-core --example intelligence-benchmark --manifest-pa
 
 Observed before termination:
 
-- process elapsed went past `30m`
-- `ps`-reported RSS moved between about `2.0 GiB` and `4.7 GiB`
-- `sample` reported physical footprint around `2.1 GiB` with peak around `2.6 GiB` during one structural-stage snapshot
-- persisted synthetic root stabilized around `archive=5.0 GiB`, `derived=2.7 GiB`
-- the run exited without emitting the JSON artifact
+- process elapsed went past `31m`
+- `ps`-reported RSS stayed around `440 MiB` instead of the earlier multi-GiB structural spike
+- persisted synthetic root stabilized around `archive=5.0 GiB`, `derived=2.2–2.7 GiB`
+- the run still did **not** emit `full-10m-60y-post-streaming.json`
+- local `sample` could not inspect the process without elevated permissions, so there is no fresh stack snapshot for this run
 
 Conclusion:
 
-- even after the runtime cleanup, `10M` signoff is still not closed on this host
-- `14.4M` and large-host queue-recovery should remain open until structural full rebuild cost is reduced further or the run completes end-to-end with a real artifact
+- structural streaming appears to have removed the earlier `10M` RSS cliff
+- `10M` signoff is still not closed on this host because wall-clock completion remains open even after the memory shape improved
+- `14.4M` and large-host queue-recovery should remain open until the release run actually emits a final artifact and the follow-up replay path can reuse that completed root
 
 ## Real-archive replay status
 
@@ -124,12 +152,12 @@ The current real app root is encrypted:
 
 - `~/Library/Application Support/com.yi-ting.pathkeep/config.json` reports `"archiveMode": "Encrypted"`
 - CLI keychain retrieval via `security find-generic-password -s com.yi-ting.pathkeep -a database-key -w` returns exit code `128`
-- no disposable plaintext copy or user-supplied session key was available during this run
+- no user-supplied session key was available during this run
 
 So the real-archive replay slice is still blocked on one of:
 
-1. a disposable plaintext app-root copy
-2. the archive session key
+1. the archive session key
+2. a user-approved disposable replay target if the real app root should not be exercised directly
 
 ## Current truth
 
@@ -139,5 +167,5 @@ What changed today is not the final closeout; it is the quality of the blocker:
 
 - daily-rollup fallback is no longer the first obvious `10M` bottleneck
 - queued enrichment execution no longer depends on legacy `insights` ownership
-- persisted synthetic roots are now available for repeatable large-host follow-up runs
-- the remaining large-host blocker is structural full rebuild cost plus real-archive unlockability, not lack of harness capability
+- persisted synthetic roots plus `--app-root --skip-baseline-rebuild` are now enough to support follow-up recovery/query-validation runs once a completed large-host root exists
+- the remaining large-host blocker is now wall-clock structural completion plus real-archive unlockability, not the earlier structural RSS cliff
