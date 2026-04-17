@@ -1,8 +1,8 @@
 # Core Intelligence Handoff
 
-> **Date:** 2026-04-15  
+> **Date:** 2026-04-17  
 > **Audience:** frontend implementer, next backend implementer  
-> **Status:** current handoff after the post-`WORK-QC-T` backend/frontend follow-up
+> **Status:** current handoff after the 2026-04-17 progress audit
 
 ---
 
@@ -14,28 +14,34 @@ Use this together with:
 
 1. [`docs/features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)  
    Accepted product/design baseline
-2. [`docs/plan/CHANGELOG.md`](CHANGELOG.md)  
+2. [`docs/plan/core-intelligence-progress.md`](core-intelligence-progress.md)  
+   Current planning-side completion matrix and remaining work
+3. [`docs/plan/CHANGELOG.md`](CHANGELOG.md)  
    Search for `WORK-QC-T`
-3. [`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)  
+4. [`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)  
    Transition truth, especially what is still legacy
 
 ---
 
 ## Executive Summary
 
-The backend hard cutover from legacy deterministic `insights` to **Core Intelligence** is done, and the deterministic shipping surface now covers **Phase 1 + Phase 2 + the planned Phase 3 / Phase 4 backend query APIs**.
+The hard cutover from legacy deterministic `insights` to **Core Intelligence** is done.
 
 That means:
 
 - the main deterministic backend contract no longer relies on `run_insights_now`, `load_insights`, `load_thread_detail`, or `explain_insight`
 - `derived/history-intelligence.sqlite` now boots Core Intelligence tables and drops legacy `insight_*` tables during bootstrap
 - worker orchestration, Tauri commands, desktop bridge, runtime read model, and backup/import follow-up rebuild flow now point at Core Intelligence
-- `bun run check` and `bun run build` both pass after the cutover
+- the backend ships Phase 1 / Phase 2 query APIs **and** the planned deterministic Phase 3 / Phase 4 query APIs
+- the frontend already ships more than the original P1/P2 delegation assumed: `/intelligence`, `/intelligence/domain/:domain`, Explorer session/trail grouping, navigation tracer, Jobs / Settings runtime controls, and most deterministic overview/detail sections already exist in-repo
+- `bun run check` and `bun run build` were green at handoff time
 
 What is **not** done:
 
 - legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
 - external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend only ships data-provider payloads now
+- large-archive / low-RAM / queue-recovery signoff remains open under `PG-RD-AI-011`
+- 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; this is an incremental foundation, not final 10M / low-RAM signoff
 
 ---
 
@@ -104,10 +110,11 @@ The command surface above is implemented, but the frontend should still assume:
 
 - P4 external snippet/embed hosts are not available yet; only backend payload providers are shipping
 - `observed interactions` is capability-gated and may legitimately return an empty list on archives without supported source evidence
+- a few tests / copy / route references in the repo still say `Insights` or `/insights`; treat that as cleanup work, not as the accepted product contract
 
 ### Frontend Testing Note
 
-App shell tests were already updated to expect `/intelligence` instead of `/insights`.
+App shell tests were already updated to expect `/intelligence` instead of `/insights`, but repo-wide cleanup is not fully finished yet.
 
 Relevant file:
 
@@ -198,17 +205,20 @@ The backend already delivers:
 - read-only embed / widget / public snapshot payload providers
 - staged queue semantics for `visit-derive`, `daily-rollup`, `structural-rebuild`, and `full-rebuild`
 - profile-scoped auto-enqueue for backup/import follow-up rebuilds
+- per-profile stage checkpoints plus append-only incremental execution for `visit-derive`, `daily-rollup`, and `structural-rebuild`
+- `path_flows` end-to-end 4-step support
+- replayable incremental benchmark scenarios under `artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/`
 
 ### What Is Still Left
 
-There are **two kinds** of remaining backend work.
+There are **three kinds** of remaining backend work.
 
-#### 1. Finish Core Intelligence roadmap work
+#### 1. Finish the remaining real backend scope
 
-The next backend owner is expected to finish the rest of **all backend Core Intelligence**, which means Phase 3 / Phase 4 still remain.
+The next backend owner is **not** starting from P1/P2 anymore. The current remaining scope is:
 
-These are still pending as real shipping backend scope:
-
+- `PG-RD-AI-011` large-archive / low-RAM / queue-recovery signoff
+- chunked / incremental / resumable staged rebuild cleanup beyond the new checkpoint-backed foundation
 - any remaining P4 host/service integrations beyond the new payload-provider commands
 
 #### 2. Finish the cutover cleanup
@@ -218,6 +228,10 @@ The reset is working, but there is still technical cleanup to do:
 - remove or reduce remaining legacy `vault-core::insights` implementation code
 - keep only the parts still genuinely needed for enrichment/readable-content support
 - decide whether the staged queue should become more incremental than the current “stage-specific tables, mostly profile-scoped recompute” implementation
+
+#### 3. Do not mistake local WIP for completed scope
+
+There are currently uncommitted intelligence changes in the worktree. Read them if they help, but do **not** mark them as done or update docs as if they were shipped until they land with tests and source-doc updates.
 
 ### Do Not Accidentally Regress These
 
@@ -247,24 +261,26 @@ bun run build
 
 ## Existing Docs: Are They Enough On Their Own?
 
-For a frontend implementer: **almost**.  
+For a frontend implementer: **yes, if they read the progress doc too**.  
 If they read:
 
 - [`docs/features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
+- [`docs/plan/core-intelligence-progress.md`](core-intelligence-progress.md)
 - [`src/lib/core-intelligence/types.ts`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/lib/core-intelligence/types.ts)
 - [`src/lib/core-intelligence/api.ts`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/lib/core-intelligence/api.ts)
 
 they can move pretty far.
 
-For a new backend implementer: **not quite**.  
-Without this handoff, they are likely to miss:
+For a new backend implementer: **yes, if they read the progress doc and this handoff together**.  
+Without them, they are likely to miss:
 
-- that `WORK-QC-T` only covered Phase 1 + Phase 2 backend
-- that some P3/P4-looking frontend types already exist but are not backed by Rust yet
+- that repo reality has moved beyond the original “backend P1/P2 only” assumption
+- that most frontend deterministic surfaces already exist, so remaining work is finish-line cleanup rather than blank-page implementation
 - that `visit_content_enrichments` was intentionally preserved
-- that queue/job-type granularity is still unfinished
+- that queue/job-type granularity and large-archive signoff are still unfinished
+- that local worktree diffs are currently WIP and not accepted truth
 
-So if you want a brain-empty agent to continue backend work, send them to this file first.
+So if you want a brain-empty agent to continue backend or frontend work, send them to `core-intelligence-progress.md` first, then this file.
 
 ---
 
@@ -272,4 +288,4 @@ So if you want a brain-empty agent to continue backend work, send them to this f
 
 If you want to resume with a fresh agent, this prompt is good enough:
 
-> Read `docs/plan/core-intelligence-handoff.md` and continue finishing all remaining Core Intelligence backend work, especially Phase 3/4 APIs and the remaining legacy-insights/queue cleanup, without reintroducing `load_insights` as the product contract.
+> Read `docs/plan/core-intelligence-progress.md` and `docs/plan/core-intelligence-handoff.md`, then continue the remaining Core Intelligence work for the requested side (frontend or backend), focusing on finish-line cleanup, large-archive/runtime truth, host-output gaps, and legacy-insights cleanup without reintroducing `load_insights` as the product contract.

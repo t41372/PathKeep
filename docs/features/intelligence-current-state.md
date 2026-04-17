@@ -6,6 +6,8 @@
 > **2026-04-15 reset note:** deterministic / Core Intelligence 的 accepted baseline 已改由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 接管，主產品 route 也已 hard-cut 到 `/intelligence`。這份文檔保留的價值，現在主要是說明 pre-reset shipping surface、optional AI layer、Jobs/runtime review 與哪些舊 `insights` / snapshot 概念仍留在 repo 的 legacy 區角；不要再把本文中提到的 `load_insights` / thread-detail snapshot surface 當成新的 product contract。
 >
 > **2026-04-15 follow-up note:** Core Intelligence backend 現在還多了一層正式的 trait-backed module registry。`visit-derived-facts`、`daily-rollups`、`sessions`、`search-trails`、`refind-pages`、`activity-mix`、`search-effectiveness`、`domain-deep-dive` 這 8 個 built-ins 的依賴順序、rebuild stage ownership、以及 `explain_entity` 的 entity ownership 都已經收斂到單一 registry；legacy `vault-core::insights` 也已退回 crate-internal evidence helper，不再是 accepted backend surface。
+>
+> **2026-04-17 incremental note:** Core Intelligence deterministic queue 現在已補上 per-profile stage checkpoint ledger。append-only `visit-derive`、`daily-rollup`、`structural-rebuild` 會優先走 incremental path，並把 `executionMode`、`dirtyVisitCount`、`dirtyDateKeys`、`fallbackReason` 寫進 runtime artifact；如果 archive visibility regression、stage version drift 或 checkpoint 缺失，系統會誠實回退成 scoped `fallback-full`。這代表「stage queue 不再只是看起來像增量」，但也**不**代表 10M / low-RAM / queue recovery RSS 的最終 large-archive signoff 已完成。
 
 ---
 
