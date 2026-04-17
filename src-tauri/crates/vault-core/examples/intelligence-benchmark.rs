@@ -2,8 +2,12 @@ use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use rusqlite::{Connection, params};
 use serde_json::json;
-use std::{env, fs, path::PathBuf, time::Instant};
-use tempfile::tempdir;
+use std::{
+    env, fs,
+    path::PathBuf,
+    time::Instant,
+};
+use tempfile::{TempDir, tempdir};
 use vault_core::{
     archive::{open_archive_connection, open_intelligence_connection},
     config::project_paths_with_root,
@@ -16,7 +20,7 @@ use vault_core::{
         RefindPagesRequest, ScopedDateRangeRequest, SearchTrailQueryRequest,
         TopSearchConceptsRequest, TopSitesRequest,
     },
-    run_core_intelligence_with_progress,
+    load_config, run_core_intelligence_with_progress,
 };
 
 #[derive(Debug, Clone)]
@@ -26,6 +30,8 @@ struct Options {
     horizon_days: u32,
     scenario: Scenario,
     output: Option<PathBuf>,
+    app_root: Option<PathBuf>,
+    session_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,37 +53,28 @@ impl Scenario {
     }
 }
 
+struct BenchmarkContext {
+    _temp_root: Option<TempDir>,
+    paths: vault_core::ProjectPaths,
+    config: AppConfig,
+    session_key: Option<String>,
+    corpus: serde_json::Value,
+    source_kind: &'static str,
+}
+
 fn main() -> Result<()> {
     let options = parse_args()?;
-    let root = tempdir().context("creating temporary benchmark root")?;
-    let paths = project_paths_with_root(root.path());
-    let config = AppConfig {
-        initialized: true,
-        archive_mode: ArchiveMode::Plaintext,
-        ..AppConfig::default()
-    };
-    let mut connection = open_archive_connection(&paths, &config, None)?;
-    seed_synthetic_archive(
-        &mut connection,
-        options.visits,
-        options.window_days,
-        options.horizon_days,
-    )?;
-    drop(connection);
-    let corpus = collect_corpus_stats(
-        &paths,
-        &config,
-        options.visits,
-        options.window_days,
-        options.horizon_days,
-    )?;
+    let context = prepare_benchmark_context(&options)?;
+    let session_key = context.session_key.as_deref();
 
     let rebuild_request =
         CoreIntelligenceRebuildRequest { profile_id: None, full_rebuild: true, limit: None };
-    let query_range = DateRange {
-        start: (Utc::now() - Duration::days(options.window_days as i64)).date_naive().to_string(),
-        end: Utc::now().date_naive().to_string(),
-    };
+    let query_range = benchmark_query_range(
+        &context.paths,
+        &context.config,
+        session_key,
+        options.window_days,
+    )?;
     let paged_request = PagedDateRangeRequest {
         date_range: query_range.clone(),
         profile_id: None,
@@ -86,28 +83,45 @@ fn main() -> Result<()> {
     };
 
     let rebuild_started = Instant::now();
-    let baseline_rebuild =
-        run_core_intelligence_with_progress(&paths, &config, None, &rebuild_request, |_| Ok(()))?;
+    let baseline_rebuild = run_core_intelligence_with_progress(
+        &context.paths,
+        &context.config,
+        session_key,
+        &rebuild_request,
+        |_| Ok(()),
+    )?;
     let baseline_rebuild_elapsed_ms = rebuild_started.elapsed().as_millis();
     let baseline_memory = memory_snapshot_json();
 
     let follow_up = match options.scenario {
         Scenario::Full => None,
-        Scenario::AppendDelta => Some(run_append_delta_scenario(&paths, &config)?),
+        Scenario::AppendDelta => Some(run_append_delta_scenario(
+            &context.paths,
+            &context.config,
+            session_key,
+        )?),
         Scenario::ExpiredLeaseRecovery => {
-            Some(run_expired_lease_recovery_scenario(&paths, &config)?)
+            Some(run_expired_lease_recovery_scenario(
+                &context.paths,
+                &context.config,
+                session_key,
+            )?)
         }
         Scenario::VisibilityRegressionFallback => {
-            Some(run_visibility_regression_scenario(&paths, &config)?)
+            Some(run_visibility_regression_scenario(
+                &context.paths,
+                &context.config,
+                session_key,
+            )?)
         }
     };
 
     let query_started = Instant::now();
-    let sessions = get_sessions(&paths, &config, None, &paged_request)?;
+    let sessions = get_sessions(&context.paths, &context.config, session_key, &paged_request)?;
     let trails = get_search_trails(
-        &paths,
-        &config,
-        None,
+        &context.paths,
+        &context.config,
+        session_key,
         &SearchTrailQueryRequest {
             date_range: query_range.clone(),
             profile_id: None,
@@ -117,16 +131,17 @@ fn main() -> Result<()> {
         },
     )?;
     let digest = get_digest_summary(
-        &paths,
-        &config,
-        None,
+        &context.paths,
+        &context.config,
+        session_key,
         &ScopedDateRangeRequest { date_range: query_range.clone(), profile_id: None },
     )?;
-    let query_families = get_query_families(&paths, &config, None, &paged_request)?;
+    let query_families =
+        get_query_families(&context.paths, &context.config, session_key, &paged_request)?;
     let top_sites = get_top_sites(
-        &paths,
-        &config,
-        None,
+        &context.paths,
+        &context.config,
+        session_key,
         &TopSitesRequest {
             date_range: query_range.clone(),
             profile_id: None,
@@ -135,21 +150,26 @@ fn main() -> Result<()> {
         },
     )?;
     let refind_pages = get_refind_pages(
-        &paths,
-        &config,
-        None,
+        &context.paths,
+        &context.config,
+        session_key,
         &RefindPagesRequest { date_range: query_range.clone(), profile_id: None, limit: Some(10) },
     )?;
     let top_concepts = get_top_search_concepts(
-        &paths,
-        &config,
-        None,
+        &context.paths,
+        &context.config,
+        session_key,
         &TopSearchConceptsRequest { date_range: query_range, profile_id: None, limit: Some(15) },
     )?;
     let query_elapsed_ms = query_started.elapsed().as_millis();
 
     let payload = json!({
-        "corpus": corpus,
+        "source": {
+            "kind": context.source_kind,
+            "appRoot": options.app_root.as_ref().map(|path| path.display().to_string()),
+        },
+        "replayCommand": replay_command(&options),
+        "corpus": context.corpus,
         "scenario": options.scenario.as_str(),
         "timings": {
             "baselineRunCoreIntelligenceMs": baseline_rebuild_elapsed_ms,
@@ -201,6 +221,8 @@ fn parse_args() -> Result<Options> {
     let mut horizon_days = 730u32;
     let mut scenario = Scenario::Full;
     let mut output = None;
+    let mut app_root = None;
+    let mut session_key = None;
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -231,6 +253,13 @@ fn parse_args() -> Result<Options> {
             "--output" => {
                 output = Some(PathBuf::from(args.next().context("--output requires a value")?));
             }
+            "--app-root" => {
+                app_root = Some(PathBuf::from(args.next().context("--app-root requires a value")?));
+            }
+            "--session-key" => {
+                session_key =
+                    Some(args.next().context("--session-key requires a value")?);
+            }
             flag => anyhow::bail!("unknown flag {flag}"),
         }
     }
@@ -240,10 +269,120 @@ fn parse_args() -> Result<Options> {
         horizon_days: horizon_days.max(window_days.clamp(7, 365) * 2),
         scenario,
         output,
+        app_root,
+        session_key,
     })
 }
 
-fn collect_corpus_stats(
+fn prepare_benchmark_context(options: &Options) -> Result<BenchmarkContext> {
+    if let Some(app_root) = options.app_root.as_ref() {
+        let paths = project_paths_with_root(app_root);
+        let mut config = load_config(&paths).with_context(|| {
+            format!(
+                "loading PathKeep config from {} for manual replay benchmarking",
+                app_root.display()
+            )
+        })?;
+        if !config.initialized && paths.archive_database_path.exists() {
+            config.initialized = true;
+        }
+        if config.archive_mode == ArchiveMode::Encrypted && options.session_key.is_none() {
+            anyhow::bail!(
+                "manual replay against an encrypted archive requires --session-key or a disposable plaintext copy"
+            );
+        }
+        let corpus = collect_existing_corpus_stats(
+            &paths,
+            &config,
+            options.session_key.as_deref(),
+            options.window_days,
+        )?;
+        return Ok(BenchmarkContext {
+            _temp_root: None,
+            paths,
+            config,
+            session_key: options.session_key.clone(),
+            corpus,
+            source_kind: "existing-archive",
+        });
+    }
+
+    let root = tempdir().context("creating temporary benchmark root")?;
+    let paths = project_paths_with_root(root.path());
+    let config = AppConfig {
+        initialized: true,
+        archive_mode: ArchiveMode::Plaintext,
+        ..AppConfig::default()
+    };
+    let mut connection = open_archive_connection(&paths, &config, None)?;
+    seed_synthetic_archive(
+        &mut connection,
+        options.visits,
+        options.window_days,
+        options.horizon_days,
+    )?;
+    drop(connection);
+    let corpus = collect_synthetic_corpus_stats(
+        &paths,
+        &config,
+        options.visits,
+        options.window_days,
+        options.horizon_days,
+    )?;
+    Ok(BenchmarkContext {
+        _temp_root: Some(root),
+        paths,
+        config,
+        session_key: None,
+        corpus,
+        source_kind: "synthetic-seed",
+    })
+}
+
+fn benchmark_query_range(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_key: Option<&str>,
+    window_days: u32,
+) -> Result<DateRange> {
+    let connection = open_archive_connection(paths, config, session_key)?;
+    let end_ms = connection
+        .query_row(
+            "SELECT COALESCE(MAX(visit_time_ms), 0) FROM visits WHERE reverted_at IS NULL",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    let end = chrono::DateTime::from_timestamp_millis(end_ms)
+        .unwrap_or_else(Utc::now)
+        .date_naive();
+    let start = end - Duration::days(window_days.saturating_sub(1) as i64);
+    Ok(DateRange { start: start.to_string(), end: end.to_string() })
+}
+
+fn replay_command(options: &Options) -> String {
+    let mut parts = vec![
+        "cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml --"
+            .to_string(),
+        format!("--scenario {}", options.scenario.as_str()),
+        format!("--window-days {}", options.window_days),
+    ];
+    if let Some(app_root) = options.app_root.as_ref() {
+        parts.push(format!("--app-root '{}'", app_root.display()));
+        if options.session_key.is_some() {
+            parts.push("--session-key '<redacted>'".to_string());
+        }
+    } else {
+        parts.push(format!("--visits {}", options.visits));
+        parts.push(format!("--horizon-days {}", options.horizon_days));
+    }
+    if let Some(output) = options.output.as_ref() {
+        parts.push(format!("--output '{}'", output.display()));
+    }
+    parts.join(" ")
+}
+
+fn collect_synthetic_corpus_stats(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     seeded_visits: usize,
@@ -292,6 +431,69 @@ fn collect_corpus_stats(
     }))
 }
 
+fn collect_existing_corpus_stats(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_key: Option<&str>,
+    window_days: u32,
+) -> Result<serde_json::Value> {
+    let connection = open_archive_connection(paths, config, session_key)?;
+    let archive_bytes = fs::metadata(&paths.archive_database_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or_default();
+    let intelligence_bytes = fs::metadata(&paths.intelligence_database_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or_default();
+    let visit_stats = connection.query_row(
+        "SELECT COUNT(*), COALESCE(MIN(visit_time_ms), 0), COALESCE(MAX(visit_time_ms), 0)
+         FROM visits
+         WHERE reverted_at IS NULL",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        },
+    )?;
+    let profile_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM source_profiles", [], |row| row.get(0))?;
+    let search_term_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM search_terms", [], |row| row.get(0))?;
+    let url_stats = connection.query_row(
+        "SELECT
+            COALESCE(SUM(LENGTH(url)), 0),
+            COALESCE(SUM(LENGTH(title)), 0),
+            COALESCE(MAX(LENGTH(url)), 0),
+            COALESCE(MAX(LENGTH(title)), 0)
+         FROM urls",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        },
+    )?;
+    Ok(json!({
+        "windowDays": window_days,
+        "archiveBytes": archive_bytes,
+        "intelligenceBytes": intelligence_bytes,
+        "profileCount": profile_count,
+        "visitCount": visit_stats.0,
+        "searchTermCount": search_term_count,
+        "minVisitTimeMs": visit_stats.1,
+        "maxVisitTimeMs": visit_stats.2,
+        "urlCharTotal": url_stats.0,
+        "titleCharTotal": url_stats.1,
+        "maxUrlChars": url_stats.2,
+        "maxTitleChars": url_stats.3,
+    }))
+}
+
 fn memory_snapshot_json() -> serde_json::Value {
     let peak_rss_bytes = peak_rss_bytes();
     json!({
@@ -325,8 +527,9 @@ fn peak_rss_bytes() -> Option<u64> {
 fn run_append_delta_scenario(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
+    session_key: Option<&str>,
 ) -> Result<serde_json::Value> {
-    let mut archive = open_archive_connection(paths, config, None)?;
+    let mut archive = open_archive_connection(paths, config, session_key)?;
     let appended = append_synthetic_delta_visits(
         &mut archive,
         "chrome:Default",
@@ -343,7 +546,7 @@ fn run_append_delta_scenario(
     let visit_derive = run_core_intelligence_job_type_with_progress(
         paths,
         config,
-        None,
+        session_key,
         "visit-derive",
         &request,
         |_| Ok(()),
@@ -353,7 +556,7 @@ fn run_append_delta_scenario(
     let daily_rollup = run_core_intelligence_job_type_with_progress(
         paths,
         config,
-        None,
+        session_key,
         "daily-rollup",
         &request,
         |_| Ok(()),
@@ -363,7 +566,7 @@ fn run_append_delta_scenario(
     let structural = run_core_intelligence_job_type_with_progress(
         paths,
         config,
-        None,
+        session_key,
         "structural-rebuild",
         &request,
         |_| Ok(()),
@@ -390,8 +593,13 @@ fn run_append_delta_scenario(
 fn run_expired_lease_recovery_scenario(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
+    session_key: Option<&str>,
 ) -> Result<serde_json::Value> {
-    let connection = open_intelligence_connection(paths, config, None)?;
+    // Consume the one-shot "interrupted runtime" recovery marker before we
+    // insert synthetic expired leases so this scenario measures lease expiry
+    // handling rather than fresh-archive startup recovery.
+    let _ = load_intelligence_runtime(paths, config, session_key)?;
+    let connection = open_intelligence_connection(paths, config, session_key)?;
     let expired_at = (Utc::now() - Duration::minutes(10)).to_rfc3339();
     connection.execute(
         "INSERT INTO intelligence_jobs
@@ -428,7 +636,7 @@ fn run_expired_lease_recovery_scenario(
     )?;
 
     let started = Instant::now();
-    let snapshot = load_intelligence_runtime(paths, config, None)?;
+    let snapshot = load_intelligence_runtime(paths, config, session_key)?;
     let elapsed_ms = started.elapsed().as_millis();
 
     let recovered = connection
@@ -462,8 +670,9 @@ fn run_expired_lease_recovery_scenario(
 fn run_visibility_regression_scenario(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
+    session_key: Option<&str>,
 ) -> Result<serde_json::Value> {
-    let archive = open_archive_connection(paths, config, None)?;
+    let archive = open_archive_connection(paths, config, session_key)?;
     let reverted = archive.execute(
         "UPDATE visits
          SET reverted_at = ?1
@@ -484,26 +693,38 @@ fn run_visibility_regression_scenario(
         profile_id: Some("chrome:Default".to_string()),
         ..CoreIntelligenceRebuildRequest::default()
     };
-    let started = Instant::now();
+    let visit_started = Instant::now();
     let visit_derive = run_core_intelligence_job_type_with_progress(
         paths,
         config,
-        None,
+        session_key,
         "visit-derive",
         &request,
         |_| Ok(()),
     )?;
-    let elapsed_ms = started.elapsed().as_millis();
+    let visit_elapsed_ms = visit_started.elapsed().as_millis();
+    let rollup_started = Instant::now();
+    let daily_rollup = run_core_intelligence_job_type_with_progress(
+        paths,
+        config,
+        session_key,
+        "daily-rollup",
+        &request,
+        |_| Ok(()),
+    )?;
+    let daily_rollup_elapsed_ms = rollup_started.elapsed().as_millis();
 
     Ok(json!({
         "scenario": Scenario::VisibilityRegressionFallback.as_str(),
         "revertedVisits": reverted,
         "timings": {
-            "visitDeriveMs": elapsed_ms,
+            "visitDeriveMs": visit_elapsed_ms,
+            "dailyRollupMs": daily_rollup_elapsed_ms,
         },
         "memory": memory_snapshot_json(),
         "reports": {
             "visitDerive": visit_derive,
+            "dailyRollup": daily_rollup,
         }
     }))
 }
