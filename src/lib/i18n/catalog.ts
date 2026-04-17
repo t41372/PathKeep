@@ -320,6 +320,64 @@ const zhCnM3Namespaces = {
     domainDeepDiveReferrers: '主要来源',
     domainDeepDiveExits: '主要去向',
     domainDeepDiveTrend: '访问趋势',
+
+    // P3: Breadth Index
+    breadthTitle: '集中度 / 广度指数',
+    breadthEmpty: '数据不足，暂无法计算集中度。',
+    breadthScoreLabel: '广度分',
+    breadthVerdictBroad: '你的浏览分布很广，接触了多样的网站。',
+    breadthVerdictBalanced: '你的浏览在集中与分散之间保持平衡。',
+    breadthVerdictFocused: '你的浏览集中在少数几个核心网站上。',
+    breadthConcentrationDetail: '大约一半浏览集中在 {count} 个网站里。',
+    breadthHhiLabel: 'HHI: {value}',
+
+    // P3: Path Flows
+    pathFlowsTitle: '常见浏览路线',
+    pathFlowsEmpty: '还没有足够数据识别固定路线。',
+    pathFlowsOccurrences: '出现 {count} 次',
+    pathFlowsStepLabel: '步数',
+    pathFlowsStep2: '2 步',
+    pathFlowsStep3: '3 步',
+    pathFlowsStep4: '4 步',
+
+    // P3: Habits
+    habitsTitle: '习惯模式',
+    habitsEmpty: '还没有检测到规律性的访问习惯。',
+    habitsInterruptedTitle: '中断的习惯',
+    habitsPatternsTitle: '识别到的规律',
+    habitType_daily_habit: '每日',
+    habitType_weekly_habit: '每周',
+    habitType_periodic_reference: '周期参考',
+    habitCadence: '平均间隔 {interval} 天',
+    habitVisits: '{count} 次访问',
+    habitInterruptedBadge: '已中断',
+    habitInterruptedDetail: '{days} 天未访问 (预期 {expected} 天)',
+
+    // P4-1: Compare Sets
+    compareSetsTitle: '比较页面组',
+    compareSetsEmpty: '还没有检测到并排比较的搜索行为。',
+    compareSetsPages: '{count} 个页面',
+    compareSetsLanding: '落地',
+
+    // P4-2: Multi-Browser Diff
+    multiBrowserTitle: '多浏览器对比',
+    multiBrowserEmpty: '需要至少两个已备份的浏览器档案才能对比。',
+    multiBrowserVisits: '{count} 次访问',
+    multiBrowserDomains: '{count} 个网站',
+    multiBrowserShared: '共享网站 ({count})',
+    multiBrowserExclusive: '各档案独有',
+    multiBrowserCategories: '类别分布对比',
+
+    // P3-5: Observed Interactions
+    observedTitle: '浏览器直接报告的互动',
+    observedCapabilityBadge: '能力受限',
+    observedDisclaimer:
+      '这些数据直接来自浏览器历史记录里报告的字段。不是所有浏览器都提供；没有报告的会直接留空。',
+    observedEmpty: '这个档案没有可用的互动数据。',
+    observedForeground: '前台 {duration}',
+    observedScroll: '滚动 {duration}',
+    observedKeyPresses: '{count} 次按键',
+    observedLoadFailed: '加载失败',
   },
   explorer: {
     waitingForQuery: '输入关键词开始搜索',
@@ -1013,6 +1071,64 @@ const zhTwM3Namespaces = {
     domainDeepDiveReferrers: '主要來源',
     domainDeepDiveExits: '主要去向',
     domainDeepDiveTrend: '造訪趨勢',
+
+    // P3: Breadth Index
+    breadthTitle: '集中度 / 廣度指數',
+    breadthEmpty: '資料不足，暫無法計算集中度。',
+    breadthScoreLabel: '廣度分',
+    breadthVerdictBroad: '你的瀏覽分布很廣，接觸到多樣化的網站。',
+    breadthVerdictBalanced: '你的瀏覽在集中與分散之間保持平衡。',
+    breadthVerdictFocused: '你的瀏覽集中在少數幾個核心網站上。',
+    breadthConcentrationDetail: '大約一半瀏覽集中在 {count} 個網站裡。',
+    breadthHhiLabel: 'HHI: {value}',
+
+    // P3: Path Flows
+    pathFlowsTitle: '常見瀏覽路線',
+    pathFlowsEmpty: '還沒有足夠資料識別固定路線。',
+    pathFlowsOccurrences: '出現 {count} 次',
+    pathFlowsStepLabel: '步數',
+    pathFlowsStep2: '2 步',
+    pathFlowsStep3: '3 步',
+    pathFlowsStep4: '4 步',
+
+    // P3: Habits
+    habitsTitle: '習慣模式',
+    habitsEmpty: '還沒有偵測到規律性的造訪習慣。',
+    habitsInterruptedTitle: '中斷的習慣',
+    habitsPatternsTitle: '識別到的規律',
+    habitType_daily_habit: '每日',
+    habitType_weekly_habit: '每週',
+    habitType_periodic_reference: '週期參考',
+    habitCadence: '平均間隔 {interval} 天',
+    habitVisits: '{count} 次造訪',
+    habitInterruptedBadge: '已中斷',
+    habitInterruptedDetail: '{days} 天未造訪 (預期 {expected} 天)',
+
+    // P4-1: Compare Sets
+    compareSetsTitle: '比較頁面組',
+    compareSetsEmpty: '還沒有偵測到並排比較的搜尋行為。',
+    compareSetsPages: '{count} 個頁面',
+    compareSetsLanding: '落地',
+
+    // P4-2: Multi-Browser Diff
+    multiBrowserTitle: '多瀏覽器對比',
+    multiBrowserEmpty: '至少需要兩個已備份的瀏覽器設定檔才能對比。',
+    multiBrowserVisits: '{count} 次造訪',
+    multiBrowserDomains: '{count} 個網站',
+    multiBrowserShared: '共享網站 ({count})',
+    multiBrowserExclusive: '各設定檔獨有',
+    multiBrowserCategories: '類別分佈對比',
+
+    // P3-5: Observed Interactions
+    observedTitle: '瀏覽器直接回報的互動',
+    observedCapabilityBadge: '能力受限',
+    observedDisclaimer:
+      '這些資料直接來自瀏覽器歷史記錄中回報的欄位。不是所有瀏覽器都提供；沒有回報的欄位會直接留空。',
+    observedEmpty: '這個設定檔沒有可用的互動資料。',
+    observedForeground: '前景 {duration}',
+    observedScroll: '滾動 {duration}',
+    observedKeyPresses: '{count} 次按鍵',
+    observedLoadFailed: '載入失敗',
   },
   explorer: {
     waitingForQuery: '輸入關鍵字開始搜尋',
@@ -2877,6 +2993,70 @@ const catalog: Record<
       domainDeepDiveReferrers: 'Top Referrers',
       domainDeepDiveExits: 'Top Exits',
       domainDeepDiveTrend: 'Visit Trend',
+
+      // P3: Breadth Index
+      breadthTitle: 'Breadth Index',
+      breadthEmpty: 'Not enough data to compute your breadth score.',
+      breadthScoreLabel: 'Breadth score',
+      breadthVerdictBroad:
+        'Your browsing spans a wide set of sites and topics.',
+      breadthVerdictBalanced: 'Your browsing balances focus with exploration.',
+      breadthVerdictFocused:
+        'Your browsing concentrates on a small set of core sites.',
+      breadthConcentrationDetail:
+        'About half of your browsing lives in {count} domains.',
+      breadthHhiLabel: 'HHI: {value}',
+
+      // P3: Path Flows
+      pathFlowsTitle: 'Common Paths',
+      pathFlowsEmpty: 'Not enough data to surface repeating paths yet.',
+      pathFlowsOccurrences: '{count} occurrences',
+      pathFlowsStepLabel: 'Steps',
+      pathFlowsStep2: '2 hops',
+      pathFlowsStep3: '3 hops',
+      pathFlowsStep4: '4 hops',
+
+      // P3: Habits
+      habitsTitle: 'Habits',
+      habitsEmpty: 'No recurring visit habits detected yet.',
+      habitsInterruptedTitle: 'Interrupted Habits',
+      habitsPatternsTitle: 'Detected Patterns',
+      habitType_daily_habit: 'Daily',
+      habitType_weekly_habit: 'Weekly',
+      habitType_periodic_reference: 'Periodic',
+      habitCadence: 'Every {interval} days on average',
+      habitVisits: '{count} visits',
+      habitInterruptedBadge: 'Interrupted',
+      habitInterruptedDetail:
+        '{days} days since last visit (expected {expected})',
+
+      // P4-1: Compare Sets
+      compareSetsTitle: 'Compare Sets',
+      compareSetsEmpty: 'No side-by-side comparison patterns detected.',
+      compareSetsPages: '{count} pages',
+      compareSetsLanding: 'Landed',
+
+      // P4-2: Multi-Browser Diff
+      multiBrowserTitle: 'Multi-Browser Comparison',
+      multiBrowserEmpty:
+        'Need at least two backed-up browser profiles to compare.',
+      multiBrowserVisits: '{count} visits',
+      multiBrowserDomains: '{count} domains',
+      multiBrowserShared: 'Shared Domains ({count})',
+      multiBrowserExclusive: 'Exclusive to each profile',
+      multiBrowserCategories: 'Category distribution',
+
+      // P3-5: Observed Interactions
+      observedTitle: 'Observed Interactions',
+      observedCapabilityBadge: 'Capability-gated',
+      observedDisclaimer:
+        'These values come directly from fields that your browser history files reported. Not every browser emits them, and missing fields are left blank rather than inferred.',
+      observedEmpty:
+        'This profile has no supported interaction evidence available.',
+      observedForeground: 'Foreground {duration}',
+      observedScroll: 'Scrolled {duration}',
+      observedKeyPresses: '{count} key presses',
+      observedLoadFailed: 'Load failed',
     },
     explorer: {
       waitingForQuery: 'Type to search',

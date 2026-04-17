@@ -31,6 +31,16 @@ import {
   type StableSource,
   type FrictionSignal,
   type DiscoveryTrendPoint,
+  type BreadthIndex,
+  type HabitPattern,
+  type InterruptedHabit,
+  type PathFlow,
+  type CompareSet,
+  type CompareSetPage,
+  type BrowserDiff,
+  type BrowserProfileSummary,
+  type CategoryMixEntry,
+  type ObservedInteraction,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 
@@ -94,6 +104,20 @@ export function IntelligencePage() {
           <ReopenedInvestigationsSection dateRange={dateRange} t={t} />
         </div>
         <DiscoveryTrendSection dateRange={dateRange} t={t} />
+
+        {/* Phase 3 — Deeper patterns */}
+        <div className="intelligence-row intelligence-row--two-col">
+          <BreadthIndexSection dateRange={dateRange} t={t} />
+          <PathFlowsSection dateRange={dateRange} t={t} />
+        </div>
+        <HabitsSection dateRange={dateRange} t={t} />
+
+        {/* Phase 4 — Cross-profile / comparison */}
+        <div className="intelligence-row intelligence-row--two-col">
+          <CompareSetsSection dateRange={dateRange} t={t} />
+          <MultiBrowserDiffSection dateRange={dateRange} t={t} />
+        </div>
+        <ObservedInteractionsSection dateRange={dateRange} t={t} />
       </div>
     </div>
   )
@@ -1314,6 +1338,554 @@ function DiscoveryTrendSection({
       )}
     </section>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Breadth Index / Path Flows / Habits
+// ---------------------------------------------------------------------------
+
+function BreadthIndexSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
+  const { data, loading } = useAsyncData(
+    () => api.getBreadthIndex(dateRange, null),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section breadth-section">
+      <h2 className="intelligence-section__title">{t('breadthTitle')}</h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--card" />
+      ) : !data ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('breadthEmpty')}</p>
+        </div>
+      ) : (
+        <BreadthIndexBody data={data} t={t} />
+      )}
+    </section>
+  )
+}
+
+function BreadthIndexBody({ data, t }: { data: BreadthIndex; t: T }) {
+  const score = Math.max(0, Math.min(100, Math.round(data.breadthScore)))
+  const verdictKey =
+    score >= 70
+      ? 'breadthVerdictBroad'
+      : score >= 40
+        ? 'breadthVerdictBalanced'
+        : 'breadthVerdictFocused'
+
+  return (
+    <div className="breadth-index">
+      <div className="breadth-index__score-block">
+        <span className="breadth-index__score">{score}</span>
+        <span className="breadth-index__score-label">
+          {t('breadthScoreLabel')}
+        </span>
+      </div>
+      <div className="breadth-index__meter">
+        <span
+          className="breadth-index__meter-fill"
+          style={{ width: `${score}%` }}
+        />
+      </div>
+      <p className="breadth-index__verdict">{t(verdictKey)}</p>
+      <p className="breadth-index__detail">
+        {t('breadthConcentrationDetail', {
+          count: data.concentrationDomainCount,
+        })}
+      </p>
+      <p className="breadth-index__meta">
+        {t('breadthHhiLabel', { value: data.hhi.toFixed(3) })}
+      </p>
+    </div>
+  )
+}
+
+function PathFlowsSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
+  const [stepCount, setStepCount] = useState<number>(3)
+  const { data, loading } = useAsyncData(
+    () => api.getPathFlows(dateRange, null, stepCount, 15),
+    [dateRange, stepCount],
+  )
+
+  return (
+    <section className="intelligence-section path-flows-section">
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('pathFlowsTitle')}</h2>
+        <select
+          className="top-sites-controls__sort"
+          value={stepCount}
+          onChange={(e) => setStepCount(Number(e.target.value))}
+          aria-label={t('pathFlowsStepLabel')}
+        >
+          <option value={2}>{t('pathFlowsStep2')}</option>
+          <option value={3}>{t('pathFlowsStep3')}</option>
+          <option value={4}>{t('pathFlowsStep4')}</option>
+        </select>
+      </div>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : !data || data.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('pathFlowsEmpty')}</p>
+        </div>
+      ) : (
+        <ul className="path-flows">
+          {data.map((flow, i) => (
+            <PathFlowRow key={i} flow={flow} t={t} />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function PathFlowRow({ flow, t }: { flow: PathFlow; t: T }) {
+  const steps = flow.flowPattern
+    .split(/\s*(?:->|→)\s*/)
+    .filter((s) => s.length > 0)
+  return (
+    <li className="path-flow-row">
+      <div className="path-flow-row__chips">
+        {steps.map((step, idx) => (
+          <span key={idx} className="path-flow-row__group">
+            <span className="path-flow-row__chip">{step}</span>
+            {idx < steps.length - 1 && (
+              <span className="path-flow-row__arrow" aria-hidden="true">
+                →
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+      <span className="path-flow-row__count">
+        {t('pathFlowsOccurrences', { count: flow.occurrenceCount })}
+      </span>
+    </li>
+  )
+}
+
+function HabitsSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
+  const patterns = useAsyncData(
+    () => api.getHabitPatterns(dateRange, null),
+    [dateRange],
+  )
+  const interrupted = useAsyncData(() => api.getInterruptedHabits(null), [])
+
+  const empty =
+    !patterns.loading &&
+    !interrupted.loading &&
+    (!patterns.data || patterns.data.length === 0) &&
+    (!interrupted.data || interrupted.data.length === 0)
+
+  return (
+    <section className="intelligence-section habits-section">
+      <h2 className="intelligence-section__title">{t('habitsTitle')}</h2>
+      {patterns.loading || interrupted.loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : empty ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('habitsEmpty')}</p>
+        </div>
+      ) : (
+        <div className="habits-body">
+          {interrupted.data && interrupted.data.length > 0 && (
+            <div className="habits-interrupted">
+              <h3 className="habits-body__subtitle">
+                {t('habitsInterruptedTitle')}
+              </h3>
+              <ul className="habits-interrupted__list">
+                {interrupted.data.slice(0, 5).map((h, idx) => (
+                  <InterruptedHabitRow key={idx} habit={h} t={t} />
+                ))}
+              </ul>
+            </div>
+          )}
+          {patterns.data && patterns.data.length > 0 && (
+            <div className="habits-patterns">
+              <h3 className="habits-body__subtitle">
+                {t('habitsPatternsTitle')}
+              </h3>
+              <ul className="habits-patterns__list">
+                {patterns.data.slice(0, 12).map((h, idx) => (
+                  <HabitPatternRow key={idx} habit={h} t={t} />
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function HabitPatternRow({ habit, t }: { habit: HabitPattern; t: T }) {
+  return (
+    <li className="habit-row">
+      <span className="habit-row__domain">
+        {habit.displayName ?? habit.registrableDomain}
+      </span>
+      <span className={`habit-row__type habit-row__type--${habit.habitType}`}>
+        {t(`habitType_${habit.habitType}`)}
+      </span>
+      <span className="habit-row__cadence">
+        {t('habitCadence', {
+          interval: habit.meanIntervalDays.toFixed(1),
+        })}
+      </span>
+      <span className="habit-row__visits">
+        {t('habitVisits', { count: habit.visitCount })}
+      </span>
+    </li>
+  )
+}
+
+function InterruptedHabitRow({ habit, t }: { habit: InterruptedHabit; t: T }) {
+  return (
+    <li className="habit-row habit-row--interrupted">
+      <span className="habit-row__domain">
+        {habit.displayName ?? habit.registrableDomain}
+      </span>
+      <span className="habit-row__type habit-row__type--interrupted">
+        {t('habitInterruptedBadge')}
+      </span>
+      <span className="habit-row__cadence">
+        {t('habitInterruptedDetail', {
+          days: habit.daysSinceLastVisit,
+          expected: habit.meanIntervalDays.toFixed(1),
+        })}
+      </span>
+    </li>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Compare Sets / Multi-Browser Diff / Observed Interactions
+// ---------------------------------------------------------------------------
+
+function CompareSetsSection({ dateRange, t }: { dateRange: DateRange; t: T }) {
+  const { data, loading } = useAsyncData(
+    () => api.getCompareSets(dateRange, null),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section compare-sets-section">
+      <h2 className="intelligence-section__title">{t('compareSetsTitle')}</h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : !data || data.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('compareSetsEmpty')}</p>
+        </div>
+      ) : (
+        <ul className="compare-sets">
+          {data.slice(0, 6).map((set) => (
+            <CompareSetCard key={set.compareSetId} set={set} t={t} />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function CompareSetCard({ set, t }: { set: CompareSet; t: T }) {
+  return (
+    <li className="compare-set">
+      <div className="compare-set__header">
+        <span className="compare-set__query">{set.searchQuery}</span>
+        <span className="compare-set__count">
+          {t('compareSetsPages', { count: set.pages.length })}
+        </span>
+      </div>
+      <ul className="compare-set__pages">
+        {set.pages.slice(0, 4).map((page: CompareSetPage, idx) => (
+          <li
+            key={idx}
+            className={`compare-set__page${page.isLanding ? ' compare-set__page--landing' : ''}`}
+          >
+            <span className="compare-set__page-domain">
+              {page.registrableDomain}
+            </span>
+            <span className="compare-set__page-title" title={page.title ?? ''}>
+              {page.title ?? page.url}
+            </span>
+            {page.isLanding && (
+              <span className="compare-set__landing-badge">
+                {t('compareSetsLanding')}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </li>
+  )
+}
+
+function MultiBrowserDiffSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getMultiBrowserDiff(dateRange),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section multi-browser-section">
+      <h2 className="intelligence-section__title">{t('multiBrowserTitle')}</h2>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--chart" />
+      ) : !data || data.profiles.length < 2 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('multiBrowserEmpty')}</p>
+        </div>
+      ) : (
+        <MultiBrowserDiffBody data={data} t={t} />
+      )}
+    </section>
+  )
+}
+
+function MultiBrowserDiffBody({ data, t }: { data: BrowserDiff; t: T }) {
+  const profileById = new Map<string, BrowserProfileSummary>(
+    data.profiles.map((p) => [p.profileId, p]),
+  )
+  const exclusiveByProfile = new Map<string, typeof data.exclusiveDomains>()
+  for (const entry of data.exclusiveDomains) {
+    const list = exclusiveByProfile.get(entry.profileId) ?? []
+    list.push(entry)
+    exclusiveByProfile.set(entry.profileId, list)
+  }
+
+  return (
+    <div className="multi-browser">
+      <div className="multi-browser__profiles">
+        {data.profiles.map((profile) => (
+          <div key={profile.profileId} className="multi-browser__profile">
+            <span className="multi-browser__profile-name">
+              {profile.profileName}
+            </span>
+            <span className="multi-browser__profile-family">
+              {profile.browserFamily}
+            </span>
+            <span className="multi-browser__profile-stats">
+              {t('multiBrowserVisits', { count: profile.visitCount })} ·{' '}
+              {t('multiBrowserDomains', { count: profile.domainCount })}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="multi-browser__shared">
+        <h3 className="multi-browser__subtitle">
+          {t('multiBrowserShared', { count: data.sharedDomains.length })}
+        </h3>
+        <div className="multi-browser__shared-chips">
+          {data.sharedDomains.slice(0, 10).map((domain) => (
+            <span key={domain} className="multi-browser__chip">
+              {domain}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="multi-browser__exclusive">
+        <h3 className="multi-browser__subtitle">
+          {t('multiBrowserExclusive')}
+        </h3>
+        <div className="multi-browser__exclusive-grid">
+          {Array.from(exclusiveByProfile.entries()).map(
+            ([profileId, entries]) => {
+              const profile = profileById.get(profileId)
+              return (
+                <div
+                  key={profileId}
+                  className="multi-browser__exclusive-column"
+                >
+                  <span className="multi-browser__exclusive-header">
+                    {profile?.profileName ?? profileId}
+                  </span>
+                  <ul className="multi-browser__exclusive-list">
+                    {entries.slice(0, 5).map((entry) => (
+                      <li
+                        key={entry.registrableDomain}
+                        className="multi-browser__exclusive-row"
+                      >
+                        <span>{entry.registrableDomain}</span>
+                        <span className="multi-browser__exclusive-count">
+                          {entry.visitCount}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            },
+          )}
+        </div>
+      </div>
+
+      <div className="multi-browser__categories">
+        <h3 className="multi-browser__subtitle">
+          {t('multiBrowserCategories')}
+        </h3>
+        <MultiBrowserCategoryBars
+          distributions={data.categoryDistributions}
+          t={t}
+        />
+      </div>
+    </div>
+  )
+}
+
+function MultiBrowserCategoryBars({
+  distributions,
+  t,
+}: {
+  distributions: BrowserDiff['categoryDistributions']
+  t: T
+}) {
+  const allCategories = new Set<string>()
+  for (const d of distributions) {
+    for (const c of d.categories) allCategories.add(c.domainCategory)
+  }
+  const categoryList = Array.from(allCategories)
+
+  return (
+    <div className="multi-browser__category-bars">
+      {categoryList.map((category) => (
+        <div key={category} className="multi-browser__category-row">
+          <span className="multi-browser__category-label">
+            {t(`category_${category}`) || category}
+          </span>
+          <div className="multi-browser__category-profiles">
+            {distributions.map((dist) => {
+              const entry: CategoryMixEntry | undefined = dist.categories.find(
+                (c) => c.domainCategory === category,
+              )
+              const share = entry ? Math.round(entry.share * 100) : 0
+              return (
+                <div
+                  key={dist.profileId}
+                  className="multi-browser__category-bar"
+                  title={`${dist.profileName}: ${share}%`}
+                >
+                  <span
+                    className="multi-browser__category-bar-fill"
+                    style={{ width: `${share}%` }}
+                  />
+                  <span className="multi-browser__category-bar-meta">
+                    {dist.profileName} {share}%
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ObservedInteractionsSection({
+  dateRange,
+  t,
+}: {
+  dateRange: DateRange
+  t: T
+}) {
+  const { data, loading } = useAsyncData(
+    () => api.getObservedInteractions(dateRange, null),
+    [dateRange],
+  )
+
+  return (
+    <section className="intelligence-section observed-section">
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('observedTitle')}</h2>
+        <span className="observed-section__badge">
+          {t('observedCapabilityBadge')}
+        </span>
+      </div>
+      <p className="observed-section__disclaimer">{t('observedDisclaimer')}</p>
+      {loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--list" />
+      ) : !data || data.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('observedEmpty')}</p>
+        </div>
+      ) : (
+        <ul className="observed-list">
+          {data.slice(0, 10).map((item) => (
+            <ObservedInteractionRow key={item.visitId} item={item} t={t} />
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function ObservedInteractionRow({
+  item,
+  t,
+}: {
+  item: ObservedInteraction
+  t: T
+}) {
+  const foreground =
+    item.foregroundDurationMs != null
+      ? formatDuration(item.foregroundDurationMs)
+      : null
+  const scroll =
+    item.scrollingTimeMs != null ? formatDuration(item.scrollingTimeMs) : null
+
+  return (
+    <li className="observed-row">
+      <div className="observed-row__main">
+        <span className="observed-row__title" title={item.url}>
+          {item.title ?? item.url}
+        </span>
+        <span className="observed-row__family">{item.browserFamily}</span>
+      </div>
+      <div className="observed-row__metrics">
+        {foreground && (
+          <span className="observed-row__metric">
+            {t('observedForeground', { duration: foreground })}
+          </span>
+        )}
+        {scroll && (
+          <span className="observed-row__metric">
+            {t('observedScroll', { duration: scroll })}
+          </span>
+        )}
+        {item.keyPresses != null && item.keyPresses > 0 && (
+          <span className="observed-row__metric">
+            {t('observedKeyPresses', { count: item.keyPresses })}
+          </span>
+        )}
+        {item.loadSuccessful === false && (
+          <span className="observed-row__metric observed-row__metric--warn">
+            {t('observedLoadFailed')}
+          </span>
+        )}
+      </div>
+    </li>
+  )
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const seconds = ms / 1000
+  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  const minutes = seconds / 60
+  if (minutes < 60) return `${minutes.toFixed(1)}m`
+  const hours = minutes / 60
+  return `${hours.toFixed(1)}h`
 }
 
 // ---------------------------------------------------------------------------
