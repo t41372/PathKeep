@@ -2091,4 +2091,77 @@ mod tests {
             .expect("deterministic job state after second load");
         assert_eq!(state, "running");
     }
+
+    #[test]
+    fn next_queued_intelligence_job_recovers_expired_leases() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+        let expired_at = (Utc::now() - Duration::minutes(10)).to_rfc3339();
+        let now = now_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, heartbeat_at, lease_owner,
+                  lease_expires_at, updated_at, stop_requested)
+                 VALUES
+                    (?1, NULL, NULL, 'running', ?2, 1, 'expired-queued', ?3, '{}', ?4, ?4, ?4, ?4, 'worker', ?5, ?4, 0),
+                    (?6, NULL, NULL, 'running', ?7, 1, 'expired-cancelled', ?8, '{}', ?4, ?4, ?4, ?4, 'worker', ?5, ?4, 1)",
+                params![
+                    STRUCTURAL_REBUILD_JOB_TYPE,
+                    STRUCTURAL_REBUILD_PRIORITY,
+                    serde_json::to_string(&DeterministicRebuildJobPayload {
+                        job_type: STRUCTURAL_REBUILD_JOB_TYPE.to_string(),
+                        request: CoreIntelligenceRebuildRequest::default(),
+                        reason: "expired lease".to_string(),
+                    })
+                    .expect("payload"),
+                    now,
+                    expired_at,
+                    DAILY_ROLLUP_JOB_TYPE,
+                    DAILY_ROLLUP_PRIORITY,
+                    serde_json::to_string(&DeterministicRebuildJobPayload {
+                        job_type: DAILY_ROLLUP_JOB_TYPE.to_string(),
+                        request: CoreIntelligenceRebuildRequest::default(),
+                        reason: "expired cancelled lease".to_string(),
+                    })
+                    .expect("payload"),
+                ],
+            )
+            .expect("insert expired jobs");
+
+        let next_job = next_queued_intelligence_job(&connection)
+            .expect("next queued job after recovery")
+            .expect("recovered queued job");
+        assert_eq!(next_job.job_type, STRUCTURAL_REBUILD_JOB_TYPE);
+
+        let states = connection
+            .prepare(
+                "SELECT dedupe_key, state, last_error
+                 FROM intelligence_jobs
+                 WHERE dedupe_key IN ('expired-queued', 'expired-cancelled')
+                 ORDER BY dedupe_key ASC",
+            )
+            .expect("prepare recovered states")
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .expect("query recovered states")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect recovered states");
+        assert_eq!(states[0].0, "expired-cancelled");
+        assert_eq!(states[0].1, "cancelled");
+        assert_eq!(states[1].0, "expired-queued");
+        assert_eq!(states[1].1, "queued");
+        assert!(
+            states[1]
+                .2
+                .as_deref()
+                .is_some_and(|value| value.contains("expired intelligence lease"))
+        );
+    }
 }

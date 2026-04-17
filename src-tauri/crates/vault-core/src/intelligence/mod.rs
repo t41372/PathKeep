@@ -525,6 +525,52 @@ struct StageRunResult {
     notes: Vec<String>,
 }
 
+const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 2_048;
+
+#[derive(Debug, Clone, Copy)]
+struct DerivedVisitBatchCursor {
+    visit_time_ms: i64,
+    visit_id: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SearchEventBatchCursor {
+    visit_id: i64,
+}
+
+#[derive(Debug, Default)]
+struct QueryFamilyAccumulator {
+    families: Vec<QueryFamilyRecord>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RefindAccumulatorEntry {
+    profile_id: String,
+    canonical_url: String,
+    url: String,
+    title: Option<String>,
+    registrable_domain: String,
+    distinct_days: HashSet<String>,
+    trail_ids: HashSet<String>,
+    search_arrival_count: i64,
+    typed_revisit_count: i64,
+    first_seen_ms: i64,
+    last_seen_ms: i64,
+    visit_ids: Vec<i64>,
+}
+
+#[derive(Debug, Default)]
+struct StructuralAggregateAccumulator {
+    profile_id: Option<String>,
+    refind_pages: HashMap<String, RefindAccumulatorEntry>,
+    flow_counts: HashMap<(String, String, i64), (i64, i64)>,
+    current_session_id: Option<String>,
+    current_profile_id: Option<String>,
+    current_sequence: Vec<(String, i64)>,
+    habit_days: HashMap<String, BTreeSet<NaiveDate>>,
+    last_visit_ms: HashMap<String, i64>,
+}
+
 fn apply_core_intelligence_baseline_migration(connection: &Connection) -> Result<()> {
     ensure_visit_content_enrichment_schema(connection)?;
     connection.execute_batch(CORE_INTELLIGENCE_SCHEMA_SQL)?;
@@ -1576,17 +1622,14 @@ fn execute_structural_stage(
         computed_at,
     )?;
 
-    let all_events = load_profile_search_events(connection, profile_id)?;
-    let query_families = build_query_families(&all_events);
+    let query_families = build_query_families_from_batches(connection, profile_id)?;
     replace_query_families(connection, profile_id, &query_families, computed_at)?;
 
-    let all_profile_visits = load_profile_derived_visits(connection, profile_id, None, None)?;
-    let refind_pages = build_refind_pages(&all_profile_visits);
+    let (refind_pages, path_flows, habits) =
+        build_structural_profile_aggregates_from_batches(connection, profile_id)?;
     let all_trails = load_profile_trails(connection, profile_id)?;
     let source_effectiveness = build_source_effectiveness(&all_trails, &refind_pages);
     let reopened = build_reopened_investigations(&query_families, &refind_pages);
-    let path_flows = build_path_flows(&all_profile_visits);
-    let habits = build_habit_patterns(&all_profile_visits);
     replace_structural_profile_aggregates(
         connection,
         profile_id,
@@ -1616,7 +1659,7 @@ fn execute_structural_stage(
 
     Ok(StageRunResult {
         processed_visits: if execution_mode == StageExecutionMode::FallbackFull {
-            all_profile_visits.len()
+            watermark.visible_visit_count.max(0) as usize
         } else {
             rebuild_visits.len()
         },
@@ -1751,6 +1794,94 @@ fn load_profile_derived_visits(
         .map_err(Into::into)
 }
 
+fn load_profile_derived_visit_batch(
+    connection: &Connection,
+    profile_id: &str,
+    after: Option<DerivedVisitBatchCursor>,
+    limit: usize,
+) -> Result<Vec<VisitRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visits.id,
+                visit_derived_facts.profile_id,
+                visits.source_profile_id,
+                CAST(visits.source_visit_id AS INTEGER),
+                urls.id,
+                urls.url,
+                urls.title,
+                visits.visit_time_ms,
+                visits.from_visit,
+                visits.transition_type,
+                visits.external_referrer_url,
+                visit_derived_facts.canonical_url,
+                visit_derived_facts.registrable_domain,
+                visit_derived_facts.domain_category,
+                visit_derived_facts.page_category,
+                visit_derived_facts.search_engine,
+                visit_derived_facts.search_query,
+                visit_derived_facts.is_new_domain,
+                visit_derived_facts.is_search_event,
+                visit_derived_facts.evidence_tier,
+                visit_derived_facts.taxonomy_source,
+                visit_derived_facts.taxonomy_pack,
+                visit_derived_facts.taxonomy_version,
+                visit_derived_facts.session_id,
+                visit_derived_facts.trail_id
+         FROM visit_derived_facts
+         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND visits.reverted_at IS NULL
+           AND (
+             ?2 IS NULL
+             OR visits.visit_time_ms > ?2
+             OR (visits.visit_time_ms = ?2 AND visit_derived_facts.visit_id > ?3)
+           )
+         ORDER BY visits.visit_time_ms ASC, visits.id ASC
+         LIMIT ?4",
+    )?;
+    statement
+        .query_map(
+            params![
+                profile_id,
+                after.map(|cursor| cursor.visit_time_ms),
+                after.map(|cursor| cursor.visit_id),
+                limit.max(1) as i64,
+            ],
+            |row| {
+                Ok(VisitRecord {
+                    visit_id: row.get(0)?,
+                    profile_id: row.get(1)?,
+                    source_profile_id: row.get(2)?,
+                    source_visit_id: row.get(3)?,
+                    source_url_id: row.get(4)?,
+                    url: row.get(5)?,
+                    title: row.get(6)?,
+                    visit_time_ms: row.get(7)?,
+                    from_visit: row.get(8)?,
+                    transition_type: row.get(9)?,
+                    external_referrer_url: row.get(10)?,
+                    canonical_url: row.get(11)?,
+                    registrable_domain: row.get(12)?,
+                    domain_category: row.get(13)?,
+                    page_category: row.get(14)?,
+                    search_engine: row.get(15)?,
+                    search_query: row.get(16)?,
+                    is_new_domain: row.get::<_, i64>(17)? != 0,
+                    is_search_event: row.get::<_, i64>(18)? != 0,
+                    evidence_tier: row.get(19)?,
+                    taxonomy_source: row.get(20)?,
+                    taxonomy_pack: row.get(21)?,
+                    taxonomy_version: row.get(22)?,
+                    display_name: display_name_for_domain(&row.get::<_, String>(12)?),
+                    session_id: row.get(23)?,
+                    trail_id: row.get(24)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 fn load_profile_derived_visits_for_date_keys(
     connection: &Connection,
     profile_id: &str,
@@ -1774,34 +1905,76 @@ fn load_profile_derived_visits_for_date_keys(
         .collect())
 }
 
+#[cfg(test)]
 fn load_profile_search_events(
     connection: &Connection,
     profile_id: &str,
 ) -> Result<Vec<SearchEventRecord>> {
     let mut statement = connection.prepare(
-        "SELECT visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at
+        "SELECT search_events.visit_id,
+                search_events.profile_id,
+                search_events.search_engine,
+                search_events.raw_query,
+                search_events.normalized_query,
+                search_events.trail_id,
+                archive.visits.visit_time_ms
          FROM search_events
+         JOIN archive.visits ON archive.visits.id = search_events.visit_id
          WHERE profile_id = ?1
          ORDER BY visit_id ASC",
     )?;
     statement
         .query_map([profile_id], |row| {
-            let visit_id = row.get::<_, i64>(0)?;
-            let visit_time_ms = connection.query_row(
-                "SELECT visit_time_ms FROM archive.visits WHERE id = ?1",
-                [visit_id],
-                |visit_row| visit_row.get::<_, i64>(0),
-            )?;
             Ok(SearchEventRecord {
-                visit_id,
+                visit_id: row.get(0)?,
                 profile_id: row.get(1)?,
                 search_engine: row.get(2)?,
                 raw_query: row.get(3)?,
                 normalized_query: row.get(4)?,
                 trail_id: row.get(5)?,
-                visit_time_ms,
+                visit_time_ms: row.get(6)?,
             })
         })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_profile_search_event_batch(
+    connection: &Connection,
+    profile_id: &str,
+    after: Option<SearchEventBatchCursor>,
+    limit: usize,
+) -> Result<Vec<SearchEventRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT search_events.visit_id,
+                search_events.profile_id,
+                search_events.search_engine,
+                search_events.raw_query,
+                search_events.normalized_query,
+                search_events.trail_id,
+                archive.visits.visit_time_ms
+         FROM search_events
+         JOIN archive.visits ON archive.visits.id = search_events.visit_id
+         WHERE search_events.profile_id = ?1
+           AND (?2 IS NULL OR search_events.visit_id > ?2)
+         ORDER BY search_events.visit_id ASC
+         LIMIT ?3",
+    )?;
+    statement
+        .query_map(
+            params![profile_id, after.map(|cursor| cursor.visit_id), limit.max(1) as i64],
+            |row| {
+                Ok(SearchEventRecord {
+                    visit_id: row.get(0)?,
+                    profile_id: row.get(1)?,
+                    search_engine: row.get(2)?,
+                    raw_query: row.get(3)?,
+                    normalized_query: row.get(4)?,
+                    trail_id: row.get(5)?,
+                    visit_time_ms: row.get(6)?,
+                })
+            },
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -1836,6 +2009,57 @@ fn load_profile_trails(connection: &Connection, profile_id: &str) -> Result<Vec<
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+fn build_query_families_from_batches(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<Vec<QueryFamilyRecord>> {
+    let mut accumulator = QueryFamilyAccumulator::default();
+    let mut cursor = None;
+    loop {
+        let batch = load_profile_search_event_batch(
+            connection,
+            profile_id,
+            cursor,
+            STRUCTURAL_AGGREGATE_BATCH_SIZE,
+        )?;
+        if batch.is_empty() {
+            break;
+        }
+        for event in &batch {
+            accumulator.add_event(event);
+        }
+        cursor = batch.last().map(|event| SearchEventBatchCursor { visit_id: event.visit_id });
+    }
+    Ok(accumulator.finish())
+}
+
+fn build_structural_profile_aggregates_from_batches(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<(Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>)> {
+    let mut accumulator = StructuralAggregateAccumulator::default();
+    let mut cursor = None;
+    loop {
+        let batch = load_profile_derived_visit_batch(
+            connection,
+            profile_id,
+            cursor,
+            STRUCTURAL_AGGREGATE_BATCH_SIZE,
+        )?;
+        if batch.is_empty() {
+            break;
+        }
+        for visit in &batch {
+            accumulator.add_visit(visit);
+        }
+        cursor = batch.last().map(|visit| DerivedVisitBatchCursor {
+            visit_time_ms: visit.visit_time_ms,
+            visit_id: visit.visit_id,
+        });
+    }
+    Ok(accumulator.finish())
 }
 
 fn load_seen_domains(connection: &Connection, profile_id: &str) -> Result<HashSet<String>> {
@@ -2814,6 +3038,51 @@ fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFamilyRecord> 
     families
 }
 
+impl QueryFamilyAccumulator {
+    fn add_event(&mut self, event: &SearchEventRecord) {
+        let tokens = query_token_set(&event.normalized_query);
+        if tokens.is_empty() {
+            return;
+        }
+        for family in &mut self.families {
+            if family.profile_id != event.profile_id || family.search_engine != event.search_engine
+            {
+                continue;
+            }
+            let family_tokens = query_token_set(&normalize_query(&family.anchor_query));
+            if jaccard(&tokens, &family_tokens) >= 0.5
+                || tokens.is_subset(&family_tokens)
+                || family_tokens.is_subset(&tokens)
+            {
+                family.member_count += 1;
+                family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
+                if !family
+                    .queries
+                    .iter()
+                    .any(|query| normalize_query(query) == event.normalized_query)
+                {
+                    family.queries.push(event.raw_query.clone());
+                }
+                return;
+            }
+        }
+        self.families.push(QueryFamilyRecord {
+            family_id: format!("family:{}:{:04}", event.profile_id, self.families.len() + 1),
+            profile_id: event.profile_id.clone(),
+            anchor_query: event.raw_query.clone(),
+            member_count: 1,
+            search_engine: event.search_engine.clone(),
+            first_seen_ms: event.visit_time_ms,
+            last_seen_ms: event.visit_time_ms,
+            queries: vec![event.raw_query.clone()],
+        });
+    }
+
+    fn finish(self) -> Vec<QueryFamilyRecord> {
+        self.families
+    }
+}
+
 fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord> {
     let mut grouped = HashMap::<String, Vec<&VisitRecord>>::new();
     for visit in visits.iter().filter(|visit| !visit.is_search_event) {
@@ -3118,6 +3387,237 @@ fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRecord> {
             })
         })
         .collect()
+}
+
+impl StructuralAggregateAccumulator {
+    fn add_visit(&mut self, visit: &VisitRecord) {
+        self.profile_id.get_or_insert_with(|| visit.profile_id.clone());
+        self.record_refind_page(visit);
+        self.record_path_flow(visit);
+        self.record_habit_day(visit);
+    }
+
+    fn finish(mut self) -> (Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>) {
+        if let (Some(profile_id), false) =
+            (self.current_profile_id.as_deref(), self.current_sequence.is_empty())
+        {
+            flush_path_flow_sequence(&mut self.flow_counts, profile_id, &self.current_sequence);
+        }
+        let StructuralAggregateAccumulator {
+            profile_id,
+            refind_pages,
+            flow_counts,
+            current_session_id: _,
+            current_profile_id: _,
+            current_sequence: _,
+            habit_days,
+            last_visit_ms,
+        } = self;
+        (
+            finish_refind_pages(refind_pages),
+            finish_path_flows(flow_counts),
+            finish_habits(profile_id, habit_days, last_visit_ms),
+        )
+    }
+
+    fn record_refind_page(&mut self, visit: &VisitRecord) {
+        if visit.is_search_event {
+            return;
+        }
+        let entry = self.refind_pages.entry(visit.canonical_url.clone()).or_insert_with(|| {
+            RefindAccumulatorEntry {
+                profile_id: visit.profile_id.clone(),
+                canonical_url: visit.canonical_url.clone(),
+                url: visit.url.clone(),
+                title: visit.title.clone(),
+                registrable_domain: visit.registrable_domain.clone(),
+                first_seen_ms: visit.visit_time_ms,
+                last_seen_ms: visit.visit_time_ms,
+                ..RefindAccumulatorEntry::default()
+            }
+        });
+        entry.distinct_days.insert(local_date_key(visit.visit_time_ms));
+        if let Some(trail_id) = &visit.trail_id {
+            entry.trail_ids.insert(trail_id.clone());
+            entry.search_arrival_count += 1;
+        }
+        if visit.from_visit.is_none() {
+            entry.typed_revisit_count += 1;
+        }
+        entry.first_seen_ms = entry.first_seen_ms.min(visit.visit_time_ms);
+        entry.last_seen_ms = entry.last_seen_ms.max(visit.visit_time_ms);
+        entry.visit_ids.push(visit.visit_id);
+    }
+
+    fn record_path_flow(&mut self, visit: &VisitRecord) {
+        let session_id = visit
+            .session_id
+            .clone()
+            .unwrap_or_else(|| format!("sessionless:{}:{}", visit.profile_id, visit.visit_id));
+        if self.current_session_id.as_deref() != Some(session_id.as_str()) {
+            if let (Some(profile_id), false) =
+                (self.current_profile_id.as_deref(), self.current_sequence.is_empty())
+            {
+                flush_path_flow_sequence(&mut self.flow_counts, profile_id, &self.current_sequence);
+            }
+            self.current_session_id = Some(session_id);
+            self.current_profile_id = Some(visit.profile_id.clone());
+            self.current_sequence.clear();
+        }
+        if self
+            .current_sequence
+            .last()
+            .is_none_or(|(last_domain, _)| *last_domain != visit.registrable_domain)
+        {
+            self.current_sequence.push((visit.registrable_domain.clone(), visit.visit_time_ms));
+        } else if let Some((_, last_seen_ms)) = self.current_sequence.last_mut() {
+            *last_seen_ms = visit.visit_time_ms;
+        }
+    }
+
+    fn record_habit_day(&mut self, visit: &VisitRecord) {
+        self.habit_days
+            .entry(visit.registrable_domain.clone())
+            .or_default()
+            .insert(local_datetime_from_millis(visit.visit_time_ms).date_naive());
+        self.last_visit_ms
+            .entry(visit.registrable_domain.clone())
+            .and_modify(|value| *value = (*value).max(visit.visit_time_ms))
+            .or_insert(visit.visit_time_ms);
+    }
+}
+
+fn finish_refind_pages(
+    refind_pages: HashMap<String, RefindAccumulatorEntry>,
+) -> Vec<RefindPageRecord> {
+    refind_pages
+            .into_values()
+            .filter_map(|entry| {
+                let cross_day_count = entry.distinct_days.len() as i64;
+                let trail_count = entry.trail_ids.len() as i64;
+                let score = (cross_day_count as f32 * 2.0)
+                    + (trail_count as f32 * 1.5)
+                    + entry.search_arrival_count as f32
+                    + (entry.typed_revisit_count as f32 * 1.2);
+                if cross_day_count < 2 && trail_count < 2 && entry.typed_revisit_count < 2 {
+                    return None;
+                }
+                let evidence_json = json!({
+                    "factors": [
+                        { "signal": "cross_day_count", "rawValue": cross_day_count, "weight": 2.0, "contribution": cross_day_count as f32 * 2.0 },
+                        { "signal": "trail_count", "rawValue": trail_count, "weight": 1.5, "contribution": trail_count as f32 * 1.5 },
+                        { "signal": "search_arrival_count", "rawValue": entry.search_arrival_count, "weight": 1.0, "contribution": entry.search_arrival_count as f32 },
+                        { "signal": "typed_revisit_count", "rawValue": entry.typed_revisit_count, "weight": 1.2, "contribution": entry.typed_revisit_count as f32 * 1.2 }
+                    ],
+                    "visitIds": entry.visit_ids
+                })
+                .to_string();
+                Some(RefindPageRecord {
+                    profile_id: entry.profile_id,
+                    canonical_url: entry.canonical_url,
+                    url: entry.url,
+                    title: entry.title,
+                    registrable_domain: entry.registrable_domain,
+                    cross_day_count,
+                    trail_count,
+                    search_arrival_count: entry.search_arrival_count,
+                    typed_revisit_count: entry.typed_revisit_count,
+                    refind_score: score,
+                    evidence_json,
+                    first_seen_ms: entry.first_seen_ms,
+                    last_seen_ms: entry.last_seen_ms,
+                })
+            })
+            .collect()
+}
+
+fn finish_path_flows(
+    flow_counts: HashMap<(String, String, i64), (i64, i64)>,
+) -> Vec<PathFlowRecord> {
+    flow_counts
+        .into_iter()
+        .map(|((profile_id, flow_pattern, step_count), (occurrence_count, last_seen_ms))| {
+            PathFlowRecord { profile_id, flow_pattern, step_count, occurrence_count, last_seen_ms }
+        })
+        .collect()
+}
+
+fn finish_habits(
+    profile_id: Option<String>,
+    habit_days: HashMap<String, BTreeSet<NaiveDate>>,
+    last_visit_ms: HashMap<String, i64>,
+) -> Vec<HabitPatternRecord> {
+    let Some(profile_id) = profile_id else {
+        return Vec::new();
+    };
+    habit_days
+        .into_iter()
+        .filter_map(|(domain, days)| {
+            if days.len() < 5 {
+                return None;
+            }
+            let parsed_days = days.into_iter().collect::<Vec<_>>();
+            if (*parsed_days.last()? - *parsed_days.first()?).num_days() < 14 {
+                return None;
+            }
+            let intervals = parsed_days
+                .windows(2)
+                .map(|window| (window[1] - window[0]).num_days() as f32)
+                .collect::<Vec<_>>();
+            if intervals.is_empty() {
+                return None;
+            }
+            let mean = intervals.iter().sum::<f32>() / intervals.len() as f32;
+            let variance = intervals.iter().map(|value| (*value - mean).powi(2)).sum::<f32>()
+                / intervals.len() as f32;
+            let std_dev = variance.sqrt();
+            let cv = if mean == 0.0 { 0.0 } else { std_dev / mean };
+            let habit_type = if mean < 2.0 && cv < 0.5 {
+                Some("daily_habit")
+            } else if (5.0..=10.0).contains(&mean) && cv < 0.6 {
+                Some("weekly_habit")
+            } else if mean > 10.0 && cv < 0.8 {
+                Some("periodic_reference")
+            } else {
+                None
+            }?;
+            let last_visited_ms = *last_visit_ms.get(&domain).unwrap_or(&0);
+            let days_since_last =
+                ((Utc::now().timestamp_millis() - last_visited_ms) as f32 / 86_400_000.0).max(0.0);
+            Some(HabitPatternRecord {
+                profile_id: profile_id.clone(),
+                registrable_domain: domain,
+                habit_type: habit_type.to_string(),
+                mean_interval_days: mean,
+                cv,
+                visit_count: parsed_days.len() as i64,
+                last_visited_ms,
+                is_interrupted: days_since_last > mean * 2.0,
+            })
+        })
+        .collect()
+}
+
+fn flush_path_flow_sequence(
+    flows: &mut HashMap<(String, String, i64), (i64, i64)>,
+    profile_id: &str,
+    sequence: &[(String, i64)],
+) {
+    for step_count in [2_usize, 3_usize, 4_usize] {
+        if sequence.len() < step_count {
+            continue;
+        }
+        for window in sequence.windows(step_count) {
+            let flow_pattern =
+                window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
+            let last_seen_ms =
+                window.iter().map(|(_, visit_time_ms)| *visit_time_ms).max().unwrap_or(0);
+            let key = (profile_id.to_string(), flow_pattern, step_count as i64);
+            let entry = flows.entry(key).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 = entry.1.max(last_seen_ms);
+        }
+    }
 }
 
 fn build_daily_rollups(visits: &[VisitRecord]) -> DailyRollupBundle {
@@ -6008,9 +6508,12 @@ fn path_from_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_kpi, collapse_date_key, ensure_core_intelligence_schema, explain_entity,
-        get_intelligence_embed_cards, get_intelligence_public_snapshot, get_path_flows,
-        local_date_key, normalize_query, run_core_intelligence,
+        QueryFamilyRecord, build_habit_patterns, build_kpi, build_path_flows, build_query_families,
+        build_query_families_from_batches, build_refind_pages,
+        build_structural_profile_aggregates_from_batches, collapse_date_key,
+        ensure_core_intelligence_schema, explain_entity, get_intelligence_embed_cards,
+        get_intelligence_public_snapshot, get_path_flows, load_profile_derived_visits,
+        load_profile_search_events, local_date_key, normalize_query, run_core_intelligence,
         run_core_intelligence_job_type_with_progress,
     };
     use crate::{
@@ -6400,6 +6903,181 @@ mod tests {
         assert_eq!(assignments[0].2.as_deref(), Some("trail:chrome:Default:1"));
         assert_eq!(assignments[1].2.as_deref(), Some("trail:chrome:Default:1"));
         assert_eq!(assignments[2].2.as_deref(), Some("trail:chrome:Default:1"));
+    }
+
+    #[test]
+    fn batched_query_family_builder_matches_in_memory_builder() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        for visit_id in 4..=24 {
+            let timestamp = 1712145600000 + ((visit_id - 4) * 60_000);
+            let query = if visit_id % 2 == 0 {
+                format!("sqlite wal checkpoint {}", visit_id % 3)
+            } else {
+                format!("tauri ipc bridge {}", visit_id % 4)
+            };
+            append_fixture_visit(
+                &archive,
+                visit_id,
+                &format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
+                &format!("Search {query}"),
+                timestamp,
+                None,
+                Some(&query),
+            );
+        }
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let all_events =
+            load_profile_search_events(&intelligence, "chrome:Default").expect("search events");
+        let in_memory = build_query_families(&all_events);
+        let batched = build_query_families_from_batches(&intelligence, "chrome:Default")
+            .expect("batched query families");
+
+        let to_summary = |families: Vec<QueryFamilyRecord>| {
+            let mut summary = families
+                .into_iter()
+                .map(|family| {
+                    (
+                        normalize_query(&family.anchor_query),
+                        family.member_count,
+                        family.search_engine,
+                        family.queries.len(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            summary.sort();
+            summary
+        };
+        assert_eq!(to_summary(batched), to_summary(in_memory));
+    }
+
+    #[test]
+    fn batched_structural_aggregates_match_in_memory_builders() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://docs.example.com/sqlite/wal-checkpoint",
+            "SQLite WAL Checkpoint",
+            1712102400000,
+            None,
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            5,
+            "https://alpha-docs.dev/guide",
+            "Guide",
+            1712145600000,
+            None,
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            6,
+            "https://beta-community.dev/thread",
+            "Thread",
+            1712145660000,
+            Some(5),
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            7,
+            "https://gamma-news.dev/article",
+            "Article",
+            1712145720000,
+            Some(6),
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            8,
+            "https://delta-shop.dev/item",
+            "Item",
+            1712145780000,
+            Some(7),
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let visits = load_profile_derived_visits(&intelligence, "chrome:Default", None, None)
+            .expect("derived visits");
+        let mut in_memory_refind = build_refind_pages(&visits)
+            .into_iter()
+            .map(|page| (page.canonical_url, page.refind_score, page.cross_day_count))
+            .collect::<Vec<_>>();
+        let mut in_memory_flows = build_path_flows(&visits)
+            .into_iter()
+            .map(|flow| (flow.flow_pattern, flow.step_count, flow.occurrence_count))
+            .collect::<Vec<_>>();
+        let mut in_memory_habits = build_habit_patterns(&visits)
+            .into_iter()
+            .map(|habit| (habit.registrable_domain, habit.habit_type, habit.visit_count))
+            .collect::<Vec<_>>();
+
+        let (batched_refind, batched_flows, batched_habits) =
+            build_structural_profile_aggregates_from_batches(&intelligence, "chrome:Default")
+                .expect("batched aggregates");
+        let mut batched_refind = batched_refind
+            .into_iter()
+            .map(|page| (page.canonical_url, page.refind_score, page.cross_day_count))
+            .collect::<Vec<_>>();
+        let mut batched_flows = batched_flows
+            .into_iter()
+            .map(|flow| (flow.flow_pattern, flow.step_count, flow.occurrence_count))
+            .collect::<Vec<_>>();
+        let mut batched_habits = batched_habits
+            .into_iter()
+            .map(|habit| (habit.registrable_domain, habit.habit_type, habit.visit_count))
+            .collect::<Vec<_>>();
+
+        in_memory_refind.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
+        in_memory_flows.sort();
+        in_memory_habits.sort();
+        batched_refind.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
+        batched_flows.sort();
+        batched_habits.sort();
+
+        assert_eq!(batched_refind, in_memory_refind);
+        assert_eq!(batched_flows, in_memory_flows);
+        assert_eq!(batched_habits, in_memory_habits);
     }
 
     #[test]

@@ -16,6 +16,7 @@ getrandom.workspace = true
 hex.workspace = true
 iana-time-zone = "0.1.64"
 lancedb.workspace = true
+libc.workspace = true
 plist.workspace = true
 publicsuffix = "2.3.0"
 regex.workspace = true

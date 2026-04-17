@@ -1122,7 +1122,7 @@ fn build_refetch_client() -> Result<Client> {
         .redirect(reqwest::redirect::Policy::limited(5))
         .connect_timeout(std::time::Duration::from_secs(3))
         .timeout(std::time::Duration::from_secs(4))
-        .user_agent("PathKeep Insights/0.1")
+        .user_agent("PathKeep Enrichment/0.1")
         .build()
         .context("building content refetch client")
 }

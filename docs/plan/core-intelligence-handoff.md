@@ -41,7 +41,7 @@ What is **not** done:
 - legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
 - external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend only ships data-provider payloads now
 - large-archive / low-RAM / queue-recovery signoff remains open under `PG-RD-AI-011`
-- 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; this is an incremental foundation, not final 10M / low-RAM signoff
+- 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; structural stage profile aggregates now batch-scan search events / derived visits instead of materializing whole-profile aggregate inputs; benchmark artifacts also record corpus stats, peak RSS, and expired-lease recovery evidence. This is still a finish-line follow-up, not final 10M / low-RAM signoff
 
 ---
 
@@ -208,6 +208,7 @@ The backend already delivers:
 - per-profile stage checkpoints plus append-only incremental execution for `visit-derive`, `daily-rollup`, and `structural-rebuild`
 - `path_flows` end-to-end 4-step support
 - replayable incremental benchmark scenarios under `artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/`
+- structural stage aggregate passes that batch-scan `search_events` / `visit_derived_facts` for query-family / refind / habit / path-flow rebuild inputs instead of loading extra whole-profile aggregate Vecs
 
 ### What Is Still Left
 
@@ -218,7 +219,7 @@ There are **three kinds** of remaining backend work.
 The next backend owner is **not** starting from P1/P2 anymore. The current remaining scope is:
 
 - `PG-RD-AI-011` large-archive / low-RAM / queue-recovery signoff
-- chunked / incremental / resumable staged rebuild cleanup beyond the new checkpoint-backed foundation
+- chunked / incremental / resumable staged rebuild cleanup beyond the new checkpoint-backed foundation, especially `visit-derive` / `daily-rollup` full-fallback memory shape and larger-host queue-recovery RSS proof
 - any remaining P4 host/service integrations beyond the new payload-provider commands
 
 #### 2. Finish the cutover cleanup

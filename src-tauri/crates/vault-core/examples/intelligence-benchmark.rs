@@ -5,11 +5,12 @@ use serde_json::json;
 use std::{env, fs, path::PathBuf, time::Instant};
 use tempfile::tempdir;
 use vault_core::{
-    archive::open_archive_connection,
+    archive::{open_archive_connection, open_intelligence_connection},
     config::project_paths_with_root,
     get_digest_summary, get_query_families, get_refind_pages, get_search_trails, get_sessions,
     get_top_search_concepts, get_top_sites,
     intelligence::run_core_intelligence_job_type_with_progress,
+    intelligence_runtime::load_intelligence_runtime,
     models::{
         AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, PagedDateRangeRequest,
         RefindPagesRequest, ScopedDateRangeRequest, SearchTrailQueryRequest,
@@ -31,6 +32,7 @@ struct Options {
 enum Scenario {
     Full,
     AppendDelta,
+    ExpiredLeaseRecovery,
     VisibilityRegressionFallback,
 }
 
@@ -39,6 +41,7 @@ impl Scenario {
         match self {
             Self::Full => "full",
             Self::AppendDelta => "append-delta",
+            Self::ExpiredLeaseRecovery => "expired-lease-recovery",
             Self::VisibilityRegressionFallback => "visibility-regression-fallback",
         }
     }
@@ -61,6 +64,13 @@ fn main() -> Result<()> {
         options.horizon_days,
     )?;
     drop(connection);
+    let corpus = collect_corpus_stats(
+        &paths,
+        &config,
+        options.visits,
+        options.window_days,
+        options.horizon_days,
+    )?;
 
     let rebuild_request =
         CoreIntelligenceRebuildRequest { profile_id: None, full_rebuild: true, limit: None };
@@ -79,10 +89,14 @@ fn main() -> Result<()> {
     let baseline_rebuild =
         run_core_intelligence_with_progress(&paths, &config, None, &rebuild_request, |_| Ok(()))?;
     let baseline_rebuild_elapsed_ms = rebuild_started.elapsed().as_millis();
+    let baseline_memory = memory_snapshot_json();
 
     let follow_up = match options.scenario {
         Scenario::Full => None,
         Scenario::AppendDelta => Some(run_append_delta_scenario(&paths, &config)?),
+        Scenario::ExpiredLeaseRecovery => {
+            Some(run_expired_lease_recovery_scenario(&paths, &config)?)
+        }
         Scenario::VisibilityRegressionFallback => {
             Some(run_visibility_regression_scenario(&paths, &config)?)
         }
@@ -134,20 +148,16 @@ fn main() -> Result<()> {
     )?;
     let query_elapsed_ms = query_started.elapsed().as_millis();
 
-    let archive_bytes = fs::metadata(&paths.archive_database_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or_default();
     let payload = json!({
-        "corpus": {
-            "visits": options.visits,
-            "windowDays": options.window_days,
-            "horizonDays": options.horizon_days,
-            "archiveBytes": archive_bytes,
-        },
+        "corpus": corpus,
         "scenario": options.scenario.as_str(),
         "timings": {
             "baselineRunCoreIntelligenceMs": baseline_rebuild_elapsed_ms,
             "querySurfacesMs": query_elapsed_ms,
+        },
+        "memory": {
+            "baseline": baseline_memory,
+            "afterQueries": memory_snapshot_json(),
         },
         "baselineReport": baseline_rebuild,
         "followUp": follow_up,
@@ -211,9 +221,10 @@ fn parse_args() -> Result<Options> {
                 scenario = match value.as_str() {
                     "full" => Scenario::Full,
                     "append-delta" => Scenario::AppendDelta,
+                    "expired-lease-recovery" => Scenario::ExpiredLeaseRecovery,
                     "visibility-regression-fallback" => Scenario::VisibilityRegressionFallback,
                     _ => anyhow::bail!(
-                        "unknown --scenario {value}; expected full, append-delta, or visibility-regression-fallback"
+                        "unknown --scenario {value}; expected full, append-delta, expired-lease-recovery, or visibility-regression-fallback"
                     ),
                 };
             }
@@ -230,6 +241,85 @@ fn parse_args() -> Result<Options> {
         scenario,
         output,
     })
+}
+
+fn collect_corpus_stats(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    seeded_visits: usize,
+    window_days: u32,
+    horizon_days: u32,
+) -> Result<serde_json::Value> {
+    let connection = open_archive_connection(paths, config, None)?;
+    let archive_bytes = fs::metadata(&paths.archive_database_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or_default();
+    let visit_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))?;
+    let profile_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM source_profiles", [], |row| row.get(0))?;
+    let search_term_count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM search_terms", [], |row| row.get(0))?;
+    let url_stats = connection.query_row(
+        "SELECT
+            COALESCE(SUM(LENGTH(url)), 0),
+            COALESCE(SUM(LENGTH(title)), 0),
+            COALESCE(MAX(LENGTH(url)), 0),
+            COALESCE(MAX(LENGTH(title)), 0)
+         FROM urls",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        },
+    )?;
+    Ok(json!({
+        "seededVisits": seeded_visits,
+        "windowDays": window_days,
+        "horizonDays": horizon_days,
+        "archiveBytes": archive_bytes,
+        "profileCount": profile_count,
+        "visitCount": visit_count,
+        "searchTermCount": search_term_count,
+        "urlCharTotal": url_stats.0,
+        "titleCharTotal": url_stats.1,
+        "maxUrlChars": url_stats.2,
+        "maxTitleChars": url_stats.3,
+    }))
+}
+
+fn memory_snapshot_json() -> serde_json::Value {
+    let peak_rss_bytes = peak_rss_bytes();
+    json!({
+        "peakRssBytes": peak_rss_bytes,
+        "peakRssMiB": peak_rss_bytes.map(|bytes| bytes as f64 / (1024.0 * 1024.0)),
+    })
+}
+
+fn peak_rss_bytes() -> Option<u64> {
+    #[cfg(unix)]
+    unsafe {
+        let mut usage = std::mem::zeroed::<libc::rusage>();
+        if libc::getrusage(libc::RUSAGE_SELF, &mut usage) != 0 {
+            return None;
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        {
+            Some(usage.ru_maxrss as u64)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            Some((usage.ru_maxrss as u64) * 1024)
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 fn run_append_delta_scenario(
@@ -288,11 +378,84 @@ fn run_append_delta_scenario(
             "dailyRollupMs": rollup_elapsed_ms,
             "structuralRebuildMs": structural_elapsed_ms,
         },
+        "memory": memory_snapshot_json(),
         "reports": {
             "visitDerive": visit_derive,
             "dailyRollup": daily_rollup,
             "structuralRebuild": structural,
         }
+    }))
+}
+
+fn run_expired_lease_recovery_scenario(
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+) -> Result<serde_json::Value> {
+    let connection = open_intelligence_connection(paths, config, None)?;
+    let expired_at = (Utc::now() - Duration::minutes(10)).to_rfc3339();
+    connection.execute(
+        "INSERT INTO intelligence_jobs
+         (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+          artifact_json, created_at, scheduled_at, started_at, heartbeat_at, lease_owner,
+          lease_expires_at, updated_at, last_error, cancellation_reason, stop_requested)
+         VALUES
+            ('structural-rebuild', NULL, NULL, 'running', 40, 1, 'expired-lease-queued',
+             ?1, '{}', ?2, ?2, ?2, ?2, 'benchmark-worker', ?3, ?2, NULL, NULL, 0),
+            ('daily-rollup', NULL, NULL, 'running', 30, 1, 'expired-lease-cancelled',
+             ?4, '{}', ?2, ?2, ?2, ?2, 'benchmark-worker', ?3, ?2, NULL, 'cancelled from UI', 1)",
+        params![
+            serde_json::to_string(&json!({
+                "jobType": "structural-rebuild",
+                "request": {
+                    "profileId": "chrome:Default",
+                    "fullRebuild": false,
+                    "limit": null
+                },
+                "reason": "Benchmark expired lease recovery scenario"
+            }))?,
+            Utc::now().to_rfc3339(),
+            expired_at,
+            serde_json::to_string(&json!({
+                "jobType": "daily-rollup",
+                "request": {
+                    "profileId": "chrome:Default",
+                    "fullRebuild": false,
+                    "limit": null
+                },
+                "reason": "Benchmark expired lease recovery scenario"
+            }))?,
+        ],
+    )?;
+
+    let started = Instant::now();
+    let snapshot = load_intelligence_runtime(paths, config, None)?;
+    let elapsed_ms = started.elapsed().as_millis();
+
+    let recovered = connection
+        .prepare(
+            "SELECT dedupe_key, state, last_error, cancellation_reason
+             FROM intelligence_jobs
+             WHERE dedupe_key IN ('expired-lease-queued', 'expired-lease-cancelled')
+             ORDER BY dedupe_key ASC",
+        )?
+        .query_map([], |row| {
+            Ok(json!({
+                "dedupeKey": row.get::<_, String>(0)?,
+                "state": row.get::<_, String>(1)?,
+                "lastError": row.get::<_, Option<String>>(2)?,
+                "cancellationReason": row.get::<_, Option<String>>(3)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(json!({
+        "scenario": Scenario::ExpiredLeaseRecovery.as_str(),
+        "timings": {
+            "runtimeRecoveryMs": elapsed_ms,
+        },
+        "memory": memory_snapshot_json(),
+        "runtimeNotes": snapshot.notes,
+        "recoveredJobs": recovered,
     }))
 }
 
@@ -338,6 +501,7 @@ fn run_visibility_regression_scenario(
         "timings": {
             "visitDeriveMs": elapsed_ms,
         },
+        "memory": memory_snapshot_json(),
         "reports": {
             "visitDerive": visit_derive,
         }

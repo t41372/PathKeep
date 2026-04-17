@@ -8,6 +8,8 @@
 > **2026-04-15 follow-up note:** Core Intelligence backend 現在還多了一層正式的 trait-backed module registry。`visit-derived-facts`、`daily-rollups`、`sessions`、`search-trails`、`refind-pages`、`activity-mix`、`search-effectiveness`、`domain-deep-dive` 這 8 個 built-ins 的依賴順序、rebuild stage ownership、以及 `explain_entity` 的 entity ownership 都已經收斂到單一 registry；legacy `vault-core::insights` 也已退回 crate-internal evidence helper，不再是 accepted backend surface。
 >
 > **2026-04-17 incremental note:** Core Intelligence deterministic queue 現在已補上 per-profile stage checkpoint ledger。append-only `visit-derive`、`daily-rollup`、`structural-rebuild` 會優先走 incremental path，並把 `executionMode`、`dirtyVisitCount`、`dirtyDateKeys`、`fallbackReason` 寫進 runtime artifact；如果 archive visibility regression、stage version drift 或 checkpoint 缺失，系統會誠實回退成 scoped `fallback-full`。這代表「stage queue 不再只是看起來像增量」，但也**不**代表 10M / low-RAM / queue recovery RSS 的最終 large-archive signoff 已完成。
+>
+> **2026-04-17 benchmark/recovery follow-up:** structural stage 的 profile-wide aggregates 現在改成 batch scan：query families 以 `search_events` batches 建構，refind/path-flow/habit 以 `visit_derived_facts` batches 聚合，不再為這些 aggregates 額外 materialize whole-profile `search_events` / `visit_derived_facts` Vec。`artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/` 也新增 corpus stats、peak RSS 與 expired-lease recovery scenario；這改善了 low-RAM / queue-recovery truth，但尚未完成 `10M / 14.4M` 最終簽收。
 
 ---
 

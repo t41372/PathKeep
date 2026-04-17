@@ -21910,7 +21910,7 @@
     "dirtyVisitCount": 100000,
     "executionMode": "fallback-full",
     "fallbackReason": "Manual full rebuild requested for visit-derived facts.",
-    "lastRunAt": "2026-04-17T08:57:29.318742+00:00",
+    "lastRunAt": "2026-04-17T08:59:16.799809+00:00",
     "notes": [
       "Rebuilt visit-derived facts for brave:Default with a scoped full refresh.",
       "Rebuilt all daily rollups for brave:Default.",
@@ -21933,7 +21933,7 @@
     "queryFamilies": 26,
     "refindPages": 5220,
     "reopenedInvestigations": 5246,
-    "runId": 1776416249318,
+    "runId": 1776416356799,
     "searchTrails": 16667,
     "sessions": 100000,
     "sourceEffectiveness": 6,
@@ -21953,107 +21953,63 @@
     "windowDays": 365
   },
   "followUp": {
-    "appendedVisits": 64,
     "memory": {
-      "peakRssBytes": 215220224,
-      "peakRssMiB": 205.25
+      "peakRssBytes": 209829888,
+      "peakRssMiB": 200.109375
     },
-    "reports": {
-      "dailyRollup": {
-        "affectedProfiles": ["chrome:Default"],
-        "dirtyDateKeys": ["2026-04-17"],
-        "dirtyVisitCount": 64,
-        "executionMode": "incremental",
-        "fallbackReason": null,
-        "lastRunAt": "2026-04-17T08:58:17.505663+00:00",
-        "notes": ["Refreshed dirty daily rollups for chrome:Default."],
-        "processedVisits": 64,
-        "queryFamilies": 0,
-        "refindPages": 0,
-        "reopenedInvestigations": 0,
-        "runId": 1776416297505,
-        "searchTrails": 0,
-        "sessions": 0,
-        "sourceEffectiveness": 0,
-        "visitDerivedFacts": 0
+    "recoveredJobs": [
+      {
+        "cancellationReason": null,
+        "dedupeKey": "expired-lease-cancelled",
+        "lastError": "PathKeep restarted before this Core Intelligence job finished.",
+        "state": "queued"
       },
-      "structuralRebuild": {
-        "affectedProfiles": ["chrome:Default"],
-        "dirtyDateKeys": ["2026-04-17"],
-        "dirtyVisitCount": 64,
-        "executionMode": "incremental",
-        "fallbackReason": null,
-        "lastRunAt": "2026-04-17T08:58:17.556730+00:00",
-        "notes": ["Rebuilt structural tail entities for chrome:Default."],
-        "processedVisits": 64,
-        "queryFamilies": 14,
-        "refindPages": 1500,
-        "reopenedInvestigations": 1514,
-        "runId": 1776416297556,
-        "searchTrails": 22,
-        "sessions": 1,
-        "sourceEffectiveness": 9,
-        "visitDerivedFacts": 0
-      },
-      "visitDerive": {
-        "affectedProfiles": ["chrome:Default"],
-        "dirtyDateKeys": ["2026-04-17"],
-        "dirtyVisitCount": 64,
-        "executionMode": "incremental",
-        "fallbackReason": null,
-        "lastRunAt": "2026-04-17T08:58:17.460051+00:00",
-        "notes": [
-          "Incrementally refreshed visit-derived facts for chrome:Default."
-        ],
-        "processedVisits": 64,
-        "queryFamilies": 0,
-        "refindPages": 0,
-        "reopenedInvestigations": 0,
-        "runId": 1776416297460,
-        "searchTrails": 0,
-        "sessions": 0,
-        "sourceEffectiveness": 0,
-        "visitDerivedFacts": 64
+      {
+        "cancellationReason": null,
+        "dedupeKey": "expired-lease-queued",
+        "lastError": "PathKeep restarted before this Core Intelligence job finished.",
+        "state": "queued"
       }
-    },
-    "scenario": "append-delta",
+    ],
+    "runtimeNotes": [
+      "Recovered 2 interrupted deterministic rebuild job(s) after the previous session ended unexpectedly."
+    ],
+    "scenario": "expired-lease-recovery",
     "timings": {
-      "dailyRollupMs": 51,
-      "structuralRebuildMs": 1614,
-      "visitDeriveMs": 45
+      "runtimeRecoveryMs": 1
     }
   },
   "memory": {
     "afterQueries": {
-      "peakRssBytes": 215220224,
-      "peakRssMiB": 205.25
+      "peakRssBytes": 209829888,
+      "peakRssMiB": 200.109375
     },
     "baseline": {
-      "peakRssBytes": 215220224,
-      "peakRssMiB": 205.25
+      "peakRssBytes": 209829888,
+      "peakRssMiB": 200.109375
     }
   },
-  "scenario": "append-delta",
+  "scenario": "expired-lease-recovery",
   "surfaces": {
     "digest": {
-      "deepReadPages": 1,
-      "newDomains": 7,
+      "deepReadPages": 0,
+      "newDomains": 0,
       "refindPages": 974,
-      "totalSearches": 263,
-      "totalVisits": 1525
+      "totalSearches": 241,
+      "totalVisits": 1461
     },
     "queryFamilies": 20,
-    "queryFamilyTotal": 27,
+    "queryFamilyTotal": 26,
     "refindPages": 10,
-    "searchTrailTotal": 263,
+    "searchTrailTotal": 241,
     "searchTrails": 20,
-    "sessionTotal": 1462,
+    "sessionTotal": 1461,
     "sessions": 20,
     "topConcepts": 15,
-    "topSites": 10
+    "topSites": 3
   },
   "timings": {
-    "baselineRunCoreIntelligenceMs": 48151,
-    "querySurfacesMs": 69
+    "baselineRunCoreIntelligenceMs": 50836,
+    "querySurfacesMs": 65
   }
 }

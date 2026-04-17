@@ -21910,7 +21910,7 @@
     "dirtyVisitCount": 100000,
     "executionMode": "fallback-full",
     "fallbackReason": "Manual full rebuild requested for visit-derived facts.",
-    "lastRunAt": "2026-04-17T07:39:23.044704+00:00",
+    "lastRunAt": "2026-04-17T08:56:37.790274+00:00",
     "notes": [
       "Rebuilt visit-derived facts for brave:Default with a scoped full refresh.",
       "Rebuilt all daily rollups for brave:Default.",
@@ -21933,7 +21933,7 @@
     "queryFamilies": 26,
     "refindPages": 5220,
     "reopenedInvestigations": 5246,
-    "runId": 1776411563044,
+    "runId": 1776416197790,
     "searchTrails": 16667,
     "sessions": 100000,
     "sourceEffectiveness": 6,
@@ -21942,31 +21942,48 @@
   "corpus": {
     "archiveBytes": 51904512,
     "horizonDays": 21900,
-    "visits": 100000,
+    "maxTitleChars": 13,
+    "maxUrlChars": 52,
+    "profileCount": 4,
+    "searchTermCount": 16667,
+    "seededVisits": 100000,
+    "titleCharTotal": 953559,
+    "urlCharTotal": 4230943,
+    "visitCount": 100000,
     "windowDays": 365
   },
   "followUp": null,
+  "memory": {
+    "afterQueries": {
+      "peakRssBytes": 228605952,
+      "peakRssMiB": 218.015625
+    },
+    "baseline": {
+      "peakRssBytes": 228605952,
+      "peakRssMiB": 218.015625
+    }
+  },
   "scenario": "full",
   "surfaces": {
     "digest": {
       "deepReadPages": 0,
       "newDomains": 0,
       "refindPages": 974,
-      "totalSearches": 240,
-      "totalVisits": 1460
+      "totalSearches": 241,
+      "totalVisits": 1461
     },
     "queryFamilies": 20,
     "queryFamilyTotal": 26,
     "refindPages": 10,
-    "searchTrailTotal": 240,
+    "searchTrailTotal": 241,
     "searchTrails": 20,
-    "sessionTotal": 1460,
+    "sessionTotal": 1461,
     "sessions": 20,
     "topConcepts": 15,
     "topSites": 3
   },
   "timings": {
-    "baselineRunCoreIntelligenceMs": 47313,
-    "querySurfacesMs": 61
+    "baselineRunCoreIntelligenceMs": 49131,
+    "querySurfacesMs": 63
   }
 }
