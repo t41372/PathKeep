@@ -381,7 +381,6 @@ struct SessionRecord {
     domain_count: i64,
     is_deep_dive: bool,
     auto_title: Option<String>,
-    visit_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -420,6 +419,20 @@ struct TrailMemberRecord {
     visit_id: i64,
     ordinal: i64,
     role: String,
+}
+
+#[derive(Debug, Clone)]
+struct StructuralVisitRecord {
+    visit_id: i64,
+    profile_id: String,
+    url: String,
+    visit_time_ms: i64,
+    from_visit: Option<i64>,
+    registrable_domain: String,
+    search_engine: Option<String>,
+    search_query: Option<String>,
+    is_new_domain: bool,
+    is_search_event: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -526,6 +539,7 @@ struct StageRunResult {
 }
 
 const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 2_048;
+const STRUCTURAL_TAIL_STREAM_BATCH_SIZE: usize = 2_048;
 const VISIT_DERIVE_FALLBACK_BATCH_SIZE: usize = 2_048;
 const DAILY_ROLLUP_FALLBACK_BATCH_SIZE: usize = 2_048;
 
@@ -540,10 +554,37 @@ struct SearchEventBatchCursor {
     visit_id: i64,
 }
 
+#[derive(Debug, Clone)]
+struct TrailBatchCursor {
+    first_visit_ms: i64,
+    trail_id: String,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct VisibleVisitBatchCursor {
     visit_time_ms: i64,
     visit_id: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StructuralVisitBatchCursor {
+    visit_time_ms: i64,
+    visit_id: i64,
+}
+
+#[derive(Debug, Default)]
+struct StructuralDeltaSummary {
+    delta_count: usize,
+    dirty_date_keys: Vec<String>,
+    dirty_from_visit_ms: Option<i64>,
+}
+
+#[derive(Debug, Default)]
+struct StructuralTailStreamReport {
+    processed_visits: usize,
+    sessions: usize,
+    trails: usize,
+    first_visit_ms: Option<i64>,
 }
 
 type DailyDomainKey = (String, String, String);
@@ -1757,76 +1798,57 @@ fn execute_structural_stage(
         });
     }
 
-    let (tail_visits, execution_mode, dirty_visit_count, dirty_date_keys, structural_start_ms) =
+    let (execution_mode, dirty_visit_count, dirty_date_keys, structural_start_ms) =
         if let Some(_reason) = fallback_reason.clone() {
-            let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
-            let dirty_date_keys = unique_date_keys(&visits);
             (
-                visits,
                 StageExecutionMode::FallbackFull,
                 watermark.visible_visit_count as usize,
-                dirty_date_keys,
+                load_profile_dirty_date_keys(connection, profile_id, None, None)?,
                 None,
             )
         } else {
             let last_processed_visit_id =
                 checkpoint.as_ref().map(|value| value.last_processed_visit_id).unwrap_or_default();
-            let delta_visits = load_profile_derived_visits(
-                connection,
-                profile_id,
-                None,
-                Some(last_processed_visit_id),
-            )?;
+            let delta_summary =
+                load_structural_delta_summary(connection, profile_id, last_processed_visit_id)?;
             let expected_delta = (watermark.visible_visit_count
                 - checkpoint
                     .as_ref()
                     .map(|value| value.source_watermark.visible_visit_count)
                     .unwrap_or_default())
             .max(0) as usize;
-            if delta_visits.is_empty() || delta_visits.len() != expected_delta {
+            if delta_summary.delta_count == 0 || delta_summary.delta_count != expected_delta {
                 fallback_reason = Some(
                     "Structural delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
-                let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
-                let dirty_date_keys = unique_date_keys(&visits);
                 (
-                    visits,
                     StageExecutionMode::FallbackFull,
                     watermark.visible_visit_count as usize,
-                    dirty_date_keys,
+                    load_profile_dirty_date_keys(connection, profile_id, None, None)?,
                     None,
                 )
             } else {
-                let dirty_from_visit_ms =
-                    delta_visits.iter().map(|visit| visit.visit_time_ms).min().unwrap_or_default();
-                let start_ms =
-                    expand_structural_rebuild_start(connection, profile_id, dirty_from_visit_ms)?;
-                let visits =
-                    load_profile_derived_visits(connection, profile_id, Some(start_ms), None)?;
-                let dirty_date_keys = unique_date_keys(&delta_visits);
+                let dirty_from_visit_ms = delta_summary.dirty_from_visit_ms.unwrap_or_default();
                 (
-                    visits,
                     StageExecutionMode::Incremental,
                     expected_delta,
-                    dirty_date_keys,
-                    Some(start_ms),
+                    delta_summary.dirty_date_keys,
+                    Some(expand_structural_rebuild_start(
+                        connection,
+                        profile_id,
+                        dirty_from_visit_ms,
+                    )?),
                 )
             }
         };
 
-    let mut rebuild_visits = tail_visits;
-    let sessions = build_sessions(&mut rebuild_visits);
-    let (search_events, trails) = build_search_trails(&mut rebuild_visits);
-    replace_structural_tail_state(
+    let tail_report = rebuild_structural_tail_state(
         connection,
         profile_id,
         structural_start_ms,
-        &rebuild_visits,
-        &sessions,
-        &search_events,
-        &trails,
         computed_at,
+        STRUCTURAL_TAIL_STREAM_BATCH_SIZE,
     )?;
 
     let query_families = build_query_families_from_batches(connection, profile_id)?;
@@ -1834,8 +1856,8 @@ fn execute_structural_stage(
 
     let (refind_pages, path_flows, habits) =
         build_structural_profile_aggregates_from_batches(connection, profile_id)?;
-    let all_trails = load_profile_trails(connection, profile_id)?;
-    let source_effectiveness = build_source_effectiveness(&all_trails, &refind_pages);
+    let source_effectiveness =
+        build_source_effectiveness_from_database(connection, profile_id, &refind_pages)?;
     let reopened = build_reopened_investigations(&query_families, &refind_pages);
     replace_structural_profile_aggregates(
         connection,
@@ -1856,7 +1878,11 @@ fn execute_structural_stage(
             stage_version: current_version,
             source_watermark: watermark.clone(),
             last_processed_visit_id: watermark.max_visit_id,
-            dirty_from_visit_ms: rebuild_visits.first().map(|visit| visit.visit_time_ms),
+            dirty_from_visit_ms: structural_start_ms
+                .or_else(|| {
+                    load_profile_first_visible_visit_ms(connection, profile_id).ok().flatten()
+                })
+                .or(tail_report.first_visit_ms),
             dirty_date_key: dirty_date_keys.first().cloned(),
             last_run_id: Some(run_id),
             fallback_reason: fallback_reason.clone(),
@@ -1868,10 +1894,10 @@ fn execute_structural_stage(
         processed_visits: if execution_mode == StageExecutionMode::FallbackFull {
             watermark.visible_visit_count.max(0) as usize
         } else {
-            rebuild_visits.len()
+            tail_report.processed_visits
         },
-        sessions: sessions.len(),
-        search_trails: trails.len(),
+        sessions: tail_report.sessions,
+        search_trails: tail_report.trails,
         query_families: query_families.len(),
         refind_pages: refind_pages.len(),
         source_effectiveness: source_effectiveness.len(),
@@ -2131,6 +2157,136 @@ fn load_profile_derived_visit_batch(
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_structural_visit_batch(
+    connection: &Connection,
+    profile_id: &str,
+    start_ms: Option<i64>,
+    after: Option<StructuralVisitBatchCursor>,
+    limit: usize,
+) -> Result<Vec<StructuralVisitRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visit_derived_facts.visit_id,
+                visit_derived_facts.profile_id,
+                urls.url,
+                visits.visit_time_ms,
+                visits.from_visit,
+                visit_derived_facts.registrable_domain,
+                visit_derived_facts.search_engine,
+                visit_derived_facts.search_query,
+                visit_derived_facts.is_new_domain,
+                visit_derived_facts.is_search_event
+         FROM visit_derived_facts
+         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND visits.reverted_at IS NULL
+           AND (?2 IS NULL OR visits.visit_time_ms >= ?2)
+           AND (
+             ?3 IS NULL
+             OR visits.visit_time_ms > ?3
+             OR (visits.visit_time_ms = ?3 AND visit_derived_facts.visit_id > ?4)
+           )
+         ORDER BY visits.visit_time_ms ASC, visits.id ASC
+         LIMIT ?5",
+    )?;
+    statement
+        .query_map(
+            params![
+                profile_id,
+                start_ms,
+                after.map(|cursor| cursor.visit_time_ms),
+                after.map(|cursor| cursor.visit_id),
+                limit.max(1) as i64,
+            ],
+            |row| {
+                Ok(StructuralVisitRecord {
+                    visit_id: row.get(0)?,
+                    profile_id: row.get(1)?,
+                    url: row.get(2)?,
+                    visit_time_ms: row.get(3)?,
+                    from_visit: row.get(4)?,
+                    registrable_domain: row.get(5)?,
+                    search_engine: row.get(6)?,
+                    search_query: row.get(7)?,
+                    is_new_domain: row.get::<_, i64>(8)? != 0,
+                    is_search_event: row.get::<_, i64>(9)? != 0,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_profile_dirty_date_keys(
+    connection: &Connection,
+    profile_id: &str,
+    start_ms: Option<i64>,
+    last_processed_visit_id: Option<i64>,
+) -> Result<Vec<String>> {
+    connection
+        .prepare(
+            "SELECT DISTINCT strftime('%Y-%m-%d', archive.visits.visit_time_ms / 1000.0, 'unixepoch', 'localtime')
+             FROM visit_derived_facts
+             JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+             WHERE visit_derived_facts.profile_id = ?1
+               AND archive.visits.reverted_at IS NULL
+               AND (?2 IS NULL OR archive.visits.visit_time_ms >= ?2)
+               AND (?3 IS NULL OR visit_derived_facts.visit_id > ?3)
+             ORDER BY 1 ASC",
+        )?
+        .query_map(params![profile_id, start_ms, last_processed_visit_id], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_structural_delta_summary(
+    connection: &Connection,
+    profile_id: &str,
+    last_processed_visit_id: i64,
+) -> Result<StructuralDeltaSummary> {
+    let (delta_count, dirty_from_visit_ms) = connection.query_row(
+        "SELECT COUNT(*), MIN(archive.visits.visit_time_ms)
+         FROM visit_derived_facts
+         JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND archive.visits.reverted_at IS NULL
+           AND visit_derived_facts.visit_id > ?2",
+        params![profile_id, last_processed_visit_id],
+        |row| Ok((row.get::<_, i64>(0)?.max(0) as usize, row.get::<_, Option<i64>>(1)?)),
+    )?;
+    Ok(StructuralDeltaSummary {
+        delta_count,
+        dirty_from_visit_ms,
+        dirty_date_keys: load_profile_dirty_date_keys(
+            connection,
+            profile_id,
+            None,
+            Some(last_processed_visit_id),
+        )?,
+    })
+}
+
+fn load_profile_first_visible_visit_ms(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<Option<i64>> {
+    connection
+        .query_row(
+            "SELECT MIN(archive.visits.visit_time_ms)
+             FROM visit_derived_facts
+             JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+             WHERE visit_derived_facts.profile_id = ?1
+               AND archive.visits.reverted_at IS NULL",
+            [profile_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()
+        .map(|value| value.flatten())
         .map_err(Into::into)
 }
 
@@ -2432,36 +2588,78 @@ fn load_profile_search_event_batch(
         .map_err(Into::into)
 }
 
-fn load_profile_trails(connection: &Connection, profile_id: &str) -> Result<Vec<TrailRecord>> {
+fn load_profile_trail_batch(
+    connection: &Connection,
+    profile_id: &str,
+    after: Option<&TrailBatchCursor>,
+    limit: usize,
+) -> Result<Vec<TrailRecord>> {
     let mut statement = connection.prepare(
         "SELECT trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count,
                 visit_count, landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
          FROM search_trails
          WHERE profile_id = ?1
-         ORDER BY first_visit_ms ASC, trail_id ASC",
+           AND (
+             ?2 IS NULL
+             OR first_visit_ms > ?2
+             OR (first_visit_ms = ?2 AND trail_id > ?3)
+           )
+         ORDER BY first_visit_ms ASC, trail_id ASC
+         LIMIT ?4",
     )?;
     statement
-        .query_map([profile_id], |row| {
-            let queries_json: String = row.get(12)?;
-            Ok(TrailRecord {
-                trail_id: row.get(0)?,
-                profile_id: row.get(1)?,
-                session_id: row.get(2)?,
-                initial_query: row.get(3)?,
-                search_engine: row.get(4)?,
-                reformulation_count: row.get(5)?,
-                visit_count: row.get(6)?,
-                landing_url: row.get(7)?,
-                landing_domain: row.get(8)?,
-                first_visit_ms: row.get(9)?,
-                last_visit_ms: row.get(10)?,
-                max_depth: row.get(11)?,
-                queries: serde_json::from_str(&queries_json).unwrap_or_default(),
-                members: Vec::new(),
-            })
-        })?
+        .query_map(
+            params![
+                profile_id,
+                after.map(|cursor| cursor.first_visit_ms),
+                after.map(|cursor| cursor.trail_id.as_str()),
+                limit.max(1) as i64
+            ],
+            |row| {
+                let queries_json: String = row.get(12)?;
+                Ok(TrailRecord {
+                    trail_id: row.get(0)?,
+                    profile_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    initial_query: row.get(3)?,
+                    search_engine: row.get(4)?,
+                    reformulation_count: row.get(5)?,
+                    visit_count: row.get(6)?,
+                    landing_url: row.get(7)?,
+                    landing_domain: row.get(8)?,
+                    first_visit_ms: row.get(9)?,
+                    last_visit_ms: row.get(10)?,
+                    max_depth: row.get(11)?,
+                    queries: serde_json::from_str(&queries_json).unwrap_or_default(),
+                    members: Vec::new(),
+                })
+            },
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+#[cfg(test)]
+fn load_profile_trails(connection: &Connection, profile_id: &str) -> Result<Vec<TrailRecord>> {
+    let mut cursor = None::<TrailBatchCursor>;
+    let mut trails = Vec::new();
+    loop {
+        let batch = load_profile_trail_batch(
+            connection,
+            profile_id,
+            cursor.as_ref(),
+            STRUCTURAL_AGGREGATE_BATCH_SIZE,
+        )?;
+        if batch.is_empty() {
+            break;
+        }
+        cursor = batch.last().map(|trail| TrailBatchCursor {
+            first_visit_ms: trail.first_visit_ms,
+            trail_id: trail.trail_id.clone(),
+        });
+        trails.extend(batch);
+    }
+    Ok(trails)
 }
 
 fn build_query_families_from_batches(
@@ -2669,17 +2867,354 @@ fn replace_daily_rollups(
     Ok(())
 }
 
-fn replace_structural_tail_state(
-    connection: &Connection,
+#[derive(Debug)]
+struct SessionBuildState {
+    record: SessionRecord,
+    domain_counts: HashMap<String, usize>,
+    first_search_query: Option<String>,
+    navigation_chain_depth: i64,
+    new_domain_count: i64,
+}
+
+impl SessionBuildState {
+    fn new(visit: &StructuralVisitRecord) -> Self {
+        Self {
+            record: SessionRecord {
+                session_id: format!("session:{}:{}", visit.profile_id, visit.visit_id),
+                profile_id: visit.profile_id.clone(),
+                first_visit_ms: visit.visit_time_ms,
+                last_visit_ms: visit.visit_time_ms,
+                visit_count: 0,
+                search_count: 0,
+                domain_count: 0,
+                is_deep_dive: false,
+                auto_title: None,
+            },
+            domain_counts: HashMap::new(),
+            first_search_query: None,
+            navigation_chain_depth: 0,
+            new_domain_count: 0,
+        }
+    }
+
+    fn push_visit(&mut self, visit: &StructuralVisitRecord) {
+        self.record.last_visit_ms = visit.visit_time_ms;
+        self.record.visit_count += 1;
+        self.record.search_count += i64::from(visit.is_search_event);
+        *self.domain_counts.entry(visit.registrable_domain.clone()).or_default() += 1;
+        if self.first_search_query.is_none() {
+            self.first_search_query = visit.search_query.clone();
+        }
+        self.navigation_chain_depth += i64::from(visit.from_visit.is_some());
+        self.new_domain_count += i64::from(visit.is_new_domain);
+    }
+
+    fn finish(mut self) -> SessionRecord {
+        self.record.domain_count = self.domain_counts.len() as i64;
+        self.record.auto_title = build_session_title_from_summary(
+            &self.domain_counts,
+            self.first_search_query.as_deref(),
+        );
+        self.record.is_deep_dive = self.navigation_chain_depth >= 4
+            && self.record.domain_count >= 5
+            && self.record.visit_count >= 8
+            && self.new_domain_count >= 1;
+        self.record
+    }
+}
+
+#[derive(Debug)]
+struct TrailBuildState {
+    record: TrailRecord,
+    next_ordinal: i64,
+}
+
+impl TrailBuildState {
+    fn new(visit: &StructuralVisitRecord, session_id: &str) -> Self {
+        let query = visit.search_query.clone().unwrap_or_else(|| "search".to_string());
+        let trail_id = format!("trail:{}:{}", visit.profile_id, visit.visit_id);
+        Self {
+            record: TrailRecord {
+                trail_id,
+                profile_id: visit.profile_id.clone(),
+                session_id: session_id.to_string(),
+                initial_query: query.clone(),
+                search_engine: visit.search_engine.clone().unwrap_or_else(|| "unknown".to_string()),
+                reformulation_count: 0,
+                visit_count: 1,
+                landing_url: None,
+                landing_domain: None,
+                first_visit_ms: visit.visit_time_ms,
+                last_visit_ms: visit.visit_time_ms,
+                max_depth: 0,
+                queries: vec![query],
+                members: Vec::new(),
+            },
+            next_ordinal: 1,
+        }
+    }
+
+    fn search_event_member(&self, visit_id: i64) -> TrailMemberRecord {
+        TrailMemberRecord {
+            trail_id: self.record.trail_id.clone(),
+            profile_id: self.record.profile_id.clone(),
+            visit_id,
+            ordinal: 0,
+            role: "search_event".to_string(),
+        }
+    }
+
+    fn append_visit(&mut self, visit: &StructuralVisitRecord) -> TrailMemberRecord {
+        let ordinal = self.next_ordinal;
+        self.next_ordinal += 1;
+        let role = if self.record.landing_url.is_none() { "landing" } else { "click" };
+        self.record.visit_count += 1;
+        self.record.last_visit_ms = visit.visit_time_ms;
+        self.record.max_depth = self.record.max_depth.max(ordinal);
+        self.record.landing_url.get_or_insert_with(|| visit.url.clone());
+        self.record.landing_domain.get_or_insert_with(|| visit.registrable_domain.clone());
+        TrailMemberRecord {
+            trail_id: self.record.trail_id.clone(),
+            profile_id: self.record.profile_id.clone(),
+            visit_id: visit.visit_id,
+            ordinal,
+            role: role.to_string(),
+        }
+    }
+
+    fn finish(self) -> TrailRecord {
+        self.record
+    }
+}
+
+struct StructuralTailPersist<'tx> {
+    assignment_statement: rusqlite::Statement<'tx>,
+    session_statement: rusqlite::Statement<'tx>,
+    trail_statement: rusqlite::Statement<'tx>,
+    trail_member_statement: rusqlite::Statement<'tx>,
+    search_event_statement: rusqlite::Statement<'tx>,
+    search_term_statement: rusqlite::Statement<'tx>,
+}
+
+impl<'tx> StructuralTailPersist<'tx> {
+    fn new(tx: &'tx rusqlite::Transaction<'tx>) -> Result<Self> {
+        Ok(Self {
+            assignment_statement: tx.prepare(
+                "UPDATE visit_derived_facts
+                 SET session_id = ?2, trail_id = ?3, computed_at = ?4
+                 WHERE visit_id = ?1",
+            )?,
+            session_statement: tx.prepare(
+                "INSERT INTO sessions
+                 (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?,
+            trail_statement: tx.prepare(
+                "INSERT INTO search_trails
+                 (trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
+                  landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            )?,
+            trail_member_statement: tx.prepare(
+                "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?,
+            search_event_statement: tx.prepare(
+                "INSERT INTO search_events
+                 (visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?,
+            search_term_statement: tx.prepare(
+                "INSERT INTO search_event_terms (visit_id, profile_id, term)
+                 VALUES (?1, ?2, ?3)",
+            )?,
+        })
+    }
+
+    fn persist_assignment(
+        &mut self,
+        visit_id: i64,
+        session_id: &str,
+        trail_id: Option<&str>,
+        computed_at: &str,
+    ) -> Result<()> {
+        self.assignment_statement.execute(params![visit_id, session_id, trail_id, computed_at])?;
+        Ok(())
+    }
+
+    fn persist_session(&mut self, session: &SessionRecord, computed_at: &str) -> Result<()> {
+        self.session_statement.execute(params![
+            session.session_id,
+            session.profile_id,
+            session.first_visit_ms,
+            session.last_visit_ms,
+            session.visit_count,
+            session.search_count,
+            session.domain_count,
+            i64::from(session.is_deep_dive),
+            session.auto_title,
+            computed_at,
+        ])?;
+        Ok(())
+    }
+
+    fn persist_trail(&mut self, trail: &TrailRecord, computed_at: &str) -> Result<()> {
+        self.trail_statement.execute(params![
+            trail.trail_id,
+            trail.profile_id,
+            trail.session_id,
+            trail.initial_query,
+            trail.search_engine,
+            trail.reformulation_count,
+            trail.visit_count,
+            trail.landing_url,
+            trail.landing_domain,
+            trail.first_visit_ms,
+            trail.last_visit_ms,
+            trail.max_depth,
+            serde_json::to_string(&trail.queries)?,
+            computed_at,
+        ])?;
+        Ok(())
+    }
+
+    fn persist_trail_member(&mut self, member: &TrailMemberRecord) -> Result<()> {
+        self.trail_member_statement.execute(params![
+            member.trail_id,
+            member.profile_id,
+            member.visit_id,
+            member.ordinal,
+            member.role,
+        ])?;
+        Ok(())
+    }
+
+    fn persist_search_event(&mut self, event: &SearchEventRecord, computed_at: &str) -> Result<()> {
+        self.search_event_statement.execute(params![
+            event.visit_id,
+            event.profile_id,
+            event.search_engine,
+            event.raw_query,
+            event.normalized_query,
+            event.trail_id,
+            computed_at,
+        ])?;
+        for term in
+            tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
+        {
+            self.search_term_statement.execute(params![event.visit_id, event.profile_id, term])?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct StructuralTailStreamState {
+    current_session: Option<SessionBuildState>,
+    current_trail: Option<TrailBuildState>,
+    report: StructuralTailStreamReport,
+}
+
+impl StructuralTailStreamState {
+    fn process_visit(
+        &mut self,
+        visit: StructuralVisitRecord,
+        computed_at: &str,
+        persist: &mut StructuralTailPersist<'_>,
+    ) -> Result<()> {
+        self.report.processed_visits += 1;
+        self.report.first_visit_ms.get_or_insert(visit.visit_time_ms);
+
+        let starts_new_session = self.current_session.as_ref().is_none_or(|session| {
+            visit.visit_time_ms - session.record.last_visit_ms > SESSION_GAP_MS
+        });
+        if starts_new_session {
+            self.finish_trail(computed_at, persist)?;
+            self.finish_session(computed_at, persist)?;
+            self.current_session = Some(SessionBuildState::new(&visit));
+        }
+
+        let session = self.current_session.as_mut().expect("structural session");
+        session.push_visit(&visit);
+        let session_id = session.record.session_id.clone();
+        let mut trail_id = None::<String>;
+
+        if visit.is_search_event {
+            self.finish_trail(computed_at, persist)?;
+            let trail = TrailBuildState::new(&visit, &session_id);
+            let event = SearchEventRecord {
+                visit_id: visit.visit_id,
+                profile_id: visit.profile_id.clone(),
+                search_engine: trail.record.search_engine.clone(),
+                raw_query: visit.search_query.clone().unwrap_or_default(),
+                normalized_query: visit
+                    .search_query
+                    .as_deref()
+                    .map(normalize_query)
+                    .unwrap_or_default(),
+                trail_id: Some(trail.record.trail_id.clone()),
+                visit_time_ms: visit.visit_time_ms,
+            };
+            persist.persist_search_event(&event, computed_at)?;
+            persist.persist_trail_member(&trail.search_event_member(visit.visit_id))?;
+            trail_id = Some(trail.record.trail_id.clone());
+            self.current_trail = Some(trail);
+        } else if let Some(trail) = self.current_trail.as_mut() {
+            if trail.record.session_id != session_id
+                || visit.visit_time_ms - trail.record.last_visit_ms > TRAIL_GAP_MS
+            {
+                self.finish_trail(computed_at, persist)?;
+            } else {
+                let member = trail.append_visit(&visit);
+                trail_id = Some(trail.record.trail_id.clone());
+                persist.persist_trail_member(&member)?;
+            }
+        }
+
+        persist.persist_assignment(
+            visit.visit_id,
+            &session_id,
+            trail_id.as_deref(),
+            computed_at,
+        )?;
+        Ok(())
+    }
+
+    fn finish_trail(
+        &mut self,
+        computed_at: &str,
+        persist: &mut StructuralTailPersist<'_>,
+    ) -> Result<()> {
+        if let Some(trail) = self.current_trail.take() {
+            persist.persist_trail(&trail.finish(), computed_at)?;
+            self.report.trails += 1;
+        }
+        Ok(())
+    }
+
+    fn finish_session(
+        &mut self,
+        computed_at: &str,
+        persist: &mut StructuralTailPersist<'_>,
+    ) -> Result<()> {
+        if let Some(session) = self.current_session.take() {
+            persist.persist_session(&session.finish(), computed_at)?;
+            self.report.sessions += 1;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, computed_at: &str, persist: &mut StructuralTailPersist<'_>) -> Result<()> {
+        self.finish_trail(computed_at, persist)?;
+        self.finish_session(computed_at, persist)
+    }
+}
+
+fn clear_structural_tail_state(
+    tx: &rusqlite::Transaction<'_>,
     profile_id: &str,
     start_ms: Option<i64>,
-    visits: &[VisitRecord],
-    sessions: &[SessionRecord],
-    search_events: &[SearchEventRecord],
-    trails: &[TrailRecord],
-    computed_at: &str,
 ) -> Result<()> {
-    let tx = connection.unchecked_transaction()?;
     if let Some(start_ms) = start_ms {
         tx.execute(
             "DELETE FROM sessions WHERE profile_id = ?1 AND last_visit_ms >= ?2",
@@ -2689,109 +3224,48 @@ fn replace_structural_tail_state(
             "DELETE FROM search_trails WHERE profile_id = ?1 AND last_visit_ms >= ?2",
             params![profile_id, start_ms],
         )?;
+        delete_structural_memberships_in_range(tx, profile_id, start_ms)?;
     } else {
         tx.execute("DELETE FROM sessions WHERE profile_id = ?1", [profile_id])?;
         tx.execute("DELETE FROM search_trails WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM search_trail_members WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM search_event_terms WHERE profile_id = ?1", [profile_id])?;
+        tx.execute("DELETE FROM search_events WHERE profile_id = ?1", [profile_id])?;
     }
-
-    for visit in visits {
-        tx.execute(
-            "UPDATE visit_derived_facts
-             SET session_id = NULL, trail_id = NULL, computed_at = ?2
-             WHERE visit_id = ?1",
-            params![visit.visit_id, computed_at],
-        )?;
-    }
-    for session in sessions {
-        tx.execute(
-            "INSERT INTO sessions
-             (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                session.session_id,
-                session.profile_id,
-                session.first_visit_ms,
-                session.last_visit_ms,
-                session.visit_count,
-                session.search_count,
-                session.domain_count,
-                i64::from(session.is_deep_dive),
-                session.auto_title,
-                computed_at,
-            ],
-        )?;
-    }
-
-    let tail_visit_ids = visits.iter().map(|visit| visit.visit_id).collect::<Vec<_>>();
-    delete_structural_memberships(&tx, profile_id, &tail_visit_ids)?;
-
-    for trail in trails {
-        tx.execute(
-            "INSERT INTO search_trails
-             (trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-              landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                trail.trail_id,
-                trail.profile_id,
-                trail.session_id,
-                trail.initial_query,
-                trail.search_engine,
-                trail.reformulation_count,
-                trail.visit_count,
-                trail.landing_url,
-                trail.landing_domain,
-                trail.first_visit_ms,
-                trail.last_visit_ms,
-                trail.max_depth,
-                serde_json::to_string(&trail.queries)?,
-                computed_at,
-            ],
-        )?;
-        for member in &trail.members {
-            tx.execute(
-                "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    member.trail_id,
-                    member.profile_id,
-                    member.visit_id,
-                    member.ordinal,
-                    member.role,
-                ],
-            )?;
-        }
-    }
-
-    for event in search_events {
-        tx.execute(
-            "INSERT INTO search_events
-             (visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                event.visit_id,
-                event.profile_id,
-                event.search_engine,
-                event.raw_query,
-                event.normalized_query,
-                event.trail_id,
-                computed_at,
-            ],
-        )?;
-        for term in
-            tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
-        {
-            tx.execute(
-                "INSERT INTO search_event_terms (visit_id, profile_id, term)
-                 VALUES (?1, ?2, ?3)",
-                params![event.visit_id, event.profile_id, term],
-            )?;
-        }
-    }
-
-    update_tail_visit_assignments(&tx, visits, computed_at)?;
-    tx.commit()?;
     Ok(())
+}
+
+fn rebuild_structural_tail_state(
+    connection: &Connection,
+    profile_id: &str,
+    start_ms: Option<i64>,
+    computed_at: &str,
+    batch_size: usize,
+) -> Result<StructuralTailStreamReport> {
+    let tx = connection.unchecked_transaction()?;
+    clear_structural_tail_state(&tx, profile_id, start_ms)?;
+    let mut persist = StructuralTailPersist::new(&tx)?;
+    let mut state = StructuralTailStreamState::default();
+    let mut cursor = None::<StructuralVisitBatchCursor>;
+
+    loop {
+        let batch = load_structural_visit_batch(&tx, profile_id, start_ms, cursor, batch_size)?;
+        if batch.is_empty() {
+            break;
+        }
+        for visit in &batch {
+            state.process_visit(visit.clone(), computed_at, &mut persist)?;
+        }
+        cursor = batch.last().map(|visit| StructuralVisitBatchCursor {
+            visit_time_ms: visit.visit_time_ms,
+            visit_id: visit.visit_id,
+        });
+    }
+
+    state.finish(computed_at, &mut persist)?;
+    drop(persist);
+    tx.commit()?;
+    Ok(state.report)
 }
 
 fn replace_query_families(
@@ -2942,54 +3416,41 @@ fn replace_structural_profile_aggregates(
     Ok(())
 }
 
-fn delete_structural_memberships(
+fn delete_structural_memberships_in_range(
     tx: &rusqlite::Transaction<'_>,
     profile_id: &str,
-    visit_ids: &[i64],
+    start_ms: i64,
 ) -> Result<()> {
-    if visit_ids.is_empty() {
-        return Ok(());
-    }
-    for chunk in visit_ids.chunks(400) {
-        let placeholders = std::iter::repeat_n("?", chunk.len()).collect::<Vec<_>>().join(", ");
-        let delete_members_sql = format!(
+    let membership_filter = "SELECT visit_derived_facts.visit_id
+         FROM visit_derived_facts
+         JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND archive.visits.reverted_at IS NULL
+           AND archive.visits.visit_time_ms >= ?2";
+    tx.execute(
+        &format!(
             "DELETE FROM search_trail_members
-             WHERE profile_id = ?1 AND visit_id IN ({placeholders})"
-        );
-        let delete_terms_sql = format!(
+             WHERE profile_id = ?1
+               AND visit_id IN ({membership_filter})"
+        ),
+        params![profile_id, start_ms],
+    )?;
+    tx.execute(
+        &format!(
             "DELETE FROM search_event_terms
-             WHERE profile_id = ?1 AND visit_id IN ({placeholders})"
-        );
-        let delete_events_sql = format!(
+             WHERE profile_id = ?1
+               AND visit_id IN ({membership_filter})"
+        ),
+        params![profile_id, start_ms],
+    )?;
+    tx.execute(
+        &format!(
             "DELETE FROM search_events
-             WHERE profile_id = ?1 AND visit_id IN ({placeholders})"
-        );
-        let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
-            .chain(chunk.iter().map(|value| value as &dyn rusqlite::ToSql));
-        tx.execute(&delete_members_sql, rusqlite::params_from_iter(params))?;
-        let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
-            .chain(chunk.iter().map(|value| value as &dyn rusqlite::ToSql));
-        tx.execute(&delete_terms_sql, rusqlite::params_from_iter(params))?;
-        let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
-            .chain(chunk.iter().map(|value| value as &dyn rusqlite::ToSql));
-        tx.execute(&delete_events_sql, rusqlite::params_from_iter(params))?;
-    }
-    Ok(())
-}
-
-fn update_tail_visit_assignments(
-    tx: &rusqlite::Transaction<'_>,
-    visits: &[VisitRecord],
-    computed_at: &str,
-) -> Result<()> {
-    for visit in visits {
-        tx.execute(
-            "UPDATE visit_derived_facts
-             SET session_id = ?2, trail_id = ?3, computed_at = ?4
-             WHERE visit_id = ?1",
-            params![visit.visit_id, visit.session_id, visit.trail_id, computed_at],
-        )?;
-    }
+             WHERE profile_id = ?1
+               AND visit_id IN ({membership_filter})"
+        ),
+        params![profile_id, start_ms],
+    )?;
     Ok(())
 }
 
@@ -3266,64 +3727,6 @@ fn compute_is_new_domain(visits: &mut [VisitRecord]) {
 }
 
 fn build_sessions(visits: &mut [VisitRecord]) -> Vec<SessionRecord> {
-    #[derive(Debug)]
-    struct SessionBuildState {
-        record: SessionRecord,
-        domain_counts: HashMap<String, usize>,
-        first_search_query: Option<String>,
-        navigation_chain_depth: i64,
-        new_domain_count: i64,
-    }
-
-    impl SessionBuildState {
-        fn new(visit: &VisitRecord) -> Self {
-            Self {
-                record: SessionRecord {
-                    session_id: format!("session:{}:{}", visit.profile_id, visit.visit_id),
-                    profile_id: visit.profile_id.clone(),
-                    first_visit_ms: visit.visit_time_ms,
-                    last_visit_ms: visit.visit_time_ms,
-                    visit_count: 0,
-                    search_count: 0,
-                    domain_count: 0,
-                    is_deep_dive: false,
-                    auto_title: None,
-                    visit_ids: Vec::new(),
-                },
-                domain_counts: HashMap::new(),
-                first_search_query: None,
-                navigation_chain_depth: 0,
-                new_domain_count: 0,
-            }
-        }
-
-        fn push_visit(&mut self, visit: &VisitRecord) {
-            self.record.last_visit_ms = visit.visit_time_ms;
-            self.record.visit_count += 1;
-            self.record.search_count += i64::from(visit.is_search_event);
-            self.record.visit_ids.push(visit.visit_id);
-            *self.domain_counts.entry(visit.registrable_domain.clone()).or_default() += 1;
-            if self.first_search_query.is_none() {
-                self.first_search_query = visit.search_query.clone();
-            }
-            self.navigation_chain_depth += i64::from(visit.from_visit.is_some());
-            self.new_domain_count += i64::from(visit.is_new_domain);
-        }
-
-        fn finish(mut self) -> SessionRecord {
-            self.record.domain_count = self.domain_counts.len() as i64;
-            self.record.auto_title = build_session_title_from_summary(
-                &self.domain_counts,
-                self.first_search_query.as_deref(),
-            );
-            self.record.is_deep_dive = self.navigation_chain_depth >= 4
-                && self.record.domain_count >= 5
-                && self.record.visit_count >= 8
-                && self.new_domain_count >= 1;
-            self.record
-        }
-    }
-
     let mut sessions = Vec::new();
     let mut current: Option<SessionBuildState> = None;
     for visit in visits.iter_mut() {
@@ -3334,10 +3737,32 @@ fn build_sessions(visits: &mut [VisitRecord]) -> Vec<SessionRecord> {
             if let Some(session) = current.take() {
                 sessions.push(session.finish());
             }
-            current = Some(SessionBuildState::new(visit));
+            current = Some(SessionBuildState::new(&StructuralVisitRecord {
+                visit_id: visit.visit_id,
+                profile_id: visit.profile_id.clone(),
+                url: visit.url.clone(),
+                visit_time_ms: visit.visit_time_ms,
+                from_visit: visit.from_visit,
+                registrable_domain: visit.registrable_domain.clone(),
+                search_engine: visit.search_engine.clone(),
+                search_query: visit.search_query.clone(),
+                is_new_domain: visit.is_new_domain,
+                is_search_event: visit.is_search_event,
+            }));
         }
         let session = current.as_mut().expect("current session");
-        session.push_visit(visit);
+        session.push_visit(&StructuralVisitRecord {
+            visit_id: visit.visit_id,
+            profile_id: visit.profile_id.clone(),
+            url: visit.url.clone(),
+            visit_time_ms: visit.visit_time_ms,
+            from_visit: visit.from_visit,
+            registrable_domain: visit.registrable_domain.clone(),
+            search_engine: visit.search_engine.clone(),
+            search_query: visit.search_query.clone(),
+            is_new_domain: visit.is_new_domain,
+            is_search_event: visit.is_search_event,
+        });
         visit.session_id = Some(session.record.session_id.clone());
     }
     if let Some(session) = current.take() {
@@ -3697,6 +4122,92 @@ fn build_source_effectiveness(
             }
         })
         .collect()
+}
+
+fn build_source_effectiveness_from_database(
+    connection: &Connection,
+    profile_id: &str,
+    refind_pages: &[RefindPageRecord],
+) -> Result<Vec<SourceEffectivenessRecord>> {
+    let mut landing_counts = HashMap::<String, i64>::new();
+    let mut trail_counts = HashMap::<String, i64>::new();
+    let mut first_seen = HashMap::<String, i64>::new();
+    let mut last_seen = HashMap::<String, i64>::new();
+    let mut cursor = None::<TrailBatchCursor>;
+
+    loop {
+        let batch = load_profile_trail_batch(
+            connection,
+            profile_id,
+            cursor.as_ref(),
+            STRUCTURAL_AGGREGATE_BATCH_SIZE,
+        )?;
+        if batch.is_empty() {
+            break;
+        }
+        for trail in &batch {
+            if let Some(domain) = &trail.landing_domain {
+                *landing_counts.entry(domain.clone()).or_default() += 1;
+                *trail_counts.entry(domain.clone()).or_default() += 1;
+                first_seen
+                    .entry(domain.clone())
+                    .and_modify(|value| *value = (*value).min(trail.first_visit_ms))
+                    .or_insert(trail.first_visit_ms);
+                last_seen
+                    .entry(domain.clone())
+                    .and_modify(|value| *value = (*value).max(trail.last_visit_ms))
+                    .or_insert(trail.last_visit_ms);
+            }
+        }
+        cursor = batch.last().map(|trail| TrailBatchCursor {
+            first_visit_ms: trail.first_visit_ms,
+            trail_id: trail.trail_id.clone(),
+        });
+    }
+
+    let reference_counts =
+        refind_pages.iter().fold(HashMap::<String, i64>::new(), |mut acc, page| {
+            *acc.entry(page.registrable_domain.clone()).or_default() += 1;
+            acc
+        });
+    let domains =
+        landing_counts.keys().chain(reference_counts.keys()).cloned().collect::<BTreeSet<_>>();
+
+    Ok(domains
+        .into_iter()
+        .map(|domain| {
+            let stable_landing_count = *landing_counts.get(&domain).unwrap_or(&0);
+            let reference_count = *reference_counts.get(&domain).unwrap_or(&0);
+            let trail_count = *trail_counts.get(&domain).unwrap_or(&0);
+            let source_role = if reference_count >= stable_landing_count && reference_count > 0 {
+                "reference"
+            } else if stable_landing_count > 0 {
+                "landing"
+            } else {
+                "entry"
+            };
+            let effectiveness_score = (stable_landing_count as f32 * 2.0)
+                + (reference_count as f32 * 1.5)
+                + (trail_count as f32 * 0.5);
+            let evidence_json = json!({
+                "stableLandingCount": stable_landing_count,
+                "referenceCount": reference_count,
+                "trailCount": trail_count
+            })
+            .to_string();
+            SourceEffectivenessRecord {
+                profile_id: profile_id.to_string(),
+                registrable_domain: domain.clone(),
+                source_role: source_role.to_string(),
+                trail_count,
+                stable_landing_count,
+                effectiveness_score,
+                evidence_json,
+                first_seen_ms: *first_seen.get(&domain).unwrap_or(&0),
+                last_seen_ms: *last_seen.get(&domain).unwrap_or(&0),
+            }
+        })
+        .collect())
 }
 
 fn build_reopened_investigations(
@@ -6864,14 +7375,16 @@ fn path_from_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, VISIT_DERIVE_FALLBACK_BATCH_SIZE,
-        build_habit_patterns, build_kpi, build_path_flows, build_query_families,
-        build_query_families_from_batches, build_refind_pages,
+        DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, STRUCTURAL_TAIL_STREAM_BATCH_SIZE,
+        VISIT_DERIVE_FALLBACK_BATCH_SIZE, build_habit_patterns, build_kpi, build_path_flows,
+        build_query_families, build_query_families_from_batches, build_refind_pages,
+        build_source_effectiveness, build_source_effectiveness_from_database,
         build_structural_profile_aggregates_from_batches, collapse_date_key,
         ensure_core_intelligence_schema, explain_entity, get_intelligence_embed_cards,
         get_intelligence_public_snapshot, get_intelligence_widget_snapshot, get_path_flows,
-        load_profile_derived_visits, load_profile_search_events, local_date_key, normalize_query,
-        run_core_intelligence, run_core_intelligence_job_type_with_progress,
+        load_profile_derived_visits, load_profile_search_events, load_profile_trails,
+        local_date_key, normalize_query, run_core_intelligence,
+        run_core_intelligence_job_type_with_progress,
     };
     use crate::{
         archive::{open_archive_connection, open_intelligence_connection},
@@ -6882,7 +7395,7 @@ mod tests {
             ScopedDateRangeRequest,
         },
     };
-    use rusqlite::Connection;
+    use rusqlite::{Connection, params};
     use std::collections::BTreeMap;
 
     #[test]
@@ -7284,6 +7797,183 @@ mod tests {
     }
 
     #[test]
+    fn structural_stream_keeps_assignments_stable_across_batch_boundaries() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+        append_fixture_chain_visits(
+            &archive,
+            4,
+            STRUCTURAL_TAIL_STREAM_BATCH_SIZE + 5,
+            1711929720000,
+            2,
+        );
+        drop(archive);
+
+        run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive stage");
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "structural-rebuild",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("structural stage");
+        assert_eq!(report.execution_mode.as_deref(), Some("incremental"));
+        assert!(report.processed_visits > STRUCTURAL_TAIL_STREAM_BATCH_SIZE);
+
+        let boundary_visit_id = 4 + STRUCTURAL_TAIL_STREAM_BATCH_SIZE as i64 - 1;
+        let trailing_visit_id = 4 + STRUCTURAL_TAIL_STREAM_BATCH_SIZE as i64 + 4;
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let assignments = intelligence
+            .prepare(
+                "SELECT visit_id, session_id, trail_id
+                 FROM visit_derived_facts
+                 WHERE visit_id IN (1, 2, 4, ?1, ?2)
+                 ORDER BY visit_id ASC",
+            )
+            .expect("prepare assignments")
+            .query_map(params![boundary_visit_id, trailing_visit_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .expect("query assignments")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect assignments");
+        assert_eq!(assignments.len(), 5);
+        for (_, session_id, trail_id) in assignments {
+            assert_eq!(session_id.as_deref(), Some("session:chrome:Default:1"));
+            assert_eq!(trail_id.as_deref(), Some("trail:chrome:Default:1"));
+        }
+    }
+
+    #[test]
+    fn structural_range_delete_preserves_unaffected_rows_before_start_ms() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        append_fixture_visit(
+            &archive,
+            40,
+            "https://www.google.com/search?q=earlier+investigation",
+            "Earlier Search",
+            1711843200000,
+            None,
+            Some("earlier investigation"),
+        );
+        append_fixture_visit(
+            &archive,
+            41,
+            "https://docs.example.com/older-trail",
+            "Older Trail",
+            1711843260000,
+            Some(40),
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+        append_fixture_chain_visits(&archive, 4, 12, 1711929720000, 2);
+        drop(archive);
+
+        run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive stage");
+        run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "structural-rebuild",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("structural stage");
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let preserved_session = intelligence
+            .query_row(
+                "SELECT session_id FROM visit_derived_facts WHERE visit_id = 40",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("preserved session");
+        let preserved_trail = intelligence
+            .query_row("SELECT trail_id FROM visit_derived_facts WHERE visit_id = 41", [], |row| {
+                row.get::<_, Option<String>>(0)
+            })
+            .expect("preserved trail");
+        let trail_rows: i64 = intelligence
+            .query_row(
+                "SELECT COUNT(*) FROM search_trails WHERE trail_id = 'trail:chrome:Default:40'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("trail row count");
+        let event_rows: i64 = intelligence
+            .query_row("SELECT COUNT(*) FROM search_events WHERE visit_id = 40", [], |row| {
+                row.get(0)
+            })
+            .expect("event row count");
+        assert_eq!(preserved_session.as_deref(), Some("session:chrome:Default:40"));
+        assert_eq!(preserved_trail.as_deref(), Some("trail:chrome:Default:40"));
+        assert_eq!(trail_rows, 1);
+        assert_eq!(event_rows, 1);
+    }
+
+    #[test]
     fn batched_query_family_builder_matches_in_memory_builder() {
         let root = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
@@ -7456,6 +8146,111 @@ mod tests {
         assert_eq!(batched_refind, in_memory_refind);
         assert_eq!(batched_flows, in_memory_flows);
         assert_eq!(batched_habits, in_memory_habits);
+    }
+
+    #[test]
+    fn batched_source_effectiveness_matches_in_memory_builder() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://docs.example.com/sqlite/wal-checkpoint",
+            "SQLite WAL Checkpoint",
+            1712102400000,
+            None,
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            5,
+            "https://alpha-docs.dev/guide",
+            "Guide",
+            1712145600000,
+            None,
+            None,
+        );
+        append_fixture_visit(
+            &archive,
+            6,
+            "https://beta-community.dev/thread",
+            "Thread",
+            1712145660000,
+            Some(5),
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        let trails = load_profile_trails(&intelligence, "chrome:Default").expect("trails");
+        let (refind_pages, _, _) =
+            build_structural_profile_aggregates_from_batches(&intelligence, "chrome:Default")
+                .expect("aggregates");
+        let mut in_memory = build_source_effectiveness(&trails, &refind_pages)
+            .into_iter()
+            .map(|record| {
+                (
+                    record.registrable_domain,
+                    record.source_role,
+                    record.trail_count,
+                    record.stable_landing_count,
+                    record.effectiveness_score,
+                    record.first_seen_ms,
+                    record.last_seen_ms,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut batched = build_source_effectiveness_from_database(
+            &intelligence,
+            "chrome:Default",
+            &refind_pages,
+        )
+        .expect("batched source effectiveness")
+        .into_iter()
+        .map(|record| {
+            (
+                record.registrable_domain,
+                record.source_role,
+                record.trail_count,
+                record.stable_landing_count,
+                record.effectiveness_score,
+                record.first_seen_ms,
+                record.last_seen_ms,
+            )
+        })
+        .collect::<Vec<_>>();
+        in_memory.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+                .then_with(|| left.3.cmp(&right.3))
+                .then_with(|| left.4.total_cmp(&right.4))
+                .then_with(|| left.5.cmp(&right.5))
+                .then_with(|| left.6.cmp(&right.6))
+        });
+        batched.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+                .then_with(|| left.3.cmp(&right.3))
+                .then_with(|| left.4.total_cmp(&right.4))
+                .then_with(|| left.5.cmp(&right.5))
+                .then_with(|| left.6.cmp(&right.6))
+        });
+        assert_eq!(batched, in_memory);
     }
 
     #[test]
@@ -7899,6 +8694,29 @@ mod tests {
                 from_visit,
                 normalized_search_term.as_deref(),
             );
+        }
+    }
+
+    fn append_fixture_chain_visits(
+        connection: &Connection,
+        start_visit_id: i64,
+        count: usize,
+        start_time_ms: i64,
+        from_visit_seed: i64,
+    ) {
+        let mut previous_visit_id = from_visit_seed;
+        for offset in 0..count {
+            let visit_id = start_visit_id + offset as i64;
+            append_fixture_visit(
+                connection,
+                visit_id,
+                &format!("https://github.com/example/repo/pulls/{visit_id}"),
+                &format!("Pull Request {visit_id}"),
+                start_time_ms + (offset as i64 * 60_000),
+                Some(previous_visit_id),
+                None,
+            );
+            previous_visit_id = visit_id;
         }
     }
 
