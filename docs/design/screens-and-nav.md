@@ -89,8 +89,10 @@
 ### M3 Intelligence deep-link 規則
 
 - Explorer 以同一個 `/explorer` route 承接 `keyword`、`semantic`、`hybrid` 三種 recall mode；`mode` 走 query string，避免 intelligence 結果和 canonical evidence 被拆成兩套路由。
+- Explorer 的 deterministic 分組視角也固定留在同一個 `/explorer` route；`view=time|session|trail` 走 query string，而不是額外拆子路由。`session` / `trail` 視角必須帶著 `start` / `end` window，避免 grouped view 偷偷退回不誠實的全庫視角。
 - semantic result、assistant citation、insight evidence 都要能 deep-link 回 `/explorer`，至少可帶 `q`、`profileId`、`domain` 等 canonical filters 讓使用者回看原始記錄。
-- Assistant 的 seeded follow-up 使用 `/assistant?question=...`；Explorer、Insights、Dashboard 都可以透過這個 deep-link 把 scoped 問題帶進 assistant composer。
+- Assistant 的 seeded follow-up 使用 `/assistant?question=...`；若目前 intelligence / explorer surface 已經處於特定 `profileId`，deep-link 也必須一併帶上該 `profileId`，讓頁面級 scope 優先於 shared scope。
+- Domain Deep Dive 現在是正式 route：`/intelligence/domain/:domain`。它必須沿用 `/intelligence` 的 `range`、`start`、`end`、`profileId` query contract，讓使用者重新整理、複製 URL、或從 Top Sites / Stable Sources / Search Effectiveness drill down 時都能回到同一個 scoped view。
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Insights；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
 - shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
@@ -118,5 +120,6 @@
 
 - Insights 頁面支援透過 shell chrome 的共享 profile scope 篩選 insight 資料。
 - 當使用者在 topbar 選擇特定 profile 時，Insights 的 cards、topic timeline、threads 等 surface 都切換為該 profile 的 scoped view。
+- 若 `profileId` 已經出現在 `/intelligence` 或 `/intelligence/domain/:domain` 的 query string，頁面級 scope 優先於 shared profile scope；route 重新整理後仍必須保持這個 explicit scope。
 - Dashboard 的 aggregate KPIs 仍維持 archive-wide；Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view」。
 - scoped vs all-profile 切換不得產生新的 route；以 query string `profileId` 或沿用 shared scope 處理，保持與 Explorer 的 scope 語法一致。

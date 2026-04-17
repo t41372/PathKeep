@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react'
+import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { useAsyncData } from '../../../lib/core-intelligence/hooks'
 import * as api from '../../../lib/core-intelligence/api'
 import type {
@@ -19,7 +20,7 @@ import type {
   TrailMember,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
-import type { Translator } from '../types'
+import type { ExplorerVisitSelection, Translator } from '../types'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -31,7 +32,7 @@ interface TrailGroupPanelProps {
   language: ResolvedLanguage
   explorerT: Translator
   intelligenceT: Translator
-  onSelectVisitUrl?: (url: string) => void
+  onSelectVisit?: (visit: ExplorerVisitSelection) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ export function TrailGroupPanel({
   language,
   explorerT,
   intelligenceT,
-  onSelectVisitUrl,
+  onSelectVisit,
 }: TrailGroupPanelProps) {
   const [page, setPage] = useState(0)
 
@@ -91,10 +92,11 @@ export function TrailGroupPanel({
         {data.trails.map((trail) => (
           <TrailCard
             key={trail.trailId}
+            profileId={profileId}
             trail={trail}
             language={language}
             intelligenceT={intelligenceT}
-            onSelectVisitUrl={onSelectVisitUrl}
+            onSelectVisit={onSelectVisit}
           />
         ))}
       </div>
@@ -142,15 +144,17 @@ function engineIcon(engine: string): string {
 }
 
 function TrailCard({
+  profileId,
   trail,
   language,
   intelligenceT,
-  onSelectVisitUrl,
+  onSelectVisit,
 }: {
+  profileId?: string | null
   trail: TrailSummary
   language: ResolvedLanguage
   intelligenceT: Translator
-  onSelectVisitUrl?: (url: string) => void
+  onSelectVisit?: (visit: ExplorerVisitSelection) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<TrailMember[] | null>(null)
@@ -251,11 +255,13 @@ function TrailCard({
                   className={`trail-member-row trail-member-row--${member.role}`}
                   role="button"
                   tabIndex={0}
-                  onClick={() => onSelectVisitUrl?.(member.url)}
+                  onClick={() =>
+                    onSelectVisit?.(toSelection(member, profileId))
+                  }
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      onSelectVisitUrl?.(member.url)
+                      onSelectVisit?.(toSelection(member, profileId))
                     }
                   }}
                 >
@@ -281,8 +287,30 @@ function TrailCard({
               ))}
             </div>
           ) : null}
+          <ExplainabilityPanel
+            entityType="search_trail"
+            entityId={trail.trailId}
+            t={intelligenceT}
+          />
         </div>
       )}
     </div>
   )
+}
+
+function toSelection(
+  member: TrailMember,
+  profileId?: string | null,
+): ExplorerVisitSelection {
+  return {
+    profileId,
+    title:
+      member.role === 'search_event' && member.searchQuery
+        ? `"${member.searchQuery}"`
+        : member.title,
+    transition: member.role,
+    url: member.url,
+    visitId: member.visitId,
+    visitedAt: new Date(member.visitTimeMs).toISOString(),
+  }
 }

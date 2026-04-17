@@ -290,6 +290,11 @@ describe('intelligence helpers', () => {
       '/assistant?question=What+did+I+read+about+SQLite%3F',
     )
     expect(
+      assistantHref('What did I read about SQLite?', 'chrome:Default'),
+    ).toBe(
+      '/assistant?question=What+did+I+read+about+SQLite%3F&profileId=chrome%3ADefault',
+    )
+    expect(
       evidenceHref({
         title: 'SQLite history',
       }),

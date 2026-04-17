@@ -1,50 +1,115 @@
 /**
- * Domain Deep Dive page — full breakdown for a single domain.
+ * Domain Deep Dive route and presentational surface.
  *
  * Why this file exists:
- * - Part of Core Intelligence P2-5b Domain Deep Dive.
- * - Accessed by clicking a domain from Top Sites or any domain link.
- * - Shows Top Pages, Referrers, Exits, Arrival Breakdown, and Visit Trend.
+ * - Domain drilldowns are now a first-class deep-linkable route under `/intelligence/domain/:domain`.
+ * - This module keeps the domain detail surface separate from the main intelligence shell while reusing the same range and scope contract.
  *
- * Source-of-truth:
- * - `docs/features/core-intelligence-ultimate-design.md` §4.1
+ * Main declarations:
+ * - `DomainDeepDiveRoutePage`
+ * - `DomainDeepDivePage`
+ *
+ * Source-of-truth notes:
+ * - Keep this aligned with `docs/features/core-intelligence-ultimate-design.md` §2.4 and §4.1.
+ * - Keep route/query behavior aligned with `docs/design/screens-and-nav.md`.
  */
 
+import { Link, useParams } from 'react-router-dom'
+import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
-  useTimeRange,
   useAsyncData,
   type DateRange,
   type DomainTrendPoint,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
-
-// ---------------------------------------------------------------------------
-// Props — the domain to drill into is passed via route params / state
-// ---------------------------------------------------------------------------
+import { useIntelligenceRouteState } from './route-state'
 
 interface DomainDeepDivePageProps {
+  backHref: string
+  dateRange: DateRange
   domain: string
-  dateRange?: DateRange
-  onBack?: () => void
+  profileId: string | null
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+/**
+ * Renders the deep-linkable domain route.
+ */
+export function DomainDeepDiveRoutePage() {
+  const { domain } = useParams<{ domain: string }>()
+  const { t } = useI18n('intelligence')
+  const {
+    dateRange,
+    effectiveProfileId,
+    preset,
+    profileScopeLabel,
+    setCustomRange,
+    setPreset,
+    withCurrentRouteSearch,
+  } = useIntelligenceRouteState()
 
+  if (!domain) {
+    return (
+      <div className="intelligence-page domain-deep-dive">
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('domainDeepDiveEmpty')}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="intelligence-page domain-deep-dive"
+      data-testid="domain-deep-dive-page"
+    >
+      <TimeRangeSelector
+        key={`${preset}:${dateRange.start}:${dateRange.end}`}
+        dateRange={dateRange}
+        preset={preset}
+        onPresetChange={setPreset}
+        onCustomRange={setCustomRange}
+        t={t}
+      />
+
+      <StatusCallout
+        tone="info"
+        title={
+          effectiveProfileId ? t('scopedViewTitle') : t('archiveWideBadge')
+        }
+        body={
+          effectiveProfileId
+            ? t('scopedViewBody', {
+                profile: profileScopeLabel ?? effectiveProfileId,
+              })
+            : t('archiveWideBody')
+        }
+      />
+
+      <DomainDeepDivePage
+        backHref={`/intelligence${withCurrentRouteSearch()}`}
+        dateRange={dateRange}
+        domain={decodeURIComponent(domain)}
+        profileId={effectiveProfileId}
+      />
+    </div>
+  )
+}
+
+/**
+ * Renders the domain deep-dive surface.
+ */
 export function DomainDeepDivePage({
+  backHref,
+  dateRange,
   domain,
-  dateRange: providedDateRange,
-  onBack,
+  profileId,
 }: DomainDeepDivePageProps) {
   const { t } = useI18n('intelligence')
-  const { dateRange: fallbackDateRange } = useTimeRange('month')
-  const dateRange = providedDateRange ?? fallbackDateRange
-
   const { data, loading, error } = useAsyncData(
-    () => api.getDomainDeepDive(domain, dateRange, null),
-    [domain, dateRange],
+    () => api.getDomainDeepDive(domain, dateRange, profileId),
+    [dateRange, domain, profileId],
   )
 
   if (loading) {
@@ -75,18 +140,10 @@ export function DomainDeepDivePage({
 
   return (
     <div className="intelligence-page domain-deep-dive">
-      {onBack && (
-        <button
-          className="btn-secondary"
-          type="button"
-          onClick={onBack}
-          style={{ alignSelf: 'flex-start', marginBottom: 'var(--space-3)' }}
-        >
-          ← {t('domainDeepDiveBack')}
-        </button>
-      )}
+      <Link className="btn-secondary" to={backHref}>
+        ← {t('domainDeepDiveBack')}
+      </Link>
 
-      {/* Header */}
       <div className="domain-deep-dive__header">
         <span className="domain-deep-dive__domain-name">
           {data.displayName ?? data.registrableDomain}
@@ -96,7 +153,6 @@ export function DomainDeepDivePage({
         </span>
       </div>
 
-      {/* KPI row */}
       <div className="domain-deep-dive__kpi-row">
         <div className="domain-deep-dive__kpi">
           <span className="domain-deep-dive__kpi-value">
@@ -120,8 +176,7 @@ export function DomainDeepDivePage({
         </div>
       </div>
 
-      {/* Arrival breakdown */}
-      {arrivalTotal > 0 && (
+      {arrivalTotal > 0 ? (
         <div>
           <h3 className="domain-deep-dive__section-title">
             {t('domainDeepDiveArrival')}
@@ -136,15 +191,15 @@ export function DomainDeepDivePage({
               { key: 'typed', value: data.arrivalBreakdown.typed },
               { key: 'other', value: data.arrivalBreakdown.other },
             ]
-              .filter((a) => a.value > 0)
-              .map((a) => (
+              .filter((entry) => entry.value > 0)
+              .map((entry) => (
                 <span
-                  key={a.key}
-                  className={`domain-deep-dive__arrival-bar domain-deep-dive__arrival-bar--${a.key}`}
+                  key={entry.key}
+                  className={`domain-deep-dive__arrival-bar domain-deep-dive__arrival-bar--${entry.key}`}
                   style={{
-                    width: `${Math.round((a.value / arrivalTotal) * 100)}%`,
+                    width: `${Math.round((entry.value / arrivalTotal) * 100)}%`,
                   }}
-                  title={`${t(`domainDeepDiveArrival_${a.key}`)}: ${Math.round((a.value / arrivalTotal) * 100)}%`}
+                  title={`${t(`domainDeepDiveArrival_${entry.key}`)}: ${Math.round((entry.value / arrivalTotal) * 100)}%`}
                 />
               ))}
           </div>
@@ -163,11 +218,10 @@ export function DomainDeepDivePage({
             </span>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Sections: Top Pages, Referrers, Exits */}
       <div className="domain-deep-dive__sections">
-        {data.topPages.length > 0 && (
+        {data.topPages.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveTopPages')}
@@ -181,27 +235,27 @@ export function DomainDeepDivePage({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
-        {data.topReferrers.length > 0 && (
+        {data.topReferrers.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveReferrers')}
             </h3>
-            {data.topReferrers.slice(0, 5).map((ref) => (
-              <div key={ref.domain} className="domain-deep-dive__flow-row">
+            {data.topReferrers.slice(0, 5).map((referrer) => (
+              <div key={referrer.domain} className="domain-deep-dive__flow-row">
                 <span className="domain-deep-dive__flow-domain">
-                  {ref.displayName ?? ref.domain}
+                  {referrer.displayName ?? referrer.domain}
                 </span>
                 <span className="domain-deep-dive__flow-count">
-                  {formatNumber(ref.count)}
+                  {formatNumber(referrer.count)}
                 </span>
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
-        {data.topExits.length > 0 && (
+        {data.topExits.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveExits')}
@@ -217,10 +271,9 @@ export function DomainDeepDivePage({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
-        {/* Visit trend mini chart */}
-        {data.visitTrend.length > 0 && (
+        {data.visitTrend.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveTrend')}
@@ -228,7 +281,9 @@ export function DomainDeepDivePage({
             <div className="discovery-trend__chart" style={{ height: 80 }}>
               {data.visitTrend.map((point: DomainTrendPoint) => {
                 const max = Math.max(
-                  ...data.visitTrend.map((p: DomainTrendPoint) => p.visitCount),
+                  ...data.visitTrend.map(
+                    (trendPoint: DomainTrendPoint) => trendPoint.visitCount,
+                  ),
                   1,
                 )
                 return (
@@ -239,29 +294,28 @@ export function DomainDeepDivePage({
                   >
                     <div className="discovery-trend__domain-bar-container">
                       <span
-                        className="discovery-trend__rate-bar"
+                        className="discovery-trend__domain-bar"
                         style={{
                           height: `${Math.round((point.visitCount / max) * 100)}%`,
                         }}
                       />
                     </div>
+                    <span className="discovery-trend__date-label">
+                      {point.dateKey.slice(5)}
+                    </span>
                   </div>
                 )
               })}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
+function formatNumber(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(value)
 }

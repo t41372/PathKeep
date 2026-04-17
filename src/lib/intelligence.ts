@@ -180,9 +180,12 @@ export function evidenceHref(evidence: {
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
-export function assistantHref(question: string) {
+export function assistantHref(question: string, profileId?: string | null) {
   const params = new URLSearchParams()
   params.set('question', question)
+  if (profileId) {
+    params.set('profileId', profileId)
+  }
   return `/assistant?${params.toString()}`
 }
 

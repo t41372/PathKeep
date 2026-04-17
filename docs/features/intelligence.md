@@ -234,8 +234,9 @@
 - **可篩選的 surface**：insight cards、topic timeline、query groups、threads、query ladders、reference pages、source effectiveness、periodic summaries。
 - **仍維持 archive-wide 的資料**：Dashboard KPIs、storage analytics、growth signal。
 - Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view，部分統計仍為 archive-wide」，避免用戶誤解。
-- 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致。
+- 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致；若頁面 URL 已帶明確 `profileId`，它優先於 shared scope。
 - 從 Insights 回 Explorer 的 drilldown，包括 On This Day、Site Analytics、Topic Timeline、Reference Pages 與 explain citations，都必須保留目前 `profileId`；不能從 scoped view 悄悄掉回 archive-wide 搜尋。
+- Domain Deep Dive 現在是正式 route `/intelligence/domain/:domain`；它必須沿用與 `/intelligence` 相同的 `range` / `start` / `end` / `profileId` query contract，讓 domain drilldown 可重整、可分享、可返回原本的 scoped overview。
 - 導航規則 → `docs/design/screens-and-nav.md` §Profile-Scoped Insights
 
 ### V1.5+ 洞察功能

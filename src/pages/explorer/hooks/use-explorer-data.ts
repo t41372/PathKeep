@@ -28,7 +28,11 @@ import type {
   ExportResult,
 } from '../../../lib/types'
 import { loadRecentSearches } from '../helpers'
-import type { ExplorerMode, RecentSearchEntry } from '../types'
+import type {
+  ExplorerMode,
+  ExplorerViewMode,
+  RecentSearchEntry,
+} from '../types'
 
 /**
  * Collects the inputs needed by `UseExplorerData`.
@@ -49,6 +53,7 @@ interface UseExplorerDataOptions {
     visitFailed: string
   }
   mode: ExplorerMode
+  view: ExplorerViewMode
   persistRecentSearch: (params: RecentSearchEntry['params']) => void
   refreshAppData: () => Promise<void>
   refreshKey: number
@@ -82,6 +87,7 @@ export function useExplorerData({
   historyBlockedByInvalidRegex,
   labels,
   mode,
+  view,
   persistRecentSearch,
   refreshAppData,
   refreshKey,
@@ -95,6 +101,7 @@ export function useExplorerData({
     currentQuery,
     end,
     mode,
+    view,
     persistRecentSearch,
     queryFailedTitle: labels.queryFailedTitle,
     setRecentSearches,
@@ -131,6 +138,7 @@ export function useExplorerData({
     currentQuery,
     end,
     mode,
+    view,
     persistRecentSearch,
     queryFailedTitle: labels.queryFailedTitle,
     setRecentSearches,
@@ -142,7 +150,14 @@ export function useExplorerData({
   }
 
   useEffect(() => {
-    if (!archiveReady || historyBlockedByInvalidRegex) return
+    if (!archiveReady || historyBlockedByInvalidRegex || view !== 'time') {
+      setQueryState((current) =>
+        current.requestKey === requestKey && current.results === null
+          ? current
+          : { requestKey, results: null, error: null },
+      )
+      return
+    }
     let cancelled = false
     /**
      * Loads results.
@@ -163,6 +178,7 @@ export function useExplorerData({
         request.persistRecentSearch({
           q: request.currentQuery.q,
           mode: request.mode,
+          view: request.view,
           regex: request.currentQuery.regexMode ? '1' : null,
           domain: request.currentQuery.domain,
           profileId: request.currentQuery.profileId,
@@ -186,7 +202,7 @@ export function useExplorerData({
     return () => {
       cancelled = true
     }
-  }, [archiveReady, historyBlockedByInvalidRegex, requestKey])
+  }, [archiveReady, historyBlockedByInvalidRegex, requestKey, view])
 
   useEffect(() => {
     if (!archiveReady) return

@@ -70,7 +70,7 @@ export function ExplainabilityPanel({
         aria-expanded={expanded}
         onClick={() => void handleToggle()}
       >
-        <span className="explainability-panel__toggle-icon">
+        <span className="explainability-panel__toggle-icon" aria-hidden="true">
           {expanded ? '▾' : '▸'}
         </span>
         <span className="explainability-panel__toggle-label">

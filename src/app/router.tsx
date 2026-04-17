@@ -247,11 +247,23 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'intelligence',
-    lazy: async () => {
-      const module = await import('../pages/intelligence')
-      return { Component: module.IntelligencePage }
-    },
     handle: withHandle(appShellScreens[2]),
+    children: [
+      {
+        index: true,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.IntelligencePage }
+        },
+      },
+      {
+        path: 'domain/:domain',
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.DomainDeepDiveRoutePage }
+        },
+      },
+    ],
   },
   {
     path: 'assistant',

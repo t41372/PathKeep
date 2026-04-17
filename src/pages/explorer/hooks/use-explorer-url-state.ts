@@ -38,7 +38,12 @@ import {
   semanticPageSize,
   toLocalDateString,
 } from '../helpers'
-import type { ExplorerMode, RecentSearchEntry, Translator } from '../types'
+import type {
+  ExplorerMode,
+  ExplorerViewMode,
+  RecentSearchEntry,
+  Translator,
+} from '../types'
 
 /**
  * Defines the typed shape for active filter.
@@ -82,6 +87,13 @@ export function useExplorerUrlState({
   const deferredQuery = useDeferredValue(rawQuery)
   const regexMode = searchParams.get('regex') === '1'
   const mode = (searchParams.get('mode') as ExplorerMode | null) ?? 'keyword'
+  const requestedView = searchParams.get('view')
+  const view: ExplorerViewMode =
+    requestedView === 'session' || requestedView === 'trail'
+      ? mode === 'keyword'
+        ? requestedView
+        : 'time'
+      : 'time'
   const explicitProfileId = searchParams.get('profileId')
   const profileId = explicitProfileId ?? activeProfileId
   const browserKind = searchParams.get('browserKind')
@@ -136,6 +148,11 @@ export function useExplorerUrlState({
           ? explorerT('modeSemantic')
           : params.mode === 'hybrid'
             ? explorerT('modeHybrid')
+            : null,
+        params.view === 'session'
+          ? explorerT('viewModeSession')
+          : params.view === 'trail'
+            ? explorerT('viewModeTrail')
             : null,
         params.regex === '1' ? explorerT('activeFilterRegexEnabled') : null,
         params.q?.trim() ? params.q.trim() : null,
@@ -225,6 +242,7 @@ export function useExplorerUrlState({
     () =>
       JSON.stringify({
         q: rawQuery || null,
+        view,
         profileId,
         browserKind,
         domain,
@@ -233,7 +251,17 @@ export function useExplorerUrlState({
         sort,
         regexMode,
       }),
-    [browserKind, rawQuery, domain, end, profileId, regexMode, sort, start],
+    [
+      browserKind,
+      rawQuery,
+      domain,
+      end,
+      profileId,
+      regexMode,
+      sort,
+      start,
+      view,
+    ],
   )
   const semanticQuerySignature = useMemo(
     () =>
@@ -304,6 +332,16 @@ export function useExplorerUrlState({
             mode === 'semantic'
               ? explorerT('modeSemantic')
               : explorerT('modeHybrid'),
+        }
+      : null,
+    view !== 'time'
+      ? {
+          id: 'view',
+          label: explorerT('viewModeLabel'),
+          value:
+            view === 'session'
+              ? explorerT('viewModeSession')
+              : explorerT('viewModeTrail'),
         }
       : null,
     regexMode
@@ -393,6 +431,31 @@ export function useExplorerUrlState({
       pendingHistoryScrollKeyRef.current = null
     }
     setSearchParams(next)
+  }
+
+  /**
+   * Updates the explorer grouping mode and assigns a default recent window when grouped views need one.
+   */
+  function setView(nextView: ExplorerViewMode) {
+    const next = new URLSearchParams(searchParams)
+    if (nextView === 'time') {
+      next.delete('view')
+    } else {
+      next.set('view', nextView)
+      if (!start || !end) {
+        const endDate = new Date()
+        const startDate = new Date(endDate)
+        startDate.setDate(endDate.getDate() - 29)
+        next.set('start', toLocalDateString(startDate))
+        next.set('end', toLocalDateString(endDate))
+      }
+    }
+    next.delete('page')
+    next.delete('cursor')
+    next.delete('semanticCursor')
+    resetSemanticPagination()
+    setSearchParams(next)
+    pendingHistoryScrollKeyRef.current = null
   }
 
   /**
@@ -602,6 +665,20 @@ export function useExplorerUrlState({
     )
   }
 
+  const groupedDateRange = useMemo(() => {
+    if (start && end) {
+      return { start, end }
+    }
+
+    const endDate = new Date()
+    const startDate = new Date(endDate)
+    startDate.setDate(endDate.getDate() - 29)
+    return {
+      start: toLocalDateString(startDate),
+      end: toLocalDateString(endDate),
+    }
+  }, [end, start])
+
   return {
     activeDateShortcut,
     activeFilters,
@@ -618,6 +695,7 @@ export function useExplorerUrlState({
     end,
     explicitPage,
     explicitProfileId,
+    groupedDateRange,
     handleFirstHistoryPage,
     handleHistoryPageJump,
     handleLastHistoryPage,
@@ -641,6 +719,7 @@ export function useExplorerUrlState({
     semanticQuery,
     semanticQuerySignature,
     semanticTrail,
+    setView,
     setHistoryPageInput,
     setQueryInput,
     setRecentSearches,
@@ -648,5 +727,6 @@ export function useExplorerUrlState({
     sort,
     start,
     updateParam,
+    view,
   }
 }

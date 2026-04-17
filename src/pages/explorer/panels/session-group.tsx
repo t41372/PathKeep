@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react'
+import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { useAsyncData } from '../../../lib/core-intelligence/hooks'
 import * as api from '../../../lib/core-intelligence/api'
 import type {
@@ -20,7 +21,7 @@ import type {
   SessionVisit,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
-import type { Translator } from '../types'
+import type { ExplorerVisitSelection, Translator } from '../types'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -32,7 +33,7 @@ interface SessionGroupPanelProps {
   language: ResolvedLanguage
   explorerT: Translator
   intelligenceT: Translator
-  onSelectVisitUrl?: (url: string) => void
+  onSelectVisit?: (visit: ExplorerVisitSelection) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ export function SessionGroupPanel({
   language,
   explorerT,
   intelligenceT,
-  onSelectVisitUrl,
+  onSelectVisit,
 }: SessionGroupPanelProps) {
   const [page, setPage] = useState(0)
 
@@ -88,10 +89,11 @@ export function SessionGroupPanel({
         {data.sessions.map((session) => (
           <SessionCard
             key={session.sessionId}
+            profileId={profileId}
             session={session}
             language={language}
             intelligenceT={intelligenceT}
-            onSelectVisitUrl={onSelectVisitUrl}
+            onSelectVisit={onSelectVisit}
           />
         ))}
       </div>
@@ -126,15 +128,17 @@ export function SessionGroupPanel({
 // ---------------------------------------------------------------------------
 
 function SessionCard({
+  profileId,
   session,
   language,
   intelligenceT,
-  onSelectVisitUrl,
+  onSelectVisit,
 }: {
+  profileId?: string | null
   session: SessionSummary
   language: ResolvedLanguage
   intelligenceT: Translator
-  onSelectVisitUrl?: (url: string) => void
+  onSelectVisit?: (visit: ExplorerVisitSelection) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<SessionVisit[] | null>(null)
@@ -220,11 +224,11 @@ function SessionCard({
                   className={`session-visit-row${visit.isSearchEvent ? ' session-visit-row--search' : ''}`}
                   role="button"
                   tabIndex={0}
-                  onClick={() => onSelectVisitUrl?.(visit.url)}
+                  onClick={() => onSelectVisit?.(toSelection(visit, profileId))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      onSelectVisitUrl?.(visit.url)
+                      onSelectVisit?.(toSelection(visit, profileId))
                     }
                   }}
                 >
@@ -264,8 +268,27 @@ function SessionCard({
               </p>
             </div>
           )}
+          <ExplainabilityPanel
+            entityType="session"
+            entityId={session.sessionId}
+            t={intelligenceT}
+          />
         </div>
       )}
     </div>
   )
+}
+
+function toSelection(
+  visit: SessionVisit,
+  profileId?: string | null,
+): ExplorerVisitSelection {
+  return {
+    profileId,
+    title: visit.title,
+    transition: visit.transitionType,
+    url: visit.url,
+    visitId: visit.visitId,
+    visitedAt: new Date(visit.visitTimeMs).toISOString(),
+  }
 }

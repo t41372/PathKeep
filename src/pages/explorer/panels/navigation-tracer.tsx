@@ -65,7 +65,7 @@ export function NavigationTracer({
         aria-expanded={expanded}
         onClick={() => void handleToggle()}
       >
-        <span className="navigation-tracer__toggle-icon">
+        <span className="navigation-tracer__toggle-icon" aria-hidden="true">
           {expanded ? '▾' : '▸'}
         </span>
         <span className="navigation-tracer__toggle-label">

@@ -495,6 +495,9 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 - canonical evidence 主場
 - semantic / hybrid recall 的入口
 - AI runtime panel 的修復與 queue review 入口
+- `view=time|session|trail` 已共用同一個 `/explorer` route；session / search trail 不再是 repo 裡孤立的 demo panel，而是正式 route state
+- session / trail 視角共用同一條 detail rail 與 navigation tracer；使用者在 grouped view 選到的 visit，仍然能回答「你是怎麼找到這裡的」
+- 若 Explorer route 沒有顯式 `profileId`，會沿用 shared profile scope；若 URL 有 `profileId`，則頁面級 scope 優先
 
 ### Assistant
 
@@ -505,13 +508,16 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 - queued job reload / run / cancel
 - citation review
 
-### Insights
+### Intelligence
 
 目前是：
 
 - deterministic analysis snapshot 主頁
 - runtime digest 的次級入口
 - explainability 主頁
+- `/intelligence` 與 `/intelligence/domain/:domain` 現在共用 `range` / `start` / `end` / `profileId` query contract；domain deep dive 已是正式可重整、可分享的 route，而不是 page-local state
+- 主頁上大多數 deterministic section 現在都會吃 effective profile scope；只有天生 archive-wide 的 surface（例如 multi-browser diff）會在 UI 上明講自己沒有跟著 scope 一起收窄
+- explainability 已實際接進 Refind Pages、Query Families、Reopened Investigations、Habits、Path Flows；Explorer 的 sessions / search trails 也已能直接展開 explainability
 
 目前實際 section 順序是：
 
@@ -604,6 +610,12 @@ UI 只有：
 - topic detail
 - explain button
 - timeline drilldown
+
+### 9.4 還沒完全收尾的前端 truth
+
+- `/intelligence` 雖然已切成 route shell + shared time-range selector + domain deep dive route，但 section primitives 仍偏重，後續還可以再拆成更小的 chart / list component
+- grouped Explorer 目前仍以 deterministic date window + profile scope 為主，不會把 keyword query / regex 再硬套進 session / trail API 假裝有 backend 支援
+- habit / path-flow explainability 目前只有在明確 profile-scoped view 下才會出現，因為 backend explain contract 需要 `<profile_id>::...` entity id
 
 ---
 

@@ -21,7 +21,7 @@
 import type { ReactNode } from 'react'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   ShellDataContext,
@@ -35,6 +35,7 @@ import {
   createTranslator,
   type ResolvedLanguage,
 } from '../lib/i18n'
+import * as coreIntelligenceApi from '../lib/core-intelligence/api'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import type {
   AiProviderConnectionTestReport,
@@ -47,6 +48,7 @@ import type {
 import { AssistantPage } from './assistant'
 import { DashboardPage } from './dashboard'
 import { ExplorerPage } from './explorer'
+import { DomainDeepDiveRoutePage, IntelligencePage } from './intelligence'
 import { JobsPage } from './jobs'
 import { SettingsPage } from './settings'
 
@@ -1048,6 +1050,382 @@ describe('intelligence surfaces', () => {
     ).toBeVisible()
 
     window.localStorage.removeItem('pathkeep.profile-scope')
+  })
+
+  test('inherits shared intelligence scope and lets explicit profileId override it', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const summary = {
+      dateRange: { start: '2026-04-01', end: '2026-04-07' },
+      totalVisits: { value: 12, trend: 'flat' as const },
+      totalSearches: { value: 3, trend: 'flat' as const },
+      newDomains: { value: 2, trend: 'flat' as const },
+      deepReadPages: { value: 1, trend: 'flat' as const },
+      refindPages: { value: 1, trend: 'flat' as const },
+    }
+    const digestSpy = vi
+      .spyOn(coreIntelligenceApi, 'getDigestSummary')
+      .mockResolvedValue(summary)
+
+    window.localStorage.setItem('pathkeep.profile-scope', 'chrome:Default')
+
+    try {
+      const first = renderSurface(<IntelligencePage />, {
+        route: '/intelligence',
+        snapshot,
+      })
+
+      expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+      await waitFor(() =>
+        expect(digestSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          'chrome:Default',
+        ),
+      )
+      expect(
+        await screen.findByText(intelligenceT('scopedViewTitle')),
+      ).toBeVisible()
+
+      first.unmount()
+      digestSpy.mockClear()
+
+      renderSurface(<IntelligencePage />, {
+        route: '/intelligence?profileId=firefox:Research',
+        snapshot,
+      })
+
+      await waitFor(() =>
+        expect(digestSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          'firefox:Research',
+        ),
+      )
+      expect(
+        await screen.findByText(intelligenceT('scopedViewTitle')),
+      ).toBeVisible()
+    } finally {
+      window.localStorage.removeItem('pathkeep.profile-scope')
+    }
+  })
+
+  test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    vi.spyOn(coreIntelligenceApi, 'getSessions').mockResolvedValue({
+      sessions: [
+        {
+          sessionId: 'session-1',
+          firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+          lastVisitMs: Date.parse('2026-04-05T14:30:00Z'),
+          visitCount: 3,
+          searchCount: 1,
+          domainCount: 2,
+          isDeepDive: true,
+          autoTitle: 'SQLite WAL research',
+        },
+      ],
+      total: 1,
+      page: 0,
+      pageSize: 20,
+    })
+    vi.spyOn(coreIntelligenceApi, 'getSessionDetail').mockResolvedValue({
+      session: {
+        sessionId: 'session-1',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:30:00Z'),
+        visitCount: 3,
+        searchCount: 1,
+        domainCount: 2,
+        isDeepDive: true,
+        autoTitle: 'SQLite WAL research',
+      },
+      visits: [
+        {
+          visitId: 101,
+          url: 'https://www.sqlite.org/wal.html',
+          title: 'SQLite WAL',
+          registrableDomain: 'sqlite.org',
+          visitTimeMs: Date.parse('2026-04-05T14:05:00Z'),
+          isSearchEvent: false,
+          searchQuery: null,
+          searchEngine: null,
+          trailId: null,
+          transitionType: 'link',
+        },
+      ],
+      trails: [],
+    })
+    vi.spyOn(coreIntelligenceApi, 'getNavigationPath').mockResolvedValue({
+      targetVisitId: 101,
+      steps: [
+        {
+          visitId: 100,
+          url: 'https://www.google.com/search?q=sqlite+wal',
+          title: 'Google',
+          visitTimeMs: Date.parse('2026-04-05T14:04:00Z'),
+          depth: 0,
+        },
+        {
+          visitId: 101,
+          url: 'https://www.sqlite.org/wal.html',
+          title: 'SQLite WAL',
+          visitTimeMs: Date.parse('2026-04-05T14:05:00Z'),
+          depth: 1,
+        },
+      ],
+    })
+
+    renderSurface(<ExplorerPage />, {
+      route: '/explorer?view=session&start=2026-04-01&end=2026-04-07',
+      snapshot,
+    })
+
+    expect(await screen.findByText('SQLite WAL research')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: /SQLite WAL research/i }),
+    )
+    await user.click(await screen.findByText('SQLite WAL'))
+    await user.click(
+      screen.getByRole('button', { name: intelligenceT('tracerTitle') }),
+    )
+    expect(await screen.findByText('Google')).toBeVisible()
+    expect(
+      screen.getByText(new RegExp(intelligenceT('tracerHere'))),
+    ).toBeVisible()
+  })
+
+  test('renders explorer trail view and keeps grouped selection wired to the detail rail', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    vi.spyOn(coreIntelligenceApi, 'getSearchTrails').mockResolvedValue({
+      trails: [
+        {
+          trailId: 'trail-1',
+          sessionId: 'session-1',
+          initialQuery: 'sqlite wal checkpoint',
+          searchEngine: 'Google',
+          reformulationCount: 1,
+          visitCount: 2,
+          landingUrl: 'https://www.sqlite.org/pragma.html',
+          landingDomain: 'sqlite.org',
+          firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+          lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+          maxDepth: 2,
+          queries: ['sqlite wal checkpoint', 'sqlite wal checkpoint passive'],
+        },
+      ],
+      total: 1,
+      page: 0,
+      pageSize: 20,
+    })
+    vi.spyOn(coreIntelligenceApi, 'getTrailDetail').mockResolvedValue({
+      trail: {
+        trailId: 'trail-1',
+        sessionId: 'session-1',
+        initialQuery: 'sqlite wal checkpoint',
+        searchEngine: 'Google',
+        reformulationCount: 1,
+        visitCount: 2,
+        landingUrl: 'https://www.sqlite.org/pragma.html',
+        landingDomain: 'sqlite.org',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+        maxDepth: 2,
+        queries: ['sqlite wal checkpoint', 'sqlite wal checkpoint passive'],
+      },
+      members: [
+        {
+          trailId: 'trail-1',
+          visitId: 201,
+          ordinal: 0,
+          role: 'search_event',
+          url: 'https://www.google.com/search?q=sqlite+wal+checkpoint+passive',
+          title: 'Google',
+          visitTimeMs: Date.parse('2026-04-05T14:02:00Z'),
+          searchQuery: 'sqlite wal checkpoint passive',
+        },
+        {
+          trailId: 'trail-1',
+          visitId: 202,
+          ordinal: 1,
+          role: 'landing',
+          url: 'https://www.sqlite.org/pragma.html',
+          title: 'PRAGMA wal_checkpoint',
+          visitTimeMs: Date.parse('2026-04-05T14:03:00Z'),
+          searchQuery: null,
+        },
+      ],
+    })
+    vi.spyOn(coreIntelligenceApi, 'getNavigationPath').mockResolvedValue({
+      targetVisitId: 202,
+      steps: [
+        {
+          visitId: 201,
+          url: 'https://www.google.com/search?q=sqlite+wal+checkpoint+passive',
+          title: 'Google',
+          visitTimeMs: Date.parse('2026-04-05T14:02:00Z'),
+          depth: 0,
+        },
+        {
+          visitId: 202,
+          url: 'https://www.sqlite.org/pragma.html',
+          title: 'PRAGMA wal_checkpoint',
+          visitTimeMs: Date.parse('2026-04-05T14:03:00Z'),
+          depth: 1,
+        },
+      ],
+    })
+
+    renderSurface(<ExplorerPage />, {
+      route: '/explorer?view=trail&start=2026-04-01&end=2026-04-07',
+      snapshot,
+    })
+
+    expect(await screen.findByText('"sqlite wal checkpoint"')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: /sqlite wal checkpoint/i }),
+    )
+    await user.click(await screen.findByText('PRAGMA wal_checkpoint'))
+    await user.click(
+      screen.getByRole('button', { name: intelligenceT('tracerTitle') }),
+    )
+    expect(
+      (await screen.findAllByText('PRAGMA wal_checkpoint')).length,
+    ).toBeGreaterThan(1)
+  })
+
+  test('keeps domain deep dives deep-linkable and preserves route-backed scope and date range', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    const domainSpy = vi
+      .spyOn(coreIntelligenceApi, 'getDomainDeepDive')
+      .mockResolvedValue({
+        registrableDomain: 'github.com',
+        displayName: 'GitHub',
+        domainCategory: 'developer',
+        totalVisits: 38,
+        activeDays: 7,
+        trailCount: 4,
+        arrivalBreakdown: { search: 10, link: 12, typed: 8, other: 8 },
+        topPages: [{ path: '/issues', visitCount: 12 }],
+        topReferrers: [
+          { domain: 'google.com', displayName: 'Google', count: 6 },
+        ],
+        topExits: [
+          {
+            domain: 'stackoverflow.com',
+            displayName: 'Stack Overflow',
+            count: 4,
+          },
+        ],
+        visitTrend: [{ dateKey: '2026-04-05', visitCount: 6 }],
+      })
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/domain/:domain"
+          element={<DomainDeepDiveRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/domain/github.com?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(await screen.findByTestId('domain-deep-dive-page')).toBeVisible()
+    await waitFor(() =>
+      expect(domainSpy).toHaveBeenCalledWith(
+        'github.com',
+        { start: '2026-04-01', end: '2026-04-07' },
+        'chrome:Default',
+      ),
+    )
+    expect(screen.getByRole('link', { name: /Back/i })).toHaveAttribute(
+      'href',
+      '/intelligence?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome%3ADefault',
+    )
+  })
+
+  test('limits path-flow steps to supported values and wires explainability to supported intelligence entities', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue([
+      {
+        canonicalUrl: 'https://example.com/reference',
+        url: 'https://example.com/reference',
+        title: 'Reference page',
+        registrableDomain: 'example.com',
+        crossDayCount: 4,
+        trailCount: 3,
+        searchArrivalCount: 2,
+        typedRevisitCount: 1,
+        refindScore: 0.9,
+        firstSeenAt: '2026-04-01T00:00:00Z',
+        lastSeenAt: '2026-04-07T00:00:00Z',
+      },
+    ])
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue({
+      families: [],
+      total: 0,
+      page: 0,
+      pageSize: 10,
+    })
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue([])
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue([])
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue([])
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue([])
+    const explainSpy = vi
+      .spyOn(coreIntelligenceApi, 'explainEntity')
+      .mockResolvedValue({
+        entityType: 'refind_page',
+        entityId: 'https://example.com/reference',
+        triggerRule: 'Refind score >= 0.7',
+        factors: [],
+        participatingVisitIds: [1, 2],
+      })
+
+    renderSurface(<IntelligencePage />, {
+      route: '/intelligence?profileId=chrome:Default',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+    expect(
+      screen.queryByText(intelligenceT('pathFlowsStep4')),
+    ).not.toBeInTheDocument()
+
+    const refindSection = screen
+      .getByText(intelligenceT('refindTitle'))
+      .closest('section')
+    expect(refindSection).not.toBeNull()
+    if (!(refindSection instanceof HTMLElement)) {
+      throw new Error('expected refind section')
+    }
+
+    await user.click(
+      within(refindSection).getByRole('button', {
+        name: intelligenceT('explainTitle'),
+      }),
+    )
+
+    await waitFor(() =>
+      expect(explainSpy).toHaveBeenCalledWith(
+        'refind_page',
+        'https://example.com/reference',
+      ),
+    )
   })
 
   test('clears both explorer date bounds in a single interaction', async () => {

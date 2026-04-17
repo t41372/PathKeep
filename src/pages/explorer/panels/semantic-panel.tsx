@@ -149,6 +149,7 @@ export function ExplorerSemanticPanel({
                             item: item.title ?? item.url,
                             query: semanticQuery.query,
                           }),
+                          item.profileId,
                         )}
                       >
                         {explorerT('askAssistant')}

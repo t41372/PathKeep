@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -34,9 +34,13 @@ import {
 import { browserLabel, dateShortcutWindows } from './helpers'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
+import { ExplorerDetailPanel } from './panels/detail-panel'
 import { ExplorerResultsPanel } from './panels/results-panel'
 import { ExplorerRuntimePanel } from './panels/runtime-panel'
 import { ExplorerSemanticPanel } from './panels/semantic-panel'
+import { SessionGroupPanel } from './panels/session-group'
+import { TrailGroupPanel } from './panels/trail-group'
+import type { ExplorerVisitSelection } from './types'
 
 /**
  * Renders the explorer route.
@@ -69,6 +73,7 @@ export function ExplorerPage() {
     end,
     explicitPage,
     explicitProfileId,
+    groupedDateRange,
     handleFirstHistoryPage,
     handleHistoryPageJump,
     handleLastHistoryPage,
@@ -94,8 +99,10 @@ export function ExplorerPage() {
     setQueryInput,
     setRecentSearches,
     setSearchParams,
+    setView,
     start,
     updateParam,
+    view,
   } = useExplorerUrlState({
     activeProfileId,
     explorerT,
@@ -122,6 +129,11 @@ export function ExplorerPage() {
   )
   const historyBlockedByInvalidRegex =
     archiveReady && regexMode && Boolean(queryInput.trim()) && !regexValid
+  const groupedSelectionKey = `${view}:${groupedDateRange.start}:${groupedDateRange.end}:${profileId ?? 'all'}`
+  const [selectedGroupedVisitState, setSelectedGroupedVisitState] = useState<{
+    key: string
+    visit: ExplorerVisitSelection
+  } | null>(null)
   const labels = useMemo(
     () => ({
       exportFailed: explorerT('exportFailed'),
@@ -160,6 +172,7 @@ export function ExplorerPage() {
     historyBlockedByInvalidRegex,
     labels,
     mode,
+    view,
     persistRecentSearch,
     refreshAppData,
     refreshKey,
@@ -203,6 +216,10 @@ export function ExplorerPage() {
     results?.items.find((item) => item.id === selectedId) ??
     results?.items[0] ??
     null
+  const selectedGroupedVisit =
+    selectedGroupedVisitState?.key === groupedSelectionKey
+      ? selectedGroupedVisitState.visit
+      : null
 
   useEffect(() => {
     setHistoryPageInput(String(historyPage))
@@ -384,6 +401,31 @@ export function ExplorerPage() {
                   : option === 'semantic'
                     ? explorerT('modeSemantic')
                     : explorerT('modeHybrid')}
+              </button>
+            ))}
+          </div>
+          <div
+            className="segmented-row"
+            style={{ marginBottom: 'var(--space-4)' }}
+            role="toolbar"
+            aria-label={intelligenceT('viewModeLabel')}
+          >
+            {(['time', 'session', 'trail'] as const).map((option) => (
+              <button
+                key={option}
+                className={`chip-button ${
+                  view === option ? 'chip-button--active' : ''
+                }`}
+                type="button"
+                disabled={mode !== 'keyword' && option !== 'time'}
+                aria-pressed={view === option}
+                onClick={() => setView(option)}
+              >
+                {option === 'time'
+                  ? intelligenceT('viewModeTime')
+                  : option === 'session'
+                    ? intelligenceT('viewModeSession')
+                    : intelligenceT('viewModeTrail')}
               </button>
             ))}
           </div>
@@ -669,7 +711,7 @@ export function ExplorerPage() {
           eyebrow={explorerT('noMatchesEyebrow')}
           title={explorerT('noMatchesTitle')}
         />
-      ) : results ? (
+      ) : results && view === 'time' ? (
         <ExplorerResultsPanel
           actionError={actionError}
           commonT={commonT}
@@ -697,12 +739,65 @@ export function ExplorerPage() {
           historyPage={historyPage}
           historyPageCount={historyPageCount}
           historyPageInput={historyPageInput}
+          intelligenceT={intelligenceT}
           language={language}
           onHistoryPageInputChange={setHistoryPageInput}
           onSelectHistory={setSelectedId}
           results={results}
           selectedEntry={selectedEntry}
         />
+      ) : view === 'session' ? (
+        <div className="explorer-grid">
+          <div className="record-list">
+            <SessionGroupPanel
+              dateRange={groupedDateRange}
+              explorerT={explorerT}
+              intelligenceT={intelligenceT}
+              language={language}
+              onSelectVisit={(visit) =>
+                setSelectedGroupedVisitState({
+                  key: groupedSelectionKey,
+                  visit,
+                })
+              }
+              profileId={profileId}
+            />
+          </div>
+          <ExplorerDetailPanel
+            commonT={commonT}
+            explorerT={explorerT}
+            handleVisit={handleVisit}
+            intelligenceT={intelligenceT}
+            language={language}
+            selectedVisit={selectedGroupedVisit}
+          />
+        </div>
+      ) : view === 'trail' ? (
+        <div className="explorer-grid">
+          <div className="record-list">
+            <TrailGroupPanel
+              dateRange={groupedDateRange}
+              explorerT={explorerT}
+              intelligenceT={intelligenceT}
+              language={language}
+              onSelectVisit={(visit) =>
+                setSelectedGroupedVisitState({
+                  key: groupedSelectionKey,
+                  visit,
+                })
+              }
+              profileId={profileId}
+            />
+          </div>
+          <ExplorerDetailPanel
+            commonT={commonT}
+            explorerT={explorerT}
+            handleVisit={handleVisit}
+            intelligenceT={intelligenceT}
+            language={language}
+            selectedVisit={selectedGroupedVisit}
+          />
+        </div>
       ) : null}
     </section>
   )

@@ -13,16 +13,12 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import {
-  formatDateTime,
-  formatDuration,
-  formatRelativeTime,
-} from '../../../lib/format'
+import { formatRelativeTime } from '../../../lib/format'
 import { HistoryFavicon } from '../../../components/primitives/history-favicon'
-import { EmptyState } from '../../../components/primitives/empty-state'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { ExportFormat, HistoryQueryResponse } from '../../../lib/types'
 import { activateRecordSelection } from '../helpers'
+import { ExplorerDetailPanel } from './detail-panel'
 import type { Translator } from '../types'
 
 /**
@@ -49,6 +45,7 @@ interface ExplorerResultsPanelProps {
   historyPage: number
   historyPageCount: number
   historyPageInput: string
+  intelligenceT: Translator
   language: ResolvedLanguage
   onHistoryPageInputChange: (value: string) => void
   onSelectHistory: (id: number) => void
@@ -80,6 +77,7 @@ export function ExplorerResultsPanel({
   historyPage,
   historyPageCount,
   historyPageInput,
+  intelligenceT,
   language,
   onHistoryPageInputChange,
   onSelectHistory,
@@ -198,78 +196,11 @@ export function ExplorerResultsPanel({
           </div>
         </div>
       </div>
-
-      <div className="detail-panel">
-        <div className="detail-header">
-          <span className="crosshair-mark small">+</span>
-          <span className="detail-label">{explorerT('recordDetail')}</span>
-        </div>
-        {selectedEntry ? (
-          <div className="detail-body">
-            <div className="detail-section">
-              <div className="detail-field">
-                <span className="field-label">{explorerT('fieldTitle')}</span>
-                <span className="field-value with-favicon">
-                  <HistoryFavicon
-                    domain={selectedEntry.domain}
-                    favicon={selectedEntry.favicon}
-                  />
-                  {selectedEntry.title || selectedEntry.url}
-                </span>
-              </div>
-              <div className="detail-field">
-                <span className="field-label">{explorerT('fieldUrl')}</span>
-                <span
-                  className="field-value"
-                  style={{ wordBreak: 'break-all' }}
-                >
-                  {selectedEntry.url}
-                </span>
-              </div>
-            </div>
-            <div className="detail-divider" />
-            <div className="detail-row">
-              <div className="detail-field half">
-                <span className="field-label">{explorerT('visitedAt')}</span>
-                <span className="field-value">
-                  {formatDateTime(selectedEntry.visitedAt, language) ??
-                    selectedEntry.visitedAt}
-                </span>
-              </div>
-              <div className="detail-field half">
-                <span className="field-label">{explorerT('duration')}</span>
-                <span className="field-value">
-                  {formatDuration(selectedEntry.durationMs)}
-                </span>
-              </div>
-            </div>
-            <div className="detail-row">
-              <div className="detail-field half">
-                <span className="field-label">{explorerT('fieldProfile')}</span>
-                <span className="field-value">{selectedEntry.profileId}</span>
-              </div>
-              <div className="detail-field half">
-                <span className="field-label">{explorerT('transition')}</span>
-                <span className="field-value">
-                  {selectedEntry.transition ?? commonT('notAvailable')}
-                </span>
-              </div>
-            </div>
-            <div className="detail-divider" />
-            <div
-              className="intelligence-actions"
-              style={{ marginBottom: 'var(--space-3)' }}
-            >
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => {
-                  void handleVisit(selectedEntry.url)
-                }}
-              >
-                {explorerT('visitRecord')}
-              </button>
-            </div>
+      <ExplorerDetailPanel
+        commonT={commonT}
+        explorerT={explorerT}
+        footer={
+          <>
             {actionError ? (
               <p className="inline-error" role="alert">
                 {actionError}
@@ -298,7 +229,7 @@ export function ExplorerResultsPanel({
                 ),
               )}
             </div>
-            {exportResult && (
+            {exportResult ? (
               <div style={{ marginTop: 'var(--space-3)', fontSize: '11px' }}>
                 <span className="dim mono">{exportResult.path}</span>
                 <div
@@ -327,29 +258,36 @@ export function ExplorerResultsPanel({
                     {commonT('copyAction')}
                   </button>
                 </div>
-                {copiedExportPath === exportResult.path && (
+                {copiedExportPath === exportResult.path ? (
                   <span className="dim mono" style={{ fontSize: '10px' }}>
                     {explorerT('copied')}
                   </span>
-                )}
-                {copiedExportPath === `error:${exportResult.path}` && (
+                ) : null}
+                {copiedExportPath === `error:${exportResult.path}` ? (
                   <span className="dim mono" style={{ fontSize: '10px' }}>
                     {explorerT('copyFailed')}
                   </span>
-                )}
+                ) : null}
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="detail-body">
-            <EmptyState
-              description={explorerT('noResultDescription')}
-              eyebrow={explorerT('noResultEyebrow')}
-              title={explorerT('noResultTitle')}
-            />
-          </div>
-        )}
-      </div>
+            ) : null}
+          </>
+        }
+        handleVisit={handleVisit}
+        intelligenceT={intelligenceT}
+        language={language}
+        selectedVisit={
+          selectedEntry
+            ? {
+                profileId: selectedEntry.profileId,
+                title: selectedEntry.title,
+                transition: selectedEntry.transition,
+                url: selectedEntry.url,
+                visitId: selectedEntry.id,
+                visitedAt: selectedEntry.visitedAt,
+              }
+            : null
+        }
+      />
     </div>
   )
 }

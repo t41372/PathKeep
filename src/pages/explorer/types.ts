@@ -27,6 +27,11 @@ import type { AiSearchResponse, HistoryQueryResponse } from '../../lib/types'
 export type ExplorerMode = 'keyword' | 'semantic' | 'hybrid'
 
 /**
+ * Enumerates the supported explorer grouping modes.
+ */
+export type ExplorerViewMode = 'time' | 'session' | 'trail'
+
+/**
  * Defines the type-level contract for translator.
  *
  * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
@@ -68,6 +73,7 @@ export interface RecentSearchEntry {
   params: {
     q?: string | null
     mode?: ExplorerMode | null
+    view?: ExplorerViewMode | null
     domain?: string | null
     profileId?: string | null
     browserKind?: string | null
@@ -76,4 +82,16 @@ export interface RecentSearchEntry {
     regex?: '1' | null
     sort?: 'newest' | 'oldest'
   }
+}
+
+/**
+ * Shared selected-visit payload used by all explorer views.
+ */
+export interface ExplorerVisitSelection {
+  profileId?: string | null
+  title?: string | null
+  transition?: number | string | null
+  url: string
+  visitId: number
+  visitedAt: string
 }
