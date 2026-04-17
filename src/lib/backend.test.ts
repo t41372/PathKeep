@@ -589,85 +589,17 @@ describe('backend facade', () => {
         expect.objectContaining({ historyId: 2 }),
       ],
     })
-    await expect(
-      backend.runInsightsNow({
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: false,
-        limit: null,
-      }),
-    ).resolves.toMatchObject({
-      processedVisits: 24,
-      cardCount: expect.any(Number),
-    })
-    await expect(
-      backend.loadInsights({
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: false,
-        limit: null,
-      }),
-    ).resolves.toMatchObject({
-      cards: expect.arrayContaining([
-        expect.objectContaining({ title: 'Rising topic: archive tooling' }),
-      ]),
-      workflowMap: expect.objectContaining({ chromiumEnhanced: true }),
-    })
     await expect(backend.clearDerivedIntelligence()).resolves.toMatchObject({
       clearedEnrichmentRows: 8,
       clearedFeatureRows: 8,
       clearedCardRows: 2,
     })
-    await expect(
-      backend.loadInsights({
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: false,
-        limit: null,
-      }),
-    ).resolves.toMatchObject({
-      cards: [],
-      topics: [],
-      threads: [],
-      status: expect.objectContaining({ ready: false }),
-    })
-    await expect(
-      backend.runInsightsNow({
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: true,
-        limit: null,
-      }),
-    ).resolves.toMatchObject({
-      processedVisits: 24,
-      cardCount: expect.any(Number),
-    })
-    await expect(backend.loadThreadDetail('thread-001')).resolves.toMatchObject(
-      {
-        summary: expect.objectContaining({ threadId: 'thread-001' }),
-        visits: expect.arrayContaining([
-          expect.objectContaining({ historyId: 1 }),
-        ]),
-      },
-    )
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
       queue: expect.objectContaining({ failed: 1 }),
       plugins: expect.arrayContaining([
         expect.objectContaining({ pluginId: 'title-normalization' }),
         expect.objectContaining({ pluginId: 'readable-content-refetch' }),
       ]),
-    })
-    await expect(
-      backend.explainInsight({
-        insightId: 'card-rising-topic-1',
-        insightKind: 'card',
-        profileId: 'chrome:Default',
-        windowDays: 30,
-      }),
-    ).resolves.toSatisfy((value) => {
-      expect(value.explanation).toContain('repeated revisits')
-      expect(value.usedLlm).toBe(false)
-      return true
     })
     await expect(backend.previewAiIntegrations()).resolves.toMatchObject({
       mcpCommand: expect.stringContaining('--worker mcp-server'),
@@ -772,34 +704,6 @@ describe('backend facade', () => {
         }),
       ]),
     })
-    await expect(
-      backend.runInsightsNow({
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: false,
-        limit: null,
-      }),
-    ).resolves.toMatchObject({
-      processedVisits: expect.any(Number),
-      enrichedVisits: 0,
-      failedEnrichments: 0,
-      notes: expect.arrayContaining([
-        expect.stringContaining('lexical/archive fields only'),
-      ]),
-    })
-    await expect(
-      backend.loadInsights({
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: false,
-        limit: null,
-      }),
-    ).resolves.toMatchObject({
-      status: expect.objectContaining({ contentCoverage: 0.18 }),
-      notes: expect.arrayContaining([
-        expect.stringContaining('lexical and structural evidence'),
-      ]),
-    })
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
       modules: expect.arrayContaining([
         expect.objectContaining({
@@ -807,61 +711,6 @@ describe('backend facade', () => {
           enabled: false,
           status: 'disabled',
           notes: ['Disabled in Settings.'],
-        }),
-      ]),
-    })
-  })
-
-  test('queues deterministic rebuild jobs with truthful running and paused preview states', async () => {
-    const request = {
-      profileId: null,
-      windowDays: 30,
-      fullRebuild: false,
-      limit: null,
-    }
-
-    await expect(backend.queueInsightsRebuild(request)).resolves.toMatchObject({
-      state: 'running',
-      notes: [expect.stringContaining('processing it in the background')],
-    })
-    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
-      recentJobs: expect.arrayContaining([
-        expect.objectContaining({
-          jobType: 'deterministic-rebuild',
-          state: 'running',
-          profileId: 'all',
-          startedAt: expect.any(String),
-          heartbeatAt: expect.any(String),
-          progressLabel: 'Loading visits',
-          progressDetail: 'Preparing a deterministic rebuild for all profiles.',
-          progressCurrent: 0,
-          progressTotal: 8,
-          progressPercent: 0,
-        }),
-      ]),
-    })
-
-    backendTestHarness.mutateState((state) => {
-      state.snapshot.config.ai.jobQueuePaused = true
-    })
-
-    await expect(backend.queueInsightsRebuild(request)).resolves.toMatchObject({
-      state: 'queued',
-      notes: [expect.stringContaining('Resume background work')],
-    })
-    await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
-      recentJobs: expect.arrayContaining([
-        expect.objectContaining({
-          jobType: 'deterministic-rebuild',
-          state: 'queued',
-          profileId: 'all',
-          startedAt: null,
-          heartbeatAt: null,
-          progressLabel: null,
-          progressDetail: null,
-          progressCurrent: null,
-          progressTotal: null,
-          progressPercent: null,
         }),
       ]),
     })
@@ -1616,15 +1465,6 @@ describe('backend facade', () => {
       state.history.items[0].title = null
     })
 
-    const insights = await backend.loadInsights({
-      profileId: 'chrome:Default',
-      windowDays: 30,
-      fullRebuild: false,
-      limit: null,
-    })
-    expect(insights.notes).toContain(
-      'Readable content refetch is disabled, so this snapshot only reflects lexical and structural evidence.',
-    )
     await expect(
       backend.queryHistory({
         q: '^missing-title-branch$',
@@ -2247,22 +2087,9 @@ describe('backend facade', () => {
     })
   })
 
-  test('passes schedule, security, remote, and insights payloads through to Tauri invoke', async () => {
+  test('passes schedule, security, remote, and import payloads through to Tauri invoke', async () => {
     isTauri.mockReturnValue(true)
     invoke.mockResolvedValue({ ok: true })
-
-    const insightRequest = {
-      profileId: 'chrome:Default',
-      windowDays: 30,
-      fullRebuild: false,
-      limit: null,
-    }
-    const explainRequest = {
-      insightId: 'card-rising-topic-1',
-      insightKind: 'card' as const,
-      profileId: 'chrome:Default',
-      windowDays: 30,
-    }
 
     await expect(backend.previewSchedule('linux')).resolves.toEqual({
       ok: true,
@@ -2281,23 +2108,6 @@ describe('backend facade', () => {
     await expect(backend.previewImportBatch(7)).resolves.toEqual({ ok: true })
     await expect(backend.revertImportBatch(7)).resolves.toEqual({ ok: true })
     await expect(backend.restoreImportBatch(7)).resolves.toEqual({ ok: true })
-    await expect(backend.runInsightsNow(insightRequest)).resolves.toEqual({
-      ok: true,
-    })
-    await expect(backend.queueInsightsRebuild(insightRequest)).resolves.toEqual(
-      {
-        ok: true,
-      },
-    )
-    await expect(backend.loadInsights(insightRequest)).resolves.toEqual({
-      ok: true,
-    })
-    await expect(backend.loadThreadDetail('thread-001')).resolves.toEqual({
-      ok: true,
-    })
-    await expect(backend.explainInsight(explainRequest)).resolves.toEqual({
-      ok: true,
-    })
     await expect(backend.previewAiIntegrations()).resolves.toEqual({ ok: true })
     await expect(
       backend.openPathInFileManager('/tmp/pathkeep'),
@@ -2339,30 +2149,15 @@ describe('backend facade', () => {
     expect(invoke).toHaveBeenNthCalledWith(11, 'restore_import_batch', {
       batchId: 7,
     })
-    expect(invoke).toHaveBeenNthCalledWith(12, 'run_insights_now', {
-      request: insightRequest,
-    })
-    expect(invoke).toHaveBeenNthCalledWith(13, 'queue_insights_rebuild', {
-      request: insightRequest,
-    })
-    expect(invoke).toHaveBeenNthCalledWith(14, 'load_insights', {
-      request: insightRequest,
-    })
-    expect(invoke).toHaveBeenNthCalledWith(15, 'load_thread_detail', {
-      threadId: 'thread-001',
-    })
-    expect(invoke).toHaveBeenNthCalledWith(16, 'explain_insight', {
-      request: explainRequest,
-    })
     expect(invoke).toHaveBeenNthCalledWith(
-      17,
+      12,
       'preview_ai_integrations',
       undefined,
     )
-    expect(invoke).toHaveBeenNthCalledWith(18, 'open_path_in_file_manager', {
+    expect(invoke).toHaveBeenNthCalledWith(13, 'open_path_in_file_manager', {
       path: '/tmp/pathkeep',
     })
-    expect(invoke).toHaveBeenNthCalledWith(19, 'open_external_url', {
+    expect(invoke).toHaveBeenNthCalledWith(14, 'open_external_url', {
       url: 'https://example.com/pathkeep',
     })
   })

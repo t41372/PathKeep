@@ -17,7 +17,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import {
   defaultEnrichmentSettings,
-  enrichmentPluginEnabled,
   resolveEnrichmentSettings,
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
 } from './enrichment'
@@ -45,8 +44,6 @@ import type {
   BackupReport,
   ClearDerivedIntelligenceReport,
   DashboardSnapshot,
-  DeterministicRebuildQueueReport,
-  ExplainInsightRequest,
   ExportRequest,
   ExportResult,
   HealthRepairReport,
@@ -55,11 +52,6 @@ import type {
   HistoryQueryResponse,
   ImportBatchDetail,
   ImportBatchOverview,
-  InsightCanonicalSummary,
-  InsightEvidenceItem,
-  InsightExplanation,
-  InsightSnapshot,
-  InsightThreadDetail,
   IntelligenceRuntimeSnapshot,
   KeyringStatusReport,
   RekeyPreview,
@@ -70,8 +62,6 @@ import type {
   RetentionPreview,
   RetentionPruneRequest,
   RetentionPruneResult,
-  RunInsightsReport,
-  RunInsightsRequest,
   SchedulePlan,
   ScheduleStatus,
   SecurityStatus,
@@ -415,388 +405,6 @@ const mockHistory: HistoryQueryResponse = {
     },
   ],
   nextCursor: null,
-}
-
-/**
- * Explains how mock evidence from history item works.
- *
- * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
- */
-function mockEvidenceFromHistoryItem(
-  item: HistoryQueryResponse['items'][number],
-): InsightEvidenceItem {
-  return {
-    historyId: item.id,
-    profileId: item.profileId,
-    url: item.url,
-    title: item.title,
-    visitedAt: item.visitedAt,
-    note: null,
-  }
-}
-
-/**
- * Builds mock canonical summary.
- *
- * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
- */
-function buildMockCanonicalSummary(
-  items: HistoryQueryResponse['items'],
-): InsightCanonicalSummary {
-  const topDomains = [...items]
-    .reduce((counts, item) => {
-      counts.set(item.domain, (counts.get(item.domain) ?? 0) + 1)
-      return counts
-    }, new Map<string, number>())
-    .entries()
-
-  return {
-    windowVisitCount: items.length,
-    windowUniqueDomains: new Set(items.map((item) => item.domain)).size,
-    onThisDay: items.slice(0, 6).map(mockEvidenceFromHistoryItem),
-    topDomains: [...topDomains]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 5)
-      .map(([domain, visitCount]) => ({ domain, visitCount })),
-  }
-}
-
-const mockInsightSnapshot: InsightSnapshot = {
-  generatedAt: new Date().toISOString(),
-  windowDays: 30,
-  profileId: 'chrome:Default',
-  status: structuredClone(mockSnapshot.insightStatus),
-  cards: [
-    {
-      cardId: 'card-rising-topic-1',
-      kind: 'rising-topic',
-      title: 'Rising topic: archive tooling',
-      summary:
-        'Archive tooling is gaining momentum across docs, repo issues, and comparison pages.',
-      windowDays: 30,
-      profileId: 'chrome:Default',
-      score: 0.82,
-      chromiumEnhanced: true,
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Topic momentum increased this week.',
-        },
-      ],
-    },
-    {
-      cardId: 'card-open-loop-thread-1',
-      kind: 'open-loop',
-      title: 'Open loop: archive tool compare',
-      summary:
-        'This thread reopened twice and still leans on compare/docs/forum patterns.',
-      windowDays: 30,
-      profileId: 'chrome:Default',
-      score: 2.15,
-      chromiumEnhanced: true,
-      evidence: [
-        {
-          historyId: 2,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[1].url,
-          title: mockHistory.items[1].title,
-          visitedAt: mockHistory.items[1].visitedAt,
-          note: 'Repeated revisit signal.',
-        },
-      ],
-    },
-  ],
-  queryGroups: [
-    {
-      queryGroupId: 'query-group-001',
-      profileId: 'chrome:Default',
-      threadId: 'thread-001',
-      title: 'archive tool compare github',
-      rootQuery: 'archive tool',
-      latestQuery: 'archive tool compare github',
-      firstSeenAt: '2026-04-01T12:00:00.000Z',
-      lastSeenAt: '2026-04-03T16:00:00.000Z',
-      visitCount: 6,
-      burstCount: 2,
-      stepCount: 3,
-      confidence: 0.83,
-      evidenceTier: 'tier-a',
-      chromiumEnhanced: true,
-      steps: [
-        'archive tool',
-        'archive tool compare',
-        'archive tool compare github',
-      ],
-      stages: ['broad', 'compare', 'site-restrict'],
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Deterministic query group anchor',
-        },
-      ],
-    },
-  ],
-  topics: [
-    {
-      topicId: 'topic-001',
-      label: 'Archive tooling',
-      profileScope: 'chrome:Default',
-      windowDays: 30,
-      firstSeenAt: '2026-04-01T12:00:00.000Z',
-      lastSeenAt: '2026-04-03T16:00:00.000Z',
-      visitCount: 7,
-      revisitCount: 2,
-      trendSlope: 0.82,
-      burstScore: 2.4,
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Representative evidence',
-        },
-      ],
-    },
-    {
-      topicId: 'topic-002',
-      label: 'Schema spelunking',
-      profileScope: 'chrome:Default',
-      windowDays: 30,
-      firstSeenAt: '2026-03-29T12:00:00.000Z',
-      lastSeenAt: '2026-04-03T12:30:00.000Z',
-      visitCount: 5,
-      revisitCount: 2,
-      trendSlope: 0.33,
-      burstScore: 1.3,
-      evidence: [],
-    },
-  ],
-  threads: [
-    {
-      threadId: 'thread-001',
-      profileId: 'chrome:Default',
-      title: 'archive tool compare',
-      status: 'open-loop',
-      firstSeenAt: '2026-04-01T12:00:00.000Z',
-      lastSeenAt: '2026-04-03T16:00:00.000Z',
-      visitCount: 6,
-      queryGroupCount: 1,
-      reopenCount: 2,
-      openLoopScore: 2.15,
-      confidence: 0.81,
-      evidenceTier: 'tier-a',
-      dominantTopicId: 'topic-001',
-      chromiumEnhanced: true,
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Docs revisit',
-        },
-      ],
-    },
-  ],
-  queryLadders: [
-    {
-      queryGroupId: 'query-group-001',
-      rootTerm: 'archive tool',
-      profileId: 'chrome:Default',
-      steps: [
-        'archive tool',
-        'archive tool compare',
-        'archive tool compare github',
-      ],
-      stages: ['broad', 'compare', 'site-restrict'],
-      count: 3,
-      confidence: 0.83,
-      evidenceTier: 'tier-a',
-      chromiumOnly: true,
-    },
-  ],
-  referencePages: [
-    {
-      referencePageId: 'reference-001',
-      profileId: 'chrome:Default',
-      url: mockHistory.items[0].url,
-      title: mockHistory.items[0].title,
-      domain: mockHistory.items[0].domain,
-      firstSeenAt: '2026-04-01T12:10:00.000Z',
-      lastSeenAt: '2026-04-03T16:00:00.000Z',
-      revisitCount: 3,
-      crossDayRevisits: 2,
-      queryGroupCount: 1,
-      threadCount: 1,
-      score: 2.4,
-      evidenceTier: 'tier-b',
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Stable reference page',
-        },
-      ],
-    },
-  ],
-  sourceEffectiveness: [
-    {
-      sourceId: 'source-001',
-      profileId: 'chrome:Default',
-      domain: 'developer.chrome.com',
-      sourceRole: 'docs',
-      queryGroupCount: 1,
-      threadCount: 1,
-      stableLandingCount: 2,
-      referencePageCount: 1,
-      reopenSupportCount: 1,
-      effectivenessScore: 2.1,
-      evidenceTier: 'tier-b',
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Docs were a stable landing source',
-        },
-      ],
-    },
-  ],
-  templateSummaries: [
-    {
-      summaryId: 'summary-query-groups',
-      kind: 'query-groups',
-      title: 'Recent query refinement',
-      body: 'Archive tooling moved from broad comparison to a GitHub-restricted query.',
-      confidence: 0.83,
-      profileId: 'chrome:Default',
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Summary evidence',
-        },
-      ],
-    },
-    {
-      summaryId: 'summary-reference-pages',
-      kind: 'reference-pages',
-      title: 'Stable reference page',
-      body: 'The Chrome docs page kept resurfacing as a stable reference.',
-      confidence: 0.71,
-      profileId: 'chrome:Default',
-      evidence: [
-        {
-          historyId: 1,
-          profileId: 'chrome:Default',
-          url: mockHistory.items[0].url,
-          title: mockHistory.items[0].title,
-          visitedAt: mockHistory.items[0].visitedAt,
-          note: 'Summary evidence',
-        },
-      ],
-    },
-  ],
-  workflowMap: {
-    profileId: 'chrome:Default',
-    roles: [
-      { role: 'search', count: 5 },
-      { role: 'docs', count: 4 },
-      { role: 'repo', count: 3 },
-      { role: 'forum', count: 2 },
-    ],
-    edges: [
-      { fromRole: 'search', toRole: 'docs', count: 3 },
-      { fromRole: 'docs', toRole: 'repo', count: 2 },
-      { fromRole: 'repo', toRole: 'forum', count: 1 },
-    ],
-    chromiumEnhanced: true,
-  },
-  profileFacets: [
-    {
-      key: 'explore-exploit',
-      label: 'Explore vs exploit',
-      value: 'Exploit-heavy',
-      confidence: 0.71,
-      evidence: [],
-    },
-    {
-      key: 'source-preference',
-      label: 'Source preference',
-      value: 'Docs-first',
-      confidence: 0.68,
-      evidence: [],
-    },
-  ],
-  canonical: buildMockCanonicalSummary(mockHistory.items),
-  notes: ['Browser preview mode shows a deterministic insight fixture.'],
-}
-
-const mockInsightThreadDetail: InsightThreadDetail = {
-  summary: structuredClone(mockInsightSnapshot.threads[0]),
-  queryGroups: structuredClone(mockInsightSnapshot.queryGroups),
-  visits: [
-    {
-      historyId: 1,
-      profileId: 'chrome:Default',
-      url: mockHistory.items[0].url,
-      title: mockHistory.items[0].title,
-      visitedAt: mockHistory.items[0].visitedAt,
-      note: 'Docs revisit',
-    },
-    {
-      historyId: 2,
-      profileId: 'chrome:Default',
-      url: mockHistory.items[1].url,
-      title: mockHistory.items[1].title,
-      visitedAt: mockHistory.items[1].visitedAt,
-      note: 'Issue follow-up',
-    },
-  ],
-}
-
-const mockInsightRunReport: RunInsightsReport = {
-  runId: 12,
-  processedVisits: 24,
-  enrichedVisits: 8,
-  failedEnrichments: 1,
-  queryGroupCount: mockInsightSnapshot.queryGroups.length,
-  topicCount: mockInsightSnapshot.topics.length,
-  threadCount: mockInsightSnapshot.threads.length,
-  referencePageCount: mockInsightSnapshot.referencePages.length,
-  sourceCount: mockInsightSnapshot.sourceEffectiveness.length,
-  templateSummaryCount: mockInsightSnapshot.templateSummaries.length,
-  cardCount: mockInsightSnapshot.cards.length,
-  contentCoverage: 0.64,
-  lastRunAt: new Date().toISOString(),
-  notes: ['Insight run used preview fixtures and local heuristics.'],
-}
-
-const mockInsightExplanation: InsightExplanation = {
-  explanation:
-    'This insight is based on repeated revisits to archive-related docs, repository issues, and search refinements within the selected window.',
-  usedLlm: false,
-  citations: structuredClone(mockInsightThreadDetail.visits),
-  notes: ['Browser preview mode explains insights from static evidence only.'],
 }
 
 const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
@@ -1370,122 +978,6 @@ function clearDerivedIntelligenceFixture(
       'Only derived enrichment and insight tables were cleared.',
       'Canonical archive visits, manifests, and import history were left untouched.',
     ],
-  }
-}
-
-/**
- * Explains how run insights fixture works.
- *
- * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
- */
-function runInsightsFixture(
-  state: MockBackendState,
-  request?: RunInsightsRequest,
-): RunInsightsReport {
-  state.derivedStateCleared = false
-  state.snapshot.insightStatus = {
-    ready: true,
-    lastRunAt: new Date().toISOString(),
-    runs: 4,
-    cards: 4,
-    topics: 3,
-    threads: 2,
-    queryGroups: 2,
-    referencePages: 2,
-    contentCoverage: enrichmentPluginEnabled(
-      state.snapshot.config.enrichment,
-      READABLE_CONTENT_REFETCH_PLUGIN_ID,
-    )
-      ? 0.64
-      : 0.18,
-    warning: null,
-  }
-  state.intelligenceRuntime.modules = state.intelligenceRuntime.modules.map(
-    (module) => ({
-      ...module,
-      status: module.enabled ? 'ready' : 'disabled',
-      lastRunId: mockInsightRunReport.runId,
-      lastBuiltAt: new Date().toISOString(),
-      lastInvalidatedAt: null,
-      staleReason: null,
-      notes: module.enabled
-        ? ['Latest deterministic rebuild completed successfully.']
-        : ['Disabled in Settings.'],
-    }),
-  )
-
-  return {
-    ...mockInsightRunReport,
-    lastRunAt: new Date().toISOString(),
-    enrichedVisits: enrichmentPluginEnabled(
-      state.snapshot.config.enrichment,
-      READABLE_CONTENT_REFETCH_PLUGIN_ID,
-    )
-      ? mockInsightRunReport.enrichedVisits
-      : 0,
-    failedEnrichments: enrichmentPluginEnabled(
-      state.snapshot.config.enrichment,
-      READABLE_CONTENT_REFETCH_PLUGIN_ID,
-    )
-      ? mockInsightRunReport.failedEnrichments
-      : 0,
-    notes: [
-      request?.fullRebuild
-        ? 'Full rebuild cleared the previous derived state before recomputing insights.'
-        : 'Browser preview mode rebuilt the current derived insight fixture.',
-      enrichmentPluginEnabled(
-        state.snapshot.config.enrichment,
-        READABLE_CONTENT_REFETCH_PLUGIN_ID,
-      )
-        ? 'Readable content refetch stayed enabled for this run.'
-        : 'Readable content refetch was disabled, so the rebuild used lexical/archive fields only.',
-    ],
-  }
-}
-
-/**
- * Loads insights fixture.
- *
- * The browser-preview backend is intentionally deterministic and testable, so named declarations help keep preview-fixture behavior honest instead of magical.
- */
-function loadInsightsFixture(state: MockBackendState): InsightSnapshot {
-  if (state.derivedStateCleared) {
-    return {
-      ...structuredClone(mockInsightSnapshot),
-      status: structuredClone(state.snapshot.insightStatus),
-      cards: [],
-      queryGroups: [],
-      topics: [],
-      threads: [],
-      queryLadders: [],
-      referencePages: [],
-      sourceEffectiveness: [],
-      templateSummaries: [],
-      canonical: buildMockCanonicalSummary(state.history.items),
-      notes: [
-        'Derived insight state is currently empty. Run a rebuild to repopulate enrichment and insight tables.',
-      ],
-    }
-  }
-
-  const refetchEnabled = enrichmentPluginEnabled(
-    state.snapshot.config.enrichment,
-    READABLE_CONTENT_REFETCH_PLUGIN_ID,
-  )
-
-  return {
-    ...structuredClone(mockInsightSnapshot),
-    status: structuredClone(state.snapshot.insightStatus),
-    canonical: buildMockCanonicalSummary(state.history.items),
-    notes: refetchEnabled
-      ? [
-          'Browser preview mode shows a deterministic insight fixture.',
-          'Readable content refetch stayed enabled for this snapshot.',
-        ]
-      : [
-          'Browser preview mode shows a deterministic insight fixture.',
-          'Readable content refetch is disabled, so this snapshot only reflects lexical and structural evidence.',
-        ],
   }
 }
 
@@ -2918,70 +2410,6 @@ async function call<T>(
         mockState,
         Number(args?.runId ?? mockState.snapshot.recentRuns[0]?.id ?? 1848),
       ) as T
-    case 'run_insights_now':
-      return runInsightsFixture(
-        mockState,
-        args?.request as RunInsightsRequest | undefined,
-      ) as T
-    case 'queue_insights_rebuild': {
-      const jobId = Date.now()
-      const now = new Date().toISOString()
-      mockState.intelligenceRuntime.recentJobs = [
-        {
-          id: jobId,
-          jobType: 'deterministic-rebuild',
-          pluginId: null,
-          state: mockState.snapshot.config.ai.jobQueuePaused
-            ? 'queued'
-            : 'running',
-          historyId: null,
-          profileId: 'all',
-          url: null,
-          title: 'All profiles · 30 days',
-          attempt: 1,
-          createdAt: now,
-          startedAt: mockState.snapshot.config.ai.jobQueuePaused ? null : now,
-          finishedAt: null,
-          updatedAt: now,
-          heartbeatAt: mockState.snapshot.config.ai.jobQueuePaused ? null : now,
-          progressLabel: mockState.snapshot.config.ai.jobQueuePaused
-            ? null
-            : 'Loading visits',
-          progressDetail: mockState.snapshot.config.ai.jobQueuePaused
-            ? null
-            : 'Preparing a deterministic rebuild for all profiles.',
-          progressCurrent: mockState.snapshot.config.ai.jobQueuePaused
-            ? null
-            : 0,
-          progressTotal: mockState.snapshot.config.ai.jobQueuePaused ? null : 8,
-          progressPercent: mockState.snapshot.config.ai.jobQueuePaused
-            ? null
-            : 0,
-          lastError: null,
-          retryable: false,
-          cancellable: true,
-        },
-        ...mockState.intelligenceRuntime.recentJobs,
-      ].slice(0, 12)
-      syncMockIntelligenceRuntime(mockState)
-      return {
-        jobId,
-        state: mockState.snapshot.config.ai.jobQueuePaused
-          ? 'queued'
-          : 'running',
-        notes: [
-          mockState.snapshot.config.ai.jobQueuePaused
-            ? `Queued deterministic rebuild job ${jobId}. Resume background work to process it.`
-            : `Queued deterministic rebuild job ${jobId}. PathKeep is processing it in the background.`,
-        ],
-      } as T
-    }
-    case 'load_insights':
-      return loadInsightsFixture(mockState) as T
-    case 'load_thread_detail':
-      return mockInsightThreadDetail as T
-    case 'explain_insight':
-      return mockInsightExplanation as T
     case 'load_intelligence_runtime':
       return structuredClone(mockState.intelligenceRuntime) as T
     case 'retry_intelligence_job': {
@@ -3509,6 +2937,114 @@ async function call<T>(
       } as T
     case 'clear_derived_intelligence':
       return clearDerivedIntelligenceFixture(mockState) as T
+    // --- Core Intelligence read surfaces ---
+    // Browser preview has no real deterministic pipeline behind these queries,
+    // so return empty/neutral payloads and let the Intelligence UI fall back to
+    // its empty states instead of blowing up in unit tests.
+    case 'get_on_this_day':
+      return [] as T
+    case 'get_top_sites':
+    case 'get_refind_pages':
+    case 'get_search_engine_ranking':
+    case 'get_top_search_concepts':
+    case 'get_stable_sources':
+    case 'get_friction_signals':
+    case 'get_reopened_investigations':
+    case 'get_habit_patterns':
+    case 'get_interrupted_habits':
+    case 'get_path_flows':
+    case 'get_compare_sets':
+    case 'get_observed_interactions':
+    case 'get_hub_pages':
+      return [] as T
+    case 'get_digest_summary':
+      return {
+        dateRange: { start: '', end: '' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      } as T
+    case 'get_activity_mix':
+      return { categories: [], changeVsPrevious: [] } as T
+    case 'get_activity_mix_trend':
+    case 'get_discovery_trend':
+      return { points: [] } as T
+    case 'get_browsing_rhythm':
+      return { cells: [], maxCount: 0 } as T
+    case 'get_breadth_index':
+      return { hhi: 0, breadthScore: 0, concentrationDomainCount: 0 } as T
+    case 'get_multi_browser_diff':
+      return {
+        profiles: [],
+        exclusiveDomains: [],
+        sharedDomains: [],
+        categoryDistributions: [],
+      } as T
+    case 'get_sessions':
+    case 'get_search_trails':
+    case 'get_query_families':
+      return {
+        sessions: [],
+        trails: [],
+        families: [],
+        total: 0,
+        page: 0,
+        pageSize: 20,
+      } as T
+    case 'get_search_effectiveness':
+      return {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      } as T
+    case 'get_domain_trend':
+      return { registrableDomain: '', points: [] } as T
+    case 'get_domain_deep_dive':
+      return {
+        registrableDomain: '',
+        displayName: null,
+        domainCategory: 'unknown',
+        totalVisits: 0,
+        activeDays: 0,
+        trailCount: 0,
+        arrivalBreakdown: { search: 0, link: 0, typed: 0, other: 0 },
+        topPages: [],
+        topReferrers: [],
+        topExits: [],
+        visitTrend: [],
+      } as T
+    case 'get_session_detail':
+      return { session: null, visits: [], trails: [] } as T
+    case 'get_trail_detail':
+      return { trail: null, members: [] } as T
+    case 'get_navigation_path':
+      return { targetVisitId: 0, steps: [] } as T
+    case 'explain_refind':
+    case 'explain_entity':
+      return {
+        entityType: 'unknown',
+        entityId: '',
+        triggerRule: '',
+        factors: [],
+        participatingVisitIds: [],
+      } as T
+    case 'run_core_intelligence_now':
+    case 'queue_core_intelligence_rebuild': {
+      const jobId = Date.now()
+      return {
+        jobId,
+        state: mockState.snapshot.config.ai.jobQueuePaused
+          ? 'queued'
+          : 'running',
+        notes: [
+          mockState.snapshot.config.ai.jobQueuePaused
+            ? `Queued Core Intelligence rebuild job ${jobId}. Resume background work to process it.`
+            : `Queued Core Intelligence rebuild job ${jobId}. PathKeep is processing it in the background.`,
+        ],
+      } as T
+    }
     default:
       throw new Error(`Mock backend does not implement ${command}`)
   }
@@ -3639,20 +3175,8 @@ export const backend = {
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
   loadAiAssistantJob: (jobId: number) =>
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
-  runInsightsNow: (request: RunInsightsRequest) =>
-    call<RunInsightsReport>('run_insights_now', { request }),
-  queueInsightsRebuild: (request: RunInsightsRequest) =>
-    call<DeterministicRebuildQueueReport>('queue_insights_rebuild', {
-      request,
-    }),
   clearDerivedIntelligence: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
-  loadInsights: (request: RunInsightsRequest) =>
-    call<InsightSnapshot>('load_insights', { request }),
-  loadThreadDetail: (threadId: string) =>
-    call<InsightThreadDetail>('load_thread_detail', { threadId }),
-  explainInsight: (request: ExplainInsightRequest) =>
-    call<InsightExplanation>('explain_insight', { request }),
   loadIntelligenceRuntime: () =>
     call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
   retryIntelligenceJob: (jobId: number) =>

@@ -66,7 +66,6 @@ import type {
   AiSettings,
   AppLockConfig,
   ClearDerivedIntelligenceReport,
-  DeterministicRebuildQueueReport,
   IntelligenceRuntimeSnapshot,
   RemoteBackupConfig,
   RemoteBackupPreview,
@@ -74,12 +73,13 @@ import type {
   RemoteBackupVerification,
   RetentionPreview,
   RetentionPruneResult,
-  RunInsightsReport,
   UpdateAvailability,
   UpdateInstallState,
 } from '../../lib/types'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
+import { queueCoreIntelligenceRebuild } from '../../lib/core-intelligence/api'
+import type { CoreIntelligenceQueueReport } from '../../lib/core-intelligence/types'
 import {
   appendAiProviderDraft,
   browserIcon,
@@ -133,11 +133,8 @@ export function SettingsPage() {
   const [remoteVerification, setRemoteVerification] =
     useState<RemoteBackupVerification | null>(null)
   const [remoteAction, setRemoteAction] = useState<string | null>(null)
-  const [rebuildReport, setRebuildReport] = useState<RunInsightsReport | null>(
-    null,
-  )
   const [rebuildQueueReport, setRebuildQueueReport] =
-    useState<DeterministicRebuildQueueReport | null>(null)
+    useState<CoreIntelligenceQueueReport | null>(null)
   const [clearReport, setClearReport] =
     useState<ClearDerivedIntelligenceReport | null>(null)
   const [derivedAction, setDerivedAction] = useState<string | null>(null)
@@ -909,9 +906,8 @@ export function SettingsPage() {
   async function handleRebuildDerivedState() {
     setDerivedAction(t('settings.rebuildingDerivedState'))
     try {
-      const report = await backend.queueInsightsRebuild({ fullRebuild: true })
+      const report = await queueCoreIntelligenceRebuild({ fullRebuild: true })
       setRebuildQueueReport(report)
-      setRebuildReport(null)
       setClearReport(null)
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
@@ -931,7 +927,6 @@ export function SettingsPage() {
     try {
       const report = await backend.clearDerivedIntelligence()
       setClearReport(report)
-      setRebuildReport(null)
       setRebuildQueueReport(null)
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
@@ -3009,21 +3004,6 @@ export function SettingsPage() {
                     visits: dashboard.recentRuns[0].newVisits,
                     urls: dashboard.recentRuns[0].newUrls,
                     downloads: dashboard.recentRuns[0].newDownloads,
-                  })}
-                </p>
-              </div>
-            ) : null}
-            {rebuildReport ? (
-              <div className="result-row">
-                <div className="result-row__header">
-                  <strong>{t('settings.rebuildCompletedTitle')}</strong>
-                  <span className="mono">#{rebuildReport.runId}</span>
-                </div>
-                <p>
-                  {t('settings.rebuildCompletedBody', {
-                    visits: rebuildReport.processedVisits,
-                    enriched: rebuildReport.enrichedVisits,
-                    cards: rebuildReport.cardCount,
                   })}
                 </p>
               </div>

@@ -12,10 +12,13 @@
  * - Backend commands implemented by Codex in `src-tauri/crates/vault-core/src/intelligence/`
  */
 
-import { invokeCommand } from '../ipc/bridge'
+import { call } from '../backend-client/shared'
 import type {
   DateRange,
   PaginationParams,
+  CoreIntelligenceRebuildRequest,
+  CoreIntelligenceRebuildReport,
+  CoreIntelligenceQueueReport,
   DigestSummary,
   OnThisDayEntry,
   TopSite,
@@ -54,7 +57,29 @@ function invokeRequest<TResponse, TRequest extends Record<string, unknown>>(
   command: string,
   request: TRequest,
 ) {
-  return invokeCommand<TResponse>(command, { request })
+  return call<TResponse>(command, { request })
+}
+
+// ---------------------------------------------------------------------------
+// Rebuild control
+// ---------------------------------------------------------------------------
+
+export function runCoreIntelligenceNow(
+  request: CoreIntelligenceRebuildRequest,
+) {
+  return invokeRequest<CoreIntelligenceRebuildReport, Record<string, unknown>>(
+    'run_core_intelligence_now',
+    { ...request },
+  )
+}
+
+export function queueCoreIntelligenceRebuild(
+  request: CoreIntelligenceRebuildRequest,
+) {
+  return invokeRequest<CoreIntelligenceQueueReport, Record<string, unknown>>(
+    'queue_core_intelligence_rebuild',
+    { ...request },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +104,7 @@ export function getDigestSummary(
 // ---------------------------------------------------------------------------
 
 export function getOnThisDay(profileId?: string | null) {
-  return invokeCommand<OnThisDayEntry[]>('get_on_this_day', { profileId })
+  return call<OnThisDayEntry[]>('get_on_this_day', { profileId })
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +288,7 @@ export function getSessions(
 }
 
 export function getSessionDetail(sessionId: string) {
-  return invokeCommand<SessionDetail>('get_session_detail', { sessionId })
+  return call<SessionDetail>('get_session_detail', { sessionId })
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +320,7 @@ export function getSearchTrails(
 }
 
 export function getTrailDetail(trailId: string) {
-  return invokeCommand<TrailDetail>('get_trail_detail', { trailId })
+  return call<TrailDetail>('get_trail_detail', { trailId })
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +328,7 @@ export function getTrailDetail(trailId: string) {
 // ---------------------------------------------------------------------------
 
 export function getNavigationPath(visitId: number) {
-  return invokeCommand<NavigationPath>('get_navigation_path', { visitId })
+  return call<NavigationPath>('get_navigation_path', { visitId })
 }
 
 export function getHubPages(

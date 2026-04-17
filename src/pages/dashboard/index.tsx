@@ -23,24 +23,12 @@ import {
   Skeleton,
 } from '../../components/primitives/skeleton'
 import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
-import { backend } from '../../lib/backend-client'
 import { browserRetentionMeta } from '../../lib/browser-retention'
-import {
-  calendarDayKey,
-  formatBytes,
-  formatDateTime,
-  formatRelativeTime,
-} from '../../lib/format'
+import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
-import {
-  resolveInsightOnThisDay,
-  resolveInsightPeriodicSummary,
-} from '../../lib/insight-canonical'
-import {
-  aiStatusMeta,
-  evidenceHref,
-  selectedAiProvider,
-} from '../../lib/intelligence'
+import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
+import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
+import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
 import {
   profileIdLabel,
   useProfileScope,
@@ -52,7 +40,7 @@ import {
   runTypeKey,
   sourceKindFromProfileScope,
 } from '../../lib/trust-review'
-import type { BrowserProfile, InsightSnapshot } from '../../lib/types'
+import type { BrowserProfile } from '../../lib/types'
 
 /**
  * Returns whether backup ready profile.
@@ -102,48 +90,39 @@ export function DashboardPage() {
   const { language, t, ns } = useI18n()
   const { activeProfileId } = useProfileScope()
   const commonT = ns('common')
-  const insightsT = ns('insights')
   const intelligenceT = ns('intelligence')
-  const [insights, setInsights] = useState<InsightSnapshot | null>(null)
-  const [insightsLoading, setInsightsLoading] = useState(false)
-  const [insightLoadError, setInsightLoadError] = useState<string | null>(null)
+  const [onThisDayEntries, setOnThisDayEntries] = useState<OnThisDayEntry[]>([])
+  const [onThisDayLoading, setOnThisDayLoading] = useState(false)
+  const [onThisDayError, setOnThisDayError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
-      setInsightsLoading(false)
+      setOnThisDayLoading(false)
       return
     }
 
     let cancelled = false
-    setInsightsLoading(true)
+    setOnThisDayLoading(true)
 
-    /**
-     * Explains how load works.
-     *
-     * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
-     */
     const load = async () => {
       try {
-        const nextInsights = await backend.loadInsights({
-          fullRebuild: false,
-          profileId: activeProfileId,
-        })
+        const entries = await coreIntelligenceApi.getOnThisDay(activeProfileId)
         if (!cancelled) {
-          setInsights(nextInsights)
-          setInsightLoadError(null)
+          setOnThisDayEntries(entries ?? [])
+          setOnThisDayError(null)
         }
       } catch (nextError) {
         if (!cancelled) {
-          setInsights(null)
-          setInsightLoadError(
+          setOnThisDayEntries([])
+          setOnThisDayError(
             nextError instanceof Error
               ? nextError.message
-              : insightsT('refreshAttentionTitle'),
+              : intelligenceT('onThisDayEmpty'),
           )
         }
       } finally {
         if (!cancelled) {
-          setInsightsLoading(false)
+          setOnThisDayLoading(false)
         }
       }
     }
@@ -153,7 +132,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [activeProfileId, insightsT, refreshKey, snapshot?.config.initialized])
+  }, [activeProfileId, intelligenceT, refreshKey, snapshot?.config.initialized])
 
   if (loading && !dashboard) {
     return (
@@ -216,17 +195,10 @@ export function DashboardPage() {
   const aiMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
   const llmProvider = selectedAiProvider(snapshot.config.ai, 'llm')
   const embeddingProvider = selectedAiProvider(snapshot.config.ai, 'embedding')
-  const activeInsights = snapshot.config.initialized ? insights : null
-  const activeInsightLoadError = snapshot.config.initialized
-    ? insightLoadError
+  const activeOnThisDay = snapshot.config.initialized ? onThisDayEntries : []
+  const activeOnThisDayError = snapshot.config.initialized
+    ? onThisDayError
     : null
-  const todayKey = calendarDayKey(new Date())
-  const onThisDay = activeInsights
-    ? resolveInsightOnThisDay(activeInsights, todayKey, 3)
-    : []
-  const periodicSummary = activeInsights
-    ? resolveInsightPeriodicSummary(activeInsights, insightsT)
-    : []
 
   /**
    * Explains how run source summary works.
@@ -676,72 +648,42 @@ export function DashboardPage() {
 
           <div className="panel">
             <div className="panel-header">
-              <span className="panel-title">{insightsT('onThisDay')}</span>
+              <span className="panel-title">
+                {intelligenceT('onThisDayTitle')}
+              </span>
               <Link className="panel-action" to="/intelligence">
                 {t('dashboard.reviewInsightsAction')}
               </Link>
             </div>
             <div className="panel-body">
-              {insightsLoading ? (
+              {onThisDayLoading ? (
                 <div className="intelligence-stack" aria-busy="true">
                   <Skeleton variant="block" height="68px" count={3} />
                 </div>
-              ) : onThisDay.length > 0 ? (
-                onThisDay.map((item) => (
-                  <Link
-                    key={`${item.historyId}-${item.url}`}
-                    className="otd-item dashboard-evidence-link"
-                    to={evidenceHref(item)}
-                  >
+              ) : activeOnThisDay.length > 0 ? (
+                activeOnThisDay.slice(0, 3).map((entry) => (
+                  <div key={`${entry.year}-${entry.date}`} className="otd-item">
                     <div style={{ minWidth: 0 }}>
-                      <div className="otd-title">{item.title ?? item.url}</div>
-                      <div className="otd-url">{item.url}</div>
-                      <div className="mono-support">
-                        {formatDateTime(item.visitedAt, language) ??
-                          item.visitedAt}
+                      <div className="otd-title">
+                        {entry.year} ·{' '}
+                        {intelligenceT('onThisDayVisits', {
+                          count: entry.totalVisits,
+                        })}
                       </div>
+                      {entry.summary && (
+                        <div className="otd-url">{entry.summary}</div>
+                      )}
+                      {entry.topDomains.length > 0 && (
+                        <div className="mono-support">
+                          {entry.topDomains.slice(0, 4).join(' · ')}
+                        </div>
+                      )}
                     </div>
-                  </Link>
+                  </div>
                 ))
               ) : (
                 <p className="dashboard-next-action">
-                  {activeInsightLoadError ??
-                    insightsT('nothingForDayDescription')}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {insightsT('periodicSummary')}
-              </span>
-              <span className="panel-action">
-                {activeInsights
-                  ? insightsT('snapshotLabel', {
-                      time: formatRelativeTime(
-                        activeInsights.generatedAt,
-                        language,
-                      ),
-                    })
-                  : t('common.pending')}
-              </span>
-            </div>
-            <div className="panel-body">
-              {insightsLoading ? (
-                <div className="intelligence-stack" aria-busy="true">
-                  <Skeleton variant="block" height="78px" count={2} />
-                </div>
-              ) : periodicSummary.length > 0 ? (
-                <div className="otd-summary">
-                  {periodicSummary.slice(0, 2).map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
-                  ))}
-                </div>
-              ) : (
-                <p className="dashboard-next-action">
-                  {activeInsightLoadError ?? aiMeta.description}
+                  {activeOnThisDayError ?? intelligenceT('onThisDayEmpty')}
                 </p>
               )}
             </div>

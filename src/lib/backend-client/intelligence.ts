@@ -28,14 +28,7 @@ import type {
   AiSearchResponse,
   AppSnapshot,
   ClearDerivedIntelligenceReport,
-  DeterministicRebuildQueueReport,
-  ExplainInsightRequest,
-  InsightExplanation,
-  InsightSnapshot,
-  InsightThreadDetail,
   IntelligenceRuntimeSnapshot,
-  RunInsightsReport,
-  RunInsightsRequest,
 } from '../types'
 import { call } from './shared'
 
@@ -66,20 +59,8 @@ export const intelligenceClient = {
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
   getAssistantJob: (jobId: number) =>
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
-  runInsights: (request: RunInsightsRequest) =>
-    call<RunInsightsReport>('run_insights_now', { request }),
-  queueInsightsRebuild: (request: RunInsightsRequest) =>
-    call<DeterministicRebuildQueueReport>('queue_insights_rebuild', {
-      request,
-    }),
   clearDerivedState: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
-  getInsightsSnapshot: (request: RunInsightsRequest) =>
-    call<InsightSnapshot>('load_insights', { request }),
-  getThreadDetail: (threadId: string) =>
-    call<InsightThreadDetail>('load_thread_detail', { threadId }),
-  explainInsight: (request: ExplainInsightRequest) =>
-    call<InsightExplanation>('explain_insight', { request }),
   getRuntime: () =>
     call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
   retryRuntimeJob: (jobId: number) =>

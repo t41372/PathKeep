@@ -29,6 +29,35 @@ export interface PaginationParams {
   pageSize: number
 }
 
+/** Request payload for a scoped or full Core Intelligence rebuild. */
+export interface CoreIntelligenceRebuildRequest {
+  profileId?: string | null
+  fullRebuild: boolean
+  limit?: number | null
+}
+
+/** Result payload returned after a Core Intelligence rebuild finishes. */
+export interface CoreIntelligenceRebuildReport {
+  runId: number
+  processedVisits: number
+  visitDerivedFacts: number
+  sessions: number
+  searchTrails: number
+  queryFamilies: number
+  refindPages: number
+  sourceEffectiveness: number
+  reopenedInvestigations: number
+  notes: string[]
+  lastRunAt: string
+}
+
+/** Queue acknowledgement for a manual Core Intelligence rebuild request. */
+export interface CoreIntelligenceQueueReport {
+  jobId: number
+  state: string
+  notes: string[]
+}
+
 /** Trend direction indicator derived from period-over-period comparison. */
 export type TrendDirection = 'up' | 'down' | 'flat'
 
