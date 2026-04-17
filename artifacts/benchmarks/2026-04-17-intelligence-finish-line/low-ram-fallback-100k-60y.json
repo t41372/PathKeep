@@ -21959,9 +21959,7 @@
     },
     "reports": {
       "dailyRollup": {
-        "affectedProfiles": [
-          "chrome:Default"
-        ],
+        "affectedProfiles": ["chrome:Default"],
         "dirtyDateKeys": [
           "1966-05-03",
           "1966-05-06",
@@ -31031,9 +31029,7 @@
         "executionMode": "fallback-full",
         "fallbackReason": "Archive visibility regressed or source counters moved backwards for daily rollups.",
         "lastRunAt": "2026-04-17T10:31:33.872655+00:00",
-        "notes": [
-          "Rebuilt all daily rollups for chrome:Default."
-        ],
+        "notes": ["Rebuilt all daily rollups for chrome:Default."],
         "processedVisits": 24976,
         "queryFamilies": 0,
         "refindPages": 0,
@@ -31045,9 +31041,7 @@
         "visitDerivedFacts": 0
       },
       "visitDerive": {
-        "affectedProfiles": [
-          "chrome:Default"
-        ],
+        "affectedProfiles": ["chrome:Default"],
         "dirtyDateKeys": [
           "1966-05-03",
           "1966-05-06",

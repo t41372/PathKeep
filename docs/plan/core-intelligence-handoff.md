@@ -41,7 +41,8 @@ What is **not** done:
 - legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
 - external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend only ships data-provider payloads now
 - large-archive / low-RAM / queue-recovery signoff remains open under `PG-RD-AI-011`
-- 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; structural stage profile aggregates now batch-scan search events / derived visits instead of materializing whole-profile aggregate inputs; benchmark artifacts also record corpus stats, peak RSS, and expired-lease recovery evidence. This is still a finish-line follow-up, not final 10M / low-RAM signoff
+- 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; structural stage profile aggregates now batch-scan search events / derived visits instead of materializing whole-profile aggregate inputs; `visit-derive` / `daily-rollup` full-fallback paths are also chunked now instead of materializing a whole-profile `Vec`; benchmark artifacts record corpus stats, peak RSS, low-RAM fallback timings, and expired-lease recovery evidence. This is still a finish-line follow-up, not final 10M / low-RAM signoff
+- benchmark harness note: `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs` now supports disposable existing-archive replay via `--app-root` / `--session-key`, and `artifacts/benchmarks/2026-04-17-intelligence-finish-line/README.md` is the source of truth for the current synthetic/manual replay contract. On this host, the real app root is encrypted and no benchmark session key was available, so real-replay evidence is still missing
 
 ---
 
@@ -208,7 +209,9 @@ The backend already delivers:
 - per-profile stage checkpoints plus append-only incremental execution for `visit-derive`, `daily-rollup`, and `structural-rebuild`
 - `path_flows` end-to-end 4-step support
 - replayable incremental benchmark scenarios under `artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/`
+- replayable finish-line benchmark scenarios under `artifacts/benchmarks/2026-04-17-intelligence-finish-line/`, including low-RAM fallback and expired-lease recovery
 - structural stage aggregate passes that batch-scan `search_events` / `visit_derived_facts` for query-family / refind / habit / path-flow rebuild inputs instead of loading extra whole-profile aggregate Vecs
+- chunked `visit-derive` / `daily-rollup` full-fallback paths that no longer materialize an entire profile before persisting fallback output
 
 ### What Is Still Left
 
@@ -219,7 +222,8 @@ There are **three kinds** of remaining backend work.
 The next backend owner is **not** starting from P1/P2 anymore. The current remaining scope is:
 
 - `PG-RD-AI-011` large-archive / low-RAM / queue-recovery signoff
-- chunked / incremental / resumable staged rebuild cleanup beyond the new checkpoint-backed foundation, especially `visit-derive` / `daily-rollup` full-fallback memory shape and larger-host queue-recovery RSS proof
+- larger-host queue-recovery RSS proof plus `10M / 14.4M` synthetic evidence
+- real-archive replay evidence from a disposable app-root copy with a valid session key
 - any remaining P4 host/service integrations beyond the new payload-provider commands
 
 #### 2. Finish the cutover cleanup
@@ -228,6 +232,7 @@ The reset is working, but there is still technical cleanup to do:
 
 - remove or reduce remaining legacy `vault-core::insights` implementation code
 - keep only the parts still genuinely needed for enrichment/readable-content support
+- continue moving shared readable-content helpers toward `enrichment` instead of leaving them in `insights`
 - decide whether the staged queue should become more incremental than the current “stage-specific tables, mostly profile-scoped recompute” implementation
 
 #### 3. Do not mistake local WIP for completed scope

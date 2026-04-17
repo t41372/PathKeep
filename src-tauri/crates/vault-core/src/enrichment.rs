@@ -140,7 +140,8 @@ pub(crate) fn preferred_embedding_content(
     title: Option<&str>,
     visited_at: &str,
 ) -> Result<String> {
-    let mut enrichments = load_best_enrichment_map_by_history_ids(paths, connection, &[history_id])?;
+    let mut enrichments =
+        load_best_enrichment_map_by_history_ids(paths, connection, &[history_id])?;
     let enrichment = enrichments.remove(&history_id);
     Ok(build_embedding_content_from_parts(
         profile_id,

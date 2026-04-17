@@ -546,15 +546,20 @@ struct VisibleVisitBatchCursor {
     visit_id: i64,
 }
 
+type DailyDomainKey = (String, String, String);
+type DailyDomainValue = (String, i64, i64, i64, HashSet<String>);
+type DailyCategoryKey = (String, String, String);
+type DailyCategoryValue = (i64, HashSet<String>);
+type DailyEngineKey = (String, String, String);
+type DailySummaryKey = (String, String);
+type DailySummaryValue = (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>);
+
 #[derive(Debug, Default)]
 struct DailyRollupAccumulator {
-    domains: HashMap<(String, String, String), (String, i64, i64, i64, HashSet<String>)>,
-    categories: HashMap<(String, String, String), (i64, HashSet<String>)>,
-    engines: HashMap<(String, String, String), i64>,
-    summaries: HashMap<
-        (String, String),
-        (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>),
-    >,
+    domains: HashMap<DailyDomainKey, DailyDomainValue>,
+    categories: HashMap<DailyCategoryKey, DailyCategoryValue>,
+    engines: HashMap<DailyEngineKey, i64>,
+    summaries: HashMap<DailySummaryKey, DailySummaryValue>,
 }
 
 impl DailyRollupAccumulator {
@@ -618,7 +623,13 @@ impl DailyRollupAccumulator {
                 .map(
                     |(
                         (date_key, profile_id, registrable_domain),
-                        (domain_category, visit_count, search_count, new_domain_visits, unique_urls),
+                        (
+                            domain_category,
+                            visit_count,
+                            search_count,
+                            new_domain_visits,
+                            unique_urls,
+                        ),
                     )| {
                         (
                             date_key,
@@ -1387,7 +1398,11 @@ fn execute_visit_derive_stage(
                     "Visit-derived delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
-                clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::VisitDerive)?;
+                clear_core_tables_for_job_kind(
+                    connection,
+                    Some(profile_id),
+                    RebuildMode::VisitDerive,
+                )?;
                 let fallback_summary = rebuild_visit_derived_facts_in_batches(
                     connection,
                     profile_id,
@@ -6718,9 +6733,8 @@ mod tests {
         build_structural_profile_aggregates_from_batches, collapse_date_key,
         ensure_core_intelligence_schema, explain_entity, get_intelligence_embed_cards,
         get_intelligence_public_snapshot, get_intelligence_widget_snapshot, get_path_flows,
-        load_profile_derived_visits,
-        load_profile_search_events, local_date_key, normalize_query, run_core_intelligence,
-        run_core_intelligence_job_type_with_progress,
+        load_profile_derived_visits, load_profile_search_events, local_date_key, normalize_query,
+        run_core_intelligence, run_core_intelligence_job_type_with_progress,
     };
     use crate::{
         archive::{open_archive_connection, open_intelligence_connection},
@@ -7431,11 +7445,16 @@ mod tests {
             .expect("revert clean visit");
         drop(clean_archive);
 
-        run_core_intelligence(&clean_paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-            .expect("clean full rebuild");
+        run_core_intelligence(
+            &clean_paths,
+            &config,
+            None,
+            &CoreIntelligenceRebuildRequest::default(),
+        )
+        .expect("clean full rebuild");
 
-        let fallback_intelligence =
-            open_intelligence_connection(&fallback_paths, &config, None).expect("fallback intelligence");
+        let fallback_intelligence = open_intelligence_connection(&fallback_paths, &config, None)
+            .expect("fallback intelligence");
         let clean_intelligence =
             open_intelligence_connection(&clean_paths, &config, None).expect("clean intelligence");
         assert_eq!(
@@ -7530,11 +7549,16 @@ mod tests {
             .expect("revert clean visit");
         drop(clean_archive);
 
-        run_core_intelligence(&clean_paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-            .expect("clean full rebuild");
+        run_core_intelligence(
+            &clean_paths,
+            &config,
+            None,
+            &CoreIntelligenceRebuildRequest::default(),
+        )
+        .expect("clean full rebuild");
 
-        let fallback_intelligence =
-            open_intelligence_connection(&fallback_paths, &config, None).expect("fallback intelligence");
+        let fallback_intelligence = open_intelligence_connection(&fallback_paths, &config, None)
+            .expect("fallback intelligence");
         let clean_intelligence =
             open_intelligence_connection(&clean_paths, &config, None).expect("clean intelligence");
         assert_eq!(

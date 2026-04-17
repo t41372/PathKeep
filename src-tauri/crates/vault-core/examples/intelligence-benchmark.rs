@@ -2,11 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use rusqlite::{Connection, params};
 use serde_json::json;
-use std::{
-    env, fs,
-    path::PathBuf,
-    time::Instant,
-};
+use std::{env, fs, path::PathBuf, time::Instant};
 use tempfile::{TempDir, tempdir};
 use vault_core::{
     archive::{open_archive_connection, open_intelligence_connection},
@@ -15,12 +11,13 @@ use vault_core::{
     get_top_search_concepts, get_top_sites,
     intelligence::run_core_intelligence_job_type_with_progress,
     intelligence_runtime::load_intelligence_runtime,
+    load_config,
     models::{
         AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, PagedDateRangeRequest,
         RefindPagesRequest, ScopedDateRangeRequest, SearchTrailQueryRequest,
         TopSearchConceptsRequest, TopSitesRequest,
     },
-    load_config, run_core_intelligence_with_progress,
+    run_core_intelligence_with_progress,
 };
 
 #[derive(Debug, Clone)]
@@ -69,12 +66,8 @@ fn main() -> Result<()> {
 
     let rebuild_request =
         CoreIntelligenceRebuildRequest { profile_id: None, full_rebuild: true, limit: None };
-    let query_range = benchmark_query_range(
-        &context.paths,
-        &context.config,
-        session_key,
-        options.window_days,
-    )?;
+    let query_range =
+        benchmark_query_range(&context.paths, &context.config, session_key, options.window_days)?;
     let paged_request = PagedDateRangeRequest {
         date_range: query_range.clone(),
         profile_id: None,
@@ -95,24 +88,14 @@ fn main() -> Result<()> {
 
     let follow_up = match options.scenario {
         Scenario::Full => None,
-        Scenario::AppendDelta => Some(run_append_delta_scenario(
-            &context.paths,
-            &context.config,
-            session_key,
-        )?),
+        Scenario::AppendDelta => {
+            Some(run_append_delta_scenario(&context.paths, &context.config, session_key)?)
+        }
         Scenario::ExpiredLeaseRecovery => {
-            Some(run_expired_lease_recovery_scenario(
-                &context.paths,
-                &context.config,
-                session_key,
-            )?)
+            Some(run_expired_lease_recovery_scenario(&context.paths, &context.config, session_key)?)
         }
         Scenario::VisibilityRegressionFallback => {
-            Some(run_visibility_regression_scenario(
-                &context.paths,
-                &context.config,
-                session_key,
-            )?)
+            Some(run_visibility_regression_scenario(&context.paths, &context.config, session_key)?)
         }
     };
 
@@ -257,8 +240,7 @@ fn parse_args() -> Result<Options> {
                 app_root = Some(PathBuf::from(args.next().context("--app-root requires a value")?));
             }
             "--session-key" => {
-                session_key =
-                    Some(args.next().context("--session-key requires a value")?);
+                session_key = Some(args.next().context("--session-key requires a value")?);
             }
             flag => anyhow::bail!("unknown flag {flag}"),
         }
@@ -353,9 +335,7 @@ fn benchmark_query_range(
             |row| row.get::<_, i64>(0),
         )
         .unwrap_or(0);
-    let end = chrono::DateTime::from_timestamp_millis(end_ms)
-        .unwrap_or_else(Utc::now)
-        .date_naive();
+    let end = chrono::DateTime::from_timestamp_millis(end_ms).unwrap_or_else(Utc::now).date_naive();
     let start = end - Duration::days(window_days.saturating_sub(1) as i64);
     Ok(DateRange { start: start.to_string(), end: end.to_string() })
 }
@@ -449,13 +429,7 @@ fn collect_existing_corpus_stats(
          FROM visits
          WHERE reverted_at IS NULL",
         [],
-        |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        },
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
     )?;
     let profile_count: i64 =
         connection.query_row("SELECT COUNT(*) FROM source_profiles", [], |row| row.get(0))?;
