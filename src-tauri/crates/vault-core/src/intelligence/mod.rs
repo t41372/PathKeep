@@ -526,6 +526,8 @@ struct StageRunResult {
 }
 
 const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 2_048;
+const VISIT_DERIVE_FALLBACK_BATCH_SIZE: usize = 2_048;
+const DAILY_ROLLUP_FALLBACK_BATCH_SIZE: usize = 2_048;
 
 #[derive(Debug, Clone, Copy)]
 struct DerivedVisitBatchCursor {
@@ -536,6 +538,160 @@ struct DerivedVisitBatchCursor {
 #[derive(Debug, Clone, Copy)]
 struct SearchEventBatchCursor {
     visit_id: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct VisibleVisitBatchCursor {
+    visit_time_ms: i64,
+    visit_id: i64,
+}
+
+#[derive(Debug, Default)]
+struct DailyRollupAccumulator {
+    domains: HashMap<(String, String, String), (String, i64, i64, i64, HashSet<String>)>,
+    categories: HashMap<(String, String, String), (i64, HashSet<String>)>,
+    engines: HashMap<(String, String, String), i64>,
+    summaries: HashMap<
+        (String, String),
+        (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>),
+    >,
+}
+
+impl DailyRollupAccumulator {
+    fn add_visit(&mut self, visit: &VisitRecord) {
+        let date_key = local_date_key(visit.visit_time_ms);
+        let domain_key =
+            (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
+        let domain_entry = self.domains.entry(domain_key).or_insert((
+            visit.domain_category.clone(),
+            0,
+            0,
+            0,
+            HashSet::new(),
+        ));
+        domain_entry.1 += 1;
+        domain_entry.2 += i64::from(visit.is_search_event);
+        domain_entry.3 += i64::from(visit.is_new_domain);
+        domain_entry.4.insert(visit.canonical_url.clone());
+
+        let category_key =
+            (date_key.clone(), visit.profile_id.clone(), visit.domain_category.clone());
+        let category_entry = self.categories.entry(category_key).or_insert((0, HashSet::new()));
+        category_entry.0 += 1;
+        category_entry.1.insert(visit.registrable_domain.clone());
+
+        if let Some(engine) = &visit.search_engine {
+            *self
+                .engines
+                .entry((date_key.clone(), visit.profile_id.clone(), engine.clone()))
+                .or_default() += 1;
+        }
+
+        let summary_key = (date_key, visit.profile_id.clone());
+        let summary_entry = self.summaries.entry(summary_key).or_insert((
+            0,
+            0,
+            HashSet::new(),
+            HashSet::new(),
+            HashMap::new(),
+        ));
+        summary_entry.0 += 1;
+        summary_entry.1 += i64::from(visit.is_search_event);
+        if visit.is_new_domain {
+            summary_entry.2.insert(visit.registrable_domain.clone());
+        }
+        summary_entry.3.insert(visit.registrable_domain.clone());
+        *summary_entry.4.entry(visit.registrable_domain.clone()).or_default() += 1;
+    }
+
+    fn extend<'a>(&mut self, visits: impl IntoIterator<Item = &'a VisitRecord>) {
+        for visit in visits {
+            self.add_visit(visit);
+        }
+    }
+
+    fn finish(self) -> DailyRollupBundle {
+        DailyRollupBundle {
+            domain_rows: self
+                .domains
+                .into_iter()
+                .map(
+                    |(
+                        (date_key, profile_id, registrable_domain),
+                        (domain_category, visit_count, search_count, new_domain_visits, unique_urls),
+                    )| {
+                        (
+                            date_key,
+                            profile_id,
+                            registrable_domain,
+                            domain_category,
+                            visit_count,
+                            search_count,
+                            new_domain_visits,
+                            unique_urls.len() as i64,
+                        )
+                    },
+                )
+                .collect(),
+            category_rows: self
+                .categories
+                .into_iter()
+                .map(|((date_key, profile_id, domain_category), (visit_count, unique_domains))| {
+                    (
+                        date_key,
+                        profile_id,
+                        domain_category,
+                        visit_count,
+                        unique_domains.len() as i64,
+                    )
+                })
+                .collect(),
+            engine_rows: self
+                .engines
+                .into_iter()
+                .map(|((date_key, profile_id, search_engine), search_count)| {
+                    (date_key, profile_id, search_engine, search_count)
+                })
+                .collect(),
+            summary_rows: self
+                .summaries
+                .into_iter()
+                .map(
+                    |(
+                        (date_key, profile_id),
+                        (total_visits, total_searches, new_domains, unique_domains, domain_counts),
+                    )| {
+                        let hhi = if total_visits == 0 {
+                            0.0
+                        } else {
+                            domain_counts
+                                .values()
+                                .map(|count| {
+                                    let share = *count as f32 / total_visits as f32;
+                                    share * share
+                                })
+                                .sum::<f32>()
+                        };
+                        let discovery_rate = if total_visits == 0 {
+                            0.0
+                        } else {
+                            new_domains.len() as f32 / total_visits as f32
+                        };
+                        (
+                            date_key,
+                            profile_id,
+                            total_visits,
+                            total_searches,
+                            new_domains.len() as i64,
+                            unique_domains.len() as i64,
+                            hhi,
+                            discovery_rate,
+                        )
+                    },
+                )
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1199,15 +1355,21 @@ fn execute_visit_derive_stage(
         });
     }
 
-    let (visits, execution_mode, dirty_visit_count, dirty_date_keys) =
+    let (visits, execution_mode, dirty_visit_count, dirty_date_keys, dirty_from_visit_ms) =
         if let Some(_reason) = fallback_reason.clone() {
-            let mut visits = load_visible_visits(connection, Some(profile_id), None)?;
-            compute_is_new_domain(&mut visits);
+            clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::VisitDerive)?;
+            let fallback_summary = rebuild_visit_derived_facts_in_batches(
+                connection,
+                profile_id,
+                computed_at,
+                VISIT_DERIVE_FALLBACK_BATCH_SIZE,
+            )?;
             (
-                visits,
+                Vec::new(),
                 StageExecutionMode::FallbackFull,
-                watermark.visible_visit_count.max(0) as usize,
-                unique_date_keys(&load_visible_visits(connection, Some(profile_id), None)?),
+                fallback_summary.processed_visits,
+                fallback_summary.dirty_date_keys,
+                fallback_summary.dirty_from_visit_ms,
             )
         } else {
             let last_processed_visit_id =
@@ -1221,30 +1383,42 @@ fn execute_visit_derive_stage(
                     .unwrap_or_default())
             .max(0) as usize;
             if visits.is_empty() || visits.len() != expected_delta {
-                let mut full_visits = load_visible_visits(connection, Some(profile_id), None)?;
-                compute_is_new_domain(&mut full_visits);
                 fallback_reason = Some(
                     "Visit-derived delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
+                clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::VisitDerive)?;
+                let fallback_summary = rebuild_visit_derived_facts_in_batches(
+                    connection,
+                    profile_id,
+                    computed_at,
+                    VISIT_DERIVE_FALLBACK_BATCH_SIZE,
+                )?;
                 (
-                    full_visits.clone(),
+                    Vec::new(),
                     StageExecutionMode::FallbackFull,
-                    watermark.visible_visit_count.max(0) as usize,
-                    unique_date_keys(&full_visits),
+                    fallback_summary.processed_visits,
+                    fallback_summary.dirty_date_keys,
+                    fallback_summary.dirty_from_visit_ms,
                 )
             } else {
                 let mut seen_domains = load_seen_domains(connection, profile_id)?;
                 compute_is_new_domain_with_seen(&mut visits, &mut seen_domains);
                 let dirty_date_keys = unique_date_keys(&visits);
-                (visits, StageExecutionMode::Incremental, expected_delta, dirty_date_keys)
+                let dirty_from_visit_ms = visits.first().map(|visit| visit.visit_time_ms);
+                (
+                    visits,
+                    StageExecutionMode::Incremental,
+                    expected_delta,
+                    dirty_date_keys,
+                    dirty_from_visit_ms,
+                )
             }
         };
 
-    if execution_mode == StageExecutionMode::FallbackFull {
-        clear_core_tables_for_job_kind(connection, Some(profile_id), RebuildMode::VisitDerive)?;
+    if execution_mode != StageExecutionMode::FallbackFull {
+        persist_visit_derived_facts(connection, &visits, computed_at)?;
     }
-    persist_visit_derived_facts(connection, &visits, computed_at)?;
     save_stage_checkpoint(
         connection,
         &StageCheckpoint {
@@ -1253,7 +1427,7 @@ fn execute_visit_derive_stage(
             stage_version: current_version,
             source_watermark: watermark.clone(),
             last_processed_visit_id: watermark.max_visit_id,
-            dirty_from_visit_ms: visits.first().map(|visit| visit.visit_time_ms),
+            dirty_from_visit_ms,
             dirty_date_key: dirty_date_keys.first().cloned(),
             last_run_id: Some(run_id),
             fallback_reason: fallback_reason.clone(),
@@ -1261,8 +1435,8 @@ fn execute_visit_derive_stage(
         },
     )?;
     Ok(StageRunResult {
-        processed_visits: visits.len(),
-        visit_derived_facts: visits.len(),
+        processed_visits: dirty_visit_count,
+        visit_derived_facts: dirty_visit_count,
         execution_mode: Some(execution_mode.as_str().to_string()),
         affected_profiles: vec![profile_id.to_string()],
         dirty_visit_count: Some(dirty_visit_count),
@@ -1365,15 +1539,20 @@ fn execute_daily_rollup_stage(
         });
     }
 
-    let (visits, execution_mode, dirty_visit_count, dirty_date_keys) =
+    let (_visits, rollups, execution_mode, dirty_visit_count, dirty_date_keys, dirty_from_visit_ms) =
         if let Some(_reason) = fallback_reason.clone() {
-            let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
-            let dirty_date_keys = unique_date_keys(&visits);
+            let fallback_rollups = build_daily_rollups_for_profile_in_batches(
+                connection,
+                profile_id,
+                DAILY_ROLLUP_FALLBACK_BATCH_SIZE,
+            )?;
             (
-                visits,
+                Vec::new(),
+                fallback_rollups.rollups,
                 StageExecutionMode::FallbackFull,
-                watermark.visible_visit_count as usize,
-                dirty_date_keys,
+                fallback_rollups.processed_visits,
+                fallback_rollups.dirty_date_keys,
+                fallback_rollups.dirty_from_visit_ms,
             )
         } else {
             let last_processed_visit_id =
@@ -1395,13 +1574,18 @@ fn execute_daily_rollup_stage(
                     "Daily rollup delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
-                let visits = load_profile_derived_visits(connection, profile_id, None, None)?;
-                let dirty_date_keys = unique_date_keys(&visits);
+                let fallback_rollups = build_daily_rollups_for_profile_in_batches(
+                    connection,
+                    profile_id,
+                    DAILY_ROLLUP_FALLBACK_BATCH_SIZE,
+                )?;
                 (
-                    visits,
+                    Vec::new(),
+                    fallback_rollups.rollups,
                     StageExecutionMode::FallbackFull,
-                    watermark.visible_visit_count as usize,
-                    dirty_date_keys,
+                    fallback_rollups.processed_visits,
+                    fallback_rollups.dirty_date_keys,
+                    fallback_rollups.dirty_from_visit_ms,
                 )
             } else {
                 let dirty_date_keys = unique_date_keys(&delta_visits);
@@ -1410,11 +1594,19 @@ fn execute_daily_rollup_stage(
                     profile_id,
                     &dirty_date_keys,
                 )?;
-                (visits, StageExecutionMode::Incremental, expected_delta, dirty_date_keys)
+                let dirty_from_visit_ms = visits.first().map(|visit| visit.visit_time_ms);
+                let rollups = build_daily_rollups(&visits);
+                (
+                    visits,
+                    rollups,
+                    StageExecutionMode::Incremental,
+                    expected_delta,
+                    dirty_date_keys,
+                    dirty_from_visit_ms,
+                )
             }
         };
 
-    let rollups = build_daily_rollups(&visits);
     replace_daily_rollups(
         connection,
         profile_id,
@@ -1433,7 +1625,7 @@ fn execute_daily_rollup_stage(
             stage_version: current_version,
             source_watermark: watermark.clone(),
             last_processed_visit_id: watermark.max_visit_id,
-            dirty_from_visit_ms: visits.first().map(|visit| visit.visit_time_ms),
+            dirty_from_visit_ms,
             dirty_date_key: dirty_date_keys.first().cloned(),
             last_run_id: Some(run_id),
             fallback_reason: fallback_reason.clone(),
@@ -1441,7 +1633,7 @@ fn execute_daily_rollup_stage(
         },
     )?;
     Ok(StageRunResult {
-        processed_visits: visits.len(),
+        processed_visits: dirty_visit_count,
         execution_mode: Some(execution_mode.as_str().to_string()),
         affected_profiles: vec![profile_id.to_string()],
         dirty_visit_count: Some(dirty_visit_count),
@@ -1718,6 +1910,51 @@ fn load_visible_visits_after_id(
     Ok(visits)
 }
 
+fn load_visible_visit_batch(
+    connection: &Connection,
+    profile_id: &str,
+    after: Option<VisibleVisitBatchCursor>,
+    limit: usize,
+) -> Result<Vec<VisitRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visits.id,
+                source_profiles.profile_key,
+                visits.source_profile_id,
+                CAST(visits.source_visit_id AS INTEGER),
+                urls.id,
+                urls.url,
+                urls.title,
+                visits.visit_time_ms,
+                visits.from_visit,
+                visits.transition_type,
+                visits.external_referrer_url
+         FROM archive.visits AS visits
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+         WHERE visits.reverted_at IS NULL
+           AND source_profiles.profile_key = ?1
+           AND (
+             ?2 IS NULL
+             OR visits.visit_time_ms > ?2
+             OR (visits.visit_time_ms = ?2 AND visits.id > ?3)
+           )
+         ORDER BY visits.visit_time_ms ASC, visits.id ASC
+         LIMIT ?4",
+    )?;
+    let rows = statement.query_map(
+        params![
+            profile_id,
+            after.map(|cursor| cursor.visit_time_ms),
+            after.map(|cursor| cursor.visit_id),
+            limit.max(1) as i64,
+        ],
+        visit_from_row,
+    )?;
+    let mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    hydrate_search_terms(connection, &mut visits)?;
+    Ok(visits)
+}
+
 fn load_profile_derived_visits(
     connection: &Connection,
     profile_id: &str,
@@ -1903,6 +2140,94 @@ fn load_profile_derived_visits_for_date_keys(
             date_keys.iter().any(|candidate| candidate == &date_key) && visit.visit_time_ms < end_ms
         })
         .collect())
+}
+
+#[derive(Debug, Default)]
+struct VisitDeriveFallbackSummary {
+    processed_visits: usize,
+    dirty_date_keys: Vec<String>,
+    dirty_from_visit_ms: Option<i64>,
+}
+
+fn rebuild_visit_derived_facts_in_batches(
+    connection: &Connection,
+    profile_id: &str,
+    computed_at: &str,
+    batch_size: usize,
+) -> Result<VisitDeriveFallbackSummary> {
+    let mut cursor = None;
+    let mut seen_domains = HashSet::<String>::new();
+    let mut dirty_date_keys = BTreeSet::<String>::new();
+    let mut dirty_from_visit_ms = None;
+    let mut processed_visits = 0usize;
+
+    loop {
+        let mut batch = load_visible_visit_batch(connection, profile_id, cursor, batch_size)?;
+        if batch.is_empty() {
+            break;
+        }
+        compute_is_new_domain_with_seen(&mut batch, &mut seen_domains);
+        if dirty_from_visit_ms.is_none() {
+            dirty_from_visit_ms = batch.first().map(|visit| visit.visit_time_ms);
+        }
+        dirty_date_keys.extend(batch.iter().map(|visit| local_date_key(visit.visit_time_ms)));
+        processed_visits += batch.len();
+        persist_visit_derived_facts(connection, &batch, computed_at)?;
+        cursor = batch.last().map(|visit| VisibleVisitBatchCursor {
+            visit_time_ms: visit.visit_time_ms,
+            visit_id: visit.visit_id,
+        });
+    }
+
+    Ok(VisitDeriveFallbackSummary {
+        processed_visits,
+        dirty_date_keys: dirty_date_keys.into_iter().collect(),
+        dirty_from_visit_ms,
+    })
+}
+
+#[derive(Debug, Default)]
+struct DailyRollupFallbackSummary {
+    processed_visits: usize,
+    rollups: DailyRollupBundle,
+    dirty_date_keys: Vec<String>,
+    dirty_from_visit_ms: Option<i64>,
+}
+
+fn build_daily_rollups_for_profile_in_batches(
+    connection: &Connection,
+    profile_id: &str,
+    batch_size: usize,
+) -> Result<DailyRollupFallbackSummary> {
+    let mut cursor = None;
+    let mut accumulator = DailyRollupAccumulator::default();
+    let mut dirty_date_keys = BTreeSet::<String>::new();
+    let mut dirty_from_visit_ms = None;
+    let mut processed_visits = 0usize;
+
+    loop {
+        let batch = load_profile_derived_visit_batch(connection, profile_id, cursor, batch_size)?;
+        if batch.is_empty() {
+            break;
+        }
+        if dirty_from_visit_ms.is_none() {
+            dirty_from_visit_ms = batch.first().map(|visit| visit.visit_time_ms);
+        }
+        dirty_date_keys.extend(batch.iter().map(|visit| local_date_key(visit.visit_time_ms)));
+        processed_visits += batch.len();
+        accumulator.extend(batch.iter());
+        cursor = batch.last().map(|visit| DerivedVisitBatchCursor {
+            visit_time_ms: visit.visit_time_ms,
+            visit_id: visit.visit_id,
+        });
+    }
+
+    Ok(DailyRollupFallbackSummary {
+        processed_visits,
+        rollups: accumulator.finish(),
+        dirty_date_keys: dirty_date_keys.into_iter().collect(),
+        dirty_from_visit_ms,
+    })
 }
 
 #[cfg(test)]
@@ -3621,130 +3946,9 @@ fn flush_path_flow_sequence(
 }
 
 fn build_daily_rollups(visits: &[VisitRecord]) -> DailyRollupBundle {
-    let mut domains =
-        HashMap::<(String, String, String), (String, i64, i64, i64, HashSet<String>)>::new();
-    let mut categories = HashMap::<(String, String, String), (i64, HashSet<String>)>::new();
-    let mut engines = HashMap::<(String, String, String), i64>::new();
-    let mut summaries = HashMap::<
-        (String, String),
-        (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>),
-    >::new();
-
-    for visit in visits {
-        let date_key = local_date_key(visit.visit_time_ms);
-        let domain_key =
-            (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
-        let domain_entry = domains.entry(domain_key).or_insert((
-            visit.domain_category.clone(),
-            0,
-            0,
-            0,
-            HashSet::new(),
-        ));
-        domain_entry.1 += 1;
-        domain_entry.2 += i64::from(visit.is_search_event);
-        domain_entry.3 += i64::from(visit.is_new_domain);
-        domain_entry.4.insert(visit.canonical_url.clone());
-
-        let category_key =
-            (date_key.clone(), visit.profile_id.clone(), visit.domain_category.clone());
-        let category_entry = categories.entry(category_key).or_insert((0, HashSet::new()));
-        category_entry.0 += 1;
-        category_entry.1.insert(visit.registrable_domain.clone());
-
-        if let Some(engine) = &visit.search_engine {
-            *engines
-                .entry((date_key.clone(), visit.profile_id.clone(), engine.clone()))
-                .or_default() += 1;
-        }
-
-        let summary_key = (date_key, visit.profile_id.clone());
-        let summary_entry = summaries.entry(summary_key).or_insert((
-            0,
-            0,
-            HashSet::new(),
-            HashSet::new(),
-            HashMap::new(),
-        ));
-        summary_entry.0 += 1;
-        summary_entry.1 += i64::from(visit.is_search_event);
-        if visit.is_new_domain {
-            summary_entry.2.insert(visit.registrable_domain.clone());
-        }
-        summary_entry.3.insert(visit.registrable_domain.clone());
-        *summary_entry.4.entry(visit.registrable_domain.clone()).or_default() += 1;
-    }
-
-    DailyRollupBundle {
-        domain_rows: domains
-            .into_iter()
-            .map(
-                |(
-                    (date_key, profile_id, registrable_domain),
-                    (domain_category, visit_count, search_count, new_domain_visits, unique_urls),
-                )| {
-                    (
-                        date_key,
-                        profile_id,
-                        registrable_domain,
-                        domain_category,
-                        visit_count,
-                        search_count,
-                        new_domain_visits,
-                        unique_urls.len() as i64,
-                    )
-                },
-            )
-            .collect(),
-        category_rows: categories
-            .into_iter()
-            .map(|((date_key, profile_id, domain_category), (visit_count, unique_domains))| {
-                (date_key, profile_id, domain_category, visit_count, unique_domains.len() as i64)
-            })
-            .collect(),
-        engine_rows: engines
-            .into_iter()
-            .map(|((date_key, profile_id, search_engine), search_count)| {
-                (date_key, profile_id, search_engine, search_count)
-            })
-            .collect(),
-        summary_rows: summaries
-            .into_iter()
-            .map(
-                |(
-                    (date_key, profile_id),
-                    (total_visits, total_searches, new_domains, unique_domains, domain_counts),
-                )| {
-                    let hhi = if total_visits == 0 {
-                        0.0
-                    } else {
-                        domain_counts
-                            .values()
-                            .map(|count| {
-                                let share = *count as f32 / total_visits as f32;
-                                share * share
-                            })
-                            .sum::<f32>()
-                    };
-                    let discovery_rate = if total_visits == 0 {
-                        0.0
-                    } else {
-                        new_domains.len() as f32 / total_visits as f32
-                    };
-                    (
-                        date_key,
-                        profile_id,
-                        total_visits,
-                        total_searches,
-                        new_domains.len() as i64,
-                        unique_domains.len() as i64,
-                        hhi,
-                        discovery_rate,
-                    )
-                },
-            )
-            .collect(),
-    }
+    let mut accumulator = DailyRollupAccumulator::default();
+    accumulator.extend(visits.iter());
+    accumulator.finish()
 }
 
 fn merge_rollups(target: &mut DailyRollupBundle, next: DailyRollupBundle) {
@@ -6508,11 +6712,13 @@ fn path_from_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        QueryFamilyRecord, build_habit_patterns, build_kpi, build_path_flows, build_query_families,
+        DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, VISIT_DERIVE_FALLBACK_BATCH_SIZE,
+        build_habit_patterns, build_kpi, build_path_flows, build_query_families,
         build_query_families_from_batches, build_refind_pages,
         build_structural_profile_aggregates_from_batches, collapse_date_key,
         ensure_core_intelligence_schema, explain_entity, get_intelligence_embed_cards,
-        get_intelligence_public_snapshot, get_path_flows, load_profile_derived_visits,
+        get_intelligence_public_snapshot, get_intelligence_widget_snapshot, get_path_flows,
+        load_profile_derived_visits,
         load_profile_search_events, local_date_key, normalize_query, run_core_intelligence,
         run_core_intelligence_job_type_with_progress,
     };
@@ -6640,6 +6846,27 @@ mod tests {
         assert!(
             public_snapshot.notes.iter().any(|note| note.contains("omit visit-level identifiers"))
         );
+        let public_snapshot_json =
+            serde_json::to_string(&public_snapshot).expect("serialize public snapshot");
+        assert!(!public_snapshot_json.contains("https://"));
+        assert!(!public_snapshot_json.contains("visitId"));
+
+        let widget_snapshot = get_intelligence_widget_snapshot(
+            &paths,
+            &config,
+            None,
+            &IntelligenceEmbedCardsRequest {
+                date_range: DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+                limit: Some(8),
+            },
+        )
+        .expect("widget snapshot");
+        assert!(widget_snapshot.highlights.len() <= 4);
+        assert!(widget_snapshot.notes.iter().any(|note| note.contains("internal_only")));
 
         let intelligence =
             open_intelligence_connection(&paths, &config, None).expect("intelligence");
@@ -7131,6 +7358,204 @@ mod tests {
     }
 
     #[test]
+    fn visit_derive_fallback_matches_clean_full_rebuild_across_batches() {
+        let fallback_root = tempfile::tempdir().expect("fallback tempdir");
+        let clean_root = tempfile::tempdir().expect("clean tempdir");
+        let fallback_paths = project_paths_with_root(fallback_root.path());
+        let clean_paths = project_paths_with_root(clean_root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let reverted_visit_id = 1200_i64;
+
+        let fallback_archive =
+            open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
+        seed_core_intelligence_fixture(&fallback_archive);
+        append_many_fixture_visits(
+            &fallback_archive,
+            4,
+            VISIT_DERIVE_FALLBACK_BATCH_SIZE + 17,
+            1712145600000,
+        );
+        drop(fallback_archive);
+
+        run_core_intelligence(
+            &fallback_paths,
+            &config,
+            None,
+            &CoreIntelligenceRebuildRequest::default(),
+        )
+        .expect("fallback full rebuild");
+
+        let fallback_archive =
+            open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
+        fallback_archive
+            .execute(
+                "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
+                [reverted_visit_id],
+            )
+            .expect("revert fallback visit");
+        drop(fallback_archive);
+
+        let fallback_report = run_core_intelligence_job_type_with_progress(
+            &fallback_paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive fallback");
+        assert_eq!(fallback_report.execution_mode.as_deref(), Some("fallback-full"));
+        assert!(fallback_report.visit_derived_facts > VISIT_DERIVE_FALLBACK_BATCH_SIZE);
+
+        let clean_archive =
+            open_archive_connection(&clean_paths, &config, None).expect("clean archive");
+        seed_core_intelligence_fixture(&clean_archive);
+        append_many_fixture_visits(
+            &clean_archive,
+            4,
+            VISIT_DERIVE_FALLBACK_BATCH_SIZE + 17,
+            1712145600000,
+        );
+        clean_archive
+            .execute(
+                "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
+                [reverted_visit_id],
+            )
+            .expect("revert clean visit");
+        drop(clean_archive);
+
+        run_core_intelligence(&clean_paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("clean full rebuild");
+
+        let fallback_intelligence =
+            open_intelligence_connection(&fallback_paths, &config, None).expect("fallback intelligence");
+        let clean_intelligence =
+            open_intelligence_connection(&clean_paths, &config, None).expect("clean intelligence");
+        assert_eq!(
+            load_visit_derived_fact_rows(&fallback_intelligence),
+            load_visit_derived_fact_rows(&clean_intelligence)
+        );
+    }
+
+    #[test]
+    fn daily_rollup_fallback_matches_clean_full_rebuild_across_batches() {
+        let fallback_root = tempfile::tempdir().expect("fallback tempdir");
+        let clean_root = tempfile::tempdir().expect("clean tempdir");
+        let fallback_paths = project_paths_with_root(fallback_root.path());
+        let clean_paths = project_paths_with_root(clean_root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let reverted_visit_id = 1200_i64;
+
+        let fallback_archive =
+            open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
+        seed_core_intelligence_fixture(&fallback_archive);
+        append_many_fixture_visits(
+            &fallback_archive,
+            4,
+            DAILY_ROLLUP_FALLBACK_BATCH_SIZE + 17,
+            1712145600000,
+        );
+        drop(fallback_archive);
+
+        run_core_intelligence(
+            &fallback_paths,
+            &config,
+            None,
+            &CoreIntelligenceRebuildRequest::default(),
+        )
+        .expect("fallback full rebuild");
+
+        let fallback_archive =
+            open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
+        fallback_archive
+            .execute(
+                "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
+                [reverted_visit_id],
+            )
+            .expect("revert fallback visit");
+        drop(fallback_archive);
+
+        run_core_intelligence_job_type_with_progress(
+            &fallback_paths,
+            &config,
+            None,
+            "visit-derive",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("visit derive fallback");
+        let fallback_report = run_core_intelligence_job_type_with_progress(
+            &fallback_paths,
+            &config,
+            None,
+            "daily-rollup",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("daily rollup fallback");
+        assert_eq!(fallback_report.execution_mode.as_deref(), Some("fallback-full"));
+        assert!(fallback_report.processed_visits > DAILY_ROLLUP_FALLBACK_BATCH_SIZE);
+
+        let clean_archive =
+            open_archive_connection(&clean_paths, &config, None).expect("clean archive");
+        seed_core_intelligence_fixture(&clean_archive);
+        append_many_fixture_visits(
+            &clean_archive,
+            4,
+            DAILY_ROLLUP_FALLBACK_BATCH_SIZE + 17,
+            1712145600000,
+        );
+        clean_archive
+            .execute(
+                "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
+                [reverted_visit_id],
+            )
+            .expect("revert clean visit");
+        drop(clean_archive);
+
+        run_core_intelligence(&clean_paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("clean full rebuild");
+
+        let fallback_intelligence =
+            open_intelligence_connection(&fallback_paths, &config, None).expect("fallback intelligence");
+        let clean_intelligence =
+            open_intelligence_connection(&clean_paths, &config, None).expect("clean intelligence");
+        assert_eq!(
+            load_daily_rollup_rows(&fallback_intelligence, "domain_daily_rollups"),
+            load_daily_rollup_rows(&clean_intelligence, "domain_daily_rollups")
+        );
+        assert_eq!(
+            load_daily_rollup_rows(&fallback_intelligence, "category_daily_rollups"),
+            load_daily_rollup_rows(&clean_intelligence, "category_daily_rollups")
+        );
+        assert_eq!(
+            load_daily_rollup_rows(&fallback_intelligence, "engine_daily_rollups"),
+            load_daily_rollup_rows(&clean_intelligence, "engine_daily_rollups")
+        );
+        assert_eq!(
+            load_daily_rollup_rows(&fallback_intelligence, "daily_summary_rollups"),
+            load_daily_rollup_rows(&clean_intelligence, "daily_summary_rollups")
+        );
+    }
+
+    #[test]
     fn path_flows_support_four_step_queries_and_explanations() {
         let root = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
@@ -7273,6 +7698,94 @@ mod tests {
                 )
                 .expect("insert search term");
         }
+    }
+
+    fn append_many_fixture_visits(
+        connection: &Connection,
+        start_visit_id: i64,
+        count: usize,
+        start_time_ms: i64,
+    ) {
+        for offset in 0..count {
+            let visit_id = start_visit_id + offset as i64;
+            let query = format!("incremental topic {}", offset % 9);
+            let (url, title, from_visit, normalized_search_term) = match offset % 3 {
+                0 => (
+                    format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
+                    format!("Search {query}"),
+                    None,
+                    Some(query),
+                ),
+                1 => (
+                    format!("https://docs.incremental-{}.dev/guide/{}", offset % 7, offset),
+                    format!("Guide {offset}"),
+                    Some(visit_id - 1),
+                    None,
+                ),
+                _ => (
+                    format!("https://reference.incremental-{}.dev/page/{}", offset % 5, offset),
+                    format!("Reference {offset}"),
+                    Some(visit_id - 1),
+                    None,
+                ),
+            };
+            append_fixture_visit(
+                connection,
+                visit_id,
+                &url,
+                &title,
+                start_time_ms + (offset as i64 * 60_000),
+                from_visit,
+                normalized_search_term.as_deref(),
+            );
+        }
+    }
+
+    fn load_visit_derived_fact_rows(connection: &Connection) -> Vec<(i64, String, String, i64)> {
+        connection
+            .prepare(
+                "SELECT visit_id, registrable_domain, canonical_url, is_new_domain
+                 FROM visit_derived_facts
+                 ORDER BY visit_id ASC",
+            )
+            .expect("prepare visit-derived facts")
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .expect("query visit-derived facts")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect visit-derived facts")
+    }
+
+    fn load_daily_rollup_rows(connection: &Connection, table: &str) -> Vec<String> {
+        let sql = format!("SELECT * FROM {table} ORDER BY 1, 2, 3");
+        let mut statement = connection.prepare(&sql).expect("prepare rollup rows");
+        statement
+            .query_map([], |row| {
+                let mut values = Vec::with_capacity(row.as_ref().column_count());
+                for index in 0..row.as_ref().column_count() {
+                    let value = row.get_ref(index)?;
+                    let normalized = match value {
+                        rusqlite::types::ValueRef::Null => "NULL".to_string(),
+                        rusqlite::types::ValueRef::Integer(inner) => inner.to_string(),
+                        rusqlite::types::ValueRef::Real(inner) => format!("{inner:.6}"),
+                        rusqlite::types::ValueRef::Text(inner) => {
+                            String::from_utf8_lossy(inner).into_owned()
+                        }
+                        rusqlite::types::ValueRef::Blob(inner) => format!("blob:{}", inner.len()),
+                    };
+                    values.push(normalized);
+                }
+                Ok(values.join("|"))
+            })
+            .expect("query rollup rows")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect rollup rows")
     }
 
     fn seed_core_intelligence_fixture(connection: &Connection) {
