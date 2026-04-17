@@ -1815,7 +1815,7 @@ fn execute_structural_stage(
             }
         };
 
-    let mut rebuild_visits = tail_visits.clone();
+    let mut rebuild_visits = tail_visits;
     let sessions = build_sessions(&mut rebuild_visits);
     let (search_events, trails) = build_search_trails(&mut rebuild_visits);
     replace_structural_tail_state(
@@ -2212,34 +2212,147 @@ struct DailyRollupFallbackSummary {
 fn build_daily_rollups_for_profile_in_batches(
     connection: &Connection,
     profile_id: &str,
-    batch_size: usize,
+    _batch_size: usize,
 ) -> Result<DailyRollupFallbackSummary> {
-    let mut cursor = None;
-    let mut accumulator = DailyRollupAccumulator::default();
-    let mut dirty_date_keys = BTreeSet::<String>::new();
-    let mut dirty_from_visit_ms = None;
-    let mut processed_visits = 0usize;
-
-    loop {
-        let batch = load_profile_derived_visit_batch(connection, profile_id, cursor, batch_size)?;
-        if batch.is_empty() {
-            break;
-        }
-        if dirty_from_visit_ms.is_none() {
-            dirty_from_visit_ms = batch.first().map(|visit| visit.visit_time_ms);
-        }
-        dirty_date_keys.extend(batch.iter().map(|visit| local_date_key(visit.visit_time_ms)));
-        processed_visits += batch.len();
-        accumulator.extend(batch.iter());
-        cursor = batch.last().map(|visit| DerivedVisitBatchCursor {
-            visit_time_ms: visit.visit_time_ms,
-            visit_id: visit.visit_id,
-        });
+    let (processed_visits, dirty_from_visit_ms) = connection.query_row(
+        "SELECT COUNT(*), MIN(archive.visits.visit_time_ms)
+         FROM visit_derived_facts
+         JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND archive.visits.reverted_at IS NULL",
+        [profile_id],
+        |row| Ok((row.get::<_, i64>(0)?.max(0) as usize, row.get::<_, Option<i64>>(1)?)),
+    )?;
+    if processed_visits == 0 {
+        return Ok(DailyRollupFallbackSummary::default());
     }
+
+    let mut domain_statement = connection.prepare(
+        "SELECT strftime('%Y-%m-%d', archive.visits.visit_time_ms / 1000.0, 'unixepoch', 'localtime') AS date_key,
+                visit_derived_facts.profile_id,
+                visit_derived_facts.registrable_domain,
+                visit_derived_facts.domain_category,
+                COUNT(*) AS visit_count,
+                SUM(visit_derived_facts.is_search_event),
+                SUM(visit_derived_facts.is_new_domain),
+                COUNT(DISTINCT visit_derived_facts.canonical_url)
+         FROM visit_derived_facts
+         JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND archive.visits.reverted_at IS NULL
+         GROUP BY date_key, visit_derived_facts.profile_id, visit_derived_facts.registrable_domain, visit_derived_facts.domain_category
+         ORDER BY date_key ASC, visit_derived_facts.registrable_domain ASC",
+    )?;
+    let domain_rows = domain_statement
+        .query_map([profile_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut engine_statement = connection.prepare(
+        "SELECT strftime('%Y-%m-%d', archive.visits.visit_time_ms / 1000.0, 'unixepoch', 'localtime') AS date_key,
+                visit_derived_facts.profile_id,
+                visit_derived_facts.search_engine,
+                COUNT(*)
+         FROM visit_derived_facts
+         JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND archive.visits.reverted_at IS NULL
+           AND visit_derived_facts.search_engine IS NOT NULL
+         GROUP BY date_key, visit_derived_facts.profile_id, visit_derived_facts.search_engine
+         ORDER BY date_key ASC, visit_derived_facts.search_engine ASC",
+    )?;
+    let engine_rows = engine_statement
+        .query_map([profile_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut category_map = BTreeMap::<(String, String, String), (i64, i64)>::new();
+    let mut summary_map = BTreeMap::<(String, String), (i64, i64, i64, i64, f32)>::new();
+    let mut dirty_date_keys = BTreeSet::<String>::new();
+
+    for (
+        date_key,
+        profile_id,
+        registrable_domain,
+        domain_category,
+        visit_count,
+        search_count,
+        new_domain_visits,
+        unique_urls,
+    ) in &domain_rows
+    {
+        let _ = registrable_domain;
+        let _ = unique_urls;
+        dirty_date_keys.insert(date_key.clone());
+
+        let category_entry = category_map
+            .entry((date_key.clone(), profile_id.clone(), domain_category.clone()))
+            .or_insert((0, 0));
+        category_entry.0 += *visit_count;
+        category_entry.1 += 1;
+
+        let summary_entry =
+            summary_map.entry((date_key.clone(), profile_id.clone())).or_insert((0, 0, 0, 0, 0.0));
+        summary_entry.0 += *visit_count;
+        summary_entry.1 += *search_count;
+        summary_entry.2 += i64::from(*new_domain_visits > 0);
+        summary_entry.3 += 1;
+        summary_entry.4 += (*visit_count * *visit_count) as f32;
+    }
+
+    let category_rows = category_map
+        .into_iter()
+        .map(|((date_key, profile_id, domain_category), (visit_count, unique_domains))| {
+            (date_key, profile_id, domain_category, visit_count, unique_domains)
+        })
+        .collect::<Vec<_>>();
+    let summary_rows = summary_map
+        .into_iter()
+        .map(
+            |(
+                (date_key, profile_id),
+                (total_visits, total_searches, new_domains, unique_domains, sumsq_domain_visits),
+            )| {
+                let hhi_score = if total_visits == 0 {
+                    0.0
+                } else {
+                    sumsq_domain_visits / (total_visits * total_visits) as f32
+                };
+                let discovery_rate =
+                    if total_visits == 0 { 0.0 } else { new_domains as f32 / total_visits as f32 };
+                (
+                    date_key,
+                    profile_id,
+                    total_visits,
+                    total_searches,
+                    new_domains,
+                    unique_domains,
+                    hhi_score,
+                    discovery_rate,
+                )
+            },
+        )
+        .collect::<Vec<_>>();
 
     Ok(DailyRollupFallbackSummary {
         processed_visits,
-        rollups: accumulator.finish(),
+        rollups: DailyRollupBundle { domain_rows, category_rows, engine_rows, summary_rows },
         dirty_date_keys: dirty_date_keys.into_iter().collect(),
         dirty_from_visit_ms,
     })
@@ -2435,53 +2548,54 @@ fn persist_visit_derived_facts(
     computed_at: &str,
 ) -> Result<()> {
     let tx = connection.unchecked_transaction()?;
+    let mut statement = tx.prepare(
+        "INSERT INTO visit_derived_facts (
+           visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url,
+           domain_category, page_category, search_engine, search_query, is_new_domain,
+           is_search_event, evidence_tier, taxonomy_source, taxonomy_pack, taxonomy_version,
+           computed_at
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         ON CONFLICT(visit_id) DO UPDATE SET
+           profile_id = excluded.profile_id,
+           session_id = excluded.session_id,
+           trail_id = excluded.trail_id,
+           registrable_domain = excluded.registrable_domain,
+           canonical_url = excluded.canonical_url,
+           domain_category = excluded.domain_category,
+           page_category = excluded.page_category,
+           search_engine = excluded.search_engine,
+           search_query = excluded.search_query,
+           is_new_domain = excluded.is_new_domain,
+           is_search_event = excluded.is_search_event,
+           evidence_tier = excluded.evidence_tier,
+           taxonomy_source = excluded.taxonomy_source,
+           taxonomy_pack = excluded.taxonomy_pack,
+           taxonomy_version = excluded.taxonomy_version,
+           computed_at = excluded.computed_at",
+    )?;
     for visit in visits {
-        tx.execute(
-            "INSERT INTO visit_derived_facts (
-               visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url,
-               domain_category, page_category, search_engine, search_query, is_new_domain,
-               is_search_event, evidence_tier, taxonomy_source, taxonomy_pack, taxonomy_version,
-               computed_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-             ON CONFLICT(visit_id) DO UPDATE SET
-               profile_id = excluded.profile_id,
-               session_id = excluded.session_id,
-               trail_id = excluded.trail_id,
-               registrable_domain = excluded.registrable_domain,
-               canonical_url = excluded.canonical_url,
-               domain_category = excluded.domain_category,
-               page_category = excluded.page_category,
-               search_engine = excluded.search_engine,
-               search_query = excluded.search_query,
-               is_new_domain = excluded.is_new_domain,
-               is_search_event = excluded.is_search_event,
-               evidence_tier = excluded.evidence_tier,
-               taxonomy_source = excluded.taxonomy_source,
-               taxonomy_pack = excluded.taxonomy_pack,
-               taxonomy_version = excluded.taxonomy_version,
-               computed_at = excluded.computed_at",
-            params![
-                visit.visit_id,
-                visit.profile_id,
-                visit.session_id,
-                visit.trail_id,
-                visit.registrable_domain,
-                visit.canonical_url,
-                visit.domain_category,
-                visit.page_category,
-                visit.search_engine,
-                visit.search_query,
-                i64::from(visit.is_new_domain),
-                i64::from(visit.is_search_event),
-                visit.evidence_tier,
-                visit.taxonomy_source,
-                visit.taxonomy_pack,
-                visit.taxonomy_version,
-                computed_at,
-            ],
-        )?;
+        statement.execute(params![
+            visit.visit_id,
+            visit.profile_id,
+            visit.session_id,
+            visit.trail_id,
+            visit.registrable_domain,
+            visit.canonical_url,
+            visit.domain_category,
+            visit.page_category,
+            visit.search_engine,
+            visit.search_query,
+            i64::from(visit.is_new_domain),
+            i64::from(visit.is_search_event),
+            visit.evidence_tier,
+            visit.taxonomy_source,
+            visit.taxonomy_pack,
+            visit.taxonomy_version,
+            computed_at,
+        ])?;
     }
+    drop(statement);
     tx.commit()?;
     Ok(())
 }
@@ -3152,75 +3266,98 @@ fn compute_is_new_domain(visits: &mut [VisitRecord]) {
 }
 
 fn build_sessions(visits: &mut [VisitRecord]) -> Vec<SessionRecord> {
-    let mut sessions = Vec::new();
-    let mut current: Option<SessionRecord> = None;
-    for visit in visits.iter_mut() {
-        let start_new = current
-            .as_ref()
-            .is_none_or(|session| visit.visit_time_ms - session.last_visit_ms > SESSION_GAP_MS);
-        if start_new {
-            if let Some(session) = current.take() {
-                sessions.push(session);
-            }
-            current = Some(SessionRecord {
-                session_id: format!("session:{}:{}", visit.profile_id, visit.visit_id),
-                profile_id: visit.profile_id.clone(),
-                first_visit_ms: visit.visit_time_ms,
-                last_visit_ms: visit.visit_time_ms,
-                visit_count: 0,
-                search_count: 0,
-                domain_count: 0,
-                is_deep_dive: false,
-                auto_title: None,
-                visit_ids: Vec::new(),
-            });
-        }
-        let session = current.as_mut().expect("current session");
-        session.last_visit_ms = visit.visit_time_ms;
-        session.visit_count += 1;
-        session.search_count += i64::from(visit.is_search_event);
-        session.visit_ids.push(visit.visit_id);
-        visit.session_id = Some(session.session_id.clone());
-    }
-    if let Some(session) = current.take() {
-        sessions.push(session);
+    #[derive(Debug)]
+    struct SessionBuildState {
+        record: SessionRecord,
+        domain_counts: HashMap<String, usize>,
+        first_search_query: Option<String>,
+        navigation_chain_depth: i64,
+        new_domain_count: i64,
     }
 
-    for session in &mut sessions {
-        let members = visits
-            .iter()
-            .filter(|visit| visit.session_id.as_deref() == Some(session.session_id.as_str()))
-            .collect::<Vec<_>>();
-        let domains =
-            members.iter().map(|visit| visit.registrable_domain.clone()).collect::<HashSet<_>>();
-        session.domain_count = domains.len() as i64;
-        session.auto_title = build_session_title(&members);
-        let navigation_chain_depth =
-            members.iter().filter(|visit| visit.from_visit.is_some()).count() as i64;
-        let new_domain_count = members.iter().filter(|visit| visit.is_new_domain).count() as i64;
-        session.is_deep_dive = navigation_chain_depth >= 4
-            && session.domain_count >= 5
-            && session.visit_count >= 8
-            && new_domain_count >= 1;
+    impl SessionBuildState {
+        fn new(visit: &VisitRecord) -> Self {
+            Self {
+                record: SessionRecord {
+                    session_id: format!("session:{}:{}", visit.profile_id, visit.visit_id),
+                    profile_id: visit.profile_id.clone(),
+                    first_visit_ms: visit.visit_time_ms,
+                    last_visit_ms: visit.visit_time_ms,
+                    visit_count: 0,
+                    search_count: 0,
+                    domain_count: 0,
+                    is_deep_dive: false,
+                    auto_title: None,
+                    visit_ids: Vec::new(),
+                },
+                domain_counts: HashMap::new(),
+                first_search_query: None,
+                navigation_chain_depth: 0,
+                new_domain_count: 0,
+            }
+        }
+
+        fn push_visit(&mut self, visit: &VisitRecord) {
+            self.record.last_visit_ms = visit.visit_time_ms;
+            self.record.visit_count += 1;
+            self.record.search_count += i64::from(visit.is_search_event);
+            self.record.visit_ids.push(visit.visit_id);
+            *self.domain_counts.entry(visit.registrable_domain.clone()).or_default() += 1;
+            if self.first_search_query.is_none() {
+                self.first_search_query = visit.search_query.clone();
+            }
+            self.navigation_chain_depth += i64::from(visit.from_visit.is_some());
+            self.new_domain_count += i64::from(visit.is_new_domain);
+        }
+
+        fn finish(mut self) -> SessionRecord {
+            self.record.domain_count = self.domain_counts.len() as i64;
+            self.record.auto_title = build_session_title_from_summary(
+                &self.domain_counts,
+                self.first_search_query.as_deref(),
+            );
+            self.record.is_deep_dive = self.navigation_chain_depth >= 4
+                && self.record.domain_count >= 5
+                && self.record.visit_count >= 8
+                && self.new_domain_count >= 1;
+            self.record
+        }
+    }
+
+    let mut sessions = Vec::new();
+    let mut current: Option<SessionBuildState> = None;
+    for visit in visits.iter_mut() {
+        let start_new = current.as_ref().is_none_or(|session| {
+            visit.visit_time_ms - session.record.last_visit_ms > SESSION_GAP_MS
+        });
+        if start_new {
+            if let Some(session) = current.take() {
+                sessions.push(session.finish());
+            }
+            current = Some(SessionBuildState::new(visit));
+        }
+        let session = current.as_mut().expect("current session");
+        session.push_visit(visit);
+        visit.session_id = Some(session.record.session_id.clone());
+    }
+    if let Some(session) = current.take() {
+        sessions.push(session.finish());
     }
     sessions
 }
 
-fn build_session_title(visits: &[&VisitRecord]) -> Option<String> {
-    let top_domain = visits
+fn build_session_title_from_summary(
+    domain_counts: &HashMap<String, usize>,
+    first_search_query: Option<&str>,
+) -> Option<String> {
+    let top_domain = domain_counts
         .iter()
-        .fold(HashMap::<String, usize>::new(), |mut acc, visit| {
-            *acc.entry(visit.registrable_domain.clone()).or_default() += 1;
-            acc
-        })
-        .into_iter()
-        .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)))
-        .map(|(domain, _)| display_name_for_domain(&domain).unwrap_or(domain));
-    let top_query = visits.iter().find_map(|visit| visit.search_query.clone());
-    match (top_domain, top_query) {
+        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
+        .map(|(domain, _)| display_name_for_domain(domain).unwrap_or_else(|| domain.clone()));
+    match (top_domain, first_search_query) {
         (Some(domain), Some(query)) => Some(format!("{domain} · {query}")),
         (Some(domain), None) => Some(domain),
-        (None, Some(query)) => Some(query),
+        (None, Some(query)) => Some(query.to_string()),
         (None, None) => None,
     }
 }

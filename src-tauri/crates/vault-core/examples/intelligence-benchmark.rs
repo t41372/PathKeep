@@ -28,6 +28,7 @@ struct Options {
     scenario: Scenario,
     output: Option<PathBuf>,
     app_root: Option<PathBuf>,
+    persist_app_root: Option<PathBuf>,
     session_key: Option<String>,
 }
 
@@ -205,6 +206,7 @@ fn parse_args() -> Result<Options> {
     let mut scenario = Scenario::Full;
     let mut output = None;
     let mut app_root = None;
+    let mut persist_app_root = None;
     let mut session_key = None;
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
@@ -239,6 +241,11 @@ fn parse_args() -> Result<Options> {
             "--app-root" => {
                 app_root = Some(PathBuf::from(args.next().context("--app-root requires a value")?));
             }
+            "--persist-app-root" => {
+                persist_app_root = Some(PathBuf::from(
+                    args.next().context("--persist-app-root requires a value")?,
+                ));
+            }
             "--session-key" => {
                 session_key = Some(args.next().context("--session-key requires a value")?);
             }
@@ -252,6 +259,7 @@ fn parse_args() -> Result<Options> {
         scenario,
         output,
         app_root,
+        persist_app_root,
         session_key,
     })
 }
@@ -289,8 +297,29 @@ fn prepare_benchmark_context(options: &Options) -> Result<BenchmarkContext> {
         });
     }
 
-    let root = tempdir().context("creating temporary benchmark root")?;
-    let paths = project_paths_with_root(root.path());
+    let persisted_root = if let Some(path) = options.persist_app_root.as_ref() {
+        let path = path.clone();
+        if path.exists() {
+            fs::remove_dir_all(&path).with_context(|| {
+                format!("removing previous persisted benchmark root {}", path.display())
+            })?;
+        }
+        fs::create_dir_all(&path)
+            .with_context(|| format!("creating persisted benchmark root {}", path.display()))?;
+        Some(path)
+    } else {
+        None
+    };
+    let temp_root = if persisted_root.is_none() {
+        Some(tempdir().context("creating temporary benchmark root")?)
+    } else {
+        None
+    };
+    let root_path = persisted_root
+        .as_deref()
+        .or_else(|| temp_root.as_ref().map(|root| root.path()))
+        .context("missing benchmark root")?;
+    let paths = project_paths_with_root(root_path);
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
@@ -312,7 +341,7 @@ fn prepare_benchmark_context(options: &Options) -> Result<BenchmarkContext> {
         options.horizon_days,
     )?;
     Ok(BenchmarkContext {
-        _temp_root: Some(root),
+        _temp_root: temp_root,
         paths,
         config,
         session_key: None,
@@ -341,9 +370,14 @@ fn benchmark_query_range(
 }
 
 fn replay_command(options: &Options) -> String {
-    let mut parts = vec![
+    let mut cargo_prefix =
         "cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml --"
-            .to_string(),
+            .to_string();
+    if !cfg!(debug_assertions) {
+        cargo_prefix = cargo_prefix.replacen("cargo run", "cargo run --release", 1);
+    }
+    let mut parts = vec![
+        cargo_prefix,
         format!("--scenario {}", options.scenario.as_str()),
         format!("--window-days {}", options.window_days),
     ];
@@ -355,6 +389,9 @@ fn replay_command(options: &Options) -> String {
     } else {
         parts.push(format!("--visits {}", options.visits));
         parts.push(format!("--horizon-days {}", options.horizon_days));
+        if let Some(path) = options.persist_app_root.as_ref() {
+            parts.push(format!("--persist-app-root '{}'", path.display()));
+        }
     }
     if let Some(output) = options.output.as_ref() {
         parts.push(format!("--output '{}'", output.display()));

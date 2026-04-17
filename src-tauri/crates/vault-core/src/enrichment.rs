@@ -555,8 +555,9 @@ fn truncate_text(input: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        StoredEnrichment, build_embedding_content_from_parts, ensure_visit_content_enrichment_schema,
-        execute_enrichment_job_by_id, load_best_enrichment_map_by_history_ids,
+        StoredEnrichment, build_embedding_content_from_parts,
+        ensure_visit_content_enrichment_schema, execute_enrichment_job_by_id,
+        load_best_enrichment_map_by_history_ids,
     };
     use crate::{
         config::{ensure_paths, project_paths_with_root},
