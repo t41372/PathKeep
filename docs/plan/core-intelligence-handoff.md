@@ -43,6 +43,7 @@ What is **not** done:
 - large-archive / low-RAM / queue-recovery signoff remains open under `PG-RD-AI-011`
 - 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; structural stage profile aggregates now batch-scan search events / derived visits instead of materializing whole-profile aggregate inputs; `visit-derive` / `daily-rollup` full-fallback paths are also chunked now instead of materializing a whole-profile `Vec`; benchmark artifacts record corpus stats, peak RSS, low-RAM fallback timings, and expired-lease recovery evidence. This is still a finish-line follow-up, not final 10M / low-RAM signoff
 - benchmark harness note: `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs` now supports disposable existing-archive replay via `--app-root` / `--session-key`, and `artifacts/benchmarks/2026-04-17-intelligence-finish-line/README.md` is the source of truth for the current synthetic/manual replay contract. On this host, the real app root is encrypted and no benchmark session key was available, so real-replay evidence is still missing
+- 2026-04-17 signoff attempt note: queued enrichment execution now lives in `enrichment.rs` instead of `insights.rs`, and the benchmark harness also supports `--persist-app-root` for reusable synthetic corpora. Large-host `10M / 60y` attempts first exposed `daily-rollup` full fallback, then structural `build_sessions`; the repo now contains SQLite-side daily-rollup aggregation, prepared `visit_derived_facts` persistence, no extra structural `tail_visits.clone()`, and one-pass session aggregate building. Those fixes materially improved the large-host shape, but release `10M` persisted-root attempts still did not emit a final JSON artifact after >30 minutes on this machine, and real-replay remains blocked by encrypted-archive key access. See `artifacts/benchmarks/2026-04-17-intelligence-signoff/README.md`.
 
 ---
 
@@ -212,6 +213,8 @@ The backend already delivers:
 - replayable finish-line benchmark scenarios under `artifacts/benchmarks/2026-04-17-intelligence-finish-line/`, including low-RAM fallback and expired-lease recovery
 - structural stage aggregate passes that batch-scan `search_events` / `visit_derived_facts` for query-family / refind / habit / path-flow rebuild inputs instead of loading extra whole-profile aggregate Vecs
 - chunked `visit-derive` / `daily-rollup` full-fallback paths that no longer materialize an entire profile before persisting fallback output
+- queued enrichment execution owned by `enrichment.rs` instead of legacy `insights.rs`
+- persisted synthetic benchmark roots via `--persist-app-root`, so large-host scenarios can reuse one seeded app root
 
 ### What Is Still Left
 
@@ -225,6 +228,7 @@ The next backend owner is **not** starting from P1/P2 anymore. The current remai
 - larger-host queue-recovery RSS proof plus `10M / 14.4M` synthetic evidence
 - real-archive replay evidence from a disposable app-root copy with a valid session key
 - any remaining P4 host/service integrations beyond the new payload-provider commands
+- latest blocker detail: the first obvious `10M` bottleneck is no longer daily-rollup fallback; the remaining heavy path is structural full rebuild cost, especially large profile session/trail assignment
 
 #### 2. Finish the cutover cleanup
 

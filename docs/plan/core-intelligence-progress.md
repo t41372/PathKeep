@@ -73,6 +73,12 @@
   - `visit-derive` / `daily-rollup` 的 `fallback-full` 現在已經 chunk 化：visit-derived facts 會 batch scan canonical visits 並逐批持久化，daily rollups 會 batch scan derived visits 並用 accumulator 合成，再整批 replace dirty/full rollups
   - repo 現在新增 `artifacts/benchmarks/2026-04-17-intelligence-finish-line/`，留下 `100k / 60y` 的 low-RAM fallback 與 expired-lease recovery evidence，並在 README 裡固定 synthetic / existing-archive replay command contract
   - benchmark harness 現在支援 `--app-root` / `--session-key` 的 existing-archive replay，但本機可見的真實 app root 目前是 encrypted archive、且沒有 benchmark session key，所以 real-replay artifact 仍然缺席
+- 2026-04-17 backend signoff attempt：
+  - live queued enrichment execution 已正式從 legacy `vault-core::insights` 搬到 [`../../src-tauri/crates/vault-core/src/enrichment.rs`](../../src-tauri/crates/vault-core/src/enrichment.rs)，worker-facing call shape 維持不變
+  - benchmark harness 現在新增 `--persist-app-root`，可把 large synthetic corpus 保留下來給下一個 scenario / replay 使用；`/tmp/pathkeep-benchmark-smoke.json` 的 2k smoke 已驗證 replay command 與 persisted-root 路徑都正常
+  - 這輪 `10M / 60y` 嘗試先暴露 `daily-rollup` full fallback，再暴露 structural `build_sessions` 複雜度；repo 因此又補了 SQLite-side daily rollup aggregation、prepared `visit_derived_facts` persistence、移除 structural `tail_visits.clone()`，以及 one-pass session aggregate build
+  - 這些修正明顯改善了 large-host shape：`10M` structural-stage RSS 約從 `4.8 GiB` 降到 `3.0 GiB` 等級，release attempt 的 sample header 也曾量到 physical footprint 約 `2.1 GiB`、peak 約 `2.6 GiB`
+  - 但 release `10M` persisted-root attempt 在超過 `30m` 後仍未產出 final JSON artifact，而 real app root replay 仍因 keychain CLI 讀 `database-key` 回 `128` 而 blocked；因此最新 truth 不是「finish line 已完成」，而是 blocker 已經縮小到 structural full rebuild cost + real-archive unlockability。詳見 [`../../artifacts/benchmarks/2026-04-17-intelligence-signoff/README.md`](../../artifacts/benchmarks/2026-04-17-intelligence-signoff/README.md)
 
 > **2026-04-17 truth note:** incremental foundation、structural aggregate batching、以及 `visit-derive` / `daily-rollup` full-fallback chunking 都已落地，但 `WORK-CI-B` 仍然 open；剩下的 backend 真 blocker 是 `PG-RD-AI-011` 的 `10M / 14.4M / larger-host queue-recovery / real-replay` signoff、broader legacy `vault-core::insights` cleanup，以及 P4 host/service integration。
 
@@ -100,12 +106,14 @@
 1. **`PG-RD-AI-011` 還是 open**
    - 60-year / 10M+ / low-RAM / queue-recovery 的性能與記憶體 envelope 仍未正式收口。
    - 目前雖然已有帶 corpus stats / peak RSS / expired-lease recovery 的 replayable synthetic benchmark artifact，也有 `--app-root` / `--session-key` 的 manual replay contract，但仍不等於最終 `10M / 14.4M` signoff；本機 real-replay artifact 也因 encrypted archive 缺 key 而尚未產出。
+   - 2026-04-17 的最新 large-host note 是：`10M` sweep 的前幾個 implementation bottleneck 已被消掉，但 structural full rebuild 仍重到讓 release `10M` persisted-root attempt 在超過 `30m` 之後沒有產出 final artifact；這是一個更小、更具體的 blocker，但依然是 blocker。
 2. **Queue / rebuild 粒度仍要收斂**
    - `visit_derive` / `daily_rollup` / `structural_rebuild` / `full_rebuild` 已存在，append-only path 也已經真正接上 stage checkpoints。
    - structural stage 的 profile-wide aggregate pass 已經 batch 化，`visit-derive` / `daily-rollup` full fallback 也已 chunk 化；剩下的是把這條路再往 `10M+`、larger-host queue-recovery RSS、以及更真實的 chunk/resume evidence 收斂，而不是從頭發明 incremental queue。
+   - 目前最重的 remaining hotspot 不再是 `daily-rollup` full fallback，而是 structural full rebuild（尤其 `build_sessions` / session-trail assignment 之後的 whole-profile tail path）。
 3. **legacy `vault-core::insights` 還沒完全退場**
    - hard cutover 已完成，但舊 code 仍留作 enrichment / readable-content helper reuse。
-   - `preferred_embedding_content` 這類 shared readable-content helper 已開始回收到 `enrichment` 邊界，但 `execute_enrichment_job_by_id` 周邊與更多 snapshot-era helper 仍待進一步收縮。
+   - `preferred_embedding_content` 這類 shared readable-content helper 已開始回收到 `enrichment` 邊界；這輪也已把 `execute_enrichment_job_by_id` 周邊移出 `insights`。剩下待收縮的是更多 inert snapshot-era helper，而不是 worker 仍依賴 `insights` 執行 queued enrichment。
 4. **P4 external host/service integration 還沒真正交付**
    - backend 現在只有 payload-provider commands，不是完整 external integration。
 
