@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：QC — Cross-Cut Follow-Ups**
+**當前 Milestone：CI — Core Intelligence Finish Line**
 
 ---
 
@@ -36,29 +36,31 @@
   - 契約：維持現有 Tauri command、CLI command、serde payload 與 top-level re-export 穩定；任何行為修正都必須附對應測試與 source-doc 更新。
   - 驗收：`bun run check && bun run build`
 
-- [ ] **WORK-QC-O** — Intelligence And Jobs UX Reset Implementation
-  - 讀先：
-    `docs/features/intelligence-current-state.md`
-    `docs/features/deterministic-intelligence.md`
-    `docs/features/intelligence.md`
-    `docs/design/intelligence-ui-redesign-brief.md`
-    `docs/design/jobs-ui-redesign-brief.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：把 intelligence / Jobs 目前「資料是真的，但 UI 階層與閱讀順序失控」的問題，收斂成 designer-signed-off 並真正落地的 shipping UX，而不是再往現有 panel wall 上補小修小改。
-  - 契約：Insights 必須明確回到 `analysis first, runtime second`；Jobs 必須先回答 `running now / needs review / deferred backlog`；threads 要從 backend-core 概念提升成前台清楚可見的結構；queue 錯誤與 deferred backlog 必須以人話呈現，不能再把 raw runtime status 或大批待抓正文誤導成整條功能失敗。
-  - 驗收：source docs、route IA、shared components / copy、以及手動 truth pass 一起更新；`bun run check && bun run build` 維持通過，並留下 designer handoff artifact / screenshots / state inventory 供後續 review。
+> 2026-04-17 priority note：Core Intelligence reset 的後續工作已經不適合再靠 pre-reset M3/M4/M5 文檔或舊 `WORK-QC-*` 名稱猜進度。若使用者明確要求「繼續前端」或「繼續後端」的 Core Intelligence 工作，先讀 `docs/plan/core-intelligence-progress.md` 與 `docs/plan/core-intelligence-handoff.md`，再選對應的 `WORK-CI-*` block。
 
-- [ ] **WORK-QC-M** — Large-Archive Performance Envelope And Chunked Deterministic Runtime
+- [ ] **WORK-CI-B** — Core Intelligence Backend Finish Line
   - 讀先：
-    `docs/features/intelligence.md`
-    `docs/features/deterministic-intelligence.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
     `docs/plan/program/research-and-decisions.md`
-    `docs/plan/m4-full-polish/intelligence-60-year-envelope.md`
     `docs/architecture/data-model.md`
-  - 目標：把 deterministic intelligence 在大資料量下的時間 / 記憶體 / I/O 邊界做成可重跑 artifact，而不是只靠主觀體感；必要時把 full rebuild 拆成 chunked / resumable / amortized pipeline。
-  - 契約：以 4 核 3GHz CPU / 8GB RAM、60 年高強度瀏覽資料、無 LLM / 無 embedding 為 baseline，對 backup 後 auto rebuild、Explorer/Insights deterministic surfaces、Jobs recovery / resume 做真實 benchmark 與 complexity audit；如現行複雜度或記憶體模型不滿足基線，需提出並實作 chunking / checkpoint / resume 策略與對應驗收。
-  - 驗收：留下 benchmark artifact、source doc 更新、targeted regression / perf guard，以及至少一條能在 large-archive sample 上重跑的 honest automation / manual recipe。
-  - 2026-04-12 progress：bounded joins、thread accumulator、scope/window partitioned persistence 與 replayable 100k / 1M synthetic benchmark artifact 已落地；剩餘 signoff 收斂到 10M / low-RAM envelope、queue recovery RSS、以及真實 large-profile replay。
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：在 `WORK-QC-T` 的 hard cutover 之後，把 backend 剩下的真正 finish-line scope 收口：large-archive / low-RAM / queue-recovery signoff、chunked incremental runtime / staged rebuild cleanup、legacy `vault-core::insights` 殘留責任整理，以及 P4 host-output payload provider 之後的 backend 真空地帶。
+  - 契約：不得回退到 legacy `load_insights` / `/insights` product contract；`visit_content_enrichments` 仍視為 optional AI / readable-text evidence plane，除非有替代方案與文檔同步；工作樹裡目前未提交的 intelligence WIP 不能誤記成已完成 truth。
+  - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib`、`bun run check`、`bun run build`，以及 `docs/plan/core-intelligence-progress.md` / handoff / source docs 同步回寫。
+  - 2026-04-17 progress：incremental foundation 已落地。Core Intelligence 現在有 per-profile `core_intelligence_stage_checkpoints`、append-only `visit-derive` / `daily-rollup` / `structural-rebuild`、runtime `executionMode / dirtyVisitCount / dirtyDateKeys / fallbackReason` metadata、`path_flows` 4-step contract，以及 `artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/` replayable evidence；剩餘 signoff 收斂到 `PG-RD-AI-011` 的 `10M / 14.4M`、low-RAM chunking、queue recovery RSS、legacy cleanup 與 host integration。
+
+- [ ] **WORK-CI-F** — Core Intelligence Frontend Finish Line
+  - 讀先：
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 `/intelligence`、`/intelligence/domain/:domain`、Explorer session / trail grouping、Jobs / Settings runtime review 與 remaining Core Intelligence UI 接成真正一致的 shipping surface，收掉 `/insights` 命名 / route / tests 漂移，並補完 external output payload consumer 的前台缺口或誠實標記 deferred。
+  - 契約：Core Intelligence 的正式 route name 是 `/intelligence`；shared scope / page scope / time-range query contract 必須在 Dashboard、Explorer、Intelligence、Domain Deep Dive 間保持一致；任何 user-visible copy 都要用 Core Intelligence vocabulary，而不是把 legacy Insights 字樣又帶回主產品。
+  - 驗收：source docs、route/copy/tests/manual truth pass 一起更新，`bun run check && bun run build` 維持通過，並把完成 / 未完成邊界回寫到 `docs/plan/core-intelligence-progress.md`。
 
 ---
 

@@ -23,25 +23,29 @@
 > **2026-04-14 closeout note**：`WORK-QC-R` 已完成。repo 的正式 storage truth 現在是 canonical/search/intelligence/sidecars 四層結構；legacy archive upgrade、runtime compatibility patching、hot-path raw row persistence 都不再是 active strategy。
 >
 > **2026-04-15 closeout note**：`WORK-QC-T` 已完成。deterministic product contract 已從 legacy Insights snapshot hard-cut 到 Core Intelligence baseline；`core-intelligence-ultimate-design.md` 現在是 accepted source of truth，`/intelligence` 與新的 Tauri/worker query surface 取代舊 `run_insights_now` / `load_insights` / `explain_insight` 主路徑。
+>
+> **2026-04-17 continuation note**：Core Intelligence 的實際完成度已經超過最初的 P1/P2 口頭分工；若要讓 fresh agent 續接 frontend/backend 工作，請先讀 [core-intelligence-progress.md](core-intelligence-progress.md) 與 [core-intelligence-handoff.md](core-intelligence-handoff.md)，不要只靠 pre-reset `m5-deterministic-intelligence/` 文檔猜目前狀態。
 
 ---
 
 ## 先看哪裡
 
-| 如果你關心                                    | 先看這份                                                                           |
-| --------------------------------------------- | ---------------------------------------------------------------------------------- |
-| 整體節奏、里程碑順序、依賴關係                | [program/README.md](program/README.md)                                             |
-| 現在這個 repo 和新 vision 的距離              | [program/repo-baseline.md](program/repo-baseline.md)                               |
-| 哪些技術決策還沒落地、哪些研究要先做          | [program/research-and-decisions.md](program/research-and-decisions.md)             |
-| 現行 quality gate、blocking path、deep checks | [program/quality-matrix.md](program/quality-matrix.md)                             |
-| 某份需求/設計文檔應該對應哪份實作計劃         | [program/traceability-map.md](program/traceability-map.md)                         |
-| M0 重構基礎                                   | [m0-foundation/README.md](m0-foundation/README.md)                                 |
-| M1 Solid Archive                              | [m1-solid-archive/README.md](m1-solid-archive/README.md)                           |
-| M2 Recall & Trust                             | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                     |
-| M3 Intelligence                               | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
-| M4 Full Intelligence & Polish                 | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
-| M5 Deterministic Intelligence                 | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
-| 產品願景、需求、畫面結構                      | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
+| 如果你關心                                        | 先看這份                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| 整體節奏、里程碑順序、依賴關係                    | [program/README.md](program/README.md)                                             |
+| 現在這個 repo 和新 vision 的距離                  | [program/repo-baseline.md](program/repo-baseline.md)                               |
+| 哪些技術決策還沒落地、哪些研究要先做              | [program/research-and-decisions.md](program/research-and-decisions.md)             |
+| 現行 quality gate、blocking path、deep checks     | [program/quality-matrix.md](program/quality-matrix.md)                             |
+| 某份需求/設計文檔應該對應哪份實作計劃             | [program/traceability-map.md](program/traceability-map.md)                         |
+| Core Intelligence hard-reset 的真實進度與剩餘工作 | [core-intelligence-progress.md](core-intelligence-progress.md)                     |
+| Core Intelligence frontend/backend 續作 handoff   | [core-intelligence-handoff.md](core-intelligence-handoff.md)                       |
+| M0 重構基礎                                       | [m0-foundation/README.md](m0-foundation/README.md)                                 |
+| M1 Solid Archive                                  | [m1-solid-archive/README.md](m1-solid-archive/README.md)                           |
+| M2 Recall & Trust                                 | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                     |
+| M3 Intelligence                                   | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
+| M4 Full Intelligence & Polish                     | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
+| M5 Deterministic Intelligence                     | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
+| 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
 
 ---
 
