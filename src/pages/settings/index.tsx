@@ -80,6 +80,7 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
 import { queueCoreIntelligenceRebuild } from '../../lib/core-intelligence/api'
 import type { CoreIntelligenceQueueReport } from '../../lib/core-intelligence/types'
+import { SettingsExternalOutputsPanel } from './external-outputs-panel'
 import {
   appendAiProviderDraft,
   browserIcon,
@@ -2645,6 +2646,11 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <SettingsExternalOutputsPanel
+        initialized={snapshot.config.initialized}
+        unlocked={snapshot.archiveStatus.unlocked}
+      />
 
       <div className="panel">
         <div className="panel-header">

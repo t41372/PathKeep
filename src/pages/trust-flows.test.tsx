@@ -43,6 +43,7 @@ import {
   createTranslator,
   type ResolvedLanguage,
 } from '../lib/i18n'
+import { ProfileScopeProvider } from '../lib/profile-scope'
 import { backend } from '../lib/backend-client'
 import { backendTestHarness } from '../lib/backend'
 import { platformLabelKey } from '../lib/platform-guidance'
@@ -236,11 +237,13 @@ function renderTrustPage(
   return render(
     <MemoryRouter initialEntries={[route]}>
       <I18nContext.Provider value={createI18nValue(language)}>
-        <ShellDataContext.Provider
-          value={createShellValue(snapshot, dashboard)}
-        >
-          {ui}
-        </ShellDataContext.Provider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider
+            value={createShellValue(snapshot, dashboard)}
+          >
+            {ui}
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
       </I18nContext.Provider>
     </MemoryRouter>,
   )
@@ -740,14 +743,16 @@ describe('trust flows', () => {
     render(
       <MemoryRouter initialEntries={['/settings']}>
         <I18nContext.Provider value={createI18nValue('en')}>
-          <ShellDataContext.Provider
-            value={{
-              ...createShellValue(snapshot, dashboard),
-              refreshAppData: refreshSpy,
-            }}
-          >
-            <SettingsPage />
-          </ShellDataContext.Provider>
+          <ProfileScopeProvider>
+            <ShellDataContext.Provider
+              value={{
+                ...createShellValue(snapshot, dashboard),
+                refreshAppData: refreshSpy,
+              }}
+            >
+              <SettingsPage />
+            </ShellDataContext.Provider>
+          </ProfileScopeProvider>
         </I18nContext.Provider>
       </MemoryRouter>,
     )

@@ -127,8 +127,11 @@ test('surfaces intelligence routes and degraded states after the first backup', 
   })
   await expect(page.getByTestId('intelligence-runtime-digest')).toBeVisible()
   await expect(
-    page.getByText('Saved snippets and widgets are deferred'),
+    page.getByText('Manual output review moved to Settings'),
   ).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: 'Review in Settings' }),
+  ).toHaveAttribute('href', '#/settings#settings-external-outputs')
 })
 
 test('keeps shared profile scope, regex recall, and export guardrails aligned', async ({

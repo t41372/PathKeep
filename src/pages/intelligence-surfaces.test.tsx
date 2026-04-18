@@ -18,7 +18,7 @@
  * - Tests should verify real user-facing promises such as deep links, scoped callouts, loading grammar, and repair entry points.
  */
 
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -37,6 +37,7 @@ import {
 } from '../lib/i18n'
 import * as coreIntelligenceApi from '../lib/core-intelligence/api'
 import { ProfileScopeProvider } from '../lib/profile-scope'
+import { ProfileScopeContext } from '../lib/profile-scope-context'
 import type {
   AiProviderConnectionTestReport,
   AiQueueStatus,
@@ -192,6 +193,23 @@ function createShellValue(
     lockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     unlockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     clearNotice: vi.fn(),
+  }
+}
+
+function createEmptyRuntimeSnapshot(): IntelligenceRuntimeSnapshot {
+  return {
+    queue: {
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+      lastActivityAt: null,
+    },
+    plugins: [],
+    modules: [],
+    recentJobs: [],
+    notes: [],
   }
 }
 
@@ -626,6 +644,457 @@ describe('intelligence surfaces', () => {
         }),
       }),
     )
+  })
+
+  test('renders settings manual external outputs review and lets the user switch surfaces', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const commonT = createNamespaceTranslator('en', 'common')
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    const embedSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligenceEmbedCards')
+      .mockResolvedValue([
+        {
+          cardId: 'digest:visits',
+          cardType: 'digest',
+          title: 'Visits',
+          eyebrow: '2026-03-17 → 2026-04-17',
+          body: 'Total visits in the selected intelligence window.',
+          metricLabel: 'visit_count',
+          metricValue: '128',
+          href: null,
+          internalOnly: false,
+        },
+        {
+          cardId: 'refind:sqlite',
+          cardType: 'refind_page',
+          title: 'SQLite WAL guide',
+          eyebrow: 'Refind',
+          body: 'This page kept resurfacing across 4 days and 3 trails.',
+          metricLabel: 'refind_score',
+          metricValue: '0.82',
+          href: 'https://sqlite.org/wal.html',
+          internalOnly: true,
+        },
+      ])
+    const widgetSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligenceWidgetSnapshot')
+      .mockResolvedValue({
+        generatedAt: '2026-04-17T09:45:00Z',
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        digestSummary: {
+          dateRange: { start: '2026-03-17', end: '2026-04-17' },
+          totalVisits: {
+            value: 128,
+            previousValue: 120,
+            changePercent: 7,
+            trend: 'up',
+          },
+          totalSearches: {
+            value: 32,
+            previousValue: 28,
+            changePercent: 14,
+            trend: 'up',
+          },
+          newDomains: {
+            value: 9,
+            previousValue: 8,
+            changePercent: 13,
+            trend: 'up',
+          },
+          deepReadPages: {
+            value: 5,
+            previousValue: 4,
+            changePercent: 25,
+            trend: 'up',
+          },
+          refindPages: {
+            value: 3,
+            previousValue: 2,
+            changePercent: 50,
+            trend: 'up',
+          },
+        },
+        highlights: [
+          {
+            cardId: 'refind:sqlite',
+            cardType: 'refind_page',
+            title: 'SQLite WAL guide',
+            eyebrow: 'Refind',
+            body: 'This page kept resurfacing across 4 days and 3 trails.',
+            metricLabel: 'refind_score',
+            metricValue: '0.82',
+            href: 'https://sqlite.org/wal.html',
+            internalOnly: true,
+          },
+        ],
+        notes: [
+          'Widget snapshots only expose aggregate Core Intelligence read models.',
+        ],
+      })
+    const publicSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligencePublicSnapshot')
+      .mockResolvedValue({
+        generatedAt: '2026-04-17T09:45:00Z',
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        digestSummary: {
+          dateRange: { start: '2026-03-17', end: '2026-04-17' },
+          totalVisits: {
+            value: 128,
+            previousValue: 120,
+            changePercent: 7,
+            trend: 'up',
+          },
+          totalSearches: {
+            value: 32,
+            previousValue: 28,
+            changePercent: 14,
+            trend: 'up',
+          },
+          newDomains: {
+            value: 9,
+            previousValue: 8,
+            changePercent: 13,
+            trend: 'up',
+          },
+          deepReadPages: {
+            value: 5,
+            previousValue: 4,
+            changePercent: 25,
+            trend: 'up',
+          },
+          refindPages: {
+            value: 3,
+            previousValue: 2,
+            changePercent: 50,
+            trend: 'up',
+          },
+        },
+        topDomains: ['sqlite.org', 'github.com'],
+        searchEngines: [
+          {
+            searchEngine: 'google',
+            displayName: 'Google',
+            searchCount: 18,
+          },
+        ],
+        discoveryTrend: {
+          points: [
+            {
+              dateKey: '2026-04-07',
+              discoveryRate: 0.35,
+              newDomainCount: 4,
+              totalVisits: 22,
+            },
+            {
+              dateKey: '2026-04-14',
+              discoveryRate: 0.41,
+              newDomainCount: 5,
+              totalVisits: 24,
+            },
+          ],
+        },
+        notes: [
+          'Public snapshots intentionally omit visit-level identifiers and direct page URLs.',
+        ],
+      })
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      snapshot,
+    })
+
+    const panel = await screen.findByTestId('settings-external-outputs')
+    await waitFor(() => {
+      expect(embedSpy).toHaveBeenCalledTimes(1)
+      expect(widgetSpy).toHaveBeenCalledTimes(1)
+      expect(publicSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(
+      within(panel).getByText(settingsT('externalOutputsSummaryTitle')),
+    ).toBeVisible()
+    expect(within(panel).getByText('SQLite WAL guide')).toBeVisible()
+    expect(
+      within(panel).getByText(settingsT('externalOutputsTrustedOnlyBadge')),
+    ).toBeVisible()
+
+    await user.click(
+      within(panel).getByRole('tab', {
+        name: settingsT('externalOutputsTabWidget'),
+      }),
+    )
+    expect(
+      await within(panel).findByText(
+        settingsT('externalOutputsWidgetTrustedTitle'),
+      ),
+    ).toBeVisible()
+    await user.click(
+      within(panel).getByRole('button', { name: commonT('copyAction') }),
+    )
+    expect(
+      await within(panel).findByText(commonT('copiedNotice')),
+    ).toBeVisible()
+
+    await user.click(
+      within(panel).getByRole('tab', {
+        name: settingsT('externalOutputsTabPublic'),
+      }),
+    )
+    expect(
+      await within(panel).findByText(
+        settingsT('externalOutputsPublicRedactedTitle'),
+      ),
+    ).toBeVisible()
+    expect(within(panel).getByText('sqlite.org')).toBeVisible()
+  })
+
+  test.each([
+    {
+      expectedTitleKey: 'externalOutputsUnlockTitle',
+      mutate: (snapshot: AppSnapshot) => {
+        snapshot.archiveStatus.unlocked = false
+      },
+    },
+    {
+      expectedTitleKey: 'externalOutputsNeedsArchiveTitle',
+      mutate: (snapshot: AppSnapshot) => {
+        snapshot.config.initialized = false
+      },
+    },
+  ])(
+    'keeps settings manual external outputs gated behind archive readiness truth ($expectedTitleKey)',
+    async ({ expectedTitleKey, mutate }) => {
+      const { snapshot, dashboard } = await seedArchiveState()
+      const settingsT = createNamespaceTranslator('en', 'settings')
+      mutate(snapshot)
+
+      const embedSpy = vi.spyOn(
+        coreIntelligenceApi,
+        'getIntelligenceEmbedCards',
+      )
+      const widgetSpy = vi.spyOn(
+        coreIntelligenceApi,
+        'getIntelligenceWidgetSnapshot',
+      )
+      const publicSpy = vi.spyOn(
+        coreIntelligenceApi,
+        'getIntelligencePublicSnapshot',
+      )
+      vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+        createEmptyRuntimeSnapshot(),
+      )
+
+      renderSurface(<SettingsPage />, {
+        dashboard,
+        language: 'en',
+        route: '/settings',
+        snapshot,
+      })
+
+      const panel = await screen.findByTestId('settings-external-outputs')
+      expect(within(panel).getByText(settingsT(expectedTitleKey))).toBeVisible()
+      expect(embedSpy).not.toHaveBeenCalled()
+      expect(widgetSpy).not.toHaveBeenCalled()
+      expect(publicSpy).not.toHaveBeenCalled()
+    },
+  )
+
+  test('refetches settings manual external outputs when shared scope or time range changes', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    const embedSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligenceEmbedCards')
+      .mockResolvedValue([])
+    const widgetSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligenceWidgetSnapshot')
+      .mockResolvedValue({
+        generatedAt: '2026-04-17T09:45:00Z',
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        digestSummary: {
+          dateRange: { start: '2026-03-17', end: '2026-04-17' },
+          totalVisits: {
+            value: 128,
+            previousValue: 120,
+            changePercent: 7,
+            trend: 'up',
+          },
+          totalSearches: {
+            value: 32,
+            previousValue: 28,
+            changePercent: 14,
+            trend: 'up',
+          },
+          newDomains: {
+            value: 9,
+            previousValue: 8,
+            changePercent: 13,
+            trend: 'up',
+          },
+          deepReadPages: {
+            value: 5,
+            previousValue: 4,
+            changePercent: 25,
+            trend: 'up',
+          },
+          refindPages: {
+            value: 3,
+            previousValue: 2,
+            changePercent: 50,
+            trend: 'up',
+          },
+        },
+        highlights: [],
+        notes: [],
+      })
+    const publicSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligencePublicSnapshot')
+      .mockResolvedValue({
+        generatedAt: '2026-04-17T09:45:00Z',
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        digestSummary: {
+          dateRange: { start: '2026-03-17', end: '2026-04-17' },
+          totalVisits: {
+            value: 128,
+            previousValue: 120,
+            changePercent: 7,
+            trend: 'up',
+          },
+          totalSearches: {
+            value: 32,
+            previousValue: 28,
+            changePercent: 14,
+            trend: 'up',
+          },
+          newDomains: {
+            value: 9,
+            previousValue: 8,
+            changePercent: 13,
+            trend: 'up',
+          },
+          deepReadPages: {
+            value: 5,
+            previousValue: 4,
+            changePercent: 25,
+            trend: 'up',
+          },
+          refindPages: {
+            value: 3,
+            previousValue: 2,
+            changePercent: 50,
+            trend: 'up',
+          },
+        },
+        topDomains: [],
+        searchEngines: [],
+        discoveryTrend: {
+          points: [],
+        },
+        notes: [],
+      })
+
+    function ScopedSettingsHarness() {
+      const [activeProfileId, setActiveProfileId] = useState<string | null>(
+        'chrome:Default',
+      )
+
+      return (
+        <MemoryRouter initialEntries={['/settings']}>
+          <I18nContext.Provider value={createI18nValue('en')}>
+            <ProfileScopeContext.Provider
+              value={{ activeProfileId, setActiveProfileId }}
+            >
+              <ShellDataContext.Provider
+                value={createShellValue(snapshot, dashboard)}
+              >
+                <button
+                  type="button"
+                  onClick={() => setActiveProfileId('firefox:Research')}
+                >
+                  {settingsT('externalOutputsScopedTitle')}
+                </button>
+                <SettingsPage />
+              </ShellDataContext.Provider>
+            </ProfileScopeContext.Provider>
+          </I18nContext.Provider>
+        </MemoryRouter>
+      )
+    }
+
+    render(<ScopedSettingsHarness />)
+
+    await screen.findByTestId('settings-external-outputs')
+    await waitFor(() => {
+      expect(embedSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+        'chrome:Default',
+        6,
+      )
+      expect(widgetSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'chrome:Default',
+        4,
+      )
+      expect(publicSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'chrome:Default',
+      )
+    })
+
+    const initialRange = embedSpy.mock.calls.at(-1)?.[0]
+
+    await user.click(
+      screen.getByRole('button', {
+        name: settingsT('externalOutputsScopedTitle'),
+      }),
+    )
+    await waitFor(() => {
+      expect(embedSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'firefox:Research',
+        6,
+      )
+      expect(widgetSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'firefox:Research',
+        4,
+      )
+      expect(publicSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'firefox:Research',
+      )
+    })
+
+    await user.click(
+      within(screen.getByTestId('settings-external-outputs')).getByRole(
+        'button',
+        { name: intelligenceT('rangeWeek') },
+      ),
+    )
+    await waitFor(() => {
+      const latestRange = embedSpy.mock.calls.at(-1)?.[0]
+      expect(latestRange).toEqual(
+        expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+      )
+      expect(latestRange).not.toEqual(initialRange)
+    })
   })
 
   test('renders background jobs controls and lets the user pause or replay work', async () => {
@@ -1151,7 +1620,7 @@ describe('intelligence surfaces', () => {
     }
   })
 
-  test('shows a small runtime digest and keeps external output consumers marked deferred', async () => {
+  test('shows a small runtime digest and points manual output review to settings', async () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
     const loadAiQueueStatusSpy = vi
@@ -1228,8 +1697,13 @@ describe('intelligence surfaces', () => {
       '/jobs',
     )
     expect(
-      screen.getByText(intelligenceT('externalOutputsDeferredTitle')),
+      screen.getByText(intelligenceT('externalOutputsReviewTitle')),
     ).toBeVisible()
+    expect(
+      screen.getByRole('link', {
+        name: intelligenceT('externalOutputsReviewAction'),
+      }),
+    ).toHaveAttribute('href', '/settings#settings-external-outputs')
   })
 
   test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {

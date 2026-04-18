@@ -866,6 +866,7 @@ is_deep_dive =
 
 ### 4.C 外部服務（低優先級）
 
+- 第一個 shipping consumer surface 是 Settings 內的 manual review / copy-export panel：可預覽 `embed cards`、`widget snapshot`、`public snapshot`，但仍維持 manual-only，不直接安裝或發布到外部宿主
 - Intelligence 卡片做成 web snippet，允許嵌入
 - Mac 小工具
 - 不敏感 intelligence 結果的 API

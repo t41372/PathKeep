@@ -401,6 +401,10 @@ const zhCnM3Namespaces = {
     externalOutputsDeferredTitle: '保存片段和小组件仍在后续版本',
     externalOutputsDeferredBody:
       'PathKeep 目前可以为未来的嵌入卡片、小组件和公开快照准备内部 payload，但这一版还没有交付任何外部宿主集成。',
+    externalOutputsReviewTitle: '手动输出审查已移到设置',
+    externalOutputsReviewBody:
+      '请到设置里预览并复制 embed cards、widget snapshots 和 public snapshots。`/intelligence` 会继续专注在 live Core Intelligence surface。',
+    externalOutputsReviewAction: '去设置查看',
   },
   explorer: {
     waitingForQuery: '输入关键词开始搜索',
@@ -1180,6 +1184,10 @@ const zhTwM3Namespaces = {
     externalOutputsDeferredTitle: '儲存片段與小工具仍在後續版本',
     externalOutputsDeferredBody:
       'PathKeep 目前可以為未來的嵌入卡片、小工具與公開快照準備內部 payload，但這一版還沒有交付任何外部宿主整合。',
+    externalOutputsReviewTitle: '手動輸出審查已移到設定',
+    externalOutputsReviewBody:
+      '請到設定裡預覽並複製 embed cards、widget snapshots 和 public snapshots。`/intelligence` 會繼續專注在 live Core Intelligence surface。',
+    externalOutputsReviewAction: '去設定查看',
   },
   explorer: {
     waitingForQuery: '輸入關鍵字開始搜尋',
@@ -2485,6 +2493,59 @@ const catalog: Record<
       restoreReady: 'Restorable',
       verifyNotRunTitle: 'Nothing to verify yet',
       verifyNotRunBody: "Upload a backup first so there's something to verify.",
+      externalOutputsTitle: 'EXTERNAL OUTPUTS',
+      externalOutputsManualBadge: 'MANUAL ONLY',
+      externalOutputsSummaryTitle:
+        'Review Core Intelligence outputs before using them elsewhere',
+      externalOutputsSummaryBody:
+        'Preview embed cards, widget snapshots, and public snapshots here, then copy the payload you need into another trusted local host yourself.',
+      externalOutputsScopedTitle: 'Inherited shared profile scope',
+      externalOutputsScopedBody:
+        'These previews are only reading {profile} right now. Clear the shared profile scope if you want archive-wide output payloads.',
+      externalOutputsArchiveWideTitle: 'Archive-wide preview',
+      externalOutputsArchiveWideBody:
+        'These previews currently use the whole visible archive. Pick a shared profile scope in the shell if you want profile-scoped output payloads.',
+      externalOutputsNeedsArchiveTitle:
+        'Create an archive before reviewing manual outputs',
+      externalOutputsNeedsArchiveBody:
+        'PathKeep needs an initialized archive before it can compose embed cards, widget snapshots, or public snapshots.',
+      externalOutputsUnlockTitle: 'Unlock the archive to review manual outputs',
+      externalOutputsUnlockBody:
+        'Manual output previews only load while the current archive session stays unlocked.',
+      externalOutputsManualOnlyTitle: 'Manual copy/export only',
+      externalOutputsManualOnlyBody:
+        'PathKeep does not install widgets, publish a localhost API, or save reusable host artifacts here. Review the payloads and copy them into another trusted local surface yourself.',
+      externalOutputsTabEmbed: 'Embed cards',
+      externalOutputsTabWidget: 'Widget snapshot',
+      externalOutputsTabPublic: 'Public snapshot',
+      externalOutputsLoading: 'Loading manual output previews',
+      externalOutputsUnavailableTitle: 'Manual outputs are unavailable',
+      externalOutputsUnavailableBody:
+        'PathKeep could not load the current manual output preview. Try refreshing after the shell finishes reloading.',
+      externalOutputsEmbedPreviewTitle: 'Embed card preview',
+      externalOutputsTrustedOnlyBadge: 'TRUSTED ONLY',
+      externalOutputsHref: 'Payload href',
+      externalOutputsEmbedEmpty:
+        'No embed cards are available for this scope yet.',
+      externalOutputsJsonTitle: 'Raw JSON payload',
+      externalOutputsWidgetPreviewTitle: 'Widget snapshot preview',
+      externalOutputsWindowLabel: 'Window: {start} → {end}',
+      externalOutputsWidgetTrustedTitle: 'Trusted-host review required',
+      externalOutputsWidgetTrustedBody:
+        'This widget snapshot still includes cards marked trusted-only. Keep it inside a trusted PathKeep-controlled surface instead of treating it like a public export.',
+      externalOutputsPublicPreviewTitle: 'Public snapshot preview',
+      externalOutputsPublicRedactedTitle: 'Public snapshot stays redacted',
+      externalOutputsPublicRedactedBody:
+        'This payload intentionally omits visit IDs and direct page URLs so it stays safer to share outside trusted PathKeep surfaces.',
+      externalOutputsTopDomains: 'Top domains',
+      externalOutputsSearchEngines: 'Search engines',
+      externalOutputsNoSearchEngines:
+        'No search-engine activity was available for this window.',
+      externalOutputsDiscoveryTrend: 'Discovery trend',
+      externalOutputsNoDiscoveryTrend:
+        'No discovery trend points were available for this window.',
+      externalOutputsCopyFailed:
+        'Could not copy this payload. Copy it manually from the JSON block instead.',
       enrichmentDerivedState: 'CONTENT ENRICHMENT',
       derivedOnly: 'SAFE TO CLEAR',
       derivedStateBoundaryTitle: 'What gets affected',
@@ -3139,6 +3200,10 @@ const catalog: Record<
       externalOutputsDeferredTitle: 'Saved snippets and widgets are deferred',
       externalOutputsDeferredBody:
         'PathKeep can prepare internal payloads for future embed cards, widgets, and public snapshots, but no external host integrations ship in this release yet.',
+      externalOutputsReviewTitle: 'Manual output review moved to Settings',
+      externalOutputsReviewBody:
+        'Use Settings to preview and copy embed cards, widget snapshots, and public snapshots. `/intelligence` stays focused on the live Core Intelligence surface.',
+      externalOutputsReviewAction: 'Review in Settings',
     },
     explorer: {
       waitingForQuery: 'Type to search',
@@ -4380,6 +4445,55 @@ const catalog: Record<
       restoreReady: '可恢复',
       verifyNotRunTitle: '没有可验证的内容',
       verifyNotRunBody: '先上传一次备份，才能验证。',
+      externalOutputsTitle: '外部输出',
+      externalOutputsManualBadge: '仅手动',
+      externalOutputsSummaryTitle:
+        '先检查 Core Intelligence 输出，再带到别处使用',
+      externalOutputsSummaryBody:
+        '在这里预览 embed cards、widget snapshot 和 public snapshot，然后把需要的 payload 手动复制到你信任的本地宿主。',
+      externalOutputsScopedTitle: '沿用共享 profile 范围',
+      externalOutputsScopedBody:
+        '这些预览现在只会读取 {profile}。如果你想看 archive-wide 的输出 payload，请先清除 shell 顶部的共享 profile scope。',
+      externalOutputsArchiveWideTitle: '当前是 archive-wide 预览',
+      externalOutputsArchiveWideBody:
+        '这些预览会读取整个当前可见存档。如果你想只看某个 profile 的输出，请先在 shell 里切换共享 profile scope。',
+      externalOutputsNeedsArchiveTitle: '先创建存档，才能检查手动输出',
+      externalOutputsNeedsArchiveBody:
+        'PathKeep 需要先完成 archive 初始化，才能生成 embed cards、widget snapshots 和 public snapshots。',
+      externalOutputsUnlockTitle: '先解锁存档，才能检查手动输出',
+      externalOutputsUnlockBody:
+        '只有当前 archive session 处于解锁状态时，手动输出预览才会加载。',
+      externalOutputsManualOnlyTitle: '仅支持手动复制 / 导出',
+      externalOutputsManualOnlyBody:
+        '这里不会安装小组件、发布 localhost API，也不会保存可复用的宿主产物。请先检查 payload，再手动复制到你信任的本地 surface。',
+      externalOutputsTabEmbed: 'Embed cards',
+      externalOutputsTabWidget: 'Widget snapshot',
+      externalOutputsTabPublic: 'Public snapshot',
+      externalOutputsLoading: '正在加载手动输出预览',
+      externalOutputsUnavailableTitle: '手动输出暂时不可用',
+      externalOutputsUnavailableBody:
+        'PathKeep 现在无法加载这组手动输出预览。等 shell 完成刷新后再试一次。',
+      externalOutputsEmbedPreviewTitle: 'Embed card 预览',
+      externalOutputsTrustedOnlyBadge: '仅限受信任宿主',
+      externalOutputsHref: 'Payload href',
+      externalOutputsEmbedEmpty: '这个范围里暂时没有可用的 embed cards。',
+      externalOutputsJsonTitle: '原始 JSON payload',
+      externalOutputsWidgetPreviewTitle: 'Widget snapshot 预览',
+      externalOutputsWindowLabel: '时间范围：{start} → {end}',
+      externalOutputsWidgetTrustedTitle: '需要受信任宿主审查',
+      externalOutputsWidgetTrustedBody:
+        '这个 widget snapshot 仍包含标记为 trusted-only 的卡片。请把它留在受信任的 PathKeep 控制宿主里，不要把它当成公开导出内容。',
+      externalOutputsPublicPreviewTitle: 'Public snapshot 预览',
+      externalOutputsPublicRedactedTitle: 'Public snapshot 会保持脱敏',
+      externalOutputsPublicRedactedBody:
+        '这个 payload 会刻意省略 visit ID 和直接页面 URL，这样在离开受信任的 PathKeep surface 时会更安全。',
+      externalOutputsTopDomains: 'Top domains',
+      externalOutputsSearchEngines: '搜索引擎',
+      externalOutputsNoSearchEngines: '这个时间范围里没有可用的搜索引擎活动。',
+      externalOutputsDiscoveryTrend: '发现趋势',
+      externalOutputsNoDiscoveryTrend: '这个时间范围里没有可用的发现趋势点。',
+      externalOutputsCopyFailed:
+        '这份 payload 无法直接复制，请改为手动从 JSON 区块复制。',
       enrichmentDerivedState: '内容增强',
       derivedOnly: '可安全清除',
       derivedStateBoundaryTitle: '影响范围',
@@ -5448,6 +5562,55 @@ const catalog: Record<
       restoreReady: '可還原',
       verifyNotRunTitle: '沒有可驗證的內容',
       verifyNotRunBody: '先上傳一次備份，才能驗證。',
+      externalOutputsTitle: '外部輸出',
+      externalOutputsManualBadge: '僅手動',
+      externalOutputsSummaryTitle:
+        '先檢查 Core Intelligence 輸出，再帶到別處使用',
+      externalOutputsSummaryBody:
+        '在這裡預覽 embed cards、widget snapshot 和 public snapshot，然後把需要的 payload 手動複製到你信任的本地宿主。',
+      externalOutputsScopedTitle: '沿用共享 profile 範圍',
+      externalOutputsScopedBody:
+        '這些預覽現在只會讀取 {profile}。如果你想看 archive-wide 的輸出 payload，請先清除 shell 頂部的共享 profile scope。',
+      externalOutputsArchiveWideTitle: '目前是 archive-wide 預覽',
+      externalOutputsArchiveWideBody:
+        '這些預覽會讀取整個目前可見封存。如果你想只看某個 profile 的輸出，請先在 shell 裡切換共享 profile scope。',
+      externalOutputsNeedsArchiveTitle: '先建立封存，才能檢查手動輸出',
+      externalOutputsNeedsArchiveBody:
+        'PathKeep 需要先完成 archive 初始化，才能產生 embed cards、widget snapshots 和 public snapshots。',
+      externalOutputsUnlockTitle: '先解鎖封存，才能檢查手動輸出',
+      externalOutputsUnlockBody:
+        '只有目前 archive session 保持解鎖時，手動輸出預覽才會載入。',
+      externalOutputsManualOnlyTitle: '僅支援手動複製 / 匯出',
+      externalOutputsManualOnlyBody:
+        '這裡不會安裝小工具、發布 localhost API，也不會儲存可重用的宿主產物。請先檢查 payload，再手動複製到你信任的本地 surface。',
+      externalOutputsTabEmbed: 'Embed cards',
+      externalOutputsTabWidget: 'Widget snapshot',
+      externalOutputsTabPublic: 'Public snapshot',
+      externalOutputsLoading: '正在載入手動輸出預覽',
+      externalOutputsUnavailableTitle: '手動輸出暫時無法使用',
+      externalOutputsUnavailableBody:
+        'PathKeep 目前無法載入這組手動輸出預覽。等 shell 完成重新整理後再試一次。',
+      externalOutputsEmbedPreviewTitle: 'Embed card 預覽',
+      externalOutputsTrustedOnlyBadge: '僅限受信任宿主',
+      externalOutputsHref: 'Payload href',
+      externalOutputsEmbedEmpty: '這個範圍裡暫時沒有可用的 embed cards。',
+      externalOutputsJsonTitle: '原始 JSON payload',
+      externalOutputsWidgetPreviewTitle: 'Widget snapshot 預覽',
+      externalOutputsWindowLabel: '時間範圍：{start} → {end}',
+      externalOutputsWidgetTrustedTitle: '需要受信任宿主審查',
+      externalOutputsWidgetTrustedBody:
+        '這個 widget snapshot 仍包含標記為 trusted-only 的卡片。請把它留在受信任的 PathKeep 控制宿主裡，不要把它當成公開匯出內容。',
+      externalOutputsPublicPreviewTitle: 'Public snapshot 預覽',
+      externalOutputsPublicRedactedTitle: 'Public snapshot 會保持去識別化',
+      externalOutputsPublicRedactedBody:
+        '這個 payload 會刻意省略 visit ID 和直接頁面 URL，這樣在離開受信任的 PathKeep surface 時會更安全。',
+      externalOutputsTopDomains: 'Top domains',
+      externalOutputsSearchEngines: '搜尋引擎',
+      externalOutputsNoSearchEngines: '這個時間範圍裡沒有可用的搜尋引擎活動。',
+      externalOutputsDiscoveryTrend: '發現趨勢',
+      externalOutputsNoDiscoveryTrend: '這個時間範圍裡沒有可用的發現趨勢點。',
+      externalOutputsCopyFailed:
+        '這份 payload 無法直接複製，請改為手動從 JSON 區塊複製。',
       enrichmentDerivedState: '內容增強',
       derivedOnly: '可安全清除',
       derivedStateBoundaryTitle: '影響範圍',

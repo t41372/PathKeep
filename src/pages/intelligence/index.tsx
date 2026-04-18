@@ -19,6 +19,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { useI18n } from '../../lib/i18n/hooks'
+import { Link } from 'react-router-dom'
 import { IntelligenceSections } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'
@@ -74,8 +75,16 @@ export function IntelligencePage() {
 
       <StatusCallout
         tone="info"
-        title={t('externalOutputsDeferredTitle')}
-        body={t('externalOutputsDeferredBody')}
+        title={t('externalOutputsReviewTitle')}
+        body={t('externalOutputsReviewBody')}
+        actions={
+          <Link
+            className="btn-secondary"
+            to="/settings#settings-external-outputs"
+          >
+            {t('externalOutputsReviewAction')}
+          </Link>
+        }
       />
 
       <IntelligenceSections

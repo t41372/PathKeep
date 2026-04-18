@@ -714,6 +714,9 @@ describe('App shell', () => {
       within(settingsPage).getByText(settingsT('enrichmentDerivedState')),
     ).toBeVisible()
     expect(
+      within(settingsPage).getByText(settingsT('externalOutputsTitle')),
+    ).toBeVisible()
+    expect(
       within(settingsPage).getByText(settingsT('archiveDatabase')),
     ).toBeVisible()
     expect(
@@ -722,6 +725,11 @@ describe('App shell', () => {
     expect(within(settingsPage).getByText(settingsT('gitCommit'))).toBeVisible()
     expect(
       within(settingsPage).getByText(commonT('common.previewTab')),
+    ).toBeVisible()
+    expect(
+      within(settingsPage).getByRole('tab', {
+        name: settingsT('externalOutputsTabPublic'),
+      }),
     ).toBeVisible()
 
     await user.clear(
