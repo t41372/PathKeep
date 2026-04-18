@@ -257,7 +257,7 @@ const mockSnapshot: AppSnapshot = {
     estimatedEmbeddingTokens: 0,
     warning: null,
   },
-  insightStatus: {
+  intelligenceStatus: {
     ready: true,
     lastRunAt: new Date().toISOString(),
     runs: 4,
@@ -934,7 +934,7 @@ function clearDerivedIntelligenceFixture(
   state: MockBackendState,
 ): ClearDerivedIntelligenceReport {
   state.derivedStateCleared = true
-  state.snapshot.insightStatus = {
+  state.snapshot.intelligenceStatus = {
     ready: false,
     lastRunAt: null,
     runs: 0,

@@ -37,7 +37,7 @@ use crate::{
         DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat, DomainPageStat,
         DomainTrend, DomainTrendPoint, DomainTrendRequest, EngineEffectiveness, EngineRanking,
         EntityExplanationRequest, ExplainRefindRequest, ExplainabilityFactor, Explanation,
-        FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage, InsightStatus,
+        FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage, IntelligenceStatus,
         IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
         IntelligenceWidgetSnapshot, KpiMetric, NavigationPath, NavigationPathStep, OnThisDayEntry,
         PagedDateRangeRequest, QueryFamily, QueryFamilyResult, RefindExplanation, RefindPage,
@@ -828,11 +828,11 @@ pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result
     Ok(())
 }
 
-pub fn insight_status(
+pub fn intelligence_status(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
-) -> Result<InsightStatus> {
+) -> Result<IntelligenceStatus> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let session_count = table_row_count(&connection, "sessions")?;
@@ -848,7 +848,7 @@ pub fn insight_status(
         )
         .optional()?
         .flatten();
-    Ok(InsightStatus {
+    Ok(IntelligenceStatus {
         ready: session_count > 0 || trail_count > 0 || refind_count > 0,
         last_run_at,
         runs: 0,
@@ -860,6 +860,16 @@ pub fn insight_status(
         content_coverage: 0.0,
         warning: None,
     })
+}
+
+/// Transitional wrapper kept so legacy in-repo surfaces can migrate without
+/// reintroducing `insight_status` as the accepted Core Intelligence contract.
+pub fn insight_status(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<IntelligenceStatus> {
+    intelligence_status(paths, config, key)
 }
 
 pub fn clear_derived_intelligence_state(

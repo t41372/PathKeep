@@ -51,23 +51,32 @@ interface BridgeHistoryResponse {
   }>
 }
 
-interface BridgeRunInsightsReport {
+interface BridgeCoreIntelligenceRebuildReport {
   processedVisits: number
-  queryGroupCount: number
+  sessions: number
+  searchTrails: number
   lastRunAt: string
   notes: string[]
 }
 
-interface BridgeInsightSnapshot {
-  status: {
-    runs: number
+interface BridgeDigestSummary {
+  totalVisits: {
+    value: number
   }
-  cards: unknown[]
-  queryGroups: unknown[]
-  referencePages: unknown[]
-  sourceEffectiveness: unknown[]
-  templateSummaries: unknown[]
-  threads: unknown[]
+  totalSearches: {
+    value: number
+  }
+}
+
+interface BridgeSessionListResult {
+  total: number
+  sessions: Array<{
+    sessionId: string
+  }>
+}
+
+interface BridgePublicSnapshot {
+  topDomains: string[]
   notes: string[]
 }
 
@@ -207,7 +216,7 @@ test('connects chrome to the live desktop command bridge', async ({
   )
 })
 
-test('runs a live backup and insights flow through the desktop command bridge', async ({
+test('runs a live backup and core intelligence flow through the desktop command bridge', async ({
   page,
   request,
 }, testInfo) => {
@@ -340,47 +349,80 @@ test('runs a live backup and insights flow through the desktop command bridge', 
   expect(history.total).toBeGreaterThan(0)
   expect(history.items[0].url).toContain('example')
 
-  const insightsRun = await invokeDesktopBridge<BridgeRunInsightsReport>(
-    request,
-    devIpcUrl,
-    'run_insights_now',
-    {
-      request: {
-        profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: true,
+  const dateRange = {
+    start: '2000-01-01',
+    end: '2100-01-01',
+  }
+
+  const intelligenceRun =
+    await invokeDesktopBridge<BridgeCoreIntelligenceRebuildReport>(
+      request,
+      devIpcUrl,
+      'run_core_intelligence_now',
+      {
+        request: {
+          profileId: 'chrome:Default',
+          fullRebuild: true,
+        },
       },
-    },
-  )
-  expect(insightsRun.processedVisits).toBeGreaterThan(0)
-  expect(insightsRun.lastRunAt).toBeTruthy()
+    )
+
+  expect(intelligenceRun.processedVisits).toBeGreaterThan(0)
+  expect(intelligenceRun.sessions).toBeGreaterThan(0)
+  expect(intelligenceRun.searchTrails).toBeGreaterThan(0)
+  expect(intelligenceRun.lastRunAt).toBeTruthy()
   expect(
-    insightsRun.notes.some((note) => note.toLowerCase().includes('lexical')),
+    intelligenceRun.notes.some((note) =>
+      note.toLowerCase().includes('core intelligence'),
+    ),
   ).toBe(true)
 
-  const insights = await invokeDesktopBridge<BridgeInsightSnapshot>(
+  const digest = await invokeDesktopBridge<BridgeDigestSummary>(
     request,
     devIpcUrl,
-    'load_insights',
+    'get_digest_summary',
     {
       request: {
+        dateRange,
         profileId: 'chrome:Default',
-        windowDays: 30,
-        fullRebuild: false,
       },
     },
   )
+  expect(digest.totalVisits.value).toBe(backup.run?.newVisits)
+  expect(digest.totalSearches.value).toBeGreaterThan(0)
 
-  expect(insights.status.runs).toBeGreaterThan(0)
+  const sessions = await invokeDesktopBridge<BridgeSessionListResult>(
+    request,
+    devIpcUrl,
+    'get_sessions',
+    {
+      request: {
+        dateRange,
+        profileId: 'chrome:Default',
+        page: 0,
+        pageSize: 20,
+      },
+    },
+  )
+  expect(sessions.total).toBeGreaterThan(0)
+  expect(sessions.sessions[0].sessionId).toBeTruthy()
+
+  const publicSnapshot = await invokeDesktopBridge<BridgePublicSnapshot>(
+    request,
+    devIpcUrl,
+    'get_intelligence_public_snapshot',
+    {
+      request: {
+        dateRange,
+        profileId: 'chrome:Default',
+      },
+    },
+  )
+  expect(publicSnapshot.topDomains.length).toBeGreaterThan(0)
   expect(
-    insights.cards.length +
-      insights.referencePages.length +
-      insights.sourceEffectiveness.length +
-      insights.templateSummaries.length +
-      insights.threads.length,
-  ).toBeGreaterThan(0)
-  expect(
-    insights.notes.some((note) => note.toLowerCase().includes('lexical')),
+    publicSnapshot.notes.some((note) =>
+      note.includes('omit visit-level identifiers'),
+    ),
   ).toBe(true)
 
   await page.goto('/')

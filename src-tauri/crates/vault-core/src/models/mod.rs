@@ -24,7 +24,7 @@ pub use self::{
 mod tests {
     use super::{
         ACTIVITY_MIX_MODULE_ID, AiSearchRequest, AppConfig, DAILY_ROLLUPS_MODULE_ID,
-        DOMAIN_DEEP_DIVE_MODULE_ID, InsightStatus, READABLE_CONTENT_PLUGIN_ID,
+        DOMAIN_DEEP_DIVE_MODULE_ID, IntelligenceStatus, READABLE_CONTENT_PLUGIN_ID,
         READABLE_CONTENT_PLUGIN_VERSION, REFIND_PAGES_MODULE_ID, SEARCH_EFFECTIVENESS_MODULE_ID,
         SEARCH_TRAILS_MODULE_ID, SESSIONS_MODULE_ID, TITLE_NORMALIZATION_PLUGIN_ID,
         TITLE_NORMALIZATION_PLUGIN_VERSION, VISIT_DERIVED_FACTS_MODULE_ID,
@@ -43,8 +43,8 @@ mod tests {
     }
 
     #[test]
-    fn insight_status_defaults_to_empty_state() {
-        let status = InsightStatus::default();
+    fn intelligence_status_defaults_to_empty_state() {
+        let status = IntelligenceStatus::default();
         assert!(!status.ready);
         assert_eq!(status.cards, 0);
         assert_eq!(status.query_groups, 0);

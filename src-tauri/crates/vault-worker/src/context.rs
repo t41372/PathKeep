@@ -21,9 +21,9 @@ use anyhow::{Context, Result};
 use tokio::runtime::Runtime;
 use vault_core::{
     AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchResponse,
-    AppConfig, AppLockStatus, InsightStatus, ai_index_status, ai_queue,
+    AppConfig, AppLockStatus, IntelligenceStatus, ai_index_status, ai_queue,
     app_lock_status_with_biometric, archive, ensure_app_lock_unlocked, hydrate_app_lock_config,
-    insight_status, load_config,
+    intelligence_status, load_config,
 };
 use vault_platform::{
     app_lock_biometric_state, keyring_get_provider_api_key, provider_api_key_saved,
@@ -108,15 +108,18 @@ pub(crate) fn derive_ai_status(
 }
 
 /// Loads the derived-intelligence read model, degrading to a warning on error.
-pub(crate) fn derive_insight_status(
+pub(crate) fn derive_intelligence_status(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
-) -> InsightStatus {
-    match insight_status(paths, config, session_database_key) {
+) -> IntelligenceStatus {
+    match intelligence_status(paths, config, session_database_key) {
         Ok(status) => status,
         Err(error) => {
-            InsightStatus { warning: Some(error.to_string()), ..InsightStatus::default() }
+            IntelligenceStatus {
+                warning: Some(error.to_string()),
+                ..IntelligenceStatus::default()
+            }
         }
     }
 }

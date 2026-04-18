@@ -8,7 +8,7 @@ use vault_core::{
     archive::{open_archive_connection, open_intelligence_connection},
     config::project_paths_with_root,
     get_digest_summary, get_query_families, get_refind_pages, get_search_trails, get_sessions,
-    get_top_search_concepts, get_top_sites, insight_status,
+    get_top_search_concepts, get_top_sites, intelligence_status,
     intelligence::run_core_intelligence_job_type_with_progress,
     intelligence_runtime::load_intelligence_runtime,
     load_config,
@@ -285,7 +285,8 @@ fn validate_skip_baseline_rebuild(options: &Options, context: &BenchmarkContext)
             "--skip-baseline-rebuild requires --app-root because synthetic benchmarks must seed and rebuild Core Intelligence first"
         );
     }
-    let status = insight_status(&context.paths, &context.config, context.session_key.as_deref())?;
+    let status =
+        intelligence_status(&context.paths, &context.config, context.session_key.as_deref())?;
     if !status.ready {
         anyhow::bail!(
             "--skip-baseline-rebuild requires an existing Core Intelligence read model in the replayed app root"

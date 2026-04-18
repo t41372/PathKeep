@@ -620,8 +620,8 @@ pub struct AiAssistantResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-/// High-level readiness summary for deterministic insights.
-pub struct InsightStatus {
+/// High-level readiness summary for Core Intelligence runtime state.
+pub struct IntelligenceStatus {
     pub ready: bool,
     pub last_run_at: Option<String>,
     pub runs: usize,
@@ -633,6 +633,9 @@ pub struct InsightStatus {
     pub content_coverage: f32,
     pub warning: Option<String>,
 }
+
+/// Legacy alias kept for snapshot-era insight read models that still compile in-repo.
+pub type InsightStatus = IntelligenceStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

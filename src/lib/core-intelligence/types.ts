@@ -58,6 +58,39 @@ export interface CoreIntelligenceQueueReport {
   notes: string[]
 }
 
+/** Shareable/embed-oriented card payload from backend-only provider commands. */
+export interface IntelligenceEmbedCardPayload {
+  cardId: string
+  cardType: string
+  title: string
+  eyebrow?: string | null
+  body: string
+  metricLabel?: string | null
+  metricValue?: string | null
+  href?: string | null
+  internalOnly: boolean
+}
+
+/** Compact widget snapshot built from aggregate Core Intelligence read models. */
+export interface IntelligenceWidgetSnapshot {
+  generatedAt: string
+  dateRange: DateRange
+  digestSummary: DigestSummary
+  highlights: IntelligenceEmbedCardPayload[]
+  notes: string[]
+}
+
+/** Redacted public snapshot that intentionally omits visit-level drilldown fields. */
+export interface IntelligencePublicSnapshot {
+  generatedAt: string
+  dateRange: DateRange
+  digestSummary: DigestSummary
+  topDomains: string[]
+  searchEngines: EngineRanking[]
+  discoveryTrend: DiscoveryTrend
+  notes: string[]
+}
+
 /** Trend direction indicator derived from period-over-period comparison. */
 export type TrendDirection = 'up' | 'down' | 'flat'
 

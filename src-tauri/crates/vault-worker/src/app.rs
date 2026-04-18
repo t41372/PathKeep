@@ -11,7 +11,7 @@
 //! docs already describe.
 
 use crate::context::{
-    current_app_lock_biometric_state, derive_ai_status, derive_insight_status,
+    current_app_lock_biometric_state, derive_ai_status, derive_intelligence_status,
     hydrate_derived_config_state, load_hydrated_config, load_unlocked_config,
     resolved_app_lock_status,
 };
@@ -45,7 +45,8 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let browser_profiles = discover_browser_profiles()?;
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
-    let insight_status = derive_insight_status(&paths, &config, session_database_key);
+    let intelligence_status =
+        derive_intelligence_status(&paths, &config, session_database_key);
     let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
     let recent_import_batches =
         load_import_batches(&paths, &config, session_database_key).unwrap_or_default();
@@ -81,7 +82,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         app_lock_status,
         keyring_status: keyring_status(),
         ai_status,
-        insight_status,
+        intelligence_status,
         browser_profiles,
         recent_runs,
         recent_import_batches,

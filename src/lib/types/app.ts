@@ -34,7 +34,7 @@ import type {
   AiSettings,
   DeterministicSettings,
   EnrichmentSettings,
-  InsightStatus,
+  IntelligenceStatus,
 } from './intelligence'
 import type { RemoteBackupConfig } from './remote'
 import type { KeyringStatusReport } from './security'
@@ -323,7 +323,7 @@ export interface AppSnapshot {
   appLockStatus: AppLockStatus
   keyringStatus: KeyringStatusReport
   aiStatus: AiIndexStatus
-  insightStatus: InsightStatus
+  intelligenceStatus: IntelligenceStatus
   browserProfiles: BrowserProfile[]
   recentRuns: BackupRunOverview[]
   recentImportBatches: ImportBatchOverview[]

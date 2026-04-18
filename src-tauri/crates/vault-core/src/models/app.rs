@@ -2,7 +2,7 @@
 
 use super::ArchiveMode;
 use super::{
-    AiIndexStatus, BackupRunOverview, BrowserProfile, ImportBatchOverview, InsightStatus,
+    AiIndexStatus, BackupRunOverview, BrowserProfile, ImportBatchOverview, IntelligenceStatus,
     KeyringStatusReport,
 };
 use super::{AiSettings, DeterministicSettings, EnrichmentSettings};
@@ -297,7 +297,8 @@ pub struct AppSnapshot {
     pub app_lock_status: AppLockStatus,
     pub keyring_status: KeyringStatusReport,
     pub ai_status: AiIndexStatus,
-    pub insight_status: InsightStatus,
+    #[serde(alias = "insightStatus")]
+    pub intelligence_status: IntelligenceStatus,
     #[serde(alias = "chromeProfiles")]
     pub browser_profiles: Vec<BrowserProfile>,
     pub recent_runs: Vec<BackupRunOverview>,

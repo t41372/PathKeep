@@ -253,11 +253,11 @@ export interface AiQueueStatus {
 }
 
 /**
- * Represents a read model or status snapshot for insight.
+ * Represents a read model or status snapshot for Core Intelligence runtime readiness.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
-export interface InsightStatus {
+export interface IntelligenceStatus {
   ready: boolean
   lastRunAt?: string | null
   runs: number
@@ -269,6 +269,11 @@ export interface InsightStatus {
   contentCoverage: number
   warning?: string | null
 }
+
+/**
+ * Legacy alias kept while older insight-specific types remain in-repo.
+ */
+export type InsightStatus = IntelligenceStatus
 
 /**
  * Defines the typed shape for insight evidence item.

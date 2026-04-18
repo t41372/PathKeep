@@ -51,6 +51,9 @@ import type {
   BrowserDiff,
   ObservedInteraction,
   Explanation,
+  IntelligenceEmbedCardPayload,
+  IntelligenceWidgetSnapshot,
+  IntelligencePublicSnapshot,
 } from './types'
 
 function invokeRequest<TResponse, TRequest extends Record<string, unknown>>(
@@ -650,4 +653,62 @@ export function explainEntity(entityType: string, entityId: string) {
       entityId,
     },
   )
+}
+
+// ---------------------------------------------------------------------------
+// 4.B External Output Payload Providers
+// ---------------------------------------------------------------------------
+
+export function getIntelligenceEmbedCards(
+  dateRange: DateRange,
+  profileId?: string | null,
+  limit?: number,
+) {
+  return invokeRequest<
+    IntelligenceEmbedCardPayload[],
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      limit?: number
+    }
+  >('get_intelligence_embed_cards', {
+    dateRange,
+    profileId,
+    limit,
+  })
+}
+
+export function getIntelligenceWidgetSnapshot(
+  dateRange: DateRange,
+  profileId?: string | null,
+  limit?: number,
+) {
+  return invokeRequest<
+    IntelligenceWidgetSnapshot,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      limit?: number
+    }
+  >('get_intelligence_widget_snapshot', {
+    dateRange,
+    profileId,
+    limit,
+  })
+}
+
+export function getIntelligencePublicSnapshot(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return invokeRequest<
+    IntelligencePublicSnapshot,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >('get_intelligence_public_snapshot', {
+    dateRange,
+    profileId,
+  })
 }

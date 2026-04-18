@@ -68,7 +68,7 @@ pub use intelligence::{
     get_path_flows, get_query_families, get_refind_pages, get_reopened_investigations,
     get_search_effectiveness, get_search_engine_ranking, get_search_trails, get_session_detail,
     get_sessions, get_stable_sources, get_top_search_concepts, get_top_sites, get_trail_detail,
-    insight_status, run_core_intelligence, run_core_intelligence_with_progress,
+    intelligence_status, run_core_intelligence, run_core_intelligence_with_progress,
 };
 pub use intelligence_runtime::{
     cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,
