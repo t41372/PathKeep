@@ -77,6 +77,43 @@
   scrollbar-gutter: stable;
 }
 
+.intelligence-runtime-digest__summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.intelligence-runtime-digest__badge {
+  width: fit-content;
+}
+
+.intelligence-runtime-digest__badge--info {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.intelligence-runtime-digest__badge--warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.intelligence-runtime-digest__badge--success {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.intelligence-runtime-digest__body,
+.intelligence-runtime-digest__detail,
+.intelligence-runtime-digest__meta {
+  margin: 0;
+}
+
+.intelligence-runtime-digest__body {
+  font-size: 0.8125rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
 /* ---------- Empty & Skeleton States ---------- */
 
 .intelligence-empty {

@@ -1151,6 +1151,87 @@ describe('intelligence surfaces', () => {
     }
   })
 
+  test('shows a small runtime digest and keeps external output consumers marked deferred', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const loadAiQueueStatusSpy = vi
+      .spyOn(backend, 'loadAiQueueStatus')
+      .mockResolvedValue({
+        paused: false,
+        concurrency: 1,
+        queued: 1,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      })
+    const loadIntelligenceRuntimeSpy = vi
+      .spyOn(backend, 'loadIntelligenceRuntime')
+      .mockResolvedValue({
+        queue: {
+          queued: 1,
+          running: 1,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: '2026-04-17T09:40:00Z',
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [
+          {
+            id: 812,
+            jobType: 'deterministic-rebuild',
+            pluginId: null,
+            state: 'running',
+            historyId: null,
+            profileId: 'chrome:Default',
+            url: null,
+            title: 'chrome:Default · 30 days',
+            attempt: 1,
+            createdAt: '2026-04-17T09:35:00Z',
+            startedAt: '2026-04-17T09:36:00Z',
+            finishedAt: null,
+            updatedAt: '2026-04-17T09:40:00Z',
+            heartbeatAt: '2026-04-17T09:40:00Z',
+            progressLabel: 'Scoring visits',
+            progressDetail: '24,000 / 64,781 visits',
+            progressCurrent: 24000,
+            progressTotal: 64781,
+            progressPercent: 46.8,
+            lastError: null,
+            retryable: false,
+            cancellable: true,
+          },
+        ],
+        notes: [],
+      })
+
+    renderSurface(<IntelligencePage />, {
+      route: '/intelligence',
+      snapshot,
+    })
+
+    const digest = await screen.findByTestId('intelligence-runtime-digest')
+    await waitFor(() => expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(1))
+    expect(loadIntelligenceRuntimeSpy).toHaveBeenCalledTimes(1)
+    expect(
+      within(digest).getByText(intelligenceT('runtimeDigestTitle')),
+    ).toBeVisible()
+    expect(
+      within(digest).getByText(
+        intelligenceT('runtimeDigestRunningTitle', { count: 1 }),
+      ),
+    ).toBeVisible()
+    expect(within(digest).getByText('24,000 / 64,781 visits')).toBeVisible()
+    expect(within(digest).getByRole('link', { name: 'Jobs' })).toHaveAttribute(
+      'href',
+      '/jobs',
+    )
+    expect(
+      screen.getByText(intelligenceT('externalOutputsDeferredTitle')),
+    ).toBeVisible()
+  })
+
   test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()

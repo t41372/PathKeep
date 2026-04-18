@@ -29,7 +29,9 @@ async function completePreviewOnboarding(page: Page) {
 
   await expect(page.getByText('RECENT RUNS')).toBeVisible()
   await expect(page.getByText('ON THIS DAY')).toBeVisible()
-  await expect(page.getByText('SUMMARY')).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: 'Open Intelligence' }),
+  ).toHaveCount(2)
   await expect(page.getByText('AI features off')).toBeVisible()
   await expect(page.getByText('common.disabled')).toHaveCount(0)
 }
@@ -117,13 +119,16 @@ test('surfaces intelligence routes and degraded states after the first backup', 
   await expect(page.getByText('Assistant is turned off')).toBeVisible()
 
   await Promise.all([
-    page.waitForURL(/#\/insights/),
-    page.getByRole('link', { name: 'Insights', exact: true }).click(),
+    page.waitForURL(/#\/intelligence/),
+    page.getByRole('link', { name: 'Intelligence', exact: true }).click(),
   ])
-  await expect(page.getByTestId('insights-page')).toBeVisible({
+  await expect(page.getByTestId('intelligence-page')).toBeVisible({
     timeout: 10_000,
   })
-  await expect(page.getByText('AI features off')).toBeVisible()
+  await expect(page.getByTestId('intelligence-runtime-digest')).toBeVisible()
+  await expect(
+    page.getByText('Saved snippets and widgets are deferred'),
+  ).toBeVisible()
 })
 
 test('keeps shared profile scope, regex recall, and export guardrails aligned', async ({

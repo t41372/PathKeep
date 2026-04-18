@@ -378,6 +378,29 @@ const zhCnM3Namespaces = {
     observedScroll: '滚动 {duration}',
     observedKeyPresses: '{count} 次按键',
     observedLoadFailed: '加载失败',
+    runtimeDigestTitle: '运行摘要',
+    runtimeDigestNeedsArchiveTitle: '需要先完成存档设置',
+    runtimeDigestNeedsArchiveBody:
+      '先完成设置并解锁存档，PathKeep 才能检查 Core Intelligence 的后台工作。',
+    runtimeDigestUnavailableTitle: '运行检查暂不可用',
+    runtimeDigestUnavailableBody:
+      'PathKeep 目前无法加载最新的 Core Intelligence 队列摘要。',
+    runtimeDigestFailedTitle: '{count} 个任务需要处理',
+    runtimeDigestFailedBody:
+      '仍有重建或增强任务需要处理。重试、取消和恢复细节请到 Jobs 页面查看。',
+    runtimeDigestRunningTitle: '{count} 个任务正在运行',
+    runtimeDigestRunningBody: '当前活跃工作后面还有 {queued} 个任务正在排队。',
+    runtimeDigestQueuedTitle: '{count} 个任务正在排队',
+    runtimeDigestQueuedBody:
+      'Core Intelligence 刷新任务已经入队，会继续在后台推进。',
+    runtimeDigestReadyTitle: '运行状态正常',
+    runtimeDigestReadyBody:
+      '当前没有需要处理的 Core Intelligence 排队或运行中任务。',
+    runtimeDigestLastActivity: '最近活动 {relative}',
+    runtimeDigestIdleMeta: '最近没有队列活动',
+    externalOutputsDeferredTitle: '保存片段和小组件仍在后续版本',
+    externalOutputsDeferredBody:
+      'PathKeep 目前可以为未来的嵌入卡片、小组件和公开快照准备内部 payload，但这一版还没有交付任何外部宿主集成。',
   },
   explorer: {
     waitingForQuery: '输入关键词开始搜索',
@@ -1133,6 +1156,30 @@ const zhTwM3Namespaces = {
     observedScroll: '滾動 {duration}',
     observedKeyPresses: '{count} 次按鍵',
     observedLoadFailed: '載入失敗',
+    runtimeDigestTitle: '執行摘要',
+    runtimeDigestNeedsArchiveTitle: '需要先完成封存設定',
+    runtimeDigestNeedsArchiveBody:
+      '先完成設定並解鎖封存，PathKeep 才能檢查 Core Intelligence 的背景工作。',
+    runtimeDigestUnavailableTitle: '執行檢查暫時無法使用',
+    runtimeDigestUnavailableBody:
+      'PathKeep 目前無法載入最新的 Core Intelligence 佇列摘要。',
+    runtimeDigestFailedTitle: '{count} 個工作需要處理',
+    runtimeDigestFailedBody:
+      '仍有重建或增強工作需要處理。重試、取消和恢復細節請到 Jobs 頁面查看。',
+    runtimeDigestRunningTitle: '{count} 個工作正在執行',
+    runtimeDigestRunningBody:
+      '目前活躍工作的後面還有 {queued} 個工作正在排隊。',
+    runtimeDigestQueuedTitle: '{count} 個工作正在排隊',
+    runtimeDigestQueuedBody:
+      'Core Intelligence 重新整理工作已經入列，會繼續在背景推進。',
+    runtimeDigestReadyTitle: '執行狀態正常',
+    runtimeDigestReadyBody:
+      '目前沒有需要處理的 Core Intelligence 排隊或執行中工作。',
+    runtimeDigestLastActivity: '最近活動 {relative}',
+    runtimeDigestIdleMeta: '最近沒有佇列活動',
+    externalOutputsDeferredTitle: '儲存片段與小工具仍在後續版本',
+    externalOutputsDeferredBody:
+      'PathKeep 目前可以為未來的嵌入卡片、小工具與公開快照準備內部 payload，但這一版還沒有交付任何外部宿主整合。',
   },
   explorer: {
     waitingForQuery: '輸入關鍵字開始搜尋',
@@ -1774,8 +1821,7 @@ const catalog: Record<
       explorerSubtitle: 'Search and browse your history',
       intelligenceLabel: 'Intelligence',
       intelligenceTitle: 'Intelligence',
-      intelligenceSubtitle:
-        'Patterns, journeys, and insights from your browsing',
+      intelligenceSubtitle: 'Patterns, trails, and refinds from your browsing',
       assistantLabel: 'AI Assistant',
       assistantTitle: 'AI Assistant',
       assistantSubtitle: 'Ask about your browsing history',
@@ -1863,7 +1909,7 @@ const catalog: Record<
       queueLabel: 'Queue',
       semanticSearchAction: 'Semantic search',
       openAssistantAction: 'Open assistant',
-      reviewInsightsAction: 'Review insights',
+      reviewInsightsAction: 'Open Intelligence',
       trustActions: 'QUICK CHECKS',
       trustActionsBody:
         'Review these before your next backup to make sure everything looks right.',
@@ -1876,7 +1922,7 @@ const catalog: Record<
       zeroStateChecklist: 'GETTING STARTED',
       zeroStep1: 'Complete the setup wizard',
       zeroStep2: 'Run your first backup',
-      zeroStep3: 'Explore your history and insights',
+      zeroStep3: 'Explore your history and intelligence',
       storageFootprint: 'STORAGE FOOTPRINT',
       storageTotal: '{size} total',
       archiveDatabase: 'Archive database',
@@ -1884,7 +1930,7 @@ const catalog: Record<
       snapshots: 'Snapshots',
       exports: 'Exports',
       scopeNotice:
-        'Insights and search results are filtered to the selected profile. Archive health and storage stats always show the full archive.',
+        'Intelligence views and search results are filtered to the selected profile. Archive health and storage stats always show the full archive.',
     },
     audit: {
       loadingLedger: 'Loading audit ledger',
@@ -3069,6 +3115,30 @@ const catalog: Record<
       observedScroll: 'Scrolled {duration}',
       observedKeyPresses: '{count} key presses',
       observedLoadFailed: 'Load failed',
+      runtimeDigestTitle: 'Runtime Digest',
+      runtimeDigestNeedsArchiveTitle: 'Archive setup required',
+      runtimeDigestNeedsArchiveBody:
+        'Finish setup and unlock the archive before PathKeep can review Core Intelligence work.',
+      runtimeDigestUnavailableTitle: 'Runtime review unavailable',
+      runtimeDigestUnavailableBody:
+        'PathKeep could not load the latest Core Intelligence queue summary right now.',
+      runtimeDigestFailedTitle: '{count} jobs need review',
+      runtimeDigestFailedBody:
+        'Some rebuild or enrichment work still needs attention. Use Jobs for retry, cancel, and recovery details.',
+      runtimeDigestRunningTitle: '{count} jobs running',
+      runtimeDigestRunningBody:
+        '{queued} more jobs are still queued behind the active work.',
+      runtimeDigestQueuedTitle: '{count} jobs queued',
+      runtimeDigestQueuedBody:
+        'Core Intelligence refresh work is queued and will continue in the background.',
+      runtimeDigestReadyTitle: 'Runtime looks healthy',
+      runtimeDigestReadyBody:
+        'No queued or running Core Intelligence work needs review right now.',
+      runtimeDigestLastActivity: 'Last activity {relative}',
+      runtimeDigestIdleMeta: 'No recent queue activity',
+      externalOutputsDeferredTitle: 'Saved snippets and widgets are deferred',
+      externalOutputsDeferredBody:
+        'PathKeep can prepare internal payloads for future embed cards, widgets, and public snapshots, but no external host integrations ship in this release yet.',
     },
     explorer: {
       waitingForQuery: 'Type to search',
@@ -3447,9 +3517,9 @@ const catalog: Record<
       featureSearchTitle: 'POWERFUL SEARCH',
       featureSearchDesc:
         'Search across your entire history, even years back. Find any page you ever visited by keyword or natural language.',
-      featureInsightsTitle: 'AI INSIGHTS',
+      featureInsightsTitle: 'INTELLIGENCE LAYERS',
       featureInsightsDesc:
-        'Optionally use AI to discover patterns in your browsing — what topics you explore, how your interests evolve, and more.',
+        'Start with local Core Intelligence for patterns, trails, and refinds. Add AI later if you want semantic search and assistant workflows.',
       trustLocalFirst: 'Local-first — your data never leaves your machine',
       trustOpenSource: 'Open-source — GPL v3, inspect the code yourself',
       trustBuiltWith: 'Built with Tauri + Rust + SQLite',
@@ -3693,7 +3763,7 @@ const catalog: Record<
       explorerSubtitle: '搜索和浏览你的历史',
       intelligenceLabel: '智能',
       intelligenceTitle: '智能分析',
-      intelligenceSubtitle: '发现你的浏览模式、搜索旅程和深度洞察',
+      intelligenceSubtitle: '发现你的浏览模式、搜索旅程和重找线索',
       assistantLabel: 'AI 助手',
       assistantTitle: 'AI 助手',
       assistantSubtitle: '用自然语言探索你的历史',
@@ -3770,14 +3840,14 @@ const catalog: Record<
       selectedProfiles: '已选 {count} 个浏览器',
       historyDetected: '已找到历史记录',
       historyMissing: '未找到历史记录',
-      intelligenceTitle: 'AI 功能',
+      intelligenceTitle: '智能分析',
       llmLabel: 'AI 模型',
       embeddingLabel: '搜索模型',
       embeddingFallback: '仅关键词搜索',
       queueLabel: '任务队列',
       semanticSearchAction: '智能搜索',
       openAssistantAction: '打开助手',
-      reviewInsightsAction: '查看洞察',
+      reviewInsightsAction: '打开智能分析',
       trustActions: '快速检查',
       trustActionsBody: '在下次备份前，快速检查这些设置是否正常。',
       reviewImportBatches: '检查导入记录',
@@ -3788,7 +3858,7 @@ const catalog: Record<
       zeroStateChecklist: '快速开始',
       zeroStep1: '完成初始设置',
       zeroStep2: '运行第一次备份',
-      zeroStep3: '浏览你的历史记录和洞察',
+      zeroStep3: '浏览你的历史记录和智能分析',
       storageFootprint: '存储占用',
       storageTotal: '共 {size}',
       archiveDatabase: '存档数据库',
@@ -3796,7 +3866,7 @@ const catalog: Record<
       snapshots: '快照',
       exports: '导出',
       scopeNotice:
-        '已选择特定浏览器，洞察和搜索会根据选择筛选，但存档状态和存储统计仍显示全部数据。',
+        '已选择特定浏览器，智能分析视图和搜索会根据选择筛选，但存档状态和存储统计仍显示全部数据。',
     },
     audit: {
       loadingLedger: '加载审计日志…',
@@ -4519,9 +4589,9 @@ const catalog: Record<
       featureSearchTitle: '强大的搜索',
       featureSearchDesc:
         '搜索你所有的浏览历史，哪怕是几年前访问的页面，也能通过关键词或自然语言找到。',
-      featureInsightsTitle: 'AI 洞察',
+      featureInsightsTitle: '智能分析分层',
       featureInsightsDesc:
-        '可选的 AI 功能，帮你发现浏览中的规律 — 你在研究什么话题，兴趣如何演变等。',
+        '先用本地 Core Intelligence 看规律、搜索旅程和重找页面；之后如果需要，再开启 AI 做语义搜索和助手工作流。',
       trustLocalFirst: '本地优先 — 数据只在你的电脑上',
       trustOpenSource: '开源 — GPL v3 协议，代码完全公开',
       trustBuiltWith: '基于 Tauri + Rust + SQLite',
@@ -4762,7 +4832,7 @@ const catalog: Record<
       explorerSubtitle: '搜尋和瀏覽你的歷史',
       intelligenceLabel: '智慧',
       intelligenceTitle: '智慧分析',
-      intelligenceSubtitle: '發現你的瀏覽模式、搜尋旅程和深度洞察',
+      intelligenceSubtitle: '發現你的瀏覽模式、搜尋旅程和重找線索',
       assistantLabel: 'AI 助手',
       assistantTitle: 'AI 助手',
       assistantSubtitle: '用自然語言探索你的歷史',
@@ -4839,14 +4909,14 @@ const catalog: Record<
       selectedProfiles: '已選 {count} 個瀏覽器',
       historyDetected: '已找到歷史紀錄',
       historyMissing: '未找到歷史紀錄',
-      intelligenceTitle: 'AI 功能',
+      intelligenceTitle: '智慧分析',
       llmLabel: 'AI 模型',
       embeddingLabel: '搜尋模型',
       embeddingFallback: '僅關鍵字搜尋',
       queueLabel: '工作佇列',
       semanticSearchAction: '智慧搜尋',
       openAssistantAction: '開啟助手',
-      reviewInsightsAction: '查看洞察',
+      reviewInsightsAction: '打開智慧分析',
       trustActions: '快速檢查',
       trustActionsBody: '下次備份前，快速檢查這些設定是否正常。',
       reviewImportBatches: '檢查匯入紀錄',
@@ -4857,7 +4927,7 @@ const catalog: Record<
       zeroStateChecklist: '快速開始',
       zeroStep1: '完成初始設定',
       zeroStep2: '執行第一次備份',
-      zeroStep3: '瀏覽你的歷史紀錄和洞察',
+      zeroStep3: '瀏覽你的歷史紀錄和智慧分析',
       storageFootprint: '儲存空間',
       storageTotal: '共 {size}',
       archiveDatabase: '封存資料庫',
@@ -4865,7 +4935,7 @@ const catalog: Record<
       snapshots: '快照',
       exports: '匯出',
       scopeNotice:
-        '已選擇特定瀏覽器，洞察和搜尋會依此篩選，但封存狀態和儲存統計仍顯示全部資料。',
+        '已選擇特定瀏覽器，智慧分析視圖和搜尋會依此篩選，但封存狀態和儲存統計仍顯示全部資料。',
     },
     audit: {
       loadingLedger: '載入稽核日誌…',
@@ -5588,9 +5658,9 @@ const catalog: Record<
       featureSearchTitle: '強大的搜尋',
       featureSearchDesc:
         '搜尋你所有的瀏覽歷史，即使是好幾年前看過的頁面，也能透過關鍵字或自然語言找到。',
-      featureInsightsTitle: 'AI 洞察',
+      featureInsightsTitle: '智慧分析分層',
       featureInsightsDesc:
-        '可選的 AI 功能，幫你發現瀏覽中的規律 — 你在研究什麼主題，興趣如何演變等。',
+        '先用本機 Core Intelligence 看規律、搜尋旅程和重找頁面；之後如果需要，再開啟 AI 做語意搜尋和助手工作流。',
       trustLocalFirst: '本地優先 — 資料只在你的電腦上',
       trustOpenSource: '開源 — GPL v3 授權，程式碼完全公開',
       trustBuiltWith: '基於 Tauri + Rust + SQLite',

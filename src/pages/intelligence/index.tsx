@@ -15,17 +15,20 @@
 
 import './intelligence.css'
 
+import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { useI18n } from '../../lib/i18n/hooks'
 import { IntelligenceSections } from './sections'
 import { useIntelligenceRouteState } from './route-state'
+import { IntelligenceRuntimeDigest } from './runtime-digest'
 
 /**
  * Renders the `/intelligence` route.
  */
 export function IntelligencePage() {
   const { t } = useI18n('intelligence')
+  const { snapshot } = useShellData()
   const {
     dateRange,
     effectiveProfileId,
@@ -62,6 +65,17 @@ export function IntelligencePage() {
               })
             : t('archiveWideBody')
         }
+      />
+
+      <IntelligenceRuntimeDigest
+        initialized={Boolean(snapshot?.config.initialized)}
+        unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
+      />
+
+      <StatusCallout
+        tone="info"
+        title={t('externalOutputsDeferredTitle')}
+        body={t('externalOutputsDeferredBody')}
       />
 
       <IntelligenceSections
