@@ -101,11 +101,14 @@ const baseConfig: AppConfig = {
   },
   deterministic: {
     modules: [
-      { id: 'query-groups', enabled: true, version: 'diagnostic' },
-      { id: 'threads', enabled: true, version: 'diagnostic' },
-      { id: 'reference-pages', enabled: true, version: 'diagnostic' },
-      { id: 'source-effectiveness', enabled: true, version: 'diagnostic' },
-      { id: 'template-summaries', enabled: true, version: 'diagnostic' },
+      { id: 'visit-derived-facts', enabled: true, version: 'ci-v1' },
+      { id: 'daily-rollups', enabled: true, version: 'ci-v1' },
+      { id: 'sessions', enabled: true, version: 'ci-v1' },
+      { id: 'search-trails', enabled: true, version: 'ci-v1' },
+      { id: 'refind-pages', enabled: true, version: 'ci-v1' },
+      { id: 'activity-mix', enabled: true, version: 'ci-v1' },
+      { id: 'search-effectiveness', enabled: true, version: 'ci-v1' },
+      { id: 'domain-deep-dive', enabled: true, version: 'ci-v1' },
     ],
   },
   ai: {
@@ -523,32 +526,40 @@ describe('intelligence surfaces', () => {
       ],
       modules: [
         {
-          moduleId: 'query-groups',
+          moduleId: 'search-trails',
           enabled: true,
-          version: 'diagnostic',
+          version: 'ci-v1',
           status: 'ready',
-          dependsOn: [],
-          derivedTables: ['insight_bursts', 'insight_query_groups'],
+          dependsOn: ['visit-derived-facts', 'sessions'],
+          derivedTables: [
+            'search_trails',
+            'search_trail_members',
+            'search_events',
+            'search_event_terms',
+            'query_families',
+          ],
           lastRunId: 12,
           lastBuiltAt: '2026-04-10T16:25:00Z',
           lastInvalidatedAt: null,
           staleReason: null,
-          notes: ['Latest deterministic rebuild completed successfully.'],
+          notes: [
+            'Search trails and query families reflect the latest normalized visits.',
+          ],
         },
         {
-          moduleId: 'reference-pages',
+          moduleId: 'refind-pages',
           enabled: true,
-          version: 'diagnostic',
+          version: 'ci-v1',
           status: 'stale',
-          dependsOn: ['query-groups', 'threads'],
-          derivedTables: ['insight_reference_pages'],
+          dependsOn: ['visit-derived-facts', 'search-trails'],
+          derivedTables: ['refind_pages', 'source_effectiveness'],
           lastRunId: 11,
           lastBuiltAt: '2026-04-09T16:25:00Z',
           lastInvalidatedAt: '2026-04-10T16:28:00Z',
           staleReason:
             'Visibility changed after the last deterministic rebuild.',
           notes: [
-            'Manual rebuild required before this deterministic module is fresh again.',
+            'Manual rebuild required before refind pages and source effectiveness are fresh again.',
           ],
         },
       ],
@@ -601,8 +612,8 @@ describe('intelligence surfaces', () => {
       await screen.findByText(settingsT('firstPartyRuntimeTitle')),
     ).toBeVisible()
     expect(screen.getByText('Title normalization')).toBeVisible()
-    expect(screen.getByText('Query groups')).toBeVisible()
-    expect(screen.getByText('Reference pages')).toBeVisible()
+    expect(screen.getByText('Search trails')).toBeVisible()
+    expect(screen.getByText('Refind pages')).toBeVisible()
     expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
       0,
     )
@@ -1168,17 +1179,17 @@ describe('intelligence surfaces', () => {
       ],
       modules: [
         {
-          moduleId: 'threads',
+          moduleId: 'sessions',
           enabled: true,
-          version: 'diagnostic',
+          version: 'ci-v1',
           status: 'stale',
-          dependsOn: ['query-groups'],
-          derivedTables: ['insight_threads', 'insight_thread_members'],
+          dependsOn: ['visit-derived-facts'],
+          derivedTables: ['sessions'],
           lastRunId: 12,
           lastBuiltAt: '2026-04-10T16:25:00Z',
           lastInvalidatedAt: '2026-04-10T16:28:00Z',
           staleReason: 'New imports were added after the last rebuild.',
-          notes: ['Thread merge uses query-family and reopen evidence.'],
+          notes: ['Session grouping stayed stable across the latest rebuild.'],
         },
       ],
       recentJobs: [

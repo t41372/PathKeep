@@ -6,7 +6,7 @@
 //! module from remaining the canonical owner of readable-text evidence after
 //! the hard cutover.
 
-#[path = "insights/site_adapters.rs"]
+#[path = "enrichment_site_adapters.rs"]
 mod site_adapters;
 
 use crate::{

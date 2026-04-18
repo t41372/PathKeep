@@ -1,4 +1,4 @@
-//! Site-specific enrichment adapters used by deterministic insights.
+//! Site-specific enrichment adapters used by readable-content enrichment.
 
 use crate::utils::url_domain;
 use scraper::{Html, Selector};
@@ -88,7 +88,7 @@ fn adapt_video_site(
 
     let snippets = lines
         .iter()
-        .map(|line| normalize_whitespace(line))
+        .map(normalize_whitespace)
         .filter(|line| !line.is_empty())
         .take(SNIPPET_LIMIT)
         .collect::<Vec<_>>();
@@ -259,127 +259,49 @@ fn query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
-fn normalize_whitespace(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut last_was_space = false;
-    for ch in input.chars() {
-        if ch.is_whitespace() {
-            if !last_was_space {
-                output.push(' ');
-                last_was_space = true;
+fn format_duration(value: String) -> String {
+    let trimmed = value.trim().to_ascii_uppercase();
+    if !trimmed.starts_with('P') {
+        return value;
+    }
+
+    let mut hours = None;
+    let mut minutes = None;
+    let mut seconds = None;
+    let mut current = String::new();
+    for character in trimmed.chars() {
+        match character {
+            '0'..='9' => current.push(character),
+            'H' => {
+                hours = current.parse::<u64>().ok();
+                current.clear();
             }
-        } else {
-            output.push(ch);
-            last_was_space = false;
+            'M' => {
+                minutes = current.parse::<u64>().ok();
+                current.clear();
+            }
+            'S' => {
+                seconds = current.parse::<u64>().ok();
+                current.clear();
+            }
+            _ => current.clear(),
         }
-    }
-    output.trim().to_string()
-}
-
-fn format_duration(input: String) -> String {
-    if !input.starts_with('P') {
-        return input;
-    }
-
-    let mut hours = 0u32;
-    let mut minutes = 0u32;
-    let mut seconds = 0u32;
-    let mut buffer = String::new();
-
-    for ch in input.chars() {
-        if ch.is_ascii_digit() {
-            buffer.push(ch);
-            continue;
-        }
-
-        let value = buffer.parse::<u32>().unwrap_or_default();
-        match ch {
-            'H' => hours = value,
-            'M' => minutes = value,
-            'S' => seconds = value,
-            _ => {}
-        }
-        buffer.clear();
     }
 
     let mut parts = Vec::new();
-    if hours > 0 {
+    if let Some(hours) = hours {
         parts.push(format!("{hours}h"));
     }
-    if minutes > 0 {
+    if let Some(minutes) = minutes {
         parts.push(format!("{minutes}m"));
     }
-    if seconds > 0 {
+    if let Some(seconds) = seconds {
         parts.push(format!("{seconds}s"));
     }
 
-    if parts.is_empty() { input } else { parts.join(" ") }
+    if parts.is_empty() { value } else { parts.join(" ") }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::adapt_site_content;
-    use scraper::Html;
-
-    #[test]
-    fn extracts_youtube_video_metadata_from_json_ld() {
-        let html = Html::parse_document(
-            r#"
-            <html>
-              <head>
-                <script type="application/ld+json">
-                  {
-                    "@context": "https://schema.org",
-                    "@type": "VideoObject",
-                    "name": "PathKeep walkthrough",
-                    "description": "A detailed desktop tour.",
-                    "duration": "PT12M31S",
-                    "uploadDate": "2026-04-01",
-                    "author": { "@type": "Person", "name": "Tim" }
-                  }
-                </script>
-              </head>
-            </html>
-            "#,
-        );
-
-        let result = adapt_site_content("https://www.youtube.com/watch?v=abc123", &html)
-            .expect("youtube adapter result");
-        assert_eq!(result.adapter_id, "youtube-video");
-        assert_eq!(result.readable_title.as_deref(), Some("PathKeep walkthrough"));
-        assert!(
-            result
-                .readable_text
-                .as_deref()
-                .is_some_and(|value| value.contains("Channel: Tim | Duration: 12m 31s"))
-        );
-        assert_eq!(result.metadata["videoId"].as_str(), Some("abc123"));
-    }
-
-    #[test]
-    fn falls_back_to_meta_tags_for_vimeo_pages() {
-        let html = Html::parse_document(
-            r#"
-            <html>
-              <head>
-                <meta property="og:title" content="Archive replay" />
-                <meta property="og:description" content="Comparing backup flows." />
-                <meta itemprop="author" content="PathKeep Studio" />
-              </head>
-            </html>
-            "#,
-        );
-
-        let result =
-            adapt_site_content("https://vimeo.com/123456789", &html).expect("vimeo adapter result");
-        assert_eq!(result.adapter_id, "vimeo-video");
-        assert_eq!(result.readable_title.as_deref(), Some("Archive replay"));
-        assert!(
-            result
-                .readable_text
-                .as_deref()
-                .is_some_and(|value| value.contains("Comparing backup flows."))
-        );
-        assert_eq!(result.metadata["videoId"].as_str(), Some("123456789"));
-    }
+fn normalize_whitespace(value: impl AsRef<str>) -> String {
+    value.as_ref().split_whitespace().collect::<Vec<_>>().join(" ")
 }

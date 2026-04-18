@@ -37,6 +37,67 @@ type Translator = (
   vars?: Record<string, string | number>,
 ) => string
 
+const CORE_INTELLIGENCE_MODULE_ORDER = [
+  'visit-derived-facts',
+  'daily-rollups',
+  'sessions',
+  'search-trails',
+  'refind-pages',
+  'activity-mix',
+  'search-effectiveness',
+  'domain-deep-dive',
+] as const
+
+const CORE_INTELLIGENCE_MODULE_METADATA: Record<
+  (typeof CORE_INTELLIGENCE_MODULE_ORDER)[number],
+  {
+    labelKey: TranslationKey
+    descriptionKey: TranslationKey
+    version: string
+  }
+> = {
+  'visit-derived-facts': {
+    labelKey: 'visitDerivedFactsModule',
+    descriptionKey: 'visitDerivedFactsModuleDescription',
+    version: 'ci-v1',
+  },
+  'daily-rollups': {
+    labelKey: 'dailyRollupsModule',
+    descriptionKey: 'dailyRollupsModuleDescription',
+    version: 'ci-v1',
+  },
+  sessions: {
+    labelKey: 'sessionsModule',
+    descriptionKey: 'sessionsModuleDescription',
+    version: 'ci-v1',
+  },
+  'search-trails': {
+    labelKey: 'searchTrailsModule',
+    descriptionKey: 'searchTrailsModuleDescription',
+    version: 'ci-v1',
+  },
+  'refind-pages': {
+    labelKey: 'refindPagesModule',
+    descriptionKey: 'refindPagesModuleDescription',
+    version: 'ci-v1',
+  },
+  'activity-mix': {
+    labelKey: 'activityMixModule',
+    descriptionKey: 'activityMixModuleDescription',
+    version: 'ci-v1',
+  },
+  'search-effectiveness': {
+    labelKey: 'searchEffectivenessModule',
+    descriptionKey: 'searchEffectivenessModuleDescription',
+    version: 'ci-v1',
+  },
+  'domain-deep-dive': {
+    labelKey: 'domainDeepDiveModule',
+    descriptionKey: 'domainDeepDiveModuleDescription',
+    version: 'ci-v1',
+  },
+}
+
 /**
  * Explains how enrichment plugin label works.
  *
@@ -111,20 +172,11 @@ export function intelligenceRuntimeJobStateLabel(state: string, t: Translator) {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function deterministicModuleLabel(moduleId: string, t: Translator) {
-  switch (moduleId) {
-    case 'query-groups':
-      return t('queryGroupsModule')
-    case 'threads':
-      return t('threadsModule')
-    case 'reference-pages':
-      return t('referencePagesModule')
-    case 'source-effectiveness':
-      return t('sourceEffectivenessModule')
-    case 'template-summaries':
-      return t('templateSummariesModule')
-    default:
-      return moduleId
-  }
+  const metadata =
+    CORE_INTELLIGENCE_MODULE_METADATA[
+      moduleId as keyof typeof CORE_INTELLIGENCE_MODULE_METADATA
+    ]
+  return metadata ? t(metadata.labelKey) : moduleId
 }
 
 /**
@@ -136,20 +188,13 @@ export function deterministicModuleDescription(
   moduleId: string,
   t: Translator,
 ) {
-  switch (moduleId) {
-    case 'query-groups':
-      return t('queryGroupsModuleDescription')
-    case 'threads':
-      return t('threadsModuleDescription')
-    case 'reference-pages':
-      return t('referencePagesModuleDescription')
-    case 'source-effectiveness':
-      return t('sourceEffectivenessModuleDescription')
-    case 'template-summaries':
-      return t('templateSummariesModuleDescription')
-    default:
-      return t('deterministicModuleFallbackDescription')
-  }
+  const metadata =
+    CORE_INTELLIGENCE_MODULE_METADATA[
+      moduleId as keyof typeof CORE_INTELLIGENCE_MODULE_METADATA
+    ]
+  return metadata
+    ? t(metadata.descriptionKey)
+    : t('deterministicModuleFallbackDescription')
 }
 
 /**
@@ -182,13 +227,30 @@ export function upsertDeterministicModuleState(
   moduleId: string,
   enabled: boolean,
 ) {
-  const next = states.some((module) => module.id === moduleId)
-    ? states.map((module) =>
-        module.id === moduleId ? { ...module, enabled } : module,
-      )
-    : [...states, { id: moduleId, enabled, version: 'm5b-v1' }]
+  const canonicalIds = new Set<string>(CORE_INTELLIGENCE_MODULE_ORDER)
+  const version =
+    CORE_INTELLIGENCE_MODULE_METADATA[
+      moduleId as keyof typeof CORE_INTELLIGENCE_MODULE_METADATA
+    ]?.version ?? 'ci-v1'
+  const next = states
+    .filter((module) => canonicalIds.has(module.id))
+    .map((module) =>
+      module.id === moduleId ? { ...module, enabled, version } : module,
+    )
 
-  return next.sort((left, right) => left.id.localeCompare(right.id))
+  if (!next.some((module) => module.id === moduleId)) {
+    next.push({ id: moduleId, enabled, version })
+  }
+
+  return next.sort(
+    (left, right) =>
+      CORE_INTELLIGENCE_MODULE_ORDER.indexOf(
+        left.id as (typeof CORE_INTELLIGENCE_MODULE_ORDER)[number],
+      ) -
+      CORE_INTELLIGENCE_MODULE_ORDER.indexOf(
+        right.id as (typeof CORE_INTELLIGENCE_MODULE_ORDER)[number],
+      ),
+  )
 }
 
 /**

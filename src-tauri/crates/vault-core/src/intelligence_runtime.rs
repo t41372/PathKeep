@@ -22,7 +22,9 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
+use rusqlite::{Connection, OptionalExtension, params};
+#[cfg(test)]
+use rusqlite::{params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(test)]
@@ -96,11 +98,6 @@ pub const DAILY_ROLLUP_JOB_TYPE: &str = "daily-rollup";
 pub const STRUCTURAL_REBUILD_JOB_TYPE: &str = "structural-rebuild";
 /// Queue job type identifier used for a full Core Intelligence rebuild.
 pub const FULL_REBUILD_JOB_TYPE: &str = "full-rebuild";
-/// Transitional alias kept while worker glue is moving from legacy naming.
-pub const DETERMINISTIC_REBUILD_JOB_TYPE: &str = FULL_REBUILD_JOB_TYPE;
-/// Transitional alias kept while tests and worker glue still reference the legacy constant.
-#[allow(dead_code)]
-const DETERMINISTIC_REBUILD_PRIORITY: i64 = FULL_REBUILD_PRIORITY;
 #[allow(dead_code)]
 const VISIT_DERIVE_PRIORITY: i64 = 20;
 #[allow(dead_code)]
@@ -120,7 +117,7 @@ static RECOVERED_RUNTIME_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::
 pub(crate) struct EnrichmentPluginDefinition {
     pub id: &'static str,
     pub source_kind: &'static str,
-    pub freshness_window_days: Option<i64>,
+    #[cfg(test)]
     pub priority: i64,
 }
 
@@ -186,6 +183,7 @@ pub(crate) struct ClaimedEnrichmentJob {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct QueuedEnrichmentJobSnapshot {
     id: i64,
     plugin_id: String,
@@ -196,6 +194,7 @@ struct QueuedEnrichmentJobSnapshot {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct EnrichmentQueueCursor {
     priority: i64,
     created_at: String,
@@ -208,6 +207,7 @@ pub struct QueuedIntelligenceJob {
     pub job_type: String,
 }
 
+#[cfg(test)]
 impl QueuedEnrichmentJobSnapshot {
     fn cursor(&self) -> EnrichmentQueueCursor {
         EnrichmentQueueCursor {
@@ -222,13 +222,13 @@ const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = [
     EnrichmentPluginDefinition {
         id: TITLE_NORMALIZATION_PLUGIN_ID,
         source_kind: LOCAL_PLUGIN_SOURCE_KIND,
-        freshness_window_days: None,
+        #[cfg(test)]
         priority: 10,
     },
     EnrichmentPluginDefinition {
         id: READABLE_CONTENT_PLUGIN_ID,
         source_kind: NETWORK_PLUGIN_SOURCE_KIND,
-        freshness_window_days: Some(7),
+        #[cfg(test)]
         priority: 30,
     },
 ];
@@ -307,6 +307,7 @@ pub(crate) fn built_in_enrichment_plugins() -> &'static [EnrichmentPluginDefinit
 }
 
 /// Looks up one built-in enrichment plugin definition by ID.
+#[cfg(test)]
 pub(crate) fn built_in_enrichment_plugin(
     plugin_id: &str,
 ) -> Option<&'static EnrichmentPluginDefinition> {
@@ -353,6 +354,7 @@ pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> 
 }
 
 /// Enqueues one enrichment job for a history row when plugin/runtime rules allow it.
+#[cfg(test)]
 pub(crate) fn enqueue_enrichment_job(
     connection: &Connection,
     run_id: i64,
@@ -636,6 +638,7 @@ pub fn mark_all_deterministic_modules_stale(connection: &Connection, reason: &st
 }
 
 /// Claims a batch of runnable enrichment jobs.
+#[cfg(test)]
 pub(crate) fn claim_enrichment_jobs(
     connection: &Connection,
     allowed_plugin_ids: &[String],
@@ -725,6 +728,7 @@ pub(crate) fn claim_enrichment_job_by_id(
     }))
 }
 
+#[cfg(test)]
 fn queued_enrichment_candidates_page(
     connection: &Connection,
     allowed_plugin_ids: &[String],
@@ -1000,6 +1004,7 @@ pub fn next_queued_enrichment_job(connection: &Connection) -> Result<Option<i64>
 }
 
 /// Requeues any stuck running enrichment jobs that belong to one run.
+#[cfg(test)]
 pub(crate) fn requeue_running_enrichment_jobs_for_run(
     connection: &Connection,
     run_id: i64,
@@ -1592,7 +1597,7 @@ mod tests {
 
         let jobs = load_recent_jobs(&connection).expect("recent jobs");
         assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].job_type, DETERMINISTIC_REBUILD_JOB_TYPE);
+        assert_eq!(jobs[0].job_type, FULL_REBUILD_JOB_TYPE);
         assert_eq!(
             jobs[0].title.as_deref(),
             Some("chrome:Default · full Core Intelligence rebuild")
@@ -1678,7 +1683,7 @@ mod tests {
             .expect("next queued job")
             .expect("queued job");
         assert_eq!(next_job.id, deterministic_job_id);
-        assert_eq!(next_job.job_type, DETERMINISTIC_REBUILD_JOB_TYPE);
+        assert_eq!(next_job.job_type, FULL_REBUILD_JOB_TYPE);
     }
 
     #[test]
@@ -1950,9 +1955,9 @@ mod tests {
                  VALUES (?1, NULL, NULL, 'running', 5, 1, 'core-intelligence:all:false:full', ?2,
                          '{}', ?3, ?3, ?3, ?3)",
                 params![
-                    DETERMINISTIC_REBUILD_JOB_TYPE,
+                    FULL_REBUILD_JOB_TYPE,
                     serde_json::to_string(&DeterministicRebuildJobPayload {
-                        job_type: DETERMINISTIC_REBUILD_JOB_TYPE.to_string(),
+                        job_type: FULL_REBUILD_JOB_TYPE.to_string(),
                         request: CoreIntelligenceRebuildRequest::default(),
                         reason: "recover me".to_string(),
                     })
@@ -1969,7 +1974,7 @@ mod tests {
         let (state, last_error) = connection
             .query_row(
                 "SELECT state, last_error FROM intelligence_jobs WHERE job_type = ?1",
-                [DETERMINISTIC_REBUILD_JOB_TYPE],
+                [FULL_REBUILD_JOB_TYPE],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .expect("recovered job state");
@@ -2039,10 +2044,10 @@ mod tests {
                  VALUES (?1, NULL, NULL, 'running', ?2, 1, 'core-intelligence:all:false:full', ?3,
                          '{}', ?4, ?4, ?4, ?4)",
                 params![
-                    DETERMINISTIC_REBUILD_JOB_TYPE,
-                    DETERMINISTIC_REBUILD_PRIORITY,
+                    FULL_REBUILD_JOB_TYPE,
+                    FULL_REBUILD_PRIORITY,
                     serde_json::to_string(&DeterministicRebuildJobPayload {
-                        job_type: DETERMINISTIC_REBUILD_JOB_TYPE.to_string(),
+                        job_type: FULL_REBUILD_JOB_TYPE.to_string(),
                         request: CoreIntelligenceRebuildRequest::default(),
                         reason: "recover me".to_string(),
                     })
@@ -2069,7 +2074,7 @@ mod tests {
                      updated_at = ?1,
                      last_error = NULL
                  WHERE job_type = ?2",
-                params![now_rfc3339(), DETERMINISTIC_REBUILD_JOB_TYPE],
+                params![now_rfc3339(), FULL_REBUILD_JOB_TYPE],
             )
             .expect("mark deterministic job running again");
 
@@ -2085,7 +2090,7 @@ mod tests {
         let state = connection
             .query_row(
                 "SELECT state FROM intelligence_jobs WHERE job_type = ?1",
-                [DETERMINISTIC_REBUILD_JOB_TYPE],
+                [FULL_REBUILD_JOB_TYPE],
                 |row| row.get::<_, String>(0),
             )
             .expect("deterministic job state after second load");

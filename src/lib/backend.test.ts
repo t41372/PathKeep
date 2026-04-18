@@ -76,11 +76,14 @@ const config: AppConfig = {
   },
   deterministic: {
     modules: [
-      { id: 'query-groups', enabled: true, version: 'm5b-v1' },
-      { id: 'threads', enabled: true, version: 'm5b-v1' },
-      { id: 'reference-pages', enabled: true, version: 'm5b-v1' },
-      { id: 'source-effectiveness', enabled: true, version: 'm5b-v1' },
-      { id: 'template-summaries', enabled: true, version: 'm5b-v1' },
+      { id: 'visit-derived-facts', enabled: true, version: 'ci-v1' },
+      { id: 'daily-rollups', enabled: true, version: 'ci-v1' },
+      { id: 'sessions', enabled: true, version: 'ci-v1' },
+      { id: 'search-trails', enabled: true, version: 'ci-v1' },
+      { id: 'refind-pages', enabled: true, version: 'ci-v1' },
+      { id: 'activity-mix', enabled: true, version: 'ci-v1' },
+      { id: 'search-effectiveness', enabled: true, version: 'ci-v1' },
+      { id: 'domain-deep-dive', enabled: true, version: 'ci-v1' },
     ],
   },
   ai: {
@@ -590,9 +593,10 @@ describe('backend facade', () => {
       ],
     })
     await expect(backend.clearDerivedIntelligence()).resolves.toMatchObject({
-      clearedEnrichmentRows: 8,
-      clearedFeatureRows: 8,
-      clearedCardRows: 2,
+      clearedVisitDerivedFactRows: 8,
+      clearedDailyRollupRows: 11,
+      clearedStructuralRows: 27,
+      clearedRuntimeRows: 12,
     })
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
       queue: expect.objectContaining({ failed: 1 }),
@@ -676,7 +680,7 @@ describe('backend facade', () => {
       ]),
       modules: expect.arrayContaining([
         expect.objectContaining({
-          moduleId: 'query-groups',
+          moduleId: 'visit-derived-facts',
           enabled: false,
           status: 'disabled',
           notes: ['Disabled in Settings.'],
@@ -691,12 +695,12 @@ describe('backend facade', () => {
     })
 
     await expect(backend.clearDerivedIntelligence()).resolves.toMatchObject({
-      clearedFeatureRows: 8,
+      clearedVisitDerivedFactRows: 8,
     })
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
       modules: expect.arrayContaining([
         expect.objectContaining({
-          moduleId: 'query-groups',
+          moduleId: 'visit-derived-facts',
           enabled: false,
           status: 'disabled',
           staleReason: null,
@@ -707,7 +711,7 @@ describe('backend facade', () => {
     await expect(backend.loadIntelligenceRuntime()).resolves.toMatchObject({
       modules: expect.arrayContaining([
         expect.objectContaining({
-          moduleId: 'query-groups',
+          moduleId: 'visit-derived-facts',
           enabled: false,
           status: 'disabled',
           notes: ['Disabled in Settings.'],

@@ -2571,21 +2571,30 @@ const catalog: Record<
       readableContentPlugin: 'Page content fetcher',
       readableContentDescription:
         'Reads page text from visited pages so summaries and deterministic insights can cite more complete local evidence.',
-      queryGroupsModule: 'Query groups',
-      queryGroupsModuleDescription:
-        'Groups related search keywords into a clear trail you can follow.',
-      threadsModule: 'Threads',
-      threadsModuleDescription:
-        'Bundles related search trails into longer research threads.',
-      referencePagesModule: 'Reference pages',
-      referencePagesModuleDescription:
-        'Finds pages that keep coming back as anchors across searches.',
-      sourceEffectivenessModule: 'Source effectiveness',
-      sourceEffectivenessModuleDescription:
-        'Shows which sources most often lead to useful results.',
-      templateSummariesModule: 'Template summaries',
-      templateSummariesModuleDescription:
-        'Turns repeated patterns into short, readable summaries.',
+      visitDerivedFactsModule: 'Visit-derived facts',
+      visitDerivedFactsModuleDescription:
+        'Normalizes visit-level evidence, site dictionary fields, and search metadata before downstream rebuild stages run.',
+      dailyRollupsModule: 'Daily rollups',
+      dailyRollupsModuleDescription:
+        'Composes day-level rollups for domains, categories, engines, and digest summaries.',
+      sessionsModule: 'Sessions',
+      sessionsModuleDescription:
+        'Groups nearby visits into browsing sessions without guessing hidden dwell time.',
+      searchTrailsModule: 'Search trails',
+      searchTrailsModuleDescription:
+        'Builds search trails, trail members, events, and query families from normalized visits.',
+      refindPagesModule: 'Refind pages',
+      refindPagesModuleDescription:
+        'Tracks pages and sources that repeatedly help you return to the same work.',
+      activityMixModule: 'Activity mix',
+      activityMixModuleDescription:
+        'Keeps digest metrics and period-over-period activity summaries in sync with daily rollups.',
+      searchEffectivenessModule: 'Search effectiveness',
+      searchEffectivenessModuleDescription:
+        'Explains which search trails reopen, converge, or lead to useful follow-up results.',
+      domainDeepDiveModule: 'Domain deep dive',
+      domainDeepDiveModuleDescription:
+        'Maintains domain rhythm, habit, and path-flow surfaces for deeper deterministic review.',
       deterministicModuleFallbackDescription:
         'Check the saved module trace before you rely on this result.',
       deterministicModuleVersion: 'Module version',
@@ -2644,7 +2653,7 @@ const catalog: Record<
         'Deterministic rebuild job #{jobId} is now in Background Jobs. Follow progress there while PathKeep refreshes cards and derived evidence.',
       clearCompletedTitle: 'Data cleared',
       clearCompletedBody:
-        'Cleared {enrichments} enrichment rows, {features} feature rows, and {cards} insight cards. Your original history was not affected.',
+        'Cleared {visitDerivedFacts} visit-derived rows, {dailyRollups} daily rollup rows, {structural} structural rows, and {runtime} runtime rows. Your original history was not affected.',
       savingEnrichmentSettings: 'Saving…',
       rebuildingDerivedState: 'Rebuilding…',
       clearingDerivedState: 'Clearing…',
@@ -4519,19 +4528,30 @@ const catalog: Record<
       readableContentPlugin: '页面内容抓取',
       readableContentDescription:
         '读取已访问页面的文字，让摘要和确定性洞察可以引用更完整的本地证据。',
-      queryGroupsModule: '查询组',
-      queryGroupsModuleDescription:
-        '把相关搜索关键词整理成一条清楚的搜索轨迹。',
-      threadsModule: '研究线索',
-      threadsModuleDescription: '把相关搜索轨迹整理成更长的研究线索。',
-      referencePagesModule: '参考页',
-      referencePagesModuleDescription: '找出在不同搜索里不断出现的锚点页面。',
-      sourceEffectivenessModule: '来源效果',
-      sourceEffectivenessModuleDescription:
-        '显示哪些来源最常把你带到有用结果。',
-      templateSummariesModule: '模板总结',
-      templateSummariesModuleDescription:
-        '把重复出现的模式整理成简短好读的总结。',
+      visitDerivedFactsModule: '访问派生事实',
+      visitDerivedFactsModuleDescription:
+        '先把 visit 级别的证据、站点词典字段和搜索元数据标准化，再交给后续重建阶段使用。',
+      dailyRollupsModule: '每日汇总',
+      dailyRollupsModuleDescription:
+        '生成 domain、category、engine 和 digest summary 的日级 rollup。',
+      sessionsModule: '会话',
+      sessionsModuleDescription:
+        '在不猜测隐藏停留时间的前提下，把相邻访问整理成浏览会话。',
+      searchTrailsModule: '搜索轨迹',
+      searchTrailsModuleDescription:
+        '根据标准化后的 visit 构建搜索轨迹、轨迹成员、搜索事件和查询家族。',
+      refindPagesModule: '重访页面',
+      refindPagesModuleDescription:
+        '追踪那些反复帮助你回到同一项工作的页面与来源。',
+      activityMixModule: '活动构成',
+      activityMixModuleDescription:
+        '让 digest 指标与按周期比较的活动摘要持续跟每日 rollup 对齐。',
+      searchEffectivenessModule: '搜索效果',
+      searchEffectivenessModuleDescription:
+        '解释哪些搜索轨迹会重新打开问题、收敛，或带来有用的后续结果。',
+      domainDeepDiveModule: '域名深挖',
+      domainDeepDiveModuleDescription:
+        '维护域名节奏、习惯和 path flow 等更深入的 deterministic review surface。',
       deterministicModuleFallbackDescription:
         '在依赖这个结果之前，先检查保存下来的模块 trace。',
       deterministicModuleVersion: '模块版本',
@@ -4587,7 +4607,7 @@ const catalog: Record<
         '确定性重新生成任务 #{jobId} 已进入后台任务。PathKeep 会在后台刷新卡片和派生证据，你可以到 Jobs 页面查看进度。',
       clearCompletedTitle: '数据已清除',
       clearCompletedBody:
-        '清除了 {enrichments} 条增强数据、{features} 条特征数据和 {cards} 张洞察卡片。原始历史记录未受影响。',
+        '清除了 {visitDerivedFacts} 条访问派生数据、{dailyRollups} 条每日汇总数据、{structural} 条结构化数据和 {runtime} 条运行时数据。原始历史记录未受影响。',
       savingEnrichmentSettings: '保存中…',
       rebuildingDerivedState: '重新生成中…',
       clearingDerivedState: '清除中…',
@@ -5636,19 +5656,30 @@ const catalog: Record<
       readableContentPlugin: '網頁內容擷取',
       readableContentDescription:
         '讀取已造訪頁面的文字，讓摘要和確定性洞察可以引用更完整的本機證據。',
-      queryGroupsModule: '查詢群組',
-      queryGroupsModuleDescription:
-        '把相關搜尋關鍵字整理成一條清楚的搜尋軌跡。',
-      threadsModule: '研究線索',
-      threadsModuleDescription: '把相關搜尋軌跡整理成更長的研究線索。',
-      referencePagesModule: '參考頁',
-      referencePagesModuleDescription: '找出在不同搜尋裡不斷出現的錨點頁面。',
-      sourceEffectivenessModule: '來源效果',
-      sourceEffectivenessModuleDescription:
-        '顯示哪些來源最常把你帶到有用結果。',
-      templateSummariesModule: '模板總結',
-      templateSummariesModuleDescription:
-        '把重複出現的模式整理成簡短好讀的總結。',
+      visitDerivedFactsModule: '造訪衍生事實',
+      visitDerivedFactsModuleDescription:
+        '先把 visit 層級的證據、站點詞典欄位與搜尋中繼資料標準化，再交給後續重建階段使用。',
+      dailyRollupsModule: '每日彙總',
+      dailyRollupsModuleDescription:
+        '產生 domain、category、engine 與 digest summary 的日級 rollup。',
+      sessionsModule: '工作階段',
+      sessionsModuleDescription:
+        '在不猜測隱藏停留時間的前提下，把相鄰造訪整理成瀏覽工作階段。',
+      searchTrailsModule: '搜尋軌跡',
+      searchTrailsModuleDescription:
+        '根據標準化後的 visit 建立搜尋軌跡、軌跡成員、搜尋事件與查詢家族。',
+      refindPagesModule: '重訪頁面',
+      refindPagesModuleDescription:
+        '追蹤那些反覆幫助你回到同一項工作的頁面與來源。',
+      activityMixModule: '活動構成',
+      activityMixModuleDescription:
+        '讓 digest 指標與分期比較的活動摘要持續和每日 rollup 對齊。',
+      searchEffectivenessModule: '搜尋效果',
+      searchEffectivenessModuleDescription:
+        '解釋哪些搜尋軌跡會重新打開問題、收斂，或帶來有用的後續結果。',
+      domainDeepDiveModule: '網域深挖',
+      domainDeepDiveModuleDescription:
+        '維護網域節奏、習慣與 path flow 等更深入的 deterministic review surface。',
       deterministicModuleFallbackDescription:
         '在依賴這個結果之前，先檢查保存下來的模組 trace。',
       deterministicModuleVersion: '模組版本',
@@ -5705,7 +5736,7 @@ const catalog: Record<
         '確定性重新產生任務 #{jobId} 已進入背景工作。PathKeep 會在背景重新整理卡片和派生證據，你可以到 Jobs 頁面查看進度。',
       clearCompletedTitle: '資料已清除',
       clearCompletedBody:
-        '清除了 {enrichments} 筆增強資料、{features} 筆特徵資料和 {cards} 張洞察卡片。原始歷史紀錄未受影響。',
+        '清除了 {visitDerivedFacts} 筆造訪衍生資料、{dailyRollups} 筆每日彙總資料、{structural} 筆結構化資料和 {runtime} 筆執行階段資料。原始歷史紀錄未受影響。',
       savingEnrichmentSettings: '儲存中…',
       rebuildingDerivedState: '重新產生中…',
       clearingDerivedState: '清除中…',

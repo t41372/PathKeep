@@ -297,7 +297,6 @@ pub struct AppSnapshot {
     pub app_lock_status: AppLockStatus,
     pub keyring_status: KeyringStatusReport,
     pub ai_status: AiIndexStatus,
-    #[serde(alias = "insightStatus")]
     pub intelligence_status: IntelligenceStatus,
     #[serde(alias = "chromeProfiles")]
     pub browser_profiles: Vec<BrowserProfile>,

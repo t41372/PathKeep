@@ -119,6 +119,30 @@ mod tests {
     }
 
     #[test]
+    fn deterministic_module_state_merge_discards_legacy_module_ids() {
+        let merged = merge_deterministic_module_states(&[
+            super::DeterministicModuleState {
+                id: "query-groups".to_string(),
+                enabled: false,
+                version: "m5b-v1".to_string(),
+            },
+            super::DeterministicModuleState {
+                id: SEARCH_TRAILS_MODULE_ID.to_string(),
+                enabled: false,
+                version: String::new(),
+            },
+        ]);
+
+        assert_eq!(merged.len(), 8);
+        assert!(merged.iter().all(|module| module.id != "query-groups"));
+        let search_trails = merged
+            .iter()
+            .find(|module| module.id == SEARCH_TRAILS_MODULE_ID)
+            .expect("search trails module");
+        assert!(!search_trails.enabled);
+    }
+
+    #[test]
     fn normalize_app_config_restores_missing_runtime_defaults() {
         let mut config = AppConfig::default();
         config.enrichment.plugins.clear();

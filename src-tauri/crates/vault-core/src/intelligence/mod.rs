@@ -890,16 +890,6 @@ pub fn intelligence_status(
     })
 }
 
-/// Transitional wrapper kept so legacy in-repo surfaces can migrate without
-/// reintroducing `insight_status` as the accepted Core Intelligence contract.
-pub fn insight_status(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<IntelligenceStatus> {
-    intelligence_status(paths, config, key)
-}
-
 pub fn clear_derived_intelligence_state(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -907,30 +897,50 @@ pub fn clear_derived_intelligence_state(
 ) -> Result<ClearDerivedIntelligenceReport> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    let cleared_runtime_rows = table_row_count(&connection, "deterministic_module_runtime")?
+        + table_row_count(&connection, "core_intelligence_stage_checkpoints")?
+        + count_core_intelligence_job_triggers(&connection)?
+        + count_core_intelligence_jobs(&connection)?;
     let report = ClearDerivedIntelligenceReport {
-        cleared_enrichment_rows: 0,
-        cleared_feature_rows: table_row_count(&connection, "visit_derived_facts")?,
-        cleared_burst_rows: table_row_count(&connection, "sessions")?,
-        cleared_query_group_rows: table_row_count(&connection, "search_trails")?,
-        cleared_topic_rows: table_row_count(&connection, "query_families")?,
-        cleared_thread_rows: table_row_count(&connection, "reopened_investigations")?,
-        cleared_reference_page_rows: table_row_count(&connection, "refind_pages")?,
-        cleared_source_rows: table_row_count(&connection, "source_effectiveness")?,
-        cleared_module_rows: table_row_count(&connection, "deterministic_module_runtime")?,
-        cleared_card_rows: table_row_count(&connection, "daily_summary_rollups")?,
-        cleared_run_rows: connection
-            .execute(
-                "DELETE FROM intelligence_jobs
-                 WHERE job_type IN ('visit-derive', 'daily-rollup', 'structural-rebuild', 'full-rebuild')",
-                [],
-            )
-            .unwrap_or(0),
+        cleared_visit_derived_fact_rows: table_row_count(&connection, "visit_derived_facts")?,
+        cleared_daily_rollup_rows: sum_table_row_counts(
+            &connection,
+            &[
+                "domain_daily_rollups",
+                "category_daily_rollups",
+                "engine_daily_rollups",
+                "daily_summary_rollups",
+            ],
+        )?,
+        cleared_structural_rows: sum_table_row_counts(
+            &connection,
+            &[
+                "sessions",
+                "search_trails",
+                "search_trail_members",
+                "search_events",
+                "search_event_terms",
+                "query_families",
+                "refind_pages",
+                "source_effectiveness",
+                "habit_patterns",
+                "reopened_investigations",
+                "path_flows",
+            ],
+        )?,
+        cleared_runtime_rows,
         notes: vec![
-            "Cleared Core Intelligence derived rows and module/runtime traces without touching canonical archive facts."
+            "Cleared Core Intelligence derived rows, checkpoints, and runtime traces without touching canonical archive facts."
                 .to_string(),
         ],
     };
     clear_core_tables(&connection, None)?;
+    delete_stage_checkpoints(&connection, None)?;
+    connection.execute(
+        "DELETE FROM intelligence_jobs
+         WHERE job_type IN ('visit-derive', 'daily-rollup', 'structural-rebuild', 'full-rebuild')",
+        [],
+    )?;
     connection.execute("DELETE FROM deterministic_module_runtime", [])?;
     Ok(report)
 }
@@ -5146,6 +5156,45 @@ fn table_row_count(connection: &Connection, table: &str) -> Result<usize> {
         .map_err(Into::into)
 }
 
+fn sum_table_row_counts(connection: &Connection, tables: &[&str]) -> Result<usize> {
+    tables.iter().try_fold(0_usize, |count, table| {
+        table_row_count(connection, table).map(|table_count| count + table_count)
+    })
+}
+
+fn count_core_intelligence_jobs(connection: &Connection) -> Result<usize> {
+    connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM intelligence_jobs
+             WHERE job_type IN ('visit-derive', 'daily-rollup', 'structural-rebuild', 'full-rebuild')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value.max(0) as usize)
+        .map_err(Into::into)
+}
+
+fn count_core_intelligence_job_triggers(connection: &Connection) -> Result<usize> {
+    if !table_exists(connection, "intelligence_job_triggers")? {
+        return Ok(0);
+    }
+    connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM intelligence_job_triggers
+             WHERE job_id IN (
+               SELECT id
+               FROM intelligence_jobs
+               WHERE job_type IN ('visit-derive', 'daily-rollup', 'structural-rebuild', 'full-rebuild')
+             )",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value.max(0) as usize)
+        .map_err(Into::into)
+}
+
 pub(super) fn local_date_key(visit_time_ms: i64) -> String {
     local_datetime_from_millis(visit_time_ms).format("%Y-%m-%d").to_string()
 }
@@ -7496,11 +7545,13 @@ mod tests {
         archive::{open_archive_connection, open_intelligence_connection},
         config::project_paths_with_root,
         intelligence_catalog::RebuildMode,
+        intelligence_runtime::{FULL_REBUILD_JOB_TYPE, ensure_intelligence_runtime_schema},
         models::{
             AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings,
             DateRange, EntityExplanationRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
             ScopedDateRangeRequest,
         },
+        utils::now_rfc3339,
     };
     use rusqlite::{Connection, OptionalExtension, params};
     use std::collections::BTreeMap;
@@ -7552,6 +7603,122 @@ mod tests {
         assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
         assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
         assert!(has_index(&connection, "idx_search_events_profile_visit"));
+    }
+
+    #[test]
+    fn clear_derived_intelligence_state_reports_canonical_group_counts() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
+        ensure_intelligence_runtime_schema(&intelligence).expect("runtime schema");
+        let now = now_rfc3339();
+        intelligence
+            .execute(
+                "INSERT INTO intelligence_jobs
+                 (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+                  artifact_json, created_at, scheduled_at, started_at, updated_at)
+                 VALUES (?1, NULL, NULL, 'running', 50, 1, 'clear-test:full', '{}', '{}',
+                         ?2, ?2, ?2, ?2)",
+                params![FULL_REBUILD_JOB_TYPE, now],
+            )
+            .expect("insert runtime job");
+        let job_id = intelligence.last_insert_rowid();
+        intelligence
+            .execute(
+                "INSERT INTO intelligence_job_triggers (job_id, run_id, reason, requested_at)
+                 VALUES (?1, NULL, 'clear test', ?2)",
+                params![job_id, now_rfc3339()],
+            )
+            .expect("insert runtime trigger");
+
+        let expected_visit_derived =
+            super::table_row_count(&intelligence, "visit_derived_facts").expect("visit facts");
+        let expected_daily_rollups = super::sum_table_row_counts(
+            &intelligence,
+            &[
+                "domain_daily_rollups",
+                "category_daily_rollups",
+                "engine_daily_rollups",
+                "daily_summary_rollups",
+            ],
+        )
+        .expect("daily rollups");
+        let expected_structural = super::sum_table_row_counts(
+            &intelligence,
+            &[
+                "sessions",
+                "search_trails",
+                "search_trail_members",
+                "search_events",
+                "search_event_terms",
+                "query_families",
+                "refind_pages",
+                "source_effectiveness",
+                "habit_patterns",
+                "reopened_investigations",
+                "path_flows",
+            ],
+        )
+        .expect("structural");
+        let expected_runtime =
+            super::table_row_count(&intelligence, "deterministic_module_runtime")
+                .expect("module runtime")
+                + super::table_row_count(&intelligence, "core_intelligence_stage_checkpoints")
+                    .expect("stage checkpoints")
+                + super::count_core_intelligence_jobs(&intelligence).expect("runtime jobs")
+                + super::count_core_intelligence_job_triggers(&intelligence)
+                    .expect("runtime triggers");
+        drop(intelligence);
+
+        let report = super::clear_derived_intelligence_state(&paths, &config, None)
+            .expect("clear derived state");
+        assert_eq!(report.cleared_visit_derived_fact_rows, expected_visit_derived);
+        assert_eq!(report.cleared_daily_rollup_rows, expected_daily_rollups);
+        assert_eq!(report.cleared_structural_rows, expected_structural);
+        assert_eq!(report.cleared_runtime_rows, expected_runtime);
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("runtime after clear");
+        assert_eq!(
+            super::table_row_count(&intelligence, "visit_derived_facts").expect("visit facts"),
+            0
+        );
+        assert_eq!(
+            super::table_row_count(&intelligence, "daily_summary_rollups")
+                .expect("daily summaries"),
+            0
+        );
+        assert_eq!(
+            super::table_row_count(&intelligence, "search_trails").expect("search trails"),
+            0
+        );
+        assert_eq!(
+            super::table_row_count(&intelligence, "core_intelligence_stage_checkpoints")
+                .expect("stage checkpoints"),
+            0
+        );
+        assert_eq!(
+            super::table_row_count(&intelligence, "deterministic_module_runtime")
+                .expect("module runtime"),
+            0
+        );
+        assert_eq!(super::count_core_intelligence_jobs(&intelligence).expect("runtime jobs"), 0);
+        assert_eq!(
+            super::count_core_intelligence_job_triggers(&intelligence).expect("runtime triggers"),
+            0
+        );
     }
 
     #[test]

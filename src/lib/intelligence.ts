@@ -26,7 +26,6 @@ import type {
   AiIndexStatus,
   AiProviderConfig,
   AppConfig,
-  InsightEvidenceItem,
 } from './types'
 
 /**
@@ -195,7 +194,7 @@ export function assistantHref(question: string, profileId?: string | null) {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function dedupeEvidence<
-  T extends AiAssistantCitation | InsightEvidenceItem,
+  T extends Pick<AiAssistantCitation, 'historyId' | 'url'>,
 >(items: T[]) {
   const seen = new Set<string>()
   return items.filter((item) => {

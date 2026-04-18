@@ -110,11 +110,14 @@ const config: AppConfig = {
   },
   deterministic: {
     modules: [
-      { id: 'query-groups', enabled: true, version: 'diagnostic' },
-      { id: 'threads', enabled: true, version: 'diagnostic' },
-      { id: 'reference-pages', enabled: true, version: 'diagnostic' },
-      { id: 'source-effectiveness', enabled: true, version: 'diagnostic' },
-      { id: 'template-summaries', enabled: true, version: 'diagnostic' },
+      { id: 'visit-derived-facts', enabled: true, version: 'ci-v1' },
+      { id: 'daily-rollups', enabled: true, version: 'ci-v1' },
+      { id: 'sessions', enabled: true, version: 'ci-v1' },
+      { id: 'search-trails', enabled: true, version: 'ci-v1' },
+      { id: 'refind-pages', enabled: true, version: 'ci-v1' },
+      { id: 'activity-mix', enabled: true, version: 'ci-v1' },
+      { id: 'search-effectiveness', enabled: true, version: 'ci-v1' },
+      { id: 'domain-deep-dive', enabled: true, version: 'ci-v1' },
     ],
   },
   ai: {

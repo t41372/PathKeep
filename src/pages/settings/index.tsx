@@ -3037,14 +3037,18 @@ export function SettingsPage() {
                 <div className="result-row__header">
                   <strong>{t('settings.clearCompletedTitle')}</strong>
                   <span className="mono">
-                    {clearReport.clearedCardRows + clearReport.clearedTopicRows}
+                    {clearReport.clearedVisitDerivedFactRows +
+                      clearReport.clearedDailyRollupRows +
+                      clearReport.clearedStructuralRows +
+                      clearReport.clearedRuntimeRows}
                   </span>
                 </div>
                 <p>
                   {t('settings.clearCompletedBody', {
-                    enrichments: clearReport.clearedEnrichmentRows,
-                    features: clearReport.clearedFeatureRows,
-                    cards: clearReport.clearedCardRows,
+                    visitDerivedFacts: clearReport.clearedVisitDerivedFactRows,
+                    dailyRollups: clearReport.clearedDailyRollupRows,
+                    structural: clearReport.clearedStructuralRows,
+                    runtime: clearReport.clearedRuntimeRows,
                   })}
                 </p>
               </div>

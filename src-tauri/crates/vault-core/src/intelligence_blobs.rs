@@ -64,6 +64,7 @@ pub(crate) fn load_readable_text_blob(
         .map(Some)
 }
 
+#[cfg(test)]
 pub(crate) fn clear_readable_text_blobs(paths: &ProjectPaths) -> Result<()> {
     if paths.intelligence_blobs_dir.exists() {
         fs::remove_dir_all(&paths.intelligence_blobs_dir)

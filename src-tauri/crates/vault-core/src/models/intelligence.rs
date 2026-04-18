@@ -1,9 +1,10 @@
-//! AI, enrichment, and deterministic-intelligence models.
+//! AI, enrichment, and Core Intelligence models.
 //!
 //! This file is large because it holds the cross-cutting transport models for
 //! optional AI features, enrichment plugins, deterministic modules, queue
-//! status, and insight snapshots. The types stay data-oriented on purpose so
-//! the worker, Tauri shell, and tests can share one honest contract.
+//! status, and rebuild/runtime surfaces. The types stay data-oriented on
+//! purpose so the worker, Tauri shell, and tests can share one honest
+//! contract.
 
 use crate::intelligence_catalog::built_in_intelligence_modules;
 use serde::{Deserialize, Serialize};
@@ -48,27 +49,6 @@ pub const ACTIVITY_MIX_MODULE_VERSION: &str = "ci-v1";
 pub const SEARCH_EFFECTIVENESS_MODULE_VERSION: &str = "ci-v1";
 /// Current version string for the domain-deep-dive module.
 pub const DOMAIN_DEEP_DIVE_MODULE_VERSION: &str = "ci-v1";
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const QUERY_GROUPS_MODULE_ID: &str = SEARCH_TRAILS_MODULE_ID;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const THREADS_MODULE_ID: &str = SESSIONS_MODULE_ID;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const REFERENCE_PAGES_MODULE_ID: &str = REFIND_PAGES_MODULE_ID;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const SOURCE_EFFECTIVENESS_MODULE_ID: &str = SEARCH_EFFECTIVENESS_MODULE_ID;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const TEMPLATE_SUMMARIES_MODULE_ID: &str = ACTIVITY_MIX_MODULE_ID;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const QUERY_GROUPS_MODULE_VERSION: &str = SEARCH_TRAILS_MODULE_VERSION;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const THREADS_MODULE_VERSION: &str = SESSIONS_MODULE_VERSION;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const REFERENCE_PAGES_MODULE_VERSION: &str = REFIND_PAGES_MODULE_VERSION;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const SOURCE_EFFECTIVENESS_MODULE_VERSION: &str = SEARCH_EFFECTIVENESS_MODULE_VERSION;
-/// Legacy alias retained temporarily while old `insights` code is still being removed.
-pub const TEMPLATE_SUMMARIES_MODULE_VERSION: &str = ACTIVITY_MIX_MODULE_VERSION;
-
 /// Default for whether optional enrichment plugins are enabled at all.
 fn default_enrichment_enabled() -> bool {
     true
@@ -221,14 +201,6 @@ pub fn merge_deterministic_module_states(
             merged.push(default);
         }
     }
-
-    for existing in current {
-        if merged.iter().any(|item| item.id == existing.id) {
-            continue;
-        }
-        merged.push(existing.clone());
-    }
-
     merged
 }
 
@@ -491,17 +463,10 @@ pub struct AiQueueStatus {
 #[serde(rename_all = "camelCase")]
 /// Report returned when derived intelligence state is cleared.
 pub struct ClearDerivedIntelligenceReport {
-    pub cleared_enrichment_rows: usize,
-    pub cleared_feature_rows: usize,
-    pub cleared_burst_rows: usize,
-    pub cleared_query_group_rows: usize,
-    pub cleared_topic_rows: usize,
-    pub cleared_thread_rows: usize,
-    pub cleared_reference_page_rows: usize,
-    pub cleared_source_rows: usize,
-    pub cleared_module_rows: usize,
-    pub cleared_card_rows: usize,
-    pub cleared_run_rows: usize,
+    pub cleared_visit_derived_fact_rows: usize,
+    pub cleared_daily_rollup_rows: usize,
+    pub cleared_structural_rows: usize,
+    pub cleared_runtime_rows: usize,
     pub notes: Vec<String>,
 }
 
@@ -632,309 +597,6 @@ pub struct IntelligenceStatus {
     pub reference_pages: usize,
     pub content_coverage: f32,
     pub warning: Option<String>,
-}
-
-/// Legacy alias kept for snapshot-era insight read models that still compile in-repo.
-pub type InsightStatus = IntelligenceStatus;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Lightweight evidence row reused across insight surfaces.
-pub struct InsightEvidenceItem {
-    pub history_id: i64,
-    pub profile_id: String,
-    pub url: String,
-    pub title: Option<String>,
-    pub visited_at: String,
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// One dashboard-style insight card.
-pub struct InsightCard {
-    pub card_id: String,
-    pub kind: String,
-    pub title: String,
-    pub summary: String,
-    pub window_days: u32,
-    pub profile_id: Option<String>,
-    pub score: f32,
-    pub chromium_enhanced: bool,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Summary of one grouped query/research session.
-pub struct InsightQueryGroupSummary {
-    pub query_group_id: String,
-    pub profile_id: String,
-    pub thread_id: Option<String>,
-    pub title: String,
-    pub root_query: String,
-    pub latest_query: String,
-    pub first_seen_at: String,
-    pub last_seen_at: String,
-    pub visit_count: usize,
-    pub burst_count: usize,
-    pub step_count: usize,
-    pub confidence: f32,
-    pub evidence_tier: String,
-    pub chromium_enhanced: bool,
-    pub steps: Vec<String>,
-    pub stages: Vec<String>,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Summary of one deterministic topic cluster.
-pub struct InsightTopicSummary {
-    pub topic_id: String,
-    pub label: String,
-    pub profile_scope: String,
-    pub window_days: u32,
-    pub first_seen_at: String,
-    pub last_seen_at: String,
-    pub visit_count: usize,
-    pub revisit_count: usize,
-    pub trend_slope: f32,
-    pub burst_score: f32,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Summary of one deterministic research thread.
-pub struct InsightThreadSummary {
-    pub thread_id: String,
-    pub title: String,
-    pub profile_id: String,
-    pub status: String,
-    pub first_seen_at: String,
-    pub last_seen_at: String,
-    pub visit_count: usize,
-    pub query_group_count: usize,
-    pub reopen_count: usize,
-    pub open_loop_score: f32,
-    pub confidence: f32,
-    pub evidence_tier: String,
-    pub dominant_topic_id: Option<String>,
-    pub chromium_enhanced: bool,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Detailed thread view with grouped queries and visit evidence.
-pub struct InsightThreadDetail {
-    pub summary: InsightThreadSummary,
-    pub query_groups: Vec<InsightQueryGroupSummary>,
-    pub visits: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Ladder-style summary of how a query session evolved.
-pub struct InsightQueryLadder {
-    pub query_group_id: Option<String>,
-    pub root_term: String,
-    pub profile_id: String,
-    pub steps: Vec<String>,
-    pub stages: Vec<String>,
-    pub count: usize,
-    pub confidence: f32,
-    pub evidence_tier: String,
-    pub chromium_only: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Summary of one repeatedly revisited reference page.
-pub struct InsightReferencePageSummary {
-    pub reference_page_id: String,
-    pub profile_id: Option<String>,
-    pub url: String,
-    pub title: Option<String>,
-    pub domain: String,
-    pub first_seen_at: String,
-    pub last_seen_at: String,
-    pub revisit_count: usize,
-    pub cross_day_revisits: usize,
-    pub query_group_count: usize,
-    pub thread_count: usize,
-    pub score: f32,
-    pub evidence_tier: String,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Summary of one domain/source's effectiveness in a research flow.
-pub struct InsightSourceEffectivenessSummary {
-    pub source_id: String,
-    pub profile_id: Option<String>,
-    pub domain: String,
-    pub source_role: String,
-    pub query_group_count: usize,
-    pub thread_count: usize,
-    pub stable_landing_count: usize,
-    pub reference_page_count: usize,
-    pub reopen_support_count: usize,
-    pub effectiveness_score: f32,
-    pub evidence_tier: String,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// One natural-language summary block generated from deterministic insights.
-pub struct InsightTemplateSummary {
-    pub summary_id: String,
-    pub kind: String,
-    pub title: String,
-    pub body: String,
-    pub confidence: f32,
-    pub profile_id: Option<String>,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// One workflow role node used in the insight workflow map.
-pub struct InsightWorkflowRole {
-    pub role: String,
-    pub count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// One workflow edge used in the insight workflow map.
-pub struct InsightWorkflowEdge {
-    pub from_role: String,
-    pub to_role: String,
-    pub count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Workflow-map summary over deterministic insight roles and transitions.
-pub struct InsightWorkflowMap {
-    pub profile_id: Option<String>,
-    pub roles: Vec<InsightWorkflowRole>,
-    pub edges: Vec<InsightWorkflowEdge>,
-    pub chromium_enhanced: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// One profile facet surfaced by deterministic insights.
-pub struct InsightProfileFacet {
-    pub key: String,
-    pub label: String,
-    pub value: String,
-    pub confidence: f32,
-    pub evidence: Vec<InsightEvidenceItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Simple domain frequency stat used in canonical summaries.
-pub struct InsightDomainStat {
-    pub domain: String,
-    pub visit_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Canonical summary over the visit window that insights analyzed.
-pub struct InsightCanonicalSummary {
-    pub window_visit_count: usize,
-    pub window_unique_domains: usize,
-    pub on_this_day: Vec<InsightEvidenceItem>,
-    pub top_domains: Vec<InsightDomainStat>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Full deterministic insight snapshot returned to the shell.
-pub struct InsightSnapshot {
-    pub generated_at: String,
-    pub window_days: u32,
-    pub profile_id: Option<String>,
-    pub status: InsightStatus,
-    pub cards: Vec<InsightCard>,
-    pub query_groups: Vec<InsightQueryGroupSummary>,
-    pub topics: Vec<InsightTopicSummary>,
-    pub threads: Vec<InsightThreadSummary>,
-    pub query_ladders: Vec<InsightQueryLadder>,
-    pub reference_pages: Vec<InsightReferencePageSummary>,
-    pub source_effectiveness: Vec<InsightSourceEffectivenessSummary>,
-    pub template_summaries: Vec<InsightTemplateSummary>,
-    pub workflow_map: InsightWorkflowMap,
-    pub profile_facets: Vec<InsightProfileFacet>,
-    pub canonical: InsightCanonicalSummary,
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Request payload for rebuilding deterministic insights.
-pub struct RunInsightsRequest {
-    pub profile_id: Option<String>,
-    pub window_days: Option<u32>,
-    pub full_rebuild: bool,
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Result payload for a deterministic insights rebuild.
-pub struct RunInsightsReport {
-    pub run_id: i64,
-    pub processed_visits: usize,
-    pub enriched_visits: usize,
-    pub failed_enrichments: usize,
-    pub query_group_count: usize,
-    pub topic_count: usize,
-    pub thread_count: usize,
-    pub reference_page_count: usize,
-    pub source_count: usize,
-    pub template_summary_count: usize,
-    pub card_count: usize,
-    pub content_coverage: f32,
-    pub last_run_at: String,
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Queue response for a manual deterministic rebuild request.
-pub struct DeterministicRebuildQueueReport {
-    pub job_id: i64,
-    pub state: String,
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Request payload for explaining one insight.
-pub struct ExplainInsightRequest {
-    pub insight_id: String,
-    pub insight_kind: String,
-    pub profile_id: Option<String>,
-    pub window_days: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-/// Explanation payload for one insight.
-pub struct InsightExplanation {
-    pub explanation: String,
-    pub used_llm: bool,
-    pub citations: Vec<InsightEvidenceItem>,
-    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

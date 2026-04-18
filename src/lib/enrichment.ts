@@ -55,7 +55,7 @@ export const enrichmentPluginRegistry: EnrichmentPluginDefinition[] = [
     version: TITLE_NORMALIZATION_VERSION,
     defaultEnabled: true,
     queue: 'intelligence-runtime',
-    derivedTables: ['visit_content_enrichments', 'visit_insight_features'],
+    derivedTables: ['visit_content_enrichments'],
     freshnessDays: null,
   },
   {
@@ -63,14 +63,7 @@ export const enrichmentPluginRegistry: EnrichmentPluginDefinition[] = [
     version: READABLE_CONTENT_REFETCH_VERSION,
     defaultEnabled: true,
     queue: 'intelligence-runtime',
-    derivedTables: [
-      'visit_content_enrichments',
-      'visit_insight_features',
-      'insight_topics',
-      'insight_threads',
-      'insight_cards',
-      'insight_runs',
-    ],
+    derivedTables: ['visit_content_enrichments'],
     freshnessDays: 7,
   },
 ]
