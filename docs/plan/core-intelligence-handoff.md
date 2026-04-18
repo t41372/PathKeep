@@ -2,7 +2,7 @@
 
 > **Date:** 2026-04-18
 > **Audience:** frontend implementer, next backend implementer  
-> **Status:** current handoff after `WORK-CI-C` closeout
+> **Status:** current handoff after `WORK-CI-I` closeout
 
 ---
 
@@ -36,12 +36,13 @@ That means:
 - the frontend already ships more than the original P1/P2 delegation assumed: `/intelligence`, `/intelligence/domain/:domain`, Explorer session/trail grouping, navigation tracer, Jobs / Settings runtime controls, and most deterministic overview/detail sections already exist in-repo
 - 2026-04-17 frontend finish-line follow-up: `/intelligence` now includes a compact runtime digest that matches Jobs / sidebar queue grammar, Dashboard CTAs and repo-wide browser-preview/product-flow tests now point at `/intelligence`, and the remaining external-output surface has moved into a manual Settings review/copy-export panel instead of pretending full host integrations already exist
 - 2026-04-18 evidence follow-up: `/intelligence` and `/intelligence/domain/:domain` now also ship a shared evidence / freshness drawer backed by a typed section envelope. Each section can expose generated-at, active scope / window, owning modules, source tables, enrichment participation, and stale / disabled / degraded reason without growing a second mutation control tower.
+- 2026-04-18 host follow-up: Settings external outputs now also ship the first reusable trusted local host, `browser-snippet-v1`. The app can preview, build, and verify a fixed `index.html` + `bundle.json` artifact under `app_root/integrations/core-intelligence/browser-snippet-v1/`, and that host reuses the same embed/widget/public payload-provider results as the manual baseline.
 - `bun run check` and `bun run build` were green at handoff time
 
 What is **not** done, plus the latest backend truth:
 
 - legacy `vault-core::insights` has been deleted from the repo; readable-content helpers and queued enrichment ownership now live under `enrichment` / `intelligence`, and new code must not reintroduce snapshot-era contracts
-- external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend payload providers now back a manual Settings consumer surface, but not a full host/runtime integration
+- only the first trusted local host is delivered so far: `browser-snippet-v1` now exists as a reusable local artifact, but OS widget install, localhost host/API, public API, and other alternate hosts are still not delivered
 - 2026-04-18 contract follow-up note: app snapshot / worker runtime readiness now treat `intelligenceStatus` / `IntelligenceStatus` as the only accepted naming; the repo no longer ships `insightStatus` / `InsightStatus` aliases. `src/lib/core-intelligence/{types,api}.ts` still include typed payload-provider wrappers for embed / widget / public snapshot commands, but this does **not** mean deeper host integration is done.
 - 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
 - 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
@@ -109,16 +110,18 @@ The backend command surface that is implemented and safe to wire now is:
 - `get_intelligence_embed_cards`
 - `get_intelligence_widget_snapshot`
 - `get_intelligence_public_snapshot`
+- `preview_intelligence_local_host`
+- `build_intelligence_local_host`
 
-For `/intelligence` and `/intelligence/domain/:domain`, the route-facing commands above now return a section envelope with `data + meta`; only runtime snapshot commands and external-output payload providers stay on their existing non-envelope shapes.
+For `/intelligence` and `/intelligence/domain/:domain`, the route-facing commands above now return a section envelope with `data + meta`; only runtime snapshot commands, external-output payload providers, and local-host preview/build commands stay on their existing non-envelope shapes.
 
 ### Important Frontend Caveat
 
 The command surface above is implemented, but the frontend should still assume:
 
-- P4 external snippet/embed hosts are not available yet; PathKeep now ships a manual Settings review/copy-export consumer, not a reusable host integration
+- PathKeep now ships one reusable trusted local host, `browser-snippet-v1`, but the broader P4 host family is still unavailable: no OS widget install, localhost host/API, public API, or alternate local hosts yet
 - `observed interactions` is capability-gated and may legitimately return an empty list on archives without supported source evidence
-- if future work re-opens `embed/widget/public snapshot`, treat the current Settings panel as the manual baseline only; it is not a complete host integration
+- if future work re-opens `embed/widget/public snapshot`, treat the current Settings panel plus `browser-snippet-v1` local artifact as the existing baseline; do not reopen them as if no host integration exists yet
 
 ### Frontend Testing Note
 
@@ -212,6 +215,7 @@ The backend already delivers:
 - multi-browser diff
 - generic `explain_entity`
 - read-only embed / widget / public snapshot payload providers
+- typed `preview_intelligence_local_host` / `build_intelligence_local_host` commands that materialize the `browser-snippet-v1` bundle
 - staged queue semantics for `visit-derive`, `daily-rollup`, `structural-rebuild`, and `full-rebuild`
 - profile-scoped auto-enqueue for backup/import follow-up rebuilds
 - per-profile stage checkpoints plus append-only incremental execution for `visit-derive`, `daily-rollup`, and `structural-rebuild`
@@ -234,7 +238,7 @@ There are **two kinds** of future backend work.
 The next backend owner is **not** starting from P1/P2 anymore. `WORK-CI-C` is closed, so any continuation should be framed as a fresh block such as:
 
 - alternate-host long-horizon / queue-recovery evidence
-- any remaining P4 host/service integrations beyond the new payload-provider commands
+- any remaining P4 host/service integrations beyond the current payload-provider commands plus `browser-snippet-v1`
 - future performance / operational refinement that is explicitly reopened by docs first, rather than inferred from historical finish-line notes
 
 #### 2. Do not mistake archive notes for living scope

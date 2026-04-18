@@ -12,16 +12,15 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-CI-I** — External Output Host Integration Foundation
+- [ ] **WORK-CI-J** — Alternate-Host Intelligence Evidence And Recovery Parity
   - 讀先：
     `docs/plan/core-intelligence-progress.md`
     `docs/plan/core-intelligence-handoff.md`
-    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/plan/program/research-and-decisions.md`
     `docs/features/intelligence-current-state.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：在 Settings manual review / copy-export baseline 之上，做第一個真正可重用的 local host integration，優先 local artifact / trusted local consumer，而不是直接重開 localhost / public API。
-  - 契約：Settings 的 manual review / copy-export 仍是 canonical baseline；shared profile scope、local time window、trusted-only / public-redacted honesty 不能退化成另一套 export story；不得把外部 host surface 誤包裝成 cloud 或 public integration。
-  - 驗收：typed host contract、第一個可 review 的 local host consumer、對應 regression tests、source docs 更新，以及 `bun run check && bun run build`
+  - 目標：把 current-host 已完成的 `14.4M / 60y` long-horizon replay、expired-lease recovery、與 queue/runtime evidence，在 alternate host 上重跑成可 review 的 parity artifact，而不是只沿用 current-host 結論。
+  - 契約：不得把 `WORK-CI-C` 已完成的 cleanup / signoff 重新打開；若 alternate host 的 keychain、filesystem 或 desktop capability 造成新差異，必須以新 artifact / runbook 誠實描述，而不是補 compatibility 敘事。
+  - 驗收：alternate-host benchmark / recovery artifact bundle、對應 runbook / docs 回寫，以及明確的 pass / fail 結論
 
 - [x] **WORK-QC-L** — Intelligence Recovery And Desktop Truth Gate
   - 讀先：
@@ -62,6 +61,8 @@
 > 2026-04-18 closeout：`WORK-CI-C` 已完成。current-host `14.4M / 60y` signoff 與 expired-lease recovery artifact 已落在 `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/`；legacy `vault-core::insights` 也已正式退場。`BACKLOG.md` 目前沒有新的未阻塞 block，因此 `STATUS.md` 暫無新的 active current-focus 項目。
 
 > 2026-04-18 closeout：`WORK-M5-C` 已完成。`/intelligence` 與 `/intelligence/domain/:domain` 現在會透過 typed section envelope 顯示 generated-at、scope/window、module ownership、source tables、enrichment flag、以及 stale / disabled / degraded reason；mutation controls 仍明確留在 Settings / Jobs。`WORK-CI-I` 已補上作為下一個 active follow-up，而 alternate-host evidence parity 則回收到 `BACKLOG.md` 的 `WORK-CI-J`。
+
+> 2026-04-18 external host closeout：`WORK-CI-I` 已完成。Settings external outputs 現在除了 manual review / copy-export baseline，也能 preview / build / verify 第一個 trusted local host `browser-snippet-v1`，固定產出 `app_root/integrations/core-intelligence/browser-snippet-v1/{index.html,bundle.json}`。下一個 active follow-up 已切換為 `WORK-CI-J` 的 alternate-host evidence parity。
 
 ---
 

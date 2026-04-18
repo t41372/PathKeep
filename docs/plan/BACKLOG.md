@@ -7,15 +7,7 @@
 
 ## 工作塊佇列（按順序）
 
-- [ ] **WORK-CI-J** — Alternate-Host Intelligence Evidence And Recovery Parity
-  - 讀先：
-    `docs/plan/core-intelligence-progress.md`
-    `docs/plan/core-intelligence-handoff.md`
-    `docs/plan/program/research-and-decisions.md`
-    `docs/features/intelligence-current-state.md`
-  - 目標：把 current-host 已完成的 `14.4M / 60y` long-horizon replay、expired-lease recovery、與 queue/runtime evidence，在 alternate host 上重跑成可 review 的 parity artifact，而不是只沿用 current-host 結論。
-  - 契約：不得把 `WORK-CI-C` 已完成的 cleanup / signoff 重新打開；若 alternate host 的 keychain、filesystem 或 desktop capability 造成新差異，必須以新 artifact / runbook 誠實描述，而不是補 compatibility 敘事。
-  - 驗收：alternate-host benchmark / recovery artifact bundle、對應 runbook / docs 回寫，以及明確的 pass / fail 結論
+> 2026-04-18 update：`WORK-CI-J` 已上移到 `STATUS.md`。目前沒有其他排隊中的未阻塞 work block。
 
 ---
 
