@@ -392,8 +392,51 @@ describe('intelligence surfaces', () => {
     })
 
     expect(
-      await screen.findByRole('link', { name: dashboardT('reviewSecurity') }),
-    ).toHaveAttribute('href', '/security')
+      await screen.findByRole('heading', {
+        name: dashboardT('archiveUnlockRequiredTitle'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByText(dashboardT('archiveUnlockRequiredBody')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: dashboardT('archiveUnlockAction') }),
+    ).toHaveAttribute('href', '/security#unlock-archive')
+  })
+
+  test('renders top-sites inside a scroll region so long lists do not stretch the section', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      Array.from({ length: 20 }, (_, index) => ({
+        registrableDomain: `example-${index + 1}.com`,
+        displayName: `Example ${index + 1}`,
+        domainCategory: 'reference',
+        visitCount: 100 - index,
+        uniqueDays: 20 - Math.floor(index / 2),
+        averageDailyVisits: Number((5 - index * 0.1).toFixed(1)),
+        uniqueUrls: 10 - Math.floor(index / 3),
+      })),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      route: '/intelligence?profileId=chrome:Default',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+
+    const topSitesSection = screen
+      .getByRole('heading', { name: intelligenceT('topSitesTitle') })
+      .closest('section')
+    expect(topSitesSection).not.toBeNull()
+    if (!(topSitesSection instanceof HTMLElement)) {
+      throw new Error('expected top sites section')
+    }
+
+    expect(
+      topSitesSection.querySelector('.intelligence-section__scroll-region'),
+    ).not.toBeNull()
   })
 
   test('shows a security recovery empty state in settings when the archive needs unlocking', async () => {

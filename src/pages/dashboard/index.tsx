@@ -148,12 +148,23 @@ export function DashboardPage() {
     return (
       <section className="page-shell" data-testid="dashboard-page">
         <ErrorState
-          title={t('dashboard.archiveReadError')}
-          description={error}
+          eyebrow={
+            needsArchiveUnlock ? t('dashboard.archiveNeedsUnlock') : undefined
+          }
+          title={
+            needsArchiveUnlock
+              ? t('dashboard.archiveUnlockRequiredTitle')
+              : t('dashboard.archiveReadError')
+          }
+          description={
+            needsArchiveUnlock
+              ? t('dashboard.archiveUnlockRequiredBody')
+              : error
+          }
           action={
             needsArchiveUnlock ? (
-              <Link className="btn-secondary" to="/security">
-                {t('dashboard.reviewSecurity')}
+              <Link className="btn-primary" to="/security#unlock-archive">
+                {t('dashboard.archiveUnlockAction')}
               </Link>
             ) : undefined
           }

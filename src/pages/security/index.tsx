@@ -13,8 +13,8 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -64,6 +64,8 @@ function waitForNextPaint() {
 export function SecurityPage() {
   const { refreshAppData, refreshKey } = useShellData()
   const { language, t } = useI18n()
+  const location = useLocation()
+  const unlockInputRef = useRef<HTMLInputElement | null>(null)
   const [loadState, setLoadState] = useState<SecurityLoadState>({
     status: null,
     error: null,
@@ -114,6 +116,26 @@ export function SecurityPage() {
 
   const status = loadState.status
   const pageError = loadState.error
+
+  useEffect(() => {
+    if (
+      location.hash !== '#unlock-archive' ||
+      !status?.initialized ||
+      !status.encrypted ||
+      status.unlocked
+    ) {
+      return
+    }
+
+    const unlockInput = unlockInputRef.current
+    if (!unlockInput) {
+      return
+    }
+
+    unlockInput.focus()
+    unlockInput.select()
+    unlockInput.scrollIntoView({ block: 'center' })
+  }, [location.hash, status?.encrypted, status?.initialized, status?.unlocked])
 
   /**
    * Explains how reload after action works.
@@ -335,7 +357,7 @@ export function SecurityPage() {
         />
       ) : null}
 
-      <div className="panel">
+      <div className="panel" id="unlock-archive">
         <div className="panel-header">
           <span className="panel-title">{t('security.encryptionStatus')}</span>
         </div>
@@ -485,6 +507,7 @@ export function SecurityPage() {
               <input
                 aria-label={t('security.currentDatabaseKey')}
                 autoComplete="current-password"
+                ref={unlockInputRef}
                 type="password"
                 value={sessionKey}
                 onChange={(event) => setSessionKey(event.target.value)}

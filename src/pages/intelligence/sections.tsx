@@ -362,53 +362,55 @@ function TopSitesSection({
           <p className="intelligence-empty__text">{t('topSitesEmpty')}</p>
         </div>
       ) : (
-        <div className="top-sites-list">
-          {filteredData.map((site, index) => {
-            const maxValue =
-              sortBy === 'unique_days'
-                ? filteredData[0].uniqueDays
-                : sortBy === 'avg_daily'
-                  ? filteredData[0].averageDailyVisits
-                  : filteredData[0].visitCount
-            const value =
-              sortBy === 'unique_days'
-                ? site.uniqueDays
-                : sortBy === 'avg_daily'
-                  ? site.averageDailyVisits
-                  : site.visitCount
-            const displayValue =
-              sortBy === 'avg_daily' ? value.toFixed(1) : formatNumber(value)
-            const suffix =
-              sortBy === 'unique_days'
-                ? t('topSitesDays')
-                : sortBy === 'avg_daily'
-                  ? t('topSitesAvgSuffix')
-                  : t('visits')
+        <div className="intelligence-section__scroll-region">
+          <div className="top-sites-list">
+            {filteredData.map((site, index) => {
+              const maxValue =
+                sortBy === 'unique_days'
+                  ? filteredData[0].uniqueDays
+                  : sortBy === 'avg_daily'
+                    ? filteredData[0].averageDailyVisits
+                    : filteredData[0].visitCount
+              const value =
+                sortBy === 'unique_days'
+                  ? site.uniqueDays
+                  : sortBy === 'avg_daily'
+                    ? site.averageDailyVisits
+                    : site.visitCount
+              const displayValue =
+                sortBy === 'avg_daily' ? value.toFixed(1) : formatNumber(value)
+              const suffix =
+                sortBy === 'unique_days'
+                  ? t('topSitesDays')
+                  : sortBy === 'avg_daily'
+                    ? t('topSitesAvgSuffix')
+                    : t('visits')
 
-            return (
-              <Link
-                key={site.registrableDomain}
-                className="top-site-row top-site-row--interactive"
-                to={domainHref(site.registrableDomain)}
-              >
-                <span className="top-site-row__rank">{index + 1}.</span>
-                <span className="top-site-row__domain">
-                  {site.displayName ?? site.registrableDomain}
-                </span>
-                <span className="top-site-row__bar">
-                  <span
-                    className="top-site-row__bar-fill"
-                    style={{
-                      width: `${maxValue > 0 ? Math.round((value / maxValue) * 100) : 0}%`,
-                    }}
-                  />
-                </span>
-                <span className="top-site-row__count">
-                  {displayValue} {suffix}
-                </span>
-              </Link>
-            )
-          })}
+              return (
+                <Link
+                  key={site.registrableDomain}
+                  className="top-site-row top-site-row--interactive"
+                  to={domainHref(site.registrableDomain)}
+                >
+                  <span className="top-site-row__rank">{index + 1}.</span>
+                  <span className="top-site-row__domain">
+                    {site.displayName ?? site.registrableDomain}
+                  </span>
+                  <span className="top-site-row__bar">
+                    <span
+                      className="top-site-row__bar-fill"
+                      style={{
+                        width: `${maxValue > 0 ? Math.round((value / maxValue) * 100) : 0}%`,
+                      }}
+                    />
+                  </span>
+                  <span className="top-site-row__count">
+                    {displayValue} {suffix}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
         </div>
       )}
     </section>
@@ -502,25 +504,27 @@ function EngineRankingPanel({
 
   const max = Math.max(data[0]?.searchCount ?? 0, 1)
   return (
-    <div className="engine-ranking">
-      {data.map((engine) => (
-        <div key={engine.searchEngine} className="engine-ranking__row">
-          <span className="engine-ranking__name">
-            {engine.displayName ?? engine.searchEngine}
-          </span>
-          <span className="engine-ranking__bar">
-            <span
-              className="engine-ranking__bar-fill"
-              style={{
-                width: `${Math.round((engine.searchCount / max) * 100)}%`,
-              }}
-            />
-          </span>
-          <span className="engine-ranking__count">
-            {formatNumber(engine.searchCount)}
-          </span>
-        </div>
-      ))}
+    <div className="intelligence-section__scroll-region">
+      <div className="engine-ranking">
+        {data.map((engine) => (
+          <div key={engine.searchEngine} className="engine-ranking__row">
+            <span className="engine-ranking__name">
+              {engine.displayName ?? engine.searchEngine}
+            </span>
+            <span className="engine-ranking__bar">
+              <span
+                className="engine-ranking__bar-fill"
+                style={{
+                  width: `${Math.round((engine.searchCount / max) * 100)}%`,
+                }}
+              />
+            </span>
+            <span className="engine-ranking__count">
+              {formatNumber(engine.searchCount)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -603,10 +607,12 @@ function QueryFamiliesPanel({
   }
 
   return (
-    <div className="query-families">
-      {data.families.map((family) => (
-        <QueryFamilyCard key={family.familyId} family={family} t={t} />
-      ))}
+    <div className="intelligence-section__scroll-region">
+      <div className="query-families">
+        {data.families.map((family) => (
+          <QueryFamilyCard key={family.familyId} family={family} t={t} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -1165,10 +1171,12 @@ function FrictionDetectionSection({
           <p className="intelligence-empty__text">{t('frictionEmpty')}</p>
         </div>
       ) : (
-        <div className="friction-list">
-          {data.slice(0, 8).map((signal, index) => (
-            <FrictionSignalCard key={index} signal={signal} t={t} />
-          ))}
+        <div className="intelligence-section__scroll-region">
+          <div className="friction-list">
+            {data.slice(0, 8).map((signal, index) => (
+              <FrictionSignalCard key={index} signal={signal} t={t} />
+            ))}
+          </div>
         </div>
       )}
     </section>
@@ -1220,39 +1228,43 @@ function ReopenedInvestigationsSection({
           <p className="intelligence-empty__text">{t('reopenedEmpty')}</p>
         </div>
       ) : (
-        <div className="reopened-list">
-          {data.slice(0, 8).map((item) => (
-            <div key={item.investigationId} className="reopened-card">
-              <div className="reopened-card__header">
-                <span
-                  className={`reopened-card__anchor-badge reopened-card__anchor-badge--${item.anchorType}`}
-                >
-                  {item.anchorType === 'query_family'
-                    ? t('reopenedAnchorQuery')
-                    : t('reopenedAnchorPage')}
+        <div className="intelligence-section__scroll-region">
+          <div className="reopened-list">
+            {data.slice(0, 8).map((item) => (
+              <div key={item.investigationId} className="reopened-card">
+                <div className="reopened-card__header">
+                  <span
+                    className={`reopened-card__anchor-badge reopened-card__anchor-badge--${item.anchorType}`}
+                  >
+                    {item.anchorType === 'query_family'
+                      ? t('reopenedAnchorQuery')
+                      : t('reopenedAnchorPage')}
+                  </span>
+                  <span className="reopened-card__label">
+                    {item.anchorLabel}
+                  </span>
+                </div>
+                <div className="reopened-card__meta">
+                  <span>
+                    {t('reopenedOccurrences', {
+                      count: item.occurrenceCount,
+                    })}
+                  </span>
+                  <span>
+                    {t('reopenedDistinctDays', { days: item.distinctDays })}
+                  </span>
+                </div>
+                <span className="reopened-card__dates">
+                  {item.firstSeenAt} - {item.lastSeenAt}
                 </span>
-                <span className="reopened-card__label">{item.anchorLabel}</span>
+                <ExplainabilityPanel
+                  entityType="reopened_investigation"
+                  entityId={item.investigationId}
+                  t={t}
+                />
               </div>
-              <div className="reopened-card__meta">
-                <span>
-                  {t('reopenedOccurrences', {
-                    count: item.occurrenceCount,
-                  })}
-                </span>
-                <span>
-                  {t('reopenedDistinctDays', { days: item.distinctDays })}
-                </span>
-              </div>
-              <span className="reopened-card__dates">
-                {item.firstSeenAt} - {item.lastSeenAt}
-              </span>
-              <ExplainabilityPanel
-                entityType="reopened_investigation"
-                entityId={item.investigationId}
-                t={t}
-              />
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </section>

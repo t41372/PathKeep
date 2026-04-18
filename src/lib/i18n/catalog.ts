@@ -1822,6 +1822,10 @@ const catalog: Record<
       archiveUnavailable: 'Dashboard data is unavailable',
       archiveUnavailableBody:
         'PathKeep could not load your archive data right now.',
+      archiveUnlockRequiredTitle: 'Unlock the archive to load the dashboard',
+      archiveUnlockRequiredBody:
+        'This archive is encrypted, and PathKeep does not have a session key yet. Open Security to enter the password or unlock from the system keychain, then return to the dashboard.',
+      archiveUnlockAction: 'Open Security',
       totalRecords: 'TOTAL RECORDS',
       uniqueUrls: '{count} unique URLs',
       lastBackup: 'LAST BACKUP',
@@ -3735,6 +3739,10 @@ const catalog: Record<
       archiveReadError: '无法读取存档',
       archiveUnavailable: '数据暂时不可用',
       archiveUnavailableBody: '无法加载存档数据，请稍后重试。',
+      archiveUnlockRequiredTitle: '先解锁存档，才能查看总览',
+      archiveUnlockRequiredBody:
+        '这个存档已加密，PathKeep 当前还没有可用的会话密钥。前往安全页面输入密码，或从系统钥匙串解锁后，再回来查看总览。',
+      archiveUnlockAction: '前往安全页面',
       totalRecords: '总记录数',
       uniqueUrls: '{count} 个不同网址',
       lastBackup: '上次备份',
@@ -4800,6 +4808,10 @@ const catalog: Record<
       archiveReadError: '無法讀取封存',
       archiveUnavailable: '資料暫時無法使用',
       archiveUnavailableBody: '無法載入封存資料，請稍後再試。',
+      archiveUnlockRequiredTitle: '先解鎖封存，才能查看總覽',
+      archiveUnlockRequiredBody:
+        '這個封存已加密，PathKeep 目前還沒有可用的工作階段金鑰。前往安全頁面輸入密碼，或從系統鑰匙圈解鎖後，再回來查看總覽。',
+      archiveUnlockAction: '前往安全頁面',
       totalRecords: '總紀錄數',
       uniqueUrls: '{count} 個不同網址',
       lastBackup: '上次備份',
