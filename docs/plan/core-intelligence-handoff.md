@@ -35,6 +35,7 @@ That means:
 - the backend ships Phase 1 / Phase 2 query APIs **and** the planned deterministic Phase 3 / Phase 4 query APIs
 - the frontend already ships more than the original P1/P2 delegation assumed: `/intelligence`, `/intelligence/domain/:domain`, Explorer session/trail grouping, navigation tracer, Jobs / Settings runtime controls, and most deterministic overview/detail sections already exist in-repo
 - 2026-04-17 frontend finish-line follow-up: `/intelligence` now includes a compact runtime digest that matches Jobs / sidebar queue grammar, Dashboard CTAs and repo-wide browser-preview/product-flow tests now point at `/intelligence`, and the remaining external-output surface has moved into a manual Settings review/copy-export panel instead of pretending full host integrations already exist
+- 2026-04-18 evidence follow-up: `/intelligence` and `/intelligence/domain/:domain` now also ship a shared evidence / freshness drawer backed by a typed section envelope. Each section can expose generated-at, active scope / window, owning modules, source tables, enrichment participation, and stale / disabled / degraded reason without growing a second mutation control tower.
 - `bun run check` and `bun run build` were green at handoff time
 
 What is **not** done, plus the latest backend truth:
@@ -64,6 +65,7 @@ The frontend IPC draft lives here:
 - [`src/lib/core-intelligence/api.ts`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/lib/core-intelligence/api.ts)
 - [`src/lib/core-intelligence/hooks.ts`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/lib/core-intelligence/hooks.ts)
 - [`src/pages/intelligence/index.tsx`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/pages/intelligence/index.tsx)
+- [`src/components/intelligence/section-meta.tsx`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/components/intelligence/section-meta.tsx)
 
 The backend command surface that is implemented and safe to wire now is:
 
@@ -107,6 +109,8 @@ The backend command surface that is implemented and safe to wire now is:
 - `get_intelligence_embed_cards`
 - `get_intelligence_widget_snapshot`
 - `get_intelligence_public_snapshot`
+
+For `/intelligence` and `/intelligence/domain/:domain`, the route-facing commands above now return a section envelope with `data + meta`; only runtime snapshot commands and external-output payload providers stay on their existing non-envelope shapes.
 
 ### Important Frontend Caveat
 

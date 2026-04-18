@@ -34,16 +34,21 @@
 
 ### Evidence Controls
 
-- [ ] `M5-DI-EV-001` 為 insight card、topic、thread、profile facet 顯示 generated at、window、source tables、是否包含 enrichment。
-- [ ] `M5-DI-EV-002` 建立共用 explanation / evidence drawer grammar，讓引用、摘錄、reason label 和 score band 一致。
-- [ ] `M5-DI-EV-003` 對所有 insight 補齊 disabled / stale / degraded state，而不是只在 happy path 顯示結果。
+- [x] `M5-DI-EV-001` 為 insight card、topic、thread、profile facet 顯示 generated at、window、source tables、是否包含 enrichment。（2026-04-18：`WORK-M5-C` 已讓 `/intelligence` 與 `/intelligence/domain/:domain` 的 section envelope 正式帶回這些 metadata）
+- [x] `M5-DI-EV-002` 建立共用 explanation / evidence drawer grammar，讓引用、摘錄、reason label 和 score band 一致。（2026-04-18：shared evidence / freshness drawer 現在已成為主產品 route 的固定 review chrome）
+- [x] `M5-DI-EV-003` 對所有 insight 補齊 disabled / stale / degraded state，而不是只在 happy path 顯示結果。（2026-04-18：state 由 backend section registry + module runtime 統一產生）
 - [ ] `M5-DI-EV-004` 補 clear derived data、full rebuild、single-module rerun 的操作語義和 UX 文案。
 
 ### Testing And Acceptance
 
 - [ ] `M5-DI-QA-001` 建立 deterministic insight acceptance，覆蓋 zero-state、single-profile、multi-profile、rollback 後 invalidation。
 - [ ] `M5-DI-QA-002` 建立 evidence correctness tests，驗證每個洞察都能回鏈到實際 history rows 或 enrichment rows。
-- [ ] `M5-DI-QA-003` 建立 degrade-state UX tests，確保沒有 enrichment、queue 未跑、archive locked 時仍誠實可用。
+- [x] `M5-DI-QA-003` 建立 degrade-state UX tests，確保沒有 enrichment、queue 未跑、archive locked 時仍誠實可用。（2026-04-18：`src/pages/intelligence-surfaces.test.tsx` 現在覆蓋 stale / disabled / degraded section metadata 與 scope/time-range refetch）
+
+### 2026-04-18 closeout note
+
+- `WORK-M5-C` 已完成 evidence metadata 與 degraded-state truth pass，但這不代表所有 future deterministic module research 都已結束。
+- `M5-DI-MD-*` 與 `M5-DI-QA-001/002` 的剩餘項目，現在視為 future follow-up 候選，而不是 M5 closeout blocker；若之後真的要補 returning-topics / deeper thread heuristics / evidence correctness sweep，應以新的 follow-up block 收斂。
 
 ---
 

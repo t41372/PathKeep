@@ -30,7 +30,12 @@
 
 ## 里程碑檢查表
 
-- [ ] `M5-001` enrichment runtime、plugin registry、job queue 和操作面完成第一個可驗收版本。
-- [ ] `M5-002` deterministic insights 補齊一批高價值、無 LLM 也成立的洞察模塊。
-- [ ] `M5-003` evidence controls、rebuild / clear / retry story 和相關 acceptance tests 完成。
-- [ ] `M5-004` M3 / M4 / M5 邊界回寫到 docs，避免 roadmap 仍停在 M4。
+- [x] `M5-001` enrichment runtime、plugin registry、job queue 和操作面完成第一個可驗收版本。
+- [x] `M5-002` deterministic insights 補齊一批高價值、無 LLM 也成立的洞察模塊。
+- [x] `M5-003` evidence controls、rebuild / clear / retry story 和相關 acceptance tests 完成。
+- [x] `M5-004` M3 / M4 / M5 邊界回寫到 docs，避免 roadmap 仍停在 M4。
+
+### 2026-04-18 closeout note
+
+- `WORK-M5-C` 現在已把 `/intelligence` 與 `/intelligence/domain/:domain` 的 shared evidence / freshness drawer 補成 shipping truth：section responses 會帶 `generatedAt`、scope/window、module ownership、source tables、enrichment flag、以及 stale / disabled / degraded reason，mutation controls 仍留在 Settings / Jobs。
+- M5 的 runtime / evidence baseline 現在可以視為 closeout 完成；後續若要繼續做 external host integration、alternate-host benchmark parity、或更深的 deterministic module expansion，必須開新的 follow-up block，而不是再把 M5 留半開。
