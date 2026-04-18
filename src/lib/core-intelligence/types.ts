@@ -47,6 +47,7 @@ export interface CoreIntelligenceRebuildReport {
   refindPages: number
   sourceEffectiveness: number
   reopenedInvestigations: number
+  stageTimingsMs?: CoreIntelligenceStageTimings | null
   notes: string[]
   lastRunAt: string
 }
@@ -56,6 +57,14 @@ export interface CoreIntelligenceQueueReport {
   jobId: number
   state: string
   notes: string[]
+}
+
+/** Stage-by-stage timing summary emitted for full Core Intelligence rebuilds. */
+export interface CoreIntelligenceStageTimings {
+  visitDeriveMs: number
+  dailyRollupMs: number
+  structuralRebuildMs: number
+  totalMs: number
 }
 
 /** Shareable/embed-oriented card payload from backend-only provider commands. */

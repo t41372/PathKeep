@@ -163,6 +163,7 @@ fn main() -> Result<()> {
         "scenario": options.scenario.as_str(),
         "timings": {
             "baselineRunCoreIntelligenceMs": baseline_rebuild_elapsed_ms,
+            "stageMs": baseline_rebuild.as_ref().and_then(|report| report.stage_timings_ms.clone()),
             "querySurfacesMs": query_elapsed_ms,
         },
         "baselineRebuildSkipped": options.skip_baseline_rebuild,

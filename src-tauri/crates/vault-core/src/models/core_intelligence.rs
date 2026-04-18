@@ -36,6 +36,16 @@ pub struct CoreIntelligenceRebuildRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Stage-by-stage timing summary emitted for full Core Intelligence rebuilds.
+pub struct CoreIntelligenceStageTimings {
+    pub visit_derive_ms: u64,
+    pub daily_rollup_ms: u64,
+    pub structural_rebuild_ms: u64,
+    pub total_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Result payload returned after a Core Intelligence rebuild finishes.
 pub struct CoreIntelligenceRebuildReport {
     pub run_id: i64,
@@ -52,6 +62,7 @@ pub struct CoreIntelligenceRebuildReport {
     pub dirty_visit_count: Option<usize>,
     pub dirty_date_keys: Option<Vec<String>>,
     pub fallback_reason: Option<String>,
+    pub stage_timings_ms: Option<CoreIntelligenceStageTimings>,
     pub notes: Vec<String>,
     pub last_run_at: String,
 }

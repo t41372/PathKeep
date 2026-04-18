@@ -16,6 +16,9 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::time::Duration as StdDuration;
 
+const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
+const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
+
 /// Opens the rebuildable intelligence SQLite plane and attaches the canonical
 /// archive for direct read access.
 pub fn open_intelligence_connection(
@@ -28,7 +31,14 @@ pub fn open_intelligence_connection(
         .with_context(|| format!("opening {}", paths.intelligence_database_path.display()))?;
     connection.busy_timeout(StdDuration::from_secs(5))?;
     connection.pragma_update(None, "foreign_keys", true)?;
+    connection.pragma_update(None, "journal_mode", "WAL")?;
+    connection.pragma_update(None, "synchronous", "NORMAL")?;
+    connection.pragma_update(None, "cache_size", SQLITE_CACHE_SIZE_KIB)?;
+    connection.pragma_update(None, "temp_store", "MEMORY")?;
+    let _ = connection.pragma_update(None, "mmap_size", SQLITE_MMAP_SIZE_BYTES);
     attach_archive_database(&connection, paths, config, key)?;
+    connection.pragma_update(Some("archive"), "cache_size", SQLITE_CACHE_SIZE_KIB)?;
+    let _ = connection.pragma_update(Some("archive"), "mmap_size", SQLITE_MMAP_SIZE_BYTES);
     ensure_ai_schema(&connection)?;
     ai_queue::ensure_ai_queue_schema(&connection)?;
     ensure_core_intelligence_schema(&connection)?;

@@ -31,6 +31,10 @@ const MIGRATION_005_VISITS_RECALL_LOOKUP_SQL: &str =
     include_str!("../migrations/005_visits_recall_lookup.sql");
 const MIGRATION_006_SOURCE_EVIDENCE_PROVENANCE_SQL: &str =
     include_str!("../migrations/006_source_evidence_provenance.sql");
+const MIGRATION_007_VISIBLE_PROFILE_TIME_INDEX_SQL: &str =
+    include_str!("../migrations/007_visible_profile_time_index.sql");
+const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
+const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
 static BOOTSTRAPPED_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -63,6 +67,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 4, sql: MIGRATION_004_FAVICON_RECALL_INDEX_SQL },
     MigrationSpec { version: 5, sql: MIGRATION_005_VISITS_RECALL_LOOKUP_SQL },
     MigrationSpec { version: 6, sql: MIGRATION_006_SOURCE_EVIDENCE_PROVENANCE_SQL },
+    MigrationSpec { version: 7, sql: MIGRATION_007_VISIBLE_PROFILE_TIME_INDEX_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -75,11 +80,14 @@ pub fn open_archive_connection(
     let connection = Connection::open(&paths.archive_database_path)
         .with_context(|| format!("opening {}", paths.archive_database_path.display()))?;
     connection.busy_timeout(StdDuration::from_secs(5))?;
-    connection.pragma_update(None, "foreign_keys", true)?;
     if matches!(config.archive_mode, ArchiveMode::Encrypted) {
         let key = key.context("database key is required for encrypted archives")?;
         apply_cipher_key(&connection, key)?;
     }
+    connection.pragma_update(None, "foreign_keys", true)?;
+    connection.pragma_update(None, "cache_size", SQLITE_CACHE_SIZE_KIB)?;
+    connection.pragma_update(None, "temp_store", "MEMORY")?;
+    let _ = connection.pragma_update(None, "mmap_size", SQLITE_MMAP_SIZE_BYTES);
     ensure_archive_bootstrapped(&connection, &paths.archive_database_path)?;
     attach_search_database(&connection, paths)?;
     seed_search_projection_if_missing(&connection, paths)?;
@@ -256,10 +264,27 @@ mod tests {
         config::project_paths_with_root,
         models::{AppConfig, ArchiveMode},
     };
+    use rusqlite::OptionalExtension;
     use std::sync::{Arc, Barrier};
 
     fn has_table(connection: &Connection, table_name: &str) -> bool {
         table_exists(connection, table_name).expect("table check")
+    }
+
+    fn has_index(connection: &Connection, index_name: &str) -> bool {
+        connection
+            .query_row(
+                "SELECT 1
+                 FROM sqlite_master
+                 WHERE type = 'index'
+                   AND name = ?1
+                 LIMIT 1",
+                [index_name],
+                |_| Ok(()),
+            )
+            .optional()
+            .expect("index lookup")
+            .is_some()
     }
 
     #[test]
@@ -268,11 +293,12 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 6);
+        assert_eq!(current_version(&connection).expect("schema version"), 7);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
         assert!(has_table(&connection, "import_batches"));
+        assert!(has_index(&connection, "idx_visits_visible_profile_time_id"));
         assert!(!has_table(&connection, "history_search"));
         let legacy_surface_count: i64 = connection
             .query_row(
@@ -296,7 +322,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 6);
+        assert_eq!(count, 7);
     }
 
     #[test]
@@ -324,7 +350,7 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 6);
+        assert_eq!(current_version(&connection).expect("migrated version"), 7);
     }
 
     #[test]
@@ -353,7 +379,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 6);
+                assert_eq!(join.join().expect("thread join"), 7);
             }
         });
 

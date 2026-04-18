@@ -33,16 +33,17 @@ use crate::{
         ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, AppConfig, ArrivalBreakdown,
         CategoryChangeEntry, CategoryFilteredDateRangeRequest, CategoryMixEntry,
         ClearDerivedIntelligenceReport, CoreIntelligenceRebuildReport,
-        CoreIntelligenceRebuildRequest, DateRange, DigestSummary, DiscoveryTrend,
-        DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat, DomainPageStat,
-        DomainTrend, DomainTrendPoint, DomainTrendRequest, EngineEffectiveness, EngineRanking,
-        EntityExplanationRequest, ExplainRefindRequest, ExplainabilityFactor, Explanation,
-        FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage, IntelligenceStatus,
-        IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
-        IntelligenceWidgetSnapshot, KpiMetric, NavigationPath, NavigationPathStep, OnThisDayEntry,
-        PagedDateRangeRequest, QueryFamily, QueryFamilyResult, RefindExplanation, RefindPage,
-        RefindPagesRequest, RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap,
-        RhythmHeatmapCell, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
+        CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings, DateRange, DigestSummary,
+        DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest,
+        DomainFlowStat, DomainPageStat, DomainTrend, DomainTrendPoint, DomainTrendRequest,
+        EngineEffectiveness, EngineRanking, EntityExplanationRequest, ExplainRefindRequest,
+        ExplainabilityFactor, Explanation, FrictionSignal, GranularityDateRangeRequest,
+        HardTopic, HubPage, IntelligenceStatus, IntelligenceEmbedCardPayload,
+        IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot, IntelligenceWidgetSnapshot,
+        KpiMetric, NavigationPath, NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest,
+        QueryFamily, QueryFamilyResult, RefindExplanation, RefindPage, RefindPagesRequest,
+        RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell,
+        ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
         SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
         SessionSummary, SessionVisit, StableSource, TopSearchConceptsRequest, TopSite,
         TopSitesRequest, TrailDetail, TrailListResult, TrailMember, TrailSummary,
@@ -53,7 +54,10 @@ use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Timelike, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    time::Instant,
+};
 
 pub use self::phase_four::{get_compare_sets, get_multi_browser_diff};
 pub use self::phase_three::{
@@ -85,6 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_vdf_profile_session ON visit_derived_facts(profil
 CREATE INDEX IF NOT EXISTS idx_vdf_profile_trail ON visit_derived_facts(profile_id, trail_id);
 CREATE INDEX IF NOT EXISTS idx_vdf_profile_domain ON visit_derived_facts(profile_id, registrable_domain);
 CREATE INDEX IF NOT EXISTS idx_vdf_profile_search ON visit_derived_facts(profile_id, is_search_event, search_engine);
+CREATE INDEX IF NOT EXISTS idx_vdf_profile_visit_id ON visit_derived_facts(profile_id, visit_id);
 
 CREATE TABLE IF NOT EXISTS domain_daily_rollups (
   date_key           TEXT NOT NULL,
@@ -155,6 +160,7 @@ CREATE TABLE IF NOT EXISTS search_trails (
   computed_at         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_search_trails_profile_time ON search_trails(profile_id, first_visit_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_search_trails_profile_time_trail ON search_trails(profile_id, first_visit_ms ASC, trail_id ASC);
 
 CREATE TABLE IF NOT EXISTS search_trail_members (
   trail_id           TEXT NOT NULL,
@@ -176,6 +182,7 @@ CREATE TABLE IF NOT EXISTS search_events (
   computed_at        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_search_events_profile_engine ON search_events(profile_id, search_engine);
+CREATE INDEX IF NOT EXISTS idx_search_events_profile_visit ON search_events(profile_id, visit_id);
 
 CREATE TABLE IF NOT EXISTS search_event_terms (
   visit_id           INTEGER NOT NULL,
@@ -300,6 +307,11 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         version: 3,
         name: "stage-checkpoints",
         apply: apply_core_intelligence_stage_checkpoint_migration,
+    },
+    IntelligenceMigrationSpec {
+        version: 4,
+        name: "batch-read-indexes",
+        apply: apply_core_intelligence_batch_index_migration,
     },
 ];
 
@@ -535,13 +547,17 @@ struct StageRunResult {
     dirty_visit_count: Option<usize>,
     dirty_date_keys: Vec<String>,
     fallback_reason: Option<String>,
+    stage_timings_ms: Option<CoreIntelligenceStageTimings>,
     notes: Vec<String>,
 }
 
-const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 2_048;
-const STRUCTURAL_TAIL_STREAM_BATCH_SIZE: usize = 2_048;
-const VISIT_DERIVE_FALLBACK_BATCH_SIZE: usize = 2_048;
-const DAILY_ROLLUP_FALLBACK_BATCH_SIZE: usize = 2_048;
+// These batch sizes stay well below the low-RAM envelope we benchmark against,
+// but they cut a large amount of repeated SQLite scan/statement overhead on
+// multi-million-row rebuilds.
+const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 8_192;
+const STRUCTURAL_TAIL_STREAM_BATCH_SIZE: usize = 8_192;
+const VISIT_DERIVE_FALLBACK_BATCH_SIZE: usize = 8_192;
+const DAILY_ROLLUP_FALLBACK_BATCH_SIZE: usize = 8_192;
 
 #[derive(Debug, Clone, Copy)]
 struct DerivedVisitBatchCursor {
@@ -793,6 +809,18 @@ fn apply_core_intelligence_stage_checkpoint_migration(connection: &Connection) -
     ensure_core_intelligence_stage_checkpoint_schema(connection)
 }
 
+fn apply_core_intelligence_batch_index_migration(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_vdf_profile_visit_id
+           ON visit_derived_facts(profile_id, visit_id);
+         CREATE INDEX IF NOT EXISTS idx_search_trails_profile_time_trail
+           ON search_trails(profile_id, first_visit_ms ASC, trail_id ASC);
+         CREATE INDEX IF NOT EXISTS idx_search_events_profile_visit
+           ON search_events(profile_id, visit_id);",
+    )?;
+    Ok(())
+}
+
 fn load_applied_intelligence_migrations(connection: &Connection) -> Result<BTreeSet<i64>> {
     connection.execute_batch(INTELLIGENCE_SCHEMA_MIGRATIONS_SQL)?;
     let mut statement = connection.prepare(
@@ -1016,6 +1044,7 @@ where
             dirty_visit_count: Some(0),
             dirty_date_keys: Some(Vec::new()),
             fallback_reason: None,
+            stage_timings_ms: None,
             notes,
             last_run_at: computed_at,
         });
@@ -1105,6 +1134,7 @@ where
         dirty_visit_count: aggregate.dirty_visit_count,
         dirty_date_keys: Some(aggregate.dirty_date_keys),
         fallback_reason: aggregate.fallback_reason,
+        stage_timings_ms: aggregate.stage_timings_ms,
         notes: aggregate.notes,
         last_run_at: computed_at,
     })
@@ -1155,6 +1185,7 @@ where
                 "Scoped debug rebuilds use the legacy full recompute path and do not advance incremental checkpoints."
                     .to_string(),
             ),
+            stage_timings_ms: None,
             notes,
             last_run_at: computed_at,
         });
@@ -1267,6 +1298,7 @@ where
             "Scoped debug rebuilds use the legacy full recompute path and do not advance incremental checkpoints."
                 .to_string(),
         ),
+        stage_timings_ms: None,
         notes,
         last_run_at: computed_at,
     })
@@ -1308,6 +1340,9 @@ fn merge_stage_run_result(
     if aggregate.fallback_reason.is_none() {
         aggregate.fallback_reason = next.fallback_reason;
     }
+    if aggregate.stage_timings_ms.is_none() {
+        aggregate.stage_timings_ms = next.stage_timings_ms;
+    }
     aggregate.notes.extend(next.notes);
 }
 
@@ -1318,16 +1353,28 @@ fn execute_full_rebuild_stages(
     run_id: i64,
     computed_at: &str,
 ) -> Result<StageRunResult> {
+    let visit_started = Instant::now();
     let mut combined =
         execute_visit_derive_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+    let visit_derive_ms = visit_started.elapsed().as_millis() as u64;
+    let daily_started = Instant::now();
     let daily =
         execute_daily_rollup_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+    let daily_rollup_ms = daily_started.elapsed().as_millis() as u64;
+    let structural_started = Instant::now();
     let structural =
         execute_structural_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+    let structural_rebuild_ms = structural_started.elapsed().as_millis() as u64;
     merge_stage_run_result(&mut combined, daily, RebuildMode::DailyRollup);
     merge_stage_run_result(&mut combined, structural, RebuildMode::StructuralRebuild);
     combined.execution_mode = Some(StageExecutionMode::FallbackFull.as_str().to_string());
     combined.dirty_visit_count = Some(watermark.visible_visit_count.max(0) as usize);
+    combined.stage_timings_ms = Some(CoreIntelligenceStageTimings {
+        visit_derive_ms,
+        daily_rollup_ms,
+        structural_rebuild_ms,
+        total_ms: visit_derive_ms + daily_rollup_ms + structural_rebuild_ms,
+    });
     combined.notes.push(format!("Performed a full Core Intelligence rebuild for {}.", profile_id));
     Ok(combined)
 }
@@ -1436,8 +1483,13 @@ fn execute_visit_derive_stage(
         } else {
             let last_processed_visit_id =
                 checkpoint.as_ref().map(|value| value.last_processed_visit_id).unwrap_or_default();
-            let mut visits =
-                load_visible_visits_after_id(connection, profile_id, last_processed_visit_id)?;
+            let source_profile_id = load_archive_source_profile_id(connection, profile_id)?;
+            let mut visits = load_visible_visits_after_id(
+                connection,
+                profile_id,
+                source_profile_id,
+                last_processed_visit_id,
+            )?;
             let expected_delta = (watermark.visible_visit_count
                 - checkpoint
                     .as_ref()
@@ -1933,11 +1985,12 @@ fn execute_structural_stage(
 fn load_visible_visits_after_id(
     connection: &Connection,
     profile_id: &str,
+    source_profile_id: i64,
     last_processed_visit_id: i64,
 ) -> Result<Vec<VisitRecord>> {
     let mut statement = connection.prepare(
         "SELECT visits.id,
-                source_profiles.profile_key,
+                ?1,
                 visits.source_profile_id,
                 CAST(visits.source_visit_id AS INTEGER),
                 urls.id,
@@ -1949,13 +2002,15 @@ fn load_visible_visits_after_id(
                 visits.external_referrer_url
          FROM archive.visits AS visits
          JOIN archive.urls AS urls ON urls.id = visits.url_id
-         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
          WHERE visits.reverted_at IS NULL
-           AND source_profiles.profile_key = ?1
-           AND visits.id > ?2
+           AND visits.source_profile_id = ?2
+           AND visits.id > ?3
          ORDER BY visits.visit_time_ms ASC, visits.id ASC",
     )?;
-    let rows = statement.query_map(params![profile_id, last_processed_visit_id], visit_from_row)?;
+    let rows = statement.query_map(
+        params![profile_id, source_profile_id, last_processed_visit_id],
+        visit_from_row,
+    )?;
     let mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     hydrate_search_terms(connection, &mut visits)?;
     Ok(visits)
@@ -1964,12 +2019,13 @@ fn load_visible_visits_after_id(
 fn load_visible_visit_batch(
     connection: &Connection,
     profile_id: &str,
+    source_profile_id: i64,
     after: Option<VisibleVisitBatchCursor>,
     limit: usize,
 ) -> Result<Vec<VisitRecord>> {
     let mut statement = connection.prepare(
         "SELECT visits.id,
-                source_profiles.profile_key,
+                ?1,
                 visits.source_profile_id,
                 CAST(visits.source_visit_id AS INTEGER),
                 urls.id,
@@ -1981,20 +2037,20 @@ fn load_visible_visit_batch(
                 visits.external_referrer_url
          FROM archive.visits AS visits
          JOIN archive.urls AS urls ON urls.id = visits.url_id
-         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
          WHERE visits.reverted_at IS NULL
-           AND source_profiles.profile_key = ?1
+           AND visits.source_profile_id = ?2
            AND (
-             ?2 IS NULL
-             OR visits.visit_time_ms > ?2
-             OR (visits.visit_time_ms = ?2 AND visits.id > ?3)
+             ?3 IS NULL
+             OR visits.visit_time_ms > ?3
+             OR (visits.visit_time_ms = ?3 AND visits.id > ?4)
            )
          ORDER BY visits.visit_time_ms ASC, visits.id ASC
-         LIMIT ?4",
+         LIMIT ?5",
     )?;
     let rows = statement.query_map(
         params![
             profile_id,
+            source_profile_id,
             after.map(|cursor| cursor.visit_time_ms),
             after.map(|cursor| cursor.visit_id),
             limit.max(1) as i64,
@@ -2173,13 +2229,14 @@ fn load_profile_derived_visit_batch(
 fn load_structural_visit_batch(
     connection: &Connection,
     profile_id: &str,
+    source_profile_id: i64,
     start_ms: Option<i64>,
     after: Option<StructuralVisitBatchCursor>,
     limit: usize,
 ) -> Result<Vec<StructuralVisitRecord>> {
     let mut statement = connection.prepare(
         "SELECT visit_derived_facts.visit_id,
-                visit_derived_facts.profile_id,
+                ?1,
                 urls.url,
                 visits.visit_time_ms,
                 visits.from_visit,
@@ -2188,24 +2245,25 @@ fn load_structural_visit_batch(
                 visit_derived_facts.search_query,
                 visit_derived_facts.is_new_domain,
                 visit_derived_facts.is_search_event
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         FROM archive.visits AS visits
+         JOIN visit_derived_facts ON visit_derived_facts.visit_id = visits.id
          JOIN archive.urls AS urls ON urls.id = visits.url_id
-         WHERE visit_derived_facts.profile_id = ?1
-           AND visits.reverted_at IS NULL
-           AND (?2 IS NULL OR visits.visit_time_ms >= ?2)
+         WHERE visits.reverted_at IS NULL
+           AND visits.source_profile_id = ?2
+           AND (?3 IS NULL OR visits.visit_time_ms >= ?3)
            AND (
-             ?3 IS NULL
-             OR visits.visit_time_ms > ?3
-             OR (visits.visit_time_ms = ?3 AND visit_derived_facts.visit_id > ?4)
+             ?4 IS NULL
+             OR visits.visit_time_ms > ?4
+             OR (visits.visit_time_ms = ?4 AND visits.id > ?5)
            )
          ORDER BY visits.visit_time_ms ASC, visits.id ASC
-         LIMIT ?5",
+         LIMIT ?6",
     )?;
     statement
         .query_map(
             params![
                 profile_id,
+                source_profile_id,
                 start_ms,
                 after.map(|cursor| cursor.visit_time_ms),
                 after.map(|cursor| cursor.visit_id),
@@ -2336,6 +2394,7 @@ fn rebuild_visit_derived_facts_in_batches(
     computed_at: &str,
     batch_size: usize,
 ) -> Result<VisitDeriveFallbackSummary> {
+    let source_profile_id = load_archive_source_profile_id(connection, profile_id)?;
     let mut cursor = None;
     let mut seen_domains = HashSet::<String>::new();
     let mut dirty_date_keys = BTreeSet::<String>::new();
@@ -2343,7 +2402,8 @@ fn rebuild_visit_derived_facts_in_batches(
     let mut processed_visits = 0usize;
 
     loop {
-        let mut batch = load_visible_visit_batch(connection, profile_id, cursor, batch_size)?;
+        let mut batch =
+            load_visible_visit_batch(connection, profile_id, source_profile_id, cursor, batch_size)?;
         if batch.is_empty() {
             break;
         }
@@ -3252,6 +3312,7 @@ fn rebuild_structural_tail_state(
     computed_at: &str,
     batch_size: usize,
 ) -> Result<StructuralTailStreamReport> {
+    let source_profile_id = load_archive_source_profile_id(connection, profile_id)?;
     let tx = connection.unchecked_transaction()?;
     clear_structural_tail_state(&tx, profile_id, start_ms)?;
     let mut persist = StructuralTailPersist::new(&tx)?;
@@ -3259,17 +3320,25 @@ fn rebuild_structural_tail_state(
     let mut cursor = None::<StructuralVisitBatchCursor>;
 
     loop {
-        let batch = load_structural_visit_batch(&tx, profile_id, start_ms, cursor, batch_size)?;
+        let batch = load_structural_visit_batch(
+            &tx,
+            profile_id,
+            source_profile_id,
+            start_ms,
+            cursor,
+            batch_size,
+        )?;
         if batch.is_empty() {
             break;
         }
-        for visit in &batch {
-            state.process_visit(visit.clone(), computed_at, &mut persist)?;
-        }
-        cursor = batch.last().map(|visit| StructuralVisitBatchCursor {
+        let next_cursor = batch.last().map(|visit| StructuralVisitBatchCursor {
             visit_time_ms: visit.visit_time_ms,
             visit_id: visit.visit_id,
         });
+        for visit in batch {
+            state.process_visit(visit, computed_at, &mut persist)?;
+        }
+        cursor = next_cursor;
     }
 
     state.finish(computed_at, &mut persist)?;
@@ -3542,6 +3611,19 @@ fn progress_for_phase(
             _ => None,
         },
     }
+}
+
+fn load_archive_source_profile_id(connection: &Connection, profile_id: &str) -> Result<i64> {
+    connection
+        .query_row(
+            "SELECT id
+             FROM archive.source_profiles
+             WHERE profile_key = ?1
+             LIMIT 1",
+            [profile_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("loading source_profile_id for {profile_id}"))
 }
 
 fn persist_ready_module_updates(
@@ -7405,8 +7487,24 @@ mod tests {
             ScopedDateRangeRequest,
         },
     };
-    use rusqlite::{Connection, params};
+    use rusqlite::{Connection, OptionalExtension, params};
     use std::collections::BTreeMap;
+
+    fn has_index(connection: &Connection, index_name: &str) -> bool {
+        connection
+            .query_row(
+                "SELECT 1
+                 FROM sqlite_master
+                 WHERE type = 'index'
+                   AND name = ?1
+                 LIMIT 1",
+                [index_name],
+                |_| Ok(()),
+            )
+            .optional()
+            .expect("index lookup")
+            .is_some()
+    }
 
     #[test]
     fn collapse_date_key_supports_week_and_month() {
@@ -7435,7 +7533,10 @@ mod tests {
         let migration_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(migration_count, 3);
+        assert_eq!(migration_count, 4);
+        assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
+        assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
+        assert!(has_index(&connection, "idx_search_events_profile_visit"));
     }
 
     #[test]
@@ -7459,6 +7560,13 @@ mod tests {
         )
         .expect("run core intelligence");
         assert!(rebuild.processed_visits >= 3);
+        let stage_timings = rebuild
+            .stage_timings_ms
+            .as_ref()
+            .expect("full rebuild stage timings");
+        assert!(stage_timings.total_ms >= stage_timings.visit_derive_ms);
+        assert!(stage_timings.total_ms >= stage_timings.daily_rollup_ms);
+        assert!(stage_timings.total_ms >= stage_timings.structural_rebuild_ms);
 
         let session_explanation = explain_entity(
             &paths,
@@ -7547,7 +7655,7 @@ mod tests {
         let migration_count: i64 = intelligence
             .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(migration_count, 3);
+        assert_eq!(migration_count, 4);
     }
 
     #[test]
