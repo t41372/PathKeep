@@ -28,6 +28,7 @@ pub mod intelligence;
 mod intelligence_blobs;
 mod intelligence_catalog;
 pub mod intelligence_runtime;
+mod intelligence_sections;
 pub mod models;
 pub mod remote;
 pub mod takeout;
@@ -73,6 +74,7 @@ pub use intelligence_runtime::{
     cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,
     retry_intelligence_job, update_intelligence_job_artifact,
 };
+pub use intelligence_sections::build_core_intelligence_section_meta;
 pub use models::*;
 pub use remote::{preview_remote_backup, run_remote_backup, verify_remote_backup};
 pub use takeout::{

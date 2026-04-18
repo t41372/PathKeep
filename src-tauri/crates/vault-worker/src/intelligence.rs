@@ -22,6 +22,7 @@ use crate::context::{
 };
 use crate::job_runtime::{BackgroundJobControl, maybe_spawn_worker_pool};
 use anyhow::{Context, Result};
+use chrono::Local;
 use serde_json::json;
 use std::{
     sync::{Arc, atomic::AtomicUsize},
@@ -33,18 +34,19 @@ use vault_core::{
     AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest,
     AiSearchResponse, AppConfig, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
     CompareSet, CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport,
-    CoreIntelligenceRebuildRequest, DigestSummary, DiscoveryTrend, DomainDeepDive,
-    DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
-    EntityExplanationRequest, Explanation, FrictionSignal, GranularityDateRangeRequest,
-    HabitPattern, HubPage, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
-    IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot, IntelligenceWidgetSnapshot,
-    InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
-    PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyResult, RefindExplanation,
-    RefindPage, RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
-    SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest,
-    SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
-    TopSitesRequest, TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
-    build_ai_index_with_control, cancel_intelligence_job, execute_enrichment_job_by_id,
+    CoreIntelligenceRebuildRequest, CoreIntelligenceSectionResult, CoreIntelligenceSectionWindow,
+    DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
+    DomainTrendRequest, EngineRanking, EntityExplanationRequest, Explanation, FrictionSignal,
+    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceEmbedCardPayload,
+    IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot,
+    IntelligenceWidgetSnapshot, InterruptedHabit, NavigationPath, ObservedInteraction,
+    OnThisDayEntry, PagedDateRangeRequest, PathFlow, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyResult, RefindExplanation, RefindPage, RefindPagesRequest, ReopenedInvestigation,
+    RhythmHeatmap, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
+    SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
+    StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
+    ai_queue, answer_history_question_with_control, build_ai_index_with_control,
+    build_core_intelligence_section_meta, cancel_intelligence_job, execute_enrichment_job_by_id,
     intelligence, intelligence_job_stop_requested,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
@@ -724,6 +726,27 @@ fn with_core_intelligence<R>(
     f(&paths, &config)
 }
 
+fn with_core_intelligence_section<R>(
+    session_database_key: Option<&str>,
+    section_id: &str,
+    window: CoreIntelligenceSectionWindow,
+    fetch: impl FnOnce(&vault_core::ProjectPaths, &AppConfig) -> Result<R>,
+    is_empty: impl FnOnce(&R) -> bool,
+) -> Result<CoreIntelligenceSectionResult<R>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        let data = fetch(paths, config)?;
+        let meta = build_core_intelligence_section_meta(
+            paths,
+            config,
+            session_database_key,
+            section_id,
+            window,
+            is_empty(&data),
+        )?;
+        Ok(CoreIntelligenceSectionResult { data, meta })
+    })
+}
+
 /// Runs a Core Intelligence rebuild immediately.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn run_core_intelligence_now(
@@ -953,37 +976,59 @@ pub fn get_hub_pages(
 pub fn get_search_engine_ranking(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<EngineRanking>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_search_engine_ranking(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<EngineRanking>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_search_engine_ranking(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_top_search_concepts(
     session_database_key: Option<&str>,
     request: &TopSearchConceptsRequest,
-) -> Result<Vec<SearchConcept>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_top_search_concepts(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<SearchConcept>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_top_search_concepts(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_query_families(
     session_database_key: Option<&str>,
     request: &PagedDateRangeRequest,
-) -> Result<QueryFamilyResult> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_query_families(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<QueryFamilyResult>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_query_families(paths, config, session_database_key, request)
+        },
+        |data| data.families.is_empty(),
+    )
 }
 
 pub fn get_top_sites(
     session_database_key: Option<&str>,
     request: &TopSitesRequest,
-) -> Result<Vec<TopSite>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_top_sites(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<TopSite>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "top-sites",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| intelligence::get_top_sites(paths, config, session_database_key, request),
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_domain_trend(
@@ -998,10 +1043,16 @@ pub fn get_domain_trend(
 pub fn get_refind_pages(
     session_database_key: Option<&str>,
     request: &RefindPagesRequest,
-) -> Result<Vec<RefindPage>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_refind_pages(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<RefindPage>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "refind-pages",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_refind_pages(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn explain_refind(
@@ -1025,10 +1076,16 @@ pub fn explain_entity(
 pub fn get_activity_mix(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<ActivityMix> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_activity_mix(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<ActivityMix>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "activity-mix",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_activity_mix(paths, config, session_database_key, request)
+        },
+        |data| data.categories.is_empty(),
+    )
 }
 
 pub fn get_activity_mix_trend(
@@ -1043,82 +1100,156 @@ pub fn get_activity_mix_trend(
 pub fn get_digest_summary(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<DigestSummary> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_digest_summary(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<DigestSummary>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "digest-summary",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_digest_summary(paths, config, session_database_key, request)
+        },
+        |data| {
+            data.total_visits.value == 0
+                && data.total_searches.value == 0
+                && data.new_domains.value == 0
+                && data.deep_read_pages.value == 0
+                && data.refind_pages.value == 0
+        },
+    )
 }
 
 pub fn get_stable_sources(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<StableSource>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_stable_sources(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<StableSource>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "stable-sources",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_stable_sources(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_search_effectiveness(
     session_database_key: Option<&str>,
     request: &SearchEffectivenessRequest,
-) -> Result<SearchEffectiveness> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_search_effectiveness(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<SearchEffectiveness>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "search-effectiveness",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_search_effectiveness(paths, config, session_database_key, request)
+        },
+        |data| {
+            data.engine_stats.is_empty()
+                && data.top_resolving_sources.is_empty()
+                && data.hardest_topics.is_empty()
+        },
+    )
 }
 
 pub fn get_friction_signals(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<FrictionSignal>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_friction_signals(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<FrictionSignal>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "friction-signals",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_friction_signals(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_reopened_investigations(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<ReopenedInvestigation>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_reopened_investigations(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<ReopenedInvestigation>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "reopened-investigations",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_reopened_investigations(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_domain_deep_dive(
     session_database_key: Option<&str>,
     request: &DomainDeepDiveRequest,
-) -> Result<DomainDeepDive> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_domain_deep_dive(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<DomainDeepDive>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "domain-deep-dive",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_domain_deep_dive(paths, config, session_database_key, request)
+        },
+        |data| {
+            data.total_visits == 0
+                && data.active_days == 0
+                && data.trail_count == 0
+                && data.top_pages.is_empty()
+                && data.top_referrers.is_empty()
+                && data.top_exits.is_empty()
+                && data.visit_trend.is_empty()
+        },
+    )
 }
 
 pub fn get_browsing_rhythm(
     session_database_key: Option<&str>,
     request: &CategoryFilteredDateRangeRequest,
-) -> Result<RhythmHeatmap> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_browsing_rhythm(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<RhythmHeatmap>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "browsing-rhythm",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_browsing_rhythm(paths, config, session_database_key, request)
+        },
+        |data| data.cells.is_empty(),
+    )
 }
 
 pub fn get_discovery_trend(
     session_database_key: Option<&str>,
     request: &GranularityDateRangeRequest,
-) -> Result<DiscoveryTrend> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_discovery_trend(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<DiscoveryTrend>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "discovery-trend",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_discovery_trend(paths, config, session_database_key, request)
+        },
+        |data| data.points.is_empty(),
+    )
 }
 
 pub fn get_on_this_day(
     session_database_key: Option<&str>,
     profile_id: Option<&str>,
-) -> Result<Vec<OnThisDayEntry>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_on_this_day(paths, config, session_database_key, profile_id)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<OnThisDayEntry>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "on-this-day",
+        CoreIntelligenceSectionWindow::CalendarDayHistory {
+            reference_date: Local::now().format("%Y-%m-%d").to_string(),
+        },
+        |paths, config| {
+            intelligence::get_on_this_day(paths, config, session_database_key, profile_id)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_intelligence_embed_cards(
@@ -1151,64 +1282,106 @@ pub fn get_intelligence_public_snapshot(
 pub fn get_breadth_index(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<BreadthIndex> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_breadth_index(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<BreadthIndex>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "breadth-index",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_breadth_index(paths, config, session_database_key, request)
+        },
+        |_| false,
+    )
 }
 
 pub fn get_habit_patterns(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<HabitPattern>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_habit_patterns(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<HabitPattern>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "habits",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_habit_patterns(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_interrupted_habits(
     session_database_key: Option<&str>,
     request: &ProfileScopedRequest,
-) -> Result<Vec<InterruptedHabit>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_interrupted_habits(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<InterruptedHabit>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "habits",
+        CoreIntelligenceSectionWindow::DateRange {
+            date_range: vault_core::DateRange { start: "".to_string(), end: "".to_string() },
+        },
+        |paths, config| {
+            intelligence::get_interrupted_habits(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_path_flows(
     session_database_key: Option<&str>,
     request: &PathFlowRequest,
-) -> Result<Vec<PathFlow>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_path_flows(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<PathFlow>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "path-flows",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| intelligence::get_path_flows(paths, config, session_database_key, request),
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_observed_interactions(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<ObservedInteraction>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_observed_interactions(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<ObservedInteraction>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "observed-interactions",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_observed_interactions(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_compare_sets(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<Vec<CompareSet>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_compare_sets(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<Vec<CompareSet>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "compare-sets",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_compare_sets(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
 }
 
 pub fn get_multi_browser_diff(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
-) -> Result<BrowserDiff> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_multi_browser_diff(paths, config, session_database_key, request)
-    })
+) -> Result<CoreIntelligenceSectionResult<BrowserDiff>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "multi-browser-diff",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_multi_browser_diff(paths, config, session_database_key, request)
+        },
+        |data| data.profiles.is_empty() && data.category_distributions.is_empty(),
+    )
 }
 
 /// Loads the Settings-facing intelligence runtime snapshot.

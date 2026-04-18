@@ -51,6 +51,7 @@
 - route metadata、sidebar section label、topbar title / subtitle、loading / skeleton label、empty / error / disabled state，以及 browser preview honesty copy 都屬於正式 i18n surface；不能因為 prototype 沒畫到文字細節就留下英文硬編碼。
 - Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
 - Settings 現在也是 `embed cards` / `widget snapshot` / `public snapshot` 的第一個正式 consumer surface：使用者可在這裡手動 preview、切換 shared profile scope 與 local time window、複製 raw payload，但這一輪仍不會直接安裝 widget、生成 reusable host artifact、或發布 localhost/public host API。
+- `/intelligence` 與 `/intelligence/domain/:domain` 的每個 deterministic section 現在都會共用 evidence / freshness drawer：顯示 generated-at、active scope / window、owning modules、source tables、是否包含 enrichment，以及 stale / disabled / degraded reason；這是 review chrome，不是 mutation surface。
 - Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 queue、freshness、derived tables、storage impact，以及 rebuild / clear controls；plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
@@ -99,6 +100,7 @@
 - shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
+- Intelligence section cards與 domain deep dive 的 evidence / freshness drawer 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
 

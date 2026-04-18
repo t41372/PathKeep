@@ -76,6 +76,37 @@ pub struct CoreIntelligenceQueueReport {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+/// Structured window metadata for one Core Intelligence section response.
+pub enum CoreIntelligenceSectionWindow {
+    DateRange { date_range: DateRange },
+    CalendarDayHistory { reference_date: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Shared metadata emitted alongside one `/intelligence` section payload.
+pub struct CoreIntelligenceSectionMeta {
+    pub section_id: String,
+    pub generated_at: Option<String>,
+    pub window: CoreIntelligenceSectionWindow,
+    pub module_ids: Vec<String>,
+    pub source_tables: Vec<String>,
+    pub includes_enrichment: bool,
+    pub state: String,
+    pub state_reason: Option<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Generic transport envelope for one Core Intelligence section payload.
+pub struct CoreIntelligenceSectionResult<T> {
+    pub data: T,
+    pub meta: CoreIntelligenceSectionMeta,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Common request shape for paginated Core Intelligence list queries.

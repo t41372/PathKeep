@@ -605,7 +605,7 @@ mod tests {
             session_key(&session).as_deref(),
         )
         .expect("refind pages should load");
-        if let Some(page) = refind_pages.first() {
+        if let Some(page) = refind_pages.data.first() {
             let explanation = explain_refind_impl(
                 vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },
                 session_key(&session).as_deref(),

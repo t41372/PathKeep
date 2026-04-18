@@ -15,6 +15,7 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
+import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n/hooks'
@@ -31,6 +32,7 @@ interface DomainDeepDivePageProps {
   dateRange: DateRange
   domain: string
   profileId: string | null
+  scopeLabel: string
 }
 
 /**
@@ -92,6 +94,11 @@ export function DomainDeepDiveRoutePage() {
         dateRange={dateRange}
         domain={decodeURIComponent(domain)}
         profileId={effectiveProfileId}
+        scopeLabel={
+          effectiveProfileId
+            ? (profileScopeLabel ?? effectiveProfileId)
+            : t('archiveWideBadge')
+        }
       />
     </div>
   )
@@ -105,12 +112,14 @@ export function DomainDeepDivePage({
   dateRange,
   domain,
   profileId,
+  scopeLabel,
 }: DomainDeepDivePageProps) {
   const { t } = useI18n('intelligence')
   const { data, loading, error } = useAsyncData(
     () => api.getDomainDeepDive(domain, dateRange, profileId),
     [dateRange, domain, profileId],
   )
+  const detail = data?.data ?? null
 
   if (loading) {
     return (
@@ -120,7 +129,7 @@ export function DomainDeepDivePage({
     )
   }
 
-  if (error || !data) {
+  if (error || !detail) {
     return (
       <div className="intelligence-page domain-deep-dive">
         <div className="intelligence-empty">
@@ -133,43 +142,48 @@ export function DomainDeepDivePage({
   }
 
   const arrivalTotal =
-    data.arrivalBreakdown.search +
-    data.arrivalBreakdown.link +
-    data.arrivalBreakdown.typed +
-    data.arrivalBreakdown.other
+    detail.arrivalBreakdown.search +
+    detail.arrivalBreakdown.link +
+    detail.arrivalBreakdown.typed +
+    detail.arrivalBreakdown.other
 
   return (
     <div className="intelligence-page domain-deep-dive">
       <Link className="btn-secondary" to={backHref}>
         ← {t('domainDeepDiveBack')}
       </Link>
+      <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
 
       <div className="domain-deep-dive__header">
         <span className="domain-deep-dive__domain-name">
-          {data.displayName ?? data.registrableDomain}
+          {detail.displayName ?? detail.registrableDomain}
         </span>
         <span className="domain-deep-dive__category-badge">
-          {t(`category_${data.domainCategory}`) || data.domainCategory}
+          {t(`category_${detail.domainCategory}`) || detail.domainCategory}
         </span>
       </div>
 
       <div className="domain-deep-dive__kpi-row">
         <div className="domain-deep-dive__kpi">
           <span className="domain-deep-dive__kpi-value">
-            {formatNumber(data.totalVisits)}
+            {formatNumber(detail.totalVisits)}
           </span>
           <span className="domain-deep-dive__kpi-label">
             {t('domainDeepDiveVisits')}
           </span>
         </div>
         <div className="domain-deep-dive__kpi">
-          <span className="domain-deep-dive__kpi-value">{data.activeDays}</span>
+          <span className="domain-deep-dive__kpi-value">
+            {detail.activeDays}
+          </span>
           <span className="domain-deep-dive__kpi-label">
             {t('domainDeepDiveActiveDays')}
           </span>
         </div>
         <div className="domain-deep-dive__kpi">
-          <span className="domain-deep-dive__kpi-value">{data.trailCount}</span>
+          <span className="domain-deep-dive__kpi-value">
+            {detail.trailCount}
+          </span>
           <span className="domain-deep-dive__kpi-label">
             {t('domainDeepDiveTrails')}
           </span>
@@ -186,10 +200,10 @@ export function DomainDeepDivePage({
             style={{ width: '100%' }}
           >
             {[
-              { key: 'search', value: data.arrivalBreakdown.search },
-              { key: 'link', value: data.arrivalBreakdown.link },
-              { key: 'typed', value: data.arrivalBreakdown.typed },
-              { key: 'other', value: data.arrivalBreakdown.other },
+              { key: 'search', value: detail.arrivalBreakdown.search },
+              { key: 'link', value: detail.arrivalBreakdown.link },
+              { key: 'typed', value: detail.arrivalBreakdown.typed },
+              { key: 'other', value: detail.arrivalBreakdown.other },
             ]
               .filter((entry) => entry.value > 0)
               .map((entry) => (
@@ -206,27 +220,31 @@ export function DomainDeepDivePage({
           <div className="domain-deep-dive__arrival-legend">
             <span>
               🔍 {t('domainDeepDiveArrival_search')}{' '}
-              {Math.round((data.arrivalBreakdown.search / arrivalTotal) * 100)}%
+              {Math.round(
+                (detail.arrivalBreakdown.search / arrivalTotal) * 100,
+              )}
+              %
             </span>
             <span>
               🔗 {t('domainDeepDiveArrival_link')}{' '}
-              {Math.round((data.arrivalBreakdown.link / arrivalTotal) * 100)}%
+              {Math.round((detail.arrivalBreakdown.link / arrivalTotal) * 100)}%
             </span>
             <span>
               ⌨️ {t('domainDeepDiveArrival_typed')}{' '}
-              {Math.round((data.arrivalBreakdown.typed / arrivalTotal) * 100)}%
+              {Math.round((detail.arrivalBreakdown.typed / arrivalTotal) * 100)}
+              %
             </span>
           </div>
         </div>
       ) : null}
 
       <div className="domain-deep-dive__sections">
-        {data.topPages.length > 0 ? (
+        {detail.topPages.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveTopPages')}
             </h3>
-            {data.topPages.slice(0, 10).map((page) => (
+            {detail.topPages.slice(0, 10).map((page) => (
               <div key={page.path} className="domain-deep-dive__page-row">
                 <span className="domain-deep-dive__page-path">{page.path}</span>
                 <span className="domain-deep-dive__page-count">
@@ -237,12 +255,12 @@ export function DomainDeepDivePage({
           </div>
         ) : null}
 
-        {data.topReferrers.length > 0 ? (
+        {detail.topReferrers.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveReferrers')}
             </h3>
-            {data.topReferrers.slice(0, 5).map((referrer) => (
+            {detail.topReferrers.slice(0, 5).map((referrer) => (
               <div key={referrer.domain} className="domain-deep-dive__flow-row">
                 <span className="domain-deep-dive__flow-domain">
                   {referrer.displayName ?? referrer.domain}
@@ -255,12 +273,12 @@ export function DomainDeepDivePage({
           </div>
         ) : null}
 
-        {data.topExits.length > 0 ? (
+        {detail.topExits.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveExits')}
             </h3>
-            {data.topExits.slice(0, 5).map((exit) => (
+            {detail.topExits.slice(0, 5).map((exit) => (
               <div key={exit.domain} className="domain-deep-dive__flow-row">
                 <span className="domain-deep-dive__flow-domain">
                   {exit.displayName ?? exit.domain}
@@ -273,15 +291,15 @@ export function DomainDeepDivePage({
           </div>
         ) : null}
 
-        {data.visitTrend.length > 0 ? (
+        {detail.visitTrend.length > 0 ? (
           <div>
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveTrend')}
             </h3>
             <div className="discovery-trend__chart" style={{ height: 80 }}>
-              {data.visitTrend.map((point: DomainTrendPoint) => {
+              {detail.visitTrend.map((point: DomainTrendPoint) => {
                 const max = Math.max(
-                  ...data.visitTrend.map(
+                  ...detail.visitTrend.map(
                     (trendPoint: DomainTrendPoint) => trendPoint.visitCount,
                   ),
                   1,

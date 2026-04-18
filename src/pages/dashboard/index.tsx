@@ -108,7 +108,7 @@ export function DashboardPage() {
       try {
         const entries = await coreIntelligenceApi.getOnThisDay(activeProfileId)
         if (!cancelled) {
-          setOnThisDayEntries(entries ?? [])
+          setOnThisDayEntries(entries.data ?? [])
           setOnThisDayError(null)
         }
       } catch (nextError) {

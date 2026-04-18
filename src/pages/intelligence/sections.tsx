@@ -16,8 +16,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
+import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import {
   useAsyncData,
+  type CoreIntelligenceSectionMeta,
   type DateRange,
   type EngineRanking,
   type SearchConcept,
@@ -46,7 +48,14 @@ interface IntelligenceSectionsProps {
   dateRange: DateRange
   domainHref: (domain: string) => string
   profileId: string | null
+  scopeLabel: string
   t: T
+}
+
+function firstSectionMeta(
+  ...results: Array<{ meta: CoreIntelligenceSectionMeta } | null | undefined>
+) {
+  return results.find((result) => result?.meta)?.meta ?? null
 }
 
 /**
@@ -56,31 +65,50 @@ export function IntelligenceSections({
   dateRange,
   domainHref,
   profileId,
+  scopeLabel,
   t,
 }: IntelligenceSectionsProps) {
   return (
     <div className="intelligence-grid">
-      <DigestSection dateRange={dateRange} profileId={profileId} t={t} />
+      <DigestSection
+        dateRange={dateRange}
+        profileId={profileId}
+        scopeLabel={scopeLabel}
+        t={t}
+      />
       <div className="intelligence-row intelligence-row--two-col">
-        <OnThisDaySection profileId={profileId} t={t} />
+        <OnThisDaySection profileId={profileId} scopeLabel={scopeLabel} t={t} />
         <TopSitesSection
           dateRange={dateRange}
           domainHref={domainHref}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
       </div>
       <SearchActivitySection
         dateRange={dateRange}
         profileId={profileId}
+        scopeLabel={scopeLabel}
         t={t}
       />
-      <RefindPagesSection dateRange={dateRange} profileId={profileId} t={t} />
+      <RefindPagesSection
+        dateRange={dateRange}
+        profileId={profileId}
+        scopeLabel={scopeLabel}
+        t={t}
+      />
       <div className="intelligence-row intelligence-row--two-col">
-        <ActivityMixSection dateRange={dateRange} profileId={profileId} t={t} />
+        <ActivityMixSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
         <BrowsingRhythmSection
           dateRange={dateRange}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
       </div>
@@ -90,12 +118,14 @@ export function IntelligenceSections({
           dateRange={dateRange}
           domainHref={domainHref}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
         <SearchEffectivenessSection
           dateRange={dateRange}
           domainHref={domainHref}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
       </div>
@@ -103,17 +133,20 @@ export function IntelligenceSections({
         <FrictionDetectionSection
           dateRange={dateRange}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
         <ReopenedInvestigationsSection
           dateRange={dateRange}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
       </div>
       <DiscoveryTrendSection
         dateRange={dateRange}
         profileId={profileId}
+        scopeLabel={scopeLabel}
         t={t}
       />
 
@@ -121,19 +154,40 @@ export function IntelligenceSections({
         <BreadthIndexSection
           dateRange={dateRange}
           profileId={profileId}
+          scopeLabel={scopeLabel}
           t={t}
         />
-        <PathFlowsSection dateRange={dateRange} profileId={profileId} t={t} />
+        <PathFlowsSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
       </div>
-      <HabitsSection dateRange={dateRange} profileId={profileId} t={t} />
+      <HabitsSection
+        dateRange={dateRange}
+        profileId={profileId}
+        scopeLabel={scopeLabel}
+        t={t}
+      />
 
       <div className="intelligence-row intelligence-row--two-col">
-        <CompareSetsSection dateRange={dateRange} profileId={profileId} t={t} />
-        <MultiBrowserDiffSection dateRange={dateRange} t={t} />
+        <CompareSetsSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+        <MultiBrowserDiffSection
+          dateRange={dateRange}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
       </div>
       <ObservedInteractionsSection
         dateRange={dateRange}
         profileId={profileId}
+        scopeLabel={scopeLabel}
         t={t}
       />
     </div>
@@ -143,16 +197,19 @@ export function IntelligenceSections({
 function DigestSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading, error } = useAsyncData(
     () => api.getDigestSummary(dateRange, profileId),
     [dateRange, profileId],
   )
+  const digest = data?.data ?? null
 
   if (loading) {
     return (
@@ -170,7 +227,7 @@ function DigestSection({
     )
   }
 
-  if (error || !data) {
+  if (error || !digest) {
     return (
       <section className="intelligence-section digest-section">
         <h2 className="intelligence-section__title">{t('digestTitle')}</h2>
@@ -184,16 +241,17 @@ function DigestSection({
   }
 
   const cards: { icon: string; label: string; metric: KpiMetric }[] = [
-    { icon: '📊', label: t('digestVisits'), metric: data.totalVisits },
-    { icon: '🔍', label: t('digestSearches'), metric: data.totalSearches },
-    { icon: '🌐', label: t('digestNewSites'), metric: data.newDomains },
-    { icon: '📖', label: t('digestDeepRead'), metric: data.deepReadPages },
-    { icon: '🔄', label: t('digestRefind'), metric: data.refindPages },
+    { icon: '📊', label: t('digestVisits'), metric: digest.totalVisits },
+    { icon: '🔍', label: t('digestSearches'), metric: digest.totalSearches },
+    { icon: '🌐', label: t('digestNewSites'), metric: digest.newDomains },
+    { icon: '📖', label: t('digestDeepRead'), metric: digest.deepReadPages },
+    { icon: '🔄', label: t('digestRefind'), metric: digest.refindPages },
   ]
 
   return (
     <section className="intelligence-section digest-section">
       <h2 className="intelligence-section__title">{t('digestTitle')}</h2>
+      <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
       <div className="digest-cards">
         {cards.map(({ icon, label, metric }) => (
           <div key={label} className="digest-card">
@@ -231,24 +289,30 @@ function TrendBadge({ metric, t }: { metric: KpiMetric; t: T }) {
 
 function OnThisDaySection({
   profileId,
+  scopeLabel,
   t,
 }: {
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getOnThisDay(profileId),
     [profileId],
   )
+  const entries = data?.data ?? []
   const [expanded, setExpanded] = useState(false)
-  const visibleEntries = expanded ? (data ?? []) : (data ?? []).slice(0, 3)
+  const visibleEntries = expanded ? entries : entries.slice(0, 3)
 
   return (
     <section className="intelligence-section on-this-day-section">
       <h2 className="intelligence-section__title">{t('onThisDayTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--card" />
-      ) : !data || data.length === 0 ? (
+      ) : entries.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__eyebrow">{t('onThisDayEyebrow')}</p>
           <p className="intelligence-empty__text">{t('onThisDayEmpty')}</p>
@@ -290,7 +354,7 @@ function OnThisDaySection({
               ) : null}
             </div>
           ))}
-          {data.length > 3 ? (
+          {entries.length > 3 ? (
             <button
               className="intelligence-link"
               type="button"
@@ -309,11 +373,13 @@ function TopSitesSection({
   dateRange,
   domainHref,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   domainHref: (domain: string) => string
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const [sortBy, setSortBy] = useState('visit_count')
@@ -322,8 +388,9 @@ function TopSitesSection({
     () => api.getTopSites(dateRange, profileId, sortBy, 20),
     [dateRange, profileId, sortBy],
   )
+  const sites = data?.data ?? []
 
-  const filteredData = data?.filter((site) => {
+  const filteredData = sites.filter((site) => {
     if (!search.trim()) return true
     const needle = search.toLowerCase()
     return (
@@ -335,6 +402,9 @@ function TopSitesSection({
   return (
     <section className="intelligence-section top-sites-section">
       <h2 className="intelligence-section__title">{t('topSitesTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       <div className="top-sites-controls">
         <input
           className="top-sites-controls__search"
@@ -357,7 +427,7 @@ function TopSitesSection({
       </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !filteredData || filteredData.length === 0 ? (
+      ) : filteredData.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('topSitesEmpty')}</p>
         </div>
@@ -420,10 +490,12 @@ function TopSitesSection({
 function SearchActivitySection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const [tab, setTab] = useState<'engines' | 'concepts' | 'families'>('engines')
@@ -435,12 +507,16 @@ function SearchActivitySection({
     () => api.getTopSearchConcepts(dateRange, profileId, 50),
     [dateRange, profileId],
   )
+  const meta = firstSectionMeta(engines.data, concepts.data)
 
   return (
     <section className="intelligence-section search-activity-section">
       <h2 className="intelligence-section__title">
         {t('searchActivityTitle')}
       </h2>
+      {meta ? (
+        <IntelligenceSectionMeta meta={meta} scopeLabel={scopeLabel} />
+      ) : null}
       <div className="intelligence-tabs" role="tablist">
         {(['engines', 'concepts', 'families'] as const).map((key) => (
           <button
@@ -458,14 +534,14 @@ function SearchActivitySection({
       <div className="intelligence-tab-content">
         {tab === 'engines' ? (
           <EngineRankingPanel
-            data={engines.data}
+            data={engines.data?.data ?? null}
             loading={engines.loading}
             t={t}
           />
         ) : null}
         {tab === 'concepts' ? (
           <ConceptCloudPanel
-            data={concepts.data}
+            data={concepts.data?.data ?? null}
             loading={concepts.loading}
             t={t}
           />
@@ -591,12 +667,13 @@ function QueryFamiliesPanel({
     () => api.getQueryFamilies(dateRange, profileId, { page: 0, pageSize: 10 }),
     [dateRange, profileId],
   )
+  const families = data?.data.families ?? []
 
   if (loading) {
     return <div className="intelligence-skeleton intelligence-skeleton--list" />
   }
 
-  if (error || !data || data.families.length === 0) {
+  if (error || families.length === 0) {
     return (
       <div className="intelligence-empty">
         <p className="intelligence-empty__text">
@@ -609,7 +686,7 @@ function QueryFamiliesPanel({
   return (
     <div className="intelligence-section__scroll-region">
       <div className="query-families">
-        {data.families.map((family) => (
+        {families.map((family) => (
           <QueryFamilyCard key={family.familyId} family={family} t={t} />
         ))}
       </div>
@@ -663,29 +740,35 @@ function QueryFamilyCard({ family, t }: { family: QueryFamily; t: T }) {
 function RefindPagesSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getRefindPages(dateRange, profileId, 5),
     [dateRange, profileId],
   )
+  const pages = data?.data ?? []
 
   return (
     <section className="intelligence-section refind-section">
       <h2 className="intelligence-section__title">{t('refindTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : pages.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('refindEmpty')}</p>
         </div>
       ) : (
         <div className="refind-list">
-          {data.map((page) => (
+          {pages.map((page) => (
             <RefindCard
               key={page.canonicalUrl}
               page={page}
@@ -786,30 +869,36 @@ function RefindCard({
 function ActivityMixSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getActivityMix(dateRange, profileId),
     [dateRange, profileId],
   )
+  const mix = data?.data ?? null
 
   return (
     <section className="intelligence-section activity-mix-section">
       <h2 className="intelligence-section__title">{t('activityMixTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
-      ) : !data || data.categories.length === 0 ? (
+      ) : !mix || mix.categories.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('activityMixEmpty')}</p>
         </div>
       ) : (
         <div className="activity-mix">
-          {data.categories.map((category) => {
-            const change = data.changeVsPrevious.find(
+          {mix.categories.map((category) => {
+            const change = mix.changeVsPrevious.find(
               (entry) => entry.domainCategory === category.domainCategory,
             )
             const changePoints = change?.changePoints ?? 0
@@ -849,10 +938,12 @@ function ActivityMixSection({
 function BrowsingRhythmSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const [category, setCategory] = useState<string | undefined>(undefined)
@@ -860,6 +951,7 @@ function BrowsingRhythmSection({
     () => api.getBrowsingRhythm(dateRange, profileId, category),
     [category, dateRange, profileId],
   )
+  const rhythm = data?.data ?? null
 
   const days = [
     t('dow_sun'),
@@ -899,9 +991,12 @@ function BrowsingRhythmSection({
           ))}
         </select>
       </div>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--heatmap" />
-      ) : !data || data.cells.length === 0 ? (
+      ) : !rhythm || rhythm.cells.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('rhythmEmpty')}</p>
         </div>
@@ -923,11 +1018,11 @@ function BrowsingRhythmSection({
             <div key={dow} className="rhythm-heatmap__row">
               <span className="rhythm-heatmap__day">{dayLabel}</span>
               {Array.from({ length: 24 }).map((_, hour) => {
-                const cell = data.cells.find(
+                const cell = rhythm.cells.find(
                   (entry) => entry.dow === dow && entry.hour === hour,
                 )
                 const intensity = cell
-                  ? Math.min(1, cell.visitCount / data.maxCount)
+                  ? Math.min(1, cell.visitCount / rhythm.maxCount)
                   : 0
                 return (
                   <span
@@ -962,26 +1057,32 @@ function StableSourcesSection({
   dateRange,
   domainHref,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   domainHref: (domain: string) => string
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getStableSources(dateRange, profileId),
     [dateRange, profileId],
   )
-  const entries = data?.filter((source) => source.sourceRole === 'entry')
-  const landings = data?.filter((source) => source.sourceRole === 'landing')
+  const sources = data?.data ?? []
+  const entries = sources.filter((source) => source.sourceRole === 'entry')
+  const landings = sources.filter((source) => source.sourceRole === 'landing')
 
   return (
     <section className="intelligence-section stable-sources-section">
       <h2 className="intelligence-section__title">{t('stableSourcesTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : sources.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('stableSourcesEmpty')}</p>
         </div>
@@ -1037,26 +1138,32 @@ function SearchEffectivenessSection({
   dateRange,
   domainHref,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   domainHref: (domain: string) => string
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getSearchEffectiveness(dateRange, profileId),
     [dateRange, profileId],
   )
+  const effectiveness = data?.data ?? null
 
   return (
     <section className="intelligence-section search-effectiveness-section">
       <h2 className="intelligence-section__title">
         {t('searchEffectivenessTitle')}
       </h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
-      ) : !data || data.engineStats.length === 0 ? (
+      ) : !effectiveness || effectiveness.engineStats.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">
             {t('searchEffectivenessEmpty')}
@@ -1065,9 +1172,11 @@ function SearchEffectivenessSection({
       ) : (
         <div className="search-effectiveness">
           <div className="search-effectiveness__engines">
-            {data.engineStats.map((engine) => {
+            {effectiveness.engineStats.map((engine) => {
               const maxReformulations = Math.max(
-                ...data.engineStats.map((entry) => entry.avgReformulations),
+                ...effectiveness.engineStats.map(
+                  (entry) => entry.avgReformulations,
+                ),
                 1,
               )
               const barWidth = Math.min(
@@ -1099,12 +1208,12 @@ function SearchEffectivenessSection({
               )
             })}
           </div>
-          {data.topResolvingSources.length > 0 ? (
+          {effectiveness.topResolvingSources.length > 0 ? (
             <div className="search-effectiveness__sources">
               <h3 className="search-effectiveness__subtitle">
                 {t('searchEffectivenessSources')}
               </h3>
-              {data.topResolvingSources.slice(0, 5).map((source) => (
+              {effectiveness.topResolvingSources.slice(0, 5).map((source) => (
                 <Link
                   key={`${source.sourceRole}:${source.registrableDomain}`}
                   className="search-effectiveness__source-row"
@@ -1120,12 +1229,12 @@ function SearchEffectivenessSection({
               ))}
             </div>
           ) : null}
-          {data.hardestTopics.length > 0 ? (
+          {effectiveness.hardestTopics.length > 0 ? (
             <div className="search-effectiveness__hard-topics">
               <h3 className="search-effectiveness__subtitle">
                 {t('searchEffectivenessHardest')}
               </h3>
-              {data.hardestTopics.slice(0, 3).map((topic) => (
+              {effectiveness.hardestTopics.slice(0, 3).map((topic) => (
                 <div
                   key={topic.queryFamily}
                   className="search-effectiveness__topic-row"
@@ -1150,30 +1259,36 @@ function SearchEffectivenessSection({
 function FrictionDetectionSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getFrictionSignals(dateRange, profileId),
     [dateRange, profileId],
   )
+  const signals = data?.data ?? []
 
   return (
     <section className="intelligence-section friction-section">
       <h2 className="intelligence-section__title">{t('frictionTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : signals.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('frictionEmpty')}</p>
         </div>
       ) : (
         <div className="intelligence-section__scroll-region">
           <div className="friction-list">
-            {data.slice(0, 8).map((signal, index) => (
+            {signals.slice(0, 8).map((signal, index) => (
               <FrictionSignalCard key={index} signal={signal} t={t} />
             ))}
           </div>
@@ -1207,30 +1322,36 @@ function FrictionSignalCard({ signal, t }: { signal: FrictionSignal; t: T }) {
 function ReopenedInvestigationsSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getReopenedInvestigations(dateRange, profileId),
     [dateRange, profileId],
   )
+  const reopened = data?.data ?? []
 
   return (
     <section className="intelligence-section reopened-section">
       <h2 className="intelligence-section__title">{t('reopenedTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : reopened.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('reopenedEmpty')}</p>
         </div>
       ) : (
         <div className="intelligence-section__scroll-region">
           <div className="reopened-list">
-            {data.slice(0, 8).map((item) => (
+            {reopened.slice(0, 8).map((item) => (
               <div key={item.investigationId} className="reopened-card">
                 <div className="reopened-card__header">
                   <span
@@ -1274,25 +1395,30 @@ function ReopenedInvestigationsSection({
 function DiscoveryTrendSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getDiscoveryTrend(dateRange, profileId, 'week'),
     [dateRange, profileId],
   )
-  const maxRate = data
+  const trend = data?.data ?? null
+  const maxRate = trend
     ? Math.max(
-        ...data.points.map((point: DiscoveryTrendPoint) => point.discoveryRate),
+        ...trend.points.map(
+          (point: DiscoveryTrendPoint) => point.discoveryRate,
+        ),
         0.01,
       )
     : 1
-  const maxNewDomains = data
+  const maxNewDomains = trend
     ? Math.max(
-        ...data.points.map(
+        ...trend.points.map(
           (point: DiscoveryTrendPoint) => point.newDomainCount,
         ),
         1,
@@ -1304,16 +1430,19 @@ function DiscoveryTrendSection({
       <h2 className="intelligence-section__title">
         {t('discoveryTrendTitle')}
       </h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
-      ) : !data || data.points.length === 0 ? (
+      ) : !trend || trend.points.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('discoveryTrendEmpty')}</p>
         </div>
       ) : (
         <div className="discovery-trend">
           <div className="discovery-trend__chart">
-            {data.points.map((point) => {
+            {trend.points.map((point) => {
               const rateHeight = Math.round(
                 (point.discoveryRate / maxRate) * 100,
               )
@@ -1365,28 +1494,34 @@ function DiscoveryTrendSection({
 function BreadthIndexSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getBreadthIndex(dateRange, profileId),
     [dateRange, profileId],
   )
+  const breadth = data?.data ?? null
 
   return (
     <section className="intelligence-section breadth-section">
       <h2 className="intelligence-section__title">{t('breadthTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--card" />
-      ) : !data ? (
+      ) : !breadth ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('breadthEmpty')}</p>
         </div>
       ) : (
-        <BreadthIndexBody data={data} t={t} />
+        <BreadthIndexBody data={breadth} t={t} />
       )}
     </section>
   )
@@ -1431,10 +1566,12 @@ function BreadthIndexBody({ data, t }: { data: BreadthIndex; t: T }) {
 function PathFlowsSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const [stepCount, setStepCount] = useState<number>(3)
@@ -1442,6 +1579,7 @@ function PathFlowsSection({
     () => api.getPathFlows(dateRange, profileId, stepCount, 15),
     [dateRange, profileId, stepCount],
   )
+  const flows = data?.data ?? []
 
   return (
     <section className="intelligence-section path-flows-section">
@@ -1457,15 +1595,18 @@ function PathFlowsSection({
           <option value={3}>{t('pathFlowsStep3')}</option>
         </select>
       </div>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : flows.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('pathFlowsEmpty')}</p>
         </div>
       ) : (
         <ul className="path-flows">
-          {data.map((flow, index) => (
+          {flows.map((flow, index) => (
             <PathFlowRow
               key={`${flow.flowPattern}:${flow.stepCount}:${index}`}
               flow={flow}
@@ -1524,10 +1665,12 @@ function PathFlowRow({
 function HabitsSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const patterns = useAsyncData(
@@ -1538,15 +1681,21 @@ function HabitsSection({
     () => api.getInterruptedHabits(profileId),
     [profileId],
   )
+  const patternsData = patterns.data?.data ?? []
+  const interruptedData = interrupted.data?.data ?? []
   const empty =
     !patterns.loading &&
     !interrupted.loading &&
-    (!patterns.data || patterns.data.length === 0) &&
-    (!interrupted.data || interrupted.data.length === 0)
+    patternsData.length === 0 &&
+    interruptedData.length === 0
+  const meta = firstSectionMeta(patterns.data, interrupted.data)
 
   return (
     <section className="intelligence-section habits-section">
       <h2 className="intelligence-section__title">{t('habitsTitle')}</h2>
+      {meta ? (
+        <IntelligenceSectionMeta meta={meta} scopeLabel={scopeLabel} />
+      ) : null}
       {patterns.loading || interrupted.loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
       ) : empty ? (
@@ -1555,13 +1704,13 @@ function HabitsSection({
         </div>
       ) : (
         <div className="habits-body">
-          {interrupted.data && interrupted.data.length > 0 ? (
+          {interruptedData.length > 0 ? (
             <div className="habits-interrupted">
               <h3 className="habits-body__subtitle">
                 {t('habitsInterruptedTitle')}
               </h3>
               <ul className="habits-interrupted__list">
-                {interrupted.data.slice(0, 5).map((habit, index) => (
+                {interruptedData.slice(0, 5).map((habit, index) => (
                   <InterruptedHabitRow
                     key={index}
                     habit={habit}
@@ -1572,13 +1721,13 @@ function HabitsSection({
               </ul>
             </div>
           ) : null}
-          {patterns.data && patterns.data.length > 0 ? (
+          {patternsData.length > 0 ? (
             <div className="habits-patterns">
               <h3 className="habits-body__subtitle">
                 {t('habitsPatternsTitle')}
               </h3>
               <ul className="habits-patterns__list">
-                {patterns.data.slice(0, 12).map((habit, index) => (
+                {patternsData.slice(0, 12).map((habit, index) => (
                   <HabitPatternRow
                     key={index}
                     habit={habit}
@@ -1676,29 +1825,35 @@ function InterruptedHabitRow({
 function CompareSetsSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getCompareSets(dateRange, profileId),
     [dateRange, profileId],
   )
+  const compareSets = data?.data ?? []
 
   return (
     <section className="intelligence-section compare-sets-section">
       <h2 className="intelligence-section__title">{t('compareSetsTitle')}</h2>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : compareSets.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('compareSetsEmpty')}</p>
         </div>
       ) : (
         <ul className="compare-sets">
-          {data.slice(0, 6).map((set) => (
+          {compareSets.slice(0, 6).map((set) => (
             <CompareSetCard key={set.compareSetId} set={set} t={t} />
           ))}
         </ul>
@@ -1742,15 +1897,18 @@ function CompareSetCard({ set, t }: { set: CompareSet; t: T }) {
 
 function MultiBrowserDiffSection({
   dateRange,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getMultiBrowserDiff(dateRange),
     [dateRange],
   )
+  const diff = data?.data ?? null
 
   return (
     <section className="intelligence-section multi-browser-section">
@@ -1762,14 +1920,17 @@ function MultiBrowserDiffSection({
           {t('archiveWideBadge')}
         </span>
       </div>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
-      ) : !data || data.profiles.length < 2 ? (
+      ) : !diff || diff.profiles.length < 2 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('multiBrowserEmpty')}</p>
         </div>
       ) : (
-        <MultiBrowserDiffBody data={data} t={t} />
+        <MultiBrowserDiffBody data={diff} t={t} />
       )}
     </section>
   )
@@ -1919,16 +2080,19 @@ function MultiBrowserCategoryBars({
 function ObservedInteractionsSection({
   dateRange,
   profileId,
+  scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  scopeLabel: string
   t: T
 }) {
   const { data, loading } = useAsyncData(
     () => api.getObservedInteractions(dateRange, profileId),
     [dateRange, profileId],
   )
+  const observations = data?.data ?? []
 
   return (
     <section className="intelligence-section observed-section">
@@ -1938,16 +2102,19 @@ function ObservedInteractionsSection({
           {t('observedCapabilityBadge')}
         </span>
       </div>
+      {data ? (
+        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      ) : null}
       <p className="observed-section__disclaimer">{t('observedDisclaimer')}</p>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
-      ) : !data || data.length === 0 ? (
+      ) : observations.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('observedEmpty')}</p>
         </div>
       ) : (
         <ul className="observed-list">
-          {data.slice(0, 10).map((item) => (
+          {observations.slice(0, 10).map((item) => (
             <ObservedInteractionRow key={item.visitId} item={item} t={t} />
           ))}
         </ul>

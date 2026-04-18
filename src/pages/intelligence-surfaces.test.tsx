@@ -36,6 +36,11 @@ import {
   type ResolvedLanguage,
 } from '../lib/i18n'
 import * as coreIntelligenceApi from '../lib/core-intelligence/api'
+import type {
+  CoreIntelligenceSectionMeta,
+  CoreIntelligenceSectionResult,
+  DateRange,
+} from '../lib/core-intelligence/types'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import { ProfileScopeContext } from '../lib/profile-scope-context'
 import type {
@@ -213,6 +218,38 @@ function createEmptyRuntimeSnapshot(): IntelligenceRuntimeSnapshot {
     modules: [],
     recentJobs: [],
     notes: [],
+  }
+}
+
+function createSectionMeta(
+  sectionId: string,
+  overrides: Partial<CoreIntelligenceSectionMeta> = {},
+): CoreIntelligenceSectionMeta {
+  return {
+    sectionId,
+    generatedAt: '2026-04-17T09:45:00Z',
+    window: {
+      kind: 'date-range',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' } satisfies DateRange,
+    },
+    moduleIds: [],
+    sourceTables: [],
+    includesEnrichment: false,
+    state: 'ready',
+    stateReason: null,
+    notes: [],
+    ...overrides,
+  }
+}
+
+function wrapSection<T>(
+  sectionId: string,
+  data: T,
+  overrides: Partial<CoreIntelligenceSectionMeta> = {},
+): CoreIntelligenceSectionResult<T> {
+  return {
+    data,
+    meta: createSectionMeta(sectionId, overrides),
   }
 }
 
@@ -429,15 +466,22 @@ describe('intelligence surfaces', () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
     vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
-      Array.from({ length: 20 }, (_, index) => ({
-        registrableDomain: `example-${index + 1}.com`,
-        displayName: `Example ${index + 1}`,
-        domainCategory: 'reference',
-        visitCount: 100 - index,
-        uniqueDays: 20 - Math.floor(index / 2),
-        averageDailyVisits: Number((5 - index * 0.1).toFixed(1)),
-        uniqueUrls: 10 - Math.floor(index / 3),
-      })),
+      wrapSection(
+        'top-sites',
+        Array.from({ length: 20 }, (_, index) => ({
+          registrableDomain: `example-${index + 1}.com`,
+          displayName: `Example ${index + 1}`,
+          domainCategory: 'reference',
+          visitCount: 100 - index,
+          uniqueDays: 20 - Math.floor(index / 2),
+          averageDailyVisits: Number((5 - index * 0.1).toFixed(1)),
+          uniqueUrls: 10 - Math.floor(index / 3),
+        })),
+        {
+          moduleIds: ['daily-rollups'],
+          sourceTables: ['domain_daily_rollups'],
+        },
+      ),
     )
 
     renderSurface(<IntelligencePage />, {
@@ -458,6 +502,198 @@ describe('intelligence surfaces', () => {
     expect(
       topSitesSection.querySelector('.intelligence-section__scroll-region'),
     ).not.toBeNull()
+  })
+
+  test('renders section-level metadata for stale, disabled, and degraded intelligence sections', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const settingsT = createNamespaceTranslator('en', 'settings')
+
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection('top-sites', [], {
+        state: 'stale',
+        stateReason: 'Visibility changed after the last deterministic rebuild.',
+        moduleIds: ['daily-rollups'],
+        sourceTables: ['domain_daily_rollups'],
+        notes: [
+          'Manual rebuild required before these summaries are fresh again.',
+        ],
+        window: {
+          kind: 'date-range',
+          dateRange: { start: '2026-04-01', end: '2026-04-07' },
+        },
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', [], {
+        state: 'disabled',
+        stateReason: 'Disabled in Settings.',
+        moduleIds: ['refind-pages'],
+        sourceTables: ['source_effectiveness'],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', [], {
+        state: 'degraded',
+        stateReason:
+          'No supported browser-reported interaction evidence is available for this scope yet.',
+        sourceTables: ['visit_engagement_evidence'],
+      }),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      route:
+        '/intelligence?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome:Default',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+
+    const topSitesSection = screen
+      .getByRole('heading', { name: intelligenceT('topSitesTitle') })
+      .closest('section')
+    if (!(topSitesSection instanceof HTMLElement)) {
+      throw new Error('expected top sites section')
+    }
+    const topSitesMeta = within(topSitesSection).getByTestId(
+      'intelligence-section-meta-top-sites',
+    )
+    expect(
+      within(topSitesMeta).getByText(settingsT('deterministicModuleStale')),
+    ).toBeVisible()
+    expect(within(topSitesMeta).getByText('domain_daily_rollups')).toBeVisible()
+    expect(
+      within(topSitesMeta).getByText(
+        'Visibility changed after the last deterministic rebuild.',
+      ),
+    ).toBeVisible()
+
+    const stableSourcesSection = screen
+      .getByRole('heading', { name: intelligenceT('stableSourcesTitle') })
+      .closest('section')
+    if (!(stableSourcesSection instanceof HTMLElement)) {
+      throw new Error('expected stable sources section')
+    }
+    const stableSourcesMeta = within(stableSourcesSection).getByTestId(
+      'intelligence-section-meta-stable-sources',
+    )
+    expect(
+      within(stableSourcesMeta).getByText(
+        settingsT('deterministicModuleDisabled'),
+      ),
+    ).toBeVisible()
+
+    const observedSection = screen
+      .getByRole('heading', { name: intelligenceT('observedTitle') })
+      .closest('section')
+    if (!(observedSection instanceof HTMLElement)) {
+      throw new Error('expected observed interactions section')
+    }
+    const observedMeta = within(observedSection).getByTestId(
+      'intelligence-section-meta-observed-interactions',
+    )
+    expect(
+      within(observedMeta).getByText(intelligenceT('sectionMetaStateDegraded')),
+    ).toBeVisible()
+    expect(
+      within(observedMeta).getByText(
+        'No supported browser-reported interaction evidence is available for this scope yet.',
+      ),
+    ).toBeVisible()
+  })
+
+  test('refreshes section metadata when intelligence scope or time range changes', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    const topSitesSpy = vi
+      .spyOn(coreIntelligenceApi, 'getTopSites')
+      .mockImplementation((dateRange, profileId) =>
+        Promise.resolve(
+          wrapSection('top-sites', [], {
+            state: 'stale',
+            stateReason: 'Scope-sensitive test metadata.',
+            moduleIds: ['daily-rollups'],
+            sourceTables: ['domain_daily_rollups'],
+            window: {
+              kind: 'date-range',
+              dateRange,
+            },
+            notes: [profileId ?? 'archive-wide'],
+          }),
+        ),
+      )
+
+    function ScopedIntelligenceHarness() {
+      const [activeProfileId, setActiveProfileId] = useState<string | null>(
+        'chrome:Default',
+      )
+
+      return (
+        <MemoryRouter
+          initialEntries={[
+            '/intelligence?range=custom&start=2026-04-01&end=2026-04-07',
+          ]}
+        >
+          <I18nContext.Provider value={createI18nValue('en')}>
+            <ProfileScopeContext.Provider
+              value={{ activeProfileId, setActiveProfileId }}
+            >
+              <ShellDataContext.Provider value={createShellValue(snapshot)}>
+                <button
+                  type="button"
+                  onClick={() => setActiveProfileId('firefox:Research')}
+                >
+                  Switch profile
+                </button>
+                <Routes>
+                  <Route path="/intelligence" element={<IntelligencePage />} />
+                </Routes>
+              </ShellDataContext.Provider>
+            </ProfileScopeContext.Provider>
+          </I18nContext.Provider>
+        </MemoryRouter>
+      )
+    }
+
+    render(<ScopedIntelligenceHarness />)
+
+    const topSitesMeta = await screen.findByTestId(
+      'intelligence-section-meta-top-sites',
+    )
+    expect(
+      within(topSitesMeta).getByText('2026-04-01 → 2026-04-07'),
+    ).toBeVisible()
+    expect(within(topSitesMeta).getByText('chrome:Default')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Switch profile' }))
+    await waitFor(() => {
+      expect(topSitesSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          start: '2026-04-01',
+          end: '2026-04-07',
+        }),
+        'firefox:Research',
+        expect.anything(),
+        expect.anything(),
+      )
+    })
+    expect(await screen.findByText('firefox:Research')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: intelligenceT('rangeWeek') }),
+    )
+    await waitFor(() => {
+      const lastCall = topSitesSpy.mock.calls.at(-1)
+      expect(lastCall?.[0]).not.toEqual({
+        start: '2026-04-01',
+        end: '2026-04-07',
+      })
+    })
+    expect(
+      screen.queryByText('2026-04-01 → 2026-04-07'),
+    ).not.toBeInTheDocument()
   })
 
   test('shows a security recovery empty state in settings when the archive needs unlocking', async () => {
@@ -1588,7 +1824,7 @@ describe('intelligence surfaces', () => {
     }
     const digestSpy = vi
       .spyOn(coreIntelligenceApi, 'getDigestSummary')
-      .mockResolvedValue(summary)
+      .mockResolvedValue(wrapSection('digest-summary', summary))
 
     window.localStorage.setItem('pathkeep.profile-scope', 'chrome:Default')
 
@@ -1912,27 +2148,42 @@ describe('intelligence surfaces', () => {
 
     const domainSpy = vi
       .spyOn(coreIntelligenceApi, 'getDomainDeepDive')
-      .mockResolvedValue({
-        registrableDomain: 'github.com',
-        displayName: 'GitHub',
-        domainCategory: 'developer',
-        totalVisits: 38,
-        activeDays: 7,
-        trailCount: 4,
-        arrivalBreakdown: { search: 10, link: 12, typed: 8, other: 8 },
-        topPages: [{ path: '/issues', visitCount: 12 }],
-        topReferrers: [
-          { domain: 'google.com', displayName: 'Google', count: 6 },
-        ],
-        topExits: [
+      .mockResolvedValue(
+        wrapSection(
+          'domain-deep-dive',
           {
-            domain: 'stackoverflow.com',
-            displayName: 'Stack Overflow',
-            count: 4,
+            registrableDomain: 'github.com',
+            displayName: 'GitHub',
+            domainCategory: 'developer',
+            totalVisits: 38,
+            activeDays: 7,
+            trailCount: 4,
+            arrivalBreakdown: { search: 10, link: 12, typed: 8, other: 8 },
+            topPages: [{ path: '/issues', visitCount: 12 }],
+            topReferrers: [
+              { domain: 'google.com', displayName: 'Google', count: 6 },
+            ],
+            topExits: [
+              {
+                domain: 'stackoverflow.com',
+                displayName: 'Stack Overflow',
+                count: 4,
+              },
+            ],
+            visitTrend: [{ dateKey: '2026-04-05', visitCount: 6 }],
           },
-        ],
-        visitTrend: [{ dateKey: '2026-04-05', visitCount: 6 }],
-      })
+          {
+            moduleIds: ['daily-rollups', 'search-trails', 'domain-deep-dive'],
+            sourceTables: [
+              'visit_derived_facts',
+              'domain_daily_rollups',
+              'search_trails',
+              'habit_patterns',
+              'path_flows',
+            ],
+          },
+        ),
+      )
 
     renderSurface(
       <Routes>
@@ -1967,34 +2218,44 @@ describe('intelligence surfaces', () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
 
-    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue([
-      {
-        canonicalUrl: 'https://example.com/reference',
-        url: 'https://example.com/reference',
-        title: 'Reference page',
-        registrableDomain: 'example.com',
-        crossDayCount: 4,
-        trailCount: 3,
-        searchArrivalCount: 2,
-        typedRevisitCount: 1,
-        refindScore: 0.9,
-        firstSeenAt: '2026-04-01T00:00:00Z',
-        lastSeenAt: '2026-04-07T00:00:00Z',
-      },
-    ])
-    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue({
-      families: [],
-      total: 0,
-      page: 0,
-      pageSize: 10,
-    })
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', [
+        {
+          canonicalUrl: 'https://example.com/reference',
+          url: 'https://example.com/reference',
+          title: 'Reference page',
+          registrableDomain: 'example.com',
+          crossDayCount: 4,
+          trailCount: 3,
+          searchArrivalCount: 2,
+          typedRevisitCount: 1,
+          refindScore: 0.9,
+          firstSeenAt: '2026-04-01T00:00:00Z',
+          lastSeenAt: '2026-04-07T00:00:00Z',
+        },
+      ]),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('search-activity', {
+        families: [],
+        total: 0,
+        page: 0,
+        pageSize: 10,
+      }),
+    )
     vi.spyOn(
       coreIntelligenceApi,
       'getReopenedInvestigations',
-    ).mockResolvedValue([])
-    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue([])
-    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue([])
-    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue([])
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
     const explainSpy = vi
       .spyOn(coreIntelligenceApi, 'explainEntity')
       .mockResolvedValue({

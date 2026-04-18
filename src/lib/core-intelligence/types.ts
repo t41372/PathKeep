@@ -59,6 +59,36 @@ export interface CoreIntelligenceQueueReport {
   notes: string[]
 }
 
+/** Structured window metadata used by one Core Intelligence section response. */
+export type CoreIntelligenceSectionWindow =
+  | {
+      kind: 'date-range'
+      dateRange: DateRange
+    }
+  | {
+      kind: 'calendar-day-history'
+      referenceDate: string
+    }
+
+/** Shared evidence/freshness metadata emitted alongside one section payload. */
+export interface CoreIntelligenceSectionMeta {
+  sectionId: string
+  generatedAt?: string | null
+  window: CoreIntelligenceSectionWindow
+  moduleIds: string[]
+  sourceTables: string[]
+  includesEnrichment: boolean
+  state: 'ready' | 'stale' | 'disabled' | 'degraded'
+  stateReason?: string | null
+  notes: string[]
+}
+
+/** Generic transport envelope for `/intelligence` section payloads. */
+export interface CoreIntelligenceSectionResult<T> {
+  data: T
+  meta: CoreIntelligenceSectionMeta
+}
+
 /** Stage-by-stage timing summary emitted for full Core Intelligence rebuilds. */
 export interface CoreIntelligenceStageTimings {
   visitDeriveMs: number

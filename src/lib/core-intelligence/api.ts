@@ -19,6 +19,9 @@ import type {
   CoreIntelligenceRebuildRequest,
   CoreIntelligenceRebuildReport,
   CoreIntelligenceQueueReport,
+  CoreIntelligenceSectionMeta,
+  CoreIntelligenceSectionResult,
+  CoreIntelligenceSectionWindow,
   DigestSummary,
   OnThisDayEntry,
   TopSite,
@@ -63,6 +66,76 @@ function invokeRequest<TResponse, TRequest extends Record<string, unknown>>(
   return call<TResponse>(command, { request })
 }
 
+function directSectionFallback(
+  sectionId: string,
+  window: CoreIntelligenceSectionWindow,
+): CoreIntelligenceSectionMeta {
+  return {
+    sectionId,
+    generatedAt: null,
+    window,
+    moduleIds: [],
+    sourceTables: [],
+    includesEnrichment: false,
+    state: 'degraded',
+    stateReason: null,
+    notes: [],
+  }
+}
+
+function formatLocalDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function normalizeSectionResult<T>(
+  sectionId: string,
+  window: CoreIntelligenceSectionWindow,
+  result: CoreIntelligenceSectionResult<T> | T,
+): CoreIntelligenceSectionResult<T> {
+  if (
+    result &&
+    typeof result === 'object' &&
+    'data' in result &&
+    'meta' in result
+  ) {
+    return result
+  }
+
+  return {
+    data: result,
+    meta: directSectionFallback(sectionId, window),
+  }
+}
+
+function invokeSectionRequest<
+  TResponse,
+  TRequest extends Record<string, unknown>,
+>(
+  command: string,
+  request: TRequest,
+  sectionId: string,
+  window: CoreIntelligenceSectionWindow,
+) {
+  return call<CoreIntelligenceSectionResult<TResponse> | TResponse>(command, {
+    request,
+  }).then((result) => normalizeSectionResult(sectionId, window, result))
+}
+
+function invokeSectionArgs<TResponse>(
+  command: string,
+  args: Record<string, unknown>,
+  sectionId: string,
+  window: CoreIntelligenceSectionWindow,
+) {
+  return call<CoreIntelligenceSectionResult<TResponse> | TResponse>(
+    command,
+    args,
+  ).then((result) => normalizeSectionResult(sectionId, window, result))
+}
+
 // ---------------------------------------------------------------------------
 // Rebuild control
 // ---------------------------------------------------------------------------
@@ -93,13 +166,21 @@ export function getDigestSummary(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     DigestSummary,
     { dateRange: DateRange; profileId?: string | null }
-  >('get_digest_summary', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_digest_summary',
+    {
+      dateRange,
+      profileId,
+    },
+    'digest-summary',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +188,15 @@ export function getDigestSummary(
 // ---------------------------------------------------------------------------
 
 export function getOnThisDay(profileId?: string | null) {
-  return call<OnThisDayEntry[]>('get_on_this_day', { profileId })
+  return invokeSectionArgs<OnThisDayEntry[]>(
+    'get_on_this_day',
+    { profileId },
+    'on-this-day',
+    {
+      kind: 'calendar-day-history',
+      referenceDate: formatLocalDateKey(new Date()),
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +209,7 @@ export function getTopSites(
   sortBy?: string,
   limit?: number,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     TopSite[],
     {
       dateRange: DateRange
@@ -128,12 +217,20 @@ export function getTopSites(
       sortBy?: string
       limit?: number
     }
-  >('get_top_sites', {
-    dateRange,
-    profileId,
-    sortBy,
-    limit,
-  })
+  >(
+    'get_top_sites',
+    {
+      dateRange,
+      profileId,
+      sortBy,
+      limit,
+    },
+    'top-sites',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 export function getDomainTrend(domain: string, dateRange: DateRange) {
@@ -154,16 +251,24 @@ export function getSearchEngineRanking(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     EngineRanking[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_search_engine_ranking', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_search_engine_ranking',
+    {
+      dateRange,
+      profileId,
+    },
+    'search-activity',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 export function getTopSearchConcepts(
@@ -171,18 +276,26 @@ export function getTopSearchConcepts(
   profileId?: string | null,
   limit?: number,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     SearchConcept[],
     {
       dateRange: DateRange
       profileId?: string | null
       limit?: number
     }
-  >('get_top_search_concepts', {
-    dateRange,
-    profileId,
-    limit,
-  })
+  >(
+    'get_top_search_concepts',
+    {
+      dateRange,
+      profileId,
+      limit,
+    },
+    'search-activity',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 export function getQueryFamilies(
@@ -190,7 +303,7 @@ export function getQueryFamilies(
   profileId?: string | null,
   pagination?: PaginationParams,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     QueryFamilyResult,
     {
       dateRange: DateRange
@@ -198,12 +311,20 @@ export function getQueryFamilies(
       page: number
       pageSize: number
     }
-  >('get_query_families', {
-    dateRange,
-    profileId,
-    page: pagination?.page ?? 0,
-    pageSize: pagination?.pageSize ?? 20,
-  })
+  >(
+    'get_query_families',
+    {
+      dateRange,
+      profileId,
+      page: pagination?.page ?? 0,
+      pageSize: pagination?.pageSize ?? 20,
+    },
+    'search-activity',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -215,18 +336,26 @@ export function getRefindPages(
   profileId?: string | null,
   limit?: number,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     RefindPage[],
     {
       dateRange: DateRange
       profileId?: string | null
       limit?: number
     }
-  >('get_refind_pages', {
-    dateRange,
-    profileId,
-    limit,
-  })
+  >(
+    'get_refind_pages',
+    {
+      dateRange,
+      profileId,
+      limit,
+    },
+    'refind-pages',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 export function explainRefind(canonicalUrl: string) {
@@ -244,23 +373,39 @@ export function getHabitPatterns(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     HabitPattern[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_habit_patterns', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_habit_patterns',
+    {
+      dateRange,
+      profileId,
+    },
+    'habits',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 export function getInterruptedHabits(profileId?: string | null) {
-  return invokeRequest<InterruptedHabit[], { profileId?: string | null }>(
+  return invokeSectionRequest<
+    InterruptedHabit[],
+    { profileId?: string | null }
+  >(
     'get_interrupted_habits',
     {
       profileId,
+    },
+    'habits',
+    {
+      kind: 'date-range',
+      dateRange: { start: '', end: '' },
     },
   )
 }
@@ -362,18 +507,26 @@ export function getDomainDeepDive(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     DomainDeepDive,
     {
       registrableDomain: string
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_domain_deep_dive', {
-    registrableDomain: domain,
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_domain_deep_dive',
+    {
+      registrableDomain: domain,
+      dateRange,
+      profileId,
+    },
+    'domain-deep-dive',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -384,16 +537,24 @@ export function getStableSources(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     StableSource[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_stable_sources', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_stable_sources',
+    {
+      dateRange,
+      profileId,
+    },
+    'stable-sources',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -405,18 +566,26 @@ export function getSearchEffectiveness(
   profileId?: string | null,
   engine?: string,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     SearchEffectiveness,
     {
       dateRange: DateRange
       profileId?: string | null
       engine?: string
     }
-  >('get_search_effectiveness', {
-    dateRange,
-    profileId,
-    engine,
-  })
+  >(
+    'get_search_effectiveness',
+    {
+      dateRange,
+      profileId,
+      engine,
+    },
+    'search-effectiveness',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -427,16 +596,24 @@ export function getFrictionSignals(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     FrictionSignal[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_friction_signals', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_friction_signals',
+    {
+      dateRange,
+      profileId,
+    },
+    'friction-signals',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -447,16 +624,24 @@ export function getReopenedInvestigations(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     ReopenedInvestigation[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_reopened_investigations', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_reopened_investigations',
+    {
+      dateRange,
+      profileId,
+    },
+    'reopened-investigations',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -468,18 +653,26 @@ export function getBrowsingRhythm(
   profileId?: string | null,
   category?: string,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     RhythmHeatmap,
     {
       dateRange: DateRange
       profileId?: string | null
       category?: string
     }
-  >('get_browsing_rhythm', {
-    dateRange,
-    profileId,
-    category,
-  })
+  >(
+    'get_browsing_rhythm',
+    {
+      dateRange,
+      profileId,
+      category,
+    },
+    'browsing-rhythm',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -491,18 +684,26 @@ export function getDiscoveryTrend(
   profileId?: string | null,
   granularity?: string,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     DiscoveryTrend,
     {
       dateRange: DateRange
       profileId?: string | null
       granularity?: string
     }
-  >('get_discovery_trend', {
-    dateRange,
-    profileId,
-    granularity,
-  })
+  >(
+    'get_discovery_trend',
+    {
+      dateRange,
+      profileId,
+      granularity,
+    },
+    'discovery-trend',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -513,16 +714,24 @@ export function getActivityMix(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     ActivityMix,
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_activity_mix', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_activity_mix',
+    {
+      dateRange,
+      profileId,
+    },
+    'activity-mix',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 export function getActivityMixTrend(
@@ -552,16 +761,24 @@ export function getBreadthIndex(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     BreadthIndex,
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_breadth_index', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_breadth_index',
+    {
+      dateRange,
+      profileId,
+    },
+    'breadth-index',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -574,7 +791,7 @@ export function getPathFlows(
   stepCount?: number,
   limit?: number,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     PathFlow[],
     {
       dateRange: DateRange
@@ -582,12 +799,20 @@ export function getPathFlows(
       stepCount?: number
       limit?: number
     }
-  >('get_path_flows', {
-    dateRange,
-    profileId,
-    stepCount,
-    limit,
-  })
+  >(
+    'get_path_flows',
+    {
+      dateRange,
+      profileId,
+      stepCount,
+      limit,
+    },
+    'path-flows',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -598,16 +823,24 @@ export function getCompareSets(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     CompareSet[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_compare_sets', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_compare_sets',
+    {
+      dateRange,
+      profileId,
+    },
+    'compare-sets',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -615,9 +848,14 @@ export function getCompareSets(
 // ---------------------------------------------------------------------------
 
 export function getMultiBrowserDiff(dateRange: DateRange) {
-  return invokeRequest<BrowserDiff, { dateRange: DateRange }>(
+  return invokeSectionRequest<BrowserDiff, { dateRange: DateRange }>(
     'get_multi_browser_diff',
     { dateRange },
+    'multi-browser-diff',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
   )
 }
 
@@ -629,16 +867,24 @@ export function getObservedInteractions(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
-  return invokeRequest<
+  return invokeSectionRequest<
     ObservedInteraction[],
     {
       dateRange: DateRange
       profileId?: string | null
     }
-  >('get_observed_interactions', {
-    dateRange,
-    profileId,
-  })
+  >(
+    'get_observed_interactions',
+    {
+      dateRange,
+      profileId,
+    },
+    'observed-interactions',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------

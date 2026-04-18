@@ -91,6 +91,11 @@ export function IntelligencePage() {
         dateRange={dateRange}
         domainHref={domainHref}
         profileId={effectiveProfileId}
+        scopeLabel={
+          effectiveProfileId
+            ? (profileScopeLabel ?? effectiveProfileId)
+            : t('archiveWideBadge')
+        }
         t={t}
       />
     </div>
