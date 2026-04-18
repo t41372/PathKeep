@@ -38,7 +38,7 @@
 
 > 2026-04-17 priority note：Core Intelligence reset 的後續工作已經不適合再靠 pre-reset M3/M4/M5 文檔或舊 `WORK-QC-*` 名稱猜進度。若使用者明確要求「繼續前端」或「繼續後端」的 Core Intelligence 工作，先讀 `docs/plan/core-intelligence-progress.md` 與 `docs/plan/core-intelligence-handoff.md`，再選對應的 `WORK-CI-*` block。
 
-- [ ] **WORK-CI-C** — Core Intelligence Legacy Cleanup And Long-Horizon Signoff
+- [x] **WORK-CI-C** — Core Intelligence Legacy Cleanup And Long-Horizon Signoff
   - 讀先：
     `docs/plan/core-intelligence-progress.md`
     `docs/plan/core-intelligence-handoff.md`
@@ -47,6 +47,8 @@
   - 目標：在 `WORK-CI-B` 已完成之後，把 remaining legacy `vault-core::insights` 責任、`14.4M+` / longer-horizon benchmark、額外 runtime complexity / resume strategy，以及 backend finish-line 收口後仍殘留的長期 signoff scope 收口成 accepted truth。
   - 契約：所有刪舊與性能收口都要以 current Core Intelligence contract 為中心，不可再為 legacy snapshot-first path 補 compatibility 層。
   - 驗收：source docs、benchmark artifact、cleanup diff、以及對應 quality / manual recipe 都存在。
+
+> 2026-04-18 closeout：`WORK-CI-C` 已完成。current-host `14.4M / 60y` signoff 與 expired-lease recovery artifact 已落在 `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/`；legacy `vault-core::insights` 也已正式退場。`BACKLOG.md` 目前沒有新的未阻塞 block，因此 `STATUS.md` 暫無新的 active current-focus 項目。
 
 ---
 

@@ -1,8 +1,8 @@
 # Core Intelligence Handoff
 
-> **Date:** 2026-04-17  
+> **Date:** 2026-04-18
 > **Audience:** frontend implementer, next backend implementer  
-> **Status:** current handoff after the 2026-04-17 progress audit
+> **Status:** current handoff after `WORK-CI-C` closeout
 
 ---
 
@@ -39,12 +39,13 @@ That means:
 
 What is **not** done, plus the latest backend truth:
 
-- legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
+- legacy `vault-core::insights` has been deleted from the repo; readable-content helpers and queued enrichment ownership now live under `enrichment` / `intelligence`, and new code must not reintroduce snapshot-era contracts
 - external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend payload providers now back a manual Settings consumer surface, but not a full host/runtime integration
-- 2026-04-17 contract follow-up note: app snapshot / worker runtime readiness now treat `intelligenceStatus` / `IntelligenceStatus` as the canonical naming, and `src/lib/core-intelligence/{types,api}.ts` now include typed payload-provider wrappers for embed / widget / public snapshot commands. This still does **not** mean CI-H is done; it only means the draft IPC contract is no longer missing.
+- 2026-04-18 contract follow-up note: app snapshot / worker runtime readiness now treat `intelligenceStatus` / `IntelligenceStatus` as the only accepted naming; the repo no longer ships `insightStatus` / `InsightStatus` aliases. `src/lib/core-intelligence/{types,api}.ts` still include typed payload-provider wrappers for embed / widget / public snapshot commands, but this does **not** mean deeper host integration is done.
 - 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
 - 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
-- `PG-RD-AI-011` and `WORK-CI-B` are now closed. If we later want `14.4M+`, alternate-host queue-recovery RSS, or broader backend cleanup, that belongs to `WORK-CI-C`, not this finish-line blocker
+- 2026-04-18 long-horizon signoff note: `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/{full-14_4m-60y-signoff,expired-lease-recovery-14_4m-signoff}.json` now close the current-host `14.4M / 60y` envelope. Full replay measured about `4,758,160 ms` baseline rebuild / `8,969 ms` query surfaces / `1.74 GiB` peak RSS; expired-lease replay measured about `2,013 ms` query surfaces / `598.6 MiB` peak RSS while recovering the queued lease and leaving the cancelled lease untouched.
+- `PG-RD-AI-011`, `WORK-CI-B`, and `WORK-CI-C` are now closed. If we later want alternate-host evidence, that should be a **new** backlog item rather than reopening this cleanup block.
 
 ---
 
@@ -222,26 +223,17 @@ The backend already delivers:
 
 ### What Is Still Left
 
-There are **three kinds** of remaining backend work.
+There are **two kinds** of future backend work.
 
-#### 1. Finish the remaining real backend scope
+#### 1. New backlog items, not `WORK-CI-C`
 
-The next backend owner is **not** starting from P1/P2 anymore. The current remaining scope is:
+The next backend owner is **not** starting from P1/P2 anymore. `WORK-CI-C` is closed, so any continuation should be framed as a fresh block such as:
 
-- `WORK-CI-C` residual long-horizon signoff, such as `14.4M+` or alternate-host queue-recovery RSS evidence
+- alternate-host long-horizon / queue-recovery evidence
 - any remaining P4 host/service integrations beyond the new payload-provider commands
-- latest truth detail: synthetic `10M` / queue-recovery evidence and the disposable encrypted real replay now both exist, so further backend work is residual follow-up rather than finish-line unblock work.
+- future performance / operational refinement that is explicitly reopened by docs first, rather than inferred from historical finish-line notes
 
-#### 2. Finish the cutover cleanup
-
-The reset is working, but there is still technical cleanup to do:
-
-- remove or reduce remaining legacy `vault-core::insights` implementation code
-- keep only the parts still genuinely needed for enrichment/readable-content support
-- continue moving shared readable-content helpers toward `enrichment` instead of leaving them in `insights`
-- decide whether the staged queue should become more incremental than the current “stage-specific tables, mostly profile-scoped recompute” implementation
-
-#### 3. Do not mistake local WIP for completed scope
+#### 2. Do not mistake archive notes for living scope
 
 This handoff assumes the repo truth is whatever is actually committed plus the source docs in this folder. Do not invent extra “probably-finished” intelligence scope beyond what the committed tree and updated docs can prove.
 

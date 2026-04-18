@@ -25,6 +25,8 @@
 > **2026-04-15 closeout note**：`WORK-QC-T` 已完成。deterministic product contract 已從 legacy Insights snapshot hard-cut 到 Core Intelligence baseline；`core-intelligence-ultimate-design.md` 現在是 accepted source of truth，`/intelligence` 與新的 Tauri/worker query surface 取代舊 `run_insights_now` / `load_insights` / `explain_insight` 主路徑。
 >
 > **2026-04-17 continuation note**：Core Intelligence 的實際完成度已經超過最初的 P1/P2 口頭分工；若要讓 fresh agent 續接 frontend/backend 工作，請先讀 [core-intelligence-progress.md](core-intelligence-progress.md) 與 [core-intelligence-handoff.md](core-intelligence-handoff.md)，不要只靠 pre-reset `m5-deterministic-intelligence/` 文檔猜目前狀態。
+>
+> **2026-04-18 closeout note**：`WORK-CI-C` 已完成。repo 現在只接受 registry-backed Core Intelligence module ids、canonical table names、runtime reports 與 benchmark evidence；`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/` 已補齊 current-host `14.4M / 60y` full replay 與 expired-lease recovery artifact。若未來還要補 `alternate-host` evidence，必須新增 backlog item，而不是把這個 block 留半開。
 
 ---
 
@@ -70,7 +72,7 @@
 - 前端入口 [`src/main.tsx`](../../src/main.tsx) 已切到 [`src/app/index.tsx`](../../src/app/index.tsx)；`AppNew` 與舊 `App.css` 已退場。
 - 新 shell / route tree / sidebar / topbar / page skeleton 已建立，入口資訊架構已對齊新 prototype，而不是舊 setup-first shell。
 - [`src/lib/backend.ts`](../../src/lib/backend.ts) 仍帶有 legacy / compatibility 成分，但正式 typed IPC wrapper 已移到 [`src/lib/ipc/bridge.ts`](../../src/lib/ipc/bridge.ts)，preview data 也已從主 bridge 分離。
-- Rust 端的大部分複雜度仍集中在幾個巨檔裡：[`src-tauri/crates/vault-core/src/archive/mod.rs`](../../src-tauri/crates/vault-core/src/archive/mod.rs)、[`src-tauri/crates/vault-core/src/chrome.rs`](../../src-tauri/crates/vault-core/src/chrome.rs)、[`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)、[`src-tauri/crates/vault-core/src/insights.rs`](../../src-tauri/crates/vault-core/src/insights.rs)、[`src-tauri/crates/vault-worker/src/lib.rs`](../../src-tauri/crates/vault-worker/src/lib.rs)。
+- Rust 端目前的主要複雜度集中在幾個 archive / intelligence 主檔裡：[`src-tauri/crates/vault-core/src/archive/mod.rs`](../../src-tauri/crates/vault-core/src/archive/mod.rs)、[`src-tauri/crates/vault-core/src/intelligence/mod.rs`](../../src-tauri/crates/vault-core/src/intelligence/mod.rs)、[`src-tauri/crates/vault-core/src/intelligence_runtime.rs`](../../src-tauri/crates/vault-core/src/intelligence_runtime.rs)、[`src-tauri/crates/vault-core/src/ai.rs`](../../src-tauri/crates/vault-core/src/ai.rs)。`chrome.rs`、`vault-worker/src/lib.rs` 與 legacy `insights.rs` 已不再是同級 hotspot truth。
 - canonical archive 已有正式 migration ledger 與 schema foundation；M1 的主題不再是「先把 schema 生出來」，而是接上可信 archive engine。
 - PathKeep 命名已完成 public / build metadata sweep；剩餘舊名字串只應存在於 explicit legacy alias 或 migration 註記。
 - 設計師的 prototype 現在已經落成 production shell 的 token、layout 與 smoke target；prototype gap list、deep-link 與 non-prototype state coverage 也已回寫成 source docs，剩餘的全站 accessibility / release polish 留在 M4。
