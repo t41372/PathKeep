@@ -110,9 +110,9 @@
   - crate-internal legacy `vault-core::insights` tree 已刪除；queued enrichment / readable-content helper 現在都歸 `enrichment` / `intelligence`
   - repo 只保留 registry-backed module ids、canonical derived-table names、以及 grouped clear-state counts；snapshot-era `Insight*` transport、legacy module-id alias 與 transitional `insight_status` wrapper 都已退場
   - [`../../artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/`](../../artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/) 現在補齊 `full-14_4m-60y-signoff.json` 與 `expired-lease-recovery-14_4m-signoff.json`：full current-host replay 驗到 `14,400,000` visits、baseline rebuild 約 `4,758,160 ms`、query surfaces 約 `8,969 ms`、peak RSS 約 `1.74 GiB`；expired-lease recovery replay 以同一 durable root 驗到 `--skip-baseline-rebuild`、query surfaces 約 `2,013 ms`、peak RSS 約 `598.6 MiB`
-  - 當前 accepted truth 是：`WORK-CI-B`、`PG-RD-AI-011`、`WORK-CI-C` 都已完成；若之後還要追 alternate-host evidence，必須新增 backlog item，而不是再把這個 block 留半開
+  - 當前 accepted truth 是：`WORK-CI-B`、`PG-RD-AI-011`、`WORK-CI-C` 都已完成；current-host `14.4M / 60y` signoff 就是目前 stop point，如需補第二台主機 benchmark parity，必須重新立項，而不是視為預設待辦
 
-> **2026-04-18 truth note:** incremental foundation、structural aggregate batching、`visit-derive` / `daily-rollup` full-fallback chunking、corrected synthetic `2k / 1m / 10m / queue-recovery` evidence、disposable encrypted app-root real replay、以及 current-host `14.4M / 60y` signoff / expired-lease recovery artifact 都已落地。`WORK-CI-B`、`PG-RD-AI-011`、`WORK-CI-C` 現在都已完成；alternate-host evidence 明確 deferred，若之後要做必須開新的 backlog item。
+> **2026-04-18 truth note:** incremental foundation、structural aggregate batching、`visit-derive` / `daily-rollup` full-fallback chunking、corrected synthetic `2k / 1m / 10m / queue-recovery` evidence、disposable encrypted app-root real replay、以及 current-host `14.4M / 60y` signoff / expired-lease recovery artifact 都已落地。`WORK-CI-B`、`PG-RD-AI-011`、`WORK-CI-C` 現在都已完成；第二台主機 benchmark parity 目前不在當前計劃內，若之後要補必須重新立項。
 
 ---
 
@@ -127,7 +127,7 @@
 | Advanced deterministic analysis                     | P3-1 ~ P4-2               | `Done`    | `Done`                             | [`../../src-tauri/crates/vault-core/src/intelligence/phase_three.rs`](../../src-tauri/crates/vault-core/src/intelligence/phase_three.rs), [`phase_four.rs`](../../src-tauri/crates/vault-core/src/intelligence/phase_four.rs), `Breadth/Habits/PathFlows/CompareSets/MultiBrowserDiff/ObservedInteractions` sections, plus the route/copy truth pass in [`../../src/pages/intelligence/index.tsx`](../../src/pages/intelligence/index.tsx) / [`../../src/pages/intelligence/sections.tsx`](../../src/pages/intelligence/sections.tsx)                                                                                                                                                                                                                                                                        | 主產品 finish-line truth 已收口；剩 capability-gated content 與互動 polish 只算 follow-up，不再是 blocker        |
 | Runtime controls / explainability                   | P1-10 + runtime follow-up | `Done`    | `Done`                             | [`../../src/components/intelligence/explainability-panel.tsx`](../../src/components/intelligence/explainability-panel.tsx), Jobs / Settings runtime actions, `explain_entity`, the compact [`runtime-digest.tsx`](../../src/pages/intelligence/runtime-digest.tsx) surface, and the shared section evidence / freshness drawer now used by [`sections.tsx`](../../src/pages/intelligence/sections.tsx) / [`domain-deep-dive.tsx`](../../src/pages/intelligence/domain-deep-dive.tsx)                                                                                                                                                                                                                                                                                                                         | 只剩 copy iteration，不再有 route/test drift                                                                     |
 | External output payload providers                   | P4-3 backend subset       | `Partial` | `Manual + browser-snippet-v1 done` | `get_intelligence_embed_cards`, `get_intelligence_widget_snapshot`, `get_intelligence_public_snapshot`, `preview_intelligence_local_host`, `build_intelligence_local_host` 現在都已接進 backend / TS / desktop contract；Settings 不只保留 manual review / copy-export，也可 preview / build / verify `browser-snippet-v1` 的 trusted local artifact，並沿用 shared-scope、local time-range、trusted-only / public-redacted honesty                                                                                                                                                                                                                                                                                                                                                                          | 還沒做 OS widget / localhost host / public API / 其他 alternate hosts                                            |
-| Large-archive proof / incremental runtime / cleanup | cross-phase closeout      | `Done`    | `N/A`                              | [`program/research-and-decisions.md`](program/research-and-decisions.md) `PG-RD-AI-011`, `core_intelligence_stage_checkpoints`, structural tail streaming, structural aggregate batch scan, chunked `visit-derive` / `daily-rollup` fallback, [`artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/`](../../artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/), [`artifacts/benchmarks/2026-04-17-intelligence-finish-line/`](../../artifacts/benchmarks/2026-04-17-intelligence-finish-line/), [`artifacts/benchmarks/2026-04-17-intelligence-signoff/`](../../artifacts/benchmarks/2026-04-17-intelligence-signoff/), [`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/`](../../artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/) | backend finish-line truth 與 `14.4M / 60y` closeout 已完成；若未來還要追 alternate-host evidence，必須另開 block |
+| Large-archive proof / incremental runtime / cleanup | cross-phase closeout      | `Done`    | `N/A`                              | [`program/research-and-decisions.md`](program/research-and-decisions.md) `PG-RD-AI-011`, `core_intelligence_stage_checkpoints`, structural tail streaming, structural aggregate batch scan, chunked `visit-derive` / `daily-rollup` fallback, [`artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/`](../../artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/), [`artifacts/benchmarks/2026-04-17-intelligence-finish-line/`](../../artifacts/benchmarks/2026-04-17-intelligence-finish-line/), [`artifacts/benchmarks/2026-04-17-intelligence-signoff/`](../../artifacts/benchmarks/2026-04-17-intelligence-signoff/), [`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/`](../../artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/) | backend finish-line truth 與 `14.4M / 60y` closeout 已完成；目前 stop point 就停在 current-host signoff，如需補第二台主機 parity 必須重新立項 |
 
 ---
 
@@ -139,9 +139,9 @@
    - legacy `vault-core::insights` tree、snapshot-era `Insight*` transport、legacy module-id alias 與 transitional `insight_status` wrapper 都已退場。
    - current-host `14.4M / 60y` full replay 與 expired-lease recovery replay 都已落在 `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/`。
 2. **如果未來再開 backend continuation，請當成新 block**
-   - `alternate-host` evidence
    - payload-provider 之外的 host/service integration
    - 任何新的 performance / operational refinement，只要它不再是這次 closeout 的必要條件
+   - 若有人想補第二台主機 benchmark parity，也必須重新立項，不視為目前的 residual work
 
 ### Frontend remaining
 
@@ -174,11 +174,12 @@
 2. 這份文件
 3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
 
-然後直接從這三條 residual work 挑第一個還值得做的 backend follow-up：
+然後直接從這兩條 residual work 挑第一個還值得做的 backend follow-up：
 
-1. 如果使用者明確想補 `alternate-host` evidence，就先新增新的 backlog item，不要重開已完成的 `WORK-CI-C`
-2. payload-provider 之外的 host/service backend follow-up
-3. 任何新的 runtime / perf refinement，都先確認它是新的 scope，不是已完成 closeout 的殘件
+1. payload-provider 之外的 host/service backend follow-up
+2. 任何新的 runtime / perf refinement，都先確認它是新的 scope，不是已完成 closeout 的殘件
+
+若使用者之後想補第二台主機 benchmark parity，先把它當成新的 scope 重新立項，不要把它當成已排隊的 residual work。
 
 ### 如果使用者說「繼續前端」
 

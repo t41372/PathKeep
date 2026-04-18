@@ -38,4 +38,4 @@
 ### 2026-04-18 closeout note
 
 - `WORK-M5-C` 現在已把 `/intelligence` 與 `/intelligence/domain/:domain` 的 shared evidence / freshness drawer 補成 shipping truth：section responses 會帶 `generatedAt`、scope/window、module ownership、source tables、enrichment flag、以及 stale / disabled / degraded reason，mutation controls 仍留在 Settings / Jobs。
-- M5 的 runtime / evidence baseline 現在可以視為 closeout 完成；後續若要繼續做 external host integration、alternate-host benchmark parity、或更深的 deterministic module expansion，必須開新的 follow-up block，而不是再把 M5 留半開。
+- M5 的 runtime / evidence baseline 現在可以視為 closeout 完成；後續若要繼續做 external host integration、或更深的 deterministic module expansion，必須開新的 follow-up block，而不是再把 M5 留半開。第二台主機 benchmark parity 不在當前計劃內，如要補證據需重新立項。

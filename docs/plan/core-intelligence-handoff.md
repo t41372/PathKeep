@@ -47,7 +47,7 @@ What is **not** done, plus the latest backend truth:
 - 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
 - 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
 - 2026-04-18 long-horizon signoff note: `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/{full-14_4m-60y-signoff,expired-lease-recovery-14_4m-signoff}.json` now close the current-host `14.4M / 60y` envelope. Full replay measured about `4,758,160 ms` baseline rebuild / `8,969 ms` query surfaces / `1.74 GiB` peak RSS; expired-lease replay measured about `2,013 ms` query surfaces / `598.6 MiB` peak RSS while recovering the queued lease and leaving the cancelled lease untouched.
-- `PG-RD-AI-011`, `WORK-CI-B`, and `WORK-CI-C` are now closed. If we later want alternate-host evidence, that should be a **new** backlog item rather than reopening this cleanup block.
+- `PG-RD-AI-011`, `WORK-CI-B`, and `WORK-CI-C` are now closed. If we later want second-machine benchmark parity, that should be an explicitly re-scoped follow-up rather than a queued continuation of this cleanup block.
 
 ---
 
@@ -237,9 +237,10 @@ There are **two kinds** of future backend work.
 
 The next backend owner is **not** starting from P1/P2 anymore. `WORK-CI-C` is closed, so any continuation should be framed as a fresh block such as:
 
-- alternate-host long-horizon / queue-recovery evidence
 - any remaining P4 host/service integrations beyond the current payload-provider commands plus `browser-snippet-v1`
 - future performance / operational refinement that is explicitly reopened by docs first, rather than inferred from historical finish-line notes
+
+Second-machine benchmark parity is **not** part of the current residual scope. Only reopen it if a future request explicitly re-scopes validation beyond the current-host signoff.
 
 #### 2. Do not mistake archive notes for living scope
 

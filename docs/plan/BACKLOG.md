@@ -7,7 +7,7 @@
 
 ## 工作塊佇列（按順序）
 
-> 2026-04-18 update：`WORK-CI-J` 已上移到 `STATUS.md`。目前沒有其他排隊中的未阻塞 work block。
+> 2026-04-18 update：使用者已明確把第二台主機 benchmark parity 從當前計劃移除。目前沒有排隊中的未阻塞 work block。
 
 ---
 
@@ -21,7 +21,6 @@ WORK-QC-T → WORK-CI-B / WORK-CI-F
 WORK-CI-F → WORK-CI-H
 WORK-CI-B → WORK-CI-C
 WORK-CI-H → WORK-CI-I
-WORK-CI-C → WORK-CI-J
 ```
 
 ---
