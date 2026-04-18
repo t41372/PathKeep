@@ -1,0 +1,82 @@
+{
+  "baselineRebuildSkipped": true,
+  "baselineReport": null,
+  "corpus": {
+    "archiveBytes": 5555875840,
+    "intelligenceBytes": 6413246464,
+    "maxTitleChars": 13,
+    "maxUrlChars": 52,
+    "maxVisitTimeMs": 1776477391754,
+    "minVisitTimeMs": -115596088246,
+    "profileCount": 4,
+    "searchTermCount": 1666667,
+    "titleCharTotal": 95368209,
+    "urlCharTotal": 423105774,
+    "visitCount": 10000000,
+    "windowDays": 365
+  },
+  "followUp": {
+    "memory": {
+      "peakRssBytes": 627441664,
+      "peakRssMiB": 598.375
+    },
+    "recoveredJobs": [
+      {
+        "cancellationReason": "cancelled from UI",
+        "dedupeKey": "expired-lease-cancelled",
+        "lastError": null,
+        "state": "cancelled"
+      },
+      {
+        "cancellationReason": null,
+        "dedupeKey": "expired-lease-queued",
+        "lastError": "PathKeep recovered an expired intelligence lease.",
+        "state": "queued"
+      }
+    ],
+    "runtimeNotes": [],
+    "scenario": "expired-lease-recovery",
+    "timings": {
+      "runtimeRecoveryMs": 0
+    }
+  },
+  "memory": {
+    "afterQueries": {
+      "peakRssBytes": 627441664,
+      "peakRssMiB": 598.375
+    },
+    "baseline": {
+      "peakRssBytes": 627441664,
+      "peakRssMiB": 598.375
+    }
+  },
+  "replayCommand": "cargo run --release -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --scenario expired-lease-recovery --window-days 365 --app-root '/Users/tim/Library/Caches/pathkeep-benchmarks/10m-signoff' --skip-baseline-rebuild --output 'artifacts/benchmarks/2026-04-17-intelligence-signoff/expired-lease-recovery-10m-signoff.json'",
+  "scenario": "expired-lease-recovery",
+  "source": {
+    "appRoot": "/Users/tim/Library/Caches/pathkeep-benchmarks/10m-signoff",
+    "kind": "existing-archive"
+  },
+  "surfaces": {
+    "digest": {
+      "deepReadPages": 0,
+      "newDomains": 0,
+      "refindPages": 5220,
+      "totalSearches": 27360,
+      "totalVisits": 165889
+    },
+    "queryFamilies": 20,
+    "queryFamilyTotal": 26,
+    "refindPages": 10,
+    "searchTrailTotal": 27360,
+    "searchTrails": 20,
+    "sessionTotal": 8731,
+    "sessions": 20,
+    "topConcepts": 15,
+    "topSites": 3
+  },
+  "timings": {
+    "baselineRunCoreIntelligenceMs": 0,
+    "querySurfacesMs": 1237,
+    "stageMs": null
+  }
+}

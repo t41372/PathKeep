@@ -24,10 +24,10 @@
     `docs/plan/core-intelligence-handoff.md`
     `docs/plan/program/research-and-decisions.md`
     `docs/architecture/data-model.md`
-  - 目標：在主產品 cutover 穩定後，正式關掉 remaining legacy `vault-core::insights` 責任、完成 large-archive / low-RAM / queue-recovery signoff，並把後續 deterministic runtime complexity / resume strategy 收口成 accepted truth。
+  - 目標：在主產品 cutover 穩定後，正式關掉 remaining legacy `vault-core::insights` 責任，並把 `14.4M+` / longer-horizon benchmark、額外 runtime complexity / resume strategy、以及任何 CI-B 收口後仍殘留的長期 signoff scope 收口成 accepted truth。
   - 契約：所有刪舊與性能收口都要以 current Core Intelligence contract 為中心，不可再為 legacy snapshot-first path 補 compatibility 層。
   - 驗收：source docs、benchmark artifact、cleanup diff、以及對應 quality / manual recipe 都存在。
-  - [!blocked: 需先完成 `WORK-CI-B`，並把未提交的 runtime WIP 收口成可驗證事實]
+  - [!blocked: 需先完成 `WORK-CI-B`，並確認 large-host / real-replay 收口後仍有剩餘 legacy 或長期 signoff scope]
 
 ---
 
