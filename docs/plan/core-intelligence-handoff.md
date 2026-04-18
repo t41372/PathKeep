@@ -36,18 +36,14 @@ That means:
 - the frontend already ships more than the original P1/P2 delegation assumed: `/intelligence`, `/intelligence/domain/:domain`, Explorer session/trail grouping, navigation tracer, Jobs / Settings runtime controls, and most deterministic overview/detail sections already exist in-repo
 - `bun run check` and `bun run build` were green at handoff time
 
-What is **not** done:
+What is **not** done, plus the latest backend truth:
 
 - legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
 - external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend only ships data-provider payloads now
-- large-archive / low-RAM / queue-recovery signoff remains open under `PG-RD-AI-011`
-- 2026-04-17 follow-up: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints` and emit `executionMode` / `dirtyVisitCount` / `dirtyDateKeys` / `fallbackReason` runtime metadata; structural stage profile aggregates now batch-scan search events / derived visits instead of materializing whole-profile aggregate inputs; `visit-derive` / `daily-rollup` full-fallback paths are also chunked now instead of materializing a whole-profile `Vec`; benchmark artifacts record corpus stats, peak RSS, low-RAM fallback timings, and expired-lease recovery evidence. This is still a finish-line follow-up, not final 10M / low-RAM signoff
-- benchmark harness note: `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs` now supports disposable existing-archive replay via `--app-root` / `--session-key`, and `artifacts/benchmarks/2026-04-17-intelligence-finish-line/README.md` is the source of truth for the current synthetic/manual replay contract. On this host, the real app root is encrypted and no benchmark session key was available, so real-replay evidence is still missing
-- 2026-04-17 signoff attempt note: queued enrichment execution now lives in `enrichment.rs` instead of `insights.rs`, and the benchmark harness also supports `--persist-app-root` for reusable synthetic corpora. Large-host `10M / 60y` attempts first exposed `daily-rollup` full fallback, then structural `build_sessions`; the repo now contains SQLite-side daily-rollup aggregation, prepared `visit_derived_facts` persistence, no extra structural `tail_visits.clone()`, and one-pass session aggregate building. Those fixes materially improved the large-host shape, but release `10M` persisted-root attempts still did not emit a final JSON artifact after >30 minutes on this machine, and real-replay remains blocked by encrypted-archive key access. See `artifacts/benchmarks/2026-04-17-intelligence-signoff/README.md`.
-- 2026-04-17 post-streaming note: structural tail rebuild no longer materializes the whole tail into memory; it now streams batches, range-clears affected memberships, and rebuilds `source_effectiveness` from batched trail reads. The harness also supports `--skip-baseline-rebuild` for existing `--app-root` follow-up scenarios and refuses that flag unless the replay target already has a Core Intelligence read model. `full-1m-60y-post-streaming.json` now exists with about `383s` full rebuild / `403ms` query surfaces / `118 MiB` peak RSS. Release `10M / 60y` still failed to emit a final JSON artifact after >`31m`, but the process RSS stayed around `440 MiB`, so the active blocker has moved from structural memory blow-up to wall-clock completion plus missing real-archive session-key replay evidence.
 - 2026-04-17 contract follow-up note: app snapshot / worker runtime readiness now treat `intelligenceStatus` / `IntelligenceStatus` as the canonical naming, and `src/lib/core-intelligence/{types,api}.ts` now include typed payload-provider wrappers for embed / widget / public snapshot commands. This still does **not** mean CI-H is done; it only means the draft IPC contract is no longer missing.
-- 2026-04-17 synthetic-signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff}.json`. `stageTimingsMs` now sum across all profiles, not just the first profile. The durable `10m-signoff` root at `~/Library/Caches/pathkeep-benchmarks/10m-signoff` completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, with structural rebuild still dominating at about `1,579,679 ms`.
-- 2026-04-17 remaining blocker note: a disposable copy of the real encrypted app root now exists at `~/Library/Caches/pathkeep-benchmarks/real-replay-copy`. The only missing finish-line artifact is the session-key-backed real replay against that copy.
+- 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
+- 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
+- `PG-RD-AI-011` and `WORK-CI-B` are now closed. If we later want `14.4M+`, alternate-host queue-recovery RSS, or broader backend cleanup, that belongs to `WORK-CI-C`, not this finish-line blocker
 
 ---
 
@@ -230,11 +226,9 @@ There are **three kinds** of remaining backend work.
 
 The next backend owner is **not** starting from P1/P2 anymore. The current remaining scope is:
 
-- `PG-RD-AI-011` large-archive / low-RAM / queue-recovery signoff
-- larger-host queue-recovery RSS proof plus `10M / 14.4M` synthetic evidence
-- real-archive replay evidence from a disposable app-root copy with a valid session key
+- `WORK-CI-C` residual long-horizon signoff, such as `14.4M+` or alternate-host queue-recovery RSS evidence
 - any remaining P4 host/service integrations beyond the new payload-provider commands
-- latest blocker detail: synthetic `10M` / queue-recovery evidence now exists, and the old daily-rollup / structural RSS cliffs are no longer the blocker. The only finish-line blocker left is the missing session-key-backed real replay on the disposable encrypted app-root copy.
+- latest truth detail: synthetic `10M` / queue-recovery evidence and the disposable encrypted real replay now both exist, so further backend work is residual follow-up rather than finish-line unblock work.
 
 #### 2. Finish the cutover cleanup
 

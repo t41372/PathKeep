@@ -5,7 +5,7 @@
 - Work block: `WORK-CI-B`
 - Research item: `PG-RD-AI-011`
 - Host: primary macOS development machine (`18` CPU cores, `64 GiB` RAM, local workspace)
-- Purpose: turn the previous signoff attempts into replayable, final synthetic evidence for `WORK-CI-B`, then reduce the remaining blocker to the real encrypted-app-root replay only
+- Purpose: turn the previous signoff attempts into replayable, final synthetic plus real-replay evidence for `WORK-CI-B`
 
 ## Code changes exercised before these runs
 
@@ -134,26 +134,45 @@ Conclusion:
 - the durable `10m-signoff` root is now good enough to support follow-up replay without reseeding
 - expired-lease recovery behavior is no longer hypothetical benchmark plumbing; it now has a replayable `10M` artifact
 
-## Real-archive replay status
+## Real-archive replay on disposable encrypted copy
 
 The current real app root is encrypted:
 
 - `~/Library/Application Support/com.yi-ting.pathkeep/config.json` reports `"archiveMode": "Encrypted"`
-- the disposable replay target is already copied to `~/Library/Caches/pathkeep-benchmarks/real-replay-copy`
-- CLI keychain retrieval via `security find-generic-password -s com.yi-ting.pathkeep -a database-key -w` still does not return a usable key on this host
-- no user-supplied session key was available during this run
+- the replay ran against a disposable copy at `~/Library/Caches/pathkeep-benchmarks/real-replay-copy`
+- the session key for this run was user-supplied; the persisted artifact redacts it as `<redacted>` inside `replayCommand`
 
-So the real-archive replay slice is still blocked on one of:
+Command:
 
-1. the archive session key
-2. a local source for that key that can be used against the already-prepared disposable replay target
+```bash
+cargo run --release -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- \
+  --scenario full \
+  --window-days 365 \
+  --app-root "$HOME/Library/Caches/pathkeep-benchmarks/real-replay-copy" \
+  --session-key '<redacted>' \
+  --skip-baseline-rebuild \
+  --output artifacts/benchmarks/2026-04-17-intelligence-signoff/real-replay-signoff.json
+```
+
+Observed:
+
+- baseline rebuild skipped as intended
+- query surfaces: `373 ms`
+- peak RSS: about `44.1 MiB`
+- corpus: `64,603` visits, `1,457` search terms, archive about `168.5 MiB`, intelligence about `60.5 MiB`
+- surfaced rows: `449` sessions, `1,914` search trails, `10` top sites, `10` refind pages
+
+Conclusion:
+
+- the encrypted real-archive replay slice is now proven on a disposable copy instead of remaining a planning-only blocker
+- the stored artifact is safe to share in-repo because the command shape redacts the session key
 
 ## Current truth
 
-`PG-RD-AI-011` remains open.
+`PG-RD-AI-011` and `WORK-CI-B` are now closed.
 
-What changed today is the quality of the blocker:
+What remains after this artifact is residual work, not a finish-line blocker:
 
-- synthetic `2k / 1m / 10m / queue-recovery` evidence is now complete
-- corrected stage totals show that structural rebuild is the real remaining runtime heavyweight, not daily-rollup or the old RSS cliff
-- the only finish-line artifact still missing for `WORK-CI-B` is the session-key-backed real replay against the disposable encrypted app-root copy
+- `14.4M+` or alternate-host long-horizon evidence if we still want it
+- broader legacy `vault-core::insights` cleanup
+- actual embed / widget / public snapshot consumers, which belong to `WORK-CI-H`

@@ -1,0 +1,58 @@
+{
+  "baselineRebuildSkipped": true,
+  "baselineReport": null,
+  "corpus": {
+    "archiveBytes": 176668672,
+    "intelligenceBytes": 63385600,
+    "maxTitleChars": 2224,
+    "maxUrlChars": 158100,
+    "maxVisitTimeMs": 1776483874783,
+    "minVisitTimeMs": 1768707918208,
+    "profileCount": 1,
+    "searchTermCount": 1457,
+    "titleCharTotal": 1299282,
+    "urlCharTotal": 6699129,
+    "visitCount": 64603,
+    "windowDays": 365
+  },
+  "followUp": null,
+  "memory": {
+    "afterQueries": {
+      "peakRssBytes": 46235648,
+      "peakRssMiB": 44.09375
+    },
+    "baseline": {
+      "peakRssBytes": 46235648,
+      "peakRssMiB": 44.09375
+    }
+  },
+  "replayCommand": "cargo run --release -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --scenario full --window-days 365 --app-root '/Users/tim/Library/Caches/pathkeep-benchmarks/real-replay-copy' --session-key '<redacted>' --skip-baseline-rebuild --output 'artifacts/benchmarks/2026-04-17-intelligence-signoff/real-replay-signoff.json'",
+  "scenario": "full",
+  "source": {
+    "appRoot": "/Users/tim/Library/Caches/pathkeep-benchmarks/real-replay-copy",
+    "kind": "existing-archive"
+  },
+  "surfaces": {
+    "digest": {
+      "deepReadPages": 242,
+      "newDomains": 1005,
+      "refindPages": 2831,
+      "totalSearches": 1914,
+      "totalVisits": 64603
+    },
+    "queryFamilies": 20,
+    "queryFamilyTotal": 1071,
+    "refindPages": 10,
+    "searchTrailTotal": 1914,
+    "searchTrails": 20,
+    "sessionTotal": 449,
+    "sessions": 20,
+    "topConcepts": 15,
+    "topSites": 10
+  },
+  "timings": {
+    "baselineRunCoreIntelligenceMs": 0,
+    "querySurfacesMs": 373,
+    "stageMs": null
+  }
+}

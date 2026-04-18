@@ -38,24 +38,6 @@
 
 > 2026-04-17 priority note：Core Intelligence reset 的後續工作已經不適合再靠 pre-reset M3/M4/M5 文檔或舊 `WORK-QC-*` 名稱猜進度。若使用者明確要求「繼續前端」或「繼續後端」的 Core Intelligence 工作，先讀 `docs/plan/core-intelligence-progress.md` 與 `docs/plan/core-intelligence-handoff.md`，再選對應的 `WORK-CI-*` block。
 
-- [ ] **WORK-CI-B** — Core Intelligence Backend Finish Line
-  - 讀先：
-    `docs/features/core-intelligence-ultimate-design.md`
-    `docs/plan/core-intelligence-progress.md`
-    `docs/plan/core-intelligence-handoff.md`
-    `docs/plan/program/research-and-decisions.md`
-    `docs/architecture/data-model.md`
-    `docs/architecture/desktop-command-surface.md`
-  - 目標：在 `WORK-QC-T` 的 hard cutover 之後，把 backend 剩下的真正 finish-line scope 收口：large-archive / low-RAM / queue-recovery signoff、chunked incremental runtime / staged rebuild cleanup、legacy `vault-core::insights` 殘留責任整理，以及 P4 host-output payload provider 之後的 backend 真空地帶。
-  - 契約：不得回退到 legacy `load_insights` / `/insights` product contract；`visit_content_enrichments` 仍視為 optional AI / readable-text evidence plane，除非有替代方案與文檔同步；typed payload-provider wrapper 也不能被誤記成已完成 host integration。
-  - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib`、`bun run check`、`bun run build`，以及 `docs/plan/core-intelligence-progress.md` / handoff / source docs 同步回寫。
-  - 2026-04-17 progress：incremental foundation 已落地。Core Intelligence 現在有 per-profile `core_intelligence_stage_checkpoints`、append-only `visit-derive` / `daily-rollup` / `structural-rebuild`、runtime `executionMode / dirtyVisitCount / dirtyDateKeys / fallbackReason` metadata、`path_flows` 4-step contract，以及 `artifacts/benchmarks/2026-04-17-intelligence-incremental-foundation/` replayable evidence。
-  - 2026-04-17 follow-up：structural stage 的 profile-wide aggregates 現在改成 batch scan：query families 以 `search_events` batches 建構，refind/path-flow/habit 以 `visit_derived_facts` batches 聚合；`visit-derive` / `daily-rollup` 的 `fallback-full` 也已改成 chunked profile scan，不再先把整個 profile materialize 成單一 `Vec`。新的 `artifacts/benchmarks/2026-04-17-intelligence-finish-line/` 已補上 `100k / 60y` low-RAM fallback 與 expired-lease recovery evidence，並把 existing-archive replay contract 收斂到 `--app-root` / `--session-key`；但這台主機的真實 app root 目前是 encrypted archive、沒有 benchmark session key，所以 real-replay artifact 仍缺。剩餘 signoff 收斂到 `PG-RD-AI-011` 的 `10M / 14.4M`、larger-host queue recovery RSS、broader legacy cleanup 與 host integration。
-  - 2026-04-17 signoff attempt：live queued enrichment execution 已正式從 legacy `vault-core::insights` 移到 `enrichment.rs`；benchmark harness 也新增 `--persist-app-root`，讓 large synthetic corpora 可重放而不必每個 scenario 重 seed。這輪 `10M / 60y` finish-line 嘗試先暴露 `daily-rollup` full fallback，再暴露 structural `build_sessions` hot path；repo 已因此補上 SQLite-side daily rollup aggregation、prepared `visit_derived_facts` persistence、移除 structural `tail_visits.clone()`，以及 one-pass session aggregate build。這些修正明顯改善了 `10M` shape，但 release `10M` 嘗試在這台 `18-core / 64 GiB` 主機上超過 `30m` 仍未產出 final artifact，且 real-replay 仍卡在 encrypted archive session key。`WORK-CI-B` 因此保持 open；最新 evidence / attempt log 寫在 `artifacts/benchmarks/2026-04-17-intelligence-signoff/README.md`。
-  - 2026-04-17 post-streaming：structural tail rebuild 現在已改成 batch stream，不再把整段 tail materialize 成單一 `Vec`，range delete / `source_effectiveness` 也已收成 bounded path；`artifacts/benchmarks/2026-04-17-intelligence-signoff/full-1m-60y-post-streaming.json` 已驗到 `1M / 60y` debug full rebuild 約 `383s`、peak RSS 約 `118 MiB`。但 release `10M / 60y` persisted-root attempt 在超過 `31m` 時仍未產出 final JSON artifact；`ps` 看到的 RSS 約 `440 MiB`，顯示這輪真正收掉的是 structural RSS cliff，而不是 final wall-clock signoff。`WORK-CI-B` 仍保持 open。
-  - 2026-04-17 synthetic signoff：`artifacts/benchmarks/2026-04-17-intelligence-signoff/` 現在已有 corrected `full-2k-smoke-signoff.json`、`full-1m-60y-signoff.json`、`full-10m-60y-signoff.json`、`expired-lease-recovery-10m-signoff.json`。其中 `stageTimingsMs` 已改為跨 profile 累加，不再只反映單一 profile；`10M / 60y` rebuild-only replay 以 durable root `~/Library/Caches/pathkeep-benchmarks/10m-signoff` 成功跑完，baseline rebuild 約 `2,078,480 ms`、query surfaces 約 `1,250 ms`、structural stage 約 `1,579,679 ms`、peak RSS 約 `1.44 GiB`。這讓 synthetic large-host / queue-recovery truth 已經到位。
-  - 2026-04-17 remaining blocker：真實 app root 的 disposable copy 已準備在 `~/Library/Caches/pathkeep-benchmarks/real-replay-copy`，但 encrypted archive 的 session key 仍未取得，所以 `WORK-CI-B` 現在唯一還缺的 finish-line artifact 是 real-replay proof。若之後還要追 `14.4M` 或更長 horizon，應回收到 `WORK-CI-C` 當 residual work，而不是繼續阻塞這個 backend finish-line block。
-
 - [ ] **WORK-CI-F** — Core Intelligence Frontend Finish Line
   - 讀先：
     `docs/features/core-intelligence-ultimate-design.md`
