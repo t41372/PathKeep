@@ -38,16 +38,6 @@
 
 > 2026-04-17 priority note：Core Intelligence reset 的後續工作已經不適合再靠 pre-reset M3/M4/M5 文檔或舊 `WORK-QC-*` 名稱猜進度。若使用者明確要求「繼續前端」或「繼續後端」的 Core Intelligence 工作，先讀 `docs/plan/core-intelligence-progress.md` 與 `docs/plan/core-intelligence-handoff.md`，再選對應的 `WORK-CI-*` block。
 
-- [ ] **WORK-CI-H** — Core Intelligence External Output Consumers And Host Integrations
-  - 讀先：
-    `docs/features/core-intelligence-ultimate-design.md`
-    `docs/plan/core-intelligence-progress.md`
-    `docs/plan/core-intelligence-handoff.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：把目前只存在於 backend payload-provider commands 的 `embed/widget/public snapshot` surface，收斂成真正的 consumer / host integration contract，而不是停在「後端可回傳資料，但產品沒有地方用」。
-  - 契約：先保持 `/intelligence` 主產品 surface 與 runtime truth 穩定，再擴到 widget / snippet / public snapshot；不得把 payload provider 冒充成完整 external integration。
-  - 驗收：payload shape、consumer surface、權限 / honesty copy、source docs 與驗收路徑同步落地。
-
 - [ ] **WORK-CI-C** — Core Intelligence Legacy Cleanup And Long-Horizon Signoff
   - 讀先：
     `docs/plan/core-intelligence-progress.md`
@@ -79,5 +69,7 @@
 > 2026-04-12 intelligence recovery closeout：`WORK-QC-L` 已完成。Jobs / Insights 現在會用真實 queue / enrichment / deterministic runtime 誠實呈現 backlog、needs-review、content-fetch 失敗原因與 analysis snapshot，不再把 deferred work 誤報成整條功能失敗；browser-desktop-bridge truth gate 也已修補 multi-process fixture drift、cold-start cache 與 stale port 問題，`bun run test:e2e:desktop-bridge:truth` 在這台主機上已連續兩次跑綠，後續 hosted-runner platform-native truth 只保留在 manual workflow，不再燒每次 push / PR 的 mainline CI 分鐘。
 
 > 2026-04-14 source-evidence architecture closeout：使用者明確 sign off 後，`WORK-QC-S` 已完成。repo 現在以 [ADR-011](../architecture/decisions/011-source-evidence-archive-and-capability-contract.md) 與 `docs/dev/` guides 正式凍結多瀏覽器 schema / evidence 保存 contract；archive plane 進一步明確成 hot canonical + cold source-evidence split，`browser-history-parser` 會輸出 schema observation / capability snapshot / typed evidence / native entities，remote bundle 也已把 `archive/source-evidence.sqlite` 納入 restore-ready contract。
+
+> 2026-04-17 external output closeout：`WORK-CI-H` 已完成。Settings 現在正式承接 `embed cards`、`widget snapshot`、`public snapshot` 的 manual review / copy-export surface，會沿用 shared profile scope 與 local time window，並誠實標示 trusted-only / public-redacted 邊界；`/intelligence` 則改成指向 Settings 的 CTA，不再把 payload provider 誤包裝成完整 host integration。
 
 > 做完了？→ 把完成的 work block append 到 [CHANGELOG.md](CHANGELOG.md)，同步 source docs，然後再從 [BACKLOG.md](BACKLOG.md) 補下一個 block。

@@ -34,13 +34,13 @@ That means:
 - worker orchestration, Tauri commands, desktop bridge, runtime read model, and backup/import follow-up rebuild flow now point at Core Intelligence
 - the backend ships Phase 1 / Phase 2 query APIs **and** the planned deterministic Phase 3 / Phase 4 query APIs
 - the frontend already ships more than the original P1/P2 delegation assumed: `/intelligence`, `/intelligence/domain/:domain`, Explorer session/trail grouping, navigation tracer, Jobs / Settings runtime controls, and most deterministic overview/detail sections already exist in-repo
-- 2026-04-17 frontend finish-line follow-up: `/intelligence` now includes a compact runtime digest that matches Jobs / sidebar queue grammar, Dashboard CTAs and repo-wide browser-preview/product-flow tests now point at `/intelligence`, and the remaining external-output surface is explicitly marked deferred instead of pretending embed/widget/public consumers already exist
+- 2026-04-17 frontend finish-line follow-up: `/intelligence` now includes a compact runtime digest that matches Jobs / sidebar queue grammar, Dashboard CTAs and repo-wide browser-preview/product-flow tests now point at `/intelligence`, and the remaining external-output surface has moved into a manual Settings review/copy-export panel instead of pretending full host integrations already exist
 - `bun run check` and `bun run build` were green at handoff time
 
 What is **not** done, plus the latest backend truth:
 
 - legacy `vault-core::insights` code still exists in the repo for supporting enrichment-related paths and helper reuse, but it is now crate-internal rather than part of the accepted public backend contract
-- external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend only ships data-provider payloads now
+- external snippet / embed / widget host integrations from Phase 4 are still not delivered; the backend payload providers now back a manual Settings consumer surface, but not a full host/runtime integration
 - 2026-04-17 contract follow-up note: app snapshot / worker runtime readiness now treat `intelligenceStatus` / `IntelligenceStatus` as the canonical naming, and `src/lib/core-intelligence/{types,api}.ts` now include typed payload-provider wrappers for embed / widget / public snapshot commands. This still does **not** mean CI-H is done; it only means the draft IPC contract is no longer missing.
 - 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
 - 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
@@ -111,9 +111,9 @@ The backend command surface that is implemented and safe to wire now is:
 
 The command surface above is implemented, but the frontend should still assume:
 
-- P4 external snippet/embed hosts are not available yet; only backend payload providers are shipping
+- P4 external snippet/embed hosts are not available yet; PathKeep now ships a manual Settings review/copy-export consumer, not a reusable host integration
 - `observed interactions` is capability-gated and may legitimately return an empty list on archives without supported source evidence
-- if future work re-opens `embed/widget/public snapshot`, that belongs to `WORK-CI-H`; do not treat the deferred honesty copy on `/intelligence` as a complete host integration
+- if future work re-opens `embed/widget/public snapshot`, treat the current Settings panel as the manual baseline only; it is not a complete host integration
 
 ### Frontend Testing Note
 
