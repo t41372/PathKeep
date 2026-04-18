@@ -38,16 +38,25 @@
 
 > 2026-04-17 priority note：Core Intelligence reset 的後續工作已經不適合再靠 pre-reset M3/M4/M5 文檔或舊 `WORK-QC-*` 名稱猜進度。若使用者明確要求「繼續前端」或「繼續後端」的 Core Intelligence 工作，先讀 `docs/plan/core-intelligence-progress.md` 與 `docs/plan/core-intelligence-handoff.md`，再選對應的 `WORK-CI-*` block。
 
-- [ ] **WORK-CI-F** — Core Intelligence Frontend Finish Line
+- [ ] **WORK-CI-H** — Core Intelligence External Output Consumers And Host Integrations
   - 讀先：
     `docs/features/core-intelligence-ultimate-design.md`
     `docs/plan/core-intelligence-progress.md`
     `docs/plan/core-intelligence-handoff.md`
-    `docs/features/intelligence-current-state.md`
     `docs/design/screens-and-nav.md`
-  - 目標：把 `/intelligence`、`/intelligence/domain/:domain`、Explorer session / trail grouping、Jobs / Settings runtime review 與 remaining Core Intelligence UI 接成真正一致的 shipping surface，收掉 `/insights` 命名 / route / tests 漂移，並補完 external output payload consumer 的前台缺口或誠實標記 deferred。
-  - 契約：Core Intelligence 的正式 route name 是 `/intelligence`；shared scope / page scope / time-range query contract 必須在 Dashboard、Explorer、Intelligence、Domain Deep Dive 間保持一致；任何 user-visible copy 都要用 Core Intelligence vocabulary，而不是把 legacy Insights 字樣又帶回主產品。
-  - 驗收：source docs、route/copy/tests/manual truth pass 一起更新，`bun run check && bun run build` 維持通過，並把完成 / 未完成邊界回寫到 `docs/plan/core-intelligence-progress.md`。
+  - 目標：把目前只存在於 backend payload-provider commands 的 `embed/widget/public snapshot` surface，收斂成真正的 consumer / host integration contract，而不是停在「後端可回傳資料，但產品沒有地方用」。
+  - 契約：先保持 `/intelligence` 主產品 surface 與 runtime truth 穩定，再擴到 widget / snippet / public snapshot；不得把 payload provider 冒充成完整 external integration。
+  - 驗收：payload shape、consumer surface、權限 / honesty copy、source docs 與驗收路徑同步落地。
+
+- [ ] **WORK-CI-C** — Core Intelligence Legacy Cleanup And Long-Horizon Signoff
+  - 讀先：
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/plan/program/research-and-decisions.md`
+    `docs/architecture/data-model.md`
+  - 目標：在 `WORK-CI-B` 已完成之後，把 remaining legacy `vault-core::insights` 責任、`14.4M+` / longer-horizon benchmark、額外 runtime complexity / resume strategy，以及 backend finish-line 收口後仍殘留的長期 signoff scope 收口成 accepted truth。
+  - 契約：所有刪舊與性能收口都要以 current Core Intelligence contract 為中心，不可再為 legacy snapshot-first path 補 compatibility 層。
+  - 驗收：source docs、benchmark artifact、cleanup diff、以及對應 quality / manual recipe 都存在。
 
 ---
 

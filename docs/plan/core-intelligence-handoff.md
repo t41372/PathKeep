@@ -34,6 +34,7 @@ That means:
 - worker orchestration, Tauri commands, desktop bridge, runtime read model, and backup/import follow-up rebuild flow now point at Core Intelligence
 - the backend ships Phase 1 / Phase 2 query APIs **and** the planned deterministic Phase 3 / Phase 4 query APIs
 - the frontend already ships more than the original P1/P2 delegation assumed: `/intelligence`, `/intelligence/domain/:domain`, Explorer session/trail grouping, navigation tracer, Jobs / Settings runtime controls, and most deterministic overview/detail sections already exist in-repo
+- 2026-04-17 frontend finish-line follow-up: `/intelligence` now includes a compact runtime digest that matches Jobs / sidebar queue grammar, Dashboard CTAs and repo-wide browser-preview/product-flow tests now point at `/intelligence`, and the remaining external-output surface is explicitly marked deferred instead of pretending embed/widget/public consumers already exist
 - `bun run check` and `bun run build` were green at handoff time
 
 What is **not** done, plus the latest backend truth:
@@ -112,15 +113,16 @@ The command surface above is implemented, but the frontend should still assume:
 
 - P4 external snippet/embed hosts are not available yet; only backend payload providers are shipping
 - `observed interactions` is capability-gated and may legitimately return an empty list on archives without supported source evidence
-- a few tests / copy / route references in the repo still say `Insights` or `/insights`; treat that as cleanup work, not as the accepted product contract
+- if future work re-opens `embed/widget/public snapshot`, that belongs to `WORK-CI-H`; do not treat the deferred honesty copy on `/intelligence` as a complete host integration
 
 ### Frontend Testing Note
 
-App shell tests were already updated to expect `/intelligence` instead of `/insights`, but repo-wide cleanup is not fully finished yet.
+App shell tests and browser-preview shell e2e now expect `/intelligence` instead of `/insights`.
 
 Relevant file:
 
 - [`src/app/index.test.tsx`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src/app/index.test.tsx)
+- [`tests/e2e/shell.spec.ts`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/tests/e2e/shell.spec.ts)
 
 ---
 

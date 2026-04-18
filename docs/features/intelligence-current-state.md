@@ -517,25 +517,22 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 目前是：
 
 - deterministic analysis snapshot 主頁
-- runtime digest 的次級入口
+- top-of-page runtime digest
 - explainability 主頁
 - `/intelligence` 與 `/intelligence/domain/:domain` 現在共用 `range` / `start` / `end` / `profileId` query contract；domain deep dive 已是正式可重整、可分享的 route，而不是 page-local state
 - 主頁上大多數 deterministic section 現在都會吃 effective profile scope；只有天生 archive-wide 的 surface（例如 multi-browser diff）會在 UI 上明講自己沒有跟著 scope 一起收窄
 - explainability 已實際接進 Refind Pages、Query Families、Reopened Investigations、Habits、Path Flows；Explorer 的 sessions / search trails 也已能直接展開 explainability
+- 外部 `embed/widget/public snapshot` 目前仍只停在 typed payload-provider contract；主產品前台已改成誠實標記 deferred，不把它們包裝成已 shipping 的 consumer surface
 
 目前實際 section 順序是：
 
 1. scoped-view callout
-2. refresh queued callout
-3. runtime digest
-4. overview hero
-5. runtime mini panel
-6. spotlight
-7. storage analytics
-8. periodic summary
-9. research signals
-10. evidence / health
-11. explainability panel
+2. runtime digest
+3. external-output deferred honesty callout
+4. spotlight / summary
+5. research signals
+6. evidence / health
+7. explainability panel
 
 ### Jobs
 
@@ -617,9 +614,10 @@ UI 只有：
 
 ### 9.4 還沒完全收尾的前端 truth
 
-- `/intelligence` 雖然已切成 route shell + shared time-range selector + domain deep dive route，但 section primitives 仍偏重，後續還可以再拆成更小的 chart / list component
+- `/intelligence` / `/intelligence/domain/:domain` 的 route、scope、time-range、runtime digest 與 `/insights` 命名漂移，現在已經收斂回一致的 shipping truth
 - grouped Explorer 目前仍以 deterministic date window + profile scope 為主，不會把 keyword query / regex 再硬套進 session / trail API 假裝有 backend 支援
 - habit / path-flow explainability 目前只有在明確 profile-scoped view 下才會出現，因為 backend explain contract 需要 `<profile_id>::...` entity id
+- external output payload consumer / host integration 仍未交付；這塊已正式回收到 `WORK-CI-H`，不再算 `WORK-CI-F` 的未完成漂移
 
 ---
 
@@ -660,7 +658,7 @@ UI 只有：
 
 原因：
 
-- 它對 Jobs / Insights 的分工、queue grammar、shared profile scope、runtime digest 的規範，和現在前台很接近。
+- 它對 Jobs / Intelligence 的分工、queue grammar、shared profile scope、runtime digest 的規範，和現在前台很接近。
 
 ### 10.4 `docs/plan/m3-*`、`docs/plan/m5-*`
 
@@ -676,7 +674,7 @@ UI 只有：
 
 ## 11. 這次盤點後，我認為最值得立刻重做的地方
 
-### 11.1 Insights 的核心問題不是資料不夠，而是層次太亂
+### 11.1 Intelligence 的核心問題不是資料不夠，而是層次太亂
 
 現在它把：
 

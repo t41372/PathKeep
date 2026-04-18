@@ -15,7 +15,7 @@
 | **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                                                                |
 | **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                                                                     |
 | **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                                                                    |
-| **Insights**           | 洞察卡片、topic timeline、threads、query ladders、profile facets、storage analytics                                                                                                       |
+| **Intelligence**       | Core Intelligence 主頁：analysis snapshot、spotlight、research signals、evidence / health、runtime digest、domain deep dive                                                               |
 | **AI Assistant**       | 自然語言問答介面                                                                                                                                                                          |
 | **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）、recent batch review、`?batch=` deep-link、revert / restore                                                                    |
 | **Audit Ledger**       | Run timeline、summary delta、import change preview、artifact / warning review、rollback / restore quick jump                                                                              |
@@ -32,14 +32,14 @@
 
 - shell chrome：sidebar 分區、brand / version、archive status footer、background-work footer strip、topbar 搜尋、共享 profile scope switcher 與主 CTA
 - Dashboard 視覺語言：stat cards、recent runs table、On This Day、storage breakdown、AI / queue summary 的資訊層級
-- Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Insights、Audit 等核心入口
+- Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Intelligence、Audit 等核心入口
 
 ### 目前 export 尚未明確覆蓋
 
 - Onboarding wizard 的逐步狀態、empty / error / resume-later 細節
 - Import / rollback / doctor repair / rekey / remote backup 的 PME step-by-step 畫面
 - Audit run detail、Schedule verify / mismatch、Security recovery / warning 變體
-- Explorer / Assistant / Insights 的 loading / empty / disabled / failed / explainability 狀態
+- Explorer / Assistant / Intelligence 的 loading / empty / disabled / failed / explainability 狀態
 - keyboard-only walkthrough、reduced-motion fallback、長字串 i18n wrapping 等非靜態視覺驗收
 
 ## Non-Prototype State Coverage
@@ -54,10 +54,10 @@
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
-- Insights 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
-- Insights 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Insights 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
-- M5-B 起，Insights 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
-- shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Insights 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
+- Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
+- Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
+- M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
+- shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
 - Settings 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
@@ -74,7 +74,7 @@
 
 ### M1 導航與 deep-link 規則
 
-- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Insights / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
+- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
 - 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
@@ -93,11 +93,11 @@
 - semantic result、assistant citation、insight evidence 都要能 deep-link 回 `/explorer`，至少可帶 `q`、`profileId`、`domain` 等 canonical filters 讓使用者回看原始記錄。
 - Assistant 的 seeded follow-up 使用 `/assistant?question=...`；若目前 intelligence / explorer surface 已經處於特定 `profileId`，deep-link 也必須一併帶上該 `profileId`，讓頁面級 scope 優先於 shared scope。
 - Domain Deep Dive 現在是正式 route：`/intelligence/domain/:domain`。它必須沿用 `/intelligence` 的 `range`、`start`、`end`、`profileId` query contract，讓使用者重新整理、複製 URL、或從 Top Sites / Stable Sources / Search Effectiveness drill down 時都能回到同一個 scoped view。
-- Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Insights；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
+- Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Intelligence；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
 - shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
-- Insights 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Insights 重新長出一個第二套 full queue review wall。
-- Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Insights 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
+- Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
+- Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Settings 是 M4-A 起的 remote backup 與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
 
 ### App Lock 畫面與導航規則
@@ -116,10 +116,10 @@
 - App Lock 與 archive encryption 是**獨立的兩層保護**：App Lock 保護 UI session，encryption 保護資料庫檔案。兩者可獨立啟用。
 - 設計規格 → `docs/features/archive.md` §8
 
-### Profile-Scoped Insights 導航規則
+### Profile-Scoped Intelligence 導航規則
 
-- Insights 頁面支援透過 shell chrome 的共享 profile scope 篩選 insight 資料。
-- 當使用者在 topbar 選擇特定 profile 時，Insights 的 cards、topic timeline、threads 等 surface 都切換為該 profile 的 scoped view。
+- Intelligence 頁面支援透過 shell chrome 的共享 profile scope 篩選 deterministic analysis 資料。
+- 當使用者在 topbar 選擇特定 profile 時，Intelligence 的 cards、topic timeline、threads 等 surface 都切換為該 profile 的 scoped view。
 - 若 `profileId` 已經出現在 `/intelligence` 或 `/intelligence/domain/:domain` 的 query string，頁面級 scope 優先於 shared profile scope；route 重新整理後仍必須保持這個 explicit scope。
-- Dashboard 的 aggregate KPIs 仍維持 archive-wide；Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view」。
+- Dashboard 的 aggregate KPIs 仍維持 archive-wide；Intelligence 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view」。
 - scoped vs all-profile 切換不得產生新的 route；以 query string `profileId` 或沿用 shared scope 處理，保持與 Explorer 的 scope 語法一致。
