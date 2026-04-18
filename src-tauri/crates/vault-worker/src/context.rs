@@ -116,10 +116,7 @@ pub(crate) fn derive_intelligence_status(
     match intelligence_status(paths, config, session_database_key) {
         Ok(status) => status,
         Err(error) => {
-            IntelligenceStatus {
-                warning: Some(error.to_string()),
-                ..IntelligenceStatus::default()
-            }
+            IntelligenceStatus { warning: Some(error.to_string()), ..IntelligenceStatus::default() }
         }
     }
 }

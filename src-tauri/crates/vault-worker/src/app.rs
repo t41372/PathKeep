@@ -45,8 +45,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let browser_profiles = discover_browser_profiles()?;
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
-    let intelligence_status =
-        derive_intelligence_status(&paths, &config, session_database_key);
+    let intelligence_status = derive_intelligence_status(&paths, &config, session_database_key);
     let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
     let recent_import_batches =
         load_import_batches(&paths, &config, session_database_key).unwrap_or_default();

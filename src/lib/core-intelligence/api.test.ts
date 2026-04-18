@@ -51,16 +51,13 @@ describe('core intelligence api', () => {
       4,
     )
 
-    expect(callMock).toHaveBeenCalledWith(
-      'get_intelligence_widget_snapshot',
-      {
-        request: {
-          dateRange: { start: '2024-04-01', end: '2024-04-30' },
-          profileId: 'chrome:Default',
-          limit: 4,
-        },
+    expect(callMock).toHaveBeenCalledWith('get_intelligence_widget_snapshot', {
+      request: {
+        dateRange: { start: '2024-04-01', end: '2024-04-30' },
+        profileId: 'chrome:Default',
+        limit: 4,
       },
-    )
+    })
   })
 
   test('requests public snapshots through the backend payload-provider command', async () => {
@@ -71,14 +68,11 @@ describe('core intelligence api', () => {
       'chrome:Default',
     )
 
-    expect(callMock).toHaveBeenCalledWith(
-      'get_intelligence_public_snapshot',
-      {
-        request: {
-          dateRange: { start: '2024-04-01', end: '2024-04-30' },
-          profileId: 'chrome:Default',
-        },
+    expect(callMock).toHaveBeenCalledWith('get_intelligence_public_snapshot', {
+      request: {
+        dateRange: { start: '2024-04-01', end: '2024-04-30' },
+        profileId: 'chrome:Default',
       },
-    )
+    })
   })
 })

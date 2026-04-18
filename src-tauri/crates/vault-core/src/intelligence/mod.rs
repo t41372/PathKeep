@@ -34,19 +34,19 @@ use crate::{
         CategoryChangeEntry, CategoryFilteredDateRangeRequest, CategoryMixEntry,
         ClearDerivedIntelligenceReport, CoreIntelligenceRebuildReport,
         CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings, DateRange, DigestSummary,
-        DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest,
-        DomainFlowStat, DomainPageStat, DomainTrend, DomainTrendPoint, DomainTrendRequest,
-        EngineEffectiveness, EngineRanking, EntityExplanationRequest, ExplainRefindRequest,
-        ExplainabilityFactor, Explanation, FrictionSignal, GranularityDateRangeRequest,
-        HardTopic, HubPage, IntelligenceStatus, IntelligenceEmbedCardPayload,
-        IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot, IntelligenceWidgetSnapshot,
-        KpiMetric, NavigationPath, NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest,
-        QueryFamily, QueryFamilyResult, RefindExplanation, RefindPage, RefindPagesRequest,
-        RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell,
-        ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
-        SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
-        SessionSummary, SessionVisit, StableSource, TopSearchConceptsRequest, TopSite,
-        TopSitesRequest, TrailDetail, TrailListResult, TrailMember, TrailSummary,
+        DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat,
+        DomainPageStat, DomainTrend, DomainTrendPoint, DomainTrendRequest, EngineEffectiveness,
+        EngineRanking, EntityExplanationRequest, ExplainRefindRequest, ExplainabilityFactor,
+        Explanation, FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage,
+        IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
+        IntelligenceStatus, IntelligenceWidgetSnapshot, KpiMetric, NavigationPath,
+        NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily, QueryFamilyResult,
+        RefindExplanation, RefindPage, RefindPagesRequest, RefindScoreFactor,
+        ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell, ScopedDateRangeRequest,
+        SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest,
+        SessionDetail, SessionListResult, SessionSummary, SessionVisit, StableSource,
+        TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
+        TrailMember, TrailSummary,
     },
     utils::now_rfc3339,
 };
@@ -2411,8 +2411,13 @@ fn rebuild_visit_derived_facts_in_batches(
     let mut processed_visits = 0usize;
 
     loop {
-        let mut batch =
-            load_visible_visit_batch(connection, profile_id, source_profile_id, cursor, batch_size)?;
+        let mut batch = load_visible_visit_batch(
+            connection,
+            profile_id,
+            source_profile_id,
+            cursor,
+            batch_size,
+        )?;
         if batch.is_empty() {
             break;
         }
@@ -7492,9 +7497,8 @@ mod tests {
         config::project_paths_with_root,
         intelligence_catalog::RebuildMode,
         models::{
-            AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest,
-            CoreIntelligenceStageTimings, DateRange,
-            EntityExplanationRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
+            AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings,
+            DateRange, EntityExplanationRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
             ScopedDateRangeRequest,
         },
     };
@@ -7601,10 +7605,7 @@ mod tests {
         )
         .expect("run core intelligence");
         assert!(rebuild.processed_visits >= 3);
-        let stage_timings = rebuild
-            .stage_timings_ms
-            .as_ref()
-            .expect("full rebuild stage timings");
+        let stage_timings = rebuild.stage_timings_ms.as_ref().expect("full rebuild stage timings");
         assert!(stage_timings.total_ms >= stage_timings.visit_derive_ms);
         assert!(stage_timings.total_ms >= stage_timings.daily_rollup_ms);
         assert!(stage_timings.total_ms >= stage_timings.structural_rebuild_ms);

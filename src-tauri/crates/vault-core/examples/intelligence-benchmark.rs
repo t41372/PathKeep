@@ -8,10 +8,10 @@ use vault_core::{
     archive::{open_archive_connection, open_intelligence_connection},
     config::project_paths_with_root,
     get_digest_summary, get_query_families, get_refind_pages, get_search_trails, get_sessions,
-    get_top_search_concepts, get_top_sites, intelligence_status,
+    get_top_search_concepts, get_top_sites,
     intelligence::run_core_intelligence_job_type_with_progress,
     intelligence_runtime::load_intelligence_runtime,
-    load_config,
+    intelligence_status, load_config,
     models::{
         AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, PagedDateRangeRequest,
         RefindPagesRequest, ScopedDateRangeRequest, SearchTrailQueryRequest,
