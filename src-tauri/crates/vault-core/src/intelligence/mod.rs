@@ -1340,8 +1340,17 @@ fn merge_stage_run_result(
     if aggregate.fallback_reason.is_none() {
         aggregate.fallback_reason = next.fallback_reason;
     }
-    if aggregate.stage_timings_ms.is_none() {
-        aggregate.stage_timings_ms = next.stage_timings_ms;
+    match (&mut aggregate.stage_timings_ms, next.stage_timings_ms) {
+        (Some(current), Some(next)) => {
+            current.visit_derive_ms += next.visit_derive_ms;
+            current.daily_rollup_ms += next.daily_rollup_ms;
+            current.structural_rebuild_ms += next.structural_rebuild_ms;
+            current.total_ms += next.total_ms;
+        }
+        (None, Some(next)) => {
+            aggregate.stage_timings_ms = Some(next);
+        }
+        _ => {}
     }
     aggregate.notes.extend(next.notes);
 }
@@ -7468,21 +7477,23 @@ fn path_from_url(url: &str) -> String {
 mod tests {
     use super::{
         DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, STRUCTURAL_TAIL_STREAM_BATCH_SIZE,
-        VISIT_DERIVE_FALLBACK_BATCH_SIZE, build_habit_patterns, build_kpi, build_path_flows,
-        build_query_families, build_query_families_from_batches, build_refind_pages,
-        build_source_effectiveness, build_source_effectiveness_from_database,
+        StageRunResult, VISIT_DERIVE_FALLBACK_BATCH_SIZE, build_habit_patterns, build_kpi,
+        build_path_flows, build_query_families, build_query_families_from_batches,
+        build_refind_pages, build_source_effectiveness, build_source_effectiveness_from_database,
         build_structural_profile_aggregates_from_batches, collapse_date_key,
         ensure_core_intelligence_schema, explain_entity, get_intelligence_embed_cards,
         get_intelligence_public_snapshot, get_intelligence_widget_snapshot, get_path_flows,
         load_profile_derived_visits, load_profile_search_events, load_profile_trails,
-        local_date_key, normalize_query, run_core_intelligence,
+        local_date_key, merge_stage_run_result, normalize_query, run_core_intelligence,
         run_core_intelligence_job_type_with_progress,
     };
     use crate::{
         archive::{open_archive_connection, open_intelligence_connection},
         config::project_paths_with_root,
+        intelligence_catalog::RebuildMode,
         models::{
-            AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange,
+            AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest,
+            CoreIntelligenceStageTimings, DateRange,
             EntityExplanationRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
             ScopedDateRangeRequest,
         },
@@ -7537,6 +7548,36 @@ mod tests {
         assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
         assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
         assert!(has_index(&connection, "idx_search_events_profile_visit"));
+    }
+
+    #[test]
+    fn merge_stage_run_result_sums_stage_timings_across_profiles() {
+        let mut aggregate = StageRunResult {
+            stage_timings_ms: Some(CoreIntelligenceStageTimings {
+                visit_derive_ms: 10,
+                daily_rollup_ms: 20,
+                structural_rebuild_ms: 30,
+                total_ms: 60,
+            }),
+            ..StageRunResult::default()
+        };
+        let next = StageRunResult {
+            stage_timings_ms: Some(CoreIntelligenceStageTimings {
+                visit_derive_ms: 1,
+                daily_rollup_ms: 2,
+                structural_rebuild_ms: 3,
+                total_ms: 6,
+            }),
+            ..StageRunResult::default()
+        };
+
+        merge_stage_run_result(&mut aggregate, next, RebuildMode::FullRebuild);
+
+        let timings = aggregate.stage_timings_ms.expect("stage timings");
+        assert_eq!(timings.visit_derive_ms, 11);
+        assert_eq!(timings.daily_rollup_ms, 22);
+        assert_eq!(timings.structural_rebuild_ms, 33);
+        assert_eq!(timings.total_ms, 66);
     }
 
     #[test]
