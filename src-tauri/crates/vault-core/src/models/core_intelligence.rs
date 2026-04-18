@@ -5,6 +5,7 @@
 //! read-model payloads and rebuild/query requests so worker and Tauri layers can
 //! evolve without baking UI concerns into computation code.
 
+use super::schedule::GeneratedFile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -818,4 +819,68 @@ pub struct IntelligencePublicSnapshot {
     pub search_engines: Vec<EngineRanking>,
     pub discovery_trend: DiscoveryTrend,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request shape for one deterministic local-host artifact preview/build.
+pub struct IntelligenceLocalHostRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    pub locale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Machine-readable bundle saved beside one local Core Intelligence host.
+pub struct IntelligenceLocalHostBundle {
+    pub bundle_version: String,
+    pub host_id: String,
+    pub generated_at: String,
+    pub locale: String,
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    pub embed_cards: Vec<IntelligenceEmbedCardPayload>,
+    pub widget_snapshot: IntelligenceWidgetSnapshot,
+    pub public_snapshot: IntelligencePublicSnapshot,
+    pub trusted_only_card_ids: Vec<String>,
+    pub trusted_only_card_count: usize,
+    pub boundary_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Existing installed local-host artifact discovered on disk for verify UX.
+pub struct IntelligenceInstalledLocalHost {
+    pub artifact_root: String,
+    pub entry_file_path: String,
+    pub bundle: IntelligenceLocalHostBundle,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Preview payload for one deterministic local-host artifact without writing files.
+pub struct IntelligenceLocalHostPreview {
+    pub artifact_root: String,
+    pub entry_file_path: String,
+    pub generated_files: Vec<GeneratedFile>,
+    pub bundle: IntelligenceLocalHostBundle,
+    pub boundary_notes: Vec<String>,
+    pub manual_steps: Vec<String>,
+    pub warnings: Vec<String>,
+    pub installed_host: Option<IntelligenceInstalledLocalHost>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Result payload after writing one deterministic local-host artifact bundle.
+pub struct IntelligenceLocalHostBuildResult {
+    pub artifact_root: String,
+    pub entry_file_path: String,
+    pub generated_files: Vec<GeneratedFile>,
+    pub bundle: IntelligenceLocalHostBundle,
+    pub boundary_notes: Vec<String>,
+    pub manual_steps: Vec<String>,
+    pub warnings: Vec<String>,
+    pub installed_host: Option<IntelligenceInstalledLocalHost>,
 }

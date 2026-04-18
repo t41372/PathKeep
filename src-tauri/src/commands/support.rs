@@ -22,7 +22,7 @@ pub(crate) fn open_path_in_file_manager(path: String) -> Result<String, String> 
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Opens one external URL through the native launcher.
+/// Opens one trusted file:// or HTTP(S) URL through the native launcher.
 pub(crate) fn open_external_url(url: String) -> Result<String, String> {
     file_manager::open_external_url_impl(url)
 }

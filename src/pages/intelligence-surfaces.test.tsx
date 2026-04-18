@@ -40,6 +40,9 @@ import type {
   CoreIntelligenceSectionMeta,
   CoreIntelligenceSectionResult,
   DateRange,
+  IntelligenceLocalHostBundle,
+  IntelligenceLocalHostBuildResult,
+  IntelligenceLocalHostPreview,
 } from '../lib/core-intelligence/types'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import { ProfileScopeContext } from '../lib/profile-scope-context'
@@ -363,6 +366,195 @@ function enableAi(snapshot: AppSnapshot) {
     embeddingProviderId: 'embed-local',
     queuedJobs: 1,
     runningJobs: 1,
+  }
+}
+
+function createLocalHostPreview(
+  locale: string,
+  profileId: string | null = 'chrome:Default',
+): IntelligenceLocalHostPreview {
+  const bundle: IntelligenceLocalHostBundle = {
+    bundleVersion: 'pathkeep.core-intelligence.local-host.v1',
+    hostId: 'browser-snippet-v1',
+    generatedAt: '2026-04-18T10:15:00Z',
+    locale,
+    dateRange: { start: '2026-03-17', end: '2026-04-17' },
+    profileId,
+    embedCards: [
+      {
+        cardId: 'digest:visits',
+        cardType: 'digest',
+        title: 'Visits',
+        eyebrow: '2026-03-17 → 2026-04-17',
+        body: 'Preview fixture for the trusted local snippet host.',
+        metricLabel: 'visit_count',
+        metricValue: '128',
+        href: null,
+        internalOnly: false,
+      },
+      {
+        cardId: 'refind:sqlite',
+        cardType: 'refind_page',
+        title: 'SQLite WAL guide',
+        eyebrow: 'Refind',
+        body: 'This page kept resurfacing across 4 days and 3 trails.',
+        metricLabel: 'refind_score',
+        metricValue: '0.82',
+        href: 'https://sqlite.org/wal.html',
+        internalOnly: true,
+      },
+    ],
+    widgetSnapshot: {
+      generatedAt: '2026-04-18T10:15:00Z',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' },
+      digestSummary: {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: {
+          value: 128,
+          trend: 'up',
+          previousValue: 120,
+          changePercent: 7,
+        },
+        totalSearches: {
+          value: 32,
+          trend: 'up',
+          previousValue: 28,
+          changePercent: 14,
+        },
+        newDomains: {
+          value: 9,
+          trend: 'up',
+          previousValue: 8,
+          changePercent: 13,
+        },
+        deepReadPages: {
+          value: 5,
+          trend: 'up',
+          previousValue: 4,
+          changePercent: 25,
+        },
+        refindPages: {
+          value: 3,
+          trend: 'up',
+          previousValue: 2,
+          changePercent: 50,
+        },
+      },
+      highlights: [
+        {
+          cardId: 'refind:sqlite',
+          cardType: 'refind_page',
+          title: 'SQLite WAL guide',
+          eyebrow: 'Refind',
+          body: 'This page kept resurfacing across 4 days and 3 trails.',
+          metricLabel: 'refind_score',
+          metricValue: '0.82',
+          href: 'https://sqlite.org/wal.html',
+          internalOnly: true,
+        },
+      ],
+      notes: [
+        'Widget snapshots only expose aggregate Core Intelligence read models.',
+      ],
+    },
+    publicSnapshot: {
+      generatedAt: '2026-04-18T10:15:00Z',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' },
+      digestSummary: {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: {
+          value: 128,
+          trend: 'up',
+          previousValue: 120,
+          changePercent: 7,
+        },
+        totalSearches: {
+          value: 32,
+          trend: 'up',
+          previousValue: 28,
+          changePercent: 14,
+        },
+        newDomains: {
+          value: 9,
+          trend: 'up',
+          previousValue: 8,
+          changePercent: 13,
+        },
+        deepReadPages: {
+          value: 5,
+          trend: 'up',
+          previousValue: 4,
+          changePercent: 25,
+        },
+        refindPages: {
+          value: 3,
+          trend: 'up',
+          previousValue: 2,
+          changePercent: 50,
+        },
+      },
+      topDomains: ['sqlite.org', 'github.com'],
+      searchEngines: [
+        { searchEngine: 'google', displayName: 'Google', searchCount: 18 },
+      ],
+      discoveryTrend: {
+        points: [
+          {
+            dateKey: '2026-04-07',
+            discoveryRate: 0.35,
+            newDomainCount: 4,
+            totalVisits: 22,
+          },
+        ],
+      },
+      notes: [
+        'Public snapshots intentionally omit visit-level identifiers and direct page URLs.',
+      ],
+    },
+    trustedOnlyCardIds: ['refind:sqlite'],
+    trustedOnlyCardCount: 1,
+    boundaryNotes: [
+      'This local host only uses deterministic Core Intelligence read models.',
+      'Trusted-only cards must stay inside PathKeep-controlled local surfaces.',
+    ],
+  }
+
+  return {
+    artifactRoot:
+      '/Users/tim/Library/Application Support/PathKeep/integrations/core-intelligence/browser-snippet-v1',
+    entryFilePath:
+      '/Users/tim/Library/Application Support/PathKeep/integrations/core-intelligence/browser-snippet-v1/index.html',
+    generatedFiles: [
+      {
+        relativePath:
+          'integrations/core-intelligence/browser-snippet-v1/index.html',
+        absolutePath:
+          '/Users/tim/Library/Application Support/PathKeep/integrations/core-intelligence/browser-snippet-v1/index.html',
+        purpose:
+          'Core Intelligence snippet that can be opened directly in a local browser.',
+        contents:
+          '<!doctype html><title>PathKeep Core Intelligence Snippet</title>',
+      },
+      {
+        relativePath:
+          'integrations/core-intelligence/browser-snippet-v1/bundle.json',
+        absolutePath:
+          '/Users/tim/Library/Application Support/PathKeep/integrations/core-intelligence/browser-snippet-v1/bundle.json',
+        purpose:
+          'Machine-readable JSON bundle for the same local host artifact.',
+        contents: JSON.stringify(bundle, null, 2),
+      },
+    ],
+    bundle,
+    boundaryNotes: bundle.boundaryNotes,
+    manualSteps: [
+      'Review index.html and bundle.json before handing this folder to another trusted local tool.',
+      'Open index.html from this folder inside a trusted local browser surface.',
+    ],
+    warnings: [
+      'This local snippet includes trusted-only cards and should not be treated like a public export.',
+    ],
+    installedHost: null,
   }
 }
 
@@ -1049,6 +1241,9 @@ describe('intelligence surfaces', () => {
           'Public snapshots intentionally omit visit-level identifiers and direct page URLs.',
         ],
       })
+    const localHostPreviewSpy = vi
+      .spyOn(coreIntelligenceApi, 'previewIntelligenceLocalHost')
+      .mockResolvedValue(createLocalHostPreview('en'))
 
     renderSurface(<SettingsPage />, {
       dashboard,
@@ -1062,6 +1257,7 @@ describe('intelligence surfaces', () => {
       expect(embedSpy).toHaveBeenCalledTimes(1)
       expect(widgetSpy).toHaveBeenCalledTimes(1)
       expect(publicSpy).toHaveBeenCalledTimes(1)
+      expect(localHostPreviewSpy).toHaveBeenCalledTimes(1)
     })
     expect(
       within(panel).getByText(settingsT('externalOutputsSummaryTitle')),
@@ -1082,7 +1278,7 @@ describe('intelligence surfaces', () => {
       ),
     ).toBeVisible()
     await user.click(
-      within(panel).getByRole('button', { name: commonT('copyAction') }),
+      within(panel).getAllByRole('button', { name: commonT('copyAction') })[0],
     )
     expect(
       await within(panel).findByText(commonT('copiedNotice')),
@@ -1099,6 +1295,16 @@ describe('intelligence surfaces', () => {
       ),
     ).toBeVisible()
     expect(within(panel).getByText('sqlite.org')).toBeVisible()
+    expect(
+      within(panel).getByText(
+        settingsT('externalOutputsLocalHostSummaryTitle'),
+      ),
+    ).toBeVisible()
+    expect(
+      within(panel).getByRole('button', {
+        name: settingsT('externalOutputsLocalHostCreateAction'),
+      }),
+    ).toBeVisible()
   })
 
   test.each([
@@ -1133,6 +1339,10 @@ describe('intelligence surfaces', () => {
         coreIntelligenceApi,
         'getIntelligencePublicSnapshot',
       )
+      const localHostPreviewSpy = vi.spyOn(
+        coreIntelligenceApi,
+        'previewIntelligenceLocalHost',
+      )
       vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
         createEmptyRuntimeSnapshot(),
       )
@@ -1149,6 +1359,7 @@ describe('intelligence surfaces', () => {
       expect(embedSpy).not.toHaveBeenCalled()
       expect(widgetSpy).not.toHaveBeenCalled()
       expect(publicSpy).not.toHaveBeenCalled()
+      expect(localHostPreviewSpy).not.toHaveBeenCalled()
     },
   )
 
@@ -1205,6 +1416,9 @@ describe('intelligence surfaces', () => {
         highlights: [],
         notes: [],
       })
+    const localHostPreviewSpy = vi
+      .spyOn(coreIntelligenceApi, 'previewIntelligenceLocalHost')
+      .mockResolvedValue(createLocalHostPreview('en'))
     const publicSpy = vi
       .spyOn(coreIntelligenceApi, 'getIntelligencePublicSnapshot')
       .mockResolvedValue({
@@ -1300,6 +1514,11 @@ describe('intelligence surfaces', () => {
         expect.any(Object),
         'chrome:Default',
       )
+      expect(localHostPreviewSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'en',
+        'chrome:Default',
+      )
     })
 
     const initialRange = embedSpy.mock.calls.at(-1)?.[0]
@@ -1324,6 +1543,11 @@ describe('intelligence surfaces', () => {
         expect.any(Object),
         'firefox:Research',
       )
+      expect(localHostPreviewSpy).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'en',
+        'firefox:Research',
+      )
     })
 
     await user.click(
@@ -1341,7 +1565,150 @@ describe('intelligence surfaces', () => {
         }),
       )
       expect(latestRange).not.toEqual(initialRange)
+      expect(localHostPreviewSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+        'en',
+        'firefox:Research',
+      )
     })
+  })
+
+  test('builds the trusted local host and exposes verify/open actions in settings', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const commonT = createNamespaceTranslator('en', 'common')
+    const previewPayload = createLocalHostPreview('en')
+    const builtPayload: IntelligenceLocalHostBuildResult = {
+      ...createLocalHostPreview('en'),
+      installedHost: {
+        artifactRoot: previewPayload.artifactRoot,
+        entryFilePath: previewPayload.entryFilePath,
+        bundle: previewPayload.bundle,
+      },
+    }
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getIntelligenceEmbedCards',
+    ).mockResolvedValue([])
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getIntelligenceWidgetSnapshot',
+    ).mockResolvedValue({
+      generatedAt: '2026-04-17T09:45:00Z',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' },
+      digestSummary: {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      highlights: [],
+      notes: [],
+    })
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getIntelligencePublicSnapshot',
+    ).mockResolvedValue({
+      generatedAt: '2026-04-17T09:45:00Z',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' },
+      digestSummary: {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      topDomains: [],
+      searchEngines: [],
+      discoveryTrend: { points: [] },
+      notes: [],
+    })
+    const previewSpy = vi
+      .spyOn(coreIntelligenceApi, 'previewIntelligenceLocalHost')
+      .mockResolvedValue(previewPayload)
+    const buildSpy = vi
+      .spyOn(coreIntelligenceApi, 'buildIntelligenceLocalHost')
+      .mockResolvedValue(builtPayload)
+    const openExternalUrlSpy = vi
+      .spyOn(backend, 'openExternalUrl')
+      .mockResolvedValue('file:///tmp/pathkeep/index.html')
+    const openPathSpy = vi
+      .spyOn(backend, 'openPathInFileManager')
+      .mockResolvedValue(previewPayload.artifactRoot)
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      snapshot,
+    })
+
+    const panel = await screen.findByTestId('settings-external-outputs')
+    await within(panel).findByText(
+      settingsT('externalOutputsLocalHostSummaryTitle'),
+    )
+
+    await user.click(
+      within(panel).getByRole('button', {
+        name: settingsT('externalOutputsLocalHostCreateAction'),
+      }),
+    )
+
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+        'en',
+        null,
+      )
+    })
+    expect(
+      await within(panel).findByText(
+        settingsT('externalOutputsLocalHostBuilt'),
+      ),
+    ).toBeVisible()
+    expect(
+      within(panel).getByRole('button', {
+        name: settingsT('externalOutputsLocalHostOpenAction'),
+      }),
+    ).toBeVisible()
+    expect(
+      within(panel).getByRole('button', { name: settingsT('openDirectory') }),
+    ).toBeVisible()
+    expect(
+      within(panel).getAllByRole('button', { name: commonT('copyAction') })
+        .length,
+    ).toBeGreaterThan(0)
+
+    await user.click(
+      within(panel).getByRole('button', {
+        name: settingsT('externalOutputsLocalHostOpenAction'),
+      }),
+    )
+    expect(openExternalUrlSpy).toHaveBeenCalledWith(
+      `file://${encodeURI(builtPayload.installedHost!.entryFilePath)}`,
+    )
+
+    await user.click(
+      within(panel).getByRole('button', { name: settingsT('openDirectory') }),
+    )
+    expect(openPathSpy).toHaveBeenCalledWith(
+      builtPayload.installedHost!.artifactRoot,
+    )
+    expect(previewSpy).toHaveBeenCalled()
   })
 
   test('renders background jobs controls and lets the user pause or replay work', async () => {

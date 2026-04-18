@@ -2576,6 +2576,41 @@ const catalog: Record<
         'No discovery trend points were available for this window.',
       externalOutputsCopyFailed:
         'Could not copy this payload. Copy it manually from the JSON block instead.',
+      externalOutputsLocalHostTitle: 'Trusted local host',
+      externalOutputsLocalHostBadge: 'TRUSTED LOCAL',
+      externalOutputsLocalHostSummaryTitle: 'Reusable browser snippet',
+      externalOutputsLocalHostSummaryBody:
+        'Build a browser-openable local snippet under the app data folder. It reuses the same shared profile scope and local time window as the manual previews above.',
+      externalOutputsLocalHostLoading: 'Loading local host preview',
+      externalOutputsLocalHostUnavailableTitle:
+        'Trusted local host preview is unavailable',
+      externalOutputsLocalHostUnavailableBody:
+        'PathKeep could not prepare the current local host preview. Try refreshing after the shell finishes reloading.',
+      externalOutputsLocalHostPreviewTitle: 'Preview',
+      externalOutputsLocalHostPreviewBody:
+        'PathKeep will write or update the trusted local snippet at {path}. Review the generated files before creating it.',
+      externalOutputsLocalHostBoundaryTitle: 'Boundary notes',
+      externalOutputsLocalHostWarningsTitle: 'Warnings',
+      externalOutputsLocalHostManualTitle: 'Manual review',
+      externalOutputsLocalHostExecuteTitle:
+        'Create or update the local snippet',
+      externalOutputsLocalHostExecuteBody:
+        'This writes index.html and bundle.json into the fixed local host folder. Rebuild it whenever scope, window, or locale changes.',
+      externalOutputsLocalHostCreateAction: 'Create local snippet',
+      externalOutputsLocalHostUpdateAction: 'Update local snippet',
+      externalOutputsLocalHostBuilding: 'Building local snippet…',
+      externalOutputsLocalHostBuilt:
+        'PathKeep refreshed the trusted local snippet. Review the verify section below.',
+      externalOutputsLocalHostVerifyTitle: 'Verify',
+      externalOutputsLocalHostVerifyUnavailable:
+        'No trusted local snippet is installed for this scope yet.',
+      externalOutputsLocalHostScopeLabel: 'Scope',
+      externalOutputsLocalHostWindowLabel: 'Window',
+      externalOutputsLocalHostGeneratedAtLabel: 'Generated at',
+      externalOutputsLocalHostEntryPathLabel: 'Entry file',
+      externalOutputsLocalHostArtifactRootLabel: 'Artifact root',
+      externalOutputsLocalHostOpenAction: 'Open local host',
+      externalOutputsLocalHostCopyPathAction: 'Copy path',
       enrichmentDerivedState: 'CONTENT ENRICHMENT',
       derivedOnly: 'SAFE TO CLEAR',
       derivedStateBoundaryTitle: 'What gets affected',
@@ -4549,6 +4584,39 @@ const catalog: Record<
       externalOutputsNoDiscoveryTrend: '这个时间范围里没有可用的发现趋势点。',
       externalOutputsCopyFailed:
         '这份 payload 无法直接复制，请改为手动从 JSON 区块复制。',
+      externalOutputsLocalHostTitle: '受信任本地宿主',
+      externalOutputsLocalHostBadge: '仅限本地',
+      externalOutputsLocalHostSummaryTitle: '可复用的浏览器片段',
+      externalOutputsLocalHostSummaryBody:
+        '在 app data 目录下生成一个可直接打开的本地浏览器片段。它会沿用上面手动预览同一套共享 profile 范围和本地时间窗口。',
+      externalOutputsLocalHostLoading: '正在加载本地宿主预览',
+      externalOutputsLocalHostUnavailableTitle: '本地宿主预览暂时不可用',
+      externalOutputsLocalHostUnavailableBody:
+        'PathKeep 现在无法准备这组本地宿主预览。等 shell 完成刷新后再试一次。',
+      externalOutputsLocalHostPreviewTitle: '预览',
+      externalOutputsLocalHostPreviewBody:
+        'PathKeep 会在 {path} 写入或更新这个受信任的本地片段。先检查生成文件，再决定是否创建它。',
+      externalOutputsLocalHostBoundaryTitle: '边界说明',
+      externalOutputsLocalHostWarningsTitle: '警告',
+      externalOutputsLocalHostManualTitle: '手动检查',
+      externalOutputsLocalHostExecuteTitle: '创建或更新本地片段',
+      externalOutputsLocalHostExecuteBody:
+        '这个动作会把 index.html 和 bundle.json 写入固定的本地宿主目录。只要 scope、时间窗口或语言变了，就应该重新生成。',
+      externalOutputsLocalHostCreateAction: '创建本地片段',
+      externalOutputsLocalHostUpdateAction: '更新本地片段',
+      externalOutputsLocalHostBuilding: '正在生成本地片段…',
+      externalOutputsLocalHostBuilt:
+        'PathKeep 已刷新受信任的本地片段。请在下面的验证区继续检查。',
+      externalOutputsLocalHostVerifyTitle: '验证',
+      externalOutputsLocalHostVerifyUnavailable:
+        '这个范围目前还没有已安装的受信任本地片段。',
+      externalOutputsLocalHostScopeLabel: '范围',
+      externalOutputsLocalHostWindowLabel: '时间窗口',
+      externalOutputsLocalHostGeneratedAtLabel: '生成时间',
+      externalOutputsLocalHostEntryPathLabel: '入口文件',
+      externalOutputsLocalHostArtifactRootLabel: '产物目录',
+      externalOutputsLocalHostOpenAction: '打开本地宿主',
+      externalOutputsLocalHostCopyPathAction: '复制路径',
       enrichmentDerivedState: '内容增强',
       derivedOnly: '可安全清除',
       derivedStateBoundaryTitle: '影响范围',
@@ -5677,6 +5745,39 @@ const catalog: Record<
       externalOutputsNoDiscoveryTrend: '這個時間範圍裡沒有可用的發現趨勢點。',
       externalOutputsCopyFailed:
         '這份 payload 無法直接複製，請改為手動從 JSON 區塊複製。',
+      externalOutputsLocalHostTitle: '受信任本地宿主',
+      externalOutputsLocalHostBadge: '僅限本地',
+      externalOutputsLocalHostSummaryTitle: '可重用的瀏覽器片段',
+      externalOutputsLocalHostSummaryBody:
+        '在 app data 目錄下產生一個可直接開啟的本地瀏覽器片段。它會沿用上面手動預覽同一套共享 profile 範圍和本地時間視窗。',
+      externalOutputsLocalHostLoading: '正在載入本地宿主預覽',
+      externalOutputsLocalHostUnavailableTitle: '本地宿主預覽暫時無法使用',
+      externalOutputsLocalHostUnavailableBody:
+        'PathKeep 目前無法準備這組本地宿主預覽。等 shell 完成重新整理後再試一次。',
+      externalOutputsLocalHostPreviewTitle: '預覽',
+      externalOutputsLocalHostPreviewBody:
+        'PathKeep 會在 {path} 寫入或更新這個受信任的本地片段。先檢查生成檔案，再決定是否建立它。',
+      externalOutputsLocalHostBoundaryTitle: '邊界說明',
+      externalOutputsLocalHostWarningsTitle: '警告',
+      externalOutputsLocalHostManualTitle: '手動檢查',
+      externalOutputsLocalHostExecuteTitle: '建立或更新本地片段',
+      externalOutputsLocalHostExecuteBody:
+        '這個動作會把 index.html 和 bundle.json 寫入固定的本地宿主目錄。只要 scope、時間視窗或語言變了，就應該重新產生。',
+      externalOutputsLocalHostCreateAction: '建立本地片段',
+      externalOutputsLocalHostUpdateAction: '更新本地片段',
+      externalOutputsLocalHostBuilding: '正在產生本地片段…',
+      externalOutputsLocalHostBuilt:
+        'PathKeep 已刷新受信任的本地片段。請在下方的驗證區繼續檢查。',
+      externalOutputsLocalHostVerifyTitle: '驗證',
+      externalOutputsLocalHostVerifyUnavailable:
+        '這個範圍目前還沒有已安裝的受信任本地片段。',
+      externalOutputsLocalHostScopeLabel: '範圍',
+      externalOutputsLocalHostWindowLabel: '時間視窗',
+      externalOutputsLocalHostGeneratedAtLabel: '產生時間',
+      externalOutputsLocalHostEntryPathLabel: '入口檔案',
+      externalOutputsLocalHostArtifactRootLabel: '產物目錄',
+      externalOutputsLocalHostOpenAction: '開啟本地宿主',
+      externalOutputsLocalHostCopyPathAction: '複製路徑',
       enrichmentDerivedState: '內容增強',
       derivedOnly: '可安全清除',
       derivedStateBoundaryTitle: '影響範圍',

@@ -384,6 +384,24 @@ pub(crate) fn get_intelligence_public_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn preview_intelligence_local_host(
+    request: vault_core::IntelligenceLocalHostRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligenceLocalHostPreview, String> {
+    worker_bridge::preview_intelligence_local_host_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn build_intelligence_local_host(
+    request: vault_core::IntelligenceLocalHostRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::IntelligenceLocalHostBuildResult, String> {
+    worker_bridge::build_intelligence_local_host_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_on_this_day(
     profile_id: Option<String>,
     state: State<'_, SessionState>,

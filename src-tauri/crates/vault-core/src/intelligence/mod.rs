@@ -7,6 +7,7 @@
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod host_artifacts;
 mod incremental;
 mod phase_four;
 mod phase_three;
@@ -59,6 +60,7 @@ use std::{
     time::Instant,
 };
 
+pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
 pub use self::phase_four::{get_compare_sets, get_multi_browser_diff};
 pub use self::phase_three::{
     get_breadth_index, get_habit_patterns, get_interrupted_habits, get_observed_interactions,

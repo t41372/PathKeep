@@ -2,8 +2,8 @@
 //!
 //! These helpers validate user-provided paths/URLs before handing them to the
 //! OS shell. The goal is modest but important: PathKeep should only ask the
-//! platform to open real local folders or HTTP(S) URLs and should fail with a
-//! straightforward message otherwise.
+//! platform to open real local folders, trusted `file://` URLs, or HTTP(S)
+//! URLs and should fail with a straightforward message otherwise.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,7 +15,7 @@ pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
     Ok(target.display().to_string())
 }
 
-/// Opens an HTTP(S) URL in the host browser and returns the normalized URL.
+/// Opens an HTTP(S) or trusted file URL in the host browser and returns the normalized URL.
 pub fn open_external_url(url: String) -> Result<String, String> {
     let target = resolve_external_url_target(&url)?;
     let (program, arguments) = external_url_command(&target);
@@ -54,7 +54,7 @@ pub fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String> {
     Err(format!("Path does not exist: {}", target.display()))
 }
 
-/// Validates that a user-supplied URL is an HTTP(S) target we can hand to the shell.
+/// Validates that a user-supplied URL is an HTTP(S) or file target we can hand to the shell.
 pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -62,8 +62,11 @@ pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
-        return Err("Only http:// and https:// URLs can be opened.".to_string());
+    if !(lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("file://"))
+    {
+        return Err("Only file://, http://, and https:// URLs can be opened.".to_string());
     }
 
     Ok(trimmed.to_string())
@@ -200,7 +203,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_external_url_target_accepts_http_and_https_only() {
+    fn resolve_external_url_target_accepts_file_http_and_https() {
+        assert_eq!(
+            resolve_external_url_target("file:///tmp/pathkeep/index.html").expect("file target"),
+            "file:///tmp/pathkeep/index.html"
+        );
         assert_eq!(
             resolve_external_url_target("https://example.com").expect("https target"),
             "https://example.com"
@@ -211,8 +218,8 @@ mod tests {
         );
 
         let unsupported =
-            resolve_external_url_target("file:///tmp/example").expect_err("reject file urls");
-        assert!(unsupported.contains("http:// and https://"));
+            resolve_external_url_target("ftp://example.com").expect_err("reject ftp urls");
+        assert!(unsupported.contains("file://, http://, and https://"));
 
         let missing = resolve_external_url_target("   ").expect_err("reject blank urls");
         assert!(missing.contains("does not exist"));

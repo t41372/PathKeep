@@ -727,7 +727,7 @@ describe('App shell', () => {
     ).toBeVisible()
     expect(within(settingsPage).getByText(settingsT('gitCommit'))).toBeVisible()
     expect(
-      within(settingsPage).getByText(commonT('common.previewTab')),
+      within(remotePanel).getByText(commonT('common.previewTab')),
     ).toBeVisible()
     expect(
       within(settingsPage).getByRole('tab', {

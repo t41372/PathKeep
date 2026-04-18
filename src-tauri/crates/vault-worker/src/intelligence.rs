@@ -38,7 +38,8 @@ use vault_core::{
     DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
     DomainTrendRequest, EngineRanking, EntityExplanationRequest, Explanation, FrictionSignal,
     GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceEmbedCardPayload,
-    IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview,
+    IntelligenceLocalHostRequest, IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot,
     IntelligenceWidgetSnapshot, InterruptedHabit, NavigationPath, ObservedInteraction,
     OnThisDayEntry, PagedDateRangeRequest, PathFlow, PathFlowRequest, ProfileScopedRequest,
     QueryFamilyResult, RefindExplanation, RefindPage, RefindPagesRequest, ReopenedInvestigation,
@@ -1276,6 +1277,24 @@ pub fn get_intelligence_public_snapshot(
 ) -> Result<IntelligencePublicSnapshot> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_intelligence_public_snapshot(paths, config, session_database_key, request)
+    })
+}
+
+pub fn preview_intelligence_local_host(
+    session_database_key: Option<&str>,
+    request: &IntelligenceLocalHostRequest,
+) -> Result<IntelligenceLocalHostPreview> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::preview_intelligence_local_host(paths, config, session_database_key, request)
+    })
+}
+
+pub fn build_intelligence_local_host(
+    session_database_key: Option<&str>,
+    request: &IntelligenceLocalHostRequest,
+) -> Result<IntelligenceLocalHostBuildResult> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::build_intelligence_local_host(paths, config, session_database_key, request)
     })
 }
 

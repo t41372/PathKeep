@@ -3080,6 +3080,131 @@ async function call<T>(
         factors: [],
         participatingVisitIds: [],
       } as T
+    case 'preview_intelligence_local_host':
+    case 'build_intelligence_local_host': {
+      const request = (args?.request as
+        | {
+            dateRange?: { start?: string; end?: string }
+            profileId?: string | null
+            locale?: string
+          }
+        | undefined) ?? {
+        dateRange: { start: '', end: '' },
+        profileId: null,
+        locale: 'en',
+      }
+      const artifactRoot =
+        '/tmp/pathkeep-preview/integrations/core-intelligence/browser-snippet-v1'
+      const bundle = {
+        bundleVersion: 'pathkeep.core-intelligence.local-host.v1',
+        hostId: 'browser-snippet-v1',
+        generatedAt: new Date().toISOString(),
+        locale: request.locale ?? 'en',
+        dateRange: {
+          start: request.dateRange?.start ?? '',
+          end: request.dateRange?.end ?? '',
+        },
+        profileId: request.profileId ?? null,
+        embedCards: [
+          {
+            cardId: 'digest:visits',
+            cardType: 'digest',
+            title: 'Visits',
+            eyebrow: `${request.dateRange?.start ?? ''} → ${
+              request.dateRange?.end ?? ''
+            }`,
+            body: 'Preview fixture for the trusted local snippet host.',
+            metricLabel: 'visit_count',
+            metricValue: '42',
+            href: null,
+            internalOnly: false,
+          },
+        ],
+        widgetSnapshot: {
+          generatedAt: new Date().toISOString(),
+          dateRange: {
+            start: request.dateRange?.start ?? '',
+            end: request.dateRange?.end ?? '',
+          },
+          digestSummary: {
+            dateRange: {
+              start: request.dateRange?.start ?? '',
+              end: request.dateRange?.end ?? '',
+            },
+            totalVisits: { value: 42, trend: 'flat' },
+            totalSearches: { value: 7, trend: 'flat' },
+            newDomains: { value: 3, trend: 'flat' },
+            deepReadPages: { value: 2, trend: 'flat' },
+            refindPages: { value: 1, trend: 'flat' },
+          },
+          highlights: [],
+          notes: ['Preview fixture for browser-only mode.'],
+        },
+        publicSnapshot: {
+          generatedAt: new Date().toISOString(),
+          dateRange: {
+            start: request.dateRange?.start ?? '',
+            end: request.dateRange?.end ?? '',
+          },
+          digestSummary: {
+            dateRange: {
+              start: request.dateRange?.start ?? '',
+              end: request.dateRange?.end ?? '',
+            },
+            totalVisits: { value: 42, trend: 'flat' },
+            totalSearches: { value: 7, trend: 'flat' },
+            newDomains: { value: 3, trend: 'flat' },
+            deepReadPages: { value: 2, trend: 'flat' },
+            refindPages: { value: 1, trend: 'flat' },
+          },
+          topDomains: ['example.com'],
+          searchEngines: [],
+          discoveryTrend: { points: [] },
+          notes: ['Preview fixture for browser-only mode.'],
+        },
+        trustedOnlyCardIds: [],
+        trustedOnlyCardCount: 0,
+        boundaryNotes: [
+          'Browser preview mode only simulates the trusted local host contract.',
+        ],
+      }
+      const response = {
+        artifactRoot,
+        entryFilePath: `${artifactRoot}/index.html`,
+        generatedFiles: [
+          {
+            relativePath:
+              'integrations/core-intelligence/browser-snippet-v1/index.html',
+            absolutePath: `${artifactRoot}/index.html`,
+            purpose: 'Preview local browser snippet.',
+            contents: '<!doctype html><title>PathKeep Preview</title>',
+          },
+          {
+            relativePath:
+              'integrations/core-intelligence/browser-snippet-v1/bundle.json',
+            absolutePath: `${artifactRoot}/bundle.json`,
+            purpose: 'Preview local browser snippet bundle.',
+            contents: JSON.stringify(bundle, null, 2),
+          },
+        ],
+        bundle,
+        boundaryNotes: bundle.boundaryNotes,
+        manualSteps: [
+          'Review the generated files in Settings.',
+          'Open the local snippet after creating it in the desktop build.',
+        ],
+        warnings: [],
+        installedHost:
+          command === 'build_intelligence_local_host'
+            ? {
+                artifactRoot,
+                entryFilePath: `${artifactRoot}/index.html`,
+                bundle,
+              }
+            : null,
+      }
+      return response as T
+    }
     case 'run_core_intelligence_now':
     case 'queue_core_intelligence_rebuild': {
       const jobId = Date.now()

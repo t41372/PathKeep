@@ -130,6 +130,68 @@ export interface IntelligencePublicSnapshot {
   notes: string[]
 }
 
+/** One generated file belonging to a reusable local host artifact. */
+export interface IntelligenceLocalHostGeneratedFile {
+  relativePath: string
+  absolutePath?: string | null
+  purpose: string
+  contents: string
+}
+
+/** Request payload for deterministic local-host preview/build commands. */
+export interface IntelligenceLocalHostRequest {
+  dateRange: DateRange
+  profileId?: string | null
+  locale: string
+}
+
+/** Machine-readable bundle persisted beside one local host artifact. */
+export interface IntelligenceLocalHostBundle {
+  bundleVersion: string
+  hostId: string
+  generatedAt: string
+  locale: string
+  dateRange: DateRange
+  profileId?: string | null
+  embedCards: IntelligenceEmbedCardPayload[]
+  widgetSnapshot: IntelligenceWidgetSnapshot
+  publicSnapshot: IntelligencePublicSnapshot
+  trustedOnlyCardIds: string[]
+  trustedOnlyCardCount: number
+  boundaryNotes: string[]
+}
+
+/** Existing installed local host discovered on disk for verify UI. */
+export interface IntelligenceInstalledLocalHost {
+  artifactRoot: string
+  entryFilePath: string
+  bundle: IntelligenceLocalHostBundle
+}
+
+/** Preview payload for one deterministic local host without writing files yet. */
+export interface IntelligenceLocalHostPreview {
+  artifactRoot: string
+  entryFilePath: string
+  generatedFiles: IntelligenceLocalHostGeneratedFile[]
+  bundle: IntelligenceLocalHostBundle
+  boundaryNotes: string[]
+  manualSteps: string[]
+  warnings: string[]
+  installedHost?: IntelligenceInstalledLocalHost | null
+}
+
+/** Result payload after writing one deterministic local host artifact. */
+export interface IntelligenceLocalHostBuildResult {
+  artifactRoot: string
+  entryFilePath: string
+  generatedFiles: IntelligenceLocalHostGeneratedFile[]
+  bundle: IntelligenceLocalHostBundle
+  boundaryNotes: string[]
+  manualSteps: string[]
+  warnings: string[]
+  installedHost?: IntelligenceInstalledLocalHost | null
+}
+
 /** Trend direction indicator derived from period-over-period comparison. */
 export type TrendDirection = 'up' | 'down' | 'flat'
 

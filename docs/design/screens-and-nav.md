@@ -10,19 +10,19 @@
 
 ## 畫面清單
 
-| 畫面                   | 核心職責                                                                                                                                                                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                                                                                                             |
-| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                                                                                                                  |
-| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                                                                                                                 |
-| **Intelligence**       | Core Intelligence 主頁：analysis snapshot、spotlight、research signals、evidence / health、runtime digest、domain deep dive                                                                                                            |
-| **AI Assistant**       | 自然語言問答介面                                                                                                                                                                                                                       |
-| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）、recent batch review、`?batch=` deep-link、revert / restore                                                                                                                 |
-| **Audit Ledger**       | Run timeline、summary delta、import change preview、artifact / warning review、rollback / restore quick jump                                                                                                                           |
-| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                                                                                                                     |
-| **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；macOS 可用 Touch ID 解鎖當前 session，其餘平台維持 truthful capability / degradation；鎖定時所有資料存取完全阻斷                                                                               |
-| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                                                                                                                |
-| **Settings**           | 通用設定、analytics consent、manual update check / install、AI provider 管理、remote backup PME、manual external-output review / copy-export、derived-state controls、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息 |
+| 畫面                   | 核心職責                                                                                                                                                                                                                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                                                                                                                                                  |
+| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                                                                                                                                                       |
+| **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                                                                                                                                                      |
+| **Intelligence**       | Core Intelligence 主頁：analysis snapshot、spotlight、research signals、evidence / health、runtime digest、domain deep dive                                                                                                                                                 |
+| **AI Assistant**       | 自然語言問答介面                                                                                                                                                                                                                                                            |
+| **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）、recent batch review、`?batch=` deep-link、revert / restore                                                                                                                                                      |
+| **Audit Ledger**       | Run timeline、summary delta、import change preview、artifact / warning review、rollback / restore quick jump                                                                                                                                                                |
+| **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                                                                                                                                                          |
+| **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；macOS 可用 Touch ID 解鎖當前 session，其餘平台維持 truthful capability / degradation；鎖定時所有資料存取完全阻斷                                                                                                                    |
+| **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                                                                                                                                                     |
+| **Settings**           | 通用設定、analytics consent、manual update check / install、AI provider 管理、remote backup PME、manual external-output review / copy-export、trusted local host install / verify、derived-state controls、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息 |
 
 ---
 
@@ -50,7 +50,7 @@
 - keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
 - route metadata、sidebar section label、topbar title / subtitle、loading / skeleton label、empty / error / disabled state，以及 browser preview honesty copy 都屬於正式 i18n surface；不能因為 prototype 沒畫到文字細節就留下英文硬編碼。
 - Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
-- Settings 現在也是 `embed cards` / `widget snapshot` / `public snapshot` 的第一個正式 consumer surface：使用者可在這裡手動 preview、切換 shared profile scope 與 local time window、複製 raw payload，但這一輪仍不會直接安裝 widget、生成 reusable host artifact、或發布 localhost/public host API。
+- Settings 現在也是 `embed cards` / `widget snapshot` / `public snapshot` 的第一個正式 consumer surface：使用者可在這裡手動 preview、切換 shared profile scope 與 local time window、複製 raw payload；同一塊 surface 也會 preview / build / verify 第一個 trusted local host `browser-snippet-v1`，固定寫到 `app_root/integrations/core-intelligence/browser-snippet-v1/` 的 `index.html` / `bundle.json`。目前仍不會直接安裝 OS widget，也不會發布 localhost/public host API。
 - `/intelligence` 與 `/intelligence/domain/:domain` 的每個 deterministic section 現在都會共用 evidence / freshness drawer：顯示 generated-at、active scope / window、owning modules、source tables、是否包含 enrichment，以及 stale / disabled / degraded reason；這是 review chrome，不是 mutation surface。
 - Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 queue、freshness、derived tables、storage impact，以及 rebuild / clear controls；plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
@@ -58,7 +58,7 @@
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
-- `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / copy-export surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
+- `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
 - Settings 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
@@ -102,7 +102,7 @@
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
 - Intelligence section cards與 domain deep dive 的 evidence / freshness drawer 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
-- Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
+- Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、`browser-snippet-v1` 本地宿主的 preview / execute / verify、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
 
 ### App Lock 畫面與導航規則
 

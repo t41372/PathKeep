@@ -38,6 +38,7 @@ import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
+import { SettingsExternalOutputLocalHostPanel } from './external-output-local-host-panel'
 
 type OutputTab = 'embed' | 'widget' | 'public'
 type Translate = (key: string, vars?: Record<string, string | number>) => string
@@ -298,6 +299,12 @@ export function SettingsExternalOutputsPanel({
                 ) : null}
               </div>
             )}
+
+            <SettingsExternalOutputLocalHostPanel
+              activeProfileId={activeProfileId}
+              dateRange={dateRange}
+              ready={ready}
+            />
           </>
         ) : null}
       </div>

@@ -866,7 +866,7 @@ is_deep_dive =
 
 ### 4.C 外部服務（低優先級）
 
-- 第一個 shipping consumer surface 是 Settings 內的 manual review / copy-export panel：可預覽 `embed cards`、`widget snapshot`、`public snapshot`，但仍維持 manual-only，不直接安裝或發布到外部宿主
+- 第一個 shipping external-output surfaces 已落在 Settings：manual review / copy-export panel 仍是 canonical baseline，而第一個可重用宿主則是 `browser-snippet-v1` trusted local artifact。使用者現在可 preview `embed cards`、`widget snapshot`、`public snapshot`，也可 review `index.html` / `bundle.json` 並建立 `app_root/integrations/core-intelligence/browser-snippet-v1/`；但這仍只限受信任本地宿主，不等於 OS widget、localhost API 或 public API 已完成
 - Intelligence 卡片做成 web snippet，允許嵌入
 - Mac 小工具
 - 不敏感 intelligence 結果的 API

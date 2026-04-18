@@ -175,6 +175,8 @@ fn run_app() -> Result<()> {
             get_intelligence_embed_cards,
             get_intelligence_widget_snapshot,
             get_intelligence_public_snapshot,
+            preview_intelligence_local_host,
+            build_intelligence_local_host,
             get_on_this_day,
             get_breadth_index,
             get_habit_patterns,

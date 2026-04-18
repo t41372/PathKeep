@@ -4,9 +4,10 @@ use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
     DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
-    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, PagedDateRangeRequest,
-    PathFlowRequest, ProfileScopedRequest, RefindPagesRequest, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
+    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
+    TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -354,6 +355,22 @@ pub(crate) fn get_intelligence_public_snapshot_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::IntelligencePublicSnapshot, String> {
     worker_result(vault_worker::get_intelligence_public_snapshot(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn preview_intelligence_local_host_impl(
+    request: IntelligenceLocalHostRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligenceLocalHostPreview, String> {
+    worker_result(vault_worker::preview_intelligence_local_host(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn build_intelligence_local_host_impl(
+    request: IntelligenceLocalHostRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::IntelligenceLocalHostBuildResult, String> {
+    worker_result(vault_worker::build_intelligence_local_host(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

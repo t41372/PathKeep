@@ -8,7 +8,7 @@ pub(crate) fn open_path_in_file_manager_impl(path: String) -> Result<String, Str
     vault_platform::open_path_in_file_manager(path)
 }
 
-/// Opens one external HTTP(S) URL through the platform launcher and returns it on success.
+/// Opens one trusted file:// or HTTP(S) URL through the platform launcher and returns it on success.
 pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
     vault_platform::open_external_url(url)
 }
@@ -48,9 +48,9 @@ mod tests {
             .expect_err("missing path should fail");
         assert!(error.contains("Path does not exist"));
 
-        let error = open_external_url_impl("file:///tmp/pathkeep".to_string())
-            .expect_err("file urls should fail");
-        assert!(error.contains("http:// and https://"));
+        let error = open_external_url_impl("ftp://example.com/pathkeep".to_string())
+            .expect_err("ftp urls should fail");
+        assert!(error.contains("file://, http://, and https://"));
     }
 
     #[cfg(unix)]

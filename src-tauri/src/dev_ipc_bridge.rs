@@ -32,11 +32,11 @@ use vault_core::{
     CoreIntelligenceRebuildRequest, DomainDeepDiveRequest, DomainTrendRequest,
     EntityExplanationRequest, ExplainRefindRequest, ExportRequest, FrontendErrorReportRequest,
     GranularityDateRangeRequest, HistoryQuery, IntelligenceEmbedCardsRequest,
-    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
-    RetentionPruneRequest, S3CredentialInput, SchedulePlan, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
-    SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
-    UnlockAppSessionRequest,
+    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    RefindPagesRequest, RetentionPruneRequest, S3CredentialInput, SchedulePlan,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
+    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
+    TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -788,6 +788,20 @@ async fn dispatch_command(
         "get_intelligence_public_snapshot" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_public_snapshot_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "preview_intelligence_local_host" => {
+            let payload = parse_payload::<WrappedRequest<IntelligenceLocalHostRequest>>(payload)?;
+            json_value!(worker_bridge::preview_intelligence_local_host_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "build_intelligence_local_host" => {
+            let payload = parse_payload::<WrappedRequest<IntelligenceLocalHostRequest>>(payload)?;
+            json_value!(worker_bridge::build_intelligence_local_host_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

@@ -75,4 +75,40 @@ describe('core intelligence api', () => {
       },
     })
   })
+
+  test('requests local host previews through the backend host-preview command', async () => {
+    const { previewIntelligenceLocalHost } = await import('./api')
+
+    await previewIntelligenceLocalHost(
+      { start: '2024-04-01', end: '2024-04-30' },
+      'zh-CN',
+      'chrome:Default',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('preview_intelligence_local_host', {
+      request: {
+        dateRange: { start: '2024-04-01', end: '2024-04-30' },
+        profileId: 'chrome:Default',
+        locale: 'zh-CN',
+      },
+    })
+  })
+
+  test('requests local host builds through the backend host-build command', async () => {
+    const { buildIntelligenceLocalHost } = await import('./api')
+
+    await buildIntelligenceLocalHost(
+      { start: '2024-04-01', end: '2024-04-30' },
+      'en',
+      'chrome:Default',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('build_intelligence_local_host', {
+      request: {
+        dateRange: { start: '2024-04-01', end: '2024-04-30' },
+        profileId: 'chrome:Default',
+        locale: 'en',
+      },
+    })
+  })
 })

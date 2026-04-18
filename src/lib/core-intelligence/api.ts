@@ -55,6 +55,8 @@ import type {
   ObservedInteraction,
   Explanation,
   IntelligenceEmbedCardPayload,
+  IntelligenceLocalHostBuildResult,
+  IntelligenceLocalHostPreview,
   IntelligenceWidgetSnapshot,
   IntelligencePublicSnapshot,
 } from './types'
@@ -956,5 +958,43 @@ export function getIntelligencePublicSnapshot(
   >('get_intelligence_public_snapshot', {
     dateRange,
     profileId,
+  })
+}
+
+export function previewIntelligenceLocalHost(
+  dateRange: DateRange,
+  locale: string,
+  profileId?: string | null,
+) {
+  return invokeRequest<
+    IntelligenceLocalHostPreview,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      locale: string
+    }
+  >('preview_intelligence_local_host', {
+    dateRange,
+    profileId,
+    locale,
+  })
+}
+
+export function buildIntelligenceLocalHost(
+  dateRange: DateRange,
+  locale: string,
+  profileId?: string | null,
+) {
+  return invokeRequest<
+    IntelligenceLocalHostBuildResult,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      locale: string
+    }
+  >('build_intelligence_local_host', {
+    dateRange,
+    profileId,
+    locale,
   })
 }
