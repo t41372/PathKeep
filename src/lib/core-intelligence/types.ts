@@ -634,6 +634,7 @@ export interface DiscoveryTrendPoint {
 
 export interface DiscoveryTrend {
   points: DiscoveryTrendPoint[]
+  availableYears: number[]
 }
 
 // ---------------------------------------------------------------------------

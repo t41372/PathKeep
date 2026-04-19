@@ -3027,8 +3027,9 @@ async function call<T>(
     case 'get_activity_mix':
       return { categories: [], changeVsPrevious: [] } as T
     case 'get_activity_mix_trend':
-    case 'get_discovery_trend':
       return { points: [] } as T
+    case 'get_discovery_trend':
+      return { points: [], availableYears: [] } as T
     case 'get_browsing_rhythm':
       return { cells: [], maxCount: 0 } as T
     case 'get_breadth_index':
@@ -3167,7 +3168,7 @@ async function call<T>(
           },
           topDomains: ['example.com'],
           searchEngines: [],
-          discoveryTrend: { points: [] },
+          discoveryTrend: { points: [], availableYears: [] },
           notes: ['Preview fixture for browser-only mode.'],
         },
         trustedOnlyCardIds: [],

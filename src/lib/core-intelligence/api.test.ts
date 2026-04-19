@@ -185,4 +185,50 @@ describe('core intelligence api', () => {
       referenceDate: '2026-04-18',
     })
   })
+
+  test('requests discovery trend with the explicit granularity and preserves available years', async () => {
+    const { getDiscoveryTrend } = await import('./api')
+
+    callMock.mockResolvedValueOnce({
+      data: {
+        points: [],
+        availableYears: [2026, 2025, 2024],
+      },
+      meta: {
+        sectionId: 'discovery-trend',
+        generatedAt: '2026-04-19T12:00:00Z',
+        window: {
+          kind: 'date-range',
+          dateRange: {
+            start: '2026-01-01',
+            end: '2026-12-31',
+          },
+        },
+        moduleIds: ['daily-rollups'],
+        sourceTables: ['daily_summary_rollups'],
+        includesEnrichment: false,
+        state: 'ready',
+        stateReason: null,
+        notes: [],
+      },
+    })
+
+    const result = await getDiscoveryTrend(
+      {
+        start: '2026-01-01',
+        end: '2026-12-31',
+      },
+      'chrome:Default',
+      'day',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('get_discovery_trend', {
+      request: {
+        dateRange: { start: '2026-01-01', end: '2026-12-31' },
+        profileId: 'chrome:Default',
+        granularity: 'day',
+      },
+    })
+    expect(result.data.availableYears).toEqual([2026, 2025, 2024])
+  })
 })

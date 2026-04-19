@@ -24,13 +24,13 @@ import {
   useAsyncData,
   type DateRange,
   type KpiMetric,
-  type OnThisDayEntry,
   type RefindPage,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import { evidenceHref } from '../../lib/intelligence'
 import { IntelligenceSectionBody } from './sections/section-body'
+import { GrowthSignalSection, StorageAnalyticsSection } from './sections/health'
 import {
   ActivityMixSection,
   SearchActivitySection,
@@ -41,7 +41,6 @@ import {
   CompareSetsSection,
   DiscoveryTrendSection,
   FrictionDetectionSection,
-  HabitsSection,
   MultiBrowserDiffSection,
   ObservedInteractionsSection,
   PathFlowsSection,
@@ -81,15 +80,6 @@ export function IntelligenceSections({
         scopeLabel={scopeLabel}
         t={t}
       />
-      <div className="intelligence-row intelligence-row--two-col">
-        <OnThisDaySection profileId={profileId} scopeLabel={scopeLabel} t={t} />
-        <HabitsSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-      </div>
       <div className="intelligence-row intelligence-row--two-col">
         <TopSitesSection
           dateRange={dateRange}
@@ -162,6 +152,8 @@ export function IntelligenceSections({
             scopeLabel={scopeLabel}
             t={t}
           />
+          <StorageAnalyticsSection />
+          <GrowthSignalSection />
           <BreadthIndexSection
             dateRange={dateRange}
             profileId={profileId}
@@ -214,14 +206,6 @@ export function IntelligenceSectionsSkeleton() {
       </section>
       <div className="intelligence-row intelligence-row--two-col">
         <section className="intelligence-section">
-          <div className="intelligence-skeleton intelligence-skeleton--card" />
-        </section>
-        <section className="intelligence-section">
-          <div className="intelligence-skeleton intelligence-skeleton--card" />
-        </section>
-      </div>
-      <div className="intelligence-row intelligence-row--two-col">
-        <section className="intelligence-section">
           <div className="intelligence-skeleton intelligence-skeleton--list" />
         </section>
         <section className="intelligence-section">
@@ -240,7 +224,7 @@ export function IntelligenceSectionsSkeleton() {
         <div className="intelligence-skeleton intelligence-skeleton--heatmap" />
       </section>
       <div className="intelligence-secondary-grid">
-        {Array.from({ length: 4 }).map((_, index) => (
+        {Array.from({ length: 6 }).map((_, index) => (
           <section key={index} className="intelligence-section">
             <div className="intelligence-skeleton intelligence-skeleton--card" />
           </section>
@@ -340,91 +324,6 @@ function TrendBadge({ metric, t }: { metric: KpiMetric; t: T }) {
       {sign}
       {Math.round(metric.changePercent)}% {arrow}
     </span>
-  )
-}
-
-function OnThisDaySection({
-  profileId,
-  scopeLabel,
-  t,
-}: {
-  profileId: string | null
-  scopeLabel: string
-  t: T
-}) {
-  const { data, loading } = useAsyncData(
-    () => api.getOnThisDay(profileId),
-    [profileId],
-  )
-  const entries = data?.data ?? []
-  const [expanded, setExpanded] = useState(false)
-  const visibleEntries = expanded ? entries : entries.slice(0, 3)
-
-  return (
-    <section className="intelligence-section on-this-day-section">
-      <h2 className="intelligence-section__title">{t('onThisDayTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
-      {loading ? (
-        <div className="intelligence-skeleton intelligence-skeleton--card" />
-      ) : entries.length === 0 ? (
-        <div className="intelligence-empty">
-          <p className="intelligence-empty__eyebrow">{t('onThisDayEyebrow')}</p>
-          <p className="intelligence-empty__text">{t('onThisDayEmpty')}</p>
-        </div>
-      ) : (
-        <IntelligenceSectionBody className="on-this-day-list">
-          {visibleEntries.map((entry) => (
-            <OnThisDayEntryCard key={entry.year} entry={entry} t={t} />
-          ))}
-          {entries.length > 3 ? (
-            <button
-              className="intelligence-link"
-              type="button"
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? t('onThisDayCollapse') : t('onThisDayMore')}
-            </button>
-          ) : null}
-        </IntelligenceSectionBody>
-      )}
-    </section>
-  )
-}
-
-function OnThisDayEntryCard({ entry, t }: { entry: OnThisDayEntry; t: T }) {
-  return (
-    <div className="on-this-day-entry">
-      <div className="on-this-day-entry__header">
-        <span className="on-this-day-entry__year">{entry.year}</span>
-        <span className="on-this-day-entry__visits">
-          {t('onThisDayVisits', { count: entry.totalVisits })}
-        </span>
-        {entry.deepDiveSessions > 0 ? (
-          <span
-            className="on-this-day-entry__deep-dive-badge"
-            title={t('onThisDayDeepDive', {
-              count: entry.deepDiveSessions,
-            })}
-          >
-            🔬 {entry.deepDiveSessions}
-          </span>
-        ) : null}
-      </div>
-      {entry.summary ? (
-        <p className="on-this-day-entry__summary">{entry.summary}</p>
-      ) : null}
-      {entry.topDomains.length > 0 ? (
-        <div className="on-this-day-entry__domains">
-          {entry.topDomains.slice(0, 4).map((domain) => (
-            <span key={domain} className="on-this-day-entry__domain-tag">
-              {domain}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
   )
 }
 

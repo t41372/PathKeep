@@ -15,9 +15,9 @@
 
 import { describe, expect, test } from 'vitest'
 import {
-  dominantStorageSlice,
+  buildStorageAnalyticsSummary,
+  dominantStorageGroup,
   reclaimableStorageBytes,
-  storageAnalyticsSlices,
   storageGrowthEvidence,
   totalTrackedStorageBytes,
 } from './storage-analytics'
@@ -42,16 +42,29 @@ describe('storage analytics helpers', () => {
     expect(reclaimableStorageBytes(storage)).toBe(45)
   })
 
-  test('returns stable storage slices and dominant category', () => {
-    expect(storageAnalyticsSlices(storage)).toEqual([
-      { id: 'core', bytes: 225 },
-      { id: 'audit', bytes: 30 },
-      { id: 'exports', bytes: 5 },
-      { id: 'rebuildable', bytes: 20 },
-    ])
-    expect(dominantStorageSlice(storage)).toEqual({
-      id: 'core',
-      bytes: 225,
+  test('builds stable core vs other storage summaries and dominant group', () => {
+    expect(buildStorageAnalyticsSummary(storage)).toEqual({
+      trackedStorageBytes: 280,
+      reclaimableBytes: 45,
+      coreHistoryBytes: 185,
+      otherDataBytes: 95,
+      coreBreakdown: [
+        { id: 'canonicalArchive', bytes: 150 },
+        { id: 'sourceEvidence', bytes: 35 },
+      ],
+      otherBreakdown: [
+        { id: 'searchProjection', bytes: 15 },
+        { id: 'intelligenceProjection', bytes: 25 },
+        { id: 'semanticIndex', bytes: 7 },
+        { id: 'contentBlobs', bytes: 8 },
+        { id: 'auditArtifacts', bytes: 30 },
+        { id: 'exports', bytes: 5 },
+        { id: 'temporaryFiles', bytes: 5 },
+      ],
+    })
+    expect(dominantStorageGroup(storage)).toEqual({
+      id: 'coreHistory',
+      bytes: 185,
     })
   })
 
@@ -84,18 +97,49 @@ describe('storage analytics helpers', () => {
       latestVisitGrowth: 8,
       latestUrlGrowth: 3,
       latestDownloadGrowth: 1,
-      totalTrackedBytes: 280,
+      trackedStorageBytes: 280,
       reclaimableBytes: 45,
-      dominantSlice: { id: 'core', bytes: 225 },
+      coreHistoryBytes: 185,
+      otherDataBytes: 95,
+      dominantGroup: { id: 'coreHistory', bytes: 185 },
+      summary: {
+        trackedStorageBytes: 280,
+        reclaimableBytes: 45,
+        coreHistoryBytes: 185,
+        otherDataBytes: 95,
+        coreBreakdown: [
+          { id: 'canonicalArchive', bytes: 150 },
+          { id: 'sourceEvidence', bytes: 35 },
+        ],
+        otherBreakdown: [
+          { id: 'searchProjection', bytes: 15 },
+          { id: 'intelligenceProjection', bytes: 25 },
+          { id: 'semanticIndex', bytes: 7 },
+          { id: 'contentBlobs', bytes: 8 },
+          { id: 'auditArtifacts', bytes: 30 },
+          { id: 'exports', bytes: 5 },
+          { id: 'temporaryFiles', bytes: 5 },
+        ],
+      },
     })
     expect(storageGrowthEvidence(null)).toEqual({
       latestRunId: null,
       latestVisitGrowth: 0,
       latestUrlGrowth: 0,
       latestDownloadGrowth: 0,
-      totalTrackedBytes: 0,
+      trackedStorageBytes: 0,
       reclaimableBytes: 0,
-      dominantSlice: { id: 'core', bytes: 0 },
+      coreHistoryBytes: 0,
+      otherDataBytes: 0,
+      dominantGroup: { id: 'coreHistory', bytes: 0 },
+      summary: {
+        trackedStorageBytes: 0,
+        reclaimableBytes: 0,
+        coreHistoryBytes: 0,
+        otherDataBytes: 0,
+        coreBreakdown: [],
+        otherBreakdown: [],
+      },
     })
   })
 })

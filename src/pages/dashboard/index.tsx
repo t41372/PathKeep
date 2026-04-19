@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { BrowsingRhythmCard } from '../../components/intelligence/browsing-rhythm-card'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { ErrorState } from '../../components/primitives/error-state'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -31,6 +32,7 @@ import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
 import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
+import { buildStorageAnalyticsSummary } from '../../lib/storage-analytics'
 import {
   profileIdLabel,
   useProfileScope,
@@ -274,11 +276,8 @@ export function DashboardPage() {
   const previewOnlyProfiles = selectedProfiles.filter(
     (profile) => !isBackupReadyProfile(profile),
   )
-  const totalStorage =
-    dashboard.storage.archiveDatabaseBytes +
-    dashboard.storage.manifestBytes +
-    dashboard.storage.snapshotBytes +
-    dashboard.storage.exportBytes
+  const storageSummary = buildStorageAnalyticsSummary(dashboard.storage)
+  const totalStorage = storageSummary.trackedStorageBytes
   const latestManifestHash =
     dashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ?? null
   const aiMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
@@ -345,24 +344,26 @@ export function DashboardPage() {
 
   const storageSegments = [
     {
-      label: t('dashboard.archiveDatabase'),
+      label: commonT('coreHistory'),
+      detail: [commonT('canonicalArchive'), commonT('sourceEvidence')].join(
+        ' · ',
+      ),
       tone: 'storage-fill',
-      value: dashboard.storage.archiveDatabaseBytes,
+      value: storageSummary.coreHistoryBytes,
     },
     {
-      label: t('dashboard.manifests'),
+      label: commonT('otherData'),
+      detail: [
+        commonT('searchProjection'),
+        commonT('intelligenceProjection'),
+        commonT('semanticIndex'),
+        commonT('contentBlobs'),
+        commonT('auditArtifacts'),
+        commonT('exports'),
+        commonT('temporaryFiles'),
+      ].join(' · '),
       tone: 'storage-fill secondary',
-      value: dashboard.storage.manifestBytes,
-    },
-    {
-      label: t('dashboard.snapshots'),
-      tone: 'storage-fill tertiary',
-      value: dashboard.storage.snapshotBytes,
-    },
-    {
-      label: t('dashboard.exports'),
-      tone: 'storage-fill dim',
-      value: dashboard.storage.exportBytes,
+      value: storageSummary.otherDataBytes,
     },
   ]
   const stats = [
@@ -574,6 +575,23 @@ export function DashboardPage() {
         ))}
       </div>
 
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-title">{intelligenceT('rhythmTitle')}</span>
+          <Link className="panel-action" to="/intelligence">
+            {t('dashboard.reviewInsightsAction')}
+          </Link>
+        </div>
+        <div className="panel-body">
+          <BrowsingRhythmCard
+            mode="year"
+            language={language}
+            profileId={activeProfileId}
+            t={intelligenceT}
+          />
+        </div>
+      </div>
+
       <div className="dashboard-grid">
         <div className="dashboard-left">
           <div className="panel">
@@ -683,6 +701,7 @@ export function DashboardPage() {
                         }}
                       />
                     </div>
+                    <div className="mono-support">{segment.detail}</div>
                   </div>
                 ))}
               </div>
@@ -741,9 +760,6 @@ export function DashboardPage() {
               <span className="panel-title">
                 {intelligenceT('onThisDayTitle')}
               </span>
-              <Link className="panel-action" to="/intelligence">
-                {t('dashboard.reviewInsightsAction')}
-              </Link>
             </div>
             <div className="panel-body">
               {onThisDayLoading ? (

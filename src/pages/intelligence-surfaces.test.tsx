@@ -512,6 +512,7 @@ function createLocalHostPreview(
         { searchEngine: 'google', displayName: 'Google', searchCount: 18 },
       ],
       discoveryTrend: {
+        availableYears: [],
         points: [
           {
             dateKey: '2026-04-07',
@@ -647,6 +648,116 @@ describe('intelligence surfaces', () => {
         content.includes(commonT('browserRetentionArchiveBoundary')),
       ).length,
     ).toBeGreaterThan(0)
+  })
+
+  test('renders dashboard yearly browsing rhythm and keeps selected-day detail lazy', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const summary = {
+      dateRange: { start: '2024-04-18', end: '2024-04-18' } satisfies DateRange,
+      totalVisits: { value: 3, trend: 'flat' as const },
+      totalSearches: { value: 1, trend: 'flat' as const },
+      newDomains: { value: 1, trend: 'flat' as const },
+      deepReadPages: { value: 2, trend: 'flat' as const },
+      refindPages: { value: 0, trend: 'flat' as const },
+    }
+    const getDiscoveryTrendSpy = vi
+      .spyOn(coreIntelligenceApi, 'getDiscoveryTrend')
+      .mockImplementation((dateRange) =>
+        Promise.resolve(
+          wrapSection('discovery-trend', {
+            availableYears: [2025, 2024],
+            points:
+              dateRange.start === '2024-01-01'
+                ? [
+                    {
+                      dateKey: '2024-04-18',
+                      discoveryRate: 0.33,
+                      newDomainCount: 1,
+                      totalVisits: 3,
+                    },
+                  ]
+                : [
+                    {
+                      dateKey: '2025-04-18',
+                      discoveryRate: 0.25,
+                      newDomainCount: 2,
+                      totalVisits: 8,
+                    },
+                  ],
+          }),
+        ),
+      )
+    const getDigestSummarySpy = vi
+      .spyOn(coreIntelligenceApi, 'getDigestSummary')
+      .mockResolvedValue(wrapSection('digest-summary', summary))
+    const getTopSitesSpy = vi
+      .spyOn(coreIntelligenceApi, 'getTopSites')
+      .mockResolvedValue(
+        wrapSection('top-sites', [
+          {
+            registrableDomain: 'sqlite.org',
+            displayName: 'SQLite',
+            domainCategory: 'docs',
+            visitCount: 3,
+            uniqueDays: 1,
+            averageDailyVisits: 3,
+            uniqueUrls: 2,
+          },
+        ]),
+      )
+    const getBrowsingRhythmSpy = vi
+      .spyOn(coreIntelligenceApi, 'getBrowsingRhythm')
+      .mockResolvedValue(
+        wrapSection('browsing-rhythm', {
+          cells: [{ dow: 4, hour: 10, visitCount: 3 }],
+          maxCount: 3,
+        }),
+      )
+
+    renderSurface(<DashboardPage />, {
+      dashboard,
+      route: '/',
+      snapshot,
+    })
+
+    const yearSelect = await screen.findByTestId('browsing-rhythm-year-select')
+    expect(yearSelect).toHaveValue('2025')
+    expect(getDigestSummarySpy).not.toHaveBeenCalled()
+    expect(getTopSitesSpy).not.toHaveBeenCalled()
+    expect(getBrowsingRhythmSpy).not.toHaveBeenCalled()
+
+    await user.selectOptions(yearSelect, '2024')
+    await waitFor(() =>
+      expect(getDiscoveryTrendSpy).toHaveBeenLastCalledWith(
+        { start: '2024-01-01', end: '2024-12-31' },
+        null,
+        'day',
+      ),
+    )
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /2024-04-18 · 3 visits · 1 new sites/i,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(getDigestSummarySpy).toHaveBeenCalledWith(
+        { start: '2024-04-18', end: '2024-04-18' },
+        null,
+      ),
+    )
+    expect(getTopSitesSpy).toHaveBeenCalledWith(
+      { start: '2024-04-18', end: '2024-04-18' },
+      null,
+      'visit_count',
+      5,
+    )
+    expect(getBrowsingRhythmSpy).toHaveBeenCalledWith(
+      { start: '2024-04-18', end: '2024-04-18' },
+      null,
+    )
   })
 
   test('routes dashboard archive-key failures toward the security page', async () => {
@@ -1337,6 +1448,7 @@ describe('intelligence surfaces', () => {
           },
         ],
         discoveryTrend: {
+          availableYears: [],
           points: [
             {
               dateKey: '2026-04-07',
@@ -1575,6 +1687,7 @@ describe('intelligence surfaces', () => {
         topDomains: [],
         searchEngines: [],
         discoveryTrend: {
+          availableYears: [],
           points: [],
         },
         notes: [],
@@ -1746,7 +1859,7 @@ describe('intelligence surfaces', () => {
       },
       topDomains: [],
       searchEngines: [],
-      discoveryTrend: { points: [] },
+      discoveryTrend: { points: [], availableYears: [] },
       notes: [],
     })
     const previewSpy = vi
@@ -2538,7 +2651,7 @@ describe('intelligence surfaces', () => {
       ]),
     )
     vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
-      wrapSection('discovery-trend', { points: [] }),
+      wrapSection('discovery-trend', { points: [], availableYears: [] }),
     )
     vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
       wrapSection('breadth-index', {
@@ -2793,6 +2906,7 @@ describe('intelligence surfaces', () => {
       (_dateRange, _profileId, granularity) =>
         Promise.resolve(
           wrapSection('discovery-trend', {
+            availableYears: [2026, 2025],
             points:
               granularity === 'day'
                 ? [
@@ -2866,6 +2980,7 @@ describe('intelligence surfaces', () => {
 
   test('renders browsing rhythm as a real-date calendar and keeps secondary cards capped', async () => {
     const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
 
     vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
       createEmptyRuntimeSnapshot(),
@@ -2974,6 +3089,7 @@ describe('intelligence surfaces', () => {
       (_dateRange, _profileId, granularity) =>
         Promise.resolve(
           wrapSection('discovery-trend', {
+            availableYears: [2026],
             points:
               granularity === 'day'
                 ? [
@@ -3094,6 +3210,135 @@ describe('intelligence surfaces', () => {
     expect(
       container.querySelector('.intelligence-secondary-grid'),
     ).not.toBeNull()
+    expect(
+      screen.queryByRole('heading', {
+        name: intelligenceT('onThisDayTitle'),
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('renders grouped storage analytics in the intelligence health tail', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const commonT = createNamespaceTranslator('en', 'common')
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockResolvedValue(
+      wrapSection('digest-summary', {
+        dateRange: { start: '2026-01-01', end: '2026-01-31' },
+        totalVisits: { value: 180, trend: 'flat' as const },
+        totalSearches: { value: 24, trend: 'flat' as const },
+        newDomains: { value: 8, trend: 'flat' as const },
+        deepReadPages: { value: 12, trend: 'flat' as const },
+        refindPages: { value: 4, trend: 'flat' as const },
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection('top-sites', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('query-families', {
+        page: 0,
+        pageSize: 10,
+        total: 0,
+        families: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockResolvedValue(
+      wrapSection('browsing-rhythm', {
+        cells: [],
+        maxCount: 0,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+      wrapSection('discovery-trend', { points: [], availableYears: [] }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 0,
+        hhi: 0,
+        concentrationDomainCount: 0,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      dashboard,
+      route: '/intelligence?range=custom&start=2026-01-01&end=2026-01-31',
+      snapshot,
+    })
+
+    const storageHeading = await screen.findByRole('heading', {
+      name: intelligenceT('storageAnalytics'),
+    })
+    const storageSection = storageHeading.closest('section')
+    if (!(storageSection instanceof HTMLElement)) {
+      throw new Error('expected storage analytics section')
+    }
+
+    expect(storageHeading).toBeVisible()
+    expect(
+      within(storageSection).getAllByText(commonT('coreHistory')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      within(storageSection).getAllByText(commonT('otherData')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      within(storageSection).getByText(commonT('canonicalArchive')),
+    ).toBeVisible()
+    expect(
+      within(storageSection).getByText(commonT('auditArtifacts')),
+    ).toBeVisible()
   })
 
   test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {
@@ -3710,7 +3955,7 @@ describe('intelligence surfaces', () => {
       'getReopenedInvestigations',
     ).mockResolvedValue(wrapSection('reopened-investigations', []))
     vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
-      wrapSection('discovery-trend', { points: [] }),
+      wrapSection('discovery-trend', { points: [], availableYears: [] }),
     )
     vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
       wrapSection('breadth-index', {

@@ -6936,6 +6936,15 @@ pub fn get_discovery_trend(
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut available_years_statement = connection.prepare(
+        "SELECT DISTINCT CAST(SUBSTR(date_key, 1, 4) AS INTEGER)
+         FROM daily_summary_rollups
+         WHERE (?1 IS NULL OR profile_id = ?1)
+         ORDER BY 1 DESC",
+    )?;
+    let available_years = available_years_statement
+        .query_map(params![request.profile_id.as_deref()], |row| row.get::<_, i32>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut grouped = BTreeMap::<String, (i64, i64)>::new();
     for (date_key, new_domain_count, total_visits) in rows {
         let entry = grouped.entry(date_key).or_insert((0, 0));
@@ -6956,6 +6965,7 @@ pub fn get_discovery_trend(
                 total_visits,
             })
             .collect(),
+        available_years,
     })
 }
 
@@ -7595,11 +7605,11 @@ mod tests {
         build_path_flows, build_query_families, build_query_families_from_batches,
         build_refind_pages, build_source_effectiveness, build_source_effectiveness_from_database,
         build_structural_profile_aggregates_from_batches, collapse_date_key,
-        ensure_core_intelligence_schema, explain_entity, get_intelligence_embed_cards,
-        get_intelligence_public_snapshot, get_intelligence_widget_snapshot, get_path_flows,
-        load_profile_derived_visits, load_profile_search_events, load_profile_trails,
-        local_date_key, merge_stage_run_result, normalize_query, run_core_intelligence,
-        run_core_intelligence_job_type_with_progress,
+        ensure_core_intelligence_schema, explain_entity, get_discovery_trend,
+        get_intelligence_embed_cards, get_intelligence_public_snapshot,
+        get_intelligence_widget_snapshot, get_path_flows, load_profile_derived_visits,
+        load_profile_search_events, load_profile_trails, local_date_key, merge_stage_run_result,
+        normalize_query, run_core_intelligence, run_core_intelligence_job_type_with_progress,
     };
     use crate::{
         archive::{open_archive_connection, open_intelligence_connection},
@@ -7608,8 +7618,8 @@ mod tests {
         intelligence_runtime::{FULL_REBUILD_JOB_TYPE, ensure_intelligence_runtime_schema},
         models::{
             AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings,
-            DateRange, EntityExplanationRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
-            ScopedDateRangeRequest,
+            DateRange, EntityExplanationRequest, GranularityDateRangeRequest,
+            IntelligenceEmbedCardsRequest, PathFlowRequest, ScopedDateRangeRequest,
         },
         utils::now_rfc3339,
     };
@@ -7663,6 +7673,71 @@ mod tests {
         assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
         assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
         assert!(has_index(&connection, "idx_search_events_profile_visit"));
+    }
+
+    #[test]
+    fn discovery_trend_reports_available_years_and_respects_profile_scope() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
+        ensure_core_intelligence_schema(&intelligence).expect("ensure intelligence schema");
+
+        for (date_key, profile_id, total_visits, new_domains) in [
+            ("2024-04-18", "chrome:Default", 3_i64, 1_i64),
+            ("2025-04-18", "chrome:Default", 8_i64, 2_i64),
+            ("2026-04-18", "firefox:Default", 5_i64, 1_i64),
+        ] {
+            intelligence
+                .execute(
+                    "INSERT INTO daily_summary_rollups
+                     (date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
+                     VALUES (?1, ?2, ?3, 0, ?4, ?4, 0.0, 0.0)",
+                    params![date_key, profile_id, total_visits, new_domains],
+                )
+                .expect("insert daily summary rollup");
+        }
+        drop(intelligence);
+
+        let archive_wide = get_discovery_trend(
+            &paths,
+            &config,
+            None,
+            &GranularityDateRangeRequest {
+                date_range: DateRange {
+                    start: "2025-01-01".to_string(),
+                    end: "2025-12-31".to_string(),
+                },
+                profile_id: None,
+                granularity: "day".to_string(),
+            },
+        )
+        .expect("archive-wide discovery trend");
+        assert_eq!(archive_wide.available_years, vec![2026, 2025, 2024]);
+        assert_eq!(archive_wide.points.len(), 1);
+        assert_eq!(archive_wide.points[0].date_key, "2025-04-18");
+
+        let scoped = get_discovery_trend(
+            &paths,
+            &config,
+            None,
+            &GranularityDateRangeRequest {
+                date_range: DateRange {
+                    start: "2025-01-01".to_string(),
+                    end: "2025-12-31".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+                granularity: "day".to_string(),
+            },
+        )
+        .expect("scoped discovery trend");
+        assert_eq!(scoped.available_years, vec![2025, 2024]);
+        assert_eq!(scoped.points.len(), 1);
+        assert_eq!(scoped.points[0].date_key, "2025-04-18");
     }
 
     #[test]

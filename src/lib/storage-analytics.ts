@@ -1,60 +1,79 @@
 /**
- * This module contains reusable front-end helper logic for Storage Analytics.ts.
+ * This module contains reusable front-end helper logic for storage analytics.
  *
  * Why this file exists:
- * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
- * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ * - Storage analytics now shares one cross-route truth boundary: core browser
+ *   history data vs. everything PathKeep derives or adds around it.
+ * - Keeping the grouping logic here prevents Dashboard, Intelligence, and
+ *   Settings from quietly drifting into incompatible totals or labels.
  *
  * Main declarations:
- * - `StorageAnalyticsSlice`
- * - `totalTrackedStorageBytes`
- * - `reclaimableStorageBytes`
- * - `storageAnalyticsSlices`
- * - `dominantStorageSlice`
+ * - `StorageAnalyticsSummary`
+ * - `buildStorageAnalyticsSummary`
+ * - `dominantStorageGroup`
  * - `storageGrowthEvidence`
  *
  * Source-of-truth notes:
- * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
- * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ * - Raw byte counters still come from `StorageSummary`.
+ * - This helper only groups those raw counters into the UI contract agreed in
+ *   the accepted storage-plane and Intelligence docs.
  */
 
 import type { DashboardSnapshot, StorageSummary } from './types'
 
+export type StorageAnalyticsGroupId = 'coreHistory' | 'otherData'
+
+export type StorageAnalyticsDetailId =
+  | 'canonicalArchive'
+  | 'sourceEvidence'
+  | 'searchProjection'
+  | 'intelligenceProjection'
+  | 'semanticIndex'
+  | 'contentBlobs'
+  | 'auditArtifacts'
+  | 'exports'
+  | 'temporaryFiles'
+
 /**
- * Defines the typed shape for storage analytics slice.
+ * Defines the typed shape for one storage analytics detail row.
  *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * The route owns the copy, but the helper owns which bytes roll into which row.
  */
-export interface StorageAnalyticsSlice {
-  id: 'core' | 'audit' | 'exports' | 'rebuildable'
+export interface StorageAnalyticsDetail {
+  id: StorageAnalyticsDetailId
+  bytes: number
+}
+
+/**
+ * Defines the shared summary contract used by Dashboard, Intelligence, and
+ * Settings storage surfaces.
+ */
+export interface StorageAnalyticsSummary {
+  trackedStorageBytes: number
+  reclaimableBytes: number
+  coreHistoryBytes: number
+  otherDataBytes: number
+  coreBreakdown: StorageAnalyticsDetail[]
+  otherBreakdown: StorageAnalyticsDetail[]
+}
+
+/**
+ * Defines the typed shape for the dominant top-level storage group.
+ */
+export interface StorageAnalyticsGroup {
+  id: StorageAnalyticsGroupId
   bytes: number
 }
 
 /**
  * Explains how total tracked storage bytes works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function totalTrackedStorageBytes(storage: StorageSummary): number {
-  return (
-    storage.archiveDatabaseBytes +
-    storage.sourceEvidenceDatabaseBytes +
-    storage.searchDatabaseBytes +
-    storage.intelligenceDatabaseBytes +
-    storage.manifestBytes +
-    storage.snapshotBytes +
-    storage.exportBytes +
-    storage.stagingBytes +
-    storage.quarantineBytes +
-    storage.semanticSidecarBytes +
-    storage.intelligenceBlobBytes
-  )
+  return buildStorageAnalyticsSummary(storage).trackedStorageBytes
 }
 
 /**
  * Explains how reclaimable storage bytes works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function reclaimableStorageBytes(storage: StorageSummary): number {
   return (
@@ -68,24 +87,40 @@ export function reclaimableStorageBytes(storage: StorageSummary): number {
 }
 
 /**
- * Explains how storage analytics slices works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * Builds the shared storage analytics summary from raw byte counters.
  */
-export function storageAnalyticsSlices(
+export function buildStorageAnalyticsSummary(
   storage: StorageSummary,
-): StorageAnalyticsSlice[] {
-  return [
+): StorageAnalyticsSummary {
+  const coreBreakdown: StorageAnalyticsDetail[] = [
     {
-      id: 'core',
-      bytes:
-        storage.archiveDatabaseBytes +
-        storage.sourceEvidenceDatabaseBytes +
-        storage.searchDatabaseBytes +
-        storage.intelligenceDatabaseBytes,
+      id: 'canonicalArchive',
+      bytes: storage.archiveDatabaseBytes,
     },
     {
-      id: 'audit',
+      id: 'sourceEvidence',
+      bytes: storage.sourceEvidenceDatabaseBytes,
+    },
+  ]
+  const otherBreakdown: StorageAnalyticsDetail[] = [
+    {
+      id: 'searchProjection',
+      bytes: storage.searchDatabaseBytes,
+    },
+    {
+      id: 'intelligenceProjection',
+      bytes: storage.intelligenceDatabaseBytes,
+    },
+    {
+      id: 'semanticIndex',
+      bytes: storage.semanticSidecarBytes,
+    },
+    {
+      id: 'contentBlobs',
+      bytes: storage.intelligenceBlobBytes,
+    },
+    {
+      id: 'auditArtifacts',
       bytes: storage.manifestBytes + storage.snapshotBytes,
     },
     {
@@ -93,52 +128,99 @@ export function storageAnalyticsSlices(
       bytes: storage.exportBytes,
     },
     {
-      id: 'rebuildable',
-      bytes:
-        storage.stagingBytes +
-        storage.quarantineBytes +
-        storage.semanticSidecarBytes +
-        storage.intelligenceBlobBytes,
+      id: 'temporaryFiles',
+      bytes: storage.stagingBytes + storage.quarantineBytes,
+    },
+  ]
+  const coreHistoryBytes = coreBreakdown.reduce(
+    (total, item) => total + item.bytes,
+    0,
+  )
+  const otherDataBytes = otherBreakdown.reduce(
+    (total, item) => total + item.bytes,
+    0,
+  )
+
+  return {
+    trackedStorageBytes: coreHistoryBytes + otherDataBytes,
+    reclaimableBytes: reclaimableStorageBytes(storage),
+    coreHistoryBytes,
+    otherDataBytes,
+    coreBreakdown,
+    otherBreakdown,
+  }
+}
+
+function storageAnalyticsGroups(
+  summary: StorageAnalyticsSummary,
+): StorageAnalyticsGroup[] {
+  return [
+    {
+      id: 'coreHistory',
+      bytes: summary.coreHistoryBytes,
+    },
+    {
+      id: 'otherData',
+      bytes: summary.otherDataBytes,
     },
   ]
 }
 
+function isStorageAnalyticsSummary(
+  value: StorageSummary | StorageAnalyticsSummary,
+): value is StorageAnalyticsSummary {
+  return 'coreHistoryBytes' in value && 'otherDataBytes' in value
+}
+
 /**
- * Explains how dominant storage slice works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * Returns the dominant top-level storage group.
  */
-export function dominantStorageSlice(storage: StorageSummary) {
+export function dominantStorageGroup(
+  value: StorageSummary | StorageAnalyticsSummary,
+): StorageAnalyticsGroup {
+  const summary = isStorageAnalyticsSummary(value)
+    ? value
+    : buildStorageAnalyticsSummary(value)
+
   return (
-    [...storageAnalyticsSlices(storage)].sort(
+    [...storageAnalyticsGroups(summary)].sort(
       (left, right) => right.bytes - left.bytes,
-    )[0] ?? { id: 'core' as const, bytes: 0 }
+    )[0] ?? {
+      id: 'coreHistory',
+      bytes: 0,
+    }
   )
 }
 
 /**
- * Explains how storage growth evidence works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * Builds growth evidence from the latest successful dashboard run together with
+ * the shared storage summary.
  */
 export function storageGrowthEvidence(dashboard: DashboardSnapshot | null) {
   const latestRun = dashboard?.recentRuns.find(
     (run) => run.status === 'success',
   )
+  const summary = dashboard
+    ? buildStorageAnalyticsSummary(dashboard.storage)
+    : {
+        trackedStorageBytes: 0,
+        reclaimableBytes: 0,
+        coreHistoryBytes: 0,
+        otherDataBytes: 0,
+        coreBreakdown: [],
+        otherBreakdown: [],
+      }
 
   return {
     latestRunId: latestRun?.id ?? null,
     latestVisitGrowth: latestRun?.newVisits ?? 0,
     latestUrlGrowth: latestRun?.newUrls ?? 0,
     latestDownloadGrowth: latestRun?.newDownloads ?? 0,
-    totalTrackedBytes: dashboard
-      ? totalTrackedStorageBytes(dashboard.storage)
-      : 0,
-    reclaimableBytes: dashboard
-      ? reclaimableStorageBytes(dashboard.storage)
-      : 0,
-    dominantSlice: dashboard
-      ? dominantStorageSlice(dashboard.storage)
-      : { id: 'core' as const, bytes: 0 },
+    trackedStorageBytes: summary.trackedStorageBytes,
+    reclaimableBytes: summary.reclaimableBytes,
+    coreHistoryBytes: summary.coreHistoryBytes,
+    otherDataBytes: summary.otherDataBytes,
+    dominantGroup: dominantStorageGroup(summary),
+    summary,
   }
 }

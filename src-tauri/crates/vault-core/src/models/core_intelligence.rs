@@ -692,6 +692,7 @@ pub struct DiscoveryTrendPoint {
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryTrend {
     pub points: Vec<DiscoveryTrendPoint>,
+    pub available_years: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

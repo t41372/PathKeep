@@ -56,6 +56,19 @@ export function dateRangeFromPreset(preset: TimeRangePreset): DateRange {
   }
 }
 
+/**
+ * Builds an inclusive calendar-year range for one local year.
+ *
+ * This differs from the rolling `year` preset above, which intentionally means
+ * "the last 12 months" for the Intelligence route time bar.
+ */
+export function dateRangeForCalendarYear(year: number): DateRange {
+  return {
+    start: `${year}-01-01`,
+    end: `${year}-12-31`,
+  }
+}
+
 function formatDate(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
