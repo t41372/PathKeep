@@ -29,6 +29,8 @@
 > **2026-04-18 closeout note**：`WORK-CI-C` 已完成。repo 現在只接受 registry-backed Core Intelligence module ids、canonical table names、runtime reports 與 benchmark evidence；`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/` 已補齊 current-host `14.4M / 60y` full replay 與 expired-lease recovery artifact。current-host signoff 就是目前 stop point；若未來還想補第二台主機 benchmark parity，必須重新立項，而不是預設待辦。
 >
 > **2026-04-18 desktop truth follow-up note**：source 之後又補上 locked-archive shell snapshot degradation、Security candidate-key fail-fast、sidebar locked-state polling gate，以及 compact `version · short-sha[+]` build diagnostics；但 fresh `bun run desktop:dev` 在這台主機上仍可能顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome。這要先視為 current-host stale WebView / bundle cache drift，再決定是否重開 frontend regression。
+>
+> **2026-04-19 M6 closeout note**：`WORK-M6-A` 已完成。`day` 與 `domain` 現在都已升格成 first-class shared insights entity：新增 `/intelligence/day/:date`、保留但正式升格 `/intelligence/domain/:domain`、shared href grammar、`Insight Access` strip，以及 Dashboard / Intelligence / Explorer 的 route-first entry。下一輪 active 規劃改成 `M7 — Cross-App Reuse Audit And Insight Entity Consolidation`，用來盤點其餘仍然 consumer-local 的 intelligence entity surface。
 
 ---
 
@@ -49,6 +51,9 @@
 | M3 Intelligence                                   | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
 | M4 Full Intelligence & Polish                     | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
 | M5 Deterministic Intelligence                     | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
+| M5 Runtime & Extensions                           | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)         |
+| M6 Shared Insight Surfaces                        | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)       |
+| M7 Reuse Audit                                    | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                               |
 | 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
 
 ---
@@ -138,7 +143,9 @@ M1  Solid Archive
 M2  Recall & Trust
 M3  Intelligence
 M4  Full Intelligence & Polish
-M5  Deterministic Intelligence
+M5  Deterministic Intelligence / Runtime & Extensions
+M6  Shared Day And Domain Insights
+M7  Cross-App Reuse Audit And Insight Entity Consolidation
 ```
 
 每個里程碑目錄都有：
@@ -151,15 +158,17 @@ M5  Deterministic Intelligence
 
 ## 里程碑入口
 
-| 里程碑 | 目標                                                                     | 狀態  | 入口                                                                               |
-| ------ | ------------------------------------------------------------------------ | ----- | ---------------------------------------------------------------------------------- |
-| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                                             |
-| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                                 |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                           |
-| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                     |
-| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
-| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
-| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline              | `[/]` | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
+| 里程碑 | 目標                                                                     | 狀態  | 入口                                                                         |
+| ------ | ------------------------------------------------------------------------ | ----- | ---------------------------------------------------------------------------- |
+| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                                       |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                           |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                     |
+| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)               |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                       |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                         |
+| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime   | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)   |
+| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface    | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md) |
+| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation         | `[/]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                         |
 
 ---
 
@@ -180,5 +189,8 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m2-recall-and-trust/
        ├── m3-intelligence/
        ├── m4-full-polish/
-       └── m5-deterministic-intelligence/
+       ├── m5-deterministic-intelligence/
+       ├── m5-runtime-and-extensions/
+       ├── m6-shared-insight-surfaces/
+       └── m7-reuse-audit/
 ```

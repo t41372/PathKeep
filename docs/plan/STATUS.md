@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：CI — Core Intelligence Follow-Up**
+**當前 Milestone：M7 — Cross-App Reuse Audit And Insight Entity Consolidation**
 
 ---
 
@@ -17,6 +17,19 @@
 > 2026-04-19 calendar heatmap note：使用者已明確推翻上一輪「週內 × 小時」主圖。source 現在改成真實日期的 GitHub 式 `Browsing Rhythm` 日曆熱力圖，點某一天後才顯示當天 digest / top sites / 24 小時分布；`Search Activity` 與 `Activity Mix` 也回到 half-width 同列，且 Intelligence 卡片統一接上 capped body + internal scroll。`docs/design/intelligence-rhythm-calendar-heatmap-tradeoff.md`、`ui-review-guardrails.md`、`screens-and-nav.md`、`intelligence-current-state.md` 與 `core-intelligence-ultimate-design.md` 現在都已同步這個新 truth。
 > 2026-04-19 performance decoupling closeout：`/intelligence` 現在已改成 staged overview load：先批次載入 runtime digest / digest summary / 首屏 cards，再在 first paint / idle 後補 secondary grid；`Browsing Rhythm` 初次進頁不再自動抓同日 detail。shell 也已把 sidebar / Dashboard / intelligence digest 的 queue/runtime 輪詢合併成單一 shared source，import/onboarding/backup overlay 則正式支援 `phase/current/total/percent/logLines` progress stream。current-host live desktop 已用 Computer Use 驗到 dashboard ↔ intelligence 切換與 backup 後 background rebuild 不再把 shell 直接凍住；剩餘 full onboarding re-import truth pass 若要清資料，仍需使用者另外確認 destructive reset。
 > 2026-04-18 release-bundle note：這一輪最後是靠重打 current-host release `.app` / 直接啟動 `src-tauri/target/release/pathkeep-desktop` 才完成桌面真機抽查。Computer Use 已確認 `/explorer` 的頂部頁碼摘要與 `/intelligence` 的新 habits copy 確實進入 live desktop；但這台 host 上的 CUA 對直接啟動的 release binary 仍偶發 `noWindowsAvailable`，所以底部分頁列與較下方 intelligence sections 的 signoff 主要仍靠 regression tests + 當前可見區桌面證據，而不是假裝整頁滾到底都人工驗過。
+> 2026-04-19 M6 closeout：`WORK-M6-A` 已完成。`day` 與 `domain` 現在都已升格成 first-class shared insights entity：新增 `/intelligence/day/:date`、保留但正式升格 `/intelligence/domain/:domain`、shared href grammar、`Insight Access` strip，以及 Dashboard / Intelligence / Explorer 的 route-first entry。下一輪 active current-focus 改成 `WORK-M7-A`，用來全面盤點其餘仍然 consumer-local 的 intelligence entity reuse。
+
+- [ ] **WORK-M7-A** — Cross-App Reuse Audit And Insight Entity Consolidation
+  - 讀先：
+    `docs/plan/m7-reuse-audit/README.md`
+    `docs/plan/m6-shared-insight-surfaces/README.md`
+    `docs/design/intelligence-entity-route-tradeoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：全面盤點 app 內仍然重複造輪子的 intelligence entity surface，抽出 generic insight-entity navigation / digest / route grammar，並清理本輪留下的 `TODO: M7`。
+  - 契約：不得推翻 M6 已接受的 `Insights first` / entity-first route baseline；本輪重點是 reuse audit 與 single source of truth，不是再擴一輪大型新 feature。凡是尚未納入 generic entity contract 的 active surface，都要在 docs / status / code TODO 之間保持可追蹤對應。
+  - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup
   - 讀先：

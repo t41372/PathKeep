@@ -16,7 +16,7 @@
 | **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                                                                                                                                                  |
 | **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、年度瀏覽節奏預覽、定期總結卡片、Job Queue 狀態、快速操作入口                                                                                                                                                                     |
 | **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                                                                                                                                                      |
-| **Intelligence**       | Core Intelligence 主頁：analysis snapshot、spotlight、research signals、evidence / health、runtime digest、domain deep dive                                                                                                                                                 |
+| **Intelligence**       | Core Intelligence 主頁：analysis snapshot、Insight Access、spotlight、research signals、evidence / health、runtime digest、day insights、domain insights                                                                                                                    |
 | **AI Assistant**       | 自然語言問答介面                                                                                                                                                                                                                                                            |
 | **Import**             | Takeout 導入 wizard + 瀏覽器直接導入（含 step-by-step UI）、recent batch review、`?batch=` deep-link、revert / restore                                                                                                                                                      |
 | **Audit Ledger**       | Run timeline、summary delta、import change preview、artifact / warning review、rollback / restore quick jump                                                                                                                                                                |
@@ -52,7 +52,7 @@
 - route metadata、sidebar section label、topbar title / subtitle、loading / skeleton label、empty / error / disabled state，以及 browser preview honesty copy 都屬於正式 i18n surface；不能因為 prototype 沒畫到文字細節就留下英文硬編碼。
 - Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
 - Settings 現在也是 `embed cards` / `widget snapshot` / `public snapshot` 的第一個正式 consumer surface：使用者可在這裡手動 preview、切換 shared profile scope 與 local time window、複製 raw payload；同一塊 surface 也會 preview / build / verify 第一個 trusted local host `browser-snippet-v1`，固定寫到 `app_root/integrations/core-intelligence/browser-snippet-v1/` 的 `index.html` / `bundle.json`。目前仍不會直接安裝 OS widget，也不會發布 localhost/public host API。
-- `/intelligence` 與 `/intelligence/domain/:domain` 的每個 deterministic section 現在都會共用 evidence / freshness drawer：顯示 generated-at、active scope / window、owning modules、source tables、是否包含 enrichment，以及 stale / disabled / degraded reason；這是 review chrome，不是 mutation surface。
+- `/intelligence`、`/intelligence/day/:date` 與 `/intelligence/domain/:domain` 的 deterministic section 現在都會共用 evidence / freshness drawer：顯示 generated-at、active scope / window、owning modules、source tables、是否包含 enrichment，以及 stale / disabled / degraded reason；這是 review chrome，不是 mutation surface。
 - Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 queue、freshness、derived tables、storage impact，以及 rebuild / clear controls；plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
@@ -60,8 +60,9 @@
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。storage analytics 的 top-level summary 先固定為 `core history` / `other data` 兩個 bucket，detail 再在卡內展開。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
 - Intelligence 首屏只有 **執行摘要 / 時段概覽 / 瀏覽節奏** 可以佔滿主內容欄寬；其餘卡片一律留在 half-width row 或 secondary grid，並遵守限高 + 卡片內滾動。
-- Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。點某一天後，再在同一卡片內顯示當天 digest / top sites / 24 小時分布，而不是再把主圖退回週內 × 小時桶圖。
+- Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。點某一天後，預設進 `/intelligence/day/:date` 的完整 day insights route，而不是再把主工作流留在 overview 卡內。
 - Dashboard 也正式共用同一套 `Browsing Rhythm` 真實日期日曆熱力圖，但固定以**單一 calendar year** 呈現。若 archive 內有多個年份，卡片可切換年份；這張卡不受 `/intelligence` route time scope 影響。
+- `/intelligence` 頂部現在固定有一條精簡的 `Insight Access` strip：可直接用本地日曆日或 domain 打開完整 insights route。這條 strip 是 entity-first entry，不是另一套獨立 fetch surface。
 - `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
@@ -100,12 +101,14 @@
 - Explorer 的 deterministic 分組視角也固定留在同一個 `/explorer` route；`view=time|session|trail` 走 query string，而不是額外拆子路由。`session` / `trail` 視角必須帶著 `start` / `end` window，避免 grouped view 偷偷退回不誠實的全庫視角。
 - semantic result、assistant citation、insight evidence 都要能 deep-link 回 `/explorer`，至少可帶 `q`、`profileId`、`domain` 等 canonical filters 讓使用者回看原始記錄。
 - Assistant 的 seeded follow-up 使用 `/assistant?question=...`；若目前 intelligence / explorer surface 已經處於特定 `profileId`，deep-link 也必須一併帶上該 `profileId`，讓頁面級 scope 優先於 shared scope。
-- Domain Deep Dive 現在是正式 route：`/intelligence/domain/:domain`。它必須沿用 `/intelligence` 的 `range`、`start`、`end`、`profileId` query contract，讓使用者重新整理、複製 URL、或從 Top Sites / Stable Sources / Search Effectiveness drill down 時都能回到同一個 scoped view。
+- Day Insights 現在是正式 route：`/intelligence/day/:date`。path 只使用本地日曆日 `YYYY-MM-DD`；query 只保留 `profileId`。從 day page 回 Explorer evidence 時，必須固定帶 `start=end=<date>` 的 exact-day window。
+- Domain Deep Dive 現在是正式 route：`/intelligence/domain/:domain`，user-facing IA 視為 `Domain Insights`。它必須沿用 `/intelligence` 的 `range`、`start`、`end`、`profileId` query contract，讓使用者重新整理、複製 URL、或從 Top Sites / Stable Sources / Search Effectiveness / Explorer domain chip drill down 時都能回到同一個 scoped view。
+- Explorer 的 detail rail 與 grouped views 如果已經握有 visit 的本地日曆日 / registrable domain，就必須優先提供 `Open day insights` / `Open domain insights`；原始 evidence / visit record 仍可保留，但不再是唯一入口。
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Intelligence；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
 - shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
-- Intelligence section cards與 domain deep dive 的 evidence / freshness drawer 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
+- Intelligence section cards、day insights 與 domain deep dive 的 evidence / freshness drawer 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Explorer 的 time view 必須同時在上方 timeline / summary 與底部分頁列明確顯示「當前頁 / 總頁數」；底部分頁列還要承接跳頁與每頁筆數控制，避免使用者只看到 loaded count 卻不知道自己在整個結果集的哪裡。
 - Explorer 的 time-view detail rail 必須 sticky 在可視區內，而不是跟著左側長列表一起被拉成整列高度；使用者在頁面底部選到某筆記錄時，不應再為了看 detail 被迫捲回頁首。
@@ -132,6 +135,6 @@
 
 - Intelligence 頁面支援透過 shell chrome 的共享 profile scope 篩選 deterministic analysis 資料。
 - 當使用者在 topbar 選擇特定 profile 時，Intelligence 的 cards、topic timeline、threads 等 surface 都切換為該 profile 的 scoped view。
-- 若 `profileId` 已經出現在 `/intelligence` 或 `/intelligence/domain/:domain` 的 query string，頁面級 scope 優先於 shared profile scope；route 重新整理後仍必須保持這個 explicit scope。
+- 若 `profileId` 已經出現在 `/intelligence`、`/intelligence/day/:date` 或 `/intelligence/domain/:domain` 的 query string，頁面級 scope 優先於 shared profile scope；route 重新整理後仍必須保持這個 explicit scope。
 - Dashboard 的 aggregate KPIs 仍維持 archive-wide；Intelligence 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view」。
 - scoped vs all-profile 切換不得產生新的 route；以 query string `profileId` 或沿用 shared scope 處理，保持與 Explorer 的 scope 語法一致。

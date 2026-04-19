@@ -72,14 +72,29 @@
 
 📋 詳細待辦 → [plan/m4-full-polish/README.md](plan/m4-full-polish/README.md)
 
-## M5 — Deterministic Intelligence（提案中）
+## M5 — Deterministic Intelligence / Runtime & Extensions
 
 - 用 evidence-first deterministic baseline 取代 session / dwell-centric 假設
 - Query groups、reformulation ladders、reference pages、source effectiveness、open loops 正式成為 no-AI 也可 shipping 的 intelligence surface
-- Taxonomy v2 採 multi-dimensional rule-first classifier，優先覆蓋中國大陸與美國，再擴到台灣、日本、韓國、歐洲、俄羅斯與 international 常見網站
-- deterministic modules 採 internal registry / DI / derived-state invalidation contract；third-party runtime plugin 仍待 sandbox 決策
-- 為 long-horizon deterministic pipeline 補上 fixtures、rebuild contract 與 replayable perf evidence
+- deterministic modules、enrichment runtime、queue review、evidence controls 與 shared freshness / provenance drawer 已正式收斂成 shipping contract
+- current-host `14.4M / 60y` long-horizon benchmark signoff 已落地；後續若要再補更深的 entity reuse，不再回頭重開 M5，而是進入新的 follow-up milestone
 
-> 這個 milestone 目前是 proposal，仍 blocked on [ADR-006](architecture/decisions/006-deterministic-intelligence-boundary.md) acceptance；它不能在未經 signoff 的情況下直接覆寫現有 [features/intelligence.md](features/intelligence.md)。
+📋 詳細待辦 → [plan/m5-runtime-and-extensions/README.md](plan/m5-runtime-and-extensions/README.md)
 
-📋 詳細待辦 → [plan/m5-deterministic-intelligence/README.md](plan/m5-deterministic-intelligence/README.md)
+## M6 — Shared Day And Domain Insights
+
+- 把 `day` 與 `domain` 升格成 first-class shared insights entity
+- 新增 `/intelligence/day/:date`，並把 `/intelligence/domain/:domain` 正式視為 `Domain Insights`
+- backend 新增 `get_day_insights` typed read model；frontend 收斂 shared href grammar
+- Dashboard、Intelligence、Explorer 優先接入 route-first day/domain entry，而不是各處各自重做完整 detail
+
+📋 詳細待辦 → [plan/m6-shared-insight-surfaces/README.md](plan/m6-shared-insight-surfaces/README.md)
+
+## M7 — Cross-App Reuse Audit And Insight Entity Consolidation
+
+- 全面盤點 app 內仍然重複造輪子的 intelligence entity surface
+- 抽出 generic insight-entity navigation / digest component / route grammar
+- 清理 M6 留下的 `TODO: M7` 與其對應 docs/backlog tracking
+- 為 query family、refind page、source、session/trail、category mix、external-output review surface 建立一致的 single source of truth
+
+📋 詳細待辦 → [plan/m7-reuse-audit/README.md](plan/m7-reuse-audit/README.md)

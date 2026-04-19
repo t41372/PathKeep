@@ -227,7 +227,8 @@
 - source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 - Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。
-- `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。當日 detail 只能在使用者真的點日格，或 primary overview 已穩定之後才額外載入。
+- `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。點日格後的 primary workflow 現在是進 `/intelligence/day/:date`；若 overview 保留任何 inline preview，也只能是 secondary information。
+- `/intelligence` 頂部固定提供 `Insight Access` strip：使用者可直接輸入本地日曆日或 domain，打開完整 day/domain insights route。這條 strip 必須吃 shared href grammar，而不是再長出另一套局部 state / fetch story。
 - route 切換時必須丟棄過期 request；離開 `/intelligence` 後，上一個 scope / date range 的 section response 不得再 commit 回 UI，也不得偷偷繼續觸發後續 detail fetch。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
@@ -241,7 +242,9 @@
 - Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view，部分統計仍為 archive-wide」，避免用戶誤解。
 - 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致；若頁面 URL 已帶明確 `profileId`，它優先於 shared scope。
 - 從 Insights 回 Explorer 的 drilldown，包括 Site Analytics、Topic Timeline、Reference Pages 與 explain citations，都必須保留目前 `profileId`；不能從 scoped view 悄悄掉回 archive-wide 搜尋。Dashboard 的 On This Day 也必須沿用同樣的 scope honesty，但不再屬於 `/intelligence` route grammar。
-- Domain Deep Dive 現在是正式 route `/intelligence/domain/:domain`；它必須沿用與 `/intelligence` 相同的 `range` / `start` / `end` / `profileId` query contract，讓 domain drilldown 可重整、可分享、可返回原本的 scoped overview。
+- Day Insights 現在是正式 route `/intelligence/day/:date`；它只使用本地日曆日 path + `profileId` query，並在返回 Explorer evidence 時固定帶 `start=end=<date>` exact-day window。
+- Domain Deep Dive 現在是正式 route `/intelligence/domain/:domain`，user-facing IA 視為 `Domain Insights`；它必須沿用與 `/intelligence` 相同的 `range` / `start` / `end` / `profileId` query contract，讓 domain drilldown 可重整、可分享、可返回原本的 scoped overview。
+- day/domain 的 primary interaction 採 `Insights first`：overview card、Dashboard、Explorer 與其他 active surface 若已經握有這兩種 entity，就應優先帶去完整 insights route；Explorer evidence 仍保留，但降為 secondary CTA。
 - 導航規則 → `docs/design/screens-and-nav.md` §Profile-Scoped Insights
 
 ### V1.5+ 洞察功能

@@ -8,6 +8,8 @@
 > **2026-04-15 accepted note:** 這份文檔現在是 PathKeep Core Intelligence 的正式 source of truth。舊的 deterministic intelligence / insights 文檔保留為歷史背景與 optional-AI 邊界說明，不再定義 deterministic product contract。
 >
 > **2026-04-19 accepted override:** `Browsing Rhythm` 主圖不再沿用本文早期版本裡的「週 × 小時」首屏契約。使用者已明確確認改成 **真實日期日曆熱力圖**，並把小時分布退到「選中某一天後的 detail 區」。完整 trade-off 與回滾邊界見 [`../design/intelligence-rhythm-calendar-heatmap-tradeoff.md`](../design/intelligence-rhythm-calendar-heatmap-tradeoff.md)。
+>
+> **2026-04-19 accepted entity note:** `day` 與 `domain` 現在都已升格成 first-class shared entity surface。`/intelligence/day/:date` 是 exact local day 的完整 insights route；`/intelligence/domain/:domain` 正式作為 `Domain Insights` module。overview / Dashboard / Explorer 的 primary interaction 預設採 `Insights first`，Explorer evidence 降為 secondary CTA。完整 trade-off 見 [`../design/intelligence-entity-route-tradeoff.md`](../design/intelligence-entity-route-tradeoff.md)。
 
 ---
 
@@ -321,7 +323,7 @@ Explorer（歷史瀏覽）頁面新增「View by」分組選項：
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.4 網站深度分析頁 (Domain Deep Dive)
+### 2.4 網站深度分析頁 (Domain Insights / Domain Deep Dive)
 
 ```
 ┌─ 網站深度分析 · GitHub ──────────────────────────────────────────────────────┐
@@ -393,14 +395,14 @@ Explorer（歷史瀏覽）頁面新增「View by」分組選項：
 
 #### 2.1 Top 網站統計 (Top Visited Sites)
 
-| 項目         | 內容                                                                       |
-| ------------ | -------------------------------------------------------------------------- |
-| **為什麼**   | 最基礎的使用習慣鏡子                                                       |
-| **是什麼**   | 按 `registrable_domain` 聚合：總訪問次數、獨立訪問天數、平均每日訪問次數   |
-| **怎麼算**   | `GROUP BY registrable_domain` 預計算到 `domain_daily_rollups`              |
-| **怎麼展示** | 可排序、可搜索的表格或條形圖。別名系統在顯示層應用。點擊→ Domain Deep Dive |
-| **性能**     | 讀取 rollup 聚合，毫秒級                                                   |
-| **跨瀏覽器** | ✅ 全覆蓋                                                                  |
+| 項目         | 內容                                                                      |
+| ------------ | ------------------------------------------------------------------------- |
+| **為什麼**   | 最基礎的使用習慣鏡子                                                      |
+| **是什麼**   | 按 `registrable_domain` 聚合：總訪問次數、獨立訪問天數、平均每日訪問次數  |
+| **怎麼算**   | `GROUP BY registrable_domain` 預計算到 `domain_daily_rollups`             |
+| **怎麼展示** | 可排序、可搜索的表格或條形圖。別名系統在顯示層應用。點擊→ Domain Insights |
+| **性能**     | 讀取 rollup 聚合，毫秒級                                                  |
+| **跨瀏覽器** | ✅ 全覆蓋                                                                 |
 
 **`registrable_domain` 用 `publicsuffix` crate 提取**，而不是簡單按 `.` 切割。
 
@@ -635,7 +637,7 @@ SELECT * FROM path ORDER BY depth DESC;
 
 ### 四、深度分析與洞察
 
-#### 4.1 網站深度分析 (Domain Deep Dive)
+#### 4.1 網站深度分析 (Domain Insights / Domain Deep Dive)
 
 | 項目         | 內容                                                                            |
 | ------------ | ------------------------------------------------------------------------------- |
@@ -711,10 +713,10 @@ SELECT * FROM path ORDER BY depth DESC;
 
 > **2026-04-19 dashboard note:** Dashboard 現在也會共用這套真實日期日曆熱力圖，但固定以 calendar year 呈現；若 archive 內跨多個年份，卡片可切換年份。年份來源來自 `getDiscoveryTrend(..., 'day').availableYears`，而不是 hourly detail API。
 
-| 項目       | 內容                                                                                                                              |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **為什麼** | 使用者先需要知道「哪些真實日期值得看」，再決定要不要往同一天的具體時段下鑽。                                                      |
-| **是什麼** | **主圖：** GitHub 式真實日期日曆熱力圖（1 格 = 1 天）<br />**detail：** 點某一天後，再顯示當天 digest / top sites / 24 小時分布。 |
+| 項目       | 內容                                                                                                                                                                                      |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼** | 使用者先需要知道「哪些真實日期值得看」，再決定要不要往同一天的具體時段下鑽。                                                                                                              |
+| **是什麼** | **主圖：** GitHub 式真實日期日曆熱力圖（1 格 = 1 天）<br />**主互動：** 點某一天後，進 `/intelligence/day/:date` 的完整 day insights route，再查看當天 digest / top sites / 24 小時分布。 |
 
 **主圖資料來源：**
 
