@@ -1498,6 +1498,19 @@
   flex-wrap: wrap;
 }
 
+.timeline-page-summary {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.timeline-page-summary__loaded {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--font-body);
+}
+
 .timeline-label {
   font-size: 11px;
   color: var(--text-muted);
@@ -1653,12 +1666,50 @@
 }
 
 .record-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   font-size: 11px;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   font-family: var(--font-mono);
   color: var(--text-muted);
+}
+
+.record-group-header__summary,
+.record-group-pagination__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.record-group-header__loaded,
+.record-group-pagination__loaded {
+  color: var(--text-faint);
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+
+.record-group-pagination {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-3);
+}
+
+.record-group-pagination__controls,
+.record-group-pagination__nav,
+.record-group-pagination__jump {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .history-page-jump {
@@ -1671,7 +1722,7 @@
   color: var(--text-muted);
   font-family: var(--font-body);
   font-size: 12px;
-  margin-right: var(--space-2);
+  font-weight: 600;
 }
 
 .history-page-jump__label {

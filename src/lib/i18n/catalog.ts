@@ -185,6 +185,8 @@ const zhCnM3Namespaces = {
 
     activityMixTitle: '使用构成',
     activityMixEmpty: '数据不足，暂无法显示活动分类。',
+    activityMixHelp:
+      '这些类别来自最近这段时间访问量最高的网站归类；每一行也会列出几个代表性网站，避免只剩抽象标签。',
     activityMixExamples: '例如：{domains}',
     category_developer: '开发',
     category_video: '视频',
@@ -201,7 +203,7 @@ const zhCnM3Namespaces = {
 
     rhythmTitle: '浏览节奏',
     rhythmEmpty: '数据不足，暂无法显示浏览节奏。',
-    rhythmLabel: '按天查看的浏览热力图',
+    rhythmLabel: '每周浏览活动热力图',
     rhythmAllCategories: '所有分类',
     rhythmCategoryFilter: '按分类筛选浏览节奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次访问',
@@ -210,6 +212,10 @@ const zhCnM3Namespaces = {
     rhythmDayVisits: '当天共浏览 {count} 次',
     rhythmDayNewSites: '{count} 个新网站',
     rhythmDayNoSites: '这一天没有可显示的重点网站。',
+    rhythmBucketTitle: '{day} {hour}',
+    rhythmBucketVisits: '这个时段在当前范围内共出现 {count} 次访问',
+    rhythmRecentDaysTitle: '近期实际日期',
+    rhythmRecentDayVisits: '{count} 次访问',
     dow_sun: '日',
     dow_mon: '一',
     dow_tue: '二',
@@ -317,6 +323,14 @@ const zhCnM3Namespaces = {
     stableSourcesEmpty: '数据不足，暂无法显示稳定来源。',
     stableSourcesEntry: '常作为入口的来源',
     stableSourcesLanding: '常作为落地点的来源',
+    stableSourcesHelp:
+      '只统计明确落在搜索路径里的证据：入口看你常从哪里进入，落地点看你最后常停在哪个站。',
+    stableSourcesEntryHelp: '经常把你带进一条搜索路径的网站。',
+    stableSourcesLandingHelp: '经常成为搜索最终落点的网站。',
+    stableSourcesNoEntry: '这段时间没有足够的入口来源。',
+    stableSourcesNoLanding: '这段时间没有足够的稳定落点。',
+    stableSourcesEntryCount: '{count} 条搜索路径从这里进入',
+    stableSourcesLandingCount: '{count} 次成为稳定落点',
     stableSourcesTrails: '条旅程',
     stableSourcesLandings: '次落地',
 
@@ -327,8 +341,21 @@ const zhCnM3Namespaces = {
     searchEffectivenessTrails: '{count} 条搜索路径',
     searchEffectivenessRewrites: '改写 {count} 次',
     searchEffectivenessDepth: '平均深度 {count}',
+    searchEffectivenessHelp:
+      '这里只统计明确的搜索路径。改写越少、平均深度越低，通常越快找到结果。',
+    searchEffectivenessRewritesLabel: '平均改写',
+    searchEffectivenessDepthLabel: '平均深度',
+    searchEffectivenessTrailsLabel: '搜索路径',
+    searchEffectivenessEngineRewrites: '平均每条搜索路径改写 {count} 次',
+    searchEffectivenessEngineDepth: '通常点到第 {count} 层才停下来',
+    searchEffectivenessEngineTrails: '这段时间共形成 {count} 条搜索路径',
     searchEffectivenessSources: '常带来结果的来源',
+    searchEffectivenessSourcesHelp:
+      '这些网站更常在搜索后成为可停留、可继续阅读的结果页。',
     searchEffectivenessHardest: '改写最多的搜索题目',
+    searchEffectivenessHardestHelp:
+      '这些题目通常需要多次换词，或隔几天又回来继续搜。',
+    searchEffectivenessLag: '{days} 天后又回来搜',
 
     // P2: Friction Detection
     frictionTitle: '碰壁与高摩擦侦测',
@@ -347,9 +374,14 @@ const zhCnM3Namespaces = {
     // P2: Discovery Trend
     discoveryTrendTitle: '探索率趋势',
     discoveryTrendEmpty: '数据不足，暂无法显示探索率。',
+    discoveryTrendHelp:
+      '探索率 = 新网站数 / 总浏览次数。用它看最近是更常去新站，还是更常回到熟悉网站。',
     discoveryTrendNewDomains: '个新网站',
     discoveryTrendRateLabel: '探索率 %',
     discoveryTrendDomainsLabel: '新网站数',
+    discoveryTrendWeekLabel: '{week}',
+    discoveryTrendRatePercent: '{count}%',
+    discoveryTrendVisitsLabel: '{count} 次浏览',
 
     // P2: Domain Deep Dive
     domainDeepDiveEmpty: '无法加载该网站的深度分析。',
@@ -370,12 +402,19 @@ const zhCnM3Namespaces = {
     breadthTitle: '集中度 / 广度指数',
     breadthEmpty: '数据不足，暂无法计算集中度。',
     breadthScoreLabel: '广度分',
-    breadthScoreHelp: '分数越高，代表浏览分布越分散。',
+    breadthScoreHelp:
+      '广度分只看最近窗口内各网站访问份额的分布。分数越高，代表整体越分散，不代表主题一定更多。',
+    breadthConcentrationLabel: '前半数浏览集中',
+    breadthHhiKey: 'HHI',
+    breadthAxisFocused: '更集中',
+    breadthAxisBroad: '更分散',
     breadthVerdictBroad: '你的浏览分布很广，接触了多样的网站。',
     breadthVerdictBalanced: '你的浏览在集中与分散之间保持平衡。',
     breadthVerdictFocused: '你的浏览集中在少数几个核心网站上。',
-    breadthConcentrationDetail: '大约一半浏览集中在 {count} 个网站里。',
+    breadthConcentrationDetail:
+      '前半数浏览集中在 {count} 个网站。这个数字看头部集中度，和广度分看的不是同一件事。',
     breadthHhiLabel: 'HHI: {value}',
+    breadthHhiHelp: 'HHI 越低越分散，越高越集中。',
 
     // P3: Path Flows
     pathFlowsTitle: '常见浏览路线',
@@ -399,6 +438,10 @@ const zhCnM3Namespaces = {
     habitVisits: '{count} 次访问',
     habitInterruptedBadge: '已中断',
     habitInterruptedDetail: '{days} 天未访问 (预期 {expected} 天)',
+    habitPatternSummary: '大约每 {interval} 天来一次，出现在 {days} 天',
+    habitInterruptedSummary:
+      '{days} 天没来了（原本大约每 {expected} 天来一次）',
+    habitLastSeen: '最近一次：{date}',
 
     // P4-1: Compare Sets
     compareSetsTitle: '比较页面组',
@@ -482,7 +525,7 @@ const zhCnM3Namespaces = {
     shortcutWeek: '7天',
     shortcutMonth: '30天',
     shortcutYear: '1年',
-    historyPageSummary: '第 {page} 页 · 已加载 {loaded} / {total} 条',
+    historyPageSummary: '第 {page} / {pages} 页 · 已加载 {loaded} / {total} 条',
     allRecordedTime: '全部时间',
     clearRange: '清除时间范围',
     activeFilterMode: '模式',
@@ -509,7 +552,7 @@ const zhCnM3Namespaces = {
     noMatchesEyebrow: '无结果',
     noMatchesTitle: '没有找到匹配的历史记录',
     noMatchesDescription: '当前筛选条件下没有找到任何记录，试试调整筛选条件。',
-    resultsSummary: '第 {page} 页 · 已加载 {loaded} / {total} 条',
+    resultsSummary: '当前页已加载 {loaded} / {total} 条',
     firstPage: '第一页',
     lastPage: '最后一页',
     previousPage: '上一页',
@@ -1043,6 +1086,8 @@ const zhTwM3Namespaces = {
 
     activityMixTitle: '使用構成',
     activityMixEmpty: '資料不足，暫無法顯示活動分類。',
+    activityMixHelp:
+      '這些分類來自最近這段時間造訪量最高的網站歸類；每一行也會列出幾個代表性網站，避免只剩抽象標籤。',
     activityMixExamples: '例如：{domains}',
     category_developer: '開發',
     category_video: '影片',
@@ -1059,7 +1104,7 @@ const zhTwM3Namespaces = {
 
     rhythmTitle: '瀏覽節奏',
     rhythmEmpty: '資料不足，暫無法顯示瀏覽節奏。',
-    rhythmLabel: '按天查看的瀏覽熱力圖',
+    rhythmLabel: '每週瀏覽活動熱力圖',
     rhythmAllCategories: '所有分類',
     rhythmCategoryFilter: '按分類篩選瀏覽節奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次造訪',
@@ -1068,6 +1113,10 @@ const zhTwM3Namespaces = {
     rhythmDayVisits: '當天共瀏覽 {count} 次',
     rhythmDayNewSites: '{count} 個新網站',
     rhythmDayNoSites: '這一天沒有可顯示的重點網站。',
+    rhythmBucketTitle: '{day} {hour}',
+    rhythmBucketVisits: '這個時段在目前範圍內共出現 {count} 次造訪',
+    rhythmRecentDaysTitle: '近期實際日期',
+    rhythmRecentDayVisits: '{count} 次造訪',
     dow_sun: '日',
     dow_mon: '一',
     dow_tue: '二',
@@ -1176,6 +1225,14 @@ const zhTwM3Namespaces = {
     stableSourcesEmpty: '資料不足，暫無法顯示穩定來源。',
     stableSourcesEntry: '常作為入口的來源',
     stableSourcesLanding: '常作為落地點的來源',
+    stableSourcesHelp:
+      '只統計明確落在搜尋路徑裡的證據：入口看你常從哪裡進入，落地點看你最後常停在哪個站。',
+    stableSourcesEntryHelp: '經常把你帶進一條搜尋路徑的網站。',
+    stableSourcesLandingHelp: '經常成為搜尋最終落地點的網站。',
+    stableSourcesNoEntry: '這段時間沒有足夠的入口來源。',
+    stableSourcesNoLanding: '這段時間沒有足夠的穩定落地點。',
+    stableSourcesEntryCount: '{count} 條搜尋路徑從這裡進入',
+    stableSourcesLandingCount: '{count} 次成為穩定落地點',
     stableSourcesTrails: '條旅程',
     stableSourcesLandings: '次落地',
 
@@ -1186,8 +1243,21 @@ const zhTwM3Namespaces = {
     searchEffectivenessTrails: '{count} 條搜尋路徑',
     searchEffectivenessRewrites: '改寫 {count} 次',
     searchEffectivenessDepth: '平均深度 {count}',
+    searchEffectivenessHelp:
+      '這裡只統計明確的搜尋路徑。改寫越少、平均深度越低，通常越快找到結果。',
+    searchEffectivenessRewritesLabel: '平均改寫',
+    searchEffectivenessDepthLabel: '平均深度',
+    searchEffectivenessTrailsLabel: '搜尋路徑',
+    searchEffectivenessEngineRewrites: '平均每條搜尋路徑改寫 {count} 次',
+    searchEffectivenessEngineDepth: '通常點到第 {count} 層才停下來',
+    searchEffectivenessEngineTrails: '這段時間共形成 {count} 條搜尋路徑',
     searchEffectivenessSources: '常帶來結果的來源',
+    searchEffectivenessSourcesHelp:
+      '這些網站更常在搜尋後成為可停留、可繼續閱讀的結果頁。',
     searchEffectivenessHardest: '改寫最多的搜尋題目',
+    searchEffectivenessHardestHelp:
+      '這些題目通常需要多次換詞，或隔幾天又回來繼續搜。',
+    searchEffectivenessLag: '{days} 天後又回來搜',
 
     // P2: Friction Detection
     frictionTitle: '碰壁與高摩擦偵測',
@@ -1206,9 +1276,14 @@ const zhTwM3Namespaces = {
     // P2: Discovery Trend
     discoveryTrendTitle: '探索率趨勢',
     discoveryTrendEmpty: '資料不足，暫無法顯示探索率。',
+    discoveryTrendHelp:
+      '探索率 = 新網站數 / 總瀏覽次數。用它看最近是更常去新站，還是更常回到熟悉網站。',
     discoveryTrendNewDomains: '個新網站',
     discoveryTrendRateLabel: '探索率 %',
     discoveryTrendDomainsLabel: '新網站數',
+    discoveryTrendWeekLabel: '{week}',
+    discoveryTrendRatePercent: '{count}%',
+    discoveryTrendVisitsLabel: '{count} 次瀏覽',
 
     // P2: Domain Deep Dive
     domainDeepDiveEmpty: '無法載入該網站的深度分析。',
@@ -1229,12 +1304,19 @@ const zhTwM3Namespaces = {
     breadthTitle: '集中度 / 廣度指數',
     breadthEmpty: '資料不足，暫無法計算集中度。',
     breadthScoreLabel: '廣度分',
-    breadthScoreHelp: '分數越高，代表瀏覽分布越分散。',
+    breadthScoreHelp:
+      '廣度分只看最近視窗內各網站造訪份額的分布。分數越高，代表整體越分散，不代表主題一定更多。',
+    breadthConcentrationLabel: '前半數瀏覽集中',
+    breadthHhiKey: 'HHI',
+    breadthAxisFocused: '更集中',
+    breadthAxisBroad: '更分散',
     breadthVerdictBroad: '你的瀏覽分布很廣，接觸到多樣化的網站。',
     breadthVerdictBalanced: '你的瀏覽在集中與分散之間保持平衡。',
     breadthVerdictFocused: '你的瀏覽集中在少數幾個核心網站上。',
-    breadthConcentrationDetail: '大約一半瀏覽集中在 {count} 個網站裡。',
+    breadthConcentrationDetail:
+      '前半數瀏覽集中在 {count} 個網站。這個數字看頭部集中度，和廣度分看的不是同一件事。',
     breadthHhiLabel: 'HHI: {value}',
+    breadthHhiHelp: 'HHI 越低越分散，越高越集中。',
 
     // P3: Path Flows
     pathFlowsTitle: '常見瀏覽路線',
@@ -1258,6 +1340,10 @@ const zhTwM3Namespaces = {
     habitVisits: '{count} 次造訪',
     habitInterruptedBadge: '已中斷',
     habitInterruptedDetail: '{days} 天未造訪 (預期 {expected} 天)',
+    habitPatternSummary: '大約每 {interval} 天回來一次，出現在 {days} 天',
+    habitInterruptedSummary:
+      '{days} 天沒來了（原本大約每 {expected} 天回來一次）',
+    habitLastSeen: '最近一次：{date}',
 
     // P4-1: Compare Sets
     compareSetsTitle: '比較頁面組',
@@ -1342,7 +1428,7 @@ const zhTwM3Namespaces = {
     shortcutWeek: '7天',
     shortcutMonth: '30天',
     shortcutYear: '1年',
-    historyPageSummary: '第 {page} 頁 · 已載入 {loaded} / {total} 筆',
+    historyPageSummary: '第 {page} / {pages} 頁 · 已載入 {loaded} / {total} 筆',
     allRecordedTime: '全部時間',
     clearRange: '清除時間範圍',
     activeFilterMode: '模式',
@@ -1369,7 +1455,7 @@ const zhTwM3Namespaces = {
     noMatchesEyebrow: '無結果',
     noMatchesTitle: '沒有找到吻合的歷史紀錄',
     noMatchesDescription: '目前篩選條件下沒有找到任何紀錄，可以試試調整條件。',
-    resultsSummary: '第 {page} 頁 · 已載入 {loaded} / {total} 筆',
+    resultsSummary: '目前頁面已載入 {loaded} / {total} 筆',
     firstPage: '第一頁',
     lastPage: '最後一頁',
     previousPage: '上一頁',
@@ -3188,6 +3274,8 @@ const catalog: Record<
       // Activity Mix
       activityMixTitle: 'Activity Mix',
       activityMixEmpty: 'Not enough data to show activity breakdown.',
+      activityMixHelp:
+        'These categories are derived from the most-visited sites in this window. Each row also lists a few representative sites so the labels stay grounded.',
       activityMixExamples: 'Examples: {domains}',
       category_developer: 'Developer',
       category_video: 'Video',
@@ -3205,7 +3293,7 @@ const catalog: Record<
       // Browsing Rhythm
       rhythmTitle: 'Browsing Rhythm',
       rhythmEmpty: 'Not enough data to show browsing patterns.',
-      rhythmLabel: 'Daily browsing heatmap',
+      rhythmLabel: 'Weekly browsing activity heatmap',
       rhythmAllCategories: 'All categories',
       rhythmCategoryFilter: 'Filter browsing rhythm by category',
       rhythmCellTooltip: '{day} {hour}:00 — {count} visits',
@@ -3214,6 +3302,11 @@ const catalog: Record<
       rhythmDayVisits: '{count} visits on this day',
       rhythmDayNewSites: '{count} new sites',
       rhythmDayNoSites: 'No standout sites were available for this day.',
+      rhythmBucketTitle: '{day} {hour}',
+      rhythmBucketVisits:
+        '{count} visits landed in this time bucket across the current range.',
+      rhythmRecentDaysTitle: 'Recent actual dates',
+      rhythmRecentDayVisits: '{count} visits',
       dow_sun: 'Sun',
       dow_mon: 'Mon',
       dow_tue: 'Tue',
@@ -3323,6 +3416,17 @@ const catalog: Record<
       stableSourcesEmpty: 'Not enough data to show stable sources.',
       stableSourcesEntry: 'Frequent Entry Sources',
       stableSourcesLanding: 'Frequent Landing Sources',
+      stableSourcesHelp:
+        'Only evidence inside explicit search trails counts here: entry shows where trails often began, landing shows where they often settled.',
+      stableSourcesEntryHelp:
+        'Sites that often brought you into a search trail.',
+      stableSourcesLandingHelp:
+        'Sites that often became the final landing point of a search trail.',
+      stableSourcesNoEntry: 'No strong entry sources surfaced for this window.',
+      stableSourcesNoLanding:
+        'No strong landing sources surfaced for this window.',
+      stableSourcesEntryCount: '{count} search trails started here',
+      stableSourcesLandingCount: '{count} stable landings',
       stableSourcesTrails: 'trails',
       stableSourcesLandings: 'landings',
 
@@ -3333,8 +3437,24 @@ const catalog: Record<
       searchEffectivenessTrails: '{count} search trails',
       searchEffectivenessRewrites: '{count} rewrites',
       searchEffectivenessDepth: 'Avg depth {count}',
+      searchEffectivenessHelp:
+        'Only explicit search trails count here. Fewer rewrites and lower depth usually mean you reached a useful page faster.',
+      searchEffectivenessRewritesLabel: 'Avg rewrites',
+      searchEffectivenessDepthLabel: 'Avg depth',
+      searchEffectivenessTrailsLabel: 'Search trails',
+      searchEffectivenessEngineRewrites:
+        'Each trail was rewritten about {count} times on average.',
+      searchEffectivenessEngineDepth:
+        'People usually stopped around depth {count}.',
+      searchEffectivenessEngineTrails:
+        'This window produced {count} search trails.',
       searchEffectivenessSources: 'Sources that often resolve searches',
+      searchEffectivenessSourcesHelp:
+        'These sites more often became a page worth stopping on after search.',
       searchEffectivenessHardest: 'Searches that needed the most rewrites',
+      searchEffectivenessHardestHelp:
+        'These topics usually needed multiple rewrites or were reopened days later.',
+      searchEffectivenessLag: 'Searched again after {days} days',
 
       // P2: Friction Detection
       frictionTitle: 'Friction & Dead Ends',
@@ -3353,9 +3473,14 @@ const catalog: Record<
       // P2: Discovery Trend
       discoveryTrendTitle: 'Discovery Trend',
       discoveryTrendEmpty: 'Not enough data to show discovery trend.',
+      discoveryTrendHelp:
+        'Discovery rate = new sites divided by total visits. Use it to see whether recent browsing leaned toward exploration or familiar sites.',
       discoveryTrendNewDomains: 'new sites',
       discoveryTrendRateLabel: 'Discovery Rate %',
       discoveryTrendDomainsLabel: 'New Sites',
+      discoveryTrendWeekLabel: '{week}',
+      discoveryTrendRatePercent: '{count}%',
+      discoveryTrendVisitsLabel: '{count} visits',
 
       // P2: Domain Deep Dive
       domainDeepDiveEmpty: "Could not load this site's deep analysis.",
@@ -3377,15 +3502,21 @@ const catalog: Record<
       breadthEmpty: 'Not enough data to compute your breadth score.',
       breadthScoreLabel: 'Breadth score',
       breadthScoreHelp:
-        'Higher scores mean your browsing was spread across more sites.',
+        'Breadth score only looks at how recent visits were distributed across sites. Higher scores mean the overall spread was wider, not necessarily that topics were broader.',
+      breadthConcentrationLabel: 'Top half of browsing',
+      breadthHhiKey: 'HHI',
+      breadthAxisFocused: 'More focused',
+      breadthAxisBroad: 'More spread',
       breadthVerdictBroad:
         'Your browsing spans a wide set of sites and topics.',
       breadthVerdictBalanced: 'Your browsing balances focus with exploration.',
       breadthVerdictFocused:
         'Your browsing concentrates on a small set of core sites.',
       breadthConcentrationDetail:
-        'About half of your browsing lives in {count} domains.',
+        'Half of your browsing lives in {count} domains. That describes top-heavy concentration, which is a different lens than the breadth score.',
       breadthHhiLabel: 'HHI: {value}',
+      breadthHhiHelp:
+        'Lower HHI means more spread; higher HHI means more concentrated.',
 
       // P3: Path Flows
       pathFlowsTitle: 'Common Paths',
@@ -3410,6 +3541,11 @@ const catalog: Record<
       habitInterruptedBadge: 'Interrupted',
       habitInterruptedDetail:
         '{days} days since last visit (expected {expected})',
+      habitPatternSummary:
+        'About every {interval} days, seen on {days} different days',
+      habitInterruptedSummary:
+        '{days} days since the last visit (it used to return about every {expected} days)',
+      habitLastSeen: 'Last seen: {date}',
 
       // P4-1: Compare Sets
       compareSetsTitle: 'Compare Sets',
@@ -3497,7 +3633,8 @@ const catalog: Record<
       shortcutWeek: '7D',
       shortcutMonth: '30D',
       shortcutYear: '1Y',
-      historyPageSummary: 'Page {page} · {loaded} of {total} records',
+      historyPageSummary:
+        'Page {page} of {pages} · {loaded} of {total} records',
       allRecordedTime: 'All time',
       clearRange: 'Clear range',
       activeFilterMode: 'MODE',
@@ -3524,7 +3661,7 @@ const catalog: Record<
       noMatchesEyebrow: 'NO RESULTS',
       noMatchesTitle: 'No matching history found',
       noMatchesDescription: 'Nothing matched your current search and filters.',
-      resultsSummary: 'Page {page} · {loaded} of {total} results',
+      resultsSummary: 'Showing {loaded} of {total} results on this page',
       firstPage: 'First page',
       lastPage: 'Last page',
       previousPage: 'Previous page',

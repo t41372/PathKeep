@@ -290,15 +290,26 @@ export function ExplorerPage() {
           ))}
         </div>
         <div className="timeline-track">
-          <span className="timeline-label">
-            {results
-              ? explorerT('historyPageSummary', {
-                  page: historyPage,
+          {results ? (
+            <div className="timeline-page-summary">
+              <span className="history-page-summary">
+                {explorerT('pageCountSummary', {
+                  current: historyPage,
+                  total: historyPageCount,
+                })}
+              </span>
+              <span className="timeline-page-summary__loaded">
+                {explorerT('resultsSummary', {
                   loaded: results.items.length,
                   total: results.total,
-                })
-              : explorerT('waitingForQuery')}
-          </span>
+                })}
+              </span>
+            </div>
+          ) : (
+            <span className="timeline-label">
+              {explorerT('waitingForQuery')}
+            </span>
+          )}
           <span className="timeline-label">
             {start || end
               ? `${start ?? '…'} → ${end ?? '…'}`

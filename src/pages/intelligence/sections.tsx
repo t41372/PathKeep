@@ -28,11 +28,14 @@ import {
   type RefindPage,
   type QueryFamily,
   type FrictionSignal,
+  type ReopenedInvestigation,
   type DiscoveryTrendPoint,
   type BreadthIndex,
   type HabitPattern,
   type InterruptedHabit,
   type PathFlow,
+  type StableSource,
+  type SearchEffectiveness,
   type TopSite,
   type CompareSet,
   type CompareSetPage,
@@ -70,20 +73,112 @@ function singleDayRange(dateKey: string): DateRange {
   }
 }
 
-function dateKeysInRange(dateRange: DateRange) {
-  const keys: string[] = []
-  const cursor = new Date(`${dateRange.start}T00:00:00`)
-  const end = new Date(`${dateRange.end}T00:00:00`)
-
-  while (cursor.getTime() <= end.getTime()) {
-    const year = cursor.getFullYear()
-    const month = String(cursor.getMonth() + 1).padStart(2, '0')
-    const day = String(cursor.getDate()).padStart(2, '0')
-    keys.push(`${year}-${month}-${day}`)
-    cursor.setDate(cursor.getDate() + 1)
+function looksLikeUrlOrDomain(label: string) {
+  const normalized = label.trim().toLowerCase()
+  if (!normalized) {
+    return false
   }
 
-  return keys
+  return (
+    normalized.includes('://') ||
+    /^www\./.test(normalized) ||
+    /\b[a-z0-9-]+(?:\.[a-z0-9-]+){1,}\b/.test(normalized) ||
+    normalized.includes('/auth/') ||
+    normalized.includes('/login') ||
+    normalized.includes('callback')
+  )
+}
+
+function hasMeaningfulStableSources(
+  entries: StableSource[],
+  landings: StableSource[],
+) {
+  return entries.length > 0 && landings.length > 0
+}
+
+function isMeaningfulFrictionSignal(signal: FrictionSignal) {
+  if (!signal.description.trim()) {
+    return false
+  }
+
+  return (
+    signal.evidenceType === 'strong' ||
+    (signal.occurrenceCount >= 2 &&
+      ['bounce_pattern', 'excessive_reformulation', 'redirect_chain'].includes(
+        signal.signalKind,
+      ))
+  )
+}
+
+function isSearchBackedReopenedInvestigation(item: ReopenedInvestigation) {
+  const label = item.anchorLabel.trim()
+  if (item.anchorType !== 'query_family') {
+    return false
+  }
+  if (item.occurrenceCount < 2 || item.distinctDays < 2) {
+    return false
+  }
+  if (!label || looksLikeUrlOrDomain(label)) {
+    return false
+  }
+
+  return /[\s?]/.test(label) || label.length >= 12
+}
+
+function normalizeFlowStep(step: string) {
+  const normalized = step
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/^www\./, '')
+    .replace(/^m\./, '')
+    .replace(/^amp\./, '')
+
+  if (
+    normalized.includes('chat.openai.') ||
+    normalized.includes('chatgpt.com')
+  ) {
+    return 'chatgpt'
+  }
+  if (normalized.includes('twitter.com') || normalized.includes('x.com')) {
+    return 'x.com'
+  }
+
+  return normalized
+}
+
+function isUtilityFlowStep(step: string) {
+  const normalized = step.trim().toLowerCase()
+  return (
+    normalized.includes('localhost') ||
+    normalized.includes('callback') ||
+    normalized.includes('oauth') ||
+    normalized.includes('consent') ||
+    normalized.includes('login') ||
+    normalized.includes('sign-in') ||
+    normalized.includes('signin') ||
+    normalized.includes('auth.')
+  )
+}
+
+function isMeaningfulPathFlow(flow: PathFlow) {
+  const steps = flow.flowPattern.split(/\s*(?:->|→)\s*/).filter(Boolean)
+  if (flow.occurrenceCount < 2 || steps.length < 2) {
+    return false
+  }
+  if (steps.some(isUtilityFlowStep)) {
+    return false
+  }
+
+  const normalizedSteps = steps.map(normalizeFlowStep)
+  if (new Set(normalizedSteps).size < 2) {
+    return false
+  }
+
+  return normalizedSteps.every(
+    (step, index) => index === 0 || step !== normalizedSteps[index - 1],
+  )
 }
 
 /**
@@ -932,6 +1027,7 @@ function ActivityMixSection({
           scopeLabel={scopeLabel}
         />
       ) : null}
+      <p className="intelligence-section__help">{t('activityMixHelp')}</p>
       {mixResult.loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
       ) : !mix || mix.categories.length === 0 ? (
@@ -1006,10 +1102,16 @@ function BrowsingRhythmSection({
   scopeLabel: string
   t: T
 }) {
+  const [category, setCategory] = useState<string | undefined>(undefined)
+  const rhythmResult = useAsyncData(
+    () => api.getBrowsingRhythm(dateRange, profileId, category),
+    [category, dateRange, profileId],
+  )
   const trendResult = useAsyncData(
     () => api.getDiscoveryTrend(dateRange, profileId, 'day'),
     [dateRange, profileId],
   )
+  const rhythm = rhythmResult.data?.data ?? null
   const points = useMemo(
     () => trendResult.data?.data.points ?? [],
     [trendResult.data],
@@ -1018,20 +1120,54 @@ function BrowsingRhythmSection({
     () => new Map(points.map((point) => [point.dateKey, point])),
     [points],
   )
-  const dateKeys = useMemo(() => dateKeysInRange(dateRange), [dateRange])
+  const recentDayPoints = useMemo(() => {
+    const visiblePoints = points.filter((point) => point.totalVisits > 0)
+    const source = visiblePoints.length > 0 ? visiblePoints : points
+    return source.slice(-14).reverse()
+  }, [points])
+  const bucketByKey = useMemo(
+    () =>
+      new Map(
+        (rhythm?.cells ?? []).map((cell) => [`${cell.dow}:${cell.hour}`, cell]),
+      ),
+    [rhythm],
+  )
+  const hottestBucket = useMemo(() => {
+    if (!rhythm || rhythm.cells.length === 0) {
+      return null
+    }
+
+    return [...rhythm.cells].sort((left, right) => {
+      if (right.visitCount !== left.visitCount) {
+        return right.visitCount - left.visitCount
+      }
+      if (left.dow !== right.dow) {
+        return left.dow - right.dow
+      }
+      return left.hour - right.hour
+    })[0]
+  }, [rhythm])
+  const [selectedBucketOverride, setSelectedBucketOverride] = useState<
+    string | null
+  >(null)
   const [selectedDateOverride, setSelectedDateOverride] = useState<
     string | null
   >(null)
+  const selectedBucket = useMemo(() => {
+    if (selectedBucketOverride && bucketByKey.has(selectedBucketOverride)) {
+      return bucketByKey.get(selectedBucketOverride) ?? null
+    }
+
+    return hottestBucket
+  }, [bucketByKey, hottestBucket, selectedBucketOverride])
   const selectedDateKey = useMemo(() => {
     if (selectedDateOverride && pointByDate.has(selectedDateOverride)) {
       return selectedDateOverride
     }
 
-    const fallbackPoint =
-      [...points].reverse().find((point) => point.totalVisits > 0) ??
-      points[points.length - 1]
+    const fallbackPoint = recentDayPoints[0] ?? points[points.length - 1]
     return fallbackPoint?.dateKey ?? null
-  }, [pointByDate, points, selectedDateOverride])
+  }, [pointByDate, points, recentDayPoints, selectedDateOverride])
 
   const selectedDateRange = selectedDateKey
     ? singleDayRange(selectedDateKey)
@@ -1050,72 +1186,179 @@ function BrowsingRhythmSection({
         : Promise.resolve(null),
     [profileId, selectedDateKey],
   )
-  const maxVisits = Math.max(...points.map((point) => point.totalVisits), 1)
+  const maxCount = Math.max(rhythm?.maxCount ?? 0, 1)
   const selectedPoint =
     selectedDateKey && pointByDate.has(selectedDateKey)
       ? (pointByDate.get(selectedDateKey) ?? null)
       : null
+  const days = [
+    t('dow_sun'),
+    t('dow_mon'),
+    t('dow_tue'),
+    t('dow_wed'),
+    t('dow_thu'),
+    t('dow_fri'),
+    t('dow_sat'),
+  ]
+  const categoryOptions = [
+    { value: '', label: t('rhythmAllCategories') },
+    { value: 'developer', label: t('category_developer') },
+    { value: 'docs', label: t('category_docs') },
+    { value: 'social', label: t('category_social') },
+    { value: 'shopping', label: t('category_shopping') },
+    { value: 'news', label: t('category_news') },
+    { value: 'entertainment', label: t('category_entertainment') },
+    { value: 'search', label: t('category_search') },
+    { value: 'ai', label: t('category_ai') },
+  ]
+
+  const handleBucketSelect = (dow: number, hour: number) => {
+    setSelectedBucketOverride(`${dow}:${hour}`)
+    const matchingPoint = recentDayPoints.find(
+      (point) => dayOfWeekFromDateKey(point.dateKey) === dow,
+    )
+    if (matchingPoint) {
+      setSelectedDateOverride(matchingPoint.dateKey)
+    }
+  }
 
   return (
     <section className="intelligence-section rhythm-section">
-      <h2 className="intelligence-section__title">{t('rhythmTitle')}</h2>
-      {trendResult.data ? (
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('rhythmTitle')}</h2>
+        <select
+          className="top-sites-controls__sort"
+          value={category ?? ''}
+          onChange={(event) => setCategory(event.target.value || undefined)}
+          aria-label={t('rhythmCategoryFilter')}
+        >
+          {categoryOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {rhythmResult.data ? (
         <IntelligenceSectionMeta
-          meta={trendResult.data.meta}
+          meta={rhythmResult.data.meta}
           scopeLabel={scopeLabel}
         />
       ) : null}
-      {trendResult.loading ? (
+      {rhythmResult.loading || trendResult.loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--heatmap" />
-      ) : points.length === 0 ? (
+      ) : !rhythm || rhythm.cells.length === 0 ? (
         <div className="intelligence-empty">
           <p className="intelligence-empty__text">{t('rhythmEmpty')}</p>
         </div>
       ) : (
-        <div className="rhythm-calendar-card">
+        <div className="rhythm-panel">
           <div
-            className="rhythm-calendar"
+            className="rhythm-heatmap"
             role="grid"
             aria-label={t('rhythmLabel')}
           >
-            {dateKeys.map((dateKey) => {
-              const point = pointByDate.get(dateKey)
-              const totalVisits = point?.totalVisits ?? 0
-              const intensity =
-                totalVisits > 0 ? 0.2 + (totalVisits / maxVisits) * 0.8 : 0.08
+            <div className="rhythm-heatmap__header">
+              <span className="rhythm-heatmap__corner" />
+              {Array.from({ length: 24 }).map((_, hour) => (
+                <span key={hour} className="rhythm-heatmap__hour">
+                  {hour}
+                </span>
+              ))}
+            </div>
+            {days.map((dayLabel, dow) => (
+              <div key={dow} className="rhythm-heatmap__row">
+                <span className="rhythm-heatmap__day">{dayLabel}</span>
+                {Array.from({ length: 24 }).map((_, hour) => {
+                  const bucketKey = `${dow}:${hour}`
+                  const cell = bucketByKey.get(bucketKey)
+                  const intensity = cell
+                    ? Math.min(1, cell.visitCount / maxCount)
+                    : 0
+                  const isSelected =
+                    selectedBucket?.dow === dow && selectedBucket?.hour === hour
 
-              return (
-                <button
-                  key={dateKey}
-                  aria-label={t('rhythmDayTooltip', {
-                    date: dateKey,
-                    count: totalVisits,
-                    newDomains: point?.newDomainCount ?? 0,
-                  })}
-                  className={`rhythm-calendar__day${
-                    selectedDateKey === dateKey
-                      ? ' rhythm-calendar__day--active'
-                      : ''
-                  }`}
-                  type="button"
-                  onClick={() => setSelectedDateOverride(dateKey)}
-                >
-                  <span
-                    aria-hidden
-                    className="rhythm-calendar__swatch"
-                    style={{
-                      opacity: intensity,
-                      backgroundColor:
-                        totalVisits > 0 ? 'var(--accent)' : 'var(--text-faint)',
-                    }}
-                  />
-                  <span className="rhythm-calendar__date">
-                    {dateKey.slice(8)}
-                  </span>
-                </button>
-              )
-            })}
+                  return (
+                    <button
+                      key={bucketKey}
+                      type="button"
+                      className={`rhythm-heatmap__cell-button${
+                        isSelected ? ' rhythm-heatmap__cell-button--active' : ''
+                      }`}
+                      aria-label={t('rhythmCellTooltip', {
+                        day: dayLabel,
+                        hour,
+                        count: cell?.visitCount ?? 0,
+                      })}
+                      onClick={() => handleBucketSelect(dow, hour)}
+                    >
+                      <span
+                        aria-hidden
+                        className="rhythm-heatmap__cell"
+                        style={{
+                          opacity: intensity > 0 ? 0.2 + intensity * 0.8 : 0.05,
+                          backgroundColor:
+                            intensity > 0
+                              ? 'var(--accent)'
+                              : 'var(--text-faint)',
+                        }}
+                      />
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
           </div>
+          {selectedBucket ? (
+            <div className="rhythm-bucket-summary">
+              <p className="rhythm-bucket-summary__title">
+                {t('rhythmBucketTitle', {
+                  day: days[selectedBucket.dow] ?? String(selectedBucket.dow),
+                  hour: formatHourRange(selectedBucket.hour),
+                })}
+              </p>
+              <p className="rhythm-bucket-summary__text">
+                {t('rhythmBucketVisits', {
+                  count: selectedBucket.visitCount,
+                })}
+              </p>
+            </div>
+          ) : null}
+          {recentDayPoints.length > 0 ? (
+            <div className="rhythm-day-picker">
+              <span className="rhythm-day-picker__title">
+                {t('rhythmRecentDaysTitle')}
+              </span>
+              <div className="rhythm-day-picker__grid">
+                {recentDayPoints.map((point) => (
+                  <button
+                    key={point.dateKey}
+                    aria-label={t('rhythmDayTooltip', {
+                      date: point.dateKey,
+                      count: point.totalVisits,
+                      newDomains: point.newDomainCount,
+                    })}
+                    className={`rhythm-day-picker__day${
+                      selectedDateKey === point.dateKey
+                        ? ' rhythm-day-picker__day--active'
+                        : ''
+                    }`}
+                    type="button"
+                    onClick={() => setSelectedDateOverride(point.dateKey)}
+                  >
+                    <span className="rhythm-day-picker__date">
+                      {formatMonthDay(point.dateKey)}
+                    </span>
+                    <span className="rhythm-day-picker__count">
+                      {t('rhythmRecentDayVisits', {
+                        count: point.totalVisits,
+                      })}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {selectedDateKey ? (
             <BrowsingRhythmDayDetail
               dateKey={selectedDateKey}
@@ -1237,7 +1480,11 @@ function StableSourcesSection({
   const entries = sources.filter((source) => source.sourceRole === 'entry')
   const landings = sources.filter((source) => source.sourceRole === 'landing')
 
-  if (!loading && sources.length === 0 && data?.meta.state === 'ready') {
+  if (
+    !loading &&
+    data?.meta.state === 'ready' &&
+    (!hasMeaningfulStableSources(entries, landings) || sources.length === 0)
+  ) {
     return null
   }
 
@@ -1247,6 +1494,7 @@ function StableSourcesSection({
       {data ? (
         <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
       ) : null}
+      <p className="intelligence-section__help">{t('stableSourcesHelp')}</p>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
       ) : sources.length === 0 ? (
@@ -1255,49 +1503,79 @@ function StableSourcesSection({
         </div>
       ) : (
         <div className="stable-sources">
-          <div className="stable-sources__column">
-            <h3 className="stable-sources__subtitle">
-              {t('stableSourcesEntry')}
-            </h3>
-            {entries?.slice(0, 5).map((source, index) => (
-              <Link
-                key={source.registrableDomain}
-                className="stable-source-row"
-                to={domainHref(source.registrableDomain)}
-              >
-                <span className="stable-source-row__rank">{index + 1}.</span>
-                <span className="stable-source-row__domain">
-                  {source.displayName ?? source.registrableDomain}
-                </span>
-                <span className="stable-source-row__count">
-                  {source.trailCount} {t('stableSourcesTrails')}
-                </span>
-              </Link>
-            ))}
-          </div>
-          <div className="stable-sources__column">
-            <h3 className="stable-sources__subtitle">
-              {t('stableSourcesLanding')}
-            </h3>
-            {landings?.slice(0, 5).map((source, index) => (
-              <Link
-                key={source.registrableDomain}
-                className="stable-source-row"
-                to={domainHref(source.registrableDomain)}
-              >
-                <span className="stable-source-row__rank">{index + 1}.</span>
-                <span className="stable-source-row__domain">
-                  {source.displayName ?? source.registrableDomain}
-                </span>
-                <span className="stable-source-row__count">
-                  {source.stableLandingCount} {t('stableSourcesLandings')}
-                </span>
-              </Link>
-            ))}
-          </div>
+          <StableSourceColumn
+            emptyLabel={t('stableSourcesNoEntry')}
+            help={t('stableSourcesEntryHelp')}
+            metricLabel={(source) =>
+              t('stableSourcesEntryCount', {
+                count: source.trailCount,
+              })
+            }
+            sources={entries}
+            title={t('stableSourcesEntry')}
+            toHref={domainHref}
+          />
+          <StableSourceColumn
+            emptyLabel={t('stableSourcesNoLanding')}
+            help={t('stableSourcesLandingHelp')}
+            metricLabel={(source) =>
+              t('stableSourcesLandingCount', {
+                count: source.stableLandingCount,
+              })
+            }
+            sources={landings}
+            title={t('stableSourcesLanding')}
+            toHref={domainHref}
+          />
         </div>
       )}
     </section>
+  )
+}
+
+function StableSourceColumn({
+  emptyLabel,
+  help,
+  metricLabel,
+  sources,
+  title,
+  toHref,
+}: {
+  emptyLabel: string
+  help: string
+  metricLabel: (source: StableSource) => string
+  sources: StableSource[]
+  title: string
+  toHref: (domain: string) => string
+}) {
+  return (
+    <div className="stable-sources__column">
+      <div className="stable-sources__header">
+        <h3 className="stable-sources__subtitle">{title}</h3>
+        <p className="stable-sources__help">{help}</p>
+      </div>
+      {sources.length > 0 ? (
+        sources.slice(0, 5).map((source, index) => (
+          <Link
+            key={source.registrableDomain}
+            className="stable-source-row"
+            to={toHref(source.registrableDomain)}
+          >
+            <span className="stable-source-row__rank">{index + 1}.</span>
+            <span className="stable-source-row__content">
+              <span className="stable-source-row__domain">
+                {source.displayName ?? source.registrableDomain}
+              </span>
+              <span className="stable-source-row__detail">
+                {metricLabel(source)}
+              </span>
+            </span>
+          </Link>
+        ))
+      ) : (
+        <p className="stable-sources__empty">{emptyLabel}</p>
+      )}
+    </div>
   )
 }
 
@@ -1339,6 +1617,9 @@ function SearchEffectivenessSection({
       {data ? (
         <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
       ) : null}
+      <p className="intelligence-section__help">
+        {t('searchEffectivenessHelp')}
+      </p>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
       ) : !effectiveness ? (
@@ -1351,56 +1632,13 @@ function SearchEffectivenessSection({
         <div className="search-effectiveness">
           {effectiveness.engineStats.length > 0 ? (
             <div className="search-effectiveness__engines">
-              {effectiveness.engineStats.map((engine) => {
-                const maxReformulations = Math.max(
-                  ...effectiveness.engineStats.map(
-                    (entry) => entry.avgReformulations,
-                  ),
-                  1,
-                )
-                const barWidth = Math.min(
-                  100,
-                  Math.round(
-                    (engine.avgReformulations / maxReformulations) * 100,
-                  ),
-                )
-
-                return (
-                  <div
-                    key={engine.searchEngine}
-                    className="search-effectiveness__engine-row"
-                  >
-                    <div className="search-effectiveness__engine-summary">
-                      <span className="search-effectiveness__engine-name">
-                        {engine.displayName ?? engine.searchEngine}
-                      </span>
-                      <span className="search-effectiveness__engine-stat">
-                        {t('searchEffectivenessTrails', {
-                          count: engine.totalTrails,
-                        })}
-                      </span>
-                    </div>
-                    <span className="search-effectiveness__engine-bar">
-                      <span
-                        className="search-effectiveness__engine-bar-fill"
-                        style={{ width: `${barWidth}%` }}
-                      />
-                    </span>
-                    <div className="search-effectiveness__engine-metrics">
-                      <span className="search-effectiveness__engine-stat">
-                        {t('searchEffectivenessRewrites', {
-                          count: engine.avgReformulations.toFixed(1),
-                        })}
-                      </span>
-                      <span className="search-effectiveness__engine-stat">
-                        {t('searchEffectivenessDepth', {
-                          count: engine.avgDepth.toFixed(1),
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
+              {effectiveness.engineStats.map((engine) => (
+                <SearchEngineCard
+                  key={engine.searchEngine}
+                  engine={engine}
+                  t={t}
+                />
+              ))}
             </div>
           ) : null}
           {effectiveness.topResolvingSources.length > 0 ? (
@@ -1408,17 +1646,35 @@ function SearchEffectivenessSection({
               <h3 className="search-effectiveness__subtitle">
                 {t('searchEffectivenessSources')}
               </h3>
+              <p className="search-effectiveness__help">
+                {t('searchEffectivenessSourcesHelp')}
+              </p>
               {effectiveness.topResolvingSources.slice(0, 5).map((source) => (
                 <Link
                   key={`${source.sourceRole}:${source.registrableDomain}`}
                   className="search-effectiveness__source-row"
                   to={domainHref(source.registrableDomain)}
                 >
-                  <span className="search-effectiveness__source-domain">
-                    {source.displayName ?? source.registrableDomain}
+                  <span className="search-effectiveness__source-main">
+                    <span className="search-effectiveness__source-domain">
+                      {source.displayName ?? source.registrableDomain}
+                    </span>
+                    <span className="search-effectiveness__source-detail">
+                      {source.sourceRole === 'landing'
+                        ? t('stableSourcesLandingCount', {
+                            count: source.stableLandingCount,
+                          })
+                        : t('stableSourcesEntryCount', {
+                            count: source.trailCount,
+                          })}
+                    </span>
                   </span>
                   <span className="search-effectiveness__source-meta">
-                    {source.stableLandingCount} {t('stableSourcesLandings')}
+                    {t(
+                      source.sourceRole === 'landing'
+                        ? 'stableSourcesLanding'
+                        : 'stableSourcesEntry',
+                    )}
                   </span>
                 </Link>
               ))}
@@ -1429,13 +1685,23 @@ function SearchEffectivenessSection({
               <h3 className="search-effectiveness__subtitle">
                 {t('searchEffectivenessHardest')}
               </h3>
+              <p className="search-effectiveness__help">
+                {t('searchEffectivenessHardestHelp')}
+              </p>
               {effectiveness.hardestTopics.slice(0, 3).map((topic) => (
                 <div
                   key={topic.queryFamily}
                   className="search-effectiveness__topic-row"
                 >
-                  <span className="search-effectiveness__topic-query">
-                    "{topic.queryFamily}"
+                  <span className="search-effectiveness__topic-main">
+                    <span className="search-effectiveness__topic-query">
+                      "{topic.queryFamily}"
+                    </span>
+                    <span className="search-effectiveness__topic-detail">
+                      {t('searchEffectivenessLag', {
+                        days: topic.reSearchLagDays.toFixed(1),
+                      })}
+                    </span>
                   </span>
                   <span className="search-effectiveness__topic-stat">
                     {t('searchEffectivenessRewrites', {
@@ -1449,6 +1715,46 @@ function SearchEffectivenessSection({
         </div>
       )}
     </section>
+  )
+}
+
+function SearchEngineCard({
+  engine,
+  t,
+}: {
+  engine: SearchEffectiveness['engineStats'][number]
+  t: T
+}) {
+  return (
+    <div className="search-effectiveness__engine-row">
+      <div className="search-effectiveness__engine-summary">
+        <span className="search-effectiveness__engine-name">
+          {engine.displayName ?? engine.searchEngine}
+        </span>
+        <span className="search-effectiveness__engine-stat">
+          {t('searchEffectivenessTrails', {
+            count: engine.totalTrails,
+          })}
+        </span>
+      </div>
+      <ul className="search-effectiveness__metric-list">
+        <li className="search-effectiveness__metric-line">
+          {t('searchEffectivenessEngineRewrites', {
+            count: engine.avgReformulations.toFixed(1),
+          })}
+        </li>
+        <li className="search-effectiveness__metric-line">
+          {t('searchEffectivenessEngineDepth', {
+            count: engine.avgDepth.toFixed(1),
+          })}
+        </li>
+        <li className="search-effectiveness__metric-line">
+          {t('searchEffectivenessEngineTrails', {
+            count: formatNumber(engine.totalTrails),
+          })}
+        </li>
+      </ul>
+    </div>
   )
 }
 
@@ -1467,7 +1773,7 @@ function FrictionDetectionSection({
     () => api.getFrictionSignals(dateRange, profileId),
     [dateRange, profileId],
   )
-  const signals = data?.data ?? []
+  const signals = (data?.data ?? []).filter(isMeaningfulFrictionSignal)
 
   if (!loading && signals.length === 0 && data?.meta.state === 'ready') {
     return null
@@ -1535,7 +1841,7 @@ function ReopenedInvestigationsSection({
     [dateRange, profileId],
   )
   const reopened = (data?.data ?? []).filter(
-    (item) => item.anchorType === 'query_family',
+    isSearchBackedReopenedInvestigation,
   )
 
   if (!loading && reopened.length === 0 && data?.meta.state === 'ready') {
@@ -1621,22 +1927,7 @@ function DiscoveryTrendSection({
   ) {
     return null
   }
-  const maxRate = trend
-    ? Math.max(
-        ...trend.points.map(
-          (point: DiscoveryTrendPoint) => point.discoveryRate,
-        ),
-        0.01,
-      )
-    : 1
-  const maxNewDomains = trend
-    ? Math.max(
-        ...trend.points.map(
-          (point: DiscoveryTrendPoint) => point.newDomainCount,
-        ),
-        1,
-      )
-    : 1
+  const visiblePoints = trend ? [...trend.points].slice(-6).reverse() : []
 
   return (
     <section className="intelligence-section discovery-trend-section">
@@ -1646,6 +1937,7 @@ function DiscoveryTrendSection({
       {data ? (
         <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
       ) : null}
+      <p className="intelligence-section__help">{t('discoveryTrendHelp')}</p>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
       ) : !trend || trend.points.length === 0 ? (
@@ -1654,50 +1946,46 @@ function DiscoveryTrendSection({
         </div>
       ) : (
         <div className="discovery-trend">
-          <div className="discovery-trend__chart">
-            {trend.points.map((point) => {
-              const rateHeight = Math.round(
-                (point.discoveryRate / maxRate) * 100,
-              )
-              const barHeight = Math.round(
-                (point.newDomainCount / maxNewDomains) * 100,
-              )
+          {visiblePoints.map((point) => {
+            const ratePercent = Math.round(point.discoveryRate * 100)
 
-              return (
-                <div
-                  key={point.dateKey}
-                  className="discovery-trend__bar-group"
-                  title={`${point.dateKey}: ${Math.round(point.discoveryRate * 100)}% · ${point.newDomainCount} ${t('discoveryTrendNewDomains')}`}
-                >
-                  <div className="discovery-trend__rate-bar-container">
-                    <span
-                      className="discovery-trend__rate-bar"
-                      style={{ height: `${rateHeight}%` }}
-                    />
-                  </div>
-                  <div className="discovery-trend__domain-bar-container">
-                    <span
-                      className="discovery-trend__domain-bar"
-                      style={{ height: `${barHeight}%` }}
-                    />
-                  </div>
+            return (
+              <div
+                key={point.dateKey}
+                className="discovery-trend__row"
+                title={`${point.dateKey}: ${ratePercent}% · ${point.newDomainCount} ${t('discoveryTrendNewDomains')} · ${point.totalVisits} ${t('visits')}`}
+              >
+                <div className="discovery-trend__row-header">
                   <span className="discovery-trend__date-label">
-                    {point.dateKey.slice(5)}
+                    {t('discoveryTrendWeekLabel', {
+                      week: point.dateKey,
+                    })}
+                  </span>
+                  <span className="discovery-trend__rate">
+                    {t('discoveryTrendRatePercent', {
+                      count: ratePercent,
+                    })}
                   </span>
                 </div>
-              )
-            })}
-          </div>
-          <div className="discovery-trend__legend">
-            <span className="discovery-trend__legend-item">
-              <span className="discovery-trend__legend-swatch discovery-trend__legend-swatch--rate" />
-              {t('discoveryTrendRateLabel')}
-            </span>
-            <span className="discovery-trend__legend-item">
-              <span className="discovery-trend__legend-swatch discovery-trend__legend-swatch--domains" />
-              {t('discoveryTrendDomainsLabel')}
-            </span>
-          </div>
+                <span className="discovery-trend__bar">
+                  <span
+                    className="discovery-trend__bar-fill"
+                    style={{ width: `${Math.max(ratePercent, 2)}%` }}
+                  />
+                </span>
+                <div className="discovery-trend__stats">
+                  <span className="discovery-trend__stat">
+                    {t('discoveryTrendDomainsLabel')}: {point.newDomainCount}
+                  </span>
+                  <span className="discovery-trend__stat">
+                    {t('discoveryTrendVisitsLabel', {
+                      count: point.totalVisits,
+                    })}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </section>
@@ -1745,11 +2033,31 @@ function BreadthIndexBody({ data, t }: { data: BreadthIndex; t: T }) {
 
   return (
     <div className="breadth-index">
-      <div className="breadth-index__score-block">
-        <span className="breadth-index__score">{score}</span>
-        <span className="breadth-index__score-label">
-          {t('breadthScoreLabel')}
-        </span>
+      <div className="breadth-index__header">
+        <div className="breadth-index__score-block">
+          <span className="breadth-index__score">{score}</span>
+          <span className="breadth-index__score-label">
+            {t('breadthScoreLabel')}
+          </span>
+        </div>
+        <div className="breadth-index__stats">
+          <div className="breadth-index__stat-card">
+            <span className="breadth-index__stat-label">
+              {t('breadthConcentrationLabel')}
+            </span>
+            <strong className="breadth-index__stat-value">
+              {data.concentrationDomainCount}
+            </strong>
+          </div>
+          <div className="breadth-index__stat-card">
+            <span className="breadth-index__stat-label">
+              {t('breadthHhiKey')}
+            </span>
+            <strong className="breadth-index__stat-value">
+              {data.hhi.toFixed(3)}
+            </strong>
+          </div>
+        </div>
       </div>
       <div className="breadth-index__meter">
         <span
@@ -1757,15 +2065,17 @@ function BreadthIndexBody({ data, t }: { data: BreadthIndex; t: T }) {
           style={{ width: `${score}%` }}
         />
       </div>
+      <div className="breadth-index__meter-labels">
+        <span>{t('breadthAxisFocused')}</span>
+        <span>{t('breadthAxisBroad')}</span>
+      </div>
       <p className="breadth-index__detail">{t('breadthScoreHelp')}</p>
       <p className="breadth-index__detail">
         {t('breadthConcentrationDetail', {
           count: data.concentrationDomainCount,
         })}
       </p>
-      <p className="breadth-index__meta">
-        {t('breadthHhiLabel', { value: data.hhi.toFixed(3) })}
-      </p>
+      <p className="breadth-index__meta">{t('breadthHhiHelp')}</p>
     </div>
   )
 }
@@ -1786,7 +2096,7 @@ function PathFlowsSection({
     () => api.getPathFlows(dateRange, profileId, stepCount, 15),
     [dateRange, profileId, stepCount],
   )
-  const flows = data?.data ?? []
+  const flows = (data?.data ?? []).filter(isMeaningfulPathFlow)
 
   if (!loading && flows.length === 0 && data?.meta.state === 'ready') {
     return null
@@ -1970,20 +2280,29 @@ function HabitPatternRow({
 
   return (
     <li className="habit-row">
-      <span className="habit-row__domain">
-        {habit.displayName ?? habit.registrableDomain}
-      </span>
-      <span className={`habit-row__type habit-row__type--${habit.habitType}`}>
-        {t(`habitType_${habit.habitType}`)}
-      </span>
-      <span className="habit-row__cadence">
-        {t('habitCadence', {
-          interval: habit.meanIntervalDays.toFixed(1),
-        })}
-      </span>
-      <span className="habit-row__visits">
-        {t('habitActiveDays', { count: habit.visitCount })}
-      </span>
+      <div className="habit-row__main">
+        <div className="habit-row__header">
+          <span className="habit-row__domain">
+            {habit.displayName ?? habit.registrableDomain}
+          </span>
+          <span
+            className={`habit-row__type habit-row__type--${habit.habitType}`}
+          >
+            {t(`habitType_${habit.habitType}`)}
+          </span>
+        </div>
+        <p className="habit-row__summary">
+          {t('habitPatternSummary', {
+            interval: habit.meanIntervalDays.toFixed(1),
+            days: habit.visitCount,
+          })}
+        </p>
+        <p className="habit-row__meta">
+          {t('habitLastSeen', {
+            date: formatIsoDate(habit.lastVisitedAt),
+          })}
+        </p>
+      </div>
       {explainEntityId ? (
         <ExplainabilityPanel
           entityType="habit_pattern"
@@ -2010,18 +2329,27 @@ function InterruptedHabitRow({
 
   return (
     <li className="habit-row habit-row--interrupted">
-      <span className="habit-row__domain">
-        {habit.displayName ?? habit.registrableDomain}
-      </span>
-      <span className="habit-row__type habit-row__type--interrupted">
-        {t('habitInterruptedBadge')}
-      </span>
-      <span className="habit-row__cadence">
-        {t('habitInterruptedDetail', {
-          days: habit.daysSinceLastVisit,
-          expected: habit.meanIntervalDays.toFixed(1),
-        })}
-      </span>
+      <div className="habit-row__main">
+        <div className="habit-row__header">
+          <span className="habit-row__domain">
+            {habit.displayName ?? habit.registrableDomain}
+          </span>
+          <span className="habit-row__type habit-row__type--interrupted">
+            {t('habitInterruptedBadge')}
+          </span>
+        </div>
+        <p className="habit-row__summary">
+          {t('habitInterruptedSummary', {
+            days: habit.daysSinceLastVisit,
+            expected: habit.meanIntervalDays.toFixed(1),
+          })}
+        </p>
+        <p className="habit-row__meta">
+          {t('habitLastSeen', {
+            date: formatIsoDate(habit.lastVisitedAt),
+          })}
+        </p>
+      </div>
       {explainEntityId ? (
         <ExplainabilityPanel
           entityType="habit_pattern"
@@ -2392,6 +2720,29 @@ function formatDuration(ms: number): string {
   if (minutes < 60) return `${minutes.toFixed(1)}m`
   const hours = minutes / 60
   return `${hours.toFixed(1)}h`
+}
+
+function formatHourRange(hour: number): string {
+  const start = String(hour).padStart(2, '0')
+  const end = String((hour + 1) % 24).padStart(2, '0')
+  return `${start}:00-${end}:00`
+}
+
+function formatMonthDay(dateKey: string): string {
+  return dateKey.slice(5)
+}
+
+function formatIsoDate(value: string): string {
+  return value.slice(0, 10)
+}
+
+function dayOfWeekFromDateKey(dateKey: string): number | null {
+  const date = new Date(`${dateKey}T12:00:00`)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date.getDay()
 }
 
 function formatNumber(value: number): string {

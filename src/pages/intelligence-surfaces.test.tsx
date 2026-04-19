@@ -2452,7 +2452,16 @@ describe('intelligence surfaces', () => {
       }),
     )
     vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
-      wrapSection('stable-sources', []),
+      wrapSection('stable-sources', [
+        {
+          registrableDomain: 'wikipedia.org',
+          displayName: 'wikipedia.org',
+          sourceRole: 'landing',
+          trailCount: 0,
+          stableLandingCount: 1,
+          effectivenessScore: 0.1,
+        },
+      ]),
     )
     vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
       wrapSection('search-effectiveness', {
@@ -2462,12 +2471,34 @@ describe('intelligence surfaces', () => {
       }),
     )
     vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
-      wrapSection('friction-signals', []),
+      wrapSection('friction-signals', [
+        {
+          registrableDomain: 'example.com',
+          url: 'https://example.com/article',
+          evidenceType: 'weak',
+          signalKind: 'single_bounce',
+          occurrenceCount: 1,
+          description: 'Came back to search once.',
+        },
+      ]),
     )
     vi.spyOn(
       coreIntelligenceApi,
       'getReopenedInvestigations',
-    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    ).mockResolvedValue(
+      wrapSection('reopened-investigations', [
+        {
+          investigationId: 'query::chatgpt',
+          anchorType: 'query_family',
+          anchorId: 'chatgpt',
+          anchorLabel: 'ChatGPT',
+          occurrenceCount: 3,
+          distinctDays: 3,
+          firstSeenAt: '2026-04-01',
+          lastSeenAt: '2026-04-07',
+        },
+      ]),
+    )
     vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
       wrapSection('discovery-trend', { points: [] }),
     )
@@ -2479,7 +2510,14 @@ describe('intelligence surfaces', () => {
       }),
     )
     vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
-      wrapSection('path-flows', []),
+      wrapSection('path-flows', [
+        {
+          flowPattern: 'chat.openai.com → chatgpt.com',
+          stepCount: 2,
+          occurrenceCount: 6,
+          lastSeenAt: '2026-04-07T10:00:00Z',
+        },
+      ]),
     )
     vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
       wrapSection('habit-patterns', []),
@@ -2540,6 +2578,7 @@ describe('intelligence surfaces', () => {
     expect(
       screen.getAllByText(intelligenceT('category_community')).length,
     ).toBeGreaterThan(0)
+    expect(screen.getByText(intelligenceT('activityMixHelp'))).toBeVisible()
     expect(
       screen.queryByText(intelligenceT('stableSourcesTitle')),
     ).not.toBeInTheDocument()
@@ -2675,6 +2714,12 @@ describe('intelligence surfaces', () => {
       wrapSection('activity-mix', {
         categories: [{ domainCategory: 'docs', visitCount: 20, share: 1 }],
         changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockResolvedValue(
+      wrapSection('browsing-rhythm', {
+        cells: [{ dow: 3, hour: 10, visitCount: 9 }],
+        maxCount: 9,
       }),
     )
     vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
@@ -3196,16 +3241,18 @@ describe('intelligence surfaces', () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const explorerT = createNamespaceTranslator('en', 'explorer')
+    const scrollToSpy = vi.fn()
+    window.scrollTo = scrollToSpy
     const querySpy = vi
       .spyOn(backend, 'queryHistory')
       .mockImplementation((query) =>
         Promise.resolve({
           total: 240,
-          page: 1,
+          page: query.page ?? 1,
           pageSize: query.limit ?? 50,
           pageCount: Math.ceil(240 / (query.limit ?? 50)),
-          hasPrevious: false,
-          hasNext: true,
+          hasPrevious: (query.page ?? 1) > 1,
+          hasNext: (query.page ?? 1) < Math.ceil(240 / (query.limit ?? 50)),
           nextCursor: null,
           items: [
             {
@@ -3242,12 +3289,31 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByText('Page 1 of 5')).toBeVisible()
+    expect((await screen.findAllByText('Page 1 of 5')).length).toBeGreaterThan(
+      2,
+    )
+    expect(
+      screen.getAllByText('Showing 2 of 240 results on this page').length,
+    ).toBeGreaterThan(2)
     await waitFor(() =>
       expect(querySpy).toHaveBeenLastCalledWith(
         expect.objectContaining({ limit: 50 }),
       ),
     )
+
+    await user.click(
+      screen.getByRole('button', { name: explorerT('nextPage') }),
+    )
+
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 2, limit: 50 }),
+      ),
+    )
+    expect((await screen.findAllByText('Page 2 of 5')).length).toBeGreaterThan(
+      2,
+    )
+    expect(scrollToSpy).not.toHaveBeenCalled()
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: explorerT('pageSizeLabel') }),
@@ -3259,6 +3325,156 @@ describe('intelligence surfaces', () => {
         expect.objectContaining({ limit: 100 }),
       ),
     )
-    expect(await screen.findByText('Page 1 of 3')).toBeVisible()
+    expect((await screen.findAllByText('Page 1 of 3')).length).toBeGreaterThan(
+      2,
+    )
+    expect(scrollToSpy).not.toHaveBeenCalled()
+  })
+
+  test('renders search effectiveness as plain-language summaries', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockResolvedValue(
+      wrapSection('digest-summary', {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: { value: 10, deltaPct: 0, trend: 'up' },
+        totalSearches: { value: 4, deltaPct: 0, trend: 'up' },
+        newDomains: { value: 3, deltaPct: 0, trend: 'up' },
+        deepReadPages: { value: 2, deltaPct: 0, trend: 'up' },
+        refindPages: { value: 1, deltaPct: 0, trend: 'up' },
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue(
+      wrapSection('on-this-day', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection('top-sites', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('query-families', {
+        page: 0,
+        pageSize: 20,
+        total: 0,
+        families: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockResolvedValue(
+      wrapSection('browsing-rhythm', {
+        cells: [],
+        maxCount: 0,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [
+          {
+            searchEngine: 'google',
+            displayName: 'Google',
+            avgReformulations: 1.2,
+            totalTrails: 18,
+            avgDepth: 2.4,
+          },
+        ],
+        topResolvingSources: [
+          {
+            registrableDomain: 'developer.mozilla.org',
+            displayName: 'MDN',
+            sourceRole: 'landing',
+            trailCount: 6,
+            stableLandingCount: 6,
+            effectivenessScore: 0.9,
+          },
+        ],
+        hardestTopics: [
+          {
+            queryFamily: 'sqlite wal checkpoint',
+            reformulationCount: 3,
+            reSearchLagDays: 2.5,
+          },
+        ],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+      wrapSection('discovery-trend', { points: [] }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 42,
+        hhi: 0.42,
+        concentrationDomainCount: 5,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habit-patterns', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('interrupted-habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      language: 'en',
+      route: '/intelligence',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: intelligenceT('searchEffectivenessTitle'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByText('Each trail was rewritten about 1.2 times on average.'),
+    ).toBeVisible()
+    expect(
+      screen.getByText('People usually stopped around depth 2.4.'),
+    ).toBeVisible()
+    expect(
+      screen.getByText('This window produced 18 search trails.'),
+    ).toBeVisible()
+    expect(screen.getByText('MDN')).toBeVisible()
+    expect(screen.getByText('"sqlite wal checkpoint"')).toBeVisible()
   })
 })

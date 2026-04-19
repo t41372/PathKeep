@@ -97,11 +97,20 @@ export function ExplorerResultsPanel({
       <div className="record-list">
         <div className="record-group">
           <div className="record-group-header">
-            {explorerT('resultsSummary', {
-              page: historyPage,
-              loaded: results.items.length,
-              total: results.total,
-            })}
+            <div className="record-group-header__summary">
+              <span className="history-page-summary">
+                {explorerT('pageCountSummary', {
+                  current: historyPage,
+                  total: historyPageCount,
+                })}
+              </span>
+              <span className="record-group-header__loaded">
+                {explorerT('resultsSummary', {
+                  loaded: results.items.length,
+                  total: results.total,
+                })}
+              </span>
+            </div>
           </div>
           {results.items.map((item) => (
             <div
@@ -141,94 +150,105 @@ export function ExplorerResultsPanel({
               </div>
             </div>
           ))}
-          <div
-            className="intelligence-actions"
-            style={{ padding: 'var(--space-3) 0 0' }}
-          >
-            <span className="history-page-summary">
-              {explorerT('pageCountSummary', {
-                current: historyPage,
-                total: historyPageCount,
-              })}
-            </span>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={handleFirstHistoryPage}
-              disabled={!results.hasPrevious}
-            >
-              {explorerT('firstPage')}
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={handlePreviousHistoryPage}
-              disabled={!results.hasPrevious}
-            >
-              {explorerT('previousPage')}
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={handleNextHistoryPage}
-              disabled={!results.hasNext}
-            >
-              {explorerT('nextPage')}
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => handleLastHistoryPage(historyPageCount)}
-              disabled={!results.hasNext}
-            >
-              {explorerT('lastPage')}
-            </button>
-            <label className="history-page-jump">
-              <span className="history-page-jump__label">
-                {explorerT('pageNumberLabel')}
+          <div className="record-group-pagination">
+            <div className="record-group-pagination__summary">
+              <span className="history-page-summary">
+                {explorerT('pageCountSummary', {
+                  current: historyPage,
+                  total: historyPageCount,
+                })}
               </span>
-              <input
-                className="history-page-jump__input"
-                inputMode="numeric"
-                min={1}
-                type="number"
-                value={historyPageInput}
-                onChange={(event) =>
-                  onHistoryPageInputChange(event.target.value)
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    handleHistoryPageJump(historyPageCount)
-                  }
-                }}
-              />
-            </label>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => handleHistoryPageJump(historyPageCount)}
-            >
-              {explorerT('jumpToPage')}
-            </button>
-            <label className="history-page-jump">
-              <span className="history-page-jump__label">
-                {explorerT('pageSizeLabel')}
+              <span className="record-group-pagination__loaded">
+                {explorerT('resultsSummary', {
+                  loaded: results.items.length,
+                  total: results.total,
+                })}
               </span>
-              <select
-                className="history-page-size__select"
-                value={historyPageSize}
-                onChange={(event) =>
-                  onHistoryPageSizeChange(Number(event.target.value))
-                }
-              >
-                {keywordPageSizeOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {explorerT('pageSizeOption', { count: option })}
-                  </option>
-                ))}
-              </select>
-            </label>
+            </div>
+            <div className="record-group-pagination__controls">
+              <div className="record-group-pagination__nav">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handleFirstHistoryPage}
+                  disabled={!results.hasPrevious}
+                >
+                  {explorerT('firstPage')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handlePreviousHistoryPage}
+                  disabled={!results.hasPrevious}
+                >
+                  {explorerT('previousPage')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={handleNextHistoryPage}
+                  disabled={!results.hasNext}
+                >
+                  {explorerT('nextPage')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => handleLastHistoryPage(historyPageCount)}
+                  disabled={!results.hasNext}
+                >
+                  {explorerT('lastPage')}
+                </button>
+              </div>
+              <div className="record-group-pagination__jump">
+                <label className="history-page-jump">
+                  <span className="history-page-jump__label">
+                    {explorerT('pageNumberLabel')}
+                  </span>
+                  <input
+                    className="history-page-jump__input"
+                    inputMode="numeric"
+                    min={1}
+                    type="number"
+                    value={historyPageInput}
+                    onChange={(event) =>
+                      onHistoryPageInputChange(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleHistoryPageJump(historyPageCount)
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => handleHistoryPageJump(historyPageCount)}
+                >
+                  {explorerT('jumpToPage')}
+                </button>
+                <label className="history-page-jump">
+                  <span className="history-page-jump__label">
+                    {explorerT('pageSizeLabel')}
+                  </span>
+                  <select
+                    className="history-page-size__select"
+                    value={historyPageSize}
+                    onChange={(event) =>
+                      onHistoryPageSizeChange(Number(event.target.value))
+                    }
+                  >
+                    {keywordPageSizeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {explorerT('pageSizeOption', { count: option })}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
       </div>
