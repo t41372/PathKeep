@@ -47,9 +47,10 @@ use vault_core::{
     QueryFamilyDetail, QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation, RefindPage,
     RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest, ReopenedInvestigation,
     RhythmHeatmap, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
-    SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
-    StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
-    ai_queue, answer_history_question_with_control, build_ai_index_with_control,
+    SearchEffectivenessRequest, SearchEngineRule, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchQueryListResult, SearchTrailQueryRequest, SessionDetail, SessionListResult, StableSource,
+    TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult, ai_queue,
+    answer_history_question_with_control, build_ai_index_with_control,
     build_core_intelligence_section_meta, cancel_intelligence_job, execute_enrichment_job_by_id,
     intelligence, intelligence_job_stop_requested,
     intelligence_runtime::{
@@ -1018,6 +1019,42 @@ pub fn get_search_engine_ranking(
     )
 }
 
+pub fn list_search_engine_rules(
+    session_database_key: Option<&str>,
+) -> Result<Vec<SearchEngineRule>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::list_search_engine_rules_for_settings(paths, config, session_database_key)
+    })
+}
+
+pub fn upsert_search_engine_rule(
+    session_database_key: Option<&str>,
+    input: &SearchEngineRuleInput,
+) -> Result<Vec<SearchEngineRule>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::upsert_search_engine_rule_for_settings(
+            paths,
+            config,
+            session_database_key,
+            input,
+        )
+    })
+}
+
+pub fn delete_search_engine_rule(
+    session_database_key: Option<&str>,
+    rule_id: &str,
+) -> Result<Vec<SearchEngineRule>> {
+    with_core_intelligence(session_database_key, |paths, config| {
+        intelligence::delete_search_engine_rule_for_settings(
+            paths,
+            config,
+            session_database_key,
+            rule_id,
+        )
+    })
+}
+
 pub fn get_intelligence_primary_overview(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1253,6 +1290,21 @@ pub fn get_top_search_concepts(
             intelligence::get_top_search_concepts(paths, config, session_database_key, request)
         },
         |data| data.is_empty(),
+    )
+}
+
+pub fn get_search_queries(
+    session_database_key: Option<&str>,
+    request: &SearchQueryListRequest,
+) -> Result<CoreIntelligenceSectionResult<SearchQueryListResult>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_search_queries(paths, config, session_database_key, request)
+        },
+        |data| data.rows.is_empty(),
     )
 }
 

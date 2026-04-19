@@ -188,6 +188,35 @@ pub struct TopSearchConceptsRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request shape for paginated search-query history reads.
+pub struct SearchQueryListRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    pub browser_kind: Option<String>,
+    pub engine: Option<String>,
+    pub query: Option<String>,
+    pub sort: Option<String>,
+    pub page: u32,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Editable payload for one custom search-engine rule.
+pub struct SearchEngineRuleInput {
+    pub rule_id: Option<String>,
+    pub engine_id: String,
+    pub display_name: String,
+    pub host_pattern: String,
+    pub path_prefix: Option<String>,
+    pub query_param_key: String,
+    pub enabled: bool,
+    pub note: Option<String>,
+    pub example_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Request shape for refind-page queries.
 pub struct RefindPagesRequest {
     pub date_range: DateRange,
@@ -422,6 +451,50 @@ pub struct SearchConcept {
     pub term: String,
     pub frequency: i64,
     pub engines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchQueryRow {
+    pub visit_id: i64,
+    pub profile_id: String,
+    pub browser_kind: String,
+    pub search_engine: String,
+    pub display_name: Option<String>,
+    pub raw_query: String,
+    pub normalized_query: String,
+    pub searched_at: String,
+    pub searched_at_ms: i64,
+    pub exact_repeat_count: i64,
+    pub family_count: i64,
+    pub family_id: Option<String>,
+    pub trail_id: Option<String>,
+    pub trail_initial_query: Option<String>,
+    pub trail_reformulation_count: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchQueryListResult {
+    pub rows: Vec<SearchQueryRow>,
+    pub total: i64,
+    pub page: u32,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchEngineRule {
+    pub rule_id: String,
+    pub engine_id: String,
+    pub display_name: String,
+    pub host_pattern: String,
+    pub path_prefix: Option<String>,
+    pub query_param_key: String,
+    pub enabled: bool,
+    pub note: Option<String>,
+    pub example_url: Option<String>,
+    pub built_in: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -35,8 +35,9 @@ use vault_core::{
     IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
     QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
     S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
-    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
-    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
+    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
+    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
+    TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -150,6 +151,12 @@ struct AiProviderSecretPayload {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct InputPayload<T> {
+    input: T,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProviderIdPayload {
     provider_id: String,
 }
@@ -188,6 +195,12 @@ struct SessionIdPayload {
 #[serde(rename_all = "camelCase")]
 struct TrailIdPayload {
     trail_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuleIdPayload {
+    rule_id: String,
 }
 
 #[derive(Deserialize)]
@@ -652,9 +665,35 @@ async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "list_search_engine_rules" => {
+            json_value!(worker_bridge::list_search_engine_rules_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "upsert_search_engine_rule" => {
+            let payload = parse_payload::<InputPayload<SearchEngineRuleInput>>(payload)?;
+            json_value!(worker_bridge::upsert_search_engine_rule_impl(
+                payload.input,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "delete_search_engine_rule" => {
+            let payload = parse_payload::<RuleIdPayload>(payload)?;
+            json_value!(worker_bridge::delete_search_engine_rule_impl(
+                payload.rule_id,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "get_top_search_concepts" => {
             let payload = parse_payload::<WrappedRequest<TopSearchConceptsRequest>>(payload)?;
             json_value!(worker_bridge::get_top_search_concepts_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_search_queries" => {
+            let payload = parse_payload::<WrappedRequest<SearchQueryListRequest>>(payload)?;
+            json_value!(worker_bridge::get_search_queries_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

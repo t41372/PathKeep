@@ -74,6 +74,12 @@ import type {
   UnlockAppSessionRequest,
   UpdateInstallState,
 } from './types'
+import type {
+  SearchEngineRule,
+  SearchEngineRuleInput,
+  SearchQueryListResult,
+  SearchQuerySort,
+} from './core-intelligence'
 
 // Stryker disable all: browser-preview fixtures are static reference data, not behavior.
 const mockBuildInfo: AppBuildInfo = {
@@ -651,6 +657,7 @@ interface MockBackendState {
   nextImportBatchId: number
   lastRemoteBundlePath: string | null
   derivedStateCleared: boolean
+  searchEngineRules: SearchEngineRule[]
 }
 
 /**
@@ -670,6 +677,179 @@ function browserKindFromProfileId(profileId: string) {
  */
 function uniqueUrlCount(items: HistoryQueryResponse['items']) {
   return new Set(items.map((item) => item.url)).size
+}
+
+function coreIsoTimestamp(offsetMs: number) {
+  return new Date(Date.now() + offsetMs).toISOString()
+}
+
+function coreIntelligenceProfileId(profileId?: string | null) {
+  return profileId?.trim() || 'chrome:Default'
+}
+
+function buildMockSearchEngineRules(): SearchEngineRule[] {
+  return [
+    {
+      ruleId: 'builtin:google',
+      engineId: 'google',
+      displayName: 'Google',
+      hostPattern: 'google.com',
+      pathPrefix: '/search',
+      queryParamKey: 'q',
+      enabled: true,
+      note: null,
+      exampleUrl: 'https://www.google.com/search?q=sqlite+wal',
+      builtIn: true,
+    },
+    {
+      ruleId: 'builtin:bilibili',
+      engineId: 'bilibili',
+      displayName: 'BiliBili',
+      hostPattern: 'search.bilibili.com',
+      pathPrefix: '/all',
+      queryParamKey: 'keyword',
+      enabled: true,
+      note: null,
+      exampleUrl: 'https://search.bilibili.com/all?keyword=sqlite+wal',
+      builtIn: true,
+    },
+    {
+      ruleId: 'builtin:github',
+      engineId: 'github',
+      displayName: 'GitHub',
+      hostPattern: 'github.com',
+      pathPrefix: '/search',
+      queryParamKey: 'q',
+      enabled: true,
+      note: null,
+      exampleUrl: 'https://github.com/search?q=sqlite+wal',
+      builtIn: true,
+    },
+    {
+      ruleId: 'custom:docs-search',
+      engineId: 'docs-search',
+      displayName: 'Docs Search',
+      hostPattern: 'docs.example.com',
+      pathPrefix: '/search',
+      queryParamKey: 'query',
+      enabled: true,
+      note: 'Preview custom rule',
+      exampleUrl: 'https://docs.example.com/search?query=sqlite+wal',
+      builtIn: false,
+    },
+  ]
+}
+
+function buildMockSearchQueries(request?: {
+  profileId?: string | null
+  browserKind?: string | null
+  engine?: string | null
+  query?: string | null
+  sort?: SearchQuerySort
+  page?: number
+  pageSize?: number
+}): SearchQueryListResult {
+  const profileId = coreIntelligenceProfileId(request?.profileId)
+  const rows = [
+    {
+      visitId: 101,
+      profileId,
+      browserKind: 'chrome',
+      searchEngine: 'google',
+      displayName: 'Google',
+      rawQuery: 'chrome history sqlite',
+      normalizedQuery: 'chrome history sqlite',
+      searchedAt: coreIsoTimestamp(-1000 * 60 * 60 * 6),
+      searchedAtMs: Date.now() - 1000 * 60 * 60 * 6,
+      exactRepeatCount: 2,
+      familyCount: 4,
+      familyId: 'family-chrome-history',
+      trailId: 'trail-archive-db',
+      trailInitialQuery: 'chrome history sqlite',
+      trailReformulationCount: 3,
+    },
+    {
+      visitId: 102,
+      profileId,
+      browserKind: 'chrome',
+      searchEngine: 'google',
+      displayName: 'Google',
+      rawQuery: 'tauri sqlite local-first',
+      normalizedQuery: 'tauri sqlite local-first',
+      searchedAt: coreIsoTimestamp(-1000 * 60 * 60 * 18),
+      searchedAtMs: Date.now() - 1000 * 60 * 60 * 18,
+      exactRepeatCount: 1,
+      familyCount: 3,
+      familyId: 'family-tauri-storage',
+      trailId: 'trail-tauri-storage',
+      trailInitialQuery: 'tauri sqlite local-first',
+      trailReformulationCount: 2,
+    },
+    {
+      visitId: 103,
+      profileId,
+      browserKind: 'chrome',
+      searchEngine: 'bilibili',
+      displayName: 'BiliBili',
+      rawQuery: 'sqlite wal 教学',
+      normalizedQuery: 'sqlite wal 教学',
+      searchedAt: coreIsoTimestamp(-1000 * 60 * 60 * 28),
+      searchedAtMs: Date.now() - 1000 * 60 * 60 * 28,
+      exactRepeatCount: 1,
+      familyCount: 1,
+      familyId: null,
+      trailId: null,
+      trailInitialQuery: null,
+      trailReformulationCount: null,
+    },
+  ].filter((row) => {
+    if (request?.browserKind && row.browserKind !== request.browserKind) {
+      return false
+    }
+    if (request?.engine && row.searchEngine !== request.engine) {
+      return false
+    }
+    if (request?.query) {
+      const needle = request.query.trim().toLowerCase()
+      if (
+        !row.normalizedQuery.includes(needle) &&
+        !row.rawQuery.toLowerCase().includes(needle)
+      ) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const sorted = [...rows].sort((left, right) => {
+    switch (request?.sort) {
+      case 'alphabetical':
+        return left.normalizedQuery.localeCompare(right.normalizedQuery)
+      case 'exact-frequency':
+        return (
+          right.exactRepeatCount - left.exactRepeatCount ||
+          right.searchedAtMs - left.searchedAtMs
+        )
+      case 'family-frequency':
+        return (
+          right.familyCount - left.familyCount ||
+          right.exactRepeatCount - left.exactRepeatCount ||
+          right.searchedAtMs - left.searchedAtMs
+        )
+      default:
+        return right.searchedAtMs - left.searchedAtMs
+    }
+  })
+  const page = request?.page ?? 0
+  const pageSize = request?.pageSize ?? 20
+  const start = page * pageSize
+
+  return {
+    rows: sorted.slice(start, start + pageSize),
+    total: sorted.length,
+    page,
+    pageSize,
+  }
 }
 
 /**
@@ -2074,6 +2254,7 @@ function createMockState(): MockBackendState {
     nextImportBatchId: 1,
     lastRemoteBundlePath: null,
     derivedStateCleared: false,
+    searchEngineRules: buildMockSearchEngineRules(),
   }
   state.snapshot.config = normalizeMockConfig(
     state.snapshot.config,
@@ -3007,6 +3188,47 @@ async function call<T>(
     case 'get_observed_interactions':
     case 'get_hub_pages':
       return [] as T
+    case 'list_search_engine_rules':
+      return structuredClone(mockState.searchEngineRules) as T
+    case 'upsert_search_engine_rule': {
+      const input = (args?.input as SearchEngineRuleInput | undefined) ?? null
+      if (!input) {
+        return structuredClone(mockState.searchEngineRules) as T
+      }
+      const ruleId =
+        input.ruleId?.trim() ||
+        `custom:${input.engineId || 'engine'}:${mockState.searchEngineRules.length + 1}`
+      const nextRule: SearchEngineRule = {
+        ruleId,
+        engineId: input.engineId,
+        displayName: input.displayName,
+        hostPattern: input.hostPattern,
+        pathPrefix: input.pathPrefix ?? null,
+        queryParamKey: input.queryParamKey,
+        enabled: input.enabled,
+        note: input.note ?? null,
+        exampleUrl: input.exampleUrl ?? null,
+        builtIn: false,
+      }
+      mockState.searchEngineRules = [
+        ...mockState.searchEngineRules.filter((rule) => rule.ruleId !== ruleId),
+        nextRule,
+      ]
+      return structuredClone(mockState.searchEngineRules) as T
+    }
+    case 'delete_search_engine_rule': {
+      const ruleId =
+        args &&
+        typeof args === 'object' &&
+        'ruleId' in args &&
+        typeof args.ruleId === 'string'
+          ? args.ruleId
+          : ''
+      mockState.searchEngineRules = mockState.searchEngineRules.filter(
+        (rule) => rule.ruleId !== ruleId || rule.builtIn,
+      )
+      return structuredClone(mockState.searchEngineRules) as T
+    }
     case 'get_digest_summary':
       return {
         dateRange: { start: '', end: '' },
@@ -3080,6 +3302,11 @@ async function call<T>(
         page: 0,
         pageSize: 20,
       } as T
+    case 'get_search_queries':
+      return buildMockSearchQueries(
+        (args?.request as Parameters<typeof buildMockSearchQueries>[0]) ??
+          undefined,
+      ) as T
     case 'get_query_family_detail':
       return {
         data: {
@@ -3456,6 +3683,12 @@ export const backend = {
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
   loadAiAssistantJob: (jobId: number) =>
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
+  listSearchEngineRules: () =>
+    call<SearchEngineRule[]>('list_search_engine_rules'),
+  upsertSearchEngineRule: (input: SearchEngineRuleInput) =>
+    call<SearchEngineRule[]>('upsert_search_engine_rule', { input }),
+  deleteSearchEngineRule: (ruleId: string) =>
+    call<SearchEngineRule[]>('delete_search_engine_rule', { ruleId }),
   clearDerivedIntelligence: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   loadIntelligenceRuntime: () =>

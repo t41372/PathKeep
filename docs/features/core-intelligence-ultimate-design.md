@@ -12,6 +12,8 @@
 > **2026-04-19 accepted entity note:** `day` 與 `domain` 現在都已升格成 first-class shared entity surface。`/intelligence/day/:date` 是 exact local day 的完整 insights route；`/intelligence/domain/:domain` 正式作為 `Domain Insights` module。overview / Dashboard / Explorer 的 primary interaction 預設採 `Insights first`，Explorer evidence 降為 secondary CTA。完整 trade-off 見 [`../design/intelligence-entity-route-tradeoff.md`](../design/intelligence-entity-route-tradeoff.md)。
 >
 > **2026-04-19 accepted generic-entity note:** M7 已把 generic insight-entity navigation 收斂成正式 contract：`query family`、`refind page`、`session`、`trail` 也已升格成 first-class shared insights route，其餘 active entity 則必須解析到既有 shared destination，而不是各 surface 各自決定 deep-link。Explorer 的 `session` / `trail` grouped view 仍是 browse-first canonical surface；route promotion 只承接 reusable detail / explainability / evidence CTA。完整 trade-off 見 [`../design/intelligence-generic-entity-navigation-tradeoff.md`](../design/intelligence-generic-entity-navigation-tradeoff.md)。
+>
+> **2026-04-19 accepted salvage note:** `Search Activity` 現在在既有 `engines / concepts / families` 之外，多了一個 additive 的 `Recent Queries` tab。這個 tab 讀 `get_search_queries`，每列都保留 reusable `familyId` / `trailId` / `profileId`，primary CTA 直接走 shared query-family insights route；這不是 Explorer `queries` view，也不代表 route grammar 改回 consumer-local workflow。search-engine rule editing 也正式收斂到 Settings derived-state panel，作為 deterministic rebuild 的一部分。
 
 ---
 
@@ -414,14 +416,14 @@ Explorer（歷史瀏覽）頁面新增「View by」分組選項：
 
 **取代原版「Top 搜索關鍵詞」**——raw query 幾乎不重複，統計沒意義。
 
-三個子視圖：
+目前 shipping 為四個子視圖，其中第四個 `Recent Queries` 是沿著 M8 identity-reuse baseline 加上的 additive review surface，不重開新的 Explorer URL grammar：
 
 **A. 搜索入口排行**
 
 - 各搜索引擎/平台的搜索次數排行
 - `GROUP BY search_engine`，daily rollup
 - 內建 Google、Bing、YouTube、BiliBili、GitHub、DuckDuckGo、百度、淘寶等
-- 用戶可在 Site Dictionary 中自定義追加
+- 用戶可在 Settings derived-state panel 的 search-engine rule editor 中自定義追加
 
 **B. 高頻搜索概念 (Top Search Concepts)**
 
@@ -454,12 +456,21 @@ Query Family 範例:
 
 1. Chromium `search_terms` / Firefox `moz_places_metadata_search_queries`
 2. canonical `search_terms` 表（已存在於 archive）
-3. Site Dictionary 中定義的搜索引擎 URL 規則（`q=`、`query=`、`search_query=`）
+3. Settings derived-state panel 中維護的 search-engine rules（`q=`、`query=`、`search_query=` 與 host/path matching）
 4. Generic query param fallback
 
 **性能：** 分詞在導入時一次性完成，結果存入 `search_event_terms` 表。Query family merge 只在局部窗口內做，O(k²) where k = 局部 query 數量（通常 < 20）。
 
 **跨瀏覽器：** Chromium ✅（`search_terms`） / Firefox ✅（`search_queries`） / Safari ⚠️（URL 規則 fallback） / Takeout ✅
+
+**D. Recent Queries（最近實際查過什麼）**
+
+| 項目         | 內容                                                                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼**   | `Top Search Concepts` 與 `Query Family` 都是 aggregate view，但使用者有時仍需要回看最近真的查了哪些 query，且要保留 reusable identity               |
+| **怎麼算**   | 讀 `search_events`，在請求視窗內先 dedupe 最新一筆 `(search_engine, normalized_query)`，再回填 `query_families` / `search_trails` context           |
+| **怎麼展示** | `Search Activity` 內的 additive tab，支援 engine/filter/sort；有 `familyId` 時 primary CTA 走 query-family insights，次要 CTA 才是 trail / evidence |
+| **邊界**     | 不新增 Explorer `queries` view、不新增新的 route grammar，也不把 M7 已接受的 promoted entity CTA 拉回 page-local deep-link                          |
 
 ---
 
@@ -1033,6 +1044,20 @@ CREATE TABLE query_families (
   last_seen_ms       INTEGER NOT NULL,
   queries_json       TEXT NOT NULL,
   computed_at        TEXT NOT NULL
+);
+
+CREATE TABLE search_engine_rules (
+  rule_id            TEXT PRIMARY KEY,
+  engine_id          TEXT NOT NULL,
+  display_name       TEXT NOT NULL,
+  host_pattern       TEXT NOT NULL,
+  path_prefix        TEXT,
+  query_param_key    TEXT NOT NULL,
+  example_url        TEXT,
+  note               TEXT,
+  enabled            INTEGER NOT NULL DEFAULT 1,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL
 );
 
 CREATE TABLE refind_pages (

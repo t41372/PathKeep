@@ -1548,6 +1548,94 @@ describe('intelligence surfaces', () => {
     ).toBeVisible()
   })
 
+  test('renders settings search rules review and saves custom rules through the derived-state surface', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const queueSpy = vi
+      .spyOn(coreIntelligenceApi, 'queueCoreIntelligenceRebuild')
+      .mockResolvedValue({
+        jobId: 77,
+        state: 'queued',
+        notes: ['Queued rebuild after search rule update.'],
+      })
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: settingsT('searchRulesTitle'),
+      }),
+    ).toBeVisible()
+    expect(screen.getByText('Docs Search')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: settingsT('searchRulesAdd') }),
+    )
+    const editor = await screen.findByRole('region', {
+      name: settingsT('searchRulesEditorTitle'),
+    })
+    await user.type(
+      within(editor).getByRole('textbox', {
+        name: settingsT('searchRulesDisplayName'),
+      }),
+      'MDN Search',
+    )
+    await user.type(
+      within(editor).getByRole('textbox', {
+        name: settingsT('searchRulesEngineId'),
+      }),
+      'mdn-search',
+    )
+    await user.type(
+      within(editor).getByRole('textbox', {
+        name: settingsT('searchRulesHostPattern'),
+      }),
+      'developer.mozilla.org',
+    )
+    await user.type(
+      within(editor).getByRole('textbox', {
+        name: settingsT('searchRulesPathPrefix'),
+      }),
+      '/search',
+    )
+    await user.type(
+      within(editor).getByRole('textbox', {
+        name: settingsT('searchRulesQueryParam'),
+      }),
+      'q',
+    )
+    await user.click(
+      within(editor).getByRole('button', {
+        name: settingsT('searchRulesSave'),
+      }),
+    )
+
+    await waitFor(() => expect(queueSpy).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('MDN Search')).toBeVisible()
+
+    const docsRuleRow = screen.getByText('Docs Search').closest('.result-row')
+    expect(docsRuleRow).not.toBeNull()
+    if (!(docsRuleRow instanceof HTMLElement)) {
+      throw new Error('expected docs search rule row')
+    }
+    await user.click(
+      within(docsRuleRow).getByRole('button', {
+        name: settingsT('searchRulesDelete'),
+      }),
+    )
+
+    await waitFor(() => expect(queueSpy).toHaveBeenCalledTimes(2))
+    await waitFor(() => {
+      expect(screen.queryByText('Docs Search')).not.toBeInTheDocument()
+    })
+  })
+
   test.each([
     {
       expectedTitleKey: 'externalOutputsUnlockTitle',
@@ -3018,6 +3106,7 @@ describe('intelligence surfaces', () => {
   })
 
   test('renders browsing rhythm as a real-date calendar and keeps secondary cards capped', async () => {
+    const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
 
@@ -3070,6 +3159,32 @@ describe('intelligence surfaces', () => {
     )
     vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
       wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchQueries').mockResolvedValue(
+      wrapSection('search-activity', {
+        page: 0,
+        pageSize: 20,
+        total: 1,
+        rows: [
+          {
+            visitId: 88,
+            profileId: 'chrome:Default',
+            browserKind: 'chrome',
+            searchEngine: 'google',
+            displayName: 'Google',
+            rawQuery: 'sqlite wal checkpoint',
+            normalizedQuery: 'sqlite wal checkpoint',
+            searchedAt: '2026-01-28T09:30:00Z',
+            searchedAtMs: 1_706_434_200_000,
+            exactRepeatCount: 2,
+            familyCount: 4,
+            familyId: 'family-1',
+            trailId: 'trail-1',
+            trailInitialQuery: 'sqlite wal checkpoint',
+            trailReformulationCount: 3,
+          },
+        ],
+      }),
     )
     vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
       wrapSection('query-families', {
@@ -3254,6 +3369,22 @@ describe('intelligence surfaces', () => {
         name: intelligenceT('onThisDayTitle'),
       }),
     ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Recent Queries' }))
+    expect(
+      await screen.findByRole('link', {
+        name: 'Open query-family insights',
+      }),
+    ).toHaveAttribute(
+      'href',
+      '/intelligence/query-family/family-1?range=custom&start=2026-01-01&end=2026-01-31&profileId=chrome%3ADefault',
+    )
+    expect(
+      screen.getByRole('link', { name: 'Open trail insights' }),
+    ).toHaveAttribute(
+      'href',
+      '/intelligence/trail/trail-1?range=custom&start=2026-01-01&end=2026-01-31&profileId=chrome%3ADefault',
+    )
   })
 
   test('renders grouped storage analytics in the intelligence health tail', async () => {

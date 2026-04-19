@@ -83,7 +83,11 @@ import type {
 import { LoadingState } from '../../components/primitives/loading-state'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
 import { queueCoreIntelligenceRebuild } from '../../lib/core-intelligence/api'
-import type { CoreIntelligenceQueueReport } from '../../lib/core-intelligence/types'
+import type {
+  CoreIntelligenceQueueReport,
+  SearchEngineRule,
+  SearchEngineRuleInput,
+} from '../../lib/core-intelligence/types'
 import { SettingsExternalOutputsPanel } from './external-outputs-panel'
 import {
   appendAiProviderDraft,
@@ -98,6 +102,38 @@ import {
   serializeAiSettings,
   type SupportState,
 } from './helpers'
+
+function buildSearchEngineRuleDraft(
+  rule?: SearchEngineRule | null,
+): SearchEngineRuleInput {
+  return {
+    ruleId: rule?.ruleId ?? null,
+    engineId: rule?.engineId ?? '',
+    displayName: rule?.displayName ?? '',
+    hostPattern: rule?.hostPattern ?? '',
+    pathPrefix: rule?.pathPrefix ?? '',
+    queryParamKey: rule?.queryParamKey ?? '',
+    enabled: rule?.enabled ?? true,
+    note: rule?.note ?? '',
+    exampleUrl: rule?.exampleUrl ?? '',
+  }
+}
+
+function normalizeSearchEngineRuleDraft(
+  draft: SearchEngineRuleInput,
+): SearchEngineRuleInput {
+  return {
+    ruleId: draft.ruleId?.trim() || null,
+    engineId: draft.engineId.trim(),
+    displayName: draft.displayName.trim(),
+    hostPattern: draft.hostPattern.trim(),
+    pathPrefix: draft.pathPrefix?.trim() || null,
+    queryParamKey: draft.queryParamKey.trim(),
+    enabled: draft.enabled,
+    note: draft.note?.trim() || null,
+    exampleUrl: draft.exampleUrl?.trim() || null,
+  }
+}
 
 /**
  * Renders the Settings route.
@@ -148,6 +184,16 @@ export function SettingsPage() {
   const [intelligenceRuntime, setIntelligenceRuntime] =
     useState<IntelligenceRuntimeSnapshot | null>(null)
   const [intelligenceRuntimeError, setIntelligenceRuntimeError] = useState<
+    string | null
+  >(null)
+  const [searchEngineRules, setSearchEngineRules] = useState<
+    SearchEngineRule[]
+  >([])
+  const [searchEngineRulesLoading, setSearchEngineRulesLoading] =
+    useState(false)
+  const [searchEngineRuleDraft, setSearchEngineRuleDraft] =
+    useState<SearchEngineRuleInput | null>(null)
+  const [searchEngineRuleError, setSearchEngineRuleError] = useState<
     string | null
   >(null)
   const [supportState, setSupportState] = useState<SupportState>({
@@ -274,6 +320,51 @@ export function SettingsPage() {
       cancelled = true
     }
   }, [refreshKey, snapshot?.config.initialized, t])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+      setSearchEngineRules([])
+      setSearchEngineRuleDraft(null)
+      setSearchEngineRuleError(null)
+      setSearchEngineRulesLoading(false)
+      return
+    }
+
+    setSearchEngineRulesLoading(true)
+
+    const loadSearchEngineRules = async () => {
+      try {
+        const rules = await backend.listSearchEngineRules()
+        if (!cancelled) {
+          setSearchEngineRules(rules)
+          setSearchEngineRuleError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSearchEngineRules([])
+          setSearchEngineRuleError(
+            error instanceof Error ? error.message : t('common.notAvailable'),
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setSearchEngineRulesLoading(false)
+        }
+      }
+    }
+
+    void loadSearchEngineRules()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    refreshKey,
+    snapshot?.archiveStatus.unlocked,
+    snapshot?.config.initialized,
+    t,
+  ])
 
   useEffect(() => {
     if (!snapshot) {
@@ -457,6 +548,26 @@ export function SettingsPage() {
       },
     }))
   }, [runtimeModulesById, snapshot?.config.deterministic.modules])
+  const builtinSearchEngineRules = useMemo(
+    () => searchEngineRules.filter((rule) => rule.builtIn),
+    [searchEngineRules],
+  )
+  const customSearchEngineRules = useMemo(
+    () => searchEngineRules.filter((rule) => !rule.builtIn),
+    [searchEngineRules],
+  )
+  const searchEngineRuleDraftValid = useMemo(() => {
+    if (!searchEngineRuleDraft) {
+      return false
+    }
+    const normalized = normalizeSearchEngineRuleDraft(searchEngineRuleDraft)
+    return Boolean(
+      normalized.engineId &&
+      normalized.displayName &&
+      normalized.hostPattern &&
+      normalized.queryParamKey,
+    )
+  }, [searchEngineRuleDraft])
 
   if (!snapshot) {
     if (loading || !supportStateLoaded) {
@@ -937,6 +1048,60 @@ export function SettingsPage() {
       setRebuildQueueReport(null)
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
+    } finally {
+      setDerivedAction(null)
+    }
+  }
+
+  async function handleSaveSearchEngineRule() {
+    if (!searchEngineRuleDraft || !searchEngineRuleDraftValid) {
+      return
+    }
+
+    setDerivedAction(settingsNs('searchRulesSaving'))
+    try {
+      const rules = await backend.upsertSearchEngineRule(
+        normalizeSearchEngineRuleDraft(searchEngineRuleDraft),
+      )
+      setSearchEngineRules(rules)
+      setSearchEngineRuleDraft(null)
+      setSearchEngineRuleError(null)
+      const report = await queueCoreIntelligenceRebuild({
+        fullRebuild: true,
+      })
+      setRebuildQueueReport(report)
+      setClearReport(null)
+      await refreshAppData()
+      await refreshIntelligenceRuntimeState()
+    } catch (error) {
+      setSearchEngineRuleError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
+    } finally {
+      setDerivedAction(null)
+    }
+  }
+
+  async function handleDeleteSearchEngineRule(ruleId: string) {
+    setDerivedAction(settingsNs('searchRulesDeleting'))
+    try {
+      const rules = await backend.deleteSearchEngineRule(ruleId)
+      setSearchEngineRules(rules)
+      if (searchEngineRuleDraft?.ruleId === ruleId) {
+        setSearchEngineRuleDraft(null)
+      }
+      setSearchEngineRuleError(null)
+      const report = await queueCoreIntelligenceRebuild({
+        fullRebuild: true,
+      })
+      setRebuildQueueReport(report)
+      setClearReport(null)
+      await refreshAppData()
+      await refreshIntelligenceRuntimeState()
+    } catch (error) {
+      setSearchEngineRuleError(
+        error instanceof Error ? error.message : t('common.notAvailable'),
+      )
     } finally {
       setDerivedAction(null)
     }
@@ -2700,6 +2865,326 @@ export function SettingsPage() {
             title={settingsNs('firstPartyRuntimeTitle')}
             body={settingsNs('firstPartyRuntimeBody')}
           />
+          <StatusCallout
+            tone={searchEngineRuleError ? 'warning' : 'info'}
+            title={settingsNs('searchRulesTitle')}
+            body={
+              searchEngineRuleError ??
+              (searchEngineRulesLoading
+                ? commonNs('loading')
+                : settingsNs('searchRulesBody'))
+            }
+            actions={
+              <div className="settings-action-row">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={Boolean(derivedAction) || searchEngineRulesLoading}
+                  onClick={() =>
+                    setSearchEngineRuleDraft(buildSearchEngineRuleDraft())
+                  }
+                >
+                  {settingsNs('searchRulesAdd')}
+                </button>
+              </div>
+            }
+          />
+          <div className="settings-result-list">
+            <div className="result-row">
+              <div className="result-row__header">
+                <strong>{settingsNs('searchRulesBuiltin')}</strong>
+                <span className="mono">
+                  {settingsNs('searchRulesReadOnly')}
+                </span>
+              </div>
+              <p>{settingsNs('searchRulesBuiltinBody')}</p>
+              {builtinSearchEngineRules.map((rule) => (
+                <div key={rule.ruleId} className="config-row">
+                  <span className="config-label">{rule.displayName}</span>
+                  <span className="config-value mono">
+                    {rule.hostPattern}
+                    {rule.pathPrefix ? rule.pathPrefix : ''}
+                    {' ?'}
+                    {rule.queryParamKey}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="result-row">
+              <div className="result-row__header">
+                <strong>{settingsNs('searchRulesCustom')}</strong>
+                <span className="mono">
+                  {settingsNs('searchRulesCustomCount', {
+                    count: customSearchEngineRules.length,
+                  })}
+                </span>
+              </div>
+              <p>{settingsNs('searchRulesCustomBody')}</p>
+              {customSearchEngineRules.length ? (
+                customSearchEngineRules.map((rule) => (
+                  <div
+                    key={rule.ruleId}
+                    className="result-row result-row--active"
+                  >
+                    <div className="result-row__header">
+                      <strong>{rule.displayName}</strong>
+                      <span className="mono">
+                        {rule.engineId} ·{' '}
+                        {rule.enabled
+                          ? t('settings.enabled')
+                          : t('settings.disabled')}
+                      </span>
+                    </div>
+                    <div className="config-row">
+                      <span className="config-label">
+                        {settingsNs('searchRulesHostPattern')}
+                      </span>
+                      <span className="config-value mono">
+                        {rule.hostPattern}
+                      </span>
+                    </div>
+                    <div className="config-row">
+                      <span className="config-label">
+                        {settingsNs('searchRulesPathPrefix')}
+                      </span>
+                      <span className="config-value mono">
+                        {rule.pathPrefix || commonNs('notAvailable')}
+                      </span>
+                    </div>
+                    <div className="config-row">
+                      <span className="config-label">
+                        {settingsNs('searchRulesQueryParam')}
+                      </span>
+                      <span className="config-value mono">
+                        {rule.queryParamKey}
+                      </span>
+                    </div>
+                    {rule.note ? (
+                      <p className="mono-support">{rule.note}</p>
+                    ) : null}
+                    <div className="settings-action-row">
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        disabled={Boolean(derivedAction)}
+                        onClick={() =>
+                          setSearchEngineRuleDraft(
+                            buildSearchEngineRuleDraft(rule),
+                          )
+                        }
+                      >
+                        {settingsNs('searchRulesEdit')}
+                      </button>
+                      <button
+                        className="btn-danger"
+                        type="button"
+                        disabled={Boolean(derivedAction)}
+                        onClick={() => {
+                          void handleDeleteSearchEngineRule(rule.ruleId)
+                        }}
+                      >
+                        {settingsNs('searchRulesDelete')}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p>{settingsNs('searchRulesCustomEmpty')}</p>
+              )}
+            </div>
+            {searchEngineRuleDraft ? (
+              <section
+                aria-label={settingsNs('searchRulesEditorTitle')}
+                className="result-row result-row--active"
+                data-testid="settings-search-rule-editor"
+              >
+                <div className="result-row__header">
+                  <strong>{settingsNs('searchRulesEditorTitle')}</strong>
+                  <span className="mono">
+                    {searchEngineRuleDraft.ruleId
+                      ? settingsNs('searchRulesEditing')
+                      : settingsNs('searchRulesNew')}
+                  </span>
+                </div>
+                <div className="settings-remote-grid">
+                  <label className="field-stack">
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesDisplayName')}
+                    </span>
+                    <input
+                      type="text"
+                      value={searchEngineRuleDraft.displayName}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                displayName: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field-stack">
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesEngineId')}
+                    </span>
+                    <input
+                      type="text"
+                      value={searchEngineRuleDraft.engineId}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                engineId: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field-stack">
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesHostPattern')}
+                    </span>
+                    <input
+                      type="text"
+                      value={searchEngineRuleDraft.hostPattern}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                hostPattern: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field-stack">
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesPathPrefix')}
+                    </span>
+                    <input
+                      type="text"
+                      value={searchEngineRuleDraft.pathPrefix ?? ''}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                pathPrefix: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field-stack">
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesQueryParam')}
+                    </span>
+                    <input
+                      type="text"
+                      value={searchEngineRuleDraft.queryParamKey}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                queryParamKey: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field-stack">
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesExampleUrl')}
+                    </span>
+                    <input
+                      type="text"
+                      value={searchEngineRuleDraft.exampleUrl ?? ''}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                exampleUrl: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={searchEngineRuleDraft.enabled}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                enabled: event.target.checked,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                    <span>{settingsNs('searchRulesEnabled')}</span>
+                  </label>
+                  <label
+                    className="field-stack"
+                    style={{ gridColumn: '1 / -1' }}
+                  >
+                    <span className="mono-kicker">
+                      {settingsNs('searchRulesNote')}
+                    </span>
+                    <textarea
+                      value={searchEngineRuleDraft.note ?? ''}
+                      onChange={(event) =>
+                        setSearchEngineRuleDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                note: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="settings-action-row">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={
+                      Boolean(derivedAction) || !searchEngineRuleDraftValid
+                    }
+                    onClick={() => {
+                      void handleSaveSearchEngineRule()
+                    }}
+                  >
+                    {settingsNs('searchRulesSave')}
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={Boolean(derivedAction)}
+                    onClick={() => setSearchEngineRuleDraft(null)}
+                  >
+                    {commonNs('cancel')}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+          </div>
           <StatusCallout
             tone={
               intelligenceRuntimeError || intelligenceRuntime?.queue.failed

@@ -31,7 +31,10 @@ import type {
   IntelligenceRuntimeSnapshot,
 } from '../types'
 import type {
+  CoreIntelligenceQueueReport,
   CoreIntelligencePrimaryOverview,
+  SearchEngineRule,
+  SearchEngineRuleInput,
   CoreIntelligenceSecondaryOverview,
   DayInsights,
 } from '../core-intelligence/types'
@@ -64,6 +67,20 @@ export const intelligenceClient = {
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
   getAssistantJob: (jobId: number) =>
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
+  listSearchEngineRules: () =>
+    call<SearchEngineRule[]>('list_search_engine_rules'),
+  upsertSearchEngineRule: (input: SearchEngineRuleInput) =>
+    call<SearchEngineRule[]>('upsert_search_engine_rule', { input }),
+  deleteSearchEngineRule: (ruleId: string) =>
+    call<SearchEngineRule[]>('delete_search_engine_rule', { ruleId }),
+  queueCoreIntelligenceRebuild: (request: {
+    profileId?: string | null
+    fullRebuild: boolean
+    limit?: number | null
+  }) =>
+    call<CoreIntelligenceQueueReport>('queue_core_intelligence_rebuild', {
+      request,
+    }),
   clearDerivedState: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   getPrimaryOverview: (request: {

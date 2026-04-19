@@ -336,6 +336,62 @@ export interface SearchConcept {
   engines: string[]
 }
 
+export interface SearchQueryRow {
+  visitId: number
+  profileId: string
+  browserKind: string
+  searchEngine: string
+  displayName?: string | null
+  rawQuery: string
+  normalizedQuery: string
+  searchedAt: string
+  searchedAtMs: number
+  exactRepeatCount: number
+  familyCount: number
+  familyId?: string | null
+  trailId?: string | null
+  trailInitialQuery?: string | null
+  trailReformulationCount?: number | null
+}
+
+export interface SearchQueryListResult {
+  rows: SearchQueryRow[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export type SearchQuerySort =
+  | 'newest'
+  | 'exact-frequency'
+  | 'family-frequency'
+  | 'alphabetical'
+
+export interface SearchEngineRule {
+  ruleId: string
+  engineId: string
+  displayName: string
+  hostPattern: string
+  pathPrefix?: string | null
+  queryParamKey: string
+  enabled: boolean
+  note?: string | null
+  exampleUrl?: string | null
+  builtIn: boolean
+}
+
+export interface SearchEngineRuleInput {
+  ruleId?: string | null
+  engineId: string
+  displayName: string
+  hostPattern: string
+  pathPrefix?: string | null
+  queryParamKey: string
+  enabled: boolean
+  note?: string | null
+  exampleUrl?: string | null
+}
+
 /** A family of related queries */
 export interface QueryFamily {
   familyId: string

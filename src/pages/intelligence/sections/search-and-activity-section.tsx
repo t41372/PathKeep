@@ -21,29 +21,38 @@ import {
   type DateRange,
   type EngineRanking,
   type QueryFamily,
+  type SearchQueryRow,
+  type SearchQuerySort,
   type SearchConcept,
   type TopSite,
 } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../../lib/i18n'
+import { evidenceHref } from '../../../lib/intelligence'
 import { intelligenceCategoryLabel } from '../copy'
 import { IntelligenceSectionBody } from './section-body'
 import { firstSectionMeta, formatNumber, type T } from './shared'
 
 export function SearchActivitySection({
   dateRange,
+  language,
   profileId,
   queryFamilyHref,
   scopeLabel,
+  trailHref,
   t,
 }: {
   dateRange: DateRange
+  language: ResolvedLanguage
   profileId: string | null
-  queryFamilyHref: (familyId: string) => string
+  queryFamilyHref: (familyId: string, profileId?: string | null) => string
   scopeLabel: string
+  trailHref: (trailId: string, profileId?: string | null) => string
   t: T
 }) {
-  const [tab, setTab] = useState<'engines' | 'concepts' | 'families'>('engines')
+  const [tab, setTab] = useState<
+    'engines' | 'concepts' | 'queries' | 'families'
+  >('engines')
   const engines = useAsyncData(
     () => api.getSearchEngineRanking(dateRange, profileId),
     [dateRange, profileId],
@@ -63,18 +72,20 @@ export function SearchActivitySection({
         <IntelligenceSectionMeta meta={meta} scopeLabel={scopeLabel} />
       ) : null}
       <div className="intelligence-tabs" role="tablist">
-        {(['engines', 'concepts', 'families'] as const).map((key) => (
-          <button
-            key={key}
-            role="tab"
-            type="button"
-            aria-selected={tab === key}
-            className={`intelligence-tab${tab === key ? ' intelligence-tab--active' : ''}`}
-            onClick={() => setTab(key)}
-          >
-            {t(`searchTab_${key}`)}
-          </button>
-        ))}
+        {(['engines', 'concepts', 'queries', 'families'] as const).map(
+          (key) => (
+            <button
+              key={key}
+              role="tab"
+              type="button"
+              aria-selected={tab === key}
+              className={`intelligence-tab${tab === key ? ' intelligence-tab--active' : ''}`}
+              onClick={() => setTab(key)}
+            >
+              {t(`searchTab_${key}`)}
+            </button>
+          ),
+        )}
       </div>
       <IntelligenceSectionBody className="intelligence-tab-content">
         {tab === 'engines' ? (
@@ -89,6 +100,17 @@ export function SearchActivitySection({
             data={concepts.data?.data ?? null}
             loading={concepts.loading}
             t={t}
+          />
+        ) : null}
+        {tab === 'queries' ? (
+          <RecentQueriesPanel
+            dateRange={dateRange}
+            engines={engines.data?.data ?? []}
+            language={language}
+            profileId={profileId}
+            queryFamilyHref={queryFamilyHref}
+            t={t}
+            trailHref={trailHref}
           />
         ) : null}
         {tab === 'families' ? (
@@ -198,6 +220,222 @@ function ConceptCloudPanel({
   )
 }
 
+function RecentQueriesPanel({
+  dateRange,
+  engines,
+  language,
+  profileId,
+  queryFamilyHref,
+  t,
+  trailHref,
+}: {
+  dateRange: DateRange
+  engines: EngineRanking[]
+  language: ResolvedLanguage
+  profileId: string | null
+  queryFamilyHref: (familyId: string, profileId?: string | null) => string
+  t: T
+  trailHref: (trailId: string, profileId?: string | null) => string
+}) {
+  const [sort, setSort] = useState<SearchQuerySort>('newest')
+  const [engine, setEngine] = useState('')
+  const [query, setQuery] = useState('')
+  const [loadState, setLoadState] = useState({ key: '', segments: 1 })
+  const loadKey = `${profileId ?? 'all'}:${dateRange.start}:${dateRange.end}:${engine}:${query}:${sort}`
+  const loadSegments = loadState.key === loadKey ? loadState.segments : 1
+
+  const { data, loading, error } = useAsyncData(
+    () =>
+      api.getSearchQueries(dateRange, {
+        profileId,
+        engine: engine || undefined,
+        query: query || undefined,
+        sort,
+        pagination: { page: 0, pageSize: loadSegments * 20 },
+      }),
+    [dateRange, engine, loadSegments, profileId, query, sort],
+  )
+
+  if (loading && !data) {
+    return <div className="intelligence-skeleton intelligence-skeleton--list" />
+  }
+
+  if (error) {
+    return (
+      <div className="intelligence-empty">
+        <p className="intelligence-empty__text">{error}</p>
+      </div>
+    )
+  }
+
+  const rows = data?.data.rows ?? []
+  const hasMore = Boolean(data && rows.length < data.data.total)
+
+  return (
+    <div className="search-queries">
+      <div className="search-queries__controls">
+        <input
+          className="top-sites-controls__search"
+          type="search"
+          value={query}
+          placeholder={t('searchQueriesFilterPlaceholder')}
+          aria-label={t('searchQueriesFilterPlaceholder')}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <select
+          className="top-sites-controls__sort"
+          value={engine}
+          aria-label={t('searchQueriesEngineFilter')}
+          onChange={(event) => setEngine(event.target.value)}
+        >
+          <option value="">{t('searchQueriesAllEngines')}</option>
+          {engines.map((item) => (
+            <option key={item.searchEngine} value={item.searchEngine}>
+              {item.displayName ?? item.searchEngine}
+            </option>
+          ))}
+        </select>
+        <select
+          className="top-sites-controls__sort"
+          value={sort}
+          aria-label={t('searchQueriesSort')}
+          onChange={(event) => setSort(event.target.value as SearchQuerySort)}
+        >
+          <option value="newest">{t('searchQueriesSortNewest')}</option>
+          <option value="exact-frequency">
+            {t('searchQueriesSortExactFrequency')}
+          </option>
+          <option value="family-frequency">
+            {t('searchQueriesSortFamilyFrequency')}
+          </option>
+          <option value="alphabetical">
+            {t('searchQueriesSortAlphabetical')}
+          </option>
+        </select>
+      </div>
+      {rows.length === 0 ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('searchQueriesEmpty')}</p>
+        </div>
+      ) : (
+        <>
+          <div className="search-queries__list">
+            {rows.map((row) => (
+              <SearchQueryRowCard
+                key={`${row.searchEngine}:${row.normalizedQuery}`}
+                dateRange={dateRange}
+                language={language}
+                queryFamilyHref={queryFamilyHref}
+                row={row}
+                t={t}
+                trailHref={trailHref}
+              />
+            ))}
+          </div>
+          {hasMore ? (
+            <div className="search-queries__footer">
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() =>
+                  setLoadState((current) => ({
+                    key: loadKey,
+                    segments:
+                      current.key === loadKey ? current.segments + 1 : 2,
+                  }))
+                }
+              >
+                {t('searchQueriesLoadMore')}
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  )
+}
+
+function SearchQueryRowCard({
+  dateRange,
+  language,
+  queryFamilyHref,
+  row,
+  t,
+  trailHref,
+}: {
+  dateRange: DateRange
+  language: ResolvedLanguage
+  queryFamilyHref: (familyId: string, profileId?: string | null) => string
+  row: SearchQueryRow
+  t: T
+  trailHref: (trailId: string, profileId?: string | null) => string
+}) {
+  const locale =
+    language === 'zh-CN' ? 'zh-CN' : language === 'zh-TW' ? 'zh-TW' : 'en-US'
+  const searchedAt = new Date(row.searchedAt).toLocaleString(locale, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  return (
+    <article className="search-query-card">
+      <div className="search-query-card__header">
+        <div className="search-query-card__title-group">
+          <strong className="search-query-card__query">"{row.rawQuery}"</strong>
+          <span className="search-query-card__engine">
+            {row.displayName ?? row.searchEngine}
+          </span>
+        </div>
+        <span className="search-query-card__timestamp">
+          {t('searchQueriesSearchedAt', { time: searchedAt })}
+        </span>
+      </div>
+      <p className="search-query-card__meta">
+        {t('searchQueriesExactRepeat', { count: row.exactRepeatCount })} ·{' '}
+        {t('searchQueriesFamilyCount', { count: row.familyCount })}
+      </p>
+      <p className="search-query-card__context">
+        {row.trailInitialQuery
+          ? t('searchQueriesTrailContext', {
+              query: row.trailInitialQuery,
+              count: row.trailReformulationCount ?? 0,
+            })
+          : t('searchQueriesNoTrail')}
+      </p>
+      <div className="search-query-card__actions">
+        {row.familyId ? (
+          <Link
+            className="intelligence-link"
+            to={queryFamilyHref(row.familyId, row.profileId)}
+          >
+            {t('searchQueriesOpenQueryFamily')}
+          </Link>
+        ) : null}
+        {row.trailId ? (
+          <Link
+            className="intelligence-link"
+            to={trailHref(row.trailId, row.profileId)}
+          >
+            {t('searchQueriesOpenTrail')}
+          </Link>
+        ) : null}
+        <Link
+          className="intelligence-link"
+          to={evidenceHref({
+            dateRange,
+            profileId: row.profileId,
+            title: row.rawQuery,
+          })}
+        >
+          {t('searchQueriesOpenEvidence')}
+        </Link>
+      </div>
+    </article>
+  )
+}
+
 function QueryFamiliesPanel({
   dateRange,
   profileId,
@@ -206,7 +444,7 @@ function QueryFamiliesPanel({
 }: {
   dateRange: DateRange
   profileId: string | null
-  queryFamilyHref: (familyId: string) => string
+  queryFamilyHref: (familyId: string, profileId?: string | null) => string
   t: T
 }) {
   const { data, loading, error } = useAsyncData(
@@ -249,7 +487,7 @@ function QueryFamilyCard({
   t,
 }: {
   family: QueryFamily
-  queryFamilyHref: (familyId: string) => string
+  queryFamilyHref: (familyId: string, profileId?: string | null) => string
   t: T
 }) {
   const [expanded, setExpanded] = useState(false)

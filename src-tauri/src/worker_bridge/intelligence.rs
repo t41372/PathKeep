@@ -7,7 +7,8 @@ use vault_core::{
     ExplainRefindRequest, GranularityDateRangeRequest, IntelligenceEmbedCardsRequest,
     IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
     QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
+    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -197,11 +198,42 @@ pub(crate) fn get_search_engine_ranking_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+pub(crate) fn list_search_engine_rules_impl(
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::SearchEngineRule>, String> {
+    worker_result(vault_worker::list_search_engine_rules(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn upsert_search_engine_rule_impl(
+    input: SearchEngineRuleInput,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::SearchEngineRule>, String> {
+    worker_result(vault_worker::upsert_search_engine_rule(session_database_key, &input))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn delete_search_engine_rule_impl(
+    rule_id: String,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::SearchEngineRule>, String> {
+    worker_result(vault_worker::delete_search_engine_rule(session_database_key, &rule_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_top_search_concepts_impl(
     request: TopSearchConceptsRequest,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, String> {
     worker_result(vault_worker::get_top_search_concepts(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_search_queries_impl(
+    request: SearchQueryListRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchQueryListResult>, String> {
+    worker_result(vault_worker::get_search_queries(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

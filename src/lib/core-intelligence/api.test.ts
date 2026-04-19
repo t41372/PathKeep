@@ -245,6 +245,35 @@ describe('core intelligence api', () => {
     })
   })
 
+  test('requests search-query history through the shared section command', async () => {
+    const { getSearchQueries } = await import('./api')
+
+    await getSearchQueries(
+      { start: '2026-04-01', end: '2026-04-30' },
+      {
+        profileId: 'chrome:Default',
+        browserKind: 'chrome',
+        engine: 'google',
+        query: 'sqlite',
+        sort: 'family-frequency',
+        pagination: { page: 1, pageSize: 40 },
+      },
+    )
+
+    expect(callMock).toHaveBeenCalledWith('get_search_queries', {
+      request: {
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+        browserKind: 'chrome',
+        engine: 'google',
+        query: 'sqlite',
+        sort: 'family-frequency',
+        page: 1,
+        pageSize: 40,
+      },
+    })
+  })
+
   test('requests query-family detail through the dedicated entity command', async () => {
     const { getQueryFamilyDetail } = await import('./api')
 

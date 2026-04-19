@@ -66,12 +66,15 @@ export function IntelligencePage() {
       preset,
       profileId: effectiveProfileId,
     })
-  const queryFamilyHref = (familyId: string) =>
+  const queryFamilyHref = (
+    familyId: string,
+    profileIdOverride?: string | null,
+  ) =>
     queryFamilyInsightsHref({
       familyId,
       dateRange,
       preset,
-      profileId: effectiveProfileId,
+      profileId: profileIdOverride ?? effectiveProfileId,
     })
   const refindHref = (canonicalUrl: string) =>
     refindInsightsHref({
@@ -80,12 +83,12 @@ export function IntelligencePage() {
       preset,
       profileId: effectiveProfileId,
     })
-  const trailHref = (trailId: string) =>
+  const trailHref = (trailId: string, profileIdOverride?: string | null) =>
     trailInsightsHref({
       trailId,
       dateRange,
       preset,
-      profileId: effectiveProfileId,
+      profileId: profileIdOverride ?? effectiveProfileId,
     })
   const dayHref = (date: string) => dayInsightsHref(date, effectiveProfileId)
 

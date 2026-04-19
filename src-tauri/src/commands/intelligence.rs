@@ -203,11 +203,46 @@ pub(crate) fn get_search_engine_ranking(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn list_search_engine_rules(
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SearchEngineRule>, String> {
+    worker_bridge::list_search_engine_rules_impl(state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn upsert_search_engine_rule(
+    input: vault_core::SearchEngineRuleInput,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SearchEngineRule>, String> {
+    worker_bridge::upsert_search_engine_rule_impl(input, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn delete_search_engine_rule(
+    rule_id: String,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SearchEngineRule>, String> {
+    worker_bridge::delete_search_engine_rule_impl(rule_id, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_top_search_concepts(
     request: vault_core::TopSearchConceptsRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, String> {
     worker_bridge::get_top_search_concepts_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_search_queries(
+    request: vault_core::SearchQueryListRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchQueryListResult>, String> {
+    worker_bridge::get_search_queries_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

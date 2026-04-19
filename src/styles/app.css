@@ -4300,6 +4300,18 @@ button.stepper-step:disabled {
   font-size: 12px;
 }
 
+.field-stack textarea {
+  width: 100%;
+  min-height: 96px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;

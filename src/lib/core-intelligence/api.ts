@@ -32,6 +32,8 @@ import type {
   DomainTrend,
   EngineRanking,
   SearchConcept,
+  SearchQueryListResult,
+  SearchQuerySort,
   QueryFamilyDetail,
   QueryFamilyResult,
   RefindPageDetail,
@@ -744,6 +746,49 @@ export function getTopSearchConcepts(
       dateRange,
       profileId,
       limit,
+    },
+    'search-activity',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
+}
+
+export function getSearchQueries(
+  dateRange: DateRange,
+  options?: {
+    profileId?: string | null
+    browserKind?: string | null
+    engine?: string | null
+    query?: string | null
+    sort?: SearchQuerySort
+    pagination?: PaginationParams
+  },
+) {
+  return invokeSectionRequest<
+    SearchQueryListResult,
+    {
+      dateRange: DateRange
+      profileId?: string | null
+      browserKind?: string | null
+      engine?: string | null
+      query?: string | null
+      sort?: SearchQuerySort
+      page: number
+      pageSize: number
+    }
+  >(
+    'get_search_queries',
+    {
+      dateRange,
+      profileId: options?.profileId,
+      browserKind: options?.browserKind,
+      engine: options?.engine,
+      query: options?.query,
+      sort: options?.sort,
+      page: options?.pagination?.page ?? 0,
+      pageSize: options?.pagination?.pageSize ?? 20,
     },
     'search-activity',
     {

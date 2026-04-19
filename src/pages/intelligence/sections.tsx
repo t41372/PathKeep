@@ -58,11 +58,11 @@ interface IntelligenceSectionsProps {
   domainHref: (domain: string) => string
   language: ResolvedLanguage
   profileId: string | null
-  queryFamilyHref: (familyId: string) => string
+  queryFamilyHref: (familyId: string, profileId?: string | null) => string
   refindHref: (canonicalUrl: string) => string
   secondaryReady: boolean
   scopeLabel: string
-  trailHref: (trailId: string) => string
+  trailHref: (trailId: string, profileId?: string | null) => string
   t: T
 }
 
@@ -109,9 +109,11 @@ export function IntelligenceSections({
       <div className="intelligence-row intelligence-row--two-col">
         <SearchActivitySection
           dateRange={dateRange}
+          language={language}
           profileId={profileId}
           queryFamilyHref={queryFamilyHref}
           scopeLabel={scopeLabel}
+          trailHref={trailHref}
           t={t}
         />
         <ActivityMixSection
