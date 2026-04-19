@@ -568,6 +568,8 @@ const zhCnM3Namespaces = {
     sectionMetaStateReason: '状态原因',
     sectionMetaNotes: '审查备注',
     sectionMetaDirectRead: '直接读取',
+    sectionMetaOpenPanelAria: '打开证据与新鲜度详情',
+    sectionMetaClosePanelAria: '关闭证据与新鲜度详情',
     sectionMetaWindowDateRange: '{start} → {end}',
     sectionMetaWindowCalendarDayHistory: '过去几年同一日历日（{date}）',
     sectionMetaMetadataFallback:
@@ -1560,6 +1562,8 @@ const zhTwM3Namespaces = {
     sectionMetaStateReason: '狀態原因',
     sectionMetaNotes: '審查備註',
     sectionMetaDirectRead: '直接讀取',
+    sectionMetaOpenPanelAria: '打開證據與新鮮度詳情',
+    sectionMetaClosePanelAria: '關閉證據與新鮮度詳情',
     sectionMetaWindowDateRange: '{start} → {end}',
     sectionMetaWindowCalendarDayHistory: '過去幾年同一個日曆日（{date}）',
     sectionMetaMetadataFallback:
@@ -3907,6 +3911,8 @@ const catalog: Record<
       sectionMetaStateReason: 'State reason',
       sectionMetaNotes: 'Review notes',
       sectionMetaDirectRead: 'Direct read',
+      sectionMetaOpenPanelAria: 'Open evidence and freshness details',
+      sectionMetaClosePanelAria: 'Close evidence and freshness details',
       sectionMetaWindowDateRange: '{start} → {end}',
       sectionMetaWindowCalendarDayHistory:
         'Same calendar day across previous years ({date})',

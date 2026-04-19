@@ -1029,6 +1029,123 @@ describe('intelligence surfaces', () => {
     ).toBeVisible()
   })
 
+  test('renders compact evidence badges on overview and day-insights surfaces', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const settingsT = createNamespaceTranslator('en', 'settings')
+
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection(
+        'top-sites',
+        [
+          {
+            registrableDomain: 'sqlite.org',
+            displayName: 'SQLite',
+            domainCategory: 'docs',
+            visitCount: 3,
+            uniqueDays: 2,
+            averageDailyVisits: 1.5,
+            uniqueUrls: 2,
+          },
+        ],
+        {
+          moduleIds: ['daily-rollups'],
+          sourceTables: ['domain_daily_rollups'],
+        },
+      ),
+    )
+
+    const overview = renderSurface(<IntelligencePage />, {
+      route: '/intelligence?profileId=chrome:Default',
+      snapshot,
+    })
+
+    const overviewMeta = await screen.findByTestId(
+      'intelligence-section-meta-top-sites',
+    )
+    expect(
+      within(overviewMeta).getByText(intelligenceT('sectionMetaTitle')),
+    ).toBeVisible()
+    expect(
+      within(overviewMeta).getByText(settingsT('deterministicModuleReady')),
+    ).toBeVisible()
+
+    await user.click(
+      within(overviewMeta).getByRole('button', {
+        name: intelligenceT('sectionMetaOpenPanelAria'),
+      }),
+    )
+    expect(
+      within(overviewMeta).getByText(intelligenceT('sectionMetaGeneratedAt')),
+    ).toBeVisible()
+
+    overview.unmount()
+
+    vi.spyOn(coreIntelligenceApi, 'getDayInsights').mockResolvedValue(
+      wrapSection<DayInsights>(
+        'day-insights',
+        {
+          date: '2026-04-18',
+          digestSummary: {
+            dateRange: { start: '2026-04-18', end: '2026-04-18' },
+            totalVisits: { value: 8, trend: 'flat' },
+            totalSearches: { value: 3, trend: 'flat' },
+            newDomains: { value: 2, trend: 'flat' },
+            deepReadPages: { value: 4, trend: 'flat' },
+            refindPages: { value: 1, trend: 'flat' },
+          },
+          topSites: [],
+          activityMix: {
+            categories: [{ domainCategory: 'docs', visitCount: 8, share: 1 }],
+            changeVsPrevious: [],
+          },
+          refindPages: [],
+          queryFamilies: {
+            families: [],
+            total: 0,
+            page: 0,
+            pageSize: 8,
+          },
+          hourlyActivity: Array.from({ length: 24 }, (_, hour) => ({
+            hour,
+            visitCount: hour === 10 ? 4 : 0,
+          })),
+          drilldown: {
+            explorerDateRange: { start: '2026-04-18', end: '2026-04-18' },
+          },
+        },
+        {
+          moduleIds: ['daily-rollups', 'activity-mix'],
+          sourceTables: ['daily_summary_rollups', 'category_daily_rollups'],
+        },
+      ),
+    )
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/day/:date"
+          element={<DayInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/day/2026-04-18?profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    const dayMeta = await screen.findByTestId(
+      'intelligence-section-meta-day-insights',
+    )
+    expect(
+      within(dayMeta).getByText(intelligenceT('sectionMetaTitle')),
+    ).toBeVisible()
+    expect(
+      within(dayMeta).getByText(settingsT('deterministicModuleReady')),
+    ).toBeVisible()
+  })
+
   test('refreshes section metadata when intelligence scope or time range changes', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
@@ -2765,10 +2882,23 @@ describe('intelligence surfaces', () => {
     vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
       wrapSection('path-flows', [
         {
+          flowId: 'chatgpt-hop',
           flowPattern: 'chat.openai.com → chatgpt.com',
           stepCount: 2,
           occurrenceCount: 6,
           lastSeenAt: '2026-04-07T10:00:00Z',
+          steps: [
+            {
+              index: 0,
+              label: 'chat.openai.com',
+              registrableDomain: 'openai.com',
+            },
+            {
+              index: 1,
+              label: 'chatgpt.com',
+              registrableDomain: 'chatgpt.com',
+            },
+          ],
         },
       ]),
     )

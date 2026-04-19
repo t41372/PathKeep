@@ -15,6 +15,13 @@
  *   `docs/features/intelligence-current-state.md`.
  */
 
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent as ReactFocusEvent,
+} from 'react'
 import { formatDateTime } from '../../lib/format'
 import type { CoreIntelligenceSectionMeta } from '../../lib/core-intelligence'
 import { deterministicModuleLabel } from '../../lib/intelligence-runtime'
@@ -114,101 +121,222 @@ export function IntelligenceSectionMeta({
   const notes = malformedWindow
     ? [t('sectionMetaMetadataFallback'), ...meta.notes]
     : meta.notes
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const panelId = useId()
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      setPinned(false)
+      setOpen(false)
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open])
+
+  useEffect(() => {
+    if (!pinned) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target
+      if (!(target instanceof Node) || rootRef.current?.contains(target)) {
+        return
+      }
+
+      setPinned(false)
+      setOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [pinned])
+
+  const handleFocusCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
+    if (!rootRef.current?.contains(event.relatedTarget as Node | null)) {
+      setOpen(true)
+    }
+  }
+
+  const handleBlurCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
+    if (
+      rootRef.current?.contains(event.relatedTarget as Node | null) ||
+      pinned
+    ) {
+      return
+    }
+
+    setOpen(Boolean(rootRef.current?.matches(':hover')))
+  }
 
   return (
-    <details
+    <div
       className="intelligence-section-meta"
-      open={effectiveState !== 'ready'}
+      data-open={open}
+      data-pinned={pinned}
       data-testid={`intelligence-section-meta-${meta.sectionId}`}
+      ref={rootRef}
+      onBlurCapture={handleBlurCapture}
+      onFocusCapture={handleFocusCapture}
+      onMouseEnter={() => {
+        if (!pinned) {
+          setOpen(true)
+        }
+      }}
+      onMouseLeave={() => {
+        if (!pinned && !rootRef.current?.contains(document.activeElement)) {
+          setOpen(false)
+        }
+      }}
     >
-      <summary className="intelligence-section-meta__summary">
-        <span className="intelligence-section-meta__summary-title">
-          {t('sectionMetaTitle')}
-        </span>
+      <div className="intelligence-section-meta__summary">
+        <button
+          aria-controls={panelId}
+          aria-expanded={open}
+          aria-label={t(
+            open ? 'sectionMetaClosePanelAria' : 'sectionMetaOpenPanelAria',
+          )}
+          className="intelligence-section-meta__trigger"
+          data-testid={`intelligence-section-meta-trigger-${meta.sectionId}`}
+          type="button"
+          onClick={() => {
+            if (pinned) {
+              setPinned(false)
+              setOpen(false)
+              return
+            }
+
+            setPinned(true)
+            setOpen(true)
+          }}
+        >
+          <span className="intelligence-section-meta__summary-title">
+            {t('sectionMetaTitle')}
+          </span>
+        </button>
         <span
           className={`status-badge intelligence-section-meta__state intelligence-section-meta__state--${effectiveState}`}
         >
           {sectionStateLabel(effectiveState, t, settingsT)}
         </span>
-      </summary>
-
-      <div className="intelligence-section-meta__grid">
-        <div className="intelligence-section-meta__row">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaGeneratedAt')}
-          </span>
-          <span className="intelligence-section-meta__value mono-support">
-            {meta.generatedAt
-              ? (formatDateTime(meta.generatedAt, language) ?? meta.generatedAt)
-              : commonT('notAvailable')}
-          </span>
-        </div>
-        <div className="intelligence-section-meta__row">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaScope')}
-          </span>
-          <span className="intelligence-section-meta__value">{scopeLabel}</span>
-        </div>
-        <div className="intelligence-section-meta__row">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaWindow')}
-          </span>
-          <span className="intelligence-section-meta__value mono-support">
-            {formatWindow(meta.window, t, commonT)}
-          </span>
-        </div>
-        <div className="intelligence-section-meta__row">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaModules')}
-          </span>
-          <span className="intelligence-section-meta__value">
-            {moduleSummary}
-          </span>
-        </div>
-        <div className="intelligence-section-meta__row">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaSourceTables')}
-          </span>
-          <span className="intelligence-section-meta__value mono-support">
-            {meta.sourceTables.length
-              ? meta.sourceTables.join(', ')
-              : commonT('notAvailable')}
-          </span>
-        </div>
-        <div className="intelligence-section-meta__row">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaEnrichment')}
-          </span>
-          <span className="intelligence-section-meta__value">
-            {meta.includesEnrichment
-              ? t('sectionMetaEnrichmentEnabled')
-              : t('sectionMetaEnrichmentDisabled')}
-          </span>
-        </div>
-        {meta.stateReason ? (
-          <div className="intelligence-section-meta__row">
-            <span className="intelligence-section-meta__label">
-              {t('sectionMetaStateReason')}
-            </span>
-            <span className="intelligence-section-meta__value">
-              {meta.stateReason}
-            </span>
-          </div>
-        ) : null}
       </div>
 
-      {notes.length ? (
-        <div className="intelligence-section-meta__notes">
-          <span className="intelligence-section-meta__label">
-            {t('sectionMetaNotes')}
-          </span>
-          {notes.map((note) => (
-            <p key={`${meta.sectionId}-${note}`} className="mono-support">
-              {note}
-            </p>
-          ))}
+      {open ? (
+        <div
+          className="intelligence-section-meta__panel"
+          data-testid={`intelligence-section-meta-panel-${meta.sectionId}`}
+          id={panelId}
+        >
+          <div className="intelligence-section-meta__panel-header">
+            <span className="intelligence-section-meta__panel-title">
+              {t('sectionMetaTitle')}
+            </span>
+            <span
+              className={`status-badge intelligence-section-meta__state intelligence-section-meta__state--${effectiveState}`}
+            >
+              {sectionStateLabel(effectiveState, t, settingsT)}
+            </span>
+          </div>
+
+          <div className="intelligence-section-meta__panel-body">
+            <div className="intelligence-section-meta__grid">
+              <div className="intelligence-section-meta__row">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaGeneratedAt')}
+                </span>
+                <span className="intelligence-section-meta__value mono-support">
+                  {meta.generatedAt
+                    ? (formatDateTime(meta.generatedAt, language) ??
+                      meta.generatedAt)
+                    : commonT('notAvailable')}
+                </span>
+              </div>
+              <div className="intelligence-section-meta__row">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaScope')}
+                </span>
+                <span className="intelligence-section-meta__value">
+                  {scopeLabel}
+                </span>
+              </div>
+              <div className="intelligence-section-meta__row">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaWindow')}
+                </span>
+                <span className="intelligence-section-meta__value mono-support">
+                  {formatWindow(meta.window, t, commonT)}
+                </span>
+              </div>
+              <div className="intelligence-section-meta__row">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaModules')}
+                </span>
+                <span className="intelligence-section-meta__value">
+                  {moduleSummary}
+                </span>
+              </div>
+              <div className="intelligence-section-meta__row">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaSourceTables')}
+                </span>
+                <span className="intelligence-section-meta__value mono-support">
+                  {meta.sourceTables.length
+                    ? meta.sourceTables.join(', ')
+                    : commonT('notAvailable')}
+                </span>
+              </div>
+              <div className="intelligence-section-meta__row">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaEnrichment')}
+                </span>
+                <span className="intelligence-section-meta__value">
+                  {meta.includesEnrichment
+                    ? t('sectionMetaEnrichmentEnabled')
+                    : t('sectionMetaEnrichmentDisabled')}
+                </span>
+              </div>
+              {meta.stateReason ? (
+                <div className="intelligence-section-meta__row">
+                  <span className="intelligence-section-meta__label">
+                    {t('sectionMetaStateReason')}
+                  </span>
+                  <span className="intelligence-section-meta__value">
+                    {meta.stateReason}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {notes.length ? (
+              <div className="intelligence-section-meta__notes">
+                <span className="intelligence-section-meta__label">
+                  {t('sectionMetaNotes')}
+                </span>
+                {notes.map((note) => (
+                  <p key={`${meta.sectionId}-${note}`} className="mono-support">
+                    {note}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
-    </details>
+    </div>
   )
 }
