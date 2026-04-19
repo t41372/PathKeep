@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { ErrorState } from '../../components/primitives/error-state'
+import { EmptyState } from '../../components/primitives/empty-state'
 import {
   DashboardSkeleton,
   Skeleton,
@@ -41,7 +42,7 @@ import {
   runTypeKey,
   sourceKindFromProfileScope,
 } from '../../lib/trust-review'
-import type { BrowserProfile } from '../../lib/types'
+import type { BrowserProfile, SecurityStatus } from '../../lib/types'
 
 /**
  * Returns whether backup ready profile.
@@ -98,6 +99,10 @@ export function DashboardPage() {
   const [backgroundQueueCount, setBackgroundQueueCount] = useState<
     number | null
   >(null)
+  const [archiveAccessFallback, setArchiveAccessFallback] = useState<Pick<
+    SecurityStatus,
+    'initialized' | 'encrypted' | 'unlocked'
+  > | null>(null)
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
@@ -197,6 +202,35 @@ export function DashboardPage() {
     snapshot?.config.initialized,
   ])
 
+  useEffect(() => {
+    if (!error || dashboard || snapshot) {
+      setArchiveAccessFallback(null)
+      return
+    }
+
+    let cancelled = false
+
+    void backend
+      .securityStatus()
+      .then((status) => {
+        if (cancelled) return
+        setArchiveAccessFallback({
+          initialized: status.initialized,
+          encrypted: status.encrypted,
+          unlocked: status.unlocked,
+        })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setArchiveAccessFallback(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [dashboard, error, refreshKey, snapshot])
+
   if (loading && !dashboard) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
@@ -206,7 +240,28 @@ export function DashboardPage() {
   }
 
   if (error && !dashboard) {
-    const needsArchiveUnlock = isArchiveUnlockRequiredMessage(error)
+    const needsArchiveUnlock =
+      isArchiveUnlockRequiredMessage(error) ||
+      (archiveAccessFallback?.initialized === true &&
+        archiveAccessFallback.encrypted &&
+        !archiveAccessFallback.unlocked)
+
+    if (archiveAccessFallback?.initialized === false) {
+      return (
+        <section className="page-shell" data-testid="dashboard-page">
+          <EmptyState
+            eyebrow={t('dashboard.zeroStateEyebrow')}
+            title={t('dashboard.zeroStateTitle')}
+            description={t('dashboard.zeroStateBody')}
+            action={
+              <Link className="btn-primary" to="/onboarding">
+                {t('dashboard.openOnboardingFlow')}
+              </Link>
+            }
+          />
+        </section>
+      )
+    }
 
     return (
       <section className="page-shell" data-testid="dashboard-page">

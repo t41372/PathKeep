@@ -19,7 +19,11 @@ pub(crate) use self::{
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.
 fn worker_result<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
-    result.map_err(|error| error.to_string())
+    result.map_err(|error| {
+        let message = error.to_string();
+        log::warn!(target: "pathkeep::worker_bridge", "{message}");
+        message
+    })
 }
 
 #[cfg(test)]

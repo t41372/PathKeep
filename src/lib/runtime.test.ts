@@ -34,15 +34,39 @@ describe('runtime detection', () => {
   beforeEach(() => {
     isTauriMock.mockReturnValue(false)
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   test('prefers the tauri runtime when the guest api is available', () => {
     isTauriMock.mockReturnValue(true)
     vi.stubEnv(DEV_IPC_URL_ENV, 'http://127.0.0.1:43117/')
+
+    expect(resolveAppRuntime()).toBe('tauri')
+    expect(hasDesktopCommandTransport()).toBe(true)
+    expect(hasTauriGuestApi()).toBe(true)
+  })
+
+  test('treats injected tauri internals as a real desktop runtime even without global isTauri', () => {
+    vi.stubEnv(DEV_IPC_URL_ENV, 'http://127.0.0.1:43117/')
+    vi.stubGlobal('__TAURI_INTERNALS__', {
+      invoke: vi.fn(),
+    })
+
+    expect(resolveAppRuntime()).toBe('tauri')
+    expect(hasDesktopCommandTransport()).toBe(true)
+    expect(hasTauriGuestApi()).toBe(true)
+  })
+
+  test('treats the tauri protocol as a real desktop runtime even without helper globals', () => {
+    vi.stubEnv(DEV_IPC_URL_ENV, 'http://127.0.0.1:43117/')
+    vi.stubGlobal('location', {
+      protocol: 'tauri:',
+    })
 
     expect(resolveAppRuntime()).toBe('tauri')
     expect(hasDesktopCommandTransport()).toBe(true)

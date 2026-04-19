@@ -705,6 +705,52 @@ describe('trust flows', () => {
     ).toBeVisible()
   })
 
+  test('fails fast when a candidate archive key does not unlock the archive', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    await backend.clearSessionDatabaseKey()
+    const lockedStatus = await backend.securityStatus()
+    const refreshSpy = vi.fn().mockResolvedValue(undefined)
+    const setSessionSpy = vi
+      .spyOn(backend, 'setSessionDatabaseKey')
+      .mockResolvedValue(undefined)
+    const clearSessionSpy = vi
+      .spyOn(backend, 'clearSessionDatabaseKey')
+      .mockResolvedValue(undefined)
+    const securityStatusSpy = vi
+      .spyOn(backend, 'securityStatus')
+      .mockResolvedValueOnce(lockedStatus)
+      .mockResolvedValueOnce(lockedStatus)
+
+    render(
+      <MemoryRouter initialEntries={['/security#unlock-archive']}>
+        <I18nContext.Provider value={createI18nValue('en')}>
+          <ShellDataContext.Provider
+            value={{
+              ...createShellValue(snapshot),
+              refreshAppData: refreshSpy,
+            }}
+          >
+            <SecurityPage />
+          </ShellDataContext.Provider>
+        </I18nContext.Provider>
+      </MemoryRouter>,
+    )
+
+    await user.type(await screen.findByLabelText('PASSWORD'), '000000')
+    await user.click(screen.getByRole('button', { name: 'Unlock' }))
+
+    expect(
+      await screen.findByText(
+        'That key did not unlock this archive. Check the password or saved key, then try again.',
+      ),
+    ).toBeVisible()
+    expect(setSessionSpy).toHaveBeenCalledWith('000000')
+    expect(clearSessionSpy).toHaveBeenCalled()
+    expect(refreshSpy).not.toHaveBeenCalled()
+    expect(securityStatusSpy).toHaveBeenCalledTimes(2)
+  })
+
   test('renders the retention prune panel in settings and executes the selected cleanup', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedInitializedSnapshot()

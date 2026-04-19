@@ -20,6 +20,10 @@ import { BrandMark } from '../../components/brand-mark'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
+import {
+  formatBuildVersionLabel,
+  formatBuildVersionTitle,
+} from '../../lib/build-info'
 import { useI18n } from '../../lib/i18n'
 
 /**
@@ -51,6 +55,8 @@ export function LockPage() {
   const [searchParams] = useSearchParams()
   const { appLockStatus, buildInfo, error, unlockAppSession } = useShellData()
   const { t } = useI18n()
+  const buildLabel = formatBuildVersionLabel(buildInfo)
+  const buildTitle = formatBuildVersionTitle(buildInfo)
   const [passcode, setPasscode] = useState('')
   const [unlocking, setUnlocking] = useState(false)
 
@@ -98,8 +104,8 @@ export function LockPage() {
             </div>
             <div className="logo-text">
               <span className="logo-name">PATHKEEP</span>
-              <span className="logo-version">
-                {buildInfo?.version ?? t('common.notAvailable')}
+              <span className="logo-version" title={buildTitle ?? undefined}>
+                {buildLabel ?? t('common.notAvailable')}
               </span>
             </div>
           </div>

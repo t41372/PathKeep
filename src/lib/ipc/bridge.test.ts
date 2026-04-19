@@ -28,8 +28,9 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 describe('ipc bridge', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', fetchMock)
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    vi.stubGlobal('fetch', fetchMock)
     invokeMock.mockReset()
     isTauriMock.mockReturnValue(true)
     fetchMock.mockReset()
@@ -37,6 +38,7 @@ describe('ipc bridge', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   test('forwards typed commands to the tauri invoke layer', async () => {
@@ -51,6 +53,53 @@ describe('ipc bridge', () => {
       includePreview: true,
     })
     expect(result).toEqual({ ok: true })
+  })
+
+  test('wraps tauri string failures into Error instances so shell refusals stay actionable', async () => {
+    invokeMock.mockRejectedValueOnce(
+      'database key is required for encrypted archives',
+    )
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'database key is required for encrypted archives',
+    )
+  })
+
+  test('rethrows tauri Error instances without changing their message', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('desktop refused'))
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'desktop refused',
+    )
+  })
+
+  test('uses tauri invoke when the desktop webview only exposes __TAURI_INTERNALS__', async () => {
+    isTauriMock.mockReturnValue(false)
+    vi.stubGlobal('__TAURI_INTERNALS__', {
+      invoke: vi.fn(),
+    })
+    invokeMock.mockResolvedValueOnce({ ok: true })
+
+    const { invokeCommand } = await import('./bridge')
+    const result = await invokeCommand<{ ok: boolean }>('app_snapshot')
+
+    expect(invokeMock).toHaveBeenCalledWith('app_snapshot', undefined)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ ok: true })
+  })
+
+  test('falls back to a generic tauri error when the rejection is not readable text', async () => {
+    invokeMock.mockRejectedValueOnce({ code: 'boom' })
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'PathKeep desktop command "app_snapshot" failed.',
+    )
   })
 
   test('falls back to the desktop bridge when chrome is connected to the tauri runtime', async () => {

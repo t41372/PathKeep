@@ -18,9 +18,9 @@ use crate::context::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use vault_core::{
-    AppConfig, AppSnapshot, ArchiveMode, archive_status, ensure_archive_initialized,
-    hydrate_app_lock_config, load_import_batches, load_recent_runs, rekey_archive, save_config,
-    validate_app_lock_config_with_biometric,
+    AppConfig, AppSnapshot, ArchiveMode, RuntimeDiagnostics, archive_status,
+    ensure_archive_initialized, hydrate_app_lock_config, load_import_batches, load_recent_runs,
+    rekey_archive, save_config, validate_app_lock_config_with_biometric,
 };
 use vault_platform::{discover_browser_profiles, keyring_status};
 
@@ -38,19 +38,59 @@ pub struct RekeyRequest {
     pub new_key: Option<String>,
 }
 
+fn snapshot_runtime_diagnostics(paths: &vault_core::ProjectPaths) -> RuntimeDiagnostics {
+    match vault_core::load_runtime_diagnostics(paths) {
+        Ok(diagnostics) => diagnostics,
+        Err(error) => {
+            log::warn!(
+                target: "pathkeep::app_snapshot",
+                "runtime diagnostics fallback during shell bootstrap: {error:#}"
+            );
+            RuntimeDiagnostics {
+                log_directory: paths.logs_dir.display().to_string(),
+                rust_log_path: paths.rust_log_path.display().to_string(),
+                frontend_log_path: paths.frontend_log_path.display().to_string(),
+                crash_reports_directory: paths.crash_reports_dir.display().to_string(),
+                latest_crash_report: None,
+            }
+        }
+    }
+}
+
+fn snapshot_browser_profiles() -> Vec<vault_core::BrowserProfile> {
+    match discover_browser_profiles() {
+        Ok(profiles) => profiles,
+        Err(error) => {
+            log::warn!(
+                target: "pathkeep::app_snapshot",
+                "browser discovery fallback during shell bootstrap: {error:#}"
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// Builds the canonical desktop snapshot for the current unlocked session.
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let browser_profiles = discover_browser_profiles()?;
+    let browser_profiles = snapshot_browser_profiles();
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
     let intelligence_status = derive_intelligence_status(&paths, &config, session_database_key);
-    let recent_runs = load_recent_runs(&paths, &config, session_database_key).unwrap_or_default();
-    let recent_import_batches =
-        load_import_batches(&paths, &config, session_database_key).unwrap_or_default();
+    let can_read_archive_ledger = archive_status.initialized && archive_status.unlocked;
+    let recent_runs = if can_read_archive_ledger {
+        load_recent_runs(&paths, &config, session_database_key).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let recent_import_batches = if can_read_archive_ledger {
+        load_import_batches(&paths, &config, session_database_key).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
-    let runtime_diagnostics = vault_core::load_runtime_diagnostics(&paths)?;
+    let runtime_diagnostics = snapshot_runtime_diagnostics(&paths);
 
     Ok(AppSnapshot {
         directories: vault_core::AppDirectories {

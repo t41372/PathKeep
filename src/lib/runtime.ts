@@ -29,6 +29,65 @@ export type AppRuntime = 'tauri' | 'browser-desktop-bridge' | 'browser-preview'
 
 export const DEV_IPC_URL_ENV = 'VITE_PATHKEEP_DEV_IPC_URL'
 
+type TauriInternalsShape = {
+  invoke?: unknown
+}
+
+/**
+ * Returns whether the renderer itself is already running inside a Tauri webview.
+ *
+ * The Tauri app serves the front-end from `tauri://localhost`, so the protocol
+ * is another reliable desktop-only signal even when the injected globals lag
+ * behind or a dev host omits `globalThis.isTauri`.
+ */
+function hasTauriLocation() {
+  return (
+    typeof globalThis === 'object' &&
+    globalThis !== null &&
+    typeof globalThis.location?.protocol === 'string' &&
+    globalThis.location.protocol === 'tauri:'
+  )
+}
+
+/**
+ * Returns the low-level Tauri IPC internals injected into the webview.
+ *
+ * Tauri v2 can provide a working `window.__TAURI_INTERNALS__` bridge even when
+ * `globalThis.isTauri` is falsy, so real desktop sessions must treat that as a
+ * first-class signal instead of falling back to preview fixtures.
+ */
+function resolveTauriInternals(): TauriInternalsShape | null {
+  const candidate =
+    typeof globalThis === 'object' && globalThis !== null
+      ? (
+          globalThis as typeof globalThis & {
+            __TAURI_INTERNALS__?: TauriInternalsShape
+          }
+        ).__TAURI_INTERNALS__
+      : undefined
+
+  if (typeof candidate !== 'object' || candidate === null) {
+    return null
+  }
+
+  return candidate
+}
+
+/**
+ * Returns whether the current renderer has a working Tauri IPC bridge.
+ *
+ * This stays separate from the upstream `isTauri()` helper because PathKeep's
+ * dev desktop webview may expose `__TAURI_INTERNALS__` without also defining
+ * the legacy `globalThis.isTauri` flag.
+ */
+function hasTauriIpcBridge() {
+  return (
+    isTauri() ||
+    hasTauriLocation() ||
+    typeof resolveTauriInternals()?.invoke === 'function'
+  )
+}
+
 /**
  * Resolves dev ipc bridge url from the available inputs.
  *
@@ -50,7 +109,7 @@ export function resolveDevIpcBridgeUrl() {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function resolveAppRuntime(): AppRuntime {
-  if (isTauri()) {
+  if (hasTauriIpcBridge()) {
     return 'tauri'
   }
 
@@ -72,5 +131,5 @@ export function hasDesktopCommandTransport() {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function hasTauriGuestApi() {
-  return isTauri()
+  return hasTauriIpcBridge()
 }

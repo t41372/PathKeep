@@ -24,6 +24,10 @@ import {
 } from '../../lib/analytics'
 import { backend } from '../../lib/backend-client'
 import {
+  formatBuildRevisionLabel,
+  formatBuildVersionTitle,
+} from '../../lib/build-info'
+import {
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
   enrichmentPluginRegistry,
   enrichmentPluginState,
@@ -117,6 +121,8 @@ export function SettingsPage() {
     snapshot,
   } = useShellData()
   const { language, setLanguagePreference, t, ns } = useI18n()
+  const buildRevision = formatBuildRevisionLabel(buildInfo)
+  const buildTitle = formatBuildVersionTitle(buildInfo)
   const [saving, setSaving] = useState(false)
   const [remoteTab, setRemoteTab] = useState<
     'preview' | 'manual' | 'execute' | 'verify'
@@ -1678,8 +1684,8 @@ export function SettingsPage() {
           </div>
           <div className="config-row">
             <span className="config-label">{t('settings.gitCommit')}</span>
-            <span className="config-value mono">
-              {buildInfo?.gitCommitShort ?? t('common.notAvailable')}
+            <span className="config-value mono" title={buildTitle ?? undefined}>
+              {buildRevision ?? t('common.notAvailable')}
             </span>
           </div>
         </div>

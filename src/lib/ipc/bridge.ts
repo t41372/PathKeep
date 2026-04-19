@@ -14,8 +14,8 @@
  * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
  */
 
-import { invoke, isTauri } from '@tauri-apps/api/core'
-import { resolveDevIpcBridgeUrl } from '../runtime'
+import { invoke } from '@tauri-apps/api/core'
+import { hasTauriGuestApi, resolveDevIpcBridgeUrl } from '../runtime'
 
 /**
  * Defines the type-level contract for command payload.
@@ -33,8 +33,20 @@ export async function invokeCommand<TResponse>(
   command: string,
   payload?: CommandPayload,
 ) {
-  if (isTauri()) {
-    return invoke<TResponse>(command, payload)
+  if (hasTauriGuestApi()) {
+    try {
+      return await invoke<TResponse>(command, payload)
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error
+      }
+
+      if (typeof error === 'string' && error.trim().length > 0) {
+        throw new Error(error)
+      }
+
+      throw new Error(`PathKeep desktop command "${command}" failed.`)
+    }
   }
 
   const bridgeUrl = resolveDevIpcBridgeUrl()

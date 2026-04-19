@@ -134,7 +134,9 @@ export function SecurityPage() {
 
     unlockInput.focus()
     unlockInput.select()
-    unlockInput.scrollIntoView({ block: 'center' })
+    if (typeof unlockInput.scrollIntoView === 'function') {
+      unlockInput.scrollIntoView({ block: 'center' })
+    }
   }, [location.hash, status?.encrypted, status?.initialized, status?.unlocked])
 
   /**
@@ -151,6 +153,24 @@ export function SecurityPage() {
     })
     setRekeyMode(nextStatus.encrypted ? 'Plaintext' : 'Encrypted')
     setNotice(nextNotice ?? null)
+  }
+
+  /**
+   * Confirms whether the archive session key actually unlocked the archive.
+   *
+   * `setSessionDatabaseKey` only stores the candidate key in the desktop
+   * session. We still need one cheap read-model check here so the Security
+   * flow can fail fast instead of leaving the user under a spinner while later
+   * shell refreshes discover that the key was wrong.
+   */
+  async function confirmArchiveUnlocked() {
+    const nextStatus = await backend.securityStatus()
+    if (nextStatus.unlocked) {
+      return nextStatus
+    }
+
+    await backend.clearSessionDatabaseKey().catch(() => undefined)
+    throw new Error(t('security.archiveUnlockFailed'))
   }
 
   /**
@@ -191,6 +211,7 @@ export function SecurityPage() {
 
     await withBusy(t('security.unlockArchive'), async () => {
       await backend.setSessionDatabaseKey(trimmedKey)
+      await confirmArchiveUnlocked()
       await reloadAfterAction(t('security.sessionUnlocked'))
       setSessionKey('')
     })
@@ -208,6 +229,7 @@ export function SecurityPage() {
         throw new Error(t('platform.keyringTitle'))
       }
       await backend.setSessionDatabaseKey(key)
+      await confirmArchiveUnlocked()
       await reloadAfterAction(t('security.sessionUnlocked'))
     })
   }

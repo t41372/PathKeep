@@ -232,6 +232,14 @@ fn chrome_user_data_fixture(root: &Path) -> PathBuf {
     chrome_root
 }
 
+fn broken_chrome_user_data_fixture(root: &Path) -> PathBuf {
+    let chrome_root = root.join("broken-chrome-user-data");
+    fs::create_dir_all(&chrome_root).expect("create broken chrome root");
+    fs::write(chrome_root.join("Last Version"), "135.0.0.0").expect("write version");
+    fs::write(chrome_root.join("Local State"), "{not-json").expect("write broken local state");
+    chrome_root
+}
+
 fn takeout_fixture(root: &Path) -> String {
     let source_dir = root.join("takeout-source");
     fs::create_dir_all(&source_dir).expect("create takeout source");
@@ -284,6 +292,76 @@ fn app_snapshot_and_worker_cli_cover_main_local_flows() {
 
     let paths = project_paths().expect("project paths");
     assert!(paths.archive_database_path.exists());
+}
+
+#[test]
+fn app_snapshot_degrades_when_browser_discovery_fails() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let broken_chrome_root = broken_chrome_user_data_fixture(dir.path());
+    let keyring_root = dir.path().join("test-keyring");
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &broken_chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let config = initialized_config();
+    let snapshot = initialize_archive_database(&config, None).expect("initialize archive");
+    assert!(snapshot.archive_status.initialized);
+    assert!(snapshot.browser_profiles.is_empty());
+    assert_eq!(
+        snapshot.directories.config_path,
+        dir.path().join("config.json").display().to_string()
+    );
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[test]
+fn app_snapshot_stays_usable_when_archive_is_initialized_but_locked() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    let keyring_root = dir.path().join("test-keyring");
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let mut config = initialized_config();
+    config.archive_mode = ArchiveMode::Encrypted;
+    let snapshot =
+        initialize_archive_database(&config, Some("000000")).expect("initialize encrypted archive");
+    assert!(snapshot.archive_status.unlocked);
+
+    let locked_snapshot = app_snapshot(None).expect("locked archive snapshot");
+    assert!(locked_snapshot.config.initialized);
+    assert!(locked_snapshot.archive_status.initialized);
+    assert!(locked_snapshot.archive_status.encrypted);
+    assert!(!locked_snapshot.archive_status.unlocked);
+    assert!(
+        locked_snapshot
+            .archive_status
+            .warning
+            .as_deref()
+            .is_some_and(|warning| warning.contains("database key is required"))
+    );
+    assert!(locked_snapshot.recent_runs.is_empty());
+    assert!(locked_snapshot.recent_import_batches.is_empty());
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
 }
 
 #[test]

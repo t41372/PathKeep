@@ -25,11 +25,13 @@ import type {
 
 interface SidebarBackgroundStatusProps {
   initialized: boolean
+  unlocked: boolean
   refreshKey: number
 }
 
 export function SidebarBackgroundStatus({
   initialized,
+  unlocked,
   refreshKey,
 }: SidebarBackgroundStatusProps) {
   const { language, ns } = useI18n()
@@ -42,7 +44,7 @@ export function SidebarBackgroundStatus({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!initialized) {
+    if (!initialized || !unlocked) {
       return
     }
 
@@ -93,7 +95,7 @@ export function SidebarBackgroundStatus({
         window.clearTimeout(timeoutId)
       }
     }
-  }, [commonT, initialized, refreshKey])
+  }, [commonT, initialized, refreshKey, unlocked])
 
   const summary = useMemo(() => {
     if (!initialized) {
@@ -102,6 +104,16 @@ export function SidebarBackgroundStatus({
         detail: null,
         tone: 'idle',
         width: '0%',
+        indeterminate: false,
+      }
+    }
+
+    if (!unlocked) {
+      return {
+        label: jobsT('sidebarLocked'),
+        detail: jobsT('sidebarLockedDetail'),
+        tone: 'warning',
+        width: '100%',
         indeterminate: false,
       }
     }
@@ -197,7 +209,12 @@ export function SidebarBackgroundStatus({
       width: '100%',
       indeterminate: false,
     }
-  }, [aiQueue, error, initialized, jobsT, language, runtime])
+  }, [aiQueue, error, initialized, jobsT, language, runtime, unlocked])
+
+  const actionTarget =
+    initialized && !unlocked ? '/security#unlock-archive' : '/jobs'
+  const actionLabel =
+    initialized && !unlocked ? jobsT('sidebarOpenSecurity') : jobsT('openJobs')
 
   return (
     <div className="sidebar-background-status" data-tone={summary.tone}>
@@ -205,8 +222,8 @@ export function SidebarBackgroundStatus({
         <span className="sidebar-background-status__label">
           {jobsT('sidebarTitle')}
         </span>
-        <Link className="btn-tiny" to="/jobs">
-          {jobsT('openJobs')}
+        <Link className="btn-tiny" to={actionTarget}>
+          {actionLabel}
         </Link>
       </div>
       <div className="sidebar-background-status__summary">{summary.label}</div>

@@ -16,6 +16,10 @@
 import { sidebarSections } from '../../app/router'
 import { useShellData } from '../../app/shell-data-context'
 import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
+import {
+  formatBuildVersionLabel,
+  formatBuildVersionTitle,
+} from '../../lib/build-info'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
@@ -46,6 +50,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { buildInfo, dashboard, error, refreshKey, snapshot } = useShellData()
   const { activeProfileId } = useProfileScope()
   const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
+  const buildLabel = formatBuildVersionLabel(buildInfo)
+  const buildTitle = formatBuildVersionTitle(buildInfo)
 
   const archiveLabel = archiveNeedsUnlock
     ? t('navigation.archiveAttentionNeeded')
@@ -100,10 +106,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </div>
           <div className="logo-text">
             <span className="logo-name">PATHKEEP</span>
-            <span className="logo-version">
-              {buildInfo
-                ? `v${buildInfo.version}`
-                : t('navigation.loadingBuild')}
+            <span className="logo-version" title={buildTitle ?? undefined}>
+              {buildLabel ?? t('navigation.loadingBuild')}
             </span>
           </div>
         </div>
@@ -160,6 +164,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
         <SidebarBackgroundStatus
           initialized={Boolean(snapshot?.config.initialized)}
+          unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
           refreshKey={refreshKey}
         />
         <button

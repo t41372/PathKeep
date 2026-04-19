@@ -203,6 +203,83 @@ describe('Sidebar', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('shows the compact build revision and routes background work toward Security while locked', async () => {
+    const loadAiQueueStatusSpy = vi.spyOn(backend, 'loadAiQueueStatus')
+    const loadIntelligenceRuntimeSpy = vi.spyOn(
+      backend,
+      'loadIntelligenceRuntime',
+    )
+    const snapshot = await backend.getAppSnapshot()
+    snapshot.config.initialized = true
+    snapshot.archiveStatus.initialized = true
+    snapshot.archiveStatus.encrypted = true
+    snapshot.archiveStatus.unlocked = false
+    snapshot.archiveStatus.warning =
+      'database key is required for encrypted archives'
+    const shellValue: ShellDataContextValue = {
+      buildInfo: {
+        productName: 'PathKeep',
+        version: '0.1.0',
+        gitCommitShort: 'test123',
+        gitCommitFull: 'test1234567890',
+        gitDirty: true,
+      },
+      appLockStatus: snapshot.appLockStatus,
+      snapshot,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: 'database key is required for encrypted archives',
+      notice: null,
+      refreshKey: 1,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      saveConfig: vi.fn().mockResolvedValue(snapshot),
+      initializeArchive: vi.fn().mockResolvedValue(snapshot),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <RouterProvider router={router} />
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('v0.1.0 · test123+')).toBeVisible()
+    expect(screen.getByText('Unlock the archive first')).toBeVisible()
+    expect(
+      screen.getByText('Open Security before reviewing queued work.'),
+    ).toBeVisible()
+    expect(
+      screen.getAllByRole('link', { name: 'Security' })[1],
+    ).toHaveAttribute('href', '/security#unlock-archive')
+    expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
+    expect(loadIntelligenceRuntimeSpy).not.toHaveBeenCalled()
+  })
+
   test('shows compact background work status in the footer', async () => {
     vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue({
       paused: false,
@@ -253,6 +330,9 @@ describe('Sidebar', () => {
     })
     const snapshot = await backend.getAppSnapshot()
     snapshot.config.initialized = true
+    snapshot.archiveStatus.initialized = true
+    snapshot.archiveStatus.unlocked = true
+    snapshot.archiveStatus.warning = null
     const shellValue: ShellDataContextValue = {
       buildInfo: {
         productName: 'PathKeep',

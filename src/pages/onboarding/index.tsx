@@ -22,6 +22,10 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { backend } from '../../lib/backend-client'
+import {
+  formatBuildRevisionLabel,
+  formatBuildVersionTitle,
+} from '../../lib/build-info'
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import { formatBytes } from '../../lib/format'
 import { estimateOnboardingStorage } from '../../lib/onboarding-estimates'
@@ -63,6 +67,8 @@ export function OnboardingPage() {
   const { language, t, ns } = useI18n('onboarding')
   const commonT = ns('common')
   const platformT = ns('platform')
+  const buildRevision = formatBuildRevisionLabel(buildInfo)
+  const buildTitle = formatBuildVersionTitle(buildInfo)
   const [step, setStep] = useState(0)
   const [securityDraft, setSecurityDraft] = useState<SecurityDraftState>({
     masterPassword: '',
@@ -394,9 +400,11 @@ export function OnboardingPage() {
             <BrandMark alt="" />
           </div>
           <h1 className="welcome-title">PATHKEEP</h1>
-          <p className="welcome-version mono">
+          <p className="welcome-version mono" title={buildTitle ?? undefined}>
             {t('versionLine', {
-              version: buildInfo?.version ?? 'preview',
+              version: buildRevision
+                ? `${buildInfo?.version ?? 'preview'} · ${buildRevision}`
+                : (buildInfo?.version ?? 'preview'),
             })}
           </p>
           <p className="welcome-tagline">

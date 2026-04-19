@@ -654,6 +654,92 @@ describe('intelligence surfaces', () => {
     ).toHaveAttribute('href', '/security#unlock-archive')
   })
 
+  test('recovers actionable unlock guidance when shell bootstrap only surfaced a generic dashboard error', async () => {
+    const { snapshot } = await seedArchiveState()
+    const dashboardT = createNamespaceTranslator('en', 'dashboard')
+    vi.spyOn(backend, 'securityStatus').mockResolvedValue({
+      initialized: true,
+      mode: 'Encrypted',
+      encrypted: true,
+      unlocked: false,
+      databasePath: snapshot.directories.archiveDatabasePath,
+      strongholdPath: snapshot.directories.strongholdPath,
+      rememberDatabaseKeyInKeyring: false,
+      lastSuccessfulBackupAt: null,
+      lastRekeyAt: null,
+      lastRekeyRunId: null,
+      lastRekeySnapshotPath: null,
+      keyringStatus: {
+        available: true,
+        backend: 'macOS Keychain',
+        storedSecret: false,
+      },
+      warnings: ['database key is required for encrypted archives'],
+    })
+
+    renderSurface(<DashboardPage />, {
+      snapshot,
+      shellValue: {
+        ...createShellValue(snapshot),
+        dashboard: null,
+        snapshot: null,
+        error: dashboardT('archiveUnavailableBody'),
+      },
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: dashboardT('archiveUnlockRequiredTitle'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: dashboardT('archiveUnlockAction') }),
+    ).toHaveAttribute('href', '/security#unlock-archive')
+  })
+
+  test('falls back to the onboarding zero-state when shell bootstrap failed before archive initialization', async () => {
+    const { snapshot } = await seedArchiveState()
+    const dashboardT = createNamespaceTranslator('en', 'dashboard')
+    vi.spyOn(backend, 'securityStatus').mockResolvedValue({
+      initialized: false,
+      mode: 'Plaintext',
+      encrypted: false,
+      unlocked: false,
+      databasePath: snapshot.directories.archiveDatabasePath,
+      strongholdPath: snapshot.directories.strongholdPath,
+      rememberDatabaseKeyInKeyring: false,
+      lastSuccessfulBackupAt: null,
+      lastRekeyAt: null,
+      lastRekeyRunId: null,
+      lastRekeySnapshotPath: null,
+      keyringStatus: {
+        available: true,
+        backend: 'macOS Keychain',
+        storedSecret: false,
+      },
+      warnings: [],
+    })
+
+    renderSurface(<DashboardPage />, {
+      snapshot,
+      shellValue: {
+        ...createShellValue(snapshot),
+        dashboard: null,
+        snapshot: null,
+        error: dashboardT('archiveUnavailableBody'),
+      },
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: dashboardT('zeroStateTitle'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: dashboardT('openOnboardingFlow') }),
+    ).toHaveAttribute('href', '/onboarding')
+  })
+
   test('renders top-sites inside a scroll region so long lists do not stretch the section', async () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
