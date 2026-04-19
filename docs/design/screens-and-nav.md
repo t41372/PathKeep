@@ -14,7 +14,7 @@
 | 畫面                   | 核心職責                                                                                                                                                                                                                                                                    |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Onboarding / Setup** | 首次啟動引導：發現瀏覽器、選擇 profile、設定存儲、加密選擇                                                                                                                                                                                                                  |
-| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、定期總結卡片、Job Queue 狀態、快速操作入口                                                                                                                                                                                       |
+| **Dashboard**          | 備份狀態總覽、最近 run 摘要、歷史上的今天、年度瀏覽節奏預覽、定期總結卡片、Job Queue 狀態、快速操作入口                                                                                                                                                                     |
 | **History Explorer**   | 時間軸 + 全文搜尋 + 篩選 + 詳情 + 匯出                                                                                                                                                                                                                                      |
 | **Intelligence**       | Core Intelligence 主頁：analysis snapshot、spotlight、research signals、evidence / health、runtime digest、domain deep dive                                                                                                                                                 |
 | **AI Assistant**       | 自然語言問答介面                                                                                                                                                                                                                                                            |
@@ -32,7 +32,7 @@
 ### 目前 export 已覆蓋
 
 - shell chrome：sidebar 分區、brand / version、archive status footer、background-work footer strip、topbar 搜尋、共享 profile scope switcher 與主 CTA
-- Dashboard 視覺語言：stat cards、recent runs table、On This Day、storage breakdown、AI / queue summary 的資訊層級
+- Dashboard 視覺語言：stat cards、recent runs table、On This Day、yearly browsing rhythm preview、storage breakdown、AI / queue summary 的資訊層級
 - Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Intelligence、Audit 等核心入口
 
 ### 目前 export 尚未明確覆蓋
@@ -47,7 +47,7 @@
 
 - Onboarding、shared empty / error / loading、locked / no-data、permission-denied 等 production state，現在以本頁、[ux-principles.md](ux-principles.md) 與對應 feature / milestone docs 為 source of truth；prototype 沒畫到不再代表 UX 未定義。
 - long-running operation、generated artifact review、rollback confirmation、manual fallback 與 verify / rollback hint，全都遵循 PME grammar，而不是各頁自己發明流程。
-- `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」；`On This Day` 只回看過去幾年的同一天，不得把當前年份今天的紀錄混進去。
+- `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」；`On This Day` 只回看過去幾年的同一天，不得把當前年份今天的紀錄混進去，而且現在只屬於 Dashboard，不再佔用 `/intelligence` 的 route chrome。
 - keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
 - route metadata、sidebar section label、topbar title / subtitle、loading / skeleton label、empty / error / disabled state，以及 browser preview honesty copy 都屬於正式 i18n surface；不能因為 prototype 沒畫到文字細節就留下英文硬編碼。
 - Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
@@ -57,10 +57,11 @@
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
-- Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
+- Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。storage analytics 的 top-level summary 先固定為 `core history` / `other data` 兩個 bucket，detail 再在卡內展開。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
 - Intelligence 首屏只有 **執行摘要 / 時段概覽 / 瀏覽節奏** 可以佔滿主內容欄寬；其餘卡片一律留在 half-width row 或 secondary grid，並遵守限高 + 卡片內滾動。
 - Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。點某一天後，再在同一卡片內顯示當天 digest / top sites / 24 小時分布，而不是再把主圖退回週內 × 小時桶圖。
+- Dashboard 也正式共用同一套 `Browsing Rhythm` 真實日期日曆熱力圖，但固定以**單一 calendar year** 呈現。若 archive 內有多個年份，卡片可切換年份；這張卡不受 `/intelligence` route time scope 影響。
 - `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。

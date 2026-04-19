@@ -46,7 +46,6 @@
 
 - overview hero
 - runtime digest
-- On This Day
 - Site Analytics
 - storage analytics
 - periodic summaries
@@ -65,6 +64,11 @@
 - 這次我最該先看哪一件事？
 - 今天的重點是什麼？
 - 哪些是分析結論，哪些是系統健康？
+
+補充一條目前已 accepted 的 IA 邊界：
+
+- `On This Day` 現在是 **Dashboard-only**，不再屬於 `/intelligence` 主頁的 redesign 範圍
+- Dashboard 另外還有一張固定 calendar-year 的 `Browsing Rhythm` preview，和 `/intelligence` 共用同一套真實日期日曆熱力圖 contract
 
 ### 3.2 backend 最有價值的結構沒有被 UI 正確放大
 
@@ -194,9 +198,8 @@ Insights 應該先顯示：
 
 建議內容：
 
-- On This Day
 - Periodic / contrastive summary
-- 1-2 張真正值得看的 highlight cards
+- Top sites / browsing rhythm / 1-2 張真正值得看的 highlight cards
 
 這一層應該最像產品，而不是最像資料結構。
 

@@ -110,19 +110,19 @@
 
 ### 步驟
 
-| #   | 動作                                            | 預期結果                                                                                                                        | 驗證重點                                                    |
-| --- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| 1   | 導航到 Settings                                 | Settings 頁面載入，AI Provider 區塊可見                                                                                         | 視覺：Settings skeleton → 真實內容                          |
-| 2   | 新增 AI Provider（例如 Ollama）                 | 選擇 Ollama preset，填入 Base URL（預設 `http://localhost:11434`）                                                              | 資料：preset 預填正確的 URL                                 |
-| 3   | 分別設定 LLM 和 Embedding provider / model      | LLM 和 embedding 可以選擇不同的 provider / model                                                                                | 資料：兩個設定獨立保存                                      |
-| 4   | 測試 Provider 連線                              | 點擊 Test；回傳 latency、capability report、成功 / 失敗 / error code / action hint；成功時顯示 success status                   | 資料：test result 包含 latency 數字和 capability 清單       |
-| 5   | 導航到 Explorer → 切換到 Semantic search mode   | Explorer 顯示 recall mode switcher（keyword / semantic / hybrid）；切換到 semantic 後顯示 provider / model / index state        | 視覺：mode switcher 有明確狀態                              |
-| 6   | 用自然語言搜尋（如 "local-first architecture"） | semantic 搜尋觸發；結果列表包含 historyId、URL / title、match reason、score band；結果可 deep-link 回 Explorer 原始記錄         | 資料：語義搜尋結果相關性合理                                |
-| 7   | 導航到 AI Assistant → 提問                      | 進入 Assistant 頁面；輸入問題（如 "我什麼時候開始研究 MCP 的？"）；顯示 queued → running 狀態                                   | 視覺：pulsing status indicator + 階段說明文字               |
-| 8   | 驗證 Assistant 回答                             | 回答完成後顯示回應文字 + evidence citations；每條 citation 至少包含 historyId、URL / title、visited time、score                 | 資料：citations 可點擊 deep-link 回 Explorer                |
-| 9   | 若 evidence 不足                                | Assistant 拒答並顯示 `insufficient-evidence` 狀態，而不是編造答案                                                               | 資料：honest fallback 正確觸發                              |
-| 10  | 導航到 Insights → 觸發 Refresh                  | Insights 頁面載入（skeleton → 真實內容）；點擊 refresh 觸發 insight 計算                                                        | 視覺：refresh 期間有 pulsing indicator + 說明文字           |
-| 11  | 驗證 Insight cards                              | 生成的 insight cards 顯示：生成時間、資料視窗、evidence 數量；至少有 On This Day / Site Analytics / Topic Timeline 等可用 cards | 資料：cards 有真實內容；zero-data card 顯示 honest fallback |
+| #   | 動作                                            | 預期結果                                                                                                                                             | 驗證重點                                                    |
+| --- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| 1   | 導航到 Settings                                 | Settings 頁面載入，AI Provider 區塊可見                                                                                                              | 視覺：Settings skeleton → 真實內容                          |
+| 2   | 新增 AI Provider（例如 Ollama）                 | 選擇 Ollama preset，填入 Base URL（預設 `http://localhost:11434`）                                                                                   | 資料：preset 預填正確的 URL                                 |
+| 3   | 分別設定 LLM 和 Embedding provider / model      | LLM 和 embedding 可以選擇不同的 provider / model                                                                                                     | 資料：兩個設定獨立保存                                      |
+| 4   | 測試 Provider 連線                              | 點擊 Test；回傳 latency、capability report、成功 / 失敗 / error code / action hint；成功時顯示 success status                                        | 資料：test result 包含 latency 數字和 capability 清單       |
+| 5   | 導航到 Explorer → 切換到 Semantic search mode   | Explorer 顯示 recall mode switcher（keyword / semantic / hybrid）；切換到 semantic 後顯示 provider / model / index state                             | 視覺：mode switcher 有明確狀態                              |
+| 6   | 用自然語言搜尋（如 "local-first architecture"） | semantic 搜尋觸發；結果列表包含 historyId、URL / title、match reason、score band；結果可 deep-link 回 Explorer 原始記錄                              | 資料：語義搜尋結果相關性合理                                |
+| 7   | 導航到 AI Assistant → 提問                      | 進入 Assistant 頁面；輸入問題（如 "我什麼時候開始研究 MCP 的？"）；顯示 queued → running 狀態                                                        | 視覺：pulsing status indicator + 階段說明文字               |
+| 8   | 驗證 Assistant 回答                             | 回答完成後顯示回應文字 + evidence citations；每條 citation 至少包含 historyId、URL / title、visited time、score                                      | 資料：citations 可點擊 deep-link 回 Explorer                |
+| 9   | 若 evidence 不足                                | Assistant 拒答並顯示 `insufficient-evidence` 狀態，而不是編造答案                                                                                    | 資料：honest fallback 正確觸發                              |
+| 10  | 導航到 Insights → 觸發 Refresh                  | Insights 頁面載入（skeleton → 真實內容）；點擊 refresh 觸發 insight 計算                                                                             | 視覺：refresh 期間有 pulsing indicator + 說明文字           |
+| 11  | 驗證 Insight cards                              | 生成的 insight cards 顯示：生成時間、資料視窗、evidence 數量；至少有 Browsing Rhythm / Site Analytics / Topic Timeline / storage health 等可用 cards | 資料：cards 有真實內容；zero-data card 顯示 honest fallback |
 
 ### 退出條件
 

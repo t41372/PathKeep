@@ -52,7 +52,7 @@
   - `/intelligence`
   - `/intelligence/domain/:domain`
   - Explorer 的 session / trail 分組與 navigation tracer
-  - Dashboard 的 On This Day / intelligence 入口接線
+  - Dashboard 的 On This Day / yearly browsing rhythm preview / intelligence 入口接線
   - Jobs / Settings 的 Core Intelligence runtime controls
   - `/intelligence` 內大量 P1-P4 deterministic sections
 - 2026-04-17 當時真正還沒完成的，已經不是「先把第一版頁面做出來」，而是：
@@ -62,7 +62,7 @@
   - `/insights` 殘留命名、測試、truth-pass 漂移
 - 2026-04-18 補記：前兩項與 `/insights` drift 已由 `WORK-CI-C` closeout；目前只剩 external host integration 屬未來 follow-up，不再是 finish-line blocker。
 - 2026-04-19 frontend truth follow-up：
-  - `Browsing Rhythm` 主圖已正式改成真實日期日曆熱力圖；小時分布只留在選中某一天後的 detail 區，不再做假的 bucket→date 映射。
+  - `Browsing Rhythm` 主圖已正式改成真實日期日曆熱力圖；小時分布只留在選中某一天後的 detail 區，不再做假的 bucket→date 映射。Dashboard 也共用同一套 heatmap，但固定以 calendar year 呈現，年份來源來自 `getDiscoveryTrend(..., 'day').availableYears`。
   - `/intelligence` 版面也收緊成更誠實的桌面規則：只有執行摘要 / 時段概覽 / 瀏覽節奏保留 full-width，其餘卡片回到 half-width row 或 secondary grid，並統一改成 capped scroll body。
 - 2026-04-17 backend follow-up 現在已補上 **incremental foundation**：
   - per-profile `core_intelligence_stage_checkpoints`

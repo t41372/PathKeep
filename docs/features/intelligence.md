@@ -124,7 +124,7 @@
 - 同一天的比對以使用者目前系統 timezone 的本地日曆日為準，不用 raw UTC 日期切片假裝對齊「今天」。
 - 當前年份今天的紀錄不屬於 `On This Day`；這張卡只用來回看過去幾年的同一天，不能把今天剛產生的瀏覽紀錄混進歷史回顧。
 - 如果有足夠數據，用 LLM 生成一句話摘要。
-- 適合放在 Dashboard 上作為每日亮點。
+- 這張卡現在是 **Dashboard-only** surface，不再放進 `/intelligence`；因為它不受 Intelligence route time scope 影響，留在 Dashboard 更誠實。
 - **實現**：純數據庫查詢，不需要 embedding。有 LLM 時可生成摘要，沒有也能用。
 
 ##### 📊 定期總結（Periodic Summaries）
@@ -193,9 +193,9 @@
 ### V1 洞察顯示契約
 
 - 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。
-- On This Day、Site Analytics、Periodic Summary、Topic Timeline 都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
+- Dashboard 的 On This Day，以及 Intelligence 的 Site Analytics / Periodic Summary / Topic Timeline，都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
 - deterministic intelligence baseline 也屬於正式 shipping surface：`open-loop` / `revisit` cards 與 `query ladders` 必須在沒有 embedding / LLM 時仍可用；`query ladders` 只在 Chromium search term evidence 形成至少 2-step refinement 時顯示，並能 deep-link 回 Explorer 的 canonical query。
-- 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 Insights / Dashboard intelligence 區塊變空白。
+- 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day（Dashboard）、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 intelligence 區塊變空白。
 - explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
 - 切換共享 profile scope、重新整理 insights，或 explain request 失敗時，Insights 必須先清空上一個 scope / 上一次 explain 的 cards、selected insight、explanation 與相關 error，再等待新的結果；不能把舊 evidence 殘留在新的 scoped view。
 - zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
@@ -203,8 +203,8 @@
 
 ### M4-A 進階 intelligence slice
 
-- Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant slice，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
-- storage analytics 目前用四個 slice 呈現磁碟分佈：`core`、`audit`、`exports`、`rebuildable`。`rebuildable` 代表 staging / quarantine 一類可重建或可清理資產，不能和 canonical archive facts 混為一談。
+- Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant group，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
+- storage analytics 的 top-level summary 現在固定先分成兩個 bucket：`core history`（canonical archive + source evidence）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。更細的 breakdown 再在卡片內展開，而不是先讓使用者背四個內部 slice 名稱。
 - Settings 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、live queue / recent job review、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
 - shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Insights 才知道 background queue 還在跑什麼。
 - `/intelligence` route entry 不得再一次 fan-out 二十多條 foreground IPC request。accepted shipping contract 是 route-level staged overview：先批次載入 runtime digest、digest summary、首屏可見卡片與其 section metadata，再在 first paint / idle 後補 secondary grid 與較低優先 detail。
@@ -220,12 +220,13 @@
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
 - 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`source_effectiveness`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
 - Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
-- Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / On This Day / summary，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。
+- Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / summary / top sites / browsing rhythm，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。`On This Day` 留在 Dashboard，不再佔據 `/intelligence` 的 spotlight 區。
 - clear derived state 必須回傳按 stage 分組的清除數量報告：至少涵蓋 `visit-derived-facts` rows、daily rollup rows、structural rows、runtime rows；只有在該維護路徑真的清 enrichment 時才額外回 enrichment rows。報告也必須明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 不得先把 live derived snapshot 清空再等待後續重算完成；scope 內的 derived rows、snapshot payload 與 deterministic module runtime 狀態更新必須以同一個 archive transaction 原子替換，避免只清掉一半或留下不一致的 stale trace。這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
 - queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
 - source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
+- Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。
 - `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。當日 detail 只能在使用者真的點日格，或 primary overview 已穩定之後才額外載入。
 - route 切換時必須丟棄過期 request；離開 `/intelligence` 後，上一個 scope / date range 的 section response 不得再 commit 回 UI，也不得偷偷繼續觸發後續 detail fetch。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
@@ -239,7 +240,7 @@
 - **仍維持 archive-wide 的資料**：Dashboard KPIs、storage analytics、growth signal。
 - Insights 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view，部分統計仍為 archive-wide」，避免用戶誤解。
 - 切換 scope 不產生新 route，沿用 shell chrome 的 shared scope 或 query string `profileId`，保持與 Explorer / Assistant 的 scope 語法一致；若頁面 URL 已帶明確 `profileId`，它優先於 shared scope。
-- 從 Insights 回 Explorer 的 drilldown，包括 On This Day、Site Analytics、Topic Timeline、Reference Pages 與 explain citations，都必須保留目前 `profileId`；不能從 scoped view 悄悄掉回 archive-wide 搜尋。
+- 從 Insights 回 Explorer 的 drilldown，包括 Site Analytics、Topic Timeline、Reference Pages 與 explain citations，都必須保留目前 `profileId`；不能從 scoped view 悄悄掉回 archive-wide 搜尋。Dashboard 的 On This Day 也必須沿用同樣的 scope honesty，但不再屬於 `/intelligence` route grammar。
 - Domain Deep Dive 現在是正式 route `/intelligence/domain/:domain`；它必須沿用與 `/intelligence` 相同的 `range` / `start` / `end` / `profileId` query contract，讓 domain drilldown 可重整、可分享、可返回原本的 scoped overview。
 - 導航規則 → `docs/design/screens-and-nav.md` §Profile-Scoped Insights
 

@@ -18,6 +18,17 @@
 > 2026-04-19 performance decoupling closeout：`/intelligence` 現在已改成 staged overview load：先批次載入 runtime digest / digest summary / 首屏 cards，再在 first paint / idle 後補 secondary grid；`Browsing Rhythm` 初次進頁不再自動抓同日 detail。shell 也已把 sidebar / Dashboard / intelligence digest 的 queue/runtime 輪詢合併成單一 shared source，import/onboarding/backup overlay 則正式支援 `phase/current/total/percent/logLines` progress stream。current-host live desktop 已用 Computer Use 驗到 dashboard ↔ intelligence 切換與 backup 後 background rebuild 不再把 shell 直接凍住；剩餘 full onboarding re-import truth pass 若要清資料，仍需使用者另外確認 destructive reset。
 > 2026-04-18 release-bundle note：這一輪最後是靠重打 current-host release `.app` / 直接啟動 `src-tauri/target/release/pathkeep-desktop` 才完成桌面真機抽查。Computer Use 已確認 `/explorer` 的頂部頁碼摘要與 `/intelligence` 的新 habits copy 確實進入 live desktop；但這台 host 上的 CUA 對直接啟動的 release binary 仍偶發 `noWindowsAvailable`，所以底部分頁列與較下方 intelligence sections 的 signoff 主要仍靠 regression tests + 當前可見區桌面證據，而不是假裝整頁滾到底都人工驗過。
 
+- [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup
+  - 讀先：
+    `docs/design/screens-and-nav.md`
+    `docs/features/intelligence.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/architecture/data-model.md`
+  - 目標：把 `feat/dashboard-heatmap` 的有用 contract 收回目前分支，同時維持已 accepted 的真實日期 `Browsing Rhythm`、staged `/intelligence` load、shared runtime polling，並把 `On This Day` 從 `/intelligence` 移回 Dashboard-only。
+  - 契約：Dashboard 的 `Browsing Rhythm` 必須固定以 calendar year 呈現，year switcher 只來自 `getDiscoveryTrend(..., 'day').availableYears`；`On This Day` 不再出現在 `/intelligence`；storage analytics 的 top-level summary 先固定成 `core history` / `other data`。
+  - 驗收：`bun run check && bun run build`
+
 - [x] **WORK-QC-L** — Intelligence Recovery And Desktop Truth Gate
   - 讀先：
     `docs/plan/e2e-workflow-tests.md`

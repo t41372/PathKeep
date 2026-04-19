@@ -126,15 +126,15 @@ Verify every user story, visible affordance, and implied action on the Jobs / In
 
 ### Spotlight section
 
-1. Review `On This Day`.
-   Expected: only previous years appear; clicking an item deep-links to Explorer.
+1. Review `Browsing Rhythm`.
+   Expected: main chart uses real dates; only after selecting a day does the same-day digest / top sites / hourly strip load.
 2. Review `Site analytics`.
    Expected: ranked domains, bars, and counts are readable; clicking a row deep-links to Explorer.
 3. Review `Storage analytics`.
    Expected:
    - tracked bytes
    - reclaimable bytes
-   - dominant slice
+   - dominant top-level group (`core history` / `other data`)
    - latest growth signal deep-links to Audit
 4. Review `Summary`.
    Expected:
@@ -270,10 +270,10 @@ That final pass should attach screenshots for:
 
 ### Manual Insights route pass
 
-- Opened `#/insights` and verified:
+- Opened `#/intelligence` and verified:
   - analysis snapshot loads before lower-level evidence sections
   - runtime digest stays compact and points back to Jobs
-  - `On This Day` stayed honest with an empty previous-years state
+  - `Browsing Rhythm` stayed on the real-date calendar heatmap and only loaded same-day detail after selecting a day
   - `Top sites`, `Storage`, `Summary`, `Query groups`, `Reference pages`, `Source effectiveness`, and deterministic modules rendered from live data
 - Found and fixed two readability issues:
   - extremely small coverage rounded down to `0%`

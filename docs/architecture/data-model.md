@@ -192,5 +192,6 @@
 - **語義搜尋不能做全表掃描**。幾千萬行 embedding 全量 cosine 計算不可能保持互動性，需要 ANN（近似最近鄰）索引。LanceDB 提供 disk-based IVF-PQ 索引。
 - **AI 資產不能拖慢核心 archive**。FTS、intelligence runtime、embedding / 向量索引、正文 blob 都和 canonical archive 隔離。
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、search projection、intelligence projection、semantic / blob sidecars、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
-- M4-A 的 storage analytics v1 以 `core`、`audit`、`exports`、`rebuildable` 四個 slice 呈現現況，並把 `exports + staging + quarantine` 視為目前可回收空間的近似值；更細的 per-plugin / per-model accounting 可在後續里程碑再補。
+- 產品層的 storage analytics summary 現在先分成兩個 top-level bucket：`core history`（`history-vault.sqlite` + `source-evidence.sqlite`）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。這是給 Dashboard / Intelligence / Settings 共用的使用者心智，不改變底層 storage planes。
+- 更細的 storage detail 仍保留到 detail surface：`core history` 可再拆成 canonical archive / source evidence；`other data` 可再拆成 search projection、intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files。更細的 per-plugin / per-model accounting 仍可在後續里程碑再補。
 - **快照必須有保留上限**。一個 100 GB 的 archive 保留 8 份快照就是 800 GB。預設保留最近 4-8 個 archive 快照，用戶可調。

@@ -8,6 +8,7 @@
 ## 工作塊佇列（按順序）
 
 > 2026-04-18 update：使用者已明確把第二台主機 benchmark parity 從當前計劃移除。current-host desktop truth audit 之後，新增一個 follow-up block，但目前仍屬 blocked。
+> 2026-04-19 note：使用者直接插單的 `WORK-UI-D`（dashboard yearly rhythm + Intelligence IA cleanup）已從當輪暫時拉進 `STATUS.md` 完成並 append 到 `CHANGELOG.md`；BACKLOG 仍維持只有 blocked 的 `WORK-CI-N`。
 
 - [!] **WORK-CI-N** — Full Desktop Truth Pass After Locked-Archive Bootstrap Recovery
   - 讀先：
