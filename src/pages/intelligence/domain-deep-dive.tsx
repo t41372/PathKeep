@@ -26,6 +26,11 @@ import {
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import {
+  dayInsightsHref,
+  domainInsightsHref,
+  evidenceHref,
+} from '../../lib/intelligence'
+import {
   formatDomainPagePath,
   intelligenceCategoryLabel,
   intelligenceText,
@@ -35,6 +40,8 @@ import { useIntelligenceRouteState } from './route-state'
 interface DomainDeepDivePageProps {
   backHref: string
   dateRange: DateRange
+  dayHref: (date: string) => string
+  domainHref: (domain: string) => string
   domain: string
   profileId: string | null
   scopeLabel: string
@@ -68,6 +75,14 @@ export function DomainDeepDiveRoutePage() {
 
   const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
   const archiveWideBody = intelligenceText(language, t, 'archiveWideBody')
+  const dayHref = (date: string) => dayInsightsHref(date, effectiveProfileId)
+  const domainHref = (nextDomain: string) =>
+    domainInsightsHref({
+      domain: nextDomain,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
+    })
 
   return (
     <div
@@ -98,6 +113,8 @@ export function DomainDeepDiveRoutePage() {
       <DomainDeepDivePage
         backHref={`/intelligence${withCurrentRouteSearch()}`}
         dateRange={dateRange}
+        dayHref={dayHref}
+        domainHref={domainHref}
         domain={decodeURIComponent(domain)}
         profileId={effectiveProfileId}
         scopeLabel={
@@ -116,6 +133,8 @@ export function DomainDeepDiveRoutePage() {
 export function DomainDeepDivePage({
   backHref,
   dateRange,
+  dayHref,
+  domainHref,
   domain,
   profileId,
   scopeLabel,
@@ -158,15 +177,29 @@ export function DomainDeepDivePage({
       <Link className="btn-secondary" to={backHref}>
         ← {t('domainDeepDiveBack')}
       </Link>
+      <div className="day-insights__hero-copy">
+        <span className="mono-kicker">{t('domainInsightsTitle')}</span>
+        <h1 className="day-insights__title">
+          {detail.displayName ?? detail.registrableDomain}
+        </h1>
+        <p className="day-insights__subtitle">{t('domainInsightsSubtitle')}</p>
+      </div>
       <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
 
       <div className="domain-deep-dive__header">
-        <span className="domain-deep-dive__domain-name">
-          {detail.displayName ?? detail.registrableDomain}
-        </span>
         <span className="domain-deep-dive__category-badge">
           {intelligenceCategoryLabel(language, t, detail.domainCategory)}
         </span>
+        <Link
+          className="btn-secondary"
+          to={evidenceHref({
+            profileId,
+            domain: detail.registrableDomain,
+            dateRange,
+          })}
+        >
+          {t('domainInsightsOpenExplorer')}
+        </Link>
       </div>
 
       <div className="domain-deep-dive__kpi-row">
@@ -270,9 +303,12 @@ export function DomainDeepDivePage({
             </h3>
             {detail.topReferrers.slice(0, 5).map((referrer) => (
               <div key={referrer.domain} className="domain-deep-dive__flow-row">
-                <span className="domain-deep-dive__flow-domain">
+                <Link
+                  className="domain-deep-dive__flow-domain intelligence-link"
+                  to={domainHref(referrer.domain)}
+                >
                   {referrer.displayName ?? referrer.domain}
-                </span>
+                </Link>
                 <span className="domain-deep-dive__flow-count">
                   {formatNumber(referrer.count)}
                 </span>
@@ -288,9 +324,12 @@ export function DomainDeepDivePage({
             </h3>
             {detail.topExits.slice(0, 5).map((exit) => (
               <div key={exit.domain} className="domain-deep-dive__flow-row">
-                <span className="domain-deep-dive__flow-domain">
+                <Link
+                  className="domain-deep-dive__flow-domain intelligence-link"
+                  to={domainHref(exit.domain)}
+                >
                   {exit.displayName ?? exit.domain}
-                </span>
+                </Link>
                 <span className="domain-deep-dive__flow-count">
                   {formatNumber(exit.count)}
                 </span>
@@ -313,9 +352,10 @@ export function DomainDeepDivePage({
                   1,
                 )
                 return (
-                  <div
+                  <Link
                     key={point.dateKey}
                     className="discovery-trend__bar-group"
+                    to={dayHref(point.dateKey)}
                     title={`${point.dateKey}: ${point.visitCount}`}
                   >
                     <div className="discovery-trend__domain-bar-container">
@@ -329,7 +369,7 @@ export function DomainDeepDivePage({
                     <span className="discovery-trend__date-label">
                       {point.dateKey.slice(5)}
                     </span>
-                  </div>
+                  </Link>
                 )
               })}
             </div>

@@ -287,6 +287,7 @@ function toSelection(
   profileId?: string | null,
 ): ExplorerVisitSelection {
   return {
+    domain: visit.registrableDomain,
     profileId,
     title: visit.title,
     transition: visit.transitionType,

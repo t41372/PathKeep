@@ -33,6 +33,96 @@
   line-height: 1.5;
 }
 
+.intelligence-access-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+}
+
+.intelligence-access-strip__copy,
+.intelligence-access-strip__controls,
+.intelligence-access-strip__control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.intelligence-access-strip__controls {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.intelligence-access-strip__action {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.intelligence-access-strip__action input {
+  min-height: 36px;
+  min-width: 220px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.intelligence-access-strip__title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.day-insights__hero,
+.day-insights__hero-copy,
+.day-insights__actions,
+.day-insights__stats,
+.day-insights__secondary-grid {
+  display: flex;
+}
+
+.day-insights__hero,
+.day-insights__stats {
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.day-insights__hero {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.day-insights__hero-copy,
+.day-insights__actions {
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.day-insights__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.day-insights__subtitle {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.day-insights__stats > .digest-card {
+  min-width: 140px;
+}
+
 /* ---------- Grid Layout ---------- */
 
 .intelligence-grid {
@@ -723,6 +813,13 @@
 .activity-mix__examples {
   color: var(--text-muted);
   font-size: 0.75rem;
+}
+
+.activity-mix__example-links {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-left: var(--space-2);
 }
 
 /* ---------- Rhythm Calendar ---------- */
@@ -2108,8 +2205,10 @@
 
 .domain-deep-dive__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .domain-deep-dive__domain-name {
@@ -2221,6 +2320,10 @@
 .domain-deep-dive__flow-domain {
   color: var(--text);
   flex: 1;
+}
+
+.domain-deep-dive .discovery-trend__bar-group {
+  text-decoration: none;
 }
 
 .domain-deep-dive__page-count,

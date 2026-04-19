@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, test } from 'vitest'
+import type { DateRange } from './core-intelligence'
 import type { AiAssistantResponse, AiIndexStatus, AppConfig } from './types'
 import { createNamespaceTranslator } from './i18n/catalog'
 import {
@@ -21,9 +22,13 @@ import {
   assistantHref,
   assistantResponseMeta,
   dedupeEvidence,
+  dayInsightsHref,
+  domainDayInsightsHref,
+  domainInsightsHref,
   evidenceHref,
   scoreBand,
   selectedAiProvider,
+  visitDayInsightsHref,
 } from './intelligence'
 
 const t = createNamespaceTranslator('en', 'intelligence')
@@ -280,14 +285,19 @@ describe('intelligence helpers', () => {
   })
 
   test('builds deep links for evidence and assistant prompts', () => {
+    const exactDay = {
+      start: '2026-04-07',
+      end: '2026-04-07',
+    } satisfies DateRange
     expect(
       evidenceHref({
         profileId: 'chrome:Default',
         domain: 'example.com',
         url: 'https://example.com/docs',
+        dateRange: exactDay,
       }),
     ).toBe(
-      '/explorer?profileId=chrome%3ADefault&domain=example.com&q=https%3A%2F%2Fexample.com%2Fdocs',
+      '/explorer?profileId=chrome%3ADefault&domain=example.com&start=2026-04-07&end=2026-04-07&q=https%3A%2F%2Fexample.com%2Fdocs',
     )
     expect(assistantHref('What did I read about SQLite?')).toBe(
       '/assistant?question=What+did+I+read+about+SQLite%3F',
@@ -303,6 +313,27 @@ describe('intelligence helpers', () => {
       }),
     ).toBe('/explorer?q=SQLite+history')
     expect(evidenceHref({})).toBe('/explorer')
+    expect(dayInsightsHref('2026-04-18', 'chrome:Default')).toBe(
+      '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
+    )
+    expect(visitDayInsightsHref('2026-04-18T12:00:00Z', 'chrome:Default')).toBe(
+      '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
+    )
+    expect(
+      domainInsightsHref({
+        domain: 'example.com',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        preset: 'custom',
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/domain/example.com?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+    expect(
+      domainDayInsightsHref('example.com', '2026-04-18', 'chrome:Default'),
+    ).toBe(
+      '/intelligence/domain/example.com?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
+    )
   })
 
   test('dedupes evidence by history id and url', () => {

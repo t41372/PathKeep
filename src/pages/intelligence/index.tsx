@@ -15,9 +15,13 @@
 
 import './intelligence.css'
 
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
+import { peekIntelligencePrimaryOverview } from '../../lib/core-intelligence'
 import { useI18n } from '../../lib/i18n/hooks'
+import { dayInsightsHref, domainInsightsHref } from '../../lib/intelligence'
 import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'
@@ -37,16 +41,26 @@ export function IntelligencePage() {
     profileScopeLabel,
     setCustomRange,
     setPreset,
-    withCurrentRouteSearch,
   } = useIntelligenceRouteState()
 
-  const domainHref = (domain: string) =>
-    `/intelligence/domain/${encodeURIComponent(domain)}${withCurrentRouteSearch()}`
   const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
   const stagedOverview = useStagedIntelligenceOverview(
     dateRange,
     effectiveProfileId,
   )
+  const primaryOverview = peekIntelligencePrimaryOverview(
+    dateRange,
+    effectiveProfileId,
+  )
+  const topSiteSuggestions = primaryOverview?.topSites.data ?? []
+  const domainHref = (domain: string) =>
+    domainInsightsHref({
+      domain,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
+    })
+  const dayHref = (date: string) => dayInsightsHref(date, effectiveProfileId)
 
   return (
     <div className="intelligence-page" data-testid="intelligence-page">
@@ -68,6 +82,17 @@ export function IntelligencePage() {
         ) : null}
       </div>
 
+      <InsightAccessStrip
+        date={dateRange.end}
+        dayHref={dayHref}
+        domainHref={domainHref}
+        suggestions={topSiteSuggestions.map((site) => ({
+          domain: site.registrableDomain,
+          label: site.displayName ?? site.registrableDomain,
+        }))}
+        t={t}
+      />
+
       <IntelligenceRuntimeDigest
         initialized={Boolean(snapshot?.config.initialized)}
         unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
@@ -76,6 +101,7 @@ export function IntelligencePage() {
       {stagedOverview.primaryReady ? (
         <IntelligenceSections
           dateRange={dateRange}
+          dayHref={dayHref}
           domainHref={domainHref}
           language={language}
           profileId={effectiveProfileId}
@@ -94,4 +120,85 @@ export function IntelligencePage() {
   )
 }
 
+function InsightAccessStrip({
+  date,
+  dayHref,
+  domainHref,
+  suggestions,
+  t,
+}: {
+  date: string
+  dayHref: (date: string) => string
+  domainHref: (domain: string) => string
+  suggestions: Array<{ domain: string; label: string }>
+  t: (key: string, vars?: Record<string, string | number>) => string
+}) {
+  const navigate = useNavigate()
+  const [dayValue, setDayValue] = useState(date)
+  const [domainValue, setDomainValue] = useState('')
+
+  useEffect(() => {
+    setDayValue(date)
+  }, [date])
+
+  return (
+    <section className="intelligence-access-strip">
+      <div className="intelligence-access-strip__copy">
+        <span className="mono-kicker">{t('insightAccessEyebrow')}</span>
+        <h2 className="intelligence-access-strip__title">
+          {t('insightAccessTitle')}
+        </h2>
+      </div>
+      <div className="intelligence-access-strip__controls">
+        <label className="intelligence-access-strip__control">
+          <span>{t('insightAccessDayLabel')}</span>
+          <div className="intelligence-access-strip__action">
+            <input
+              type="date"
+              value={dayValue}
+              onChange={(event) => setDayValue(event.target.value)}
+            />
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={!dayValue}
+              onClick={() => void navigate(dayHref(dayValue))}
+            >
+              {t('openDayInsights')}
+            </button>
+          </div>
+        </label>
+        <label className="intelligence-access-strip__control">
+          <span>{t('insightAccessDomainLabel')}</span>
+          <div className="intelligence-access-strip__action">
+            <input
+              list="intelligence-domain-suggestions"
+              type="search"
+              value={domainValue}
+              onChange={(event) => setDomainValue(event.target.value)}
+              placeholder={t('topSitesSearch')}
+            />
+            <datalist id="intelligence-domain-suggestions">
+              {suggestions.map((suggestion) => (
+                <option key={suggestion.domain} value={suggestion.domain}>
+                  {suggestion.label}
+                </option>
+              ))}
+            </datalist>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={!domainValue.trim()}
+              onClick={() => void navigate(domainHref(domainValue.trim()))}
+            >
+              {t('openDomainInsights')}
+            </button>
+          </div>
+        </label>
+      </div>
+    </section>
+  )
+}
+
+export { DayInsightsRoutePage } from './day-insights'
 export { DomainDeepDiveRoutePage } from './domain-deep-dive'

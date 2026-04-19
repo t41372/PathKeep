@@ -31,7 +31,12 @@ import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
-import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
+import {
+  aiStatusMeta,
+  dayInsightsHref,
+  domainDayInsightsHref,
+  selectedAiProvider,
+} from '../../lib/intelligence'
 import { buildStorageAnalyticsSummary } from '../../lib/storage-analytics'
 import {
   profileIdLabel,
@@ -584,6 +589,7 @@ export function DashboardPage() {
         </div>
         <div className="panel-body">
           <BrowsingRhythmCard
+            dayHref={(date) => dayInsightsHref(date, activeProfileId)}
             mode="year"
             language={language}
             profileId={activeProfileId}
@@ -771,17 +777,32 @@ export function DashboardPage() {
                   <div key={`${entry.year}-${entry.date}`} className="otd-item">
                     <div style={{ minWidth: 0 }}>
                       <div className="otd-title">
-                        {entry.year} ·{' '}
-                        {intelligenceT('onThisDayVisits', {
-                          count: entry.totalVisits,
-                        })}
+                        <Link to={dayInsightsHref(entry.date, activeProfileId)}>
+                          {entry.year} ·{' '}
+                          {intelligenceT('onThisDayVisits', {
+                            count: entry.totalVisits,
+                          })}
+                        </Link>
                       </div>
                       {entry.summary && (
                         <div className="otd-url">{entry.summary}</div>
                       )}
                       {entry.topDomains.length > 0 && (
                         <div className="mono-support">
-                          {entry.topDomains.slice(0, 4).join(' · ')}
+                          {entry.topDomains.slice(0, 4).map((domain, index) => (
+                            <span key={`${entry.year}:${domain}`}>
+                              {index > 0 ? ' · ' : null}
+                              <Link
+                                to={domainDayInsightsHref(
+                                  domain,
+                                  entry.date,
+                                  activeProfileId,
+                                )}
+                              >
+                                {domain}
+                              </Link>
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>

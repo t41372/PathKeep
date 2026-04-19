@@ -167,6 +167,23 @@ const zhCnM3Namespaces = {
 
     topSitesTitle: '最常访问',
     topSitesEmpty: '浏览数据不足，暂无法显示最常访问网站。',
+    insightAccessEyebrow: '直达入口',
+    insightAccessTitle: '打开完整洞察',
+    insightAccessDayLabel: '按日期查看',
+    insightAccessDomainLabel: '按域名查看',
+    openDayInsights: '打开当日洞察',
+    openDomainInsights: '打开域名洞察',
+    dayInsightsTitle: '当日洞察',
+    dayInsightsSubtitle: '查看这一天的完整浏览热度、重点网站与研究信号。',
+    dayInsightsInvalidDate: '无法识别这个日期。',
+    dayInsightsEmpty: '这一天暂时没有可显示的洞察。',
+    dayInsightsBack: '返回概览',
+    dayInsightsOpenExplorer: '打开当天证据',
+    dayInsightsHourlyTitle: '小时活动',
+    dayInsightsTopSitesTitle: '当天重点网站',
+    dayInsightsActivityMixTitle: '当天活动构成',
+    dayInsightsQueryFamiliesTitle: '当天搜索演化',
+    dayInsightsRefindsTitle: '当天重找页面',
 
     searchActivityTitle: '搜索活动',
     searchTab_engines: '搜索引擎排行',
@@ -395,6 +412,9 @@ const zhCnM3Namespaces = {
     discoveryTrendVisitsLabel: '{count} 次浏览',
 
     // P2: Domain Deep Dive
+    domainInsightsTitle: '域名洞察',
+    domainInsightsSubtitle: '查看这个网站在当前范围内的完整行为与流向。',
+    domainInsightsOpenExplorer: '打开域名证据',
     domainDeepDiveEmpty: '无法加载该网站的深度分析。',
     domainDeepDiveBack: '返回',
     domainDeepDiveVisits: '访问次数',
@@ -582,6 +602,9 @@ const zhCnM3Namespaces = {
     fieldTitle: '标题',
     fieldUrl: '网址',
     fieldProfile: '浏览器',
+    openDayInsights: '打开当日洞察',
+    openDomainInsights: '打开域名洞察',
+    openDayEvidence: '查看当天证据',
     exportVisibleQuery: '导出当前搜索结果',
     exportDescription:
       '会导出当前筛选条件下的全部记录，而不只是当前页面显示的结果。',
@@ -1089,6 +1112,23 @@ const zhTwM3Namespaces = {
 
     topSitesTitle: '最常造訪',
     topSitesEmpty: '瀏覽資料不足，暫無法顯示最常造訪網站。',
+    insightAccessEyebrow: '直達入口',
+    insightAccessTitle: '打開完整洞察',
+    insightAccessDayLabel: '按日期查看',
+    insightAccessDomainLabel: '按網域查看',
+    openDayInsights: '打開當日洞察',
+    openDomainInsights: '打開網域洞察',
+    dayInsightsTitle: '當日洞察',
+    dayInsightsSubtitle: '查看這一天的完整瀏覽熱度、重點網站與研究訊號。',
+    dayInsightsInvalidDate: '無法辨識這個日期。',
+    dayInsightsEmpty: '這一天暫時沒有可顯示的洞察。',
+    dayInsightsBack: '返回概覽',
+    dayInsightsOpenExplorer: '打開當天證據',
+    dayInsightsHourlyTitle: '小時活動',
+    dayInsightsTopSitesTitle: '當天重點網站',
+    dayInsightsActivityMixTitle: '當天活動構成',
+    dayInsightsQueryFamiliesTitle: '當天搜尋演化',
+    dayInsightsRefindsTitle: '當天重找頁面',
 
     searchActivityTitle: '搜尋活動',
     searchTab_engines: '搜尋引擎排行',
@@ -1318,6 +1358,9 @@ const zhTwM3Namespaces = {
     discoveryTrendVisitsLabel: '{count} 次瀏覽',
 
     // P2: Domain Deep Dive
+    domainInsightsTitle: '網域洞察',
+    domainInsightsSubtitle: '查看這個網站在目前範圍內的完整行為與流向。',
+    domainInsightsOpenExplorer: '打開網域證據',
     domainDeepDiveEmpty: '無法載入該網站的深度分析。',
     domainDeepDiveBack: '返回',
     domainDeepDiveVisits: '造訪次數',
@@ -1506,6 +1549,9 @@ const zhTwM3Namespaces = {
     fieldTitle: '標題',
     fieldUrl: '網址',
     fieldProfile: '瀏覽器',
+    openDayInsights: '打開當日洞察',
+    openDomainInsights: '打開網域洞察',
+    openDayEvidence: '查看當天證據',
     exportVisibleQuery: '匯出目前搜尋結果',
     exportDescription:
       '會匯出目前篩選條件下的全部紀錄，而不只是目前頁面顯示的結果。',
@@ -3311,6 +3357,25 @@ const catalog: Record<
       // Top Sites
       topSitesTitle: 'Top Sites',
       topSitesEmpty: 'Not enough browsing data to show top sites yet.',
+      insightAccessEyebrow: 'Quick Access',
+      insightAccessTitle: 'Open Full Insights',
+      insightAccessDayLabel: 'Open by day',
+      insightAccessDomainLabel: 'Open by domain',
+      openDayInsights: 'Open day insights',
+      openDomainInsights: 'Open domain insights',
+      dayInsightsTitle: 'Day Insights',
+      dayInsightsSubtitle:
+        'Review the full browsing rhythm, standout sites, and research signals for this exact local day.',
+      dayInsightsInvalidDate: 'This date could not be recognized.',
+      dayInsightsEmpty:
+        'No reviewable insights are available for this day yet.',
+      dayInsightsBack: 'Back to overview',
+      dayInsightsOpenExplorer: 'Open exact-day evidence',
+      dayInsightsHourlyTitle: 'Hourly Activity',
+      dayInsightsTopSitesTitle: 'Standout Sites',
+      dayInsightsActivityMixTitle: 'Activity Mix',
+      dayInsightsQueryFamiliesTitle: 'Query Evolution',
+      dayInsightsRefindsTitle: 'Refinds',
 
       // Search Activity
       searchActivityTitle: 'Search Activity',
@@ -3554,6 +3619,10 @@ const catalog: Record<
       discoveryTrendVisitsLabel: '{count} visits',
 
       // P2: Domain Deep Dive
+      domainInsightsTitle: 'Domain Insights',
+      domainInsightsSubtitle:
+        'Review this domain as a full entity inside the current scope and time window.',
+      domainInsightsOpenExplorer: 'Open domain evidence',
       domainDeepDiveEmpty: "Could not load this site's deep analysis.",
       domainDeepDiveBack: 'Back',
       domainDeepDiveVisits: 'Visits',
@@ -3751,6 +3820,9 @@ const catalog: Record<
       fieldTitle: 'TITLE',
       fieldUrl: 'URL',
       fieldProfile: 'PROFILE',
+      openDayInsights: 'Open day insights',
+      openDomainInsights: 'Open domain insights',
+      openDayEvidence: 'Open exact-day evidence',
       exportVisibleQuery: 'EXPORT RESULTS',
       exportDescription:
         'Exports every record that matches the current filters, not just the open page.',

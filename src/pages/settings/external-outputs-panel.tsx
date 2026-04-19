@@ -548,6 +548,9 @@ function PublicSnapshotTab({
             <div className="result-row__header">
               <strong>{t('externalOutputsTopDomains')}</strong>
             </div>
+            {/* TODO: M7 — external-output review surfaces still show static top-domain chips.
+                Once M7 lands generic insight-entity navigation, these review artifacts should
+                deep-link into shared domain/day insights instead of remaining isolated payload text. */}
             <div className="settings-output-chip-list">
               {snapshot.topDomains.map((domain) => (
                 <span key={domain} className="chip-button chip-button--static">

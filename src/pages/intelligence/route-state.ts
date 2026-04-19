@@ -17,6 +17,7 @@
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
+  buildIntelligenceSearchParams,
   dateRangeFromPreset,
   type DateRange,
   type TimeRangePreset,
@@ -34,32 +35,6 @@ const validPresets: TimeRangePreset[] = [
   'year',
   'custom',
 ]
-
-interface BuildSearchParamsOptions {
-  dateRange: DateRange
-  preset: TimeRangePreset
-  profileId?: string | null
-}
-
-/**
- * Builds the canonical query string used by intelligence routes.
- */
-export function buildIntelligenceSearchParams({
-  dateRange,
-  preset,
-  profileId,
-}: BuildSearchParamsOptions) {
-  const params = new URLSearchParams()
-  params.set('range', preset)
-  if (preset === 'custom') {
-    params.set('start', dateRange.start)
-    params.set('end', dateRange.end)
-  }
-  if (profileId) {
-    params.set('profileId', profileId)
-  }
-  return params
-}
 
 /**
  * Provides the shared URL-backed state used by the Intelligence routes.

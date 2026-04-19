@@ -10,14 +10,14 @@ import type { T } from './shared'
 
 export function BrowsingRhythmSection({
   dateRange,
-  domainHref,
+  dayHref,
   language,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
-  domainHref: (domain: string) => string
+  dayHref: (date: string) => string
   language: ResolvedLanguage
   profileId: string | null
   scopeLabel: string
@@ -30,7 +30,7 @@ export function BrowsingRhythmSection({
       <IntelligenceSectionBody className="rhythm-panel" variant="workbench">
         <BrowsingRhythmCard
           dateRange={dateRange}
-          domainHref={domainHref}
+          dayHref={dayHref}
           language={language}
           mode="range"
           profileId={profileId}

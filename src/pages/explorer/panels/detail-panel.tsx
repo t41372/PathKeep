@@ -14,8 +14,18 @@
  */
 
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  localDateKeyFromIso,
+  singleDayDateRange,
+} from '../../../lib/core-intelligence'
 import { formatDateTime } from '../../../lib/format'
 import { type ResolvedLanguage } from '../../../lib/i18n'
+import {
+  domainInsightsHref,
+  evidenceHref,
+  visitDayInsightsHref,
+} from '../../../lib/intelligence'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import { NavigationTracer } from './navigation-tracer'
 import type { ExplorerVisitSelection, Translator } from '../types'
@@ -42,6 +52,10 @@ export function ExplorerDetailPanel({
   language,
   selectedVisit,
 }: ExplorerDetailPanelProps) {
+  const selectedDay = selectedVisit
+    ? localDateKeyFromIso(selectedVisit.visitedAt)
+    : null
+
   return (
     <div className="detail-panel">
       <div className="detail-header">
@@ -96,6 +110,39 @@ export function ExplorerDetailPanel({
             className="intelligence-actions"
             style={{ marginBottom: 'var(--space-3)' }}
           >
+            <Link
+              className="btn-secondary"
+              to={visitDayInsightsHref(
+                selectedVisit.visitedAt,
+                selectedVisit.profileId ?? null,
+              )}
+            >
+              {explorerT('openDayInsights')}
+            </Link>
+            {selectedVisit.domain ? (
+              <Link
+                className="btn-secondary"
+                to={domainInsightsHref({
+                  domain: selectedVisit.domain,
+                  dateRange: singleDayDateRange(selectedDay!),
+                  preset: 'custom',
+                  profileId: selectedVisit.profileId ?? null,
+                })}
+              >
+                {explorerT('openDomainInsights')}
+              </Link>
+            ) : null}
+            <Link
+              className="btn-secondary"
+              to={evidenceHref({
+                profileId: selectedVisit.profileId ?? null,
+                domain: selectedVisit.domain ?? null,
+                url: selectedVisit.url,
+                dateRange: singleDayDateRange(selectedDay!),
+              })}
+            >
+              {explorerT('openDayEvidence')}
+            </Link>
             <button
               className="btn-secondary"
               type="button"

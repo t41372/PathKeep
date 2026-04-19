@@ -13,6 +13,7 @@
  */
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { IntelligenceSectionMeta } from '../../../components/intelligence/section-meta'
 import {
@@ -21,6 +22,7 @@ import {
   type EngineRanking,
   type QueryFamily,
   type SearchConcept,
+  type TopSite,
 } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../../lib/i18n'
@@ -276,12 +278,14 @@ function QueryFamilyCard({ family, t }: { family: QueryFamily; t: T }) {
 
 export function ActivityMixSection({
   dateRange,
+  domainHref,
   language,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  domainHref: (domain: string) => string
   language: ResolvedLanguage
   profileId: string | null
   scopeLabel: string
@@ -296,13 +300,17 @@ export function ActivityMixSection({
     [dateRange, profileId],
   )
   const mix = mixResult.data?.data ?? null
-  const examplesByCategory = new Map<string, string[]>()
+  const examplesByCategory = new Map<string, TopSite[]>()
 
   for (const site of topSitesResult.data?.data ?? []) {
-    const label = site.displayName ?? site.registrableDomain
     const current = examplesByCategory.get(site.domainCategory) ?? []
-    if (!current.includes(label) && current.length < 3) {
-      current.push(label)
+    if (
+      !current.some(
+        (entry) => entry.registrableDomain === site.registrableDomain,
+      ) &&
+      current.length < 3
+    ) {
+      current.push(site)
       examplesByCategory.set(site.domainCategory, current)
     }
   }
@@ -331,8 +339,7 @@ export function ActivityMixSection({
             )
             const changePoints = change?.changePoints ?? 0
             const examples =
-              examplesByCategory.get(category.domainCategory)?.join(', ') ??
-              null
+              examplesByCategory.get(category.domainCategory) ?? []
             return (
               <div key={category.domainCategory} className="activity-mix__row">
                 <div className="activity-mix__summary">
@@ -355,9 +362,27 @@ export function ActivityMixSection({
                   />
                 </span>
                 <div className="activity-mix__meta">
-                  {examples ? (
+                  {examples.length > 0 ? (
                     <span className="activity-mix__examples">
-                      {t('activityMixExamples', { domains: examples })}
+                      {t('activityMixExamples', {
+                        domains: examples
+                          .map(
+                            (entry) =>
+                              entry.displayName ?? entry.registrableDomain,
+                          )
+                          .join(', '),
+                      })}
+                      <span className="activity-mix__example-links">
+                        {examples.map((entry) => (
+                          <Link
+                            key={entry.registrableDomain}
+                            className="intelligence-link"
+                            to={domainHref(entry.registrableDomain)}
+                          >
+                            {entry.displayName ?? entry.registrableDomain}
+                          </Link>
+                        ))}
+                      </span>
                     </span>
                   ) : null}
                   {changePoints !== 0 ? (

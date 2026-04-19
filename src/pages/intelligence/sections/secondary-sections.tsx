@@ -357,11 +357,13 @@ function SearchEngineCard({
 
 export function FrictionDetectionSection({
   dateRange,
+  domainHref,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  domainHref: (domain: string) => string
   profileId: string | null
   scopeLabel: string
   t: T
@@ -392,7 +394,12 @@ export function FrictionDetectionSection({
         <IntelligenceSectionBody>
           <div className="friction-list">
             {signals.slice(0, 8).map((signal, index) => (
-              <FrictionSignalCard key={index} signal={signal} t={t} />
+              <FrictionSignalCard
+                key={index}
+                domainHref={domainHref}
+                signal={signal}
+                t={t}
+              />
             ))}
           </div>
         </IntelligenceSectionBody>
@@ -401,7 +408,15 @@ export function FrictionDetectionSection({
   )
 }
 
-function FrictionSignalCard({ signal, t }: { signal: FrictionSignal; t: T }) {
+function FrictionSignalCard({
+  domainHref,
+  signal,
+  t,
+}: {
+  domainHref: (domain: string) => string
+  signal: FrictionSignal
+  t: T
+}) {
   return (
     <div className="friction-card">
       <div className="friction-card__header">
@@ -412,9 +427,16 @@ function FrictionSignalCard({ signal, t }: { signal: FrictionSignal; t: T }) {
             ? t('frictionStrong')
             : t('frictionWeak')}
         </span>
-        <span className="friction-card__domain">
-          {signal.registrableDomain ?? signal.url ?? '—'}
-        </span>
+        {signal.registrableDomain ? (
+          <Link
+            className="friction-card__domain intelligence-link"
+            to={domainHref(signal.registrableDomain)}
+          >
+            {signal.registrableDomain}
+          </Link>
+        ) : (
+          <span className="friction-card__domain">{signal.url ?? '—'}</span>
+        )}
         <span className="friction-card__count">{signal.occurrenceCount}×</span>
       </div>
       <p className="friction-card__description">{signal.description}</p>
@@ -754,6 +776,9 @@ function PathFlowRow({
     ? `${profileId}::${flow.stepCount}::${flow.flowPattern}`
     : null
 
+  // TODO: M7 — path-flow chips still render opaque pattern strings rather than
+  // shared entity links. They need the broader insight-entity navigation system
+  // once flow steps can be resolved into stable domain/day/query targets.
   return (
     <li className="path-flow-row">
       <div className="path-flow-row__chips">
@@ -784,11 +809,13 @@ function PathFlowRow({
 
 export function HabitsSection({
   dateRange,
+  domainHref,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  domainHref: (domain: string) => string
   profileId: string | null
   scopeLabel: string
   t: T
@@ -833,6 +860,7 @@ export function HabitsSection({
                 {interruptedData.slice(0, 5).map((habit, index) => (
                   <InterruptedHabitRow
                     key={index}
+                    domainHref={domainHref}
                     habit={habit}
                     profileId={profileId}
                     t={t}
@@ -850,6 +878,7 @@ export function HabitsSection({
                 {patternsData.slice(0, 12).map((habit, index) => (
                   <HabitPatternRow
                     key={index}
+                    domainHref={domainHref}
                     habit={habit}
                     profileId={profileId}
                     t={t}
@@ -865,10 +894,12 @@ export function HabitsSection({
 }
 
 function HabitPatternRow({
+  domainHref,
   habit,
   profileId,
   t,
 }: {
+  domainHref: (domain: string) => string
   habit: HabitPattern
   profileId: string | null
   t: T
@@ -881,9 +912,12 @@ function HabitPatternRow({
     <li className="habit-row">
       <div className="habit-row__main">
         <div className="habit-row__header">
-          <span className="habit-row__domain">
+          <Link
+            className="habit-row__domain intelligence-link"
+            to={domainHref(habit.registrableDomain)}
+          >
             {habit.displayName ?? habit.registrableDomain}
-          </span>
+          </Link>
           <span
             className={`habit-row__type habit-row__type--${habit.habitType}`}
           >
@@ -914,10 +948,12 @@ function HabitPatternRow({
 }
 
 function InterruptedHabitRow({
+  domainHref,
   habit,
   profileId,
   t,
 }: {
+  domainHref: (domain: string) => string
   habit: InterruptedHabit
   profileId: string | null
   t: T
@@ -930,9 +966,12 @@ function InterruptedHabitRow({
     <li className="habit-row habit-row--interrupted">
       <div className="habit-row__main">
         <div className="habit-row__header">
-          <span className="habit-row__domain">
+          <Link
+            className="habit-row__domain intelligence-link"
+            to={domainHref(habit.registrableDomain)}
+          >
             {habit.displayName ?? habit.registrableDomain}
-          </span>
+          </Link>
           <span className="habit-row__type habit-row__type--interrupted">
             {t('habitInterruptedBadge')}
           </span>
@@ -962,11 +1001,13 @@ function InterruptedHabitRow({
 
 export function CompareSetsSection({
   dateRange,
+  domainHref,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  domainHref: (domain: string) => string
   profileId: string | null
   scopeLabel: string
   t: T
@@ -993,7 +1034,12 @@ export function CompareSetsSection({
         <IntelligenceSectionBody>
           <ul className="compare-sets">
             {compareSets.slice(0, 6).map((set) => (
-              <CompareSetCard key={set.compareSetId} set={set} t={t} />
+              <CompareSetCard
+                key={set.compareSetId}
+                domainHref={domainHref}
+                set={set}
+                t={t}
+              />
             ))}
           </ul>
         </IntelligenceSectionBody>
@@ -1002,7 +1048,15 @@ export function CompareSetsSection({
   )
 }
 
-function CompareSetCard({ set, t }: { set: CompareSet; t: T }) {
+function CompareSetCard({
+  domainHref,
+  set,
+  t,
+}: {
+  domainHref: (domain: string) => string
+  set: CompareSet
+  t: T
+}) {
   return (
     <li className="compare-set">
       <div className="compare-set__header">
@@ -1017,9 +1071,12 @@ function CompareSetCard({ set, t }: { set: CompareSet; t: T }) {
             key={index}
             className={`compare-set__page${page.isLanding ? ' compare-set__page--landing' : ''}`}
           >
-            <span className="compare-set__page-domain">
+            <Link
+              className="compare-set__page-domain intelligence-link"
+              to={domainHref(page.registrableDomain)}
+            >
               {page.registrableDomain}
-            </span>
+            </Link>
             <span className="compare-set__page-title" title={page.title ?? ''}>
               {page.title ?? page.url}
             </span>
@@ -1037,11 +1094,13 @@ function CompareSetCard({ set, t }: { set: CompareSet; t: T }) {
 
 export function MultiBrowserDiffSection({
   dateRange,
+  domainHref,
   language,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  domainHref: (domain: string) => string
   language: ResolvedLanguage
   scopeLabel: string
   t: T
@@ -1073,14 +1132,22 @@ export function MultiBrowserDiffSection({
         </div>
       ) : (
         <IntelligenceSectionBody>
-          <MultiBrowserDiffBody data={diff} t={t} />
+          <MultiBrowserDiffBody data={diff} domainHref={domainHref} t={t} />
         </IntelligenceSectionBody>
       )}
     </section>
   )
 }
 
-function MultiBrowserDiffBody({ data, t }: { data: BrowserDiff; t: T }) {
+function MultiBrowserDiffBody({
+  data,
+  domainHref,
+  t,
+}: {
+  data: BrowserDiff
+  domainHref: (domain: string) => string
+  t: T
+}) {
   const profileById = new Map<string, BrowserProfileSummary>(
     data.profiles.map((profile) => [profile.profileId, profile]),
   )
@@ -1115,9 +1182,13 @@ function MultiBrowserDiffBody({ data, t }: { data: BrowserDiff; t: T }) {
         </h3>
         <div className="multi-browser__shared-chips">
           {data.sharedDomains.slice(0, 10).map((domain) => (
-            <span key={domain} className="multi-browser__chip">
+            <Link
+              key={domain}
+              className="multi-browser__chip intelligence-link"
+              to={domainHref(domain)}
+            >
               {domain}
-            </span>
+            </Link>
           ))}
         </div>
       </div>
@@ -1143,7 +1214,12 @@ function MultiBrowserDiffBody({ data, t }: { data: BrowserDiff; t: T }) {
                         key={entry.registrableDomain}
                         className="multi-browser__exclusive-row"
                       >
-                        <span>{entry.registrableDomain}</span>
+                        <Link
+                          className="intelligence-link"
+                          to={domainHref(entry.registrableDomain)}
+                        >
+                          {entry.registrableDomain}
+                        </Link>
                         <span className="multi-browser__exclusive-count">
                           {entry.visitCount}
                         </span>

@@ -41,6 +41,7 @@ import {
   CompareSetsSection,
   DiscoveryTrendSection,
   FrictionDetectionSection,
+  HabitsSection,
   MultiBrowserDiffSection,
   ObservedInteractionsSection,
   PathFlowsSection,
@@ -52,6 +53,7 @@ import { formatNumber, type T } from './sections/shared'
 
 interface IntelligenceSectionsProps {
   dateRange: DateRange
+  dayHref: (date: string) => string
   domainHref: (domain: string) => string
   language: ResolvedLanguage
   profileId: string | null
@@ -65,6 +67,7 @@ interface IntelligenceSectionsProps {
  */
 export function IntelligenceSections({
   dateRange,
+  dayHref,
   domainHref,
   language,
   profileId,
@@ -104,6 +107,7 @@ export function IntelligenceSections({
         />
         <ActivityMixSection
           dateRange={dateRange}
+          domainHref={domainHref}
           language={language}
           profileId={profileId}
           scopeLabel={scopeLabel}
@@ -112,7 +116,7 @@ export function IntelligenceSections({
       </div>
       <BrowsingRhythmSection
         dateRange={dateRange}
-        domainHref={domainHref}
+        dayHref={dayHref}
         language={language}
         profileId={profileId}
         scopeLabel={scopeLabel}
@@ -136,6 +140,14 @@ export function IntelligenceSections({
           />
           <FrictionDetectionSection
             dateRange={dateRange}
+            domainHref={domainHref}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <HabitsSection
+            dateRange={dateRange}
+            domainHref={domainHref}
             profileId={profileId}
             scopeLabel={scopeLabel}
             t={t}
@@ -168,12 +180,14 @@ export function IntelligenceSections({
           />
           <CompareSetsSection
             dateRange={dateRange}
+            domainHref={domainHref}
             profileId={profileId}
             scopeLabel={scopeLabel}
             t={t}
           />
           <MultiBrowserDiffSection
             dateRange={dateRange}
+            domainHref={domainHref}
             language={language}
             scopeLabel={scopeLabel}
             t={t}

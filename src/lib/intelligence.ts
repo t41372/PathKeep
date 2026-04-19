@@ -27,6 +27,14 @@ import type {
   AiProviderConfig,
   AppConfig,
 } from './types'
+import {
+  buildDayInsightsSearchParams,
+  buildIntelligenceSearchParams,
+  localDateKeyFromIso,
+  singleDayDateRange,
+  type DateRange,
+  type TimeRangePreset,
+} from './core-intelligence'
 
 /**
  * Defines the type-level contract for intelligence tone.
@@ -164,14 +172,60 @@ export function evidenceHref(evidence: {
   url?: string | null
   domain?: string | null
   title?: string | null
+  dateRange?: DateRange | null
 }) {
   const params = new URLSearchParams()
   if (evidence.profileId) params.set('profileId', evidence.profileId)
   if (evidence.domain) params.set('domain', evidence.domain)
+  if (evidence.dateRange) {
+    params.set('start', evidence.dateRange.start)
+    params.set('end', evidence.dateRange.end)
+  }
   if (evidence.url) params.set('q', evidence.url)
   else if (evidence.title) params.set('q', evidence.title)
   const query = params.toString()
   return query ? `/explorer?${query}` : '/explorer'
+}
+
+export function dayInsightsHref(date: string, profileId?: string | null) {
+  const params = buildDayInsightsSearchParams(profileId)
+  const query = params.toString()
+  return `/intelligence/day/${encodeURIComponent(date)}${query ? `?${query}` : ''}`
+}
+
+export function visitDayInsightsHref(
+  visitedAt: string,
+  profileId?: string | null,
+) {
+  return dayInsightsHref(localDateKeyFromIso(visitedAt), profileId)
+}
+
+export function domainInsightsHref(options: {
+  domain: string
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}) {
+  const params = buildIntelligenceSearchParams({
+    dateRange: options.dateRange,
+    preset: options.preset ?? 'custom',
+    profileId: options.profileId,
+  })
+  const query = params.toString()
+  return `/intelligence/domain/${encodeURIComponent(options.domain)}${query ? `?${query}` : ''}`
+}
+
+export function domainDayInsightsHref(
+  domain: string,
+  date: string,
+  profileId?: string | null,
+) {
+  return domainInsightsHref({
+    domain,
+    dateRange: singleDayDateRange(date),
+    preset: 'custom',
+    profileId,
+  })
 }
 
 /**

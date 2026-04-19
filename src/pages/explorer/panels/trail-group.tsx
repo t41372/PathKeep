@@ -311,6 +311,7 @@ function toSelection(
   profileId?: string | null,
 ): ExplorerVisitSelection {
   return {
+    domain: member.registrableDomain ?? null,
     profileId,
     title:
       member.role === 'search_event' && member.searchQuery

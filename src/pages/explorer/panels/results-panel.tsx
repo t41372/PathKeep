@@ -334,6 +334,7 @@ export function ExplorerResultsPanel({
         selectedVisit={
           selectedEntry
             ? {
+                domain: selectedEntry.domain,
                 profileId: selectedEntry.profileId,
                 title: selectedEntry.title,
                 transition: selectedEntry.transition,

@@ -88,6 +88,7 @@ export interface RecentSearchEntry {
  * Shared selected-visit payload used by all explorer views.
  */
 export interface ExplorerVisitSelection {
+  domain?: string | null
   profileId?: string | null
   title?: string | null
   transition?: number | string | null

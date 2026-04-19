@@ -39,6 +39,7 @@ import * as coreIntelligenceApi from '../lib/core-intelligence/api'
 import type {
   CoreIntelligenceSectionMeta,
   CoreIntelligenceSectionResult,
+  DayInsights,
   DateRange,
   IntelligenceLocalHostBundle,
   IntelligenceLocalHostBuildResult,
@@ -57,7 +58,11 @@ import type {
 import { AssistantPage } from './assistant'
 import { DashboardPage } from './dashboard'
 import { ExplorerPage } from './explorer'
-import { DomainDeepDiveRoutePage, IntelligencePage } from './intelligence'
+import {
+  DayInsightsRoutePage,
+  DomainDeepDiveRoutePage,
+  IntelligencePage,
+} from './intelligence'
 import { JobsPage } from './jobs'
 import { SettingsPage } from './settings'
 
@@ -650,17 +655,9 @@ describe('intelligence surfaces', () => {
     ).toBeGreaterThan(0)
   })
 
-  test('renders dashboard yearly browsing rhythm and keeps selected-day detail lazy', async () => {
+  test('routes dashboard yearly browsing rhythm into day insights without inline detail fetches', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedArchiveState()
-    const summary = {
-      dateRange: { start: '2024-04-18', end: '2024-04-18' } satisfies DateRange,
-      totalVisits: { value: 3, trend: 'flat' as const },
-      totalSearches: { value: 1, trend: 'flat' as const },
-      newDomains: { value: 1, trend: 'flat' as const },
-      deepReadPages: { value: 2, trend: 'flat' as const },
-      refindPages: { value: 0, trend: 'flat' as const },
-    }
     const getDiscoveryTrendSpy = vi
       .spyOn(coreIntelligenceApi, 'getDiscoveryTrend')
       .mockImplementation((dateRange) =>
@@ -690,7 +687,19 @@ describe('intelligence surfaces', () => {
       )
     const getDigestSummarySpy = vi
       .spyOn(coreIntelligenceApi, 'getDigestSummary')
-      .mockResolvedValue(wrapSection('digest-summary', summary))
+      .mockResolvedValue(
+        wrapSection('digest-summary', {
+          dateRange: {
+            start: '2024-04-18',
+            end: '2024-04-18',
+          } satisfies DateRange,
+          totalVisits: { value: 3, trend: 'flat' as const },
+          totalSearches: { value: 1, trend: 'flat' as const },
+          newDomains: { value: 1, trend: 'flat' as const },
+          deepReadPages: { value: 2, trend: 'flat' as const },
+          refindPages: { value: 0, trend: 'flat' as const },
+        }),
+      )
     const getTopSitesSpy = vi
       .spyOn(coreIntelligenceApi, 'getTopSites')
       .mockResolvedValue(
@@ -715,11 +724,20 @@ describe('intelligence surfaces', () => {
         }),
       )
 
-    renderSurface(<DashboardPage />, {
-      dashboard,
-      route: '/',
-      snapshot,
-    })
+    renderSurface(
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route
+          path="/intelligence/day/:date"
+          element={<div data-testid="day-insights-route-target" />}
+        />
+      </Routes>,
+      {
+        dashboard,
+        route: '/',
+        snapshot,
+      },
+    )
 
     const yearSelect = await screen.findByTestId('browsing-rhythm-year-select')
     expect(yearSelect).toHaveValue('2025')
@@ -742,22 +760,12 @@ describe('intelligence surfaces', () => {
       }),
     )
 
-    await waitFor(() =>
-      expect(getDigestSummarySpy).toHaveBeenCalledWith(
-        { start: '2024-04-18', end: '2024-04-18' },
-        null,
-      ),
-    )
-    expect(getTopSitesSpy).toHaveBeenCalledWith(
-      { start: '2024-04-18', end: '2024-04-18' },
-      null,
-      'visit_count',
-      5,
-    )
-    expect(getBrowsingRhythmSpy).toHaveBeenCalledWith(
-      { start: '2024-04-18', end: '2024-04-18' },
-      null,
-    )
+    expect(
+      await screen.findByTestId('day-insights-route-target'),
+    ).toBeInTheDocument()
+    expect(getDigestSummarySpy).not.toHaveBeenCalled()
+    expect(getTopSitesSpy).not.toHaveBeenCalled()
+    expect(getBrowsingRhythmSpy).not.toHaveBeenCalled()
   })
 
   test('routes dashboard archive-key failures toward the security page', async () => {
@@ -2777,15 +2785,16 @@ describe('intelligence surfaces', () => {
     ).not.toBeInTheDocument()
   })
 
-  test('shows a same-day digest when a browsing-rhythm day is selected', async () => {
+  test('navigates to the day insights route when a browsing-rhythm day is selected', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
 
     vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
       createEmptyRuntimeSnapshot(),
     )
-    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockImplementation(
-      (dateRange) => {
+    const getDigestSummarySpy = vi
+      .spyOn(coreIntelligenceApi, 'getDigestSummary')
+      .mockImplementation((dateRange) => {
         if (dateRange.start === dateRange.end) {
           return Promise.resolve(
             wrapSection('digest-summary', {
@@ -2809,13 +2818,13 @@ describe('intelligence surfaces', () => {
             refindPages: { value: 4, trend: 'flat' as const },
           }),
         )
-      },
-    )
+      })
     vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue(
       wrapSection('on-this-day', []),
     )
-    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockImplementation(
-      (dateRange) => {
+    const getTopSitesSpy = vi
+      .spyOn(coreIntelligenceApi, 'getTopSites')
+      .mockImplementation((dateRange) => {
         if (dateRange.start === dateRange.end) {
           return Promise.resolve(
             wrapSection('top-sites', [
@@ -2845,8 +2854,7 @@ describe('intelligence surfaces', () => {
             },
           ]),
         )
-      },
-    )
+      })
     vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
       wrapSection('engine-ranking', []),
     )
@@ -2870,8 +2878,9 @@ describe('intelligence surfaces', () => {
         changeVsPrevious: [],
       }),
     )
-    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockImplementation(
-      (dateRange) =>
+    const getBrowsingRhythmSpy = vi
+      .spyOn(coreIntelligenceApi, 'getBrowsingRhythm')
+      .mockImplementation((dateRange) =>
         Promise.resolve(
           wrapSection('browsing-rhythm', {
             cells:
@@ -2884,7 +2893,7 @@ describe('intelligence surfaces', () => {
                 : 4,
           }),
         ),
-    )
+      )
     vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
       wrapSection('stable-sources', []),
     )
@@ -2958,11 +2967,20 @@ describe('intelligence surfaces', () => {
       wrapSection('observed-interactions', []),
     )
 
-    renderSurface(<IntelligencePage />, {
-      language: 'en',
-      route: '/intelligence',
-      snapshot,
-    })
+    renderSurface(
+      <Routes>
+        <Route path="/intelligence" element={<IntelligencePage />} />
+        <Route
+          path="/intelligence/day/:date"
+          element={<div data-testid="day-insights-route-target" />}
+        />
+      </Routes>,
+      {
+        language: 'en',
+        route: '/intelligence',
+        snapshot,
+      },
+    )
 
     await user.click(
       await screen.findByRole('button', {
@@ -2970,12 +2988,27 @@ describe('intelligence surfaces', () => {
       }),
     )
 
-    expect(await screen.findByText('2026-04-15 summary')).toBeVisible()
-    expect(screen.getByText('42 visits on this day')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'sqlite.org' })).toBeVisible()
     expect(
-      screen.getByLabelText('Hourly browsing distribution for 2026-04-15'),
-    ).toBeVisible()
+      await screen.findByTestId('day-insights-route-target'),
+    ).toBeInTheDocument()
+    expect(
+      getDigestSummarySpy.mock.calls.some(
+        ([dateRange]) =>
+          dateRange.start === '2026-04-15' && dateRange.end === '2026-04-15',
+      ),
+    ).toBe(false)
+    expect(
+      getTopSitesSpy.mock.calls.some(
+        ([dateRange]) =>
+          dateRange.start === '2026-04-15' && dateRange.end === '2026-04-15',
+      ),
+    ).toBe(false)
+    expect(
+      getBrowsingRhythmSpy.mock.calls.some(
+        ([dateRange]) =>
+          dateRange.start === '2026-04-15' && dateRange.end === '2026-04-15',
+      ),
+    ).toBe(false)
   })
 
   test('renders browsing rhythm as a real-date calendar and keeps secondary cards capped', async () => {
@@ -3598,6 +3631,130 @@ describe('intelligence surfaces', () => {
     expect(screen.getByRole('link', { name: /Back/i })).toHaveAttribute(
       'href',
       '/intelligence?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome%3ADefault',
+    )
+  })
+
+  test('renders day insights as a first-class route with exact-day explorer and domain links', async () => {
+    const { snapshot } = await seedArchiveState()
+    const dayInsightsSpy = vi
+      .spyOn(coreIntelligenceApi, 'getDayInsights')
+      .mockResolvedValue(
+        wrapSection<DayInsights>(
+          'day-insights',
+          {
+            date: '2026-04-18',
+            digestSummary: {
+              dateRange: { start: '2026-04-18', end: '2026-04-18' },
+              totalVisits: { value: 8, trend: 'flat' },
+              totalSearches: { value: 3, trend: 'flat' },
+              newDomains: { value: 2, trend: 'flat' },
+              deepReadPages: { value: 4, trend: 'flat' },
+              refindPages: { value: 1, trend: 'flat' },
+            },
+            topSites: [
+              {
+                registrableDomain: 'sqlite.org',
+                displayName: 'SQLite',
+                domainCategory: 'docs',
+                visitCount: 4,
+                uniqueDays: 1,
+                averageDailyVisits: 4,
+                uniqueUrls: 2,
+              },
+            ],
+            activityMix: {
+              categories: [{ domainCategory: 'docs', visitCount: 8, share: 1 }],
+              changeVsPrevious: [],
+            },
+            refindPages: [
+              {
+                canonicalUrl: 'https://sqlite.org/lang.html',
+                url: 'https://sqlite.org/lang.html',
+                title: 'SQLite docs',
+                registrableDomain: 'sqlite.org',
+                crossDayCount: 3,
+                trailCount: 2,
+                searchArrivalCount: 1,
+                typedRevisitCount: 0,
+                refindScore: 5,
+                firstSeenAt: '2026-04-10T00:00:00Z',
+                lastSeenAt: '2026-04-18T00:00:00Z',
+              },
+            ],
+            queryFamilies: {
+              families: [
+                {
+                  familyId: 'family-1',
+                  anchorQuery: 'sqlite wal',
+                  memberCount: 3,
+                  searchEngine: 'google',
+                  queries: ['sqlite wal', 'sqlite checkpoint'],
+                  firstSeenAt: '2026-04-18T00:00:00Z',
+                  lastSeenAt: '2026-04-18T01:00:00Z',
+                },
+              ],
+              total: 1,
+              page: 0,
+              pageSize: 8,
+            },
+            hourlyActivity: Array.from({ length: 24 }, (_, hour) => ({
+              hour,
+              visitCount: hour === 10 ? 4 : 0,
+            })),
+            drilldown: {
+              explorerDateRange: { start: '2026-04-18', end: '2026-04-18' },
+            },
+          },
+          {
+            moduleIds: [
+              'daily-rollups',
+              'search-trails',
+              'refind-pages',
+              'activity-mix',
+            ],
+            sourceTables: [
+              'daily_summary_rollups',
+              'domain_daily_rollups',
+              'category_daily_rollups',
+              'query_families',
+              'refind_pages',
+            ],
+          },
+        ),
+      )
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/day/:date"
+          element={<DayInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/day/2026-04-18?profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(await screen.findByTestId('day-insights-page')).toBeVisible()
+    expect(dayInsightsSpy).toHaveBeenCalledWith('2026-04-18', 'chrome:Default')
+    expect(
+      screen.getByRole('link', { name: 'Open exact-day evidence' }),
+    ).toHaveAttribute(
+      'href',
+      '/explorer?profileId=chrome%3ADefault&start=2026-04-18&end=2026-04-18',
+    )
+    const topSitesSection = screen
+      .getByRole('heading', { name: 'Standout Sites' })
+      .closest('section')
+    if (!(topSitesSection instanceof HTMLElement)) {
+      throw new Error('expected standout sites section')
+    }
+    expect(
+      within(topSitesSection).getByRole('link', { name: /SQLite/i }),
+    ).toHaveAttribute(
+      'href',
+      '/intelligence/domain/sqlite.org?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
     )
   })
 

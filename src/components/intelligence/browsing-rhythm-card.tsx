@@ -1,17 +1,14 @@
 import './browsing-rhythm-card.css'
 
 import { startTransition, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { IntelligenceSectionMeta } from './section-meta'
 import * as api from '../../lib/core-intelligence/api'
 import {
   dateRangeForCalendarYear,
   useAsyncData,
   type DateRange,
-  type DigestSummary,
   type DiscoveryTrendPoint,
-  type RhythmHeatmap,
-  type TopSite,
 } from '../../lib/core-intelligence'
 
 export type BrowsingRhythmTranslator = (
@@ -29,7 +26,7 @@ interface CalendarDayCell {
 
 interface BrowsingRhythmCardProps {
   dateRange?: DateRange
-  domainHref?: (domain: string) => string
+  dayHref: (date: string) => string
   language: string
   mode: 'range' | 'year'
   profileId?: string | null
@@ -42,18 +39,20 @@ interface BrowsingRhythmCardProps {
  * `/intelligence`.
  *
  * The accepted contract is a real-date calendar heatmap backed by
- * `getDiscoveryTrend(..., 'day')`. Selected-day detail remains lazy and fetches
- * the hourly strip only after a day is chosen.
+ * `getDiscoveryTrend(..., 'day')`. Day cells are navigation-first: they take
+ * users into the dedicated day insights route instead of rendering inline
+ * detail inside the overview card.
  */
 export function BrowsingRhythmCard({
   dateRange,
-  domainHref,
+  dayHref,
   language,
   mode,
   profileId,
   scopeLabel,
   t,
 }: BrowsingRhythmCardProps) {
+  const navigate = useNavigate()
   const [selectedYear, setSelectedYear] = useState(() =>
     new Date().getFullYear(),
   )
@@ -64,13 +63,6 @@ export function BrowsingRhythmCard({
     }
     return dateRange ?? dateRangeForCalendarYear(selectedYear)
   }, [dateRange, mode, selectedYear])
-  const selectionScopeKey = `${mode}:${effectiveDateRange.start}:${effectiveDateRange.end}:${
-    profileId ?? 'archive-wide'
-  }`
-  const [selectedDateState, setSelectedDateState] = useState<{
-    dateKey: string
-    scopeKey: string
-  } | null>(null)
   const trendResult = useAsyncData(
     () => api.getDiscoveryTrend(effectiveDateRange, profileId, 'day'),
     [effectiveDateRange.start, effectiveDateRange.end, mode, profileId],
@@ -105,43 +97,6 @@ export function BrowsingRhythmCard({
   const maxVisits = useMemo(
     () => Math.max(...calendarDays.map((cell) => cell.totalVisits), 1),
     [calendarDays],
-  )
-  const selectedDateOverride =
-    selectedDateState?.scopeKey === selectionScopeKey
-      ? selectedDateState.dateKey
-      : null
-  const selectedDay = useMemo(() => {
-    if (!selectedDateOverride) {
-      return null
-    }
-
-    return (
-      calendarDays.find((cell) => cell.dateKey === selectedDateOverride) ?? null
-    )
-  }, [calendarDays, selectedDateOverride])
-  const selectedDateRange = selectedDay
-    ? singleDayRange(selectedDay.dateKey)
-    : null
-  const selectedDigest = useAsyncData(
-    () =>
-      selectedDateRange
-        ? api.getDigestSummary(selectedDateRange, profileId)
-        : Promise.resolve(null),
-    [profileId, selectedDay?.dateKey],
-  )
-  const selectedTopSites = useAsyncData(
-    () =>
-      selectedDateRange
-        ? api.getTopSites(selectedDateRange, profileId, 'visit_count', 5)
-        : Promise.resolve(null),
-    [profileId, selectedDay?.dateKey],
-  )
-  const selectedRhythm = useAsyncData(
-    () =>
-      selectedDateRange
-        ? api.getBrowsingRhythm(selectedDateRange, profileId)
-        : Promise.resolve(null),
-    [profileId, selectedDay?.dateKey],
   )
   const weekdayLabels = [
     t('dow_sun'),
@@ -262,7 +217,6 @@ export function BrowsingRhythmCard({
                   <div key={weekIndex} className="rhythm-calendar__week">
                     {week.map((cell) => {
                       const level = heatLevel(cell.totalVisits, maxVisits)
-                      const isSelected = selectedDay?.dateKey === cell.dateKey
 
                       return (
                         <button
@@ -271,8 +225,6 @@ export function BrowsingRhythmCard({
                           disabled={!cell.inRange}
                           className={`rhythm-calendar__day${
                             cell.inRange ? '' : ' rhythm-calendar__day--outside'
-                          }${
-                            isSelected ? ' rhythm-calendar__day--active' : ''
                           }`}
                           data-level={level}
                           aria-label={t('rhythmDayTooltip', {
@@ -280,12 +232,7 @@ export function BrowsingRhythmCard({
                             count: cell.totalVisits,
                             newDomains: cell.newDomainCount,
                           })}
-                          onClick={() =>
-                            setSelectedDateState({
-                              dateKey: cell.dateKey,
-                              scopeKey: selectionScopeKey,
-                            })
-                          }
+                          onClick={() => void navigate(dayHref(cell.dateKey))}
                         />
                       )
                     })}
@@ -294,193 +241,10 @@ export function BrowsingRhythmCard({
               </div>
             </div>
           </div>
-
-          {selectedDay ? (
-            <BrowsingRhythmDayDetail
-              dateKey={selectedDay.dateKey}
-              digest={selectedDigest.data?.data ?? null}
-              digestLoading={selectedDigest.loading}
-              domainHref={domainHref}
-              point={pointByDate.get(selectedDay.dateKey) ?? null}
-              rhythm={selectedRhythm.data?.data ?? null}
-              rhythmLoading={selectedRhythm.loading}
-              t={t}
-              topSites={selectedTopSites.data?.data ?? []}
-              topSitesLoading={selectedTopSites.loading}
-            />
-          ) : calendarDays.some((cell) => cell.totalVisits > 0) ? (
-            <div className="browsing-rhythm-card__empty browsing-rhythm-card__empty--prompt">
-              <p className="browsing-rhythm-card__empty-text">
-                {t('rhythmSelectDayPrompt')}
-              </p>
-            </div>
-          ) : null}
         </>
       )}
     </div>
   )
-}
-
-function BrowsingRhythmDayDetail({
-  dateKey,
-  digest,
-  digestLoading,
-  domainHref,
-  point,
-  rhythm,
-  rhythmLoading,
-  t,
-  topSites,
-  topSitesLoading,
-}: {
-  dateKey: string
-  digest: DigestSummary | null
-  digestLoading: boolean
-  domainHref?: (domain: string) => string
-  point: DiscoveryTrendPoint | null
-  rhythm: RhythmHeatmap | null
-  rhythmLoading: boolean
-  t: BrowsingRhythmTranslator
-  topSites: TopSite[]
-  topSitesLoading: boolean
-}) {
-  const hourCells = useMemo(() => buildHourCells(rhythm), [rhythm])
-  const maxHourlyCount = Math.max(
-    ...hourCells.map((cell) => cell.visitCount),
-    1,
-  )
-
-  return (
-    <div className="rhythm-day-detail">
-      <div className="rhythm-day-detail__header">
-        <div>
-          <h3 className="rhythm-day-detail__title">
-            {t('rhythmDaySummaryTitle', { date: dateKey })}
-          </h3>
-          <p className="rhythm-day-detail__subtitle">
-            {t('rhythmDayVisits', { count: point?.totalVisits ?? 0 })}
-          </p>
-        </div>
-        <span className="rhythm-day-detail__badge">
-          {t('rhythmDayNewSites', { count: point?.newDomainCount ?? 0 })}
-        </span>
-      </div>
-
-      <div className="rhythm-day-detail__hours">
-        <span className="rhythm-day-detail__stat-label">
-          {t('rhythmDayHoursTitle')}
-        </span>
-        {rhythmLoading ? (
-          <div className="browsing-rhythm-card__mini-skeleton" />
-        ) : rhythm && hourCells.some((cell) => cell.visitCount > 0) ? (
-          <div
-            className="rhythm-hour-strip"
-            role="img"
-            aria-label={t('rhythmHourStripLabel', { date: dateKey })}
-          >
-            <div className="rhythm-hour-strip__grid">
-              {hourCells.map((cell) => (
-                <span
-                  key={cell.hour}
-                  className="rhythm-hour-strip__cell"
-                  data-level={heatLevel(cell.visitCount, maxHourlyCount)}
-                  title={t('rhythmHourTooltip', {
-                    hour: formatHourRange(cell.hour),
-                    count: cell.visitCount,
-                  })}
-                />
-              ))}
-            </div>
-            <div className="rhythm-hour-strip__labels" aria-hidden="true">
-              {[0, 6, 12, 18, 23].map((hour) => (
-                <span key={hour}>{hour}</span>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="rhythm-day-detail__empty">
-            {t('rhythmDayNoHourlyData')}
-          </p>
-        )}
-      </div>
-
-      {digestLoading ? (
-        <div className="browsing-rhythm-card__mini-skeleton" />
-      ) : digest ? (
-        <div className="rhythm-day-detail__stats">
-          <div className="rhythm-day-detail__stat">
-            <span className="rhythm-day-detail__stat-label">
-              {t('digestVisits')}
-            </span>
-            <strong>{formatNumber(digest.totalVisits.value)}</strong>
-          </div>
-          <div className="rhythm-day-detail__stat">
-            <span className="rhythm-day-detail__stat-label">
-              {t('digestSearches')}
-            </span>
-            <strong>{formatNumber(digest.totalSearches.value)}</strong>
-          </div>
-          <div className="rhythm-day-detail__stat">
-            <span className="rhythm-day-detail__stat-label">
-              {t('digestDeepRead')}
-            </span>
-            <strong>{formatNumber(digest.deepReadPages.value)}</strong>
-          </div>
-          <div className="rhythm-day-detail__stat">
-            <span className="rhythm-day-detail__stat-label">
-              {t('digestNewSites')}
-            </span>
-            <strong>{formatNumber(digest.newDomains.value)}</strong>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="rhythm-day-detail__sites">
-        <span className="rhythm-day-detail__stat-label">
-          {t('topSitesTitle')}
-        </span>
-        {topSitesLoading ? (
-          <div className="browsing-rhythm-card__mini-skeleton" />
-        ) : topSites.length > 0 ? (
-          <div className="rhythm-day-detail__site-list">
-            {topSites.map((site) => {
-              const label = site.displayName ?? site.registrableDomain
-              return domainHref ? (
-                <Link
-                  key={site.registrableDomain}
-                  className="rhythm-day-detail__site-chip"
-                  to={domainHref(site.registrableDomain)}
-                >
-                  {label}
-                </Link>
-              ) : (
-                <span
-                  key={site.registrableDomain}
-                  className="rhythm-day-detail__site-chip"
-                >
-                  {label}
-                </span>
-              )
-            })}
-          </div>
-        ) : (
-          <p className="rhythm-day-detail__empty">{t('rhythmDayNoSites')}</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function buildHourCells(rhythm: RhythmHeatmap | null) {
-  const byHour = new Map<number, number>()
-  for (const cell of rhythm?.cells ?? []) {
-    byHour.set(cell.hour, cell.visitCount)
-  }
-
-  return Array.from({ length: 24 }, (_, hour) => ({
-    hour,
-    visitCount: byHour.get(hour) ?? 0,
-  }))
 }
 
 function buildCalendarWeeks(
@@ -553,25 +317,6 @@ function heatLevel(count: number, maxCount: number) {
   if (ratio >= 0.5) return 3
   if (ratio >= 0.25) return 2
   return 1
-}
-
-function formatNumber(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return String(value)
-}
-
-function formatHourRange(hour: number) {
-  const start = String(hour).padStart(2, '0')
-  const end = String((hour + 1) % 24).padStart(2, '0')
-  return `${start}:00-${end}:00`
-}
-
-function singleDayRange(dateKey: string): DateRange {
-  return {
-    start: dateKey,
-    end: dateKey,
-  }
 }
 
 function parseDateKey(dateKey: string) {

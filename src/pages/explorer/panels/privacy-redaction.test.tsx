@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { createNamespaceTranslator } from '../../../lib/i18n'
@@ -51,34 +52,36 @@ describe('Explorer privacy redaction', () => {
     const item = results.items[0]
 
     render(
-      <ExplorerResultsPanel
-        actionError={null}
-        commonT={commonT}
-        copiedExportPath={null}
-        explorerT={explorerT}
-        exportResult={null}
-        handleCopyExportPath={vi.fn(async () => {})}
-        handleExport={vi.fn(async () => {})}
-        handleFirstHistoryPage={vi.fn()}
-        handleHistoryPageJump={vi.fn()}
-        handleLastHistoryPage={vi.fn()}
-        handleNextHistoryPage={vi.fn()}
-        handleOpenExportPath={vi.fn(async () => {})}
-        handlePreviousHistoryPage={vi.fn()}
-        handleVisit={vi.fn(async () => {})}
-        historyBlockedByInvalidRegex={false}
-        historyPage={1}
-        historyPageCount={1}
-        historyPageInput="1"
-        historyPageSize={50}
-        intelligenceT={intelligenceT}
-        language="en"
-        onHistoryPageInputChange={vi.fn()}
-        onHistoryPageSizeChange={vi.fn()}
-        onSelectHistory={vi.fn()}
-        results={results}
-        selectedEntry={item}
-      />,
+      <MemoryRouter>
+        <ExplorerResultsPanel
+          actionError={null}
+          commonT={commonT}
+          copiedExportPath={null}
+          explorerT={explorerT}
+          exportResult={null}
+          handleCopyExportPath={vi.fn(async () => {})}
+          handleExport={vi.fn(async () => {})}
+          handleFirstHistoryPage={vi.fn()}
+          handleHistoryPageJump={vi.fn()}
+          handleLastHistoryPage={vi.fn()}
+          handleNextHistoryPage={vi.fn()}
+          handleOpenExportPath={vi.fn(async () => {})}
+          handlePreviousHistoryPage={vi.fn()}
+          handleVisit={vi.fn(async () => {})}
+          historyBlockedByInvalidRegex={false}
+          historyPage={1}
+          historyPageCount={1}
+          historyPageInput="1"
+          historyPageSize={50}
+          intelligenceT={intelligenceT}
+          language="en"
+          onHistoryPageInputChange={vi.fn()}
+          onHistoryPageSizeChange={vi.fn()}
+          onSelectHistory={vi.fn()}
+          results={results}
+          selectedEntry={item}
+        />
+      </MemoryRouter>,
     )
 
     expect(screen.getAllByText('localhost/success').length).toBeGreaterThan(0)
@@ -263,21 +266,23 @@ describe('Explorer privacy redaction', () => {
 
   test('redacts callback URLs in the standalone detail rail', () => {
     render(
-      <ExplorerDetailPanel
-        commonT={commonT}
-        explorerT={explorerT}
-        handleVisit={vi.fn(async () => {})}
-        intelligenceT={intelligenceT}
-        language="en"
-        selectedVisit={{
-          profileId: 'chrome:Default',
-          title: null,
-          transition: 'LINK',
-          url: 'http://localhost:1455/success?id_token=secret-token',
-          visitId: 1,
-          visitedAt: '2026-04-18T12:00:00Z',
-        }}
-      />,
+      <MemoryRouter>
+        <ExplorerDetailPanel
+          commonT={commonT}
+          explorerT={explorerT}
+          handleVisit={vi.fn(async () => {})}
+          intelligenceT={intelligenceT}
+          language="en"
+          selectedVisit={{
+            profileId: 'chrome:Default',
+            title: null,
+            transition: 'LINK',
+            url: 'http://localhost:1455/success?id_token=secret-token',
+            visitId: 1,
+            visitedAt: '2026-04-18T12:00:00Z',
+          }}
+        />
+      </MemoryRouter>,
     )
 
     expect(screen.getAllByText('localhost/success').length).toBeGreaterThan(0)

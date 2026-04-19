@@ -268,6 +268,14 @@ const appRouteChildren: RouteObject[] = [
           return { Component: module.DomainDeepDiveRoutePage }
         },
       },
+      {
+        path: 'day/:date',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.DayInsightsRoutePage }
+        },
+      },
     ],
   },
   {

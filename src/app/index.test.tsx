@@ -719,6 +719,11 @@ describe('App shell', () => {
       sentinel: intelligenceT('digestTitle'),
     },
     {
+      entry: '/intelligence/day/2026-04-18',
+      pageTestId: 'day-insights-page',
+      sentinel: intelligenceT('dayInsightsTitle'),
+    },
+    {
       entry: '/settings',
       pageTestId: 'settings-page',
       sentinel: settingsT('aiProvider'),
