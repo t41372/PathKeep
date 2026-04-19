@@ -73,13 +73,14 @@
 
 - 左側 sidebar 導航（可收合）。
 - 頂部顯示當前頁面的 breadcrumb / title。
+- 頂部左側提供全局上一頁 / 下一頁按鈕，語意與瀏覽器一致：只能在本次 app 內已走過的 route history 間返回或前進。
 - 全局快速搜尋入口。
 
 ### M1 導航與 deep-link 規則
 
 - Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
 - 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
-- Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`。
+- Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`、`pageSize`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Import recent batch review 允許 `/import?batch=<id>` deep-link；Audit / Dashboard 可以直接把使用者帶回指定 batch 的 review surface。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
@@ -102,6 +103,7 @@
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
 - Intelligence section cards與 domain deep dive 的 evidence / freshness drawer 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
+- Explorer 的 time-view detail rail 必須 sticky 在可視區內，而不是跟著左側長列表一起被拉成整列高度；使用者在頁面底部選到某筆記錄時，不應再為了看 detail 被迫捲回頁首。
 - Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、`browser-snippet-v1` 本地宿主的 preview / execute / verify、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
 
 ### App Lock 畫面與導航規則

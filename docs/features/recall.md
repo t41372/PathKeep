@@ -29,7 +29,7 @@
 
 - **預聚合統計表**：後端維護增量更新的 `daily_visit_counts`、`domain_daily_counts` 等聚合表。時間軸拖動時查聚合表（20 年 ≈ 7,300 行），不查主表。
 - **虛擬滾動**：列表使用虛擬化（只渲染可見區域的 DOM），無論總記錄數多大，渲染成本恆定。
-- **分頁加載**：列表和搜尋結果走 cursor-based pagination，永遠只加載一頁。
+- **分頁加載**：列表和搜尋結果走 cursor-based pagination，永遠只加載一頁。UI 必須在底部分頁列直接顯示「當前頁 / 總頁數」，並允許調整每頁顯示筆數（例如 25 / 50 / 100 / 200），避免用戶在跳頁時失去定位。
 - **時間軸不觸發全表掃描**：拖動時的密度可視化來自聚合表，點擊展開某一天才查詢該天的具體記錄。
 - **搜尋走 FTS5 索引**：全文搜尋不走 `LIKE`，走 FTS5 倒排索引，查詢速度不隨數據量線性增長。
 - `WORK-M4-G` 已將 Explorer day-one keyword recall 收斂到 canonical `history_search` FTS5 projection，索引欄位為 URL、title 與 normalized search term；regex mode 仍維持 post-filter 邊界。
@@ -103,11 +103,13 @@
 - Provenance：寫入的 run ID、run 時間、run 來源
 - 如果有 metadata 變化歷史，顯示 version diff
 
+Detail rail 屬於持續參照面板：當用戶已經捲到列表底部、再選擇一筆新記錄時，右側 detail 必須仍然留在可視區，不可因為左側列表變長就被推回頁面頂端。
+
 ### 通用
 
 - 支援 keyboard shortcut 和快速導航（上下鍵切換記錄、Enter 展開詳情、Esc 關閉）。
 - 支援從 Explorer 直接匯出當前篩選結果。
-- 大數據量下保持流暢（虛擬滾動 / 分頁加載）。
+- 大數據量下保持流暢（虛擬滾動 / 分頁加載）；切換頁碼時不得強制把整個 Explorer scroll container 拉回頁首，用戶視角應保持在原本位置。
 
 ---
 

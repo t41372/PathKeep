@@ -12,6 +12,7 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 > 2026-04-18 planning note：使用者已明確把第二台主機 benchmark parity 從當前計劃移除；current-host `14.4M / 60y` signoff 仍是目前的 stop point。其後這輪 desktop truth audit 已落地 source-level repair 與第一輪 Computer Use / profiling evidence，但 full real-data pass 仍卡在 current-host locked-archive bootstrap / unlock drift，因此 `STATUS.md` 目前仍暫無新的 active current-focus work block。
+> 2026-04-18 UI polish closeout：使用者臨時插單的 Explorer / Intelligence polish 已完成並 append 到 `CHANGELOG.md`。source 現在有 topbar 全局上一頁 / 下一頁、Explorer 分頁列的當前頁 / 總頁數與每頁筆數控制、sticky detail rail，以及 `/intelligence` 的注意力重排（移除頂部 archive-wide / Settings 大橫幅、縮小 runtime digest、提升 habits、refind 改半寬、activity mix 補分類示例、browsing rhythm 改成可點日格 + 當日 digest、低價值空卡降到 secondary grid）。`STATUS.md` 仍暫無新的 active current-focus block；`BACKLOG.md` 頂部仍只有 blocked 的 `WORK-CI-N`。
 
 - [x] **WORK-QC-L** — Intelligence Recovery And Desktop Truth Gate
   - 讀先：
