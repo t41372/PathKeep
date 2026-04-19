@@ -110,6 +110,10 @@ pub struct BackupProgressEvent {
     pub completed_profiles: usize,
     pub total_profiles: usize,
     pub profile_id: Option<String>,
+    pub progress_current: Option<usize>,
+    pub progress_total: Option<usize>,
+    pub progress_percent: Option<f32>,
+    pub log_lines: Vec<String>,
 }
 
 /// Disk-usage summary for archive-managed artifacts.

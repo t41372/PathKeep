@@ -32,10 +32,12 @@
 - **Preview**：先顯示邊界、影響範圍、generated artifact / visible query / profile scope，再出現真正的 execute CTA。
 - **Manual**：所有需要碰檔案系統、排程或匯出物的流程，都要有可檢視的 artifact viewer 與 open / copy path 動作，不要求使用者自行去資料夾猜位置。
 - **Execute**：執行按鈕文案必須直接說明會做什麼，例如 first backup、run backup、copy path、open path；不要把高風險操作藏在模糊 CTA 裡。
+- **Execute paint-first**：凡是會觸發大量 SQLite / Rust / derived-state 工作的流程，前端必須先讓 busy overlay、skeleton 或 route shell 成功 repaint，再開始真正的重工作業；不能讓動畫或 route transition 因 foreground work 而卡死。
 - **Verify**：完成後要在原頁面留下可見的結果訊號，例如 recent run、latest export path、artifact list、warning / no-warning 狀態。
 - **Rollback hint**：凡是會寫入 archive 的流程，都要讓使用者知道之後去哪裡檢查或回滾，而不是只回報「成功」。
 - 高風險流程至少要能完成 keyboard-only walkthrough，current step / selected filter / status chip 要有可朗讀的 label，而不是只靠顏色或位置辨識。
 - 高風險流程在 reduced motion 模式下要降低動畫和 loading shimmer，避免把「透明」做成另一種視覺負擔。
+- 長時間流程若超過單次短暫 spinner 的合理範圍，必須持續回報 phase、current/total、percent 與近期 log lines；「正在處理」不是可接受的最終 honesty copy。
 
 ### Trust warning grammar
 
@@ -73,13 +75,14 @@
 
 ### 各頁面 Loading 規範
 
-| 頁面          | Loading 表現                                                                                                              |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Dashboard** | Skeleton stat cards 匹配最終卡片佈局，加上 skeleton recent runs table 與 On This Day placeholder                          |
-| **Explorer**  | Skeleton timeline rail + skeleton list items（約 5–8 行），保持列表區域寬度與排版一致                                     |
-| **Insights**  | Skeleton KPI cards + insight panel placeholders，配合 badge 顯示 "Loading insights..."                                    |
-| **Import**    | 導入 scan / import 過程中以 progress overlay 顯示：包含已處理筆數、預估剩余、可取消按鈕                                   |
-| **AI 操作**   | AI assistant / insights refresh 使用 pulsing status indicator + 描述文字（例如 "正在檢索相關記錄..."、"正在生成洞察..."） |
+| 頁面             | Loading 表現                                                                                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dashboard**    | Skeleton stat cards 匹配最終卡片佈局，加上 skeleton recent runs table 與 On This Day placeholder                                                                                    |
+| **Explorer**     | Skeleton timeline rail + skeleton list items（約 5–8 行），保持列表區域寬度與排版一致                                                                                               |
+| **Intelligence** | 先顯示 runtime digest + primary overview skeleton；digest / top summary / first-visible cards 先到，secondary grid 與較低優先 detail 在 first paint / idle 後分段載入               |
+| **Insights**     | Skeleton KPI cards + insight panel placeholders，配合 badge 顯示 "Loading insights..."                                                                                              |
+| **Import**       | 導入 scan / import / onboarding finalize 過程中以 progress overlay 顯示：至少包含 phase、已處理筆數、百分比、近期 log line，且 follow-up rebuild / refresh 不得阻塞 overlay repaint |
+| **AI 操作**      | AI assistant / insights refresh 使用 pulsing status indicator + 描述文字（例如 "正在檢索相關記錄..."、"正在生成洞察..."）                                                           |
 
 ### 視覺規範
 
@@ -87,4 +90,6 @@
 - Skeleton 區塊必須匹配最終內容的佈局尺寸，避免載入完成後 layout shift。
 - `prefers-reduced-motion`：skeleton pulse 應變為靜態或極微微的透明度變化，不得使用持續循環動畫。
 - Progress overlay 必須包含進度數字（百分比或筆數）和可讀的狀態說明，不能只有轉圈。
+- 對於重型 route（尤其 `/intelligence`），初始 render 不得一次 fan-out 十多個 foreground requests；應先有 route-level skeleton，再以優先順序把 section 資料分批填回。
 - AI 操作的 pulsing indicator 必須同時顯示目前階段說明文字，讓用戶知道系統在做什麼。
+- 同一份 runtime / queue truth 只能由 shell 層共享 polling source 提供；sidebar、dashboard 與 intelligence digest 不得各自重複輪詢同一組背景狀態。

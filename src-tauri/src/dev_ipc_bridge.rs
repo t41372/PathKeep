@@ -439,7 +439,8 @@ async fn dispatch_command(
             let payload = parse_payload::<TakeoutPayload>(payload)?;
             json_value!(worker_bridge::import_takeout_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                session_key(&state.session).as_deref(),
+                |_| {}
             )?)
         }
         "preview_import_batch" => {
@@ -717,6 +718,20 @@ async fn dispatch_command(
         "get_digest_summary" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_digest_summary_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_intelligence_primary_overview" => {
+            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            json_value!(worker_bridge::get_intelligence_primary_overview_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_intelligence_secondary_overview" => {
+            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            json_value!(worker_bridge::get_intelligence_secondary_overview_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

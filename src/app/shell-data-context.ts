@@ -18,12 +18,14 @@
 
 import { createContext, useContext } from 'react'
 import type {
+  AiQueueStatus,
   AppBuildInfo,
   AppConfig,
   AppLockStatus,
   AppSnapshot,
   BackupReport,
   DashboardSnapshot,
+  IntelligenceRuntimeSnapshot,
   SetAppLockPasscodeRequest,
   UnlockAppSessionRequest,
 } from '../lib/types'
@@ -40,6 +42,14 @@ export interface BusyOverlayState {
   progressValue?: number | null
   steps?: string[]
   activeStep?: number
+  logLines?: string[]
+}
+
+export interface ShellRuntimeStatus {
+  aiQueue: AiQueueStatus | null
+  intelligence: IntelligenceRuntimeSnapshot | null
+  loading: boolean
+  error: string | null
 }
 
 /**
@@ -52,6 +62,8 @@ export interface ShellDataContextValue {
   appLockStatus: AppLockStatus | null
   snapshot: AppSnapshot | null
   dashboard: DashboardSnapshot | null
+  dashboardLoading?: boolean
+  runtimeStatus?: ShellRuntimeStatus
   loading: boolean
   busyAction: string | null
   busyOverlay: BusyOverlayState | null

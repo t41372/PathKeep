@@ -183,6 +183,20 @@ function createShellValue(
     appLockStatus: snapshot.appLockStatus,
     snapshot,
     dashboard,
+    dashboardLoading: false,
+    runtimeStatus: {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      },
+      intelligence: createEmptyRuntimeSnapshot(),
+      loading: false,
+      error: null,
+    },
     loading: false,
     busyAction: null,
     busyOverlay: null,
@@ -563,6 +577,14 @@ describe('intelligence surfaces', () => {
     vi.restoreAllMocks()
     backendTestHarness.reset()
     window.localStorage.clear()
+    vi.spyOn(
+      coreIntelligenceApi,
+      'loadIntelligencePrimaryOverview',
+    ).mockRejectedValue(new Error('overview batching unavailable in test'))
+    vi.spyOn(
+      coreIntelligenceApi,
+      'loadIntelligenceSecondaryOverview',
+    ).mockRejectedValue(new Error('overview batching unavailable in test'))
   })
 
   test('renders localized dashboard intelligence and trust callouts', async () => {
@@ -767,7 +789,7 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+    expect(await screen.findByText('Example 1')).toBeVisible()
 
     const topSitesSection = screen
       .getByRole('heading', { name: intelligenceT('topSitesTitle') })
@@ -825,7 +847,9 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+    expect(
+      await screen.findByTestId('intelligence-section-meta-top-sites'),
+    ).toBeVisible()
 
     const topSitesSection = screen
       .getByRole('heading', { name: intelligenceT('topSitesTitle') })
@@ -2332,9 +2356,17 @@ describe('intelligence surfaces', () => {
   test('shows a compact runtime digest without a full-width settings banner', async () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
-    const loadIntelligenceRuntimeSpy = vi
-      .spyOn(backend, 'loadIntelligenceRuntime')
-      .mockResolvedValue({
+    const shellValue = createShellValue(snapshot, null)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      },
+      intelligence: {
         queue: {
           queued: 1,
           running: 1,
@@ -2372,17 +2404,18 @@ describe('intelligence surfaces', () => {
           },
         ],
         notes: [],
-      })
+      },
+      loading: false,
+      error: null,
+    }
 
     renderSurface(<IntelligencePage />, {
       route: '/intelligence',
+      shellValue,
       snapshot,
     })
 
     const digest = await screen.findByTestId('intelligence-runtime-digest')
-    await waitFor(() =>
-      expect(loadIntelligenceRuntimeSpy).toHaveBeenCalledTimes(1),
-    )
     expect(
       within(digest).getByText(intelligenceT('runtimeDigestTitle')),
     ).toBeVisible()
@@ -2571,6 +2604,9 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
+    expect(
+      await screen.findByText(intelligenceT('activityMixHelp')),
+    ).toBeVisible()
     expect(
       (await screen.findAllByText(intelligenceT('archiveWideBadge'))).length,
     ).toBeGreaterThan(0)
@@ -3378,7 +3414,11 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(await screen.findByTestId('intelligence-page')).toBeVisible()
+    expect(
+      await screen.findByRole('button', {
+        name: intelligenceT('explainTitle'),
+      }),
+    ).toBeVisible()
     expect(
       screen.queryByText(intelligenceT('pathFlowsStep4')),
     ).not.toBeInTheDocument()
@@ -3715,13 +3755,15 @@ describe('intelligence surfaces', () => {
       }),
     ).toBeVisible()
     expect(
-      screen.getByText('Each trail was rewritten about 1.2 times on average.'),
+      await screen.findByText(
+        'Each trail was rewritten about 1.2 times on average.',
+      ),
     ).toBeVisible()
     expect(
-      screen.getByText('People usually stopped around depth 2.4.'),
+      await screen.findByText('People usually stopped around depth 2.4.'),
     ).toBeVisible()
     expect(
-      screen.getByText('This window produced 18 search trails.'),
+      await screen.findByText('This window produced 18 search trails.'),
     ).toBeVisible()
     expect(screen.getByText('MDN')).toBeVisible()
     expect(screen.getByText('"sqlite wal checkpoint"')).toBeVisible()

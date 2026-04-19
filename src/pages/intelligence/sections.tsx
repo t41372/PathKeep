@@ -56,6 +56,7 @@ interface IntelligenceSectionsProps {
   domainHref: (domain: string) => string
   language: ResolvedLanguage
   profileId: string | null
+  secondaryReady: boolean
   scopeLabel: string
   t: T
 }
@@ -68,6 +69,7 @@ export function IntelligenceSections({
   domainHref,
   language,
   profileId,
+  secondaryReady,
   scopeLabel,
   t,
 }: IntelligenceSectionsProps) {
@@ -126,69 +128,123 @@ export function IntelligenceSections({
         scopeLabel={scopeLabel}
         t={t}
       />
+      {secondaryReady ? (
+        <div className="intelligence-secondary-grid">
+          <StableSourcesSection
+            dateRange={dateRange}
+            domainHref={domainHref}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <SearchEffectivenessSection
+            dateRange={dateRange}
+            domainHref={domainHref}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <FrictionDetectionSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <ReopenedInvestigationsSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <DiscoveryTrendSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <BreadthIndexSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <PathFlowsSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <CompareSetsSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <MultiBrowserDiffSection
+            dateRange={dateRange}
+            language={language}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+          <ObservedInteractionsSection
+            dateRange={dateRange}
+            profileId={profileId}
+            scopeLabel={scopeLabel}
+            t={t}
+          />
+        </div>
+      ) : (
+        <div className="intelligence-secondary-grid">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <section key={index} className="intelligence-section">
+              <div className="intelligence-skeleton intelligence-skeleton--card" />
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function IntelligenceSectionsSkeleton() {
+  return (
+    <div className="intelligence-grid">
+      <section className="intelligence-section digest-section">
+        <div className="intelligence-skeleton intelligence-skeleton--card" />
+      </section>
+      <div className="intelligence-row intelligence-row--two-col">
+        <section className="intelligence-section">
+          <div className="intelligence-skeleton intelligence-skeleton--card" />
+        </section>
+        <section className="intelligence-section">
+          <div className="intelligence-skeleton intelligence-skeleton--card" />
+        </section>
+      </div>
+      <div className="intelligence-row intelligence-row--two-col">
+        <section className="intelligence-section">
+          <div className="intelligence-skeleton intelligence-skeleton--list" />
+        </section>
+        <section className="intelligence-section">
+          <div className="intelligence-skeleton intelligence-skeleton--list" />
+        </section>
+      </div>
+      <div className="intelligence-row intelligence-row--two-col">
+        <section className="intelligence-section">
+          <div className="intelligence-skeleton intelligence-skeleton--card" />
+        </section>
+        <section className="intelligence-section">
+          <div className="intelligence-skeleton intelligence-skeleton--card" />
+        </section>
+      </div>
+      <section className="intelligence-section rhythm-section">
+        <div className="intelligence-skeleton intelligence-skeleton--heatmap" />
+      </section>
       <div className="intelligence-secondary-grid">
-        <StableSourcesSection
-          dateRange={dateRange}
-          domainHref={domainHref}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <SearchEffectivenessSection
-          dateRange={dateRange}
-          domainHref={domainHref}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <FrictionDetectionSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <ReopenedInvestigationsSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <DiscoveryTrendSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <BreadthIndexSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <PathFlowsSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <CompareSetsSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <MultiBrowserDiffSection
-          dateRange={dateRange}
-          language={language}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
-        <ObservedInteractionsSection
-          dateRange={dateRange}
-          profileId={profileId}
-          scopeLabel={scopeLabel}
-          t={t}
-        />
+        {Array.from({ length: 4 }).map((_, index) => (
+          <section key={index} className="intelligence-section">
+            <div className="intelligence-skeleton intelligence-skeleton--card" />
+          </section>
+        ))}
       </div>
     </div>
   )

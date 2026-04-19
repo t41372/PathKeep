@@ -140,6 +140,10 @@ export interface BackupProgressEvent {
   completedProfiles: number
   totalProfiles: number
   profileId?: string | null
+  progressCurrent?: number | null
+  progressTotal?: number | null
+  progressPercent?: number | null
+  logLines?: string[]
 }
 
 /**

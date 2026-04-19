@@ -88,7 +88,20 @@ function browserIconLetter(profileId: string) {
  * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Dashboard expectations in the design docs.
  */
 export function DashboardPage() {
-  const { dashboard, error, loading, refreshKey, snapshot } = useShellData()
+  const {
+    dashboard,
+    dashboardLoading = false,
+    error,
+    loading,
+    refreshKey,
+    runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    },
+    snapshot,
+  } = useShellData()
   const { language, t, ns } = useI18n()
   const { activeProfileId } = useProfileScope()
   const commonT = ns('common')
@@ -96,13 +109,19 @@ export function DashboardPage() {
   const [onThisDayEntries, setOnThisDayEntries] = useState<OnThisDayEntry[]>([])
   const [onThisDayLoading, setOnThisDayLoading] = useState(false)
   const [onThisDayError, setOnThisDayError] = useState<string | null>(null)
-  const [backgroundQueueCount, setBackgroundQueueCount] = useState<
-    number | null
-  >(null)
   const [archiveAccessFallback, setArchiveAccessFallback] = useState<Pick<
     SecurityStatus,
     'initialized' | 'encrypted' | 'unlocked'
   > | null>(null)
+  const backgroundQueueCount =
+    runtimeStatus.aiQueue && runtimeStatus.intelligence
+      ? runtimeStatus.aiQueue.queued +
+        runtimeStatus.aiQueue.running +
+        runtimeStatus.aiQueue.failed +
+        runtimeStatus.intelligence.queue.queued +
+        runtimeStatus.intelligence.queue.running +
+        runtimeStatus.intelligence.queue.failed
+      : null
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
@@ -144,65 +163,6 @@ export function DashboardPage() {
   }, [activeProfileId, intelligenceT, refreshKey, snapshot?.config.initialized])
 
   useEffect(() => {
-    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
-      setBackgroundQueueCount(null)
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled || typeof window === 'undefined') return
-      timeoutId = window.setTimeout(() => {
-        void load()
-      }, delayMs)
-    }
-
-    const load = async () => {
-      try {
-        const [aiQueue, runtime] = await Promise.all([
-          backend.loadAiQueueStatus(),
-          backend.loadIntelligenceRuntime(),
-        ])
-        if (cancelled) return
-        const totalCount =
-          aiQueue.queued +
-          aiQueue.running +
-          aiQueue.failed +
-          runtime.queue.queued +
-          runtime.queue.running +
-          runtime.queue.failed
-        setBackgroundQueueCount(totalCount)
-        const activeJobs =
-          aiQueue.queued +
-          aiQueue.running +
-          runtime.queue.queued +
-          runtime.queue.running
-        scheduleNext(activeJobs > 0 ? 3000 : 15000)
-      } catch {
-        if (!cancelled) {
-          setBackgroundQueueCount(null)
-          scheduleNext(15000)
-        }
-      }
-    }
-
-    void load()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null && typeof window !== 'undefined') {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [
-    refreshKey,
-    snapshot?.archiveStatus.unlocked,
-    snapshot?.config.initialized,
-  ])
-
-  useEffect(() => {
     if (!error || dashboard || snapshot) {
       setArchiveAccessFallback(null)
       return
@@ -231,7 +191,7 @@ export function DashboardPage() {
     }
   }, [dashboard, error, refreshKey, snapshot])
 
-  if (loading && !dashboard) {
+  if ((loading || dashboardLoading) && !dashboard) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
         <DashboardSkeleton label={t('common.loadingDashboard')} />

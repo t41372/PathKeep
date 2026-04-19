@@ -24,6 +24,7 @@ interface LoadingStateProps {
   progressLabel?: string | null
   progressValue?: number | null
   compact?: boolean
+  logLines?: string[]
 }
 
 /**
@@ -47,6 +48,7 @@ export function LoadingState({
   progressLabel,
   progressValue,
   compact = false,
+  logLines,
 }: LoadingStateProps) {
   const normalizedProgress = clampedProgress(progressValue)
 
@@ -90,6 +92,22 @@ export function LoadingState({
                 />
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {logLines?.length ? (
+          <div className="busy-overlay__steps">
+            {logLines.slice(-4).map((line) => (
+              <div
+                key={line}
+                className="busy-overlay__step busy-overlay__step--active"
+              >
+                <span
+                  className="busy-overlay__step-marker"
+                  aria-hidden="true"
+                />
+                <span className="mono-support">{line}</span>
+              </div>
+            ))}
           </div>
         ) : null}
       </div>

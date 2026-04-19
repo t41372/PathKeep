@@ -415,6 +415,10 @@ where
         completed_profiles: 0,
         total_profiles,
         profile_id: None,
+        progress_current: Some(0),
+        progress_total: Some(total_profiles),
+        progress_percent: Some(0.0),
+        log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
     });
 
     connection.execute(
@@ -458,6 +462,14 @@ where
                 completed_profiles: index,
                 total_profiles,
                 profile_id: Some(profile.profile_id.clone()),
+                progress_current: Some(index),
+                progress_total: Some(total_profiles),
+                progress_percent: if total_profiles == 0 {
+                    None
+                } else {
+                    Some((index as f32 / total_profiles as f32) * 100.0)
+                },
+                log_lines: vec![format!("Staging {}.", profile.profile_id)],
             });
             let snapshot = stage_profile_snapshot(paths, profile)?;
             report_progress(BackupProgressEvent {
@@ -473,6 +485,14 @@ where
                 completed_profiles: index,
                 total_profiles,
                 profile_id: Some(profile.profile_id.clone()),
+                progress_current: Some(index + 1),
+                progress_total: Some(total_profiles),
+                progress_percent: if total_profiles == 0 {
+                    None
+                } else {
+                    Some((((index + 1) as f32) / total_profiles as f32) * 100.0)
+                },
+                log_lines: vec![format!("Writing canonical facts for {}.", profile.profile_id)],
             });
             let profile_summary = process_profile_snapshot(
                 &transaction,
@@ -501,6 +521,10 @@ where
             completed_profiles: total_profiles,
             total_profiles,
             profile_id: None,
+            progress_current: Some(total_profiles),
+            progress_total: Some(total_profiles),
+            progress_percent: Some(100.0),
+            log_lines: vec!["Refreshing run ledger and cached summaries.".to_string()],
         });
         transaction.commit()?;
         Ok(())

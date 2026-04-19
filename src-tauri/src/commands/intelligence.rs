@@ -293,6 +293,24 @@ pub(crate) fn get_digest_summary(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn get_intelligence_primary_overview(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligencePrimaryOverview, String> {
+    worker_bridge::get_intelligence_primary_overview_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_intelligence_secondary_overview(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSecondaryOverview, String> {
+    worker_bridge::get_intelligence_secondary_overview_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_stable_sources(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,

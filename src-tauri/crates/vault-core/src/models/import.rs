@@ -78,3 +78,17 @@ pub struct TakeoutInspection {
     pub import_batch: Option<ImportBatchOverview>,
     pub notes: Vec<String>,
 }
+
+/// Progress event streamed while a Takeout import is running.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgressEvent {
+    pub phase: String,
+    pub label: String,
+    pub detail: String,
+    pub current: usize,
+    pub total: usize,
+    pub progress_percent: Option<f32>,
+    pub log_lines: Vec<String>,
+    pub source_path: Option<String>,
+}

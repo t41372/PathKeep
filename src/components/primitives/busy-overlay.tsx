@@ -25,6 +25,7 @@ interface BusyOverlayProps {
   progressValue?: number | null
   steps?: string[]
   activeStep?: number
+  logLines?: string[]
 }
 
 /**
@@ -39,6 +40,7 @@ export function BusyOverlay({
   progressValue,
   steps,
   activeStep,
+  logLines,
 }: BusyOverlayProps) {
   const normalizedProgress =
     progressValue === null ||
@@ -116,6 +118,22 @@ export function BusyOverlay({
                   </div>
                 )
               })}
+            </div>
+          ) : null}
+          {logLines?.length ? (
+            <div className="busy-overlay__steps">
+              {logLines.slice(-4).map((line) => (
+                <div
+                  key={line}
+                  className="busy-overlay__step busy-overlay__step--active"
+                >
+                  <span
+                    className="busy-overlay__step-marker"
+                    aria-hidden="true"
+                  />
+                  <span className="mono-support">{line}</span>
+                </div>
+              ))}
             </div>
           ) : null}
         </div>

@@ -207,6 +207,7 @@ const zhCnM3Namespaces = {
     rhythmHelp:
       '每个方块都对应一天真实日期；颜色越深，表示当天浏览次数越多。点某一天可查看当天摘要和小时分布。',
     rhythmLegend: '每格 = 一天',
+    rhythmSelectDayPrompt: '选择某一天后，才会加载当天摘要和小时分布。',
     rhythmAllCategories: '所有分类',
     rhythmCategoryFilter: '按分类筛选浏览节奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次访问',
@@ -1115,6 +1116,7 @@ const zhTwM3Namespaces = {
     rhythmHelp:
       '每個方塊都對應一天真實日期；顏色越深，表示當天瀏覽次數越多。點某一天可查看當天摘要和小時分布。',
     rhythmLegend: '每格 = 一天',
+    rhythmSelectDayPrompt: '選擇某一天後，才會載入當天摘要和小時分布。',
     rhythmAllCategories: '所有分類',
     rhythmCategoryFilter: '按分類篩選瀏覽節奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次造訪',
@@ -2367,6 +2369,13 @@ const catalog: Record<
       confirmImport: 'Confirm import →',
       importingTitle: 'Step 4: Importing...',
       importingProgressDetail: '{records} records · {files} files',
+      importProgressPrepareDetail:
+        'Checking {files} import payloads before writing archive rows.',
+      importProgressImportDetail: 'Processing {current} / {total}: {source}',
+      importProgressFinalizeDetail:
+        'Refreshing keyword recall and import-review metadata.',
+      importProgressCompleteDetail:
+        'Import review is ready. Follow-up rebuild work continues in Background Jobs.',
       importingBody: 'Writing records to the archive. This may take a moment.',
       completeTitle: 'Step 5: Import Complete',
       completeBody: 'Records have been written to the archive.',
@@ -3311,6 +3320,8 @@ const catalog: Record<
       rhythmHelp:
         'Each square maps to one real date. Darker squares mean more visits that day. Click a day to inspect its summary and hourly pattern.',
       rhythmLegend: 'Each square = one day',
+      rhythmSelectDayPrompt:
+        'Select a day to load its same-day summary and hourly distribution.',
       rhythmAllCategories: 'All categories',
       rhythmCategoryFilter: 'Filter browsing rhythm by category',
       rhythmCellTooltip: '{day} {hour}:00 — {count} visits',
@@ -4567,6 +4578,11 @@ const catalog: Record<
       confirmImport: '确认导入 →',
       importingTitle: '第 4 步：导入中…',
       importingProgressDetail: '{records} 条记录 · {files} 个文件',
+      importProgressPrepareDetail: '正在检查 {files} 个待导入文件。',
+      importProgressImportDetail: '正在处理 {current} / {total}：{source}',
+      importProgressFinalizeDetail: '正在刷新关键词检索和批次复核信息。',
+      importProgressCompleteDetail:
+        '导入复核已就绪，后续重建会在后台继续进行。',
       importingBody: '正在写入记录，请稍候。',
       completeTitle: '第 5 步：完成',
       completeBody: '记录已写入存档。',
@@ -5759,6 +5775,11 @@ const catalog: Record<
       confirmImport: '確認匯入 →',
       importingTitle: '第 4 步：匯入中…',
       importingProgressDetail: '{records} 筆紀錄 · {files} 個檔案',
+      importProgressPrepareDetail: '正在檢查 {files} 個待匯入檔案。',
+      importProgressImportDetail: '正在處理 {current} / {total}：{source}',
+      importProgressFinalizeDetail: '正在刷新關鍵字檢索和批次複核資訊。',
+      importProgressCompleteDetail:
+        '匯入複核已就緒，後續重建會在背景工作中繼續進行。',
       importingBody: '正在寫入紀錄，請稍候。',
       completeTitle: '第 5 步：完成',
       completeBody: '紀錄已寫入封存。',

@@ -34,7 +34,11 @@ import type {
   SetAppLockPasscodeRequest,
   UnlockAppSessionRequest,
 } from '../lib/types'
-import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
+import {
+  type BusyOverlayState,
+  ShellDataContext,
+  type ShellRuntimeStatus,
+} from './shell-data-context'
 
 /**
  * Waits one frame so a busy overlay or loading transition can paint before the
@@ -134,6 +138,15 @@ function shouldAttemptKeyringAutoUnlock(snapshot: AppSnapshot) {
   )
 }
 
+function emptyRuntimeStatus(): ShellRuntimeStatus {
+  return {
+    aiQueue: null,
+    intelligence: null,
+    loading: false,
+    error: null,
+  }
+}
+
 /**
  * Provides the front-end shell read model and shell-level actions to the rest
  * of the app.
@@ -148,6 +161,9 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [appLockStatus, setAppLockStatus] = useState<AppLockStatus | null>(null)
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null)
+  const [dashboardLoading, setDashboardLoading] = useState(false)
+  const [runtimeStatus, setRuntimeStatus] =
+    useState<ShellRuntimeStatus>(emptyRuntimeStatus)
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
@@ -157,6 +173,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const idleTimerRef = useRef<number | null>(null)
   const attemptedKeyringAutoUnlockRef = useRef(false)
   const surfacedCrashReportPathRef = useRef<string | null>(null)
+  const dashboardRefreshTokenRef = useRef(0)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
 
   /**
@@ -190,7 +207,103 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const clearLoadedState = useCallback(() => {
     setSnapshot(null)
     setDashboard(null)
+    setDashboardLoading(false)
+    setRuntimeStatus(emptyRuntimeStatus())
   }, [])
+
+  const refreshDashboardSnapshot = useCallback(
+    async (
+      nextSnapshot: AppSnapshot | null,
+      options: { surfaceErrors?: boolean } = {},
+    ) => {
+      const { surfaceErrors = false } = options
+      if (!nextSnapshot) {
+        setDashboard(null)
+        setDashboardLoading(false)
+        return
+      }
+
+      const refreshToken = dashboardRefreshTokenRef.current + 1
+      dashboardRefreshTokenRef.current = refreshToken
+      setDashboardLoading(true)
+
+      try {
+        const nextDashboard = await backend.loadDashboardSnapshot()
+        if (dashboardRefreshTokenRef.current !== refreshToken) {
+          return
+        }
+        setDashboard(nextDashboard)
+      } catch (dashboardError) {
+        if (dashboardRefreshTokenRef.current !== refreshToken) {
+          return
+        }
+
+        if (nextSnapshot.config.initialized && surfaceErrors) {
+          setError(
+            dashboardError instanceof Error
+              ? dashboardError.message
+              : loadingLatestArchiveState,
+          )
+          return
+        }
+
+        setDashboard(buildUninitializedDashboardFallback(nextSnapshot))
+      } finally {
+        if (dashboardRefreshTokenRef.current === refreshToken) {
+          setDashboardLoading(false)
+        }
+      }
+    },
+    [loadingLatestArchiveState],
+  )
+
+  const refreshRuntimeStatus = useCallback(
+    async (nextSnapshot: AppSnapshot | null = snapshot) => {
+      if (
+        !nextSnapshot?.config.initialized ||
+        !nextSnapshot.archiveStatus.unlocked
+      ) {
+        setRuntimeStatus(emptyRuntimeStatus())
+        return null
+      }
+
+      setRuntimeStatus((current) => ({
+        ...current,
+        loading: true,
+        error: null,
+      }))
+
+      try {
+        const [nextAiQueue, nextRuntime] = await Promise.all([
+          backend.loadAiQueueStatus(),
+          backend.loadIntelligenceRuntime(),
+        ])
+        setRuntimeStatus({
+          aiQueue: nextAiQueue,
+          intelligence: nextRuntime,
+          loading: false,
+          error: null,
+        })
+        return {
+          aiQueue: nextAiQueue,
+          intelligence: nextRuntime,
+        }
+      } catch (nextError) {
+        const message =
+          nextError instanceof Error
+            ? nextError.message
+            : t('common.notAvailable')
+        setRuntimeStatus({
+          aiQueue: null,
+          intelligence: null,
+          loading: false,
+          error: message,
+        })
+        return null
+      }
+    },
+    [snapshot, t],
+  )
 
   /**
    * Converts a low-level backup progress event into the readable busy-overlay
@@ -230,20 +343,24 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         : `${Math.min(progress.step + 1, progress.totalSteps).toLocaleString()} / ${progress.totalSteps.toLocaleString()}`
 
     switch (progress.phase) {
-      case 'prepare':
+      case 'prepare': {
+        const detail = t('shell.runningManualBackupDetail')
         return {
           label: t('shell.runningManualBackup'),
-          detail: t('shell.runningManualBackupDetail'),
+          detail,
           progressLabel,
           progressValue: stepProgress,
           steps: backupSteps,
           activeStep: 0,
+          logLines: [detail],
         }
+      }
       case 'stage-profile':
-      case 'ingest-profile':
+      case 'ingest-profile': {
+        const detail = profileDetail ?? t('shell.backupWritingArchiveDetail')
         return {
           label: t('shell.backupWritingArchive'),
-          detail: profileDetail ?? t('shell.backupWritingArchiveDetail'),
+          detail,
           progressLabel,
           progressValue:
             progress.totalProfiles > 0
@@ -251,14 +368,17 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
               : stepProgress,
           steps: backupSteps,
           activeStep: 1,
+          logLines: [detail],
         }
-      case 'finalize':
+      }
+      case 'finalize': {
+        const detail = t('shell.backupFinalizeProgress', {
+          current: progress.completedProfiles,
+          total: progress.totalProfiles,
+        })
         return {
           label: t('shell.refreshingArchiveViews'),
-          detail: t('shell.backupFinalizeProgress', {
-            current: progress.completedProfiles,
-            total: progress.totalProfiles,
-          }),
+          detail,
           progressLabel,
           progressValue:
             progress.totalProfiles > 0
@@ -266,16 +386,21 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
               : stepProgress,
           steps: backupSteps,
           activeStep: 2,
+          logLines: [detail],
         }
-      default:
+      }
+      default: {
+        const detail = t('shell.runningManualBackupDetail')
         return {
           label: t('shell.runningManualBackup'),
-          detail: t('shell.runningManualBackupDetail'),
+          detail,
           progressLabel,
           progressValue: stepProgress,
           steps: backupSteps,
           activeStep: 0,
+          logLines: [detail],
         }
+      }
     }
   }
 
@@ -327,17 +452,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         setSnapshot(nextSnapshot)
         setBuildInfo(nextBuildInfo)
         setAppLockStatus(nextSnapshot.appLockStatus)
-        try {
-          const nextDashboard = await backend.loadDashboardSnapshot()
-          setDashboard(nextDashboard)
-        } catch (dashboardError) {
-          if (nextSnapshot.config.initialized) {
-            throw dashboardError
-          }
-
-          setDashboard(buildUninitializedDashboardFallback(nextSnapshot))
-        }
         setRefreshKey((value) => value + 1)
+        void refreshDashboardSnapshot(nextSnapshot, { surfaceErrors: true })
       } catch (nextError) {
         if (isAppLockError(nextError)) {
           try {
@@ -365,7 +481,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [clearLoadedState, loadingLatestArchiveState, setLanguagePreference],
+    [
+      clearLoadedState,
+      loadingLatestArchiveState,
+      refreshDashboardSnapshot,
+      setLanguagePreference,
+    ],
   )
 
   const armIdleDeadline = useEffectEvent((idleTimeoutMinutes: number) => {
@@ -394,6 +515,49 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshAppData().catch(() => undefined)
   }, [refreshAppData])
+
+  useEffect(() => {
+    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+      setRuntimeStatus(emptyRuntimeStatus())
+      return
+    }
+
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled || typeof window === 'undefined') return
+      timeoutId = window.setTimeout(() => {
+        void load()
+      }, delayMs)
+    }
+
+    const load = async () => {
+      const next = await refreshRuntimeStatus(snapshot)
+      if (cancelled) return
+      const activeJobs =
+        (next?.aiQueue.queued ?? 0) +
+        (next?.aiQueue.running ?? 0) +
+        (next?.intelligence.queue.queued ?? 0) +
+        (next?.intelligence.queue.running ?? 0)
+      scheduleNext(activeJobs > 0 ? 3000 : 15000)
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== null && typeof window !== 'undefined') {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [
+    refreshKey,
+    refreshRuntimeStatus,
+    snapshot,
+    snapshot?.archiveStatus.unlocked,
+    snapshot?.config.initialized,
+  ])
 
   useEffect(() => {
     const crashReportPath =
@@ -485,10 +649,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       setAppLockStatus(nextSnapshot.appLockStatus)
       setSnapshot(nextSnapshot)
       setRefreshKey((value) => value + 1)
-      void backend
-        .loadDashboardSnapshot()
-        .then((nextDashboard) => setDashboard(nextDashboard))
-        .catch(() => undefined)
+      void refreshDashboardSnapshot(nextSnapshot)
       return nextSnapshot
     } catch (nextError) {
       setError(
@@ -521,13 +682,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     try {
       await waitForNextPaint()
       const nextSnapshot = await backend.initializeArchive(config, databaseKey)
-      const nextDashboard = await backend.loadDashboardSnapshot()
       setLanguagePreference(nextSnapshot.config.preferredLanguage)
       setAppLockStatus(nextSnapshot.appLockStatus)
       setSnapshot(nextSnapshot)
-      setDashboard(nextDashboard)
       setNotice(t('shell.initializedNotice'))
       setRefreshKey((value) => value + 1)
+      void refreshDashboardSnapshot(nextSnapshot)
       return nextSnapshot
     } catch (nextError) {
       setError(
@@ -592,7 +752,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         steps: backupSteps,
         activeStep: 2,
       })
-      await refreshAppData(false)
+      void refreshAppData(false)
       setNotice(
         report.dueSkipped
           ? (report.reason ?? t('shell.manualBackupDueWindow'))
@@ -631,7 +791,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       await waitForNextPaint()
       const nextStatus = await backend.setAppLockPasscode(request)
       setAppLockStatus(nextStatus)
-      await refreshAppData(false)
+      void refreshAppData(false)
       return nextStatus
     } catch (nextError) {
       setError(
@@ -662,7 +822,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       await waitForNextPaint()
       const nextStatus = await backend.clearAppLockPasscode()
       setAppLockStatus(nextStatus)
-      await refreshAppData(false)
+      void refreshAppData(false)
       return nextStatus
     } catch (nextError) {
       setError(
@@ -725,7 +885,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       await waitForNextPaint()
       const nextStatus = await backend.unlockAppSession(request)
       setAppLockStatus(nextStatus)
-      await refreshAppData(false)
+      void refreshAppData(false)
       return nextStatus
     } catch (nextError) {
       setError(
@@ -746,6 +906,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         appLockStatus,
         snapshot,
         dashboard,
+        dashboardLoading,
+        runtimeStatus,
         loading,
         busyAction,
         busyOverlay,

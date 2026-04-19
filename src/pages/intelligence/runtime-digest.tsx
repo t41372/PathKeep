@@ -13,16 +13,15 @@
  * - This surface should stay a digest only; full retry/cancel/recovery review belongs on `/jobs`.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { backend } from '../../lib/backend-client'
+import { useShellData } from '../../app/shell-data-context'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
-import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
 
 interface IntelligenceRuntimeDigestProps {
   initialized: boolean
@@ -31,70 +30,21 @@ interface IntelligenceRuntimeDigestProps {
 
 type DigestTone = 'info' | 'warning' | 'success'
 
-function loadDelay(runtime: IntelligenceRuntimeSnapshot | null) {
-  const activeJobs =
-    (runtime?.queue.queued ?? 0) + (runtime?.queue.running ?? 0)
-
-  return activeJobs > 0 ? 3000 : 15000
-}
-
 export function IntelligenceRuntimeDigest({
   initialized,
   unlocked,
 }: IntelligenceRuntimeDigestProps) {
+  const {
+    runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    },
+  } = useShellData()
   const { language, ns } = useI18n()
   const intelligenceT = ns('intelligence')
   const jobsT = ns('jobs')
-  const commonT = ns('common')
-  const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
-    null,
-  )
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!initialized || !unlocked) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled || typeof window === 'undefined') return
-      timeoutId = window.setTimeout(() => {
-        void load()
-      }, delayMs)
-    }
-
-    const load = async () => {
-      try {
-        const nextRuntime = await backend.loadIntelligenceRuntime()
-
-        if (cancelled) return
-        setRuntime(nextRuntime)
-        setError(null)
-        scheduleNext(loadDelay(nextRuntime))
-      } catch (nextError) {
-        if (cancelled) return
-        setRuntime(null)
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : commonT('notAvailable'),
-        )
-        scheduleNext(15000)
-      }
-    }
-
-    void load()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null && typeof window !== 'undefined') {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [commonT, initialized, unlocked])
 
   const digest = useMemo(() => {
     if (!initialized || !unlocked) {
@@ -107,28 +57,38 @@ export function IntelligenceRuntimeDigest({
       }
     }
 
-    if (error) {
+    if (runtimeStatus.error) {
       return {
         tone: 'warning' as DigestTone,
         title: intelligenceT('runtimeDigestUnavailableTitle'),
         body: intelligenceT('runtimeDigestUnavailableBody'),
-        jobDetail: error,
+        jobDetail: runtimeStatus.error,
         meta: null,
       }
     }
 
-    const queued = runtime?.queue.queued ?? 0
-    const running = runtime?.queue.running ?? 0
-    const failed = runtime?.queue.failed ?? 0
-    const recentRuntimeJob = runtime?.recentJobs[0] ?? null
+    const queued =
+      (runtimeStatus.intelligence?.queue.queued ?? 0) +
+      (runtimeStatus.aiQueue?.queued ?? 0)
+    const running =
+      (runtimeStatus.intelligence?.queue.running ?? 0) +
+      (runtimeStatus.aiQueue?.running ?? 0)
+    const failed =
+      (runtimeStatus.intelligence?.queue.failed ?? 0) +
+      (runtimeStatus.aiQueue?.failed ?? 0)
+    const recentRuntimeJob = runtimeStatus.intelligence?.recentJobs[0] ?? null
     const lastActivityAt =
-      runtime?.queue.lastActivityAt ?? recentRuntimeJob?.updatedAt ?? null
+      runtimeStatus.intelligence?.queue.lastActivityAt ??
+      recentRuntimeJob?.updatedAt ??
+      null
 
     const baseMeta = lastActivityAt
       ? intelligenceT('runtimeDigestLastActivity', {
           relative: formatRelativeTime(lastActivityAt, language),
         })
-      : intelligenceT('runtimeDigestIdleMeta')
+      : runtimeStatus.loading
+        ? jobsT('runningCount')
+        : intelligenceT('runtimeDigestIdleMeta')
 
     if (failed > 0) {
       return {
@@ -176,7 +136,7 @@ export function IntelligenceRuntimeDigest({
       jobDetail: null,
       meta: baseMeta,
     }
-  }, [error, initialized, intelligenceT, jobsT, language, runtime, unlocked])
+  }, [initialized, intelligenceT, jobsT, language, runtimeStatus, unlocked])
 
   return (
     <section

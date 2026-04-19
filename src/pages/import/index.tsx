@@ -19,6 +19,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { backend } from '../../lib/backend-client'
+import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
 import {
   healthCheckStatusKey,
@@ -31,6 +32,7 @@ import type {
   HealthReport,
   ImportBatchDetail,
   ImportBatchOverview,
+  ImportProgressEvent,
   TakeoutInspection,
 } from '../../lib/types'
 import { OperationWorkflow, PreviewEntryList } from '../../components/ui'
@@ -48,6 +50,31 @@ type ImportMethod = 'takeout' | 'browser'
  * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
  */
 type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
+
+function localizedImportProgressDetail(
+  progress: ImportProgressEvent,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  language: string,
+) {
+  switch (progress.phase) {
+    case 'prepare':
+      return t('import.importProgressPrepareDetail', {
+        files: progress.total.toLocaleString(language),
+      })
+    case 'import-file':
+      return t('import.importProgressImportDetail', {
+        current: progress.current.toLocaleString(language),
+        total: progress.total.toLocaleString(language),
+        source: progress.sourcePath ?? '',
+      })
+    case 'finalize':
+      return t('import.importProgressFinalizeDetail')
+    case 'complete':
+      return t('import.importProgressCompleteDetail')
+    default:
+      return progress.detail
+  }
+}
 
 /**
  * Renders the import route.
@@ -68,6 +95,8 @@ export function ImportPage() {
   >(null)
   const [inspection, setInspection] = useState<TakeoutInspection | null>(null)
   const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] =
+    useState<ImportProgressEvent | null>(null)
   const [importResult, setImportResult] = useState<TakeoutInspection | null>(
     null,
   )
@@ -397,8 +426,13 @@ export function ImportPage() {
     if (!sourcePath.trim()) return
     setActionError(null)
     setImporting(true)
+    setImportProgress(null)
     setStep('confirm')
+    let unsubscribe = () => {}
     try {
+      unsubscribe = await subscribeToImportProgress((progress) => {
+        setImportProgress(progress)
+      })
       const result = await backend.importTakeout({ sourcePath, dryRun: false })
       setImportResult(result)
       await refreshAppData()
@@ -426,6 +460,7 @@ export function ImportPage() {
       )
       setStep('preview')
     } finally {
+      unsubscribe()
       setImporting(false)
     }
   }
@@ -1041,16 +1076,42 @@ export function ImportPage() {
               <div style={{ position: 'relative', minHeight: '120px' }}>
                 <BusyOverlay
                   label={t('import.importingTitle')}
-                  detail={t('import.importingProgressDetail', {
-                    records: (inspection?.candidateItems ?? 0).toLocaleString(
-                      language,
-                    ),
-                    files: (
-                      inspection?.recognizedFiles.length ?? 0
-                    ).toLocaleString(language),
-                  })}
-                  progressLabel={`4 / ${wizardSteps.length.toLocaleString(language)}`}
-                  progressValue={(4 / wizardSteps.length) * 100}
+                  detail={
+                    importProgress
+                      ? localizedImportProgressDetail(
+                          importProgress,
+                          t,
+                          language,
+                        )
+                      : t('import.importingProgressDetail', {
+                          records: (
+                            inspection?.candidateItems ?? 0
+                          ).toLocaleString(language),
+                          files: (
+                            inspection?.recognizedFiles.length ?? 0
+                          ).toLocaleString(language),
+                        })
+                  }
+                  logLines={
+                    importProgress
+                      ? [
+                          localizedImportProgressDetail(
+                            importProgress,
+                            t,
+                            language,
+                          ),
+                        ]
+                      : []
+                  }
+                  progressLabel={
+                    importProgress
+                      ? `${importProgress.current.toLocaleString(language)} / ${importProgress.total.toLocaleString(language)}`
+                      : `4 / ${wizardSteps.length.toLocaleString(language)}`
+                  }
+                  progressValue={
+                    importProgress?.progressPercent ??
+                    (4 / wizardSteps.length) * 100
+                  }
                   steps={wizardSteps
                     .slice(2)
                     .map((wizardStep) => wizardStep.label)}

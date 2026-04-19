@@ -81,6 +81,7 @@ export function OnboardingShell() {
           progressValue={busyOverlay?.progressValue}
           steps={busyOverlay?.steps}
           activeStep={busyOverlay?.activeStep}
+          logLines={busyOverlay?.logLines}
         />
       ) : null}
     </div>

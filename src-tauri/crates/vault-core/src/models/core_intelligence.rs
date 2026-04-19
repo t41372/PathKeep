@@ -116,6 +116,14 @@ pub struct CoreIntelligenceSectionResult<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Per-section timing sample emitted by staged overview commands.
+pub struct CoreIntelligenceSectionTiming {
+    pub section_id: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Common request shape for paginated Core Intelligence list queries.
 pub struct PagedDateRangeRequest {
     pub date_range: DateRange,
@@ -268,6 +276,43 @@ pub struct DigestSummary {
     pub new_domains: KpiMetric,
     pub deep_read_pages: KpiMetric,
     pub refind_pages: KpiMetric,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Batched first-band `/intelligence` payload used to avoid foreground IPC fan-out.
+pub struct CoreIntelligencePrimaryOverview {
+    pub digest_summary: CoreIntelligenceSectionResult<DigestSummary>,
+    pub on_this_day: CoreIntelligenceSectionResult<Vec<OnThisDayEntry>>,
+    pub top_sites: CoreIntelligenceSectionResult<Vec<TopSite>>,
+    pub refind_pages: CoreIntelligenceSectionResult<Vec<RefindPage>>,
+    pub search_engine_ranking: CoreIntelligenceSectionResult<Vec<EngineRanking>>,
+    pub top_search_concepts: CoreIntelligenceSectionResult<Vec<SearchConcept>>,
+    pub query_families: CoreIntelligenceSectionResult<QueryFamilyResult>,
+    pub activity_mix: CoreIntelligenceSectionResult<ActivityMix>,
+    pub discovery_trend_day: CoreIntelligenceSectionResult<DiscoveryTrend>,
+    pub habit_patterns: CoreIntelligenceSectionResult<Vec<HabitPattern>>,
+    pub interrupted_habits: CoreIntelligenceSectionResult<Vec<InterruptedHabit>>,
+    pub timings: Vec<CoreIntelligenceSectionTiming>,
+    pub total_duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Batched deferred `/intelligence` payload for below-the-fold sections.
+pub struct CoreIntelligenceSecondaryOverview {
+    pub stable_sources: CoreIntelligenceSectionResult<Vec<StableSource>>,
+    pub search_effectiveness: CoreIntelligenceSectionResult<SearchEffectiveness>,
+    pub friction_signals: CoreIntelligenceSectionResult<Vec<FrictionSignal>>,
+    pub reopened_investigations: CoreIntelligenceSectionResult<Vec<ReopenedInvestigation>>,
+    pub discovery_trend_week: CoreIntelligenceSectionResult<DiscoveryTrend>,
+    pub breadth_index: CoreIntelligenceSectionResult<BreadthIndex>,
+    pub path_flows: CoreIntelligenceSectionResult<Vec<PathFlow>>,
+    pub compare_sets: CoreIntelligenceSectionResult<Vec<CompareSet>>,
+    pub multi_browser_diff: CoreIntelligenceSectionResult<BrowserDiff>,
+    pub observed_interactions: CoreIntelligenceSectionResult<Vec<ObservedInteraction>>,
+    pub timings: Vec<CoreIntelligenceSectionTiming>,
+    pub total_duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -17,7 +17,7 @@
     `docs/plan/e2e-workflow-tests.md`
     `docs/plan/m4-full-polish/large-archive-performance-runbook.md`
   - 目標：在 current-host shell bootstrap / Security unlock 可以穩定進入 unlocked state 之後，完成原本要求的 real-data import + Core Intelligence + 全 app Computer Use truth pass，並補齊 post-unlock profiling bundle。
-  - 契約：使用 Computer Use 跑 Chrome `yi-ting` profile、archive encryption `000000`（不寫入鑰匙圈）、Import / Intelligence / Domain Deep Dive / Explorer session-trail / Settings external outputs / Jobs / Audit / Schedule / Assistant 全路由；若現有 app root 仍不符合「已清資料」前提，必須先取得使用者明確確認後才能做 destructive reset。 [!blocked: source 已補上 locked-snapshot degradation、unlock fail-fast 與 short-SHA build label，但 current-host fresh desktop relaunch 仍顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome；這代表 host-side stale WebView / bundle cache drift 仍攔在 full truth pass 前面，必要時還需要使用者明確同意 reset 當前 app root]
+  - 契約：使用 Computer Use 跑 Chrome `yi-ting` profile、archive encryption `000000`（不寫入鑰匙圈）、Import / Intelligence / Domain Deep Dive / Explorer session-trail / Settings external outputs / Jobs / Audit / Schedule / Assistant 全路由；若現有 app root 仍不符合「已清資料」前提，必須先取得使用者明確確認後才能做 destructive reset。 [!blocked: 2026-04-19 current-host live desktop 已能顯示最新 short-SHA build label、staged `/intelligence` surface 與 shared runtime status，source-level bundle drift 不再是主要 blocker；剩下的 full truth pass 阻塞點是 onboarding / import 若要重做真實 re-import，仍需要先對當前 app root 做 destructive reset，而這一步必須取得使用者明確同意]
 
 ---
 

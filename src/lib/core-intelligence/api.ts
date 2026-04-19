@@ -19,8 +19,11 @@ import type {
   CoreIntelligenceRebuildRequest,
   CoreIntelligenceRebuildReport,
   CoreIntelligenceQueueReport,
+  CoreIntelligencePrimaryOverview,
+  CoreIntelligenceSecondaryOverview,
   CoreIntelligenceSectionMeta,
   CoreIntelligenceSectionResult,
+  CoreIntelligenceSectionTiming,
   CoreIntelligenceSectionWindow,
   DigestSummary,
   OnThisDayEntry,
@@ -218,6 +221,253 @@ function normalizeSectionResult<T>(
   }
 }
 
+interface OverviewCacheEntry {
+  primary?: CoreIntelligencePrimaryOverview
+  secondary?: CoreIntelligenceSecondaryOverview
+}
+
+const overviewCache = new Map<string, OverviewCacheEntry>()
+
+function overviewScopeKey(dateRange: DateRange, profileId?: string | null) {
+  return JSON.stringify({
+    dateRange,
+    profileId: profileId ?? null,
+  })
+}
+
+function readOverviewCache(dateRange: DateRange, profileId?: string | null) {
+  return overviewCache.get(overviewScopeKey(dateRange, profileId)) ?? null
+}
+
+function writeOverviewCache(
+  dateRange: DateRange,
+  profileId: string | null | undefined,
+  updater: (current: OverviewCacheEntry) => OverviewCacheEntry,
+) {
+  const key = overviewScopeKey(dateRange, profileId)
+  const current = overviewCache.get(key) ?? {}
+  overviewCache.set(key, updater(current))
+}
+
+function cachedPrimaryOverview(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return readOverviewCache(dateRange, profileId)?.primary ?? null
+}
+
+function cachedSecondaryOverview(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return readOverviewCache(dateRange, profileId)?.secondary ?? null
+}
+
+function cachedPrimarySectionForProfile<T>(
+  profileId: string | null | undefined,
+  read: (
+    overview: CoreIntelligencePrimaryOverview,
+  ) => CoreIntelligenceSectionResult<T> | undefined,
+) {
+  const targetProfile = profileId ?? null
+  for (const [key, entry] of overviewCache.entries()) {
+    const parsed = JSON.parse(key) as {
+      profileId?: string | null
+    }
+    if ((parsed.profileId ?? null) !== targetProfile) {
+      continue
+    }
+    const section = entry.primary ? read(entry.primary) : undefined
+    if (section) {
+      return section
+    }
+  }
+
+  return null
+}
+
+function cachedSecondarySectionForDateRange<T>(
+  dateRange: DateRange,
+  read: (
+    overview: CoreIntelligenceSecondaryOverview,
+  ) => CoreIntelligenceSectionResult<T> | undefined,
+) {
+  for (const [key, entry] of overviewCache.entries()) {
+    const parsed = JSON.parse(key) as {
+      dateRange?: DateRange
+    }
+    if (
+      parsed.dateRange?.start !== dateRange.start ||
+      parsed.dateRange?.end !== dateRange.end
+    ) {
+      continue
+    }
+    const section = entry.secondary ? read(entry.secondary) : undefined
+    if (section) {
+      return section
+    }
+  }
+
+  return null
+}
+
+function normalizeTiming(
+  timing: unknown,
+): CoreIntelligenceSectionTiming | null {
+  if (!timing || typeof timing !== 'object') {
+    return null
+  }
+
+  const raw = timing as Record<string, unknown>
+  if (typeof raw.sectionId !== 'string' || typeof raw.durationMs !== 'number') {
+    return null
+  }
+
+  return {
+    sectionId: raw.sectionId,
+    durationMs: raw.durationMs,
+  }
+}
+
+function normalizeTimings(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(normalizeTiming)
+    .filter(
+      (timing): timing is CoreIntelligenceSectionTiming => timing !== null,
+    )
+}
+
+function normalizePrimaryOverview(
+  dateRange: DateRange,
+  result: CoreIntelligencePrimaryOverview,
+): CoreIntelligencePrimaryOverview {
+  return {
+    digestSummary: normalizeSectionResult(
+      'digest-summary',
+      { kind: 'date-range', dateRange },
+      result.digestSummary,
+    ),
+    onThisDay: normalizeSectionResult(
+      'on-this-day',
+      {
+        kind: 'calendar-day-history',
+        referenceDate: formatLocalDateKey(new Date()),
+      },
+      result.onThisDay,
+    ),
+    topSites: normalizeSectionResult(
+      'top-sites',
+      { kind: 'date-range', dateRange },
+      result.topSites,
+    ),
+    refindPages: normalizeSectionResult(
+      'refind-pages',
+      { kind: 'date-range', dateRange },
+      result.refindPages,
+    ),
+    searchEngineRanking: normalizeSectionResult(
+      'search-activity',
+      { kind: 'date-range', dateRange },
+      result.searchEngineRanking,
+    ),
+    topSearchConcepts: normalizeSectionResult(
+      'search-activity',
+      { kind: 'date-range', dateRange },
+      result.topSearchConcepts,
+    ),
+    queryFamilies: normalizeSectionResult(
+      'search-activity',
+      { kind: 'date-range', dateRange },
+      result.queryFamilies,
+    ),
+    activityMix: normalizeSectionResult(
+      'activity-mix',
+      { kind: 'date-range', dateRange },
+      result.activityMix,
+    ),
+    discoveryTrendDay: normalizeSectionResult(
+      'browsing-rhythm',
+      { kind: 'date-range', dateRange },
+      result.discoveryTrendDay,
+    ),
+    habitPatterns: normalizeSectionResult(
+      'habits',
+      { kind: 'date-range', dateRange },
+      result.habitPatterns,
+    ),
+    interruptedHabits: normalizeSectionResult(
+      'habits',
+      { kind: 'date-range', dateRange },
+      result.interruptedHabits,
+    ),
+    timings: normalizeTimings(result.timings),
+    totalDurationMs:
+      typeof result.totalDurationMs === 'number' ? result.totalDurationMs : 0,
+  }
+}
+
+function normalizeSecondaryOverview(
+  dateRange: DateRange,
+  result: CoreIntelligenceSecondaryOverview,
+): CoreIntelligenceSecondaryOverview {
+  return {
+    stableSources: normalizeSectionResult(
+      'stable-sources',
+      { kind: 'date-range', dateRange },
+      result.stableSources,
+    ),
+    searchEffectiveness: normalizeSectionResult(
+      'search-effectiveness',
+      { kind: 'date-range', dateRange },
+      result.searchEffectiveness,
+    ),
+    frictionSignals: normalizeSectionResult(
+      'friction-signals',
+      { kind: 'date-range', dateRange },
+      result.frictionSignals,
+    ),
+    reopenedInvestigations: normalizeSectionResult(
+      'reopened-investigations',
+      { kind: 'date-range', dateRange },
+      result.reopenedInvestigations,
+    ),
+    discoveryTrendWeek: normalizeSectionResult(
+      'discovery-trend',
+      { kind: 'date-range', dateRange },
+      result.discoveryTrendWeek,
+    ),
+    breadthIndex: normalizeSectionResult(
+      'breadth-index',
+      { kind: 'date-range', dateRange },
+      result.breadthIndex,
+    ),
+    pathFlows: normalizeSectionResult(
+      'path-flows',
+      { kind: 'date-range', dateRange },
+      result.pathFlows,
+    ),
+    compareSets: normalizeSectionResult(
+      'compare-sets',
+      { kind: 'date-range', dateRange },
+      result.compareSets,
+    ),
+    multiBrowserDiff: normalizeSectionResult(
+      'multi-browser-diff',
+      { kind: 'date-range', dateRange },
+      result.multiBrowserDiff,
+    ),
+    observedInteractions: normalizeSectionResult(
+      'observed-interactions',
+      { kind: 'date-range', dateRange },
+      result.observedInteractions,
+    ),
+    timings: normalizeTimings(result.timings),
+    totalDurationMs:
+      typeof result.totalDurationMs === 'number' ? result.totalDurationMs : 0,
+  }
+}
+
 function invokeSectionRequest<
   TResponse,
   TRequest extends Record<string, unknown>,
@@ -266,6 +516,64 @@ export function queueCoreIntelligenceRebuild(
   )
 }
 
+export function loadIntelligencePrimaryOverview(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return invokeRequest<
+    CoreIntelligencePrimaryOverview,
+    { dateRange: DateRange; profileId?: string | null }
+  >('get_intelligence_primary_overview', {
+    dateRange,
+    profileId,
+  }).then((result) => {
+    const normalized = normalizePrimaryOverview(dateRange, result)
+    writeOverviewCache(dateRange, profileId, (current) => ({
+      ...current,
+      primary: normalized,
+    }))
+    return normalized
+  })
+}
+
+export function loadIntelligenceSecondaryOverview(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return invokeRequest<
+    CoreIntelligenceSecondaryOverview,
+    { dateRange: DateRange; profileId?: string | null }
+  >('get_intelligence_secondary_overview', {
+    dateRange,
+    profileId,
+  }).then((result) => {
+    const normalized = normalizeSecondaryOverview(dateRange, result)
+    writeOverviewCache(dateRange, profileId, (current) => ({
+      ...current,
+      secondary: normalized,
+    }))
+    return normalized
+  })
+}
+
+export function clearIntelligenceOverviewCache() {
+  overviewCache.clear()
+}
+
+export function peekIntelligencePrimaryOverview(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return cachedPrimaryOverview(dateRange, profileId)
+}
+
+export function peekIntelligenceSecondaryOverview(
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return cachedSecondaryOverview(dateRange, profileId)
+}
+
 // ---------------------------------------------------------------------------
 // 1.1 Digest Summary
 // ---------------------------------------------------------------------------
@@ -274,6 +582,10 @@ export function getDigestSummary(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.digestSummary
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     DigestSummary,
     { dateRange: DateRange; profileId?: string | null }
@@ -296,6 +608,13 @@ export function getDigestSummary(
 // ---------------------------------------------------------------------------
 
 export function getOnThisDay(profileId?: string | null) {
+  const cached = cachedPrimarySectionForProfile(
+    profileId,
+    (overview) => overview.onThisDay,
+  )
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionArgs<OnThisDayEntry[]>(
     'get_on_this_day',
     { profileId },
@@ -317,6 +636,17 @@ export function getTopSites(
   sortBy?: string,
   limit?: number,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.topSites
+  if (
+    cached &&
+    (!sortBy || sortBy === 'visit_count') &&
+    (!limit || limit <= cached.data.length)
+  ) {
+    return Promise.resolve({
+      ...cached,
+      data: cached.data.slice(0, limit ?? cached.data.length),
+    })
+  }
   return invokeSectionRequest<
     TopSite[],
     {
@@ -359,6 +689,13 @@ export function getSearchEngineRanking(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedPrimaryOverview(
+    dateRange,
+    profileId,
+  )?.searchEngineRanking
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     EngineRanking[],
     {
@@ -384,6 +721,13 @@ export function getTopSearchConcepts(
   profileId?: string | null,
   limit?: number,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.topSearchConcepts
+  if (cached && (!limit || limit <= cached.data.length)) {
+    return Promise.resolve({
+      ...cached,
+      data: cached.data.slice(0, limit ?? cached.data.length),
+    })
+  }
   return invokeSectionRequest<
     SearchConcept[],
     {
@@ -411,6 +755,22 @@ export function getQueryFamilies(
   profileId?: string | null,
   pagination?: PaginationParams,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.queryFamilies
+  if (
+    cached &&
+    (pagination?.page ?? 0) === 0 &&
+    (pagination?.pageSize ?? 10) <= cached.data.pageSize
+  ) {
+    return Promise.resolve({
+      ...cached,
+      data: {
+        ...cached.data,
+        page: pagination?.page ?? 0,
+        pageSize: pagination?.pageSize ?? cached.data.pageSize,
+        families: cached.data.families.slice(0, pagination?.pageSize ?? 10),
+      },
+    })
+  }
   return invokeSectionRequest<
     QueryFamilyResult,
     {
@@ -444,6 +804,13 @@ export function getRefindPages(
   profileId?: string | null,
   limit?: number,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.refindPages
+  if (cached && (!limit || limit <= cached.data.length)) {
+    return Promise.resolve({
+      ...cached,
+      data: cached.data.slice(0, limit ?? cached.data.length),
+    })
+  }
   return invokeSectionRequest<
     RefindPage[],
     {
@@ -481,6 +848,10 @@ export function getHabitPatterns(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.habitPatterns
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     HabitPattern[],
     {
@@ -502,6 +873,13 @@ export function getHabitPatterns(
 }
 
 export function getInterruptedHabits(profileId?: string | null) {
+  const cached = cachedPrimarySectionForProfile(
+    profileId,
+    (overview) => overview.interruptedHabits,
+  )
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     InterruptedHabit[],
     { profileId?: string | null }
@@ -645,6 +1023,10 @@ export function getStableSources(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedSecondaryOverview(dateRange, profileId)?.stableSources
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     StableSource[],
     {
@@ -674,6 +1056,12 @@ export function getSearchEffectiveness(
   profileId?: string | null,
   engine?: string,
 ) {
+  const cached = !engine
+    ? cachedSecondaryOverview(dateRange, profileId)?.searchEffectiveness
+    : null
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     SearchEffectiveness,
     {
@@ -704,6 +1092,10 @@ export function getFrictionSignals(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedSecondaryOverview(dateRange, profileId)?.frictionSignals
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     FrictionSignal[],
     {
@@ -732,6 +1124,13 @@ export function getReopenedInvestigations(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedSecondaryOverview(
+    dateRange,
+    profileId,
+  )?.reopenedInvestigations
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     ReopenedInvestigation[],
     {
@@ -792,6 +1191,15 @@ export function getDiscoveryTrend(
   profileId?: string | null,
   granularity?: string,
 ) {
+  const cached =
+    granularity === 'day'
+      ? cachedPrimaryOverview(dateRange, profileId)?.discoveryTrendDay
+      : granularity === 'week' || granularity === undefined
+        ? cachedSecondaryOverview(dateRange, profileId)?.discoveryTrendWeek
+        : null
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     DiscoveryTrend,
     {
@@ -822,6 +1230,10 @@ export function getActivityMix(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedPrimaryOverview(dateRange, profileId)?.activityMix
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     ActivityMix,
     {
@@ -869,6 +1281,10 @@ export function getBreadthIndex(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedSecondaryOverview(dateRange, profileId)?.breadthIndex
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     BreadthIndex,
     {
@@ -899,6 +1315,17 @@ export function getPathFlows(
   stepCount?: number,
   limit?: number,
 ) {
+  const cached = cachedSecondaryOverview(dateRange, profileId)?.pathFlows
+  if (
+    cached &&
+    (stepCount ?? 3) === 3 &&
+    (limit ?? cached.data.length) <= cached.data.length
+  ) {
+    return Promise.resolve({
+      ...cached,
+      data: cached.data.slice(0, limit ?? cached.data.length),
+    })
+  }
   return invokeSectionRequest<
     PathFlow[],
     {
@@ -931,6 +1358,10 @@ export function getCompareSets(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedSecondaryOverview(dateRange, profileId)?.compareSets
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     CompareSet[],
     {
@@ -956,6 +1387,13 @@ export function getCompareSets(
 // ---------------------------------------------------------------------------
 
 export function getMultiBrowserDiff(dateRange: DateRange) {
+  const cached = cachedSecondarySectionForDateRange(
+    dateRange,
+    (overview) => overview.multiBrowserDiff,
+  )
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<BrowserDiff, { dateRange: DateRange }>(
     'get_multi_browser_diff',
     { dateRange },
@@ -975,6 +1413,13 @@ export function getObservedInteractions(
   dateRange: DateRange,
   profileId?: string | null,
 ) {
+  const cached = cachedSecondaryOverview(
+    dateRange,
+    profileId,
+  )?.observedInteractions
+  if (cached) {
+    return Promise.resolve(cached)
+  }
   return invokeSectionRequest<
     ObservedInteraction[],
     {

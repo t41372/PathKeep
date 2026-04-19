@@ -47,7 +47,18 @@ interface SidebarProps {
  */
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { language, t } = useI18n()
-  const { buildInfo, dashboard, error, refreshKey, snapshot } = useShellData()
+  const {
+    buildInfo,
+    dashboard,
+    error,
+    runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    },
+    snapshot,
+  } = useShellData()
   const { activeProfileId } = useProfileScope()
   const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
   const buildLabel = formatBuildVersionLabel(buildInfo)
@@ -165,7 +176,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <SidebarBackgroundStatus
           initialized={Boolean(snapshot?.config.initialized)}
           unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
-          refreshKey={refreshKey}
+          runtimeStatus={runtimeStatus}
         />
         <button
           className="theme-toggle"

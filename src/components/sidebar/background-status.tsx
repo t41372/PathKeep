@@ -13,89 +13,25 @@
  * - Keep compact shell status behavior aligned with `docs/design/screens-and-nav.md`.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
-import type {
-  AiQueueStatus,
-  IntelligenceRuntimeSnapshot,
-} from '../../lib/types'
+import type { ShellRuntimeStatus } from '../../app/shell-data-context'
 
 interface SidebarBackgroundStatusProps {
   initialized: boolean
   unlocked: boolean
-  refreshKey: number
+  runtimeStatus: ShellRuntimeStatus
 }
 
 export function SidebarBackgroundStatus({
   initialized,
   unlocked,
-  refreshKey,
+  runtimeStatus,
 }: SidebarBackgroundStatusProps) {
   const { language, ns } = useI18n()
   const jobsT = ns('jobs')
-  const commonT = ns('common')
-  const [aiQueue, setAiQueue] = useState<AiQueueStatus | null>(null)
-  const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
-    null,
-  )
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!initialized || !unlocked) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled || typeof window === 'undefined') return
-      timeoutId = window.setTimeout(() => {
-        void load()
-      }, delayMs)
-    }
-
-    const load = async () => {
-      try {
-        const [nextAiQueue, nextRuntime] = await Promise.all([
-          backend.loadAiQueueStatus(),
-          backend.loadIntelligenceRuntime(),
-        ])
-        if (cancelled) return
-        setAiQueue(nextAiQueue)
-        setRuntime(nextRuntime)
-        setError(null)
-        const activeJobs =
-          nextAiQueue.queued +
-          nextAiQueue.running +
-          nextRuntime.queue.queued +
-          nextRuntime.queue.running
-        scheduleNext(activeJobs > 0 ? 3000 : 15000)
-      } catch (nextError) {
-        if (cancelled) return
-        setAiQueue(null)
-        setRuntime(null)
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : commonT('notAvailable'),
-        )
-        scheduleNext(15000)
-      }
-    }
-
-    void load()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null && typeof window !== 'undefined') {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [commonT, initialized, refreshKey, unlocked])
 
   const summary = useMemo(() => {
     if (!initialized) {
@@ -118,30 +54,52 @@ export function SidebarBackgroundStatus({
       }
     }
 
-    if (error) {
+    if (runtimeStatus.error) {
       return {
         label: jobsT('sidebarUnavailable'),
-        detail: error,
+        detail: runtimeStatus.error,
         tone: 'warning',
         width: '100%',
         indeterminate: false,
       }
     }
 
-    const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
-    const running = (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0)
-    const failed = (aiQueue?.failed ?? 0) + (runtime?.queue.failed ?? 0)
-    const paused = aiQueue?.paused ?? false
-    const runningRuntimeJob = runtime?.recentJobs.find(
+    const queued =
+      (runtimeStatus.aiQueue?.queued ?? 0) +
+      (runtimeStatus.intelligence?.queue.queued ?? 0)
+    const running =
+      (runtimeStatus.aiQueue?.running ?? 0) +
+      (runtimeStatus.intelligence?.queue.running ?? 0)
+    const failed =
+      (runtimeStatus.aiQueue?.failed ?? 0) +
+      (runtimeStatus.intelligence?.queue.failed ?? 0)
+    const paused = runtimeStatus.aiQueue?.paused ?? false
+    const runningRuntimeJob = runtimeStatus.intelligence?.recentJobs.find(
       (job) =>
         job.state === 'running' && typeof job.progressPercent === 'number',
     )
     const activityTime =
-      runtime?.queue.lastActivityAt ??
-      aiQueue?.recentJobs.find((job) => job.finishedAt || job.startedAt)
-        ?.finishedAt ??
-      aiQueue?.recentJobs[0]?.queuedAt ??
+      runtimeStatus.intelligence?.queue.lastActivityAt ??
+      runtimeStatus.aiQueue?.recentJobs.find(
+        (job) => job.finishedAt || job.startedAt,
+      )?.finishedAt ??
+      runtimeStatus.aiQueue?.recentJobs[0]?.queuedAt ??
       null
+
+    if (
+      runtimeStatus.loading &&
+      queued === 0 &&
+      running === 0 &&
+      failed === 0
+    ) {
+      return {
+        label: jobsT('sidebarOpenJobs'),
+        detail: jobsT('runningCount'),
+        tone: 'queued',
+        width: '28%',
+        indeterminate: true,
+      }
+    }
 
     if (paused && queued > 0) {
       return {
@@ -209,7 +167,7 @@ export function SidebarBackgroundStatus({
       width: '100%',
       indeterminate: false,
     }
-  }, [aiQueue, error, initialized, jobsT, language, runtime, unlocked])
+  }, [initialized, jobsT, language, runtimeStatus, unlocked])
 
   const actionTarget =
     initialized && !unlocked ? '/security#unlock-archive' : '/jobs'

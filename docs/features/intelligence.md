@@ -207,6 +207,8 @@
 - storage analytics 目前用四個 slice 呈現磁碟分佈：`core`、`audit`、`exports`、`rebuildable`。`rebuildable` 代表 staging / quarantine 一類可重建或可清理資產，不能和 canonical archive facts 混為一談。
 - Settings 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、live queue / recent job review、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
 - shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Insights 才知道 background queue 還在跑什麼。
+- `/intelligence` route entry 不得再一次 fan-out 二十多條 foreground IPC request。accepted shipping contract 是 route-level staged overview：先批次載入 runtime digest、digest summary、首屏可見卡片與其 section metadata，再在 first paint / idle 後補 secondary grid 與較低優先 detail。
+- sidebar、Dashboard 與 `/intelligence` 的 runtime digest 必須共享同一份 shell-level runtime polling source；不能讓 `loadAiQueueStatus` / `loadIntelligenceRuntime` 因多個 route/surface 同時掛載而被重複輪詢。
 - long-running derived-data job 不能只顯示抽象的 `running`。deterministic rebuild 至少要持續更新 phase、heartbeat 與 coarse progress（例如目前在哪個 phase、已處理幾筆 / 總筆數），讓 Jobs 頁和 shell footer 都能分辨「仍在前進」與「疑似卡死」。
 - Jobs 頁的 primary UX contract 不是把所有 queue / plugin / module 平鋪出來，而是先讓使用者分清楚 `running now`、`queued / deferred`、`needs review` 三件事。特別是 `readable-content-refetch` 的大量 queued work 必須先明講這是為了讓 deterministic rebuild 先完成，而不是用 layout 讓人誤以為「所有網頁內容抓取都失敗」。
 - `readable-content-refetch` 的 failure surface 必須先回到人話：像 `PDF / JSON / sign-in redirect / rate-limit` 這類常見邊界，要比 raw `unsupported-content` 或抽象 status 更先被使用者看到。raw status / runtime trace 仍可保留在 support 層，但不應當是主 review copy。
@@ -224,6 +226,8 @@
 - queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
 - source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
+- `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。當日 detail 只能在使用者真的點日格，或 primary overview 已穩定之後才額外載入。
+- route 切換時必須丟棄過期 request；離開 `/intelligence` 後，上一個 scope / date range 的 section response 不得再 commit 回 UI，也不得偷偷繼續觸發後續 detail fetch。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
 ### Profile-Scoped Insights（Profile 級別洞察篩選）

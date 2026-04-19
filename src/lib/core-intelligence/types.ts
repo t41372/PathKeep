@@ -89,6 +89,12 @@ export interface CoreIntelligenceSectionResult<T> {
   meta: CoreIntelligenceSectionMeta
 }
 
+/** Timed sample for one section inside a staged overview batch. */
+export interface CoreIntelligenceSectionTiming {
+  sectionId: string
+  durationMs: number
+}
+
 /** Stage-by-stage timing summary emitted for full Core Intelligence rebuilds. */
 export interface CoreIntelligenceStageTimings {
   visitDeriveMs: number
@@ -215,6 +221,39 @@ export interface DigestSummary {
   newDomains: KpiMetric
   deepReadPages: KpiMetric
   refindPages: KpiMetric
+}
+
+/** First-band `/intelligence` payload used to keep route entry responsive. */
+export interface CoreIntelligencePrimaryOverview {
+  digestSummary: CoreIntelligenceSectionResult<DigestSummary>
+  onThisDay: CoreIntelligenceSectionResult<OnThisDayEntry[]>
+  topSites: CoreIntelligenceSectionResult<TopSite[]>
+  refindPages: CoreIntelligenceSectionResult<RefindPage[]>
+  searchEngineRanking: CoreIntelligenceSectionResult<EngineRanking[]>
+  topSearchConcepts: CoreIntelligenceSectionResult<SearchConcept[]>
+  queryFamilies: CoreIntelligenceSectionResult<QueryFamilyResult>
+  activityMix: CoreIntelligenceSectionResult<ActivityMix>
+  discoveryTrendDay: CoreIntelligenceSectionResult<DiscoveryTrend>
+  habitPatterns: CoreIntelligenceSectionResult<HabitPattern[]>
+  interruptedHabits: CoreIntelligenceSectionResult<InterruptedHabit[]>
+  timings: CoreIntelligenceSectionTiming[]
+  totalDurationMs: number
+}
+
+/** Deferred `/intelligence` payload for below-the-fold sections. */
+export interface CoreIntelligenceSecondaryOverview {
+  stableSources: CoreIntelligenceSectionResult<StableSource[]>
+  searchEffectiveness: CoreIntelligenceSectionResult<SearchEffectiveness>
+  frictionSignals: CoreIntelligenceSectionResult<FrictionSignal[]>
+  reopenedInvestigations: CoreIntelligenceSectionResult<ReopenedInvestigation[]>
+  discoveryTrendWeek: CoreIntelligenceSectionResult<DiscoveryTrend>
+  breadthIndex: CoreIntelligenceSectionResult<BreadthIndex>
+  pathFlows: CoreIntelligenceSectionResult<PathFlow[]>
+  compareSets: CoreIntelligenceSectionResult<CompareSet[]>
+  multiBrowserDiff: CoreIntelligenceSectionResult<BrowserDiff>
+  observedInteractions: CoreIntelligenceSectionResult<ObservedInteraction[]>
+  timings: CoreIntelligenceSectionTiming[]
+  totalDurationMs: number
 }
 
 // ---------------------------------------------------------------------------

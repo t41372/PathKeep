@@ -305,6 +305,7 @@ mod tests {
         let imported = import_takeout_impl(
             TakeoutRequest { source_path: takeout_source, dry_run: false },
             session_key(&session).as_deref(),
+            |_| {},
         )
         .expect("import takeout");
         let batch_id = imported.import_batch.expect("import batch").id;

@@ -106,3 +106,19 @@ export interface TakeoutInspection {
   notes: string[]
   importBatch?: ImportBatchOverview | null
 }
+
+/**
+ * Defines the typed shape for import progress event.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface ImportProgressEvent {
+  phase: string
+  label: string
+  detail: string
+  current: number
+  total: number
+  progressPercent?: number | null
+  logLines: string[]
+  sourcePath?: string | null
+}

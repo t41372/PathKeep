@@ -51,9 +51,13 @@ export function BrowsingRhythmSection({
   scopeLabel: string
   t: T
 }) {
-  const [selectedDateOverride, setSelectedDateOverride] = useState<
-    string | null
-  >(null)
+  const selectionScopeKey = `${dateRange.start}:${dateRange.end}:${
+    profileId ?? 'archive-wide'
+  }`
+  const [selectedDateState, setSelectedDateState] = useState<{
+    dateKey: string
+    scopeKey: string
+  } | null>(null)
   const trendResult = useAsyncData(
     () => api.getDiscoveryTrend(dateRange, profileId, 'day'),
     [dateRange, profileId],
@@ -82,23 +86,20 @@ export function BrowsingRhythmSection({
     () => Math.max(...calendarDays.map((cell) => cell.totalVisits), 1),
     [calendarDays],
   )
-  const defaultSelectedDay = useMemo(
-    () =>
-      [...calendarDays].reverse().find((cell) => cell.totalVisits > 0) ??
-      calendarDays[calendarDays.length - 1] ??
-      null,
-    [calendarDays],
-  )
+  const selectedDateOverride =
+    selectedDateState?.scopeKey === selectionScopeKey
+      ? selectedDateState.dateKey
+      : null
+
   const selectedDay = useMemo(() => {
-    if (selectedDateOverride) {
-      return (
-        calendarDays.find((cell) => cell.dateKey === selectedDateOverride) ??
-        defaultSelectedDay
-      )
+    if (!selectedDateOverride) {
+      return null
     }
 
-    return defaultSelectedDay
-  }, [calendarDays, defaultSelectedDay, selectedDateOverride])
+    return (
+      calendarDays.find((cell) => cell.dateKey === selectedDateOverride) ?? null
+    )
+  }, [calendarDays, selectedDateOverride])
   const selectedDateRange = selectedDay
     ? singleDayRange(selectedDay.dateKey)
     : null
@@ -203,7 +204,12 @@ export function BrowsingRhythmSection({
                             count: cell.totalVisits,
                             newDomains: cell.newDomainCount,
                           })}
-                          onClick={() => setSelectedDateOverride(cell.dateKey)}
+                          onClick={() =>
+                            setSelectedDateState({
+                              dateKey: cell.dateKey,
+                              scopeKey: selectionScopeKey,
+                            })
+                          }
                         />
                       )
                     })}
@@ -226,6 +232,12 @@ export function BrowsingRhythmSection({
               topSitesLoading={selectedTopSites.loading}
               t={t}
             />
+          ) : calendarDays.some((cell) => cell.totalVisits > 0) ? (
+            <div className="intelligence-empty">
+              <p className="intelligence-empty__text">
+                {t('rhythmSelectDayPrompt')}
+              </p>
+            </div>
           ) : null}
         </IntelligenceSectionBody>
       )}

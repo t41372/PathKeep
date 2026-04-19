@@ -32,6 +32,7 @@
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
+- Onboarding / first import 的 execute step 必須先讓 overlay repaint，再開始真正的 archive init / import / backup work；背景計算再重，也不能把 loading 動畫整段凍住到最後一幀才一次補完。
 - 備份是**增量的**：只新增/更新有變化的記錄。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
 - 對於會變動的記錄（如 URL metadata），採用 row versioning，保留所有歷史版本。
@@ -116,6 +117,7 @@
   5. 用戶確認後，才正式寫入 archive。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
 - dry-run / preview 必須回報 candidate item 數量、preview entries、warnings、quarantine 結果，以及可回看的 audit artifact 路徑。
+- import / onboarding finalization 的 progress surface 必須持續回報 typed phase、current/total、percent、detail 與近期 log lines；post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
@@ -128,7 +130,7 @@
 - 同樣走 Preview/Manual/Execute 流程。
 - Step-by-step UI：
   - 每個步驟都說明我們在做什麼、為什麼要做這件事。
-  - 自動化模式下：逐步展示進度。
+  - 自動化模式下：逐步展示進度，且 phase/log/progress 需要在整個執行期間持續更新。
   - 手動模式下：每步有操作指南，能複製命令，做完再進下一步。
 
 ### 模塊化設計：獨立 Rust crate

@@ -14,8 +14,8 @@ use crate::{
     config::{ProjectPaths, ensure_paths},
     git_audit,
     models::{
-        AppConfig, ImportBatchDetail, ImportBatchOverview, TakeoutFileReport, TakeoutInspection,
-        TakeoutPreviewEntry, TakeoutRequest,
+        AppConfig, ImportBatchDetail, ImportBatchOverview, ImportProgressEvent, TakeoutFileReport,
+        TakeoutInspection, TakeoutPreviewEntry, TakeoutRequest,
     },
     utils::{now_rfc3339, sha256_hex},
 };
@@ -176,6 +176,19 @@ pub fn import_takeout(
     key: Option<&str>,
     request: &TakeoutRequest,
 ) -> Result<TakeoutInspection> {
+    import_takeout_with_progress(paths, config, key, request, |_| {})
+}
+
+pub fn import_takeout_with_progress<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &TakeoutRequest,
+    mut report_progress: F,
+) -> Result<TakeoutInspection>
+where
+    F: FnMut(ImportProgressEvent),
+{
     ensure_paths(paths)?;
     let mut inspection = inspect_takeout(paths, request)?;
     if request.dry_run {
@@ -198,18 +211,53 @@ pub fn import_takeout(
 
     let batch_id = create_import_batch(&transaction, &synthetic_profile, request, &inspection)?;
     let files = gather_takeout_files(source)?;
+    let planned_files =
+        inspection.recognized_files.iter().filter(|file| file.kind != KIND_INDEX).count();
     let mut stats = ImportStats::default();
     let mut source_evidence_plans = Vec::new();
+    let mut progress_log_lines = vec![format!(
+        "Queued {} Takeout payload(s) from {}.",
+        planned_files.max(1),
+        request.source_path
+    )];
+    emit_import_progress(
+        &mut report_progress,
+        "prepare",
+        "Preparing import",
+        format!("Scanning {} payload(s) before archive write.", planned_files.max(1)),
+        0,
+        planned_files.max(1),
+        Some(request.source_path.clone()),
+        &progress_log_lines,
+    );
 
     let import_result = (|| -> Result<()> {
+        let mut imported_file_count = 0usize;
         for file in files {
             let Some(kind) = recognize_takeout_file(&file.path) else {
                 quarantine_takeout_file(paths, source, &file)?;
+                progress_log_lines.push(format!("Quarantined unsupported payload {}.", file.path));
                 continue;
             };
             if kind == KIND_INDEX {
                 continue;
             }
+            imported_file_count += 1;
+            progress_log_lines.push(format!("Importing {kind} from {}.", file.path));
+            emit_import_progress(
+                &mut report_progress,
+                "import-file",
+                "Importing browser history",
+                format!(
+                    "Processing {} ({imported_file_count}/{})",
+                    file.path,
+                    planned_files.max(1)
+                ),
+                imported_file_count.saturating_sub(1),
+                planned_files.max(1),
+                Some(file.path.clone()),
+                &progress_log_lines,
+            );
 
             let bytes = if file.from_zip {
                 read_zip_entry(source, &file.path)?
@@ -234,7 +282,21 @@ pub fn import_takeout(
                     "Skipped {} records from {} because they were missing a visit timestamp.",
                     file_stats.stats.skipped_items, file.path
                 ));
+                progress_log_lines.push(format!(
+                    "Skipped {} record(s) without visit timestamps in {}.",
+                    file_stats.stats.skipped_items, file.path
+                ));
             }
+            emit_import_progress(
+                &mut report_progress,
+                "import-file",
+                "Importing browser history",
+                format!("Imported {} ({imported_file_count}/{})", file.path, planned_files.max(1)),
+                imported_file_count,
+                planned_files.max(1),
+                Some(file.path.clone()),
+                &progress_log_lines,
+            );
         }
 
         transaction.commit()?;
@@ -248,6 +310,17 @@ pub fn import_takeout(
 
     inspection.imported_items = stats.imported_items;
     inspection.duplicate_items = stats.duplicate_items;
+    progress_log_lines.push("Refreshing derived import review surfaces.".to_string());
+    emit_import_progress(
+        &mut report_progress,
+        "finalize",
+        "Finalizing import",
+        "Refreshing keyword recall and batch review metadata.".to_string(),
+        planned_files.max(1),
+        planned_files.max(1),
+        Some(request.source_path.clone()),
+        &progress_log_lines,
+    );
     if let Err(error) = persist_takeout_source_evidence_plans(
         paths,
         config,
@@ -271,7 +344,56 @@ pub fn import_takeout(
 
     let detail = preview_import_batch(paths, config, key, batch_id)?;
     inspection.import_batch = Some(detail.batch);
+    progress_log_lines.push(format!(
+        "Imported {} new record(s); {} duplicate(s) skipped.",
+        inspection.imported_items, inspection.duplicate_items
+    ));
+    emit_import_progress(
+        &mut report_progress,
+        "complete",
+        "Import complete",
+        "Takeout review is ready and follow-up rebuild work can continue in the background."
+            .to_string(),
+        planned_files.max(1),
+        planned_files.max(1),
+        Some(request.source_path.clone()),
+        &progress_log_lines,
+    );
     Ok(inspection)
+}
+
+fn emit_import_progress(
+    report_progress: &mut impl FnMut(ImportProgressEvent),
+    phase: &str,
+    label: &str,
+    detail: String,
+    current: usize,
+    total: usize,
+    source_path: Option<String>,
+    log_lines: &[String],
+) {
+    report_progress(ImportProgressEvent {
+        phase: phase.to_string(),
+        label: label.to_string(),
+        detail,
+        current,
+        total,
+        progress_percent: if total == 0 {
+            None
+        } else {
+            Some(((current as f32 / total as f32) * 100.0).min(100.0))
+        },
+        log_lines: log_lines
+            .iter()
+            .rev()
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect(),
+        source_path,
+    });
 }
 
 /// Loads recent import batches, newest first.

@@ -90,15 +90,24 @@ export function useAsyncData<T>(
   })
 
   const depsRef = useRef<string>('')
+  const requestIdRef = useRef(0)
   const depsJson = JSON.stringify(deps)
 
   const fetchData = useCallback(() => {
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
     setState((prev) => ({ ...prev, loading: true, error: null }))
     void fetcher().then(
       (data) => {
+        if (requestIdRef.current !== requestId) {
+          return
+        }
         setState({ data, loading: false, error: null })
       },
       (err: unknown) => {
+        if (requestIdRef.current !== requestId) {
+          return
+        }
         const message = err instanceof Error ? err.message : String(err)
         setState((prev) => ({ ...prev, loading: false, error: message }))
       },

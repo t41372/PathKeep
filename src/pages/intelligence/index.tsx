@@ -18,9 +18,10 @@ import './intelligence.css'
 import { useShellData } from '../../app/shell-data-context'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { useI18n } from '../../lib/i18n/hooks'
-import { IntelligenceSections } from './sections'
+import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'
+import { useStagedIntelligenceOverview } from './use-staged-intelligence-overview'
 import { intelligenceText } from './copy'
 
 /**
@@ -42,6 +43,10 @@ export function IntelligencePage() {
   const domainHref = (domain: string) =>
     `/intelligence/domain/${encodeURIComponent(domain)}${withCurrentRouteSearch()}`
   const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
+  const stagedOverview = useStagedIntelligenceOverview(
+    dateRange,
+    effectiveProfileId,
+  )
 
   return (
     <div className="intelligence-page" data-testid="intelligence-page">
@@ -68,18 +73,23 @@ export function IntelligencePage() {
         unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
       />
 
-      <IntelligenceSections
-        dateRange={dateRange}
-        domainHref={domainHref}
-        language={language}
-        profileId={effectiveProfileId}
-        scopeLabel={
-          effectiveProfileId
-            ? (profileScopeLabel ?? effectiveProfileId)
-            : archiveWideBadge
-        }
-        t={t}
-      />
+      {stagedOverview.primaryReady ? (
+        <IntelligenceSections
+          dateRange={dateRange}
+          domainHref={domainHref}
+          language={language}
+          profileId={effectiveProfileId}
+          scopeLabel={
+            effectiveProfileId
+              ? (profileScopeLabel ?? effectiveProfileId)
+              : archiveWideBadge
+          }
+          secondaryReady={stagedOverview.secondaryReady}
+          t={t}
+        />
+      ) : (
+        <IntelligenceSectionsSkeleton />
+      )}
     </div>
   )
 }

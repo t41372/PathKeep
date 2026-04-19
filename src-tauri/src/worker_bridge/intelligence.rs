@@ -277,6 +277,22 @@ pub(crate) fn get_digest_summary_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_intelligence_primary_overview_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligencePrimaryOverview, String> {
+    worker_result(vault_worker::get_intelligence_primary_overview(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_intelligence_secondary_overview_impl(
+    request: ScopedDateRangeRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSecondaryOverview, String> {
+    worker_result(vault_worker::get_intelligence_secondary_overview(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_stable_sources_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,

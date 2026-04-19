@@ -30,6 +30,10 @@ import type {
   ClearDerivedIntelligenceReport,
   IntelligenceRuntimeSnapshot,
 } from '../types'
+import type {
+  CoreIntelligencePrimaryOverview,
+  CoreIntelligenceSecondaryOverview,
+} from '../core-intelligence/types'
 import { call } from './shared'
 
 /**
@@ -61,6 +65,23 @@ export const intelligenceClient = {
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
   clearDerivedState: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
+  getPrimaryOverview: (request: {
+    dateRange: { start: string; end: string }
+    profileId?: string | null
+  }) =>
+    call<CoreIntelligencePrimaryOverview>('get_intelligence_primary_overview', {
+      request,
+    }),
+  getSecondaryOverview: (request: {
+    dateRange: { start: string; end: string }
+    profileId?: string | null
+  }) =>
+    call<CoreIntelligenceSecondaryOverview>(
+      'get_intelligence_secondary_overview',
+      {
+        request,
+      },
+    ),
   getRuntime: () =>
     call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
   retryRuntimeJob: (jobId: number) =>

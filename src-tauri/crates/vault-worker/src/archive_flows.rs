@@ -22,9 +22,10 @@ use anyhow::{Context, Result};
 use vault_core::{
     AiIndexRequest, BackupProgressEvent, ClearDerivedIntelligenceReport,
     CoreIntelligenceRebuildRequest, DashboardSnapshot, ExportRequest, HealthRepairReport,
-    HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, RemoteBackupPreview,
-    RemoteBackupResult, RemoteBackupVerification, TakeoutInspection, TakeoutRequest, ai_queue,
-    clear_derived_intelligence_state, doctor, export_history, import_takeout, inspect_takeout,
+    HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, ImportProgressEvent,
+    RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification, TakeoutInspection,
+    TakeoutRequest, ai_queue, clear_derived_intelligence_state, doctor, export_history,
+    import_takeout_with_progress, inspect_takeout,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
@@ -268,9 +269,26 @@ pub fn import_takeout_source(
     session_database_key: Option<&str>,
     request: &TakeoutRequest,
 ) -> Result<TakeoutInspection> {
+    import_takeout_source_with_progress(session_database_key, request, |_| {})
+}
+
+pub fn import_takeout_source_with_progress<F>(
+    session_database_key: Option<&str>,
+    request: &TakeoutRequest,
+    report_progress: F,
+) -> Result<TakeoutInspection>
+where
+    F: FnMut(ImportProgressEvent),
+{
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let mut inspection = import_takeout(&paths, &config, session_database_key, request)?;
+    let mut inspection = import_takeout_with_progress(
+        &paths,
+        &config,
+        session_database_key,
+        request,
+        report_progress,
+    )?;
     if inspection.imported_items > 0 {
         match enqueue_and_spawn_deterministic_refresh(
             &paths,

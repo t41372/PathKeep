@@ -3016,6 +3016,14 @@ async function call<T>(
         deepReadPages: { value: 0, trend: 'flat' },
         refindPages: { value: 0, trend: 'flat' },
       } as T
+    case 'get_intelligence_primary_overview':
+      throw new Error(
+        'PathKeep intelligence overview batching is unavailable in browser preview mode.',
+      )
+    case 'get_intelligence_secondary_overview':
+      throw new Error(
+        'PathKeep intelligence overview batching is unavailable in browser preview mode.',
+      )
     case 'get_activity_mix':
       return { categories: [], changeVsPrevious: [] } as T
     case 'get_activity_mix_trend':

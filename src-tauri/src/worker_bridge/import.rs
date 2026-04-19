@@ -15,8 +15,13 @@ pub(crate) fn inspect_takeout_impl(
 pub(crate) fn import_takeout_impl(
     request: TakeoutRequest,
     session_database_key: Option<&str>,
+    report_progress: impl FnMut(vault_core::ImportProgressEvent),
 ) -> Result<vault_core::TakeoutInspection, String> {
-    worker_result(vault_worker::import_takeout_source(session_database_key, &request))
+    worker_result(vault_worker::import_takeout_source_with_progress(
+        session_database_key,
+        &request,
+        report_progress,
+    ))
 }
 
 /// Loads the detailed preview for one import batch.

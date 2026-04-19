@@ -165,6 +165,8 @@ fn run_app() -> Result<()> {
             get_activity_mix,
             get_activity_mix_trend,
             get_digest_summary,
+            get_intelligence_primary_overview,
+            get_intelligence_secondary_overview,
             get_stable_sources,
             get_search_effectiveness,
             get_friction_signals,
