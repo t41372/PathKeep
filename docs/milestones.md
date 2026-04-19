@@ -98,3 +98,12 @@
 - 為 query family、refind page、source、session/trail、category mix、external-output review surface 建立一致的 single source of truth
 
 📋 詳細待辦 → [plan/m7-reuse-audit/README.md](plan/m7-reuse-audit/README.md)
+
+## M8 — Aggregate Entity Identity And Context Reuse
+
+- 補齊 M7 故意 deferred 的 aggregate entity identity 與 context focus 缺口
+- 決定哪些 aggregate entity 值得補 stable ID / full detail read model，哪些維持解析到既有 shared route
+- 收斂 external-output payload 內更多 reusable entity IDs 與 aggregate digest slot reuse
+- 把所有新的 deferred reuse gap 明確改用 `TODO: M8` 與 source docs / status 對齊
+
+📋 詳細待辦 → [plan/m8-aggregate-entity-identity/README.md](plan/m8-aggregate-entity-identity/README.md)

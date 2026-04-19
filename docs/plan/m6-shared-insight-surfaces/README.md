@@ -44,7 +44,4 @@
 - `Browsing Rhythm` 的主互動現在已正式改成 navigation-first：點日格直接進 `/intelligence/day/:date`，不再把卡內 same-day detail 當主工作流。
 - `/intelligence/domain/:domain` 雖然內部暫保留 `deep_dive` naming 過渡，但 user-facing IA 已正式視為 `Domain Insights`。
 - Explorer detail rail 現在會沿用 shared entity grammar，提供 `Open day insights` / `Open domain insights` / exact-day evidence CTA。
-- `TODO: M7` 已明確留在目前故意不收進 M6 的幾個點：
-  - `src-tauri/crates/vault-core/src/intelligence/day_insights.rs`：低階 `get_browsing_rhythm()` 命名/拆分仍待後續收斂
-  - `src/pages/intelligence/sections/secondary-sections.tsx`：path-flow chips 尚未抽成 generic insight-entity navigation
-  - `src/pages/settings/external-outputs-panel.tsx`：external-output review surfaces 仍未接上 shared entity deep-link
+- 這輪刻意 deferred 的 `TODO: M7` 已在下一個 milestone 完成收口：`day_insights.rs` 的 day-specific helper naming 已補齊、path-flow chips 已改成 shared entity resolution、Settings external-output review 也已接上 shared href contract。後續只剩更深的 aggregate identity / context focus gap，已改由 [M8](../m8-aggregate-entity-identity/README.md) 追蹤。
