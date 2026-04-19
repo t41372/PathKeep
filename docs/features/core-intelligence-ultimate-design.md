@@ -6,6 +6,8 @@
 > **前提：** 本方案不使用 LLM 和 Embedding。所有功能只基於可觀測的瀏覽器數據。
 
 > **2026-04-15 accepted note:** 這份文檔現在是 PathKeep Core Intelligence 的正式 source of truth。舊的 deterministic intelligence / insights 文檔保留為歷史背景與 optional-AI 邊界說明，不再定義 deterministic product contract。
+>
+> **2026-04-19 accepted override:** `Browsing Rhythm` 主圖不再沿用本文早期版本裡的「週 × 小時」首屏契約。使用者已明確確認改成 **真實日期日曆熱力圖**，並把小時分布退到「選中某一天後的 detail 區」。完整 trade-off 與回滾邊界見 [`../design/intelligence-rhythm-calendar-heatmap-tradeoff.md`](../design/intelligence-rhythm-calendar-heatmap-tradeoff.md)。
 
 ---
 
@@ -261,14 +263,15 @@ Core Intelligence 的功能分布在三個位置：
 │  └───────────────────────────────────────────────────┘                       │
 │                                                                              │
 │  ┌─ 使用構成 ──────────────────────┐  ┌─ 瀏覽節奏 ──────────────────┐       │
-│  │ ■ 開發  ████████████  42%      │  │     一  二  三  四  五  六  日 │      │
-│  │ ■ 影音  ███████       28%      │  │  6  ·  ·  ·  ·  ·  ·  ·    │       │
-│  │ ■ 社群  ████          15%      │  │  9  ▪  ▪  ▪  ▪  ▪  ·  ·    │       │
-│  │ ■ 購物  ██             8%      │  │ 12  ▪  ▪  ■  ▪  ▪  ·  ·    │       │
-│  │ ■ 其他  ██             7%      │  │ 15  ■  ■  ■  ■  ■  ▪  ·    │       │
-│  │ vs 上期: 開發 +5%, 影音 -3%    │  │ 18  ▪  ▪  ▪  ▪  ▪  ▪  ▪    │       │
-│  │ [詳細趨勢 →]                   │  │ 21  ▪  ·  ·  ▪  ·  ■  ■    │       │
-│  └─────────────────────────────────┘  │  0  ·  ·  ·  ·  ·  ▪  ▪    │       │
+│  │ ■ 開發  ████████████  42%      │  │ Apr      May                │       │
+│  │ ■ 影音  ███████       28%      │  │ 日 ▪ ▪ ▪ ▪ · ▪ ▪ ▪ · ·     │       │
+│  │ ■ 社群  ████          15%      │  │ 一 · ▪ · ▪ · ▪ · ▪ ▪ ·     │       │
+│  │ ■ 購物  ██             8%      │  │ 二 · ▪ ▪ ▪ ▪ ▪ · · ▪ ·     │       │
+│  │ ■ 其他  ██             7%      │  │ 三 · · ▪ ▪ · ▪ ▪ · ▪ ▪     │       │
+│  │ vs 上期: 開發 +5%, 影音 -3%    │  │ 四 ▪ · ▪ · · ▪ ▪ · ▪ ·     │       │
+│  │ [詳細趨勢 →]                   │  │ 五 ▪ ▪ · · ▪ · ▪ · · ▪     │       │
+│  └─────────────────────────────────┘  │ 六 · ▪ · ▪ · ▪ · ▪ · ▪     │       │
+│                                       │ [選中某天 → 當天 digest + 24h]│     │
 │                                       └──────────────────────────────┘       │
 │                                                                              │
 │  ┌─ 更多洞察 ────────────────────────────────────────────────────────────┐   │
@@ -704,25 +707,39 @@ SELECT * FROM path ORDER BY depth DESC;
 
 #### 4.6 瀏覽節奏熱圖 (Browsing Rhythm Heatmap)
 
-| 項目       | 內容                                                   |
-| ---------- | ------------------------------------------------------ |
-| **為什麼** | 「你在什麼時候瀏覽什麼」是完全沒被現有工具覆蓋的維度   |
-| **是什麼** | 7×24 的時間維度熱圖（週 × 時），可疊加 domain_category |
+| 項目       | 內容                                                                                                                              |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼** | 使用者先需要知道「哪些真實日期值得看」，再決定要不要往同一天的具體時段下鑽。                                                      |
+| **是什麼** | **主圖：** GitHub 式真實日期日曆熱力圖（1 格 = 1 天）<br />**detail：** 點某一天後，再顯示當天 digest / top sites / 24 小時分布。 |
+
+**主圖資料來源：**
 
 ```sql
 SELECT
-  CAST(strftime('%w', datetime(visit_time_ms/1000, 'unixepoch', 'localtime')) AS INTEGER) AS dow,
+  date_key,
+  SUM(new_domains) AS new_domain_count,
+  SUM(total_visits) AS total_visits
+FROM daily_summary_rollups
+WHERE date_key BETWEEN ? AND ?
+GROUP BY date_key
+ORDER BY date_key ASC
+```
+
+**單日 detail 的 24 小時分布：**
+
+```sql
+SELECT
   CAST(strftime('%H', datetime(visit_time_ms/1000, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
   COUNT(*) AS visit_count
 FROM visits
 WHERE visit_time_ms BETWEEN ? AND ?
   AND reverted_at IS NULL
-GROUP BY dow, hour
+GROUP BY hour
 ```
 
 **時區處理：** backup 時自動記錄設備時區（`runs.timezone`），用於 localtime 轉換。歷史導入數據使用當前時區（可能有誤差，UI 標註）。
 
-**展示：** 主視圖（純訪問量）、分層視圖（按 category 分色）、對比視圖（兩個時間範圍並排）。
+**展示：** 主圖固定是按真實日期的日曆熱力圖；長時間窗允許卡片內橫向滾動。小時分布只出現在選中某一天後的 detail 區，不再回頭冒充主圖。
 
 **跨瀏覽器：** ✅ 全覆蓋
 

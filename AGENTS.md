@@ -71,6 +71,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 ### UI 相關
 
 - 看 `docs/design/screens-and-nav.md` — 畫面結構和導航規格
+- 看 `docs/design/ui-review-guardrails.md` — 長期 UI review / implementation 紅線（全寬白名單、限高內滾動、真機 truth gate、Explorer pagination / detail rail）
 - 看 `docs/design/ux-principles.md` — PME 模型
 - 看 `docs/design/design-tokens.md` — token 與 theme contract 的 source of truth
 - i18n 是 UI 的硬性契約：所有新的 user-visible copy、placeholder、aria-label、loading / skeleton label、empty / error / disabled state、以及 browser preview honesty copy 都必須先想好 `en` / `zh-CN` / `zh-TW`

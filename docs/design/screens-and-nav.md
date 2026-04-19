@@ -5,6 +5,7 @@
 > 這份 export 主要覆蓋 shell chrome 與 Dashboard 的視覺語言；對於 prototype 尚未畫出的畫面或狀態，這份文檔與 [design-tokens.md](design-tokens.md) 仍是現行 source of truth。
 > production token source of truth 是 [design-tokens.md](design-tokens.md)；新增 token 時要同步更新文檔與 `src/styles/tokens.css`。
 > 如果 prototype 缺少某個畫面或狀態，才用 Stitch / 補充設計決策補齊；補齊時仍需維持和 prototype 一致的視覺語言與導航結構。
+> 長期 UI review / implementation 紅線另見 [ui-review-guardrails.md](ui-review-guardrails.md)；這份文檔負責 route 與 IA 規格，guardrails 負責哪些退化一律不能放行。
 
 ---
 
@@ -58,7 +59,8 @@
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
-- Intelligence 的 `Browsing Rhythm` 必須保留週內 × 小時的熱力圖語法，不可直接換成另一種日曆視覺再稱作同一張圖；如果要補「當天摘要 / digest」，應該在同一卡片內用附加的日期 chooser / detail area 處理，而不是把原本的熱力圖刪掉。
+- Intelligence 首屏只有 **執行摘要 / 時段概覽 / 瀏覽節奏** 可以佔滿主內容欄寬；其餘卡片一律留在 half-width row 或 secondary grid，並遵守限高 + 卡片內滾動。
+- Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。點某一天後，再在同一卡片內顯示當天 digest / top sites / 24 小時分布，而不是再把主圖退回週內 × 小時桶圖。
 - `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。

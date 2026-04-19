@@ -238,6 +238,25 @@
     - `bunx vitest run src/app/shell-data.test.tsx src/pages/intelligence/copy.test.ts src/lib/i18n.test.ts src/pages/explorer/panels/privacy-redaction.test.tsx src/pages/intelligence-surfaces.test.tsx`
     - `bun run check`
     - `bun run build`
+
+- [x] **WORK-CI-P** — Intelligence Calendar Heatmap Truth Repair And UI Guardrails
+  - 讀先：
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 `/intelligence` 又一次被實機 review 打回的前端 truth drift 收口：`Browsing Rhythm` 主圖改回真實日期、卡片寬度/高度規則收緊、並把反覆被指出的 UI review 紅線固定成文檔。
+  - 契約：不新增 Tauri command；`Browsing Rhythm` 主圖必須一格對應一天真實日期；小時分布只能出現在選中某一天後的 detail；除了執行摘要 / 時段概覽 / 瀏覽節奏外，其餘 intelligence 卡片一律不占 full-width，且全部改成 capped body + internal scroll。
+  - 實作：
+    - 重拆 [`src/pages/intelligence/sections.tsx`](../../src/pages/intelligence/sections.tsx)，新增 [`src/pages/intelligence/sections/shared.tsx`](../../src/pages/intelligence/sections/shared.tsx)、[`search-and-activity-section.tsx`](../../src/pages/intelligence/sections/search-and-activity-section.tsx) 與 [`secondary-sections.tsx`](../../src/pages/intelligence/sections/secondary-sections.tsx)，把 giant mixed file 收斂成數個聚焦 section 模組與共享 card-body wrapper。
+    - 更新 [`src/pages/intelligence/sections/browsing-rhythm-section.tsx`](../../src/pages/intelligence/sections/browsing-rhythm-section.tsx)、[`src/pages/intelligence/intelligence.css`](../../src/pages/intelligence/intelligence.css) 與 [`src/lib/i18n/catalog.ts`](../../src/lib/i18n/catalog.ts)，把 `Browsing Rhythm` 改成 GitHub 式真實日期日曆熱力圖，點某一天後顯示同日 digest / top sites / 24 小時分布，並同步把 `Discovery Trend` 的 `YYYY-Wxx` 改成人話週標籤。
+    - 更新 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)，補回日期熱力圖、half-width row、capped-scroll body 與 Explorer page-summary regression。
+    - 新增 [`docs/design/ui-review-guardrails.md`](../design/ui-review-guardrails.md) 與 [`docs/design/intelligence-rhythm-calendar-heatmap-tradeoff.md`](../design/intelligence-rhythm-calendar-heatmap-tradeoff.md)，並同步回寫 [`AGENTS.md`](../../AGENTS.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)、[`docs/plan/core-intelligence-progress.md`](core-intelligence-progress.md)、[`docs/plan/core-intelligence-handoff.md`](core-intelligence-handoff.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
+  - 驗收：
+    - `bunx vitest run src/pages/intelligence-surfaces.test.tsx`
+    - `bun run check`
+    - `bun run build`
   - 手動驗證註記：
     - fresh Tauri dev app 仍可在 current host 觀察到 stale WebView / bundle cache drift：桌面畫面繼續顯示 raw `intelligence.archiveWideBadge`、舊 external-output CTA 與舊 queue grammar，但同一時間 `devUrl` 直讀的 `src/pages/intelligence/{index,sections,domain-deep-dive,copy}.tsx` 已經是修補後 source。
     - 這輪因此把 current-host stale WebView / bundle cache 噪音明確回寫到 source docs；原始 deterministic Core Intelligence P1–P4 scope 仍視為已完成，真正剩下的原規劃只有 `browser-snippet-v1` 之外的 external host integration。

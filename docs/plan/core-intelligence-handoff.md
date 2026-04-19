@@ -1,6 +1,6 @@
 # Core Intelligence Handoff
 
-> **Date:** 2026-04-18
+> **Date:** 2026-04-19
 > **Audience:** frontend implementer, next backend implementer  
 > **Status:** current handoff after desktop truth repair follow-up
 
@@ -40,6 +40,7 @@ That means:
 - 2026-04-18 app truth-gate follow-up: the repo also absorbed a post-closeout repair pass for real-app blockers — section-envelope camel/snake drift, `daily-rollup` duplicate domain-day rows, encrypted onboarding without keychain persistence, and several product-truth issues (mixed copy, default React Router error page, explorer title redaction, dashboard/sidebar queue drift). Those fixes are in source and covered by targeted regressions, so a fresh agent should treat them as already landed rather than reopen them as TODOs.
 - `bun run check` and `bun run build` were green at handoff time
 - 2026-04-18 desktop truth repair follow-up: source also landed the front-end shipped-truth repairs for archive-wide callout copy, `category_community`, external-output CTA wording, Explorer visible URL redaction, domain deep-dive decoded page paths, and `/intelligence` runtime digest dependency narrowing (`load_intelligence_runtime` only; no new Tauri commands, no schema change)
+- 2026-04-19 calendar heatmap follow-up: `Browsing Rhythm` no longer uses the old weekday × hour main chart. The main card now renders a real-date calendar heatmap backed by `getDiscoveryTrend(..., 'day')`, and the selected-day detail alone uses `getBrowsingRhythm(singleDayRange)` for the hourly strip. The same pass also moved `Search Activity` + `Activity Mix` into a shared half-width row and enforced capped-scroll bodies across Intelligence cards.
 - 2026-04-18 locked-archive/bootstrap follow-up: source now also degrades locked encrypted `app_snapshot` reads into a usable shell snapshot, makes the Security unlock flow validate candidate keys before full shell refresh, stops sidebar background polling until the archive is unlocked, and shows compact `version · short-sha[+]` build labels in shell/onboarding/lock chrome
 
 What is **not** done, plus the latest backend truth:

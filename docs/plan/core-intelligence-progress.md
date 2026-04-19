@@ -1,7 +1,7 @@
 # Core Intelligence Progress
 
 > **Status:** Closeout tracker
-> **Last audited:** 2026-04-18 (desktop truth repair follow-up)
+> **Last audited:** 2026-04-19 (calendar heatmap truth repair follow-up)
 > **Purpose:** 把 [`core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md) 自 2026-04-15 hard reset 之後的**實際完成度**、`WORK-CI-C` closeout truth、以及 future frontend/backend continuation 應如何重新開 block 收斂成一份 planning-side source of truth。
 
 ---
@@ -61,6 +61,9 @@
   - external snippet / widget / public snapshot 的真正 consumer / host integration
   - `/insights` 殘留命名、測試、truth-pass 漂移
 - 2026-04-18 補記：前兩項與 `/insights` drift 已由 `WORK-CI-C` closeout；目前只剩 external host integration 屬未來 follow-up，不再是 finish-line blocker。
+- 2026-04-19 frontend truth follow-up：
+  - `Browsing Rhythm` 主圖已正式改成真實日期日曆熱力圖；小時分布只留在選中某一天後的 detail 區，不再做假的 bucket→date 映射。
+  - `/intelligence` 版面也收緊成更誠實的桌面規則：只有執行摘要 / 時段概覽 / 瀏覽節奏保留 full-width，其餘卡片回到 half-width row 或 secondary grid，並統一改成 capped scroll body。
 - 2026-04-17 backend follow-up 現在已補上 **incremental foundation**：
   - per-profile `core_intelligence_stage_checkpoints`
   - append-only `visit-derive` / `daily-rollup` / `structural-rebuild`
