@@ -17,6 +17,7 @@ import { formatRelativeTime } from '../../../lib/format'
 import { HistoryFavicon } from '../../../components/primitives/history-favicon'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { ExportFormat, HistoryQueryResponse } from '../../../lib/types'
+import { keywordPageSizeOptions } from '../helpers'
 import {
   activateRecordSelection,
   sanitizeExplorerDisplayText,
@@ -48,9 +49,11 @@ interface ExplorerResultsPanelProps {
   historyPage: number
   historyPageCount: number
   historyPageInput: string
+  historyPageSize: number
   intelligenceT: Translator
   language: ResolvedLanguage
   onHistoryPageInputChange: (value: string) => void
+  onHistoryPageSizeChange: (value: number) => void
   onSelectHistory: (id: number) => void
   results: HistoryQueryResponse
   selectedEntry: HistoryQueryResponse['items'][number] | null
@@ -80,9 +83,11 @@ export function ExplorerResultsPanel({
   historyPage,
   historyPageCount,
   historyPageInput,
+  historyPageSize,
   intelligenceT,
   language,
   onHistoryPageInputChange,
+  onHistoryPageSizeChange,
   onSelectHistory,
   results,
   selectedEntry,
@@ -140,6 +145,12 @@ export function ExplorerResultsPanel({
             className="intelligence-actions"
             style={{ padding: 'var(--space-3) 0 0' }}
           >
+            <span className="history-page-summary">
+              {explorerT('pageCountSummary', {
+                current: historyPage,
+                total: historyPageCount,
+              })}
+            </span>
             <button
               className="btn-secondary"
               type="button"
@@ -200,6 +211,24 @@ export function ExplorerResultsPanel({
             >
               {explorerT('jumpToPage')}
             </button>
+            <label className="history-page-jump">
+              <span className="history-page-jump__label">
+                {explorerT('pageSizeLabel')}
+              </span>
+              <select
+                className="history-page-size__select"
+                value={historyPageSize}
+                onChange={(event) =>
+                  onHistoryPageSizeChange(Number(event.target.value))
+                }
+              >
+                {keywordPageSizeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {explorerT('pageSizeOption', { count: option })}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
       </div>

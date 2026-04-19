@@ -14,7 +14,11 @@
  */
 
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import {
+  NavigationType,
+  useNavigate,
+  useNavigationType,
+} from 'react-router-dom'
 import type { AppScreen } from '../../app/router'
 import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { useI18n } from '../../lib/i18n'
@@ -30,6 +34,15 @@ interface TopbarProps {
   screen: AppScreen
 }
 
+function readRouteHistoryIndex() {
+  if (typeof window === 'undefined') {
+    return 0
+  }
+
+  const historyState = window.history.state as { idx?: unknown } | null
+  return typeof historyState?.idx === 'number' ? historyState.idx : 0
+}
+
 /**
  * Explains how topbar works.
  *
@@ -37,6 +50,7 @@ interface TopbarProps {
  */
 export function Topbar({ screen }: TopbarProps) {
   const navigate = useNavigate()
+  const navigationType = useNavigationType()
   const { t } = useI18n()
   const {
     appLockStatus,
@@ -48,6 +62,7 @@ export function Topbar({ screen }: TopbarProps) {
     snapshot,
   } = useShellData()
   const [query, setQuery] = useState('')
+  const [forwardAvailable, setForwardAvailable] = useState(false)
 
   const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
   const backupDisabled =
@@ -59,13 +74,49 @@ export function Topbar({ screen }: TopbarProps) {
       : t('navigation.initializeFirst')
   const title = t(screen.titleKey)
   const subtitle = t(screen.subtitleKey)
+  const canGoBack = readRouteHistoryIndex() > 0
+  const canGoForward = forwardAvailable && navigationType === NavigationType.Pop
+
+  function navigateToRoute(href: string) {
+    setForwardAvailable(false)
+    void navigate(href)
+  }
 
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <span aria-hidden className="crosshair-mark">
-          +
-        </span>
+        <div
+          aria-label={t('navigation.routeHistory')}
+          className="topbar-history"
+          role="group"
+        >
+          <button
+            aria-label={t('navigation.goBack')}
+            className="topbar-history__button"
+            disabled={!canGoBack}
+            type="button"
+            onClick={() => {
+              if (!canGoBack) return
+              setForwardAvailable(true)
+              void navigate(-1)
+            }}
+          >
+            ←
+          </button>
+          <button
+            aria-label={t('navigation.goForward')}
+            className="topbar-history__button"
+            disabled={!canGoForward}
+            type="button"
+            onClick={() => {
+              if (!canGoForward) return
+              setForwardAvailable(false)
+              void navigate(1)
+            }}
+          >
+            →
+          </button>
+        </div>
         <div>
           <h1 className="page-title">{title}</h1>
           <p className="page-subtitle">{subtitle}</p>
@@ -78,7 +129,7 @@ export function Topbar({ screen }: TopbarProps) {
           onSubmit={(event) => {
             event.preventDefault()
             const nextQuery = query.trim()
-            void navigate(
+            navigateToRoute(
               nextQuery
                 ? `/explorer?q=${encodeURIComponent(nextQuery)}`
                 : '/explorer',
@@ -117,11 +168,11 @@ export function Topbar({ screen }: TopbarProps) {
           aria-busy={busyAction !== null}
           onClick={() => {
             if (archiveNeedsUnlock) {
-              void navigate('/security')
+              navigateToRoute('/security')
               return
             }
             if (!snapshot?.config.initialized) {
-              void navigate('/onboarding')
+              navigateToRoute('/onboarding')
               return
             }
             void runBackup()

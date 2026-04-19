@@ -26,7 +26,8 @@ import type { KeyboardEvent } from 'react'
 import type { RecentSearchEntry } from './types'
 
 export const recentSearchesStorageKey = 'pathkeep.explorer.recent-searches'
-export const keywordPageSize = 50
+export const defaultKeywordPageSize = 50
+export const keywordPageSizeOptions = [25, 50, 100, 200] as const
 export const semanticPageSize = 8
 const sensitiveQueryParamPattern =
   /\b(token|code|state|email|callbackUrl|session|otp|nonce|auth|password)=([^&\s]+)/gi
@@ -120,6 +121,15 @@ export function browserLabel(kind: string) {
   if (kind === 'firefox') return 'Firefox'
   if (kind === 'safari') return 'Safari'
   return kind
+}
+
+export function parseKeywordPageSize(value: string | null) {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN
+  return keywordPageSizeOptions.includes(
+    parsed as (typeof keywordPageSizeOptions)[number],
+  )
+    ? parsed
+    : defaultKeywordPageSize
 }
 
 function compactMiddle(text: string, maxLength: number) {

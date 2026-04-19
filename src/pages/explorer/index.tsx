@@ -82,10 +82,8 @@ export function ExplorerPage() {
     handlePreviousHistoryPage,
     handlePreviousSemanticPage,
     historyPageInput,
-    historyQuerySignature,
-    historyScrollPositionsRef,
     mode,
-    pendingHistoryScrollKeyRef,
+    pageSize,
     persistRecentSearch,
     profileId,
     queryInput,
@@ -96,6 +94,7 @@ export function ExplorerPage() {
     semanticQuery,
     semanticTrail,
     setHistoryPageInput,
+    setHistoryPageSize,
     setQueryInput,
     setRecentSearches,
     setSearchParams,
@@ -224,27 +223,6 @@ export function ExplorerPage() {
   useEffect(() => {
     setHistoryPageInput(String(historyPage))
   }, [historyPage, setHistoryPageInput])
-
-  useEffect(() => {
-    const pendingKey = pendingHistoryScrollKeyRef.current
-    if (!pendingKey) return
-    if (pendingKey !== `${historyQuerySignature}|${historyPage}`) return
-    const scrollContainer = document.querySelector('.workspace-scroll')
-    if (!(scrollContainer instanceof HTMLElement)) {
-      pendingHistoryScrollKeyRef.current = null
-      return
-    }
-    const nextScrollTop = historyScrollPositionsRef.current[pendingKey]
-    if (typeof nextScrollTop === 'number') {
-      scrollContainer.scrollTop = nextScrollTop
-    }
-    pendingHistoryScrollKeyRef.current = null
-  }, [
-    historyPage,
-    historyQuerySignature,
-    historyScrollPositionsRef,
-    pendingHistoryScrollKeyRef,
-  ])
 
   if (shellLoading && !snapshot) {
     return <SkeletonExplorer label={t('common.loadingExplorer')} />
@@ -739,9 +717,11 @@ export function ExplorerPage() {
           historyPage={historyPage}
           historyPageCount={historyPageCount}
           historyPageInput={historyPageInput}
+          historyPageSize={pageSize}
           intelligenceT={intelligenceT}
           language={language}
           onHistoryPageInputChange={setHistoryPageInput}
+          onHistoryPageSizeChange={setHistoryPageSize}
           onSelectHistory={setSelectedId}
           results={results}
           selectedEntry={selectedEntry}

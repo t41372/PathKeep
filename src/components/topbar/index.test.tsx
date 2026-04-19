@@ -13,8 +13,15 @@
  * - Avoid locking tests to decorative markup when the actual contract is state visibility, routing, or accessible labeling.
  */
 
+import userEvent from '@testing-library/user-event'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import {
+  createHashRouter,
+  MemoryRouter,
+  RouterProvider,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import { onboardingScreen } from '../../app/router'
 import { ShellDataProvider } from '../../app/shell-data'
@@ -27,6 +34,20 @@ import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { Topbar } from './index'
 
 describe('Topbar', () => {
+  function RouteDriver() {
+    const location = useLocation()
+    const navigate = useNavigate()
+
+    return (
+      <>
+        <button type="button" onClick={() => navigate('/explorer')}>
+          Go to explorer
+        </button>
+        <p>{location.pathname}</p>
+      </>
+    )
+  }
+
   test('renders the active screen metadata and shell actions', async () => {
     render(
       <I18nProvider>
@@ -111,5 +132,107 @@ describe('Topbar', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Check security' })).toBeEnabled()
+  })
+
+  test('tracks in-app route history for the global back and forward buttons', async () => {
+    const user = userEvent.setup()
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    window.location.hash = '#/'
+    const router = createHashRouter([
+      {
+        path: '/',
+        element: (
+          <>
+            <Topbar
+              screen={{
+                ...onboardingScreen,
+                labelKey: 'navigation.dashboardLabel',
+                titleKey: 'navigation.dashboardTitle',
+                subtitleKey: 'navigation.dashboardSubtitle',
+              }}
+            />
+            <RouteDriver />
+          </>
+        ),
+      },
+      {
+        path: '/explorer',
+        element: (
+          <>
+            <Topbar
+              screen={{
+                ...onboardingScreen,
+                labelKey: 'navigation.dashboardLabel',
+                titleKey: 'navigation.dashboardTitle',
+                subtitleKey: 'navigation.dashboardSubtitle',
+              }}
+            />
+            <RouteDriver />
+          </>
+        ),
+      },
+    ])
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <RouterProvider router={router} />
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    const backButton = screen.getByRole('button', { name: 'Go back' })
+    const forwardButton = screen.getByRole('button', { name: 'Go forward' })
+
+    expect(backButton).toBeDisabled()
+    expect(forwardButton).toBeDisabled()
+    expect(screen.getByText('/')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Go to explorer' }))
+
+    expect(await screen.findByText('/explorer')).toBeVisible()
+    expect(backButton).toBeEnabled()
+    expect(forwardButton).toBeDisabled()
+
+    await user.click(backButton)
+
+    expect(await screen.findByText('/')).toBeVisible()
+    expect(backButton).toBeDisabled()
+    expect(forwardButton).toBeEnabled()
+
+    await user.click(forwardButton)
+
+    expect(await screen.findByText('/explorer')).toBeVisible()
+    expect(backButton).toBeEnabled()
+    expect(forwardButton).toBeDisabled()
   })
 })

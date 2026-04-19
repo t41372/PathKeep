@@ -479,6 +479,46 @@
   gap: var(--space-3);
 }
 
+.topbar-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.topbar-history__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+
+.topbar-history__button:last-child {
+  border-right: none;
+}
+
+.topbar-history__button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+
+.topbar-history__button:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
 .crosshair-mark {
   font-family: var(--font-code);
   font-size: 14px;
@@ -1627,6 +1667,13 @@
   gap: var(--space-2);
 }
 
+.history-page-summary {
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  margin-right: var(--space-2);
+}
+
 .history-page-jump__label {
   color: var(--text-faint);
   font-family: var(--font-mono);
@@ -1641,6 +1688,16 @@
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.history-page-size__select {
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -1727,6 +1784,11 @@
 
 /* Detail Panel */
 .detail-panel {
+  position: sticky;
+  top: var(--space-2);
+  align-self: start;
+  height: fit-content;
+  max-height: calc(100dvh - 160px);
   border: 1px solid var(--border);
   background: var(--bg);
   overflow-y: auto;
@@ -4786,6 +4848,10 @@ button.stepper-step:disabled {
   }
   .explorer-grid {
     grid-template-columns: 1fr;
+  }
+  .detail-panel {
+    position: static;
+    max-height: none;
   }
   .assistant-layout,
   .intelligence-grid,

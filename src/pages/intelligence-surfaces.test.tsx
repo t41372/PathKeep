@@ -2295,7 +2295,9 @@ describe('intelligence surfaces', () => {
         ),
       )
       expect(
-        await screen.findByText(intelligenceT('scopedViewTitle')),
+        await screen.findByText(
+          intelligenceT('scopedViewBody', { profile: 'Default' }),
+        ),
       ).toBeVisible()
 
       first.unmount()
@@ -2313,14 +2315,16 @@ describe('intelligence surfaces', () => {
         ),
       )
       expect(
-        await screen.findByText(intelligenceT('scopedViewTitle')),
+        await screen.findByText(
+          intelligenceT('scopedViewBody', { profile: 'Research' }),
+        ),
       ).toBeVisible()
     } finally {
       window.localStorage.removeItem('pathkeep.profile-scope')
     }
   })
 
-  test('shows a small runtime digest and points manual output review to settings', async () => {
+  test('shows a compact runtime digest without a full-width settings banner', async () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
     const loadIntelligenceRuntimeSpy = vi
@@ -2388,13 +2392,8 @@ describe('intelligence surfaces', () => {
       '/jobs',
     )
     expect(
-      screen.getByText(intelligenceT('externalOutputsReviewTitle')),
-    ).toBeVisible()
-    expect(
-      screen.getByRole('link', {
-        name: intelligenceT('externalOutputsReviewAction'),
-      }),
-    ).toHaveAttribute('href', '/settings#settings-external-outputs')
+      screen.queryByText(intelligenceT('externalOutputsReviewTitle')),
+    ).not.toBeInTheDocument()
   })
 
   test('renders archive-wide copy and decoded domain paths without raw keys in zh-TW', async () => {
@@ -2532,13 +2531,27 @@ describe('intelligence surfaces', () => {
     expect(
       (await screen.findAllByText(intelligenceT('archiveWideBadge'))).length,
     ).toBeGreaterThan(0)
-    expect(screen.getByText(intelligenceT('archiveWideBody'))).toBeVisible()
     expect(
-      screen.getByText(intelligenceT('externalOutputsReviewBody')),
-    ).toBeVisible()
+      screen.queryByText(intelligenceT('archiveWideBody')),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(intelligenceT('externalOutputsReviewBody')),
+    ).not.toBeInTheDocument()
     expect(
       screen.getAllByText(intelligenceT('category_community')).length,
     ).toBeGreaterThan(0)
+    expect(
+      screen.queryByText(intelligenceT('stableSourcesTitle')),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(intelligenceT('searchEffectivenessTitle')),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(intelligenceT('frictionTitle')),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(intelligenceT('reopenedTitle')),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText('intelligence.archiveWideBadge'),
     ).not.toBeInTheDocument()
@@ -2569,6 +2582,188 @@ describe('intelligence surfaces', () => {
     expect(
       screen.queryByText(/%E5%93%88%E5%B8%83%E6%96%AF/i),
     ).not.toBeInTheDocument()
+  })
+
+  test('shows a same-day digest when a browsing-rhythm day is selected', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockImplementation(
+      (dateRange) => {
+        if (dateRange.start === dateRange.end) {
+          return Promise.resolve(
+            wrapSection('digest-summary', {
+              dateRange,
+              totalVisits: { value: 42, trend: 'flat' as const },
+              totalSearches: { value: 8, trend: 'flat' as const },
+              newDomains: { value: 2, trend: 'flat' as const },
+              deepReadPages: { value: 5, trend: 'flat' as const },
+              refindPages: { value: 1, trend: 'flat' as const },
+            }),
+          )
+        }
+
+        return Promise.resolve(
+          wrapSection('digest-summary', {
+            dateRange,
+            totalVisits: { value: 240, trend: 'flat' as const },
+            totalSearches: { value: 24, trend: 'flat' as const },
+            newDomains: { value: 9, trend: 'flat' as const },
+            deepReadPages: { value: 18, trend: 'flat' as const },
+            refindPages: { value: 4, trend: 'flat' as const },
+          }),
+        )
+      },
+    )
+    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue(
+      wrapSection('on-this-day', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockImplementation(
+      (dateRange) => {
+        if (dateRange.start === dateRange.end) {
+          return Promise.resolve(
+            wrapSection('top-sites', [
+              {
+                registrableDomain: 'sqlite.org',
+                displayName: 'sqlite.org',
+                domainCategory: 'docs',
+                visitCount: 14,
+                uniqueDays: 1,
+                averageDailyVisits: 14,
+                uniqueUrls: 4,
+              },
+            ]),
+          )
+        }
+
+        return Promise.resolve(
+          wrapSection('top-sites', [
+            {
+              registrableDomain: 'example.com',
+              displayName: 'example.com',
+              domainCategory: 'docs',
+              visitCount: 20,
+              uniqueDays: 5,
+              averageDailyVisits: 4,
+              uniqueUrls: 6,
+            },
+          ]),
+        )
+      },
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('query-families', {
+        page: 0,
+        pageSize: 10,
+        total: 0,
+        families: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [{ domainCategory: 'docs', visitCount: 20, share: 1 }],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockImplementation(
+      (_dateRange, _profileId, granularity) =>
+        Promise.resolve(
+          wrapSection('discovery-trend', {
+            points:
+              granularity === 'day'
+                ? [
+                    {
+                      dateKey: '2026-04-15',
+                      discoveryRate: 0.18,
+                      newDomainCount: 2,
+                      totalVisits: 42,
+                    },
+                    {
+                      dateKey: '2026-04-16',
+                      discoveryRate: 0.1,
+                      newDomainCount: 1,
+                      totalVisits: 12,
+                    },
+                  ]
+                : [],
+          }),
+        ),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 42,
+        hhi: 0.42,
+        concentrationDomainCount: 5,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habit-patterns', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('interrupted-habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      language: 'en',
+      route: '/intelligence',
+      snapshot,
+    })
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /2026-04-15 · 42 visits · 2 new sites/i,
+      }),
+    )
+
+    expect(await screen.findByText('2026-04-15 summary')).toBeVisible()
+    expect(screen.getByText('42 visits on this day')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'sqlite.org' })).toBeVisible()
   })
 
   test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {
@@ -2995,5 +3190,75 @@ describe('intelligence surfaces', () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 220))
     await waitFor(() => expect(querySpy).toHaveBeenCalledTimes(2))
+  })
+
+  test('shows the current page count and lets users change explorer rows per page', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const explorerT = createNamespaceTranslator('en', 'explorer')
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((query) =>
+        Promise.resolve({
+          total: 240,
+          page: 1,
+          pageSize: query.limit ?? 50,
+          pageCount: Math.ceil(240 / (query.limit ?? 50)),
+          hasPrevious: false,
+          hasNext: true,
+          nextCursor: null,
+          items: [
+            {
+              id: 1,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/alpha',
+              title: 'Alpha',
+              domain: 'example.com',
+              visitedAt: '2026-04-17T10:00:00Z',
+              visitTime: Date.parse('2026-04-17T10:00:00Z'),
+              transition: null,
+              favicon: null,
+              sourceVisitId: 1,
+            },
+            {
+              id: 2,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/beta',
+              title: 'Beta',
+              domain: 'example.com',
+              visitedAt: '2026-04-17T11:00:00Z',
+              visitTime: Date.parse('2026-04-17T11:00:00Z'),
+              transition: null,
+              favicon: null,
+              sourceVisitId: 2,
+            },
+          ],
+        }),
+      )
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    expect(await screen.findByText('Page 1 of 5')).toBeVisible()
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 50 }),
+      ),
+    )
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: explorerT('pageSizeLabel') }),
+      '100',
+    )
+
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 100 }),
+      ),
+    )
+    expect(await screen.findByText('Page 1 of 3')).toBeVisible()
   })
 })

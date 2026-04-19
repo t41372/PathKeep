@@ -19,7 +19,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -30,10 +29,12 @@ import {
 } from '../../../lib/profile-scope-context'
 import {
   browserLabel,
+  defaultKeywordPageSize,
   dateShortcutWindows,
   endOfDayMs,
-  keywordPageSize,
+  keywordPageSizeOptions,
   loadRecentSearches,
+  parseKeywordPageSize,
   recentSearchesStorageKey,
   semanticPageSize,
   toLocalDateString,
@@ -108,14 +109,13 @@ export function useExplorerUrlState({
     const parsed = Number.parseInt(raw, 10)
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null
   })()
+  const pageSize = parseKeywordPageSize(searchParams.get('pageSize'))
   const cursor = searchParams.get('cursor')
   const semanticCursor = searchParams.get('semanticCursor')
   const [semanticCursorTrail, setSemanticCursorTrail] = useState<
     Record<string, string[]>
   >({})
   const [historyPageInput, setHistoryPageInput] = useState('1')
-  const historyScrollPositionsRef = useRef<Record<string, number>>({})
-  const pendingHistoryScrollKeyRef = useRef<string | null>(null)
 
   const regexValid = useMemo(() => {
     if (!regexMode || !queryInput.trim()) return true
@@ -210,7 +210,7 @@ export function useExplorerUrlState({
       startTimeMs: start ? new Date(`${start}T00:00:00.000`).getTime() : null,
       endTimeMs: end ? endOfDayMs(end) : null,
       sort,
-      limit: keywordPageSize,
+      limit: pageSize,
       page: explicitPage,
       cursor: explicitPage ? null : cursor,
       regexMode,
@@ -222,6 +222,7 @@ export function useExplorerUrlState({
       domain,
       end,
       explicitPage,
+      pageSize,
       profileId,
       regexMode,
       sort,
@@ -249,6 +250,7 @@ export function useExplorerUrlState({
         start,
         end,
         sort,
+        pageSize,
         regexMode,
       }),
     [
@@ -256,6 +258,7 @@ export function useExplorerUrlState({
       rawQuery,
       domain,
       end,
+      pageSize,
       profileId,
       regexMode,
       sort,
@@ -285,7 +288,6 @@ export function useExplorerUrlState({
     }
 
     const timeoutId = window.setTimeout(() => {
-      pendingHistoryScrollKeyRef.current = null
       setSemanticCursorTrail((current) => ({
         ...current,
         [semanticQuerySignature]: [],
@@ -428,7 +430,6 @@ export function useExplorerUrlState({
       next.delete('cursor')
       next.delete('semanticCursor')
       resetSemanticPagination()
-      pendingHistoryScrollKeyRef.current = null
     }
     setSearchParams(next)
   }
@@ -455,7 +456,6 @@ export function useExplorerUrlState({
     next.delete('semanticCursor')
     resetSemanticPagination()
     setSearchParams(next)
-    pendingHistoryScrollKeyRef.current = null
   }
 
   /**
@@ -468,44 +468,39 @@ export function useExplorerUrlState({
   }
 
   /**
-   * Explains how history page key works.
-   *
-   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  function historyPageKey(targetPage: number) {
-    return `${historyQuerySignature}|${targetPage}`
-  }
-
-  /**
-   * Explains how queue history scroll restore works.
-   *
-   * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  function queueHistoryScrollRestore(targetPage: number) {
-    const scrollContainer = document.querySelector('.workspace-scroll')
-    if (!(scrollContainer instanceof HTMLElement)) {
-      pendingHistoryScrollKeyRef.current = null
-      return
-    }
-    const key = historyPageKey(targetPage)
-    historyScrollPositionsRef.current[key] = scrollContainer.scrollTop
-    pendingHistoryScrollKeyRef.current = key
-  }
-
-  /**
    * Renders the go to history route.
    *
    * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Explorer expectations in the design docs.
    */
   function goToHistoryPage(nextPage: number) {
     const normalizedPage = Math.max(1, nextPage)
-    queueHistoryScrollRestore(normalizedPage)
     const next = new URLSearchParams(searchParams)
     if (normalizedPage <= 1) {
       next.delete('page')
     } else {
       next.set('page', String(normalizedPage))
     }
+    next.delete('cursor')
+    setSearchParams(next)
+  }
+
+  /**
+   * Updates the number of visible history rows per page.
+   */
+  function setHistoryPageSize(nextPageSize: number) {
+    const normalizedPageSize = keywordPageSizeOptions.includes(
+      nextPageSize as (typeof keywordPageSizeOptions)[number],
+    )
+      ? nextPageSize
+      : defaultKeywordPageSize
+
+    const next = new URLSearchParams(searchParams)
+    if (normalizedPageSize === defaultKeywordPageSize) {
+      next.delete('pageSize')
+    } else {
+      next.set('pageSize', String(normalizedPageSize))
+    }
+    next.delete('page')
     next.delete('cursor')
     setSearchParams(next)
   }
@@ -621,7 +616,6 @@ export function useExplorerUrlState({
       next.delete('semanticCursor')
       return next
     })
-    pendingHistoryScrollKeyRef.current = null
   }
 
   /**
@@ -641,7 +635,6 @@ export function useExplorerUrlState({
     next.delete('semanticCursor')
     resetSemanticPagination()
     setSearchParams(next)
-    pendingHistoryScrollKeyRef.current = null
   }
 
   /**
@@ -694,6 +687,7 @@ export function useExplorerUrlState({
     domain,
     end,
     explicitPage,
+    pageSize,
     explicitProfileId,
     groupedDateRange,
     handleFirstHistoryPage,
@@ -705,9 +699,7 @@ export function useExplorerUrlState({
     handlePreviousSemanticPage,
     historyPageInput,
     historyQuerySignature,
-    historyScrollPositionsRef,
     mode,
-    pendingHistoryScrollKeyRef,
     persistRecentSearch,
     profileId,
     queryInput,
@@ -715,6 +707,7 @@ export function useExplorerUrlState({
     regexMode,
     regexValid,
     searchParams,
+    setHistoryPageSize,
     semanticCursor,
     semanticQuery,
     semanticQuerySignature,
