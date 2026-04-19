@@ -33,6 +33,7 @@ import type {
 import type {
   CoreIntelligencePrimaryOverview,
   CoreIntelligenceSecondaryOverview,
+  DayInsights,
 } from '../core-intelligence/types'
 import { call } from './shared'
 
@@ -82,6 +83,10 @@ export const intelligenceClient = {
         request,
       },
     ),
+  getDayInsights: (request: { date: string; profileId?: string | null }) =>
+    call<DayInsights>('get_day_insights', {
+      request,
+    }),
   getRuntime: () =>
     call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
   retryRuntimeJob: (jobId: number) =>

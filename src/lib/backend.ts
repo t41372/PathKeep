@@ -3016,6 +3016,34 @@ async function call<T>(
         deepReadPages: { value: 0, trend: 'flat' },
         refindPages: { value: 0, trend: 'flat' },
       } as T
+    case 'get_day_insights':
+      return {
+        date: '',
+        digestSummary: {
+          dateRange: { start: '', end: '' },
+          totalVisits: { value: 0, trend: 'flat' },
+          totalSearches: { value: 0, trend: 'flat' },
+          newDomains: { value: 0, trend: 'flat' },
+          deepReadPages: { value: 0, trend: 'flat' },
+          refindPages: { value: 0, trend: 'flat' },
+        },
+        topSites: [],
+        activityMix: { categories: [], changeVsPrevious: [] },
+        refindPages: [],
+        queryFamilies: {
+          families: [],
+          total: 0,
+          page: 0,
+          pageSize: 8,
+        },
+        hourlyActivity: Array.from({ length: 24 }, (_, hour) => ({
+          hour,
+          visitCount: 0,
+        })),
+        drilldown: {
+          explorerDateRange: { start: '', end: '' },
+        },
+      } as T
     case 'get_intelligence_primary_overview':
       throw new Error(
         'PathKeep intelligence overview batching is unavailable in browser preview mode.',

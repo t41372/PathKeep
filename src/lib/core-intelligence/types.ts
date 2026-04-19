@@ -256,6 +256,27 @@ export interface CoreIntelligenceSecondaryOverview {
   totalDurationMs: number
 }
 
+export interface DayInsightsDrilldown {
+  explorerDateRange: DateRange
+}
+
+export interface DayInsightsHourlyBucket {
+  hour: number
+  visitCount: number
+}
+
+/** Exact local-calendar-day deterministic insights surface. */
+export interface DayInsights {
+  date: string
+  digestSummary: DigestSummary
+  topSites: TopSite[]
+  activityMix: ActivityMix
+  refindPages: RefindPage[]
+  queryFamilies: QueryFamilyResult
+  hourlyActivity: DayInsightsHourlyBucket[]
+  drilldown: DayInsightsDrilldown
+}
+
 // ---------------------------------------------------------------------------
 // 1.2 On This Day (歷史上的今天)
 // ---------------------------------------------------------------------------
@@ -471,6 +492,7 @@ export interface TrailMember {
   role: 'search_event' | 'click' | 'landing'
   url: string
   title?: string | null
+  registrableDomain?: string | null
   visitTimeMs: number
   searchQuery?: string | null
 }

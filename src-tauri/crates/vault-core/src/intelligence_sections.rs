@@ -31,7 +31,7 @@ struct CoreIntelligenceSectionDescriptor {
     empty_degraded_reason: Option<&'static str>,
 }
 
-const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 19] = [
+const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 20] = [
     CoreIntelligenceSectionDescriptor {
         id: "digest-summary",
         module_ids: &["daily-rollups"],
@@ -175,6 +175,23 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],
+        empty_degraded_reason: None,
+    },
+    CoreIntelligenceSectionDescriptor {
+        id: "day-insights",
+        module_ids: &["daily-rollups", "search-trails", "refind-pages", "activity-mix"],
+        source_tables: &[
+            "daily_summary_rollups",
+            "domain_daily_rollups",
+            "category_daily_rollups",
+            "query_families",
+            "refind_pages",
+        ],
+        includes_enrichment: false,
+        data_kind: SectionDataKind::PersistedDerived,
+        notes: &[
+            "Day insights reuse the existing deterministic entities for one exact local calendar day.",
+        ],
         empty_degraded_reason: None,
     },
     CoreIntelligenceSectionDescriptor {
@@ -410,6 +427,17 @@ mod tests {
     fn section_registry_exposes_search_activity_descriptor() {
         let descriptor = persisted_descriptor("search-activity");
         assert_eq!(descriptor.module_ids, &["daily-rollups", "search-trails"]);
+        assert!(descriptor.source_tables.contains(&"query_families"));
+    }
+
+    #[test]
+    fn section_registry_exposes_day_insights_descriptor() {
+        let descriptor = persisted_descriptor("day-insights");
+        assert_eq!(
+            descriptor.module_ids,
+            &["daily-rollups", "search-trails", "refind-pages", "activity-mix"]
+        );
+        assert!(descriptor.source_tables.contains(&"daily_summary_rollups"));
         assert!(descriptor.source_tables.contains(&"query_families"));
     }
 

@@ -25,6 +25,7 @@ import type {
   CoreIntelligenceSectionResult,
   CoreIntelligenceSectionTiming,
   CoreIntelligenceSectionWindow,
+  DayInsights,
   DigestSummary,
   OnThisDayEntry,
   TopSite,
@@ -1011,6 +1012,30 @@ export function getDomainDeepDive(
     {
       kind: 'date-range',
       dateRange,
+    },
+  )
+}
+
+export function getDayInsights(date: string, profileId?: string | null) {
+  return invokeSectionRequest<
+    DayInsights,
+    {
+      date: string
+      profileId?: string | null
+    }
+  >(
+    'get_day_insights',
+    {
+      date,
+      profileId,
+    },
+    'day-insights',
+    {
+      kind: 'date-range',
+      dateRange: {
+        start: date,
+        end: date,
+      },
     },
   )
 }

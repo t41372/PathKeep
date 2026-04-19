@@ -231,4 +231,17 @@ describe('core intelligence api', () => {
     })
     expect(result.data.availableYears).toEqual([2026, 2025, 2024])
   })
+
+  test('requests day insights through the dedicated day-entity command', async () => {
+    const { getDayInsights } = await import('./api')
+
+    await getDayInsights('2026-04-18', 'chrome:Default')
+
+    expect(callMock).toHaveBeenCalledWith('get_day_insights', {
+      request: {
+        date: '2026-04-18',
+        profileId: 'chrome:Default',
+      },
+    })
+  })
 })

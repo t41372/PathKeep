@@ -7,6 +7,7 @@
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod day_insights;
 mod host_artifacts;
 mod incremental;
 mod phase_four;
@@ -60,6 +61,7 @@ use std::{
     time::Instant,
 };
 
+pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
 pub use self::phase_four::{get_compare_sets, get_multi_browser_diff};
 pub use self::phase_three::{
@@ -5479,8 +5481,8 @@ pub fn get_trail_detail(
         .with_context(|| format!("trail {trail_id} was not found"))?;
     let mut statement = connection.prepare(
         "SELECT search_trail_members.trail_id, search_trail_members.visit_id, search_trail_members.ordinal,
-                search_trail_members.role, urls.url, urls.title, visits.visit_time_ms,
-                visit_derived_facts.search_query
+                search_trail_members.role, urls.url, urls.title, visit_derived_facts.registrable_domain,
+                visits.visit_time_ms, visit_derived_facts.search_query
          FROM search_trail_members
          JOIN archive.visits AS visits ON visits.id = search_trail_members.visit_id
          JOIN archive.urls AS urls ON urls.id = visits.url_id
@@ -5497,8 +5499,9 @@ pub fn get_trail_detail(
                 role: row.get(3)?,
                 url: row.get(4)?,
                 title: row.get(5)?,
-                visit_time_ms: row.get(6)?,
-                search_query: row.get(7)?,
+                registrable_domain: row.get(6)?,
+                visit_time_ms: row.get(7)?,
+                search_query: row.get(8)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -7605,8 +7608,8 @@ mod tests {
         build_path_flows, build_query_families, build_query_families_from_batches,
         build_refind_pages, build_source_effectiveness, build_source_effectiveness_from_database,
         build_structural_profile_aggregates_from_batches, collapse_date_key,
-        ensure_core_intelligence_schema, explain_entity, get_discovery_trend,
-        get_intelligence_embed_cards, get_intelligence_public_snapshot,
+        ensure_core_intelligence_schema, explain_entity, get_day_insights, get_discovery_trend,
+        get_domain_deep_dive, get_intelligence_embed_cards, get_intelligence_public_snapshot,
         get_intelligence_widget_snapshot, get_path_flows, load_profile_derived_visits,
         load_profile_search_events, load_profile_trails, local_date_key, merge_stage_run_result,
         normalize_query, run_core_intelligence, run_core_intelligence_job_type_with_progress,
@@ -7618,8 +7621,9 @@ mod tests {
         intelligence_runtime::{FULL_REBUILD_JOB_TYPE, ensure_intelligence_runtime_schema},
         models::{
             AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings,
-            DateRange, EntityExplanationRequest, GranularityDateRangeRequest,
-            IntelligenceEmbedCardsRequest, PathFlowRequest, ScopedDateRangeRequest,
+            DateRange, DayInsightsRequest, DomainDeepDiveRequest, EntityExplanationRequest,
+            GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
+            ScopedDateRangeRequest,
         },
         utils::now_rfc3339,
     };
@@ -7738,6 +7742,93 @@ mod tests {
         assert_eq!(scoped.available_years, vec![2025, 2024]);
         assert_eq!(scoped.points.len(), 1);
         assert_eq!(scoped.points[0].date_key, "2025-04-18");
+    }
+
+    #[test]
+    fn day_insights_compose_exact_day_entities_and_drilldown_metadata() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("rebuild intelligence");
+
+        let first_day = local_date_key(1711929600000);
+        let insights = get_day_insights(
+            &paths,
+            &config,
+            None,
+            &DayInsightsRequest {
+                date: first_day.clone(),
+                profile_id: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("day insights");
+
+        assert_eq!(insights.date, first_day);
+        assert_eq!(insights.digest_summary.total_visits.value, 2);
+        assert_eq!(insights.drilldown.explorer_date_range.start, insights.date);
+        assert_eq!(insights.drilldown.explorer_date_range.end, insights.date);
+        assert_eq!(insights.hourly_activity.len(), 24);
+        assert!(insights.top_sites.iter().any(|site| site.registrable_domain == "github.com"));
+        assert!(!insights.query_families.families.is_empty());
+        assert!(!insights.refind_pages.is_empty());
+    }
+
+    #[test]
+    fn domain_deep_dive_keeps_day_scoped_trend_consistent_with_exact_day_insights() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("rebuild intelligence");
+
+        let first_day = local_date_key(1711929600000);
+        let day = get_day_insights(
+            &paths,
+            &config,
+            None,
+            &DayInsightsRequest {
+                date: first_day.clone(),
+                profile_id: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("day insights");
+        let domain = get_domain_deep_dive(
+            &paths,
+            &config,
+            None,
+            &DomainDeepDiveRequest {
+                registrable_domain: "github.com".to_string(),
+                date_range: DateRange { start: first_day.clone(), end: first_day.clone() },
+                profile_id: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("domain deep dive");
+
+        assert_eq!(domain.registrable_domain, "github.com");
+        assert_eq!(domain.total_visits, 1);
+        assert_eq!(domain.active_days, 1);
+        assert_eq!(domain.visit_trend.len(), 1);
+        assert_eq!(domain.visit_trend[0].date_key, first_day);
+        assert!(
+            day.top_sites.iter().any(|site| site.registrable_domain == domain.registrable_domain)
+        );
     }
 
     #[test]

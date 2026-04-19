@@ -241,6 +241,14 @@ pub struct DomainDeepDiveRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request shape for one local-calendar-day insights read.
+pub struct DayInsightsRequest {
+    pub date: String,
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Request shape for path-flow reads.
 pub struct PathFlowRequest {
     pub date_range: DateRange,
@@ -313,6 +321,35 @@ pub struct CoreIntelligenceSecondaryOverview {
     pub observed_interactions: CoreIntelligenceSectionResult<Vec<ObservedInteraction>>,
     pub timings: Vec<CoreIntelligenceSectionTiming>,
     pub total_duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Explorer drilldown metadata emitted with one day insights payload.
+pub struct DayInsightsDrilldown {
+    pub explorer_date_range: DateRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// One hourly activity bucket inside a day-level insights payload.
+pub struct DayInsightsHourlyBucket {
+    pub hour: i64,
+    pub visit_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Full deterministic read model for one exact local calendar day.
+pub struct DayInsights {
+    pub date: String,
+    pub digest_summary: DigestSummary,
+    pub top_sites: Vec<TopSite>,
+    pub activity_mix: ActivityMix,
+    pub refind_pages: Vec<RefindPage>,
+    pub query_families: QueryFamilyResult,
+    pub hourly_activity: Vec<DayInsightsHourlyBucket>,
+    pub drilldown: DayInsightsDrilldown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -526,6 +563,7 @@ pub struct TrailMember {
     pub role: String,
     pub url: String,
     pub title: Option<String>,
+    pub registrable_domain: Option<String>,
     pub visit_time_ms: i64,
     pub search_query: Option<String>,
 }

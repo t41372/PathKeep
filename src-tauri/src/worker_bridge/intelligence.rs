@@ -3,11 +3,11 @@
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
-    DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
-    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
-    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
-    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
-    TopSearchConceptsRequest, TopSitesRequest,
+    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
+    ExplainRefindRequest, GranularityDateRangeRequest, IntelligenceEmbedCardsRequest,
+    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    RefindPagesRequest, ScopedDateRangeRequest, SearchEffectivenessRequest,
+    SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -331,6 +331,14 @@ pub(crate) fn get_domain_deep_dive_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DomainDeepDive>, String> {
     worker_result(vault_worker::get_domain_deep_dive(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_day_insights_impl(
+    request: DayInsightsRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, String> {
+    worker_result(vault_worker::get_day_insights(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

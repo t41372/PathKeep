@@ -357,6 +357,15 @@ pub(crate) fn get_domain_deep_dive(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn get_day_insights(
+    request: vault_core::DayInsightsRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, String> {
+    worker_bridge::get_day_insights_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_browsing_rhythm(
     request: vault_core::CategoryFilteredDateRangeRequest,
     state: State<'_, SessionState>,

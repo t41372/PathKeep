@@ -61,9 +61,9 @@ pub use enrichment::execute_enrichment_job_by_id;
 pub use intelligence::{
     build_intelligence_local_host, clear_derived_intelligence_state, explain_entity,
     get_activity_mix, get_activity_mix_trend, get_breadth_index, get_browsing_rhythm,
-    get_compare_sets, get_digest_summary, get_discovery_trend, get_domain_deep_dive,
-    get_domain_trend, get_friction_signals, get_habit_patterns, get_hub_pages,
-    get_intelligence_embed_cards, get_intelligence_public_snapshot,
+    get_compare_sets, get_day_insights, get_digest_summary, get_discovery_trend,
+    get_domain_deep_dive, get_domain_trend, get_friction_signals, get_habit_patterns,
+    get_hub_pages, get_intelligence_embed_cards, get_intelligence_public_snapshot,
     get_intelligence_widget_snapshot, get_interrupted_habits, get_multi_browser_diff,
     get_navigation_path, get_observed_interactions, get_on_this_day, get_path_flows,
     get_query_families, get_refind_pages, get_reopened_investigations, get_search_effectiveness,

@@ -172,6 +172,7 @@ fn run_app() -> Result<()> {
             get_friction_signals,
             get_reopened_investigations,
             get_domain_deep_dive,
+            get_day_insights,
             get_browsing_rhythm,
             get_discovery_trend,
             get_intelligence_embed_cards,

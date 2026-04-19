@@ -29,7 +29,7 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, AppConfig, AppUpdateInstallRequest, CategoryFilteredDateRangeRequest,
-    CoreIntelligenceRebuildRequest, DomainDeepDiveRequest, DomainTrendRequest,
+    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
     EntityExplanationRequest, ExplainRefindRequest, ExportRequest, FrontendErrorReportRequest,
     GranularityDateRangeRequest, HistoryQuery, IntelligenceEmbedCardsRequest,
     IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
@@ -767,6 +767,13 @@ async fn dispatch_command(
         "get_domain_deep_dive" => {
             let payload = parse_payload::<WrappedRequest<DomainDeepDiveRequest>>(payload)?;
             json_value!(worker_bridge::get_domain_deep_dive_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_day_insights" => {
+            let payload = parse_payload::<WrappedRequest<DayInsightsRequest>>(payload)?;
+            json_value!(worker_bridge::get_day_insights_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

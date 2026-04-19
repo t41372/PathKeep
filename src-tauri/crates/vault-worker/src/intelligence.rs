@@ -36,20 +36,21 @@ use vault_core::{
     CompareSet, CoreIntelligencePrimaryOverview, CoreIntelligenceQueueReport,
     CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
     CoreIntelligenceSecondaryOverview, CoreIntelligenceSectionResult,
-    CoreIntelligenceSectionTiming, CoreIntelligenceSectionWindow, DigestSummary, DiscoveryTrend,
-    DomainDeepDive, DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
-    EntityExplanationRequest, Explanation, FrictionSignal, GranularityDateRangeRequest,
-    HabitPattern, HubPage, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview, IntelligenceLocalHostRequest,
-    IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot, IntelligenceWidgetSnapshot,
-    InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
-    PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyResult, RefindExplanation,
-    RefindPage, RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
-    SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest,
-    SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
-    TopSitesRequest, TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
-    build_ai_index_with_control, build_core_intelligence_section_meta, cancel_intelligence_job,
-    execute_enrichment_job_by_id, intelligence, intelligence_job_stop_requested,
+    CoreIntelligenceSectionTiming, CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest,
+    DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
+    DomainTrendRequest, EngineRanking, EntityExplanationRequest, Explanation, FrictionSignal,
+    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceEmbedCardPayload,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview,
+    IntelligenceLocalHostRequest, IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot,
+    IntelligenceWidgetSnapshot, InterruptedHabit, NavigationPath, ObservedInteraction,
+    OnThisDayEntry, PagedDateRangeRequest, PathFlow, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyResult, RefindExplanation, RefindPage, RefindPagesRequest, ReopenedInvestigation,
+    RhythmHeatmap, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
+    SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
+    StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
+    ai_queue, answer_history_question_with_control, build_ai_index_with_control,
+    build_core_intelligence_section_meta, cancel_intelligence_job, execute_enrichment_job_by_id,
+    intelligence, intelligence_job_stop_requested,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         claim_core_intelligence_job, enqueue_deterministic_rebuild_job,
@@ -1452,6 +1453,35 @@ pub fn get_domain_deep_dive(
                 && data.top_referrers.is_empty()
                 && data.top_exits.is_empty()
                 && data.visit_trend.is_empty()
+        },
+    )
+}
+
+pub fn get_day_insights(
+    session_database_key: Option<&str>,
+    request: &DayInsightsRequest,
+) -> Result<CoreIntelligenceSectionResult<DayInsights>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "day-insights",
+        CoreIntelligenceSectionWindow::DateRange {
+            date_range: vault_core::DateRange {
+                start: request.date.clone(),
+                end: request.date.clone(),
+            },
+        },
+        |paths, config| {
+            intelligence::get_day_insights(paths, config, session_database_key, request)
+        },
+        |data| {
+            data.digest_summary.total_visits.value == 0
+                && data.digest_summary.total_searches.value == 0
+                && data.digest_summary.new_domains.value == 0
+                && data.digest_summary.deep_read_pages.value == 0
+                && data.digest_summary.refind_pages.value == 0
+                && data.top_sites.is_empty()
+                && data.query_families.families.is_empty()
+                && data.refind_pages.is_empty()
         },
     )
 }
