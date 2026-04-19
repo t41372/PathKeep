@@ -116,6 +116,11 @@
   - `/intelligence` top digest 現在只讀 `load_intelligence_runtime`；完整 AI queue review 繼續留在 `/jobs`，這輪沒有新增 Tauri command，也沒有改 schema / payload-provider contract
   - fresh desktop pass 另外暴露 current-host shell noise：Tauri dev app 的 WebView 仍可能卡在 stale frontend module / cache，上屏繼續顯示 raw `intelligence.archiveWideBadge`、舊 external-output CTA 文案與舊 queue behavior；同一時間 `devUrl` 直讀的 module 已經是更新後 source。這要視為 host-specific validation noise，不是 current repo truth
   - 因此這輪之後的 planning truth 是：**原始 Core Intelligence P1–P4 deterministic product scope 已完成**，真正未交付的原規劃只剩 `browser-snippet-v1` 之外的 external host integration（OS widget / localhost host / public API / alternate hosts）
+- 2026-04-18 locked-archive/bootstrap continuation：
+  - worker `app_snapshot` 現在對「archive 已初始化但未解鎖」走 degradation，而不是直接把 shell bootstrap 打成 generic failure；Security route 也會先用 `securityStatus()` 驗證 candidate key，再決定要不要進入 full shell refresh，因此錯密碼可以 source-level fail fast
+  - sidebar 背景工作 strip 在 archive 未解鎖時不再輪詢 queue/runtime，也會把 compact CTA 直接導向 `/security#unlock-archive`
+  - shell / onboarding / lock / diagnostics 現在都支援 compact `version · short-sha[+]` build label，dirty worktree 會在 short SHA 後面加 `+`
+  - 但這台主機 fresh `bun run desktop:dev` restart 仍然可能顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome；如果再次看到這種 screenshot，優先懷疑 current-host stale WebView / bundle cache drift，而不是直接回滾剛 landed 的 source 修補
 - 2026-04-18 backend closeout：
   - crate-internal legacy `vault-core::insights` tree 已刪除；queued enrichment / readable-content helper 現在都歸 `enrichment` / `intelligence`
   - repo 只保留 registry-backed module ids、canonical derived-table names、以及 grouped clear-state counts；snapshot-era `Insight*` transport、legacy module-id alias 與 transitional `insight_status` wrapper 都已退場

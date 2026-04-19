@@ -27,6 +27,8 @@
 > **2026-04-17 continuation note**：Core Intelligence 的實際完成度已經超過最初的 P1/P2 口頭分工；若要讓 fresh agent 續接 frontend/backend 工作，請先讀 [core-intelligence-progress.md](core-intelligence-progress.md) 與 [core-intelligence-handoff.md](core-intelligence-handoff.md)，不要只靠 pre-reset `m5-deterministic-intelligence/` 文檔猜目前狀態。
 >
 > **2026-04-18 closeout note**：`WORK-CI-C` 已完成。repo 現在只接受 registry-backed Core Intelligence module ids、canonical table names、runtime reports 與 benchmark evidence；`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/` 已補齊 current-host `14.4M / 60y` full replay 與 expired-lease recovery artifact。current-host signoff 就是目前 stop point；若未來還想補第二台主機 benchmark parity，必須重新立項，而不是預設待辦。
+>
+> **2026-04-18 desktop truth follow-up note**：source 之後又補上 locked-archive shell snapshot degradation、Security candidate-key fail-fast、sidebar locked-state polling gate，以及 compact `version · short-sha[+]` build diagnostics；但 fresh `bun run desktop:dev` 在這台主機上仍可能顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome。這要先視為 current-host stale WebView / bundle cache drift，再決定是否重開 frontend regression。
 
 ---
 

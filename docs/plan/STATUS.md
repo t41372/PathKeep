@@ -11,7 +11,7 @@
 > 這裡的單位是 **work block**，每個 block 的份量大約是半個 milestone。
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
-> 2026-04-18 planning note：使用者已明確把第二台主機 benchmark parity 從當前計劃移除；current-host `14.4M / 60y` signoff 仍是目前的 stop point，因此 `STATUS.md` 暫無 active current-focus work block。
+> 2026-04-18 planning note：使用者已明確把第二台主機 benchmark parity 從當前計劃移除；current-host `14.4M / 60y` signoff 仍是目前的 stop point。其後這輪 desktop truth audit 已落地 source-level repair 與第一輪 Computer Use / profiling evidence，但 full real-data pass 仍卡在 current-host locked-archive bootstrap / unlock drift，因此 `STATUS.md` 目前仍暫無新的 active current-focus work block。
 
 - [x] **WORK-QC-L** — Intelligence Recovery And Desktop Truth Gate
   - 讀先：
@@ -78,6 +78,33 @@
   - 驗收：targeted Vitest regressions、`bun run check && bun run build`；fresh desktop app manual pass 若仍顯示 raw key / 舊 CTA / 舊 queue 行為，必須把 current-host stale WebView / bundle cache noise 寫回 source docs，而不是把 source 修補誤記成未完成。
 
 > 2026-04-18 desktop truth repair closeout：`WORK-CI-L` 已完成。source 現在已固定 archive-wide callout copy、`category_community` label、external-output CTA、Explorer URL redaction、domain deep-dive decoded path，且 `/intelligence` digest 只讀 `load_intelligence_runtime`。planning truth 也已回寫：原始 deterministic Core Intelligence P1–P4 scope 已完成，只剩 `browser-snippet-v1` 之外的 external host integration。這台主機的 fresh Tauri dev app 若仍顯示 raw `intelligence.*` key、舊 CTA 文案或舊 queue 行為，應先視為 current-host WebView / stale bundle cache noise。
+
+- [x] **WORK-CI-M** — Desktop Truth Audit And Locked-Archive Bootstrap Repair
+  - 讀先：
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/plan/e2e-workflow-tests.md`
+    `docs/plan/m4-full-polish/large-archive-performance-runbook.md`
+  - 目標：針對 current-host desktop app 做一次真的 locked-archive startup / Security unlock / cross-route truth audit，而不是只靠 source docs 宣稱 P1-P4 已完成；同時把 audit 途中攔住全局 shell 的 bootstrap / error-shaping 問題先止血。
+  - 契約：不新增 Tauri command；優先修 transport error shaping、Dashboard fallback、worker snapshot 的 best-effort degradation，並把 current-host 真實觀察、未完成 audit 範圍與 perf artifact 誠實寫回 source docs。
+  - 驗收：targeted Vitest / Rust regressions、`artifacts/perf/2026-04-18-desktop-truth-audit/` evidence、以及 planning/source docs 對 current-host blocker 與後續 follow-up scope 的同步回寫。
+
+> 2026-04-18 desktop audit note：`WORK-CI-M` 已完成 source-level repair 與第一輪真機盤點。source 現在補上 Tauri transport detection、raw invoke error shaping、Dashboard `securityStatus()` fallback、以及 worker app snapshot 的 best-effort browser-discovery/runtime-diagnostics degradation；同時留下 [`docs/plan/core-intelligence-desktop-truth-audit.md`](core-intelligence-desktop-truth-audit.md) 與 [`artifacts/perf/2026-04-18-desktop-truth-audit/`](../../artifacts/perf/2026-04-18-desktop-truth-audit/)。但 current-host live app 仍存在 locked-archive bootstrap / unlock drift：Dashboard fresh boot 依然顯示 generic `無法讀取封存`、Security route 雖可讀到真實 encrypted+locked 狀態，`000000` unlock flow 也未在觀察窗口內 settle。因此 full import / `/intelligence` / Explorer session-trail / domain deep-dive real-data pass 已移到後續 follow-up，而不是在這輪 audit 內假裝完成。
+
+- [x] **WORK-CI-O** — Locked-Archive Shell Truth Follow-Up And Build Revision Diagnostics
+  - 讀先：
+    `docs/plan/core-intelligence-desktop-truth-audit.md`
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 `WORK-CI-M` 暴露出的兩條 source-level follow-up 再收一輪：讓 locked encrypted archive 的 shell bootstrap 至少能退化成可用 snapshot / fail-fast unlock path，並把 compact build diagnostics（`version · short-sha[+]`）補回 app chrome，方便 current-host 真機審計時辨認到底跑的是哪個 build。
+  - 契約：不新增 Tauri command；延續既有 `securityStatus()` / build-info contract。locked archive 時 sidebar 不得再主動輪詢 background runtime；若 current-host fresh relaunch 仍顯示 generic dashboard copy 或不帶 SHA 的 shell chrome，必須把它誠實記成 stale WebView / bundle cache drift，而不是把 source 修補誤記成沒做。
+  - 驗收：targeted Rust / Vitest regressions、fresh `bun run desktop:dev` Computer Use relaunch note、`bun run check && bun run build`
+
+> 2026-04-18 locked-archive follow-up note：`WORK-CI-O` 已完成 source-level修補。worker `app_snapshot` 現在對已初始化但未解鎖的 encrypted archive 會回傳 usable locked snapshot，Security unlock flow 也會先驗 candidate key 是否真的解鎖，再決定要不要進 full shell refresh；sidebar 背景工作 strip 在 archive 未解鎖時不再輪詢 runtime，shell / onboarding / lock / diagnostics 也已補回 compact `version · short-sha[+]` build label。但這台主機 fresh `bun run desktop:dev` 重啟後仍顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome，同時 worker log 已明確打出 encrypted-archive key warnings；這應先視為 current-host stale WebView / bundle cache drift，`WORK-CI-N` 仍保持 blocked，等待 host-side cache noise 或 reset 決策被解掉。
 
 ---
 
