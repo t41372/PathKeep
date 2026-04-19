@@ -17,7 +17,10 @@ import { formatRelativeTime } from '../../../lib/format'
 import { HistoryFavicon } from '../../../components/primitives/history-favicon'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { ExportFormat, HistoryQueryResponse } from '../../../lib/types'
-import { activateRecordSelection } from '../helpers'
+import {
+  activateRecordSelection,
+  sanitizeExplorerDisplayText,
+} from '../helpers'
 import { ExplorerDetailPanel } from './detail-panel'
 import type { Translator } from '../types'
 
@@ -109,7 +112,9 @@ export function ExplorerResultsPanel({
             >
               <HistoryFavicon domain={item.domain} favicon={item.favicon} />
               <div className="record-main">
-                <div className="record-title">{item.title || item.url}</div>
+                <div className="record-title">
+                  {sanitizeExplorerDisplayText(item.title || item.url)}
+                </div>
                 <div className="record-url dim mono">{item.url}</div>
               </div>
               <div className="record-meta">

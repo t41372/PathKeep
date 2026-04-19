@@ -25,6 +25,7 @@ import { OnboardingShell } from './onboarding-shell'
 import { RouteHydrateFallback } from './route-hydrate-fallback'
 import { RequireLockScreen, RequireUnlockedShell } from './route-guards'
 import { AppShell } from './shell'
+import { ShellRouteErrorBoundary } from './shell-route-error-boundary'
 
 /**
  * Defines the type-level contract for app route id.
@@ -239,6 +240,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'explorer',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/explorer')
       return { Component: module.ExplorerPage }
@@ -248,9 +250,11 @@ const appRouteChildren: RouteObject[] = [
   {
     path: 'intelligence',
     handle: withHandle(appShellScreens[2]),
+    ErrorBoundary: ShellRouteErrorBoundary,
     children: [
       {
         index: true,
+        ErrorBoundary: ShellRouteErrorBoundary,
         lazy: async () => {
           const module = await import('../pages/intelligence')
           return { Component: module.IntelligencePage }
@@ -258,6 +262,7 @@ const appRouteChildren: RouteObject[] = [
       },
       {
         path: 'domain/:domain',
+        ErrorBoundary: ShellRouteErrorBoundary,
         lazy: async () => {
           const module = await import('../pages/intelligence')
           return { Component: module.DomainDeepDiveRoutePage }
@@ -291,6 +296,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'jobs',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/jobs')
       return { Component: module.JobsPage }

@@ -55,6 +55,17 @@
 
 > 2026-04-18 external host closeout：`WORK-CI-I` 已完成。Settings external outputs 現在除了 manual review / copy-export baseline，也能 preview / build / verify 第一個 trusted local host `browser-snippet-v1`，固定產出 `app_root/integrations/core-intelligence/browser-snippet-v1/{index.html,bundle.json}`。目前 stop point 維持在 current-host `14.4M / 60y` signoff，`STATUS.md` 暫無新的 active current-focus 項目。
 
+- [x] **WORK-CI-K** — Core Intelligence App Truth Repairs
+  - 讀先：
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 2026-04-18 實機驗證抓到的 shipped blockers 收口：`/intelligence` section-envelope crash、`daily-rollup` fallback uniqueness bug、encrypted onboarding 無 keychain regression，以及 queue / copy / privacy / route error truth drift。
+  - 契約：section metadata 再壞也只能 degraded 顯示、不得把整頁炸成 React 預設錯誤頁；`domain_daily_rollups` 維持一天 / 一 profile / 一 registrable domain 一列；加密 onboarding 在不儲存鑰匙圈的情境下必須能走完；Explorer / explainability / onboarding / dashboard 不能外露未處理的 raw callback URL、token、email 或明顯半成品文案。
+  - 驗收：targeted Rust / Vitest regressions、`bun run check && bun run build`；browser preview `/intelligence` truth pass；手動桌面驗證若仍撞上 stale bundled assets，要在 source docs 誠實記錄 host-specific noise，而不是把 source 修復誤記成未完成。
+
 ---
 
 > 2026-04-10 unblock：使用者已對 `ADR-006` 明確 sign off，`WORK-M5-A` 因此從 proposal / blocked 轉為 active。M4 closeout 仍維持完成，但 2026-04-10 也補修了 onboarding archive-mode IPC 契約與 insights refresh queue regression。

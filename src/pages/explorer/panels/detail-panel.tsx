@@ -16,6 +16,7 @@
 import type { ReactNode } from 'react'
 import { formatDateTime } from '../../../lib/format'
 import { type ResolvedLanguage } from '../../../lib/i18n'
+import { sanitizeExplorerDisplayText } from '../helpers'
 import { NavigationTracer } from './navigation-tracer'
 import type { ExplorerVisitSelection, Translator } from '../types'
 
@@ -53,7 +54,9 @@ export function ExplorerDetailPanel({
             <div className="detail-field">
               <span className="field-label">{explorerT('fieldTitle')}</span>
               <span className="field-value">
-                {selectedVisit.title ?? selectedVisit.url}
+                {sanitizeExplorerDisplayText(
+                  selectedVisit.title ?? selectedVisit.url,
+                )}
               </span>
             </div>
             <div className="detail-field">

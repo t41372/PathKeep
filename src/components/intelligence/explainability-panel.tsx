@@ -29,6 +29,130 @@ interface ExplainabilityPanelProps {
   t: (key: string, vars?: Record<string, string | number>) => string
 }
 
+function localizeExplainabilityFactorLabel(
+  label: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  const keyMap: Record<string, string> = {
+    cross_day_count: 'explainFactorCrossDayCount',
+    trail_count: 'explainFactorTrailCount',
+    search_arrival_count: 'explainFactorSearchArrivalCount',
+    typed_revisit_count: 'explainFactorTypedRevisitCount',
+    visit_count: 'explainFactorVisitCount',
+    search_count: 'explainFactorSearchCount',
+    unique_domain_count: 'explainFactorUniqueDomainCount',
+    navigation_chain_depth: 'explainFactorNavigationChainDepth',
+    duration_minutes: 'explainFactorDurationMinutes',
+    reformulation_count: 'explainFactorReformulationCount',
+    max_depth: 'explainFactorMaxDepth',
+    landing_detected: 'explainFactorLandingDetected',
+    member_count: 'explainFactorMemberCount',
+    distinct_query_count: 'explainFactorDistinctQueryCount',
+    occurrence_count: 'explainFactorOccurrenceCount',
+    distinct_days: 'explainFactorDistinctDays',
+    mean_interval_days: 'explainFactorMeanIntervalDays',
+    coefficient_of_variation: 'explainFactorCoefficientOfVariation',
+    interrupted: 'explainFactorInterrupted',
+    step_count: 'explainFactorStepCount',
+  }
+
+  return keyMap[label] ? t(keyMap[label]) : label.replaceAll('_', ' ')
+}
+
+function localizeHabitType(
+  habitType: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  const keyMap: Record<string, string> = {
+    daily_habit: 'habitType_daily_habit',
+    weekly_habit: 'habitType_weekly_habit',
+    periodic_reference: 'habitType_periodic_reference',
+  }
+
+  return keyMap[habitType]
+    ? t(keyMap[habitType])
+    : habitType.replaceAll('_', ' ')
+}
+
+function localizeTriggerRule(
+  rule: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  const refindMatch = /^Refind score >= ([\d.]+)$/.exec(rule)
+  if (refindMatch) {
+    return t('explainRuleRefindScore', {
+      score: refindMatch[1],
+    })
+  }
+
+  if (
+    rule ===
+    'Deep dive session matched the navigation-depth, domain-count, and visit-count thresholds.'
+  ) {
+    return t('explainRuleSessionDeepDive')
+  }
+
+  if (
+    rule ===
+    'Visits were grouped into one session because adjacent gaps stayed within 30 minutes.'
+  ) {
+    return t('explainRuleSessionGap')
+  }
+
+  const searchTrailMatch =
+    /^Search trail anchored by '(.+)' and extended through navigation ancestry within the session window\.$/.exec(
+      rule,
+    )
+  if (searchTrailMatch) {
+    return t('explainRuleSearchTrail', {
+      query: searchTrailMatch[1],
+    })
+  }
+
+  const queryFamilyMatch =
+    /^Queries were merged into one family because their Jaccard or containment similarity matched '(.+)'\.$/.exec(
+      rule,
+    )
+  if (queryFamilyMatch) {
+    return t('explainRuleQueryFamily', {
+      query: queryFamilyMatch[1],
+    })
+  }
+
+  if (
+    rule ===
+    'This investigation reopened because the same anchor reappeared across distinct days or repeated deterministic evidence.'
+  ) {
+    return t('explainRuleReopenedInvestigation')
+  }
+
+  const interruptedHabitMatch =
+    /^(.+) cadence was detected and later crossed its interruption threshold\.$/.exec(
+      rule,
+    )
+  if (interruptedHabitMatch) {
+    return t('explainRuleHabitPatternInterrupted', {
+      habit: localizeHabitType(interruptedHabitMatch[1], t),
+    })
+  }
+
+  const habitMatch =
+    /^(.+) cadence was detected from repeated cross-day visits\.$/.exec(rule)
+  if (habitMatch) {
+    return t('explainRuleHabitPattern', {
+      habit: localizeHabitType(habitMatch[1], t),
+    })
+  }
+
+  if (
+    rule === 'This flow pattern recurs across session-local domain n-grams.'
+  ) {
+    return t('explainRulePathFlow')
+  }
+
+  return rule
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -95,7 +219,7 @@ export function ExplainabilityPanel({
                   {t('explainRule')}
                 </span>
                 <span className="explainability-panel__rule-value">
-                  {data.triggerRule}
+                  {localizeTriggerRule(data.triggerRule, t)}
                 </span>
               </div>
 
@@ -118,7 +242,7 @@ export function ExplainabilityPanel({
                       {data.factors.map((factor, i) => (
                         <tr key={i}>
                           <td className="explainability-panel__factor-label">
-                            {factor.label}
+                            {localizeExplainabilityFactorLabel(factor.label, t)}
                           </td>
                           <td className="explainability-panel__factor-value">
                             {factor.rawValue}

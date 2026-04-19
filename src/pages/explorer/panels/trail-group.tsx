@@ -20,6 +20,7 @@ import type {
   TrailMember,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
+import { sanitizeExplorerDisplayText } from '../helpers'
 import type { ExplorerVisitSelection, Translator } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -199,7 +200,9 @@ function TrailCard({
         <span className="trail-card__engine-icon">
           {engineIcon(trail.searchEngine)}
         </span>
-        <span className="trail-card__query">"{trail.initialQuery}"</span>
+        <span className="trail-card__query">
+          "{sanitizeExplorerDisplayText(trail.initialQuery, 72)}"
+        </span>
         {trail.reformulationCount > 0 && (
           <span className="trail-card__reformulation-badge">
             {trail.reformulationCount}× {intelligenceT('trailReformulation')}
@@ -225,7 +228,9 @@ function TrailCard({
                     {i > 0 && (
                       <span className="trail-card__evolution-arrow">→</span>
                     )}
-                    <span className="trail-card__evolution-query">"{q}"</span>
+                    <span className="trail-card__evolution-query">
+                      "{sanitizeExplorerDisplayText(q, 72)}"
+                    </span>
                   </span>
                 ))}
                 {trail.landingUrl && (
@@ -233,7 +238,10 @@ function TrailCard({
                     <span className="trail-card__evolution-arrow">└──</span>
                     <span className="trail-card__evolution-landing">
                       {intelligenceT('trailLanding')}:{' '}
-                      {trail.landingDomain ?? trail.landingUrl}
+                      {sanitizeExplorerDisplayText(
+                        trail.landingDomain ?? trail.landingUrl,
+                        72,
+                      )}
                     </span>
                   </>
                 )}
@@ -274,8 +282,8 @@ function TrailCard({
                   </span>
                   <span className="trail-member-row__content">
                     {member.role === 'search_event' && member.searchQuery
-                      ? `"${member.searchQuery}"`
-                      : member.title || member.url}
+                      ? `"${sanitizeExplorerDisplayText(member.searchQuery, 72)}"`
+                      : sanitizeExplorerDisplayText(member.title || member.url)}
                   </span>
                   <span className="trail-member-row__time">
                     {new Date(member.visitTimeMs).toLocaleTimeString(locale, {
@@ -306,7 +314,7 @@ function toSelection(
     profileId,
     title:
       member.role === 'search_event' && member.searchQuery
-        ? `"${member.searchQuery}"`
+        ? `"${sanitizeExplorerDisplayText(member.searchQuery, 72)}"`
         : member.title,
     transition: member.role,
     url: member.url,

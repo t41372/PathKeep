@@ -111,4 +111,78 @@ describe('core intelligence api', () => {
       },
     })
   })
+
+  test('normalizes legacy snake_case date-range section window metadata', async () => {
+    const { getDigestSummary } = await import('./api')
+
+    callMock.mockResolvedValueOnce({
+      data: {
+        dateRange: { start: '2024-04-01', end: '2024-04-30' },
+        totalVisits: { value: 42, trend: 'flat' },
+        totalSearches: { value: 7, trend: 'flat' },
+        newDomains: { value: 3, trend: 'flat' },
+        deepReadPages: { value: 2, trend: 'flat' },
+        refindPages: { value: 1, trend: 'flat' },
+      },
+      meta: {
+        sectionId: 'digest-summary',
+        generatedAt: '2026-04-18T12:00:00Z',
+        window: {
+          kind: 'date-range',
+          date_range: {
+            start: '2024-04-01',
+            end: '2024-04-30',
+          },
+        },
+        moduleIds: ['daily-rollups'],
+        sourceTables: ['daily_summary_rollups'],
+        includesEnrichment: false,
+        state: 'ready',
+        stateReason: null,
+        notes: [],
+      },
+    })
+
+    const result = await getDigestSummary({
+      start: '2024-04-01',
+      end: '2024-04-30',
+    })
+
+    expect(result.meta.window).toEqual({
+      kind: 'date-range',
+      dateRange: {
+        start: '2024-04-01',
+        end: '2024-04-30',
+      },
+    })
+  })
+
+  test('normalizes legacy snake_case calendar-day-history metadata', async () => {
+    const { getOnThisDay } = await import('./api')
+
+    callMock.mockResolvedValueOnce({
+      data: [],
+      meta: {
+        sectionId: 'on-this-day',
+        generatedAt: '2026-04-18T12:00:00Z',
+        window: {
+          kind: 'calendar-day-history',
+          reference_date: '2026-04-18',
+        },
+        moduleIds: ['daily-rollups'],
+        sourceTables: ['daily_summary_rollups'],
+        includesEnrichment: false,
+        state: 'ready',
+        stateReason: null,
+        notes: [],
+      },
+    })
+
+    const result = await getOnThisDay('chrome:Default')
+
+    expect(result.meta.window).toEqual({
+      kind: 'calendar-day-history',
+      referenceDate: '2026-04-18',
+    })
+  })
 })

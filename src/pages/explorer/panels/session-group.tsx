@@ -21,6 +21,7 @@ import type {
   SessionVisit,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
+import { sanitizeExplorerDisplayText } from '../helpers'
 import type { ExplorerVisitSelection, Translator } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -188,7 +189,8 @@ function SessionCard({
           {dateStr} {startTime} – {endTime}
         </span>
         <span className="session-card__title">
-          {session.autoTitle || intelligenceT('sessionUntitled')}
+          {sanitizeExplorerDisplayText(session.autoTitle) ||
+            intelligenceT('sessionUntitled')}
         </span>
         <span className="session-card__meta">
           {session.visitCount} {intelligenceT('sessionVisitLabel')}
@@ -240,11 +242,12 @@ function SessionCard({
                   <span className="session-visit-row__content">
                     {visit.isSearchEvent && visit.searchQuery ? (
                       <span className="session-visit-row__query">
-                        {visit.searchEngine ?? 'Search'}: "{visit.searchQuery}"
+                        {visit.searchEngine ?? 'Search'}: "
+                        {sanitizeExplorerDisplayText(visit.searchQuery, 72)}"
                       </span>
                     ) : (
                       <span className="session-visit-row__title">
-                        {visit.title || visit.url}
+                        {sanitizeExplorerDisplayText(visit.title || visit.url)}
                       </span>
                     )}
                   </span>

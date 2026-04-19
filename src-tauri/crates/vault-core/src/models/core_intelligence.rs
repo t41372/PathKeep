@@ -81,8 +81,14 @@ pub struct CoreIntelligenceQueueReport {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 /// Structured window metadata for one Core Intelligence section response.
 pub enum CoreIntelligenceSectionWindow {
-    DateRange { date_range: DateRange },
-    CalendarDayHistory { reference_date: String },
+    DateRange {
+        #[serde(rename = "dateRange")]
+        date_range: DateRange,
+    },
+    CalendarDayHistory {
+        #[serde(rename = "referenceDate")]
+        reference_date: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -883,4 +889,46 @@ pub struct IntelligenceLocalHostBuildResult {
     pub manual_steps: Vec<String>,
     pub warnings: Vec<String>,
     pub installed_host: Option<IntelligenceInstalledLocalHost>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CoreIntelligenceSectionWindow, DateRange};
+
+    #[test]
+    fn section_window_serializes_with_camel_case_variant_fields() {
+        let window = CoreIntelligenceSectionWindow::DateRange {
+            date_range: DateRange {
+                start: "2026-04-01".to_string(),
+                end: "2026-04-18".to_string(),
+            },
+        };
+        let serialized = serde_json::to_value(&window).expect("serialize date range window");
+        assert_eq!(
+            serialized,
+            serde_json::json!({
+                "kind": "date-range",
+                "dateRange": {
+                    "start": "2026-04-01",
+                    "end": "2026-04-18"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn calendar_day_history_window_serializes_with_camel_case_reference_date() {
+        let window = CoreIntelligenceSectionWindow::CalendarDayHistory {
+            reference_date: "2026-04-18".to_string(),
+        };
+        let serialized =
+            serde_json::to_value(&window).expect("serialize calendar day history window");
+        assert_eq!(
+            serialized,
+            serde_json::json!({
+                "kind": "calendar-day-history",
+                "referenceDate": "2026-04-18"
+            })
+        );
+    }
 }

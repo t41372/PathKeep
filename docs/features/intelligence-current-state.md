@@ -14,6 +14,8 @@
 > **2026-04-18 closeout note:** `WORK-CI-C` 已完成。crate-internal `vault-core::insights` tree 已刪除，readable-content helper 與 queued enrichment ownership 都已移到 `enrichment` / `intelligence`；repo 也已移除 `InsightStatus` alias。`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/` 現在補齊 `full-14_4m-60y-signoff.json` 與 `expired-lease-recovery-14_4m-signoff.json`，因此 current-host `14.4M / 60y` signoff 已落地。第二台主機 benchmark parity 目前不在當前 scope 內，如要再做必須重新立項。
 >
 > **2026-04-18 M5 evidence note:** `WORK-M5-C` 已完成。`/intelligence` 與 `/intelligence/domain/:domain` 現在會以 shared section envelope / drawer 顯示 generated-at、active scope / window、owning modules、source tables、enrichment flag、以及 stale / disabled / degraded reason；Settings / Jobs 繼續保留 rebuild / clear / retry mutation controls。
+>
+> **2026-04-18 app truth-gate note:** closeout 之後又做了一輪實機驗證修補：source 現在已修正 `/intelligence` section-envelope camel/snake drift、`daily-rollup` duplicate domain-day fallback、encrypted onboarding 無 keychain regression、queue / copy / privacy drift、以及 route-level error fallback。不過這台主機的 Computer Use 在手動驗證時仍可能附著到 stale `target/release/bundle/macos/PathKeep.app`，繼續載入舊 hash bundle（例如 `index-CNXdWxTA.js`、`intelligence-mc5c_cvZ.js`）。看到那類 screenshot 時，要先把它當成 host-specific stale bundle / cache noise，而不是 current source truth。
 
 ---
 

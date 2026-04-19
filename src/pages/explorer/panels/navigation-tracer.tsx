@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import * as api from '../../../lib/core-intelligence/api'
 import type { NavigationPathStep } from '../../../lib/core-intelligence/types'
+import { sanitizeExplorerDisplayText } from '../helpers'
 import type { Translator } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -107,7 +108,7 @@ export function NavigationTracer({
                         }
                       }}
                     >
-                      {step.title || step.url}
+                      {sanitizeExplorerDisplayText(step.title || step.url)}
                     </span>
                     {isLast && (
                       <span className="navigation-tracer__here-badge">

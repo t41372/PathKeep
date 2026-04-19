@@ -22,6 +22,7 @@ import {
   DashboardSkeleton,
   Skeleton,
 } from '../../components/primitives/skeleton'
+import { backend } from '../../lib/backend-client'
 import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
@@ -94,6 +95,9 @@ export function DashboardPage() {
   const [onThisDayEntries, setOnThisDayEntries] = useState<OnThisDayEntry[]>([])
   const [onThisDayLoading, setOnThisDayLoading] = useState(false)
   const [onThisDayError, setOnThisDayError] = useState<string | null>(null)
+  const [backgroundQueueCount, setBackgroundQueueCount] = useState<
+    number | null
+  >(null)
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
@@ -133,6 +137,65 @@ export function DashboardPage() {
       cancelled = true
     }
   }, [activeProfileId, intelligenceT, refreshKey, snapshot?.config.initialized])
+
+  useEffect(() => {
+    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+      setBackgroundQueueCount(null)
+      return
+    }
+
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled || typeof window === 'undefined') return
+      timeoutId = window.setTimeout(() => {
+        void load()
+      }, delayMs)
+    }
+
+    const load = async () => {
+      try {
+        const [aiQueue, runtime] = await Promise.all([
+          backend.loadAiQueueStatus(),
+          backend.loadIntelligenceRuntime(),
+        ])
+        if (cancelled) return
+        const totalCount =
+          aiQueue.queued +
+          aiQueue.running +
+          aiQueue.failed +
+          runtime.queue.queued +
+          runtime.queue.running +
+          runtime.queue.failed
+        setBackgroundQueueCount(totalCount)
+        const activeJobs =
+          aiQueue.queued +
+          aiQueue.running +
+          runtime.queue.queued +
+          runtime.queue.running
+        scheduleNext(activeJobs > 0 ? 3000 : 15000)
+      } catch {
+        if (!cancelled) {
+          setBackgroundQueueCount(null)
+          scheduleNext(15000)
+        }
+      }
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== null && typeof window !== 'undefined') {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [
+    refreshKey,
+    snapshot?.archiveStatus.unlocked,
+    snapshot?.config.initialized,
+  ])
 
   if (loading && !dashboard) {
     return (
@@ -638,8 +701,9 @@ export function DashboardPage() {
                 <div className="summary-stat">
                   <span className="dim">{t('dashboard.queueLabel')}</span>
                   <span className="mono">
-                    {snapshot.aiStatus.queuedJobs +
-                      snapshot.aiStatus.runningJobs}
+                    {backgroundQueueCount === null
+                      ? '—'
+                      : backgroundQueueCount.toLocaleString(language)}
                   </span>
                 </div>
               </div>

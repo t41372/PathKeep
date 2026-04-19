@@ -263,6 +263,41 @@ const zhCnM3Namespaces = {
     explainFactorContribution: '贡献',
     explainVisits: '{count} 条相关记录',
     explainUnavailable: '暂无法获取详细解释。',
+    explainRuleRefindScore: '重找得分 >= {score}',
+    explainRuleSessionDeepDive:
+      '这个会话达到了深度研究阈值：导航深度、网站数量和访问次数都足够高。',
+    explainRuleSessionGap:
+      '这些访问被归为同一个会话，因为相邻间隔始终没有超过 30 分钟。',
+    explainRuleSearchTrail:
+      '这条搜索旅程由 “{query}” 发起，并在同一会话窗口内沿导航来源继续扩展。',
+    explainRuleQueryFamily:
+      '这些查询被合并成一个家族，因为它们与 “{query}” 的 Jaccard / 包含相似度达到了阈值。',
+    explainRuleReopenedInvestigation:
+      '这个问题会被标记为重新打开，是因为同一个锚点在不同日期或重复的确定性证据中再次出现。',
+    explainRuleHabitPattern: '检测到 {habit} 节奏，因为它在不同日期反复出现。',
+    explainRuleHabitPatternInterrupted:
+      '检测到 {habit} 节奏，但之后跨过了中断阈值。',
+    explainRulePathFlow: '这条路径模式会在会话内的域名 n-gram 中重复出现。',
+    explainFactorVisitCount: '访问次数',
+    explainFactorSearchCount: '搜索次数',
+    explainFactorUniqueDomainCount: '不同网站数',
+    explainFactorNavigationChainDepth: '导航链深度',
+    explainFactorDurationMinutes: '持续分钟数',
+    explainFactorReformulationCount: '改写次数',
+    explainFactorMaxDepth: '最大深度',
+    explainFactorLandingDetected: '已识别落地页',
+    explainFactorMemberCount: '成员数',
+    explainFactorDistinctQueryCount: '不同查询数',
+    explainFactorOccurrenceCount: '出现次数',
+    explainFactorDistinctDays: '跨天数',
+    explainFactorMeanIntervalDays: '平均间隔天数',
+    explainFactorCoefficientOfVariation: '变异系数',
+    explainFactorInterrupted: '已中断',
+    explainFactorStepCount: '步数',
+    explainFactorCrossDayCount: '跨天重访次数',
+    explainFactorTrailCount: '搜索旅程次数',
+    explainFactorSearchArrivalCount: '从搜索进入次数',
+    explainFactorTypedRevisitCount: '直接输入重访次数',
 
     // View Mode
     viewModeLabel: '排列方式',
@@ -378,6 +413,16 @@ const zhCnM3Namespaces = {
     observedScroll: '滚动 {duration}',
     observedKeyPresses: '{count} 次按键',
     observedLoadFailed: '加载失败',
+    scopedViewTitle: '当前为浏览器范围视图',
+    scopedViewBody:
+      '当前只显示 {profile} 的 Core Intelligence 结果。清除共享浏览器筛选后，就会回到整份存档。',
+    archiveWideBadge: '全部存档统计',
+    archiveWideBody:
+      '当前显示的是整份存档的 Core Intelligence 结果。如果切到单一浏览器，分析内容会跟着缩小范围。',
+    externalOutputsReviewTitle: '手动输出审查已移到设置',
+    externalOutputsReviewBody:
+      'embed cards、widget snapshot、public snapshot 和 browser-snippet-v1 的预览 / 建立 / 复制，现在统一放在设置页面。',
+    externalOutputsReviewAction: '去设置查看',
     sectionMetaTitle: '证据与新鲜度',
     sectionMetaStateDegraded: '已降级',
     sectionMetaGeneratedAt: '生成时间',
@@ -393,6 +438,8 @@ const zhCnM3Namespaces = {
     sectionMetaDirectRead: '直接读取',
     sectionMetaWindowDateRange: '{start} → {end}',
     sectionMetaWindowCalendarDayHistory: '过去几年同一日历日（{date}）',
+    sectionMetaMetadataFallback:
+      '这部分元数据不完整，PathKeep 已改为降级显示，而不是让页面崩溃。',
     runtimeDigestTitle: '运行摘要',
     runtimeDigestNeedsArchiveTitle: '需要先完成存档设置',
     runtimeDigestNeedsArchiveBody:
@@ -416,10 +463,6 @@ const zhCnM3Namespaces = {
     externalOutputsDeferredTitle: '保存片段和小组件仍在后续版本',
     externalOutputsDeferredBody:
       'PathKeep 目前可以为未来的嵌入卡片、小组件和公开快照准备内部 payload，但这一版还没有交付任何外部宿主集成。',
-    externalOutputsReviewTitle: '手动输出审查已移到设置',
-    externalOutputsReviewBody:
-      '请到设置里预览并复制 embed cards、widget snapshots 和 public snapshots。`/intelligence` 会继续专注在 live Core Intelligence surface。',
-    externalOutputsReviewAction: '去设置查看',
   },
   explorer: {
     waitingForQuery: '输入关键词开始搜索',
@@ -1060,6 +1103,42 @@ const zhTwM3Namespaces = {
     explainFactorContribution: '貢獻',
     explainVisits: '{count} 筆相關紀錄',
     explainUnavailable: '暫無法取得詳細解釋。',
+    explainRuleRefindScore: '重找得分 >= {score}',
+    explainRuleSessionDeepDive:
+      '這個工作階段達到了深度研究門檻：導航深度、網站數量與造訪次數都夠高。',
+    explainRuleSessionGap:
+      '這些造訪被歸成同一個工作階段，因為相鄰間隔始終沒有超過 30 分鐘。',
+    explainRuleSearchTrail:
+      '這條搜尋旅程由「{query}」發起，並在同一個工作階段視窗內沿著導航來源繼續延伸。',
+    explainRuleQueryFamily:
+      '這些查詢被合併成同一家族，因為它們與「{query}」的 Jaccard / 包含相似度達到了門檻。',
+    explainRuleReopenedInvestigation:
+      '這個問題會被標記為重新打開，是因為同一個錨點在不同日期或重複的確定性證據中再次出現。',
+    explainRuleHabitPattern:
+      '偵測到 {habit} 節奏，因為它在跨天造訪中反覆出現。',
+    explainRuleHabitPatternInterrupted:
+      '偵測到 {habit} 節奏，但之後跨過了中斷門檻。',
+    explainRulePathFlow: '這條路徑模式會在工作階段內的網域 n-gram 中重複出現。',
+    explainFactorVisitCount: '造訪次數',
+    explainFactorSearchCount: '搜尋次數',
+    explainFactorUniqueDomainCount: '不同網站數',
+    explainFactorNavigationChainDepth: '導航鏈深度',
+    explainFactorDurationMinutes: '持續分鐘數',
+    explainFactorReformulationCount: '改寫次數',
+    explainFactorMaxDepth: '最大深度',
+    explainFactorLandingDetected: '已辨識落地頁',
+    explainFactorMemberCount: '成員數',
+    explainFactorDistinctQueryCount: '不同查詢數',
+    explainFactorOccurrenceCount: '出現次數',
+    explainFactorDistinctDays: '跨天數',
+    explainFactorMeanIntervalDays: '平均間隔天數',
+    explainFactorCoefficientOfVariation: '變異係數',
+    explainFactorInterrupted: '已中斷',
+    explainFactorStepCount: '步數',
+    explainFactorCrossDayCount: '跨天重訪次數',
+    explainFactorTrailCount: '搜尋旅程次數',
+    explainFactorSearchArrivalCount: '從搜尋進入次數',
+    explainFactorTypedRevisitCount: '直接輸入重訪次數',
 
     // View Mode
     viewModeLabel: '排列方式',
@@ -1175,6 +1254,16 @@ const zhTwM3Namespaces = {
     observedScroll: '滾動 {duration}',
     observedKeyPresses: '{count} 次按鍵',
     observedLoadFailed: '載入失敗',
+    scopedViewTitle: '目前為瀏覽器範圍視圖',
+    scopedViewBody:
+      '目前只顯示 {profile} 的 Core Intelligence 結果。清除共享瀏覽器篩選後，就會回到整份封存。',
+    archiveWideBadge: '全部封存統計',
+    archiveWideBody:
+      '目前顯示的是整份封存的 Core Intelligence 結果。如果切到單一瀏覽器，分析內容也會跟著縮小範圍。',
+    externalOutputsReviewTitle: '手動輸出審查已移到設定',
+    externalOutputsReviewBody:
+      'embed cards、widget snapshot、public snapshot 與 browser-snippet-v1 的預覽 / 建立 / 複製，現在統一放在設定頁面。',
+    externalOutputsReviewAction: '去設定查看',
     sectionMetaTitle: '證據與新鮮度',
     sectionMetaStateDegraded: '已降級',
     sectionMetaGeneratedAt: '產生時間',
@@ -1190,6 +1279,8 @@ const zhTwM3Namespaces = {
     sectionMetaDirectRead: '直接讀取',
     sectionMetaWindowDateRange: '{start} → {end}',
     sectionMetaWindowCalendarDayHistory: '過去幾年同一個日曆日（{date}）',
+    sectionMetaMetadataFallback:
+      '這部分中繼資料不完整，PathKeep 已改為降級顯示，而不是讓頁面直接崩潰。',
     runtimeDigestTitle: '執行摘要',
     runtimeDigestNeedsArchiveTitle: '需要先完成封存設定',
     runtimeDigestNeedsArchiveBody:
@@ -1214,10 +1305,6 @@ const zhTwM3Namespaces = {
     externalOutputsDeferredTitle: '儲存片段與小工具仍在後續版本',
     externalOutputsDeferredBody:
       'PathKeep 目前可以為未來的嵌入卡片、小工具與公開快照準備內部 payload，但這一版還沒有交付任何外部宿主整合。',
-    externalOutputsReviewTitle: '手動輸出審查已移到設定',
-    externalOutputsReviewBody:
-      '請到設定裡預覽並複製 embed cards、widget snapshots 和 public snapshots。`/intelligence` 會繼續專注在 live Core Intelligence surface。',
-    externalOutputsReviewAction: '去設定查看',
   },
   explorer: {
     waitingForQuery: '輸入關鍵字開始搜尋',
@@ -1756,6 +1843,13 @@ const catalog: Record<
       loadingExplorerResults: 'Loading explorer results',
       loadingInsights: 'Loading insights',
       loadingSettings: 'Loading settings',
+      routeRenderErrorEyebrow: 'Page unavailable',
+      routeRenderErrorTitle: "This page couldn't load",
+      routeRenderErrorBody:
+        'PathKeep hit a rendering error on this screen. Reload the app, open Background Jobs, or go back to the overview.',
+      routeRenderErrorRetry: 'Reload app',
+      routeRenderErrorOverview: 'Go to overview',
+      routeRenderErrorDetails: 'Technical details',
       whyThisStepMatters: 'Why this step matters',
       filesLabel: 'Artifacts',
       commandsLabel: 'Commands',
@@ -1944,7 +2038,7 @@ const catalog: Record<
       llmLabel: 'LLM',
       embeddingLabel: 'Embedding',
       embeddingFallback: 'Lexical fallback',
-      queueLabel: 'Queue',
+      queueLabel: 'Background work',
       semanticSearchAction: 'Semantic search',
       openAssistantAction: 'Open assistant',
       reviewInsightsAction: 'Open Intelligence',
@@ -3129,6 +3223,43 @@ const catalog: Record<
       explainFactorContribution: 'Contribution',
       explainVisits: '{count} related records',
       explainUnavailable: 'Explanation not available.',
+      explainRuleRefindScore: 'Refind score >= {score}',
+      explainRuleSessionDeepDive:
+        'This session crossed the deep-dive thresholds for navigation depth, domain breadth, and visit count.',
+      explainRuleSessionGap:
+        'These visits stayed in one session because adjacent gaps never exceeded 30 minutes.',
+      explainRuleSearchTrail:
+        'This search trail started with "{query}" and kept extending through navigation ancestry inside the same session window.',
+      explainRuleQueryFamily:
+        'These queries were merged into one family because their Jaccard / containment similarity matched "{query}".',
+      explainRuleReopenedInvestigation:
+        'This investigation reopened because the same anchor showed up again across different days or repeated deterministic evidence.',
+      explainRuleHabitPattern:
+        '{habit} cadence was detected from repeated cross-day visits.',
+      explainRuleHabitPatternInterrupted:
+        '{habit} cadence was detected, then later crossed its interruption threshold.',
+      explainRulePathFlow:
+        'This path pattern recurs across session-local domain n-grams.',
+      explainFactorVisitCount: 'Visit count',
+      explainFactorSearchCount: 'Search count',
+      explainFactorUniqueDomainCount: 'Unique domains',
+      explainFactorNavigationChainDepth: 'Navigation chain depth',
+      explainFactorDurationMinutes: 'Duration (minutes)',
+      explainFactorReformulationCount: 'Reformulations',
+      explainFactorMaxDepth: 'Max depth',
+      explainFactorLandingDetected: 'Landing detected',
+      explainFactorMemberCount: 'Members',
+      explainFactorDistinctQueryCount: 'Distinct queries',
+      explainFactorOccurrenceCount: 'Occurrences',
+      explainFactorDistinctDays: 'Distinct days',
+      explainFactorMeanIntervalDays: 'Mean interval (days)',
+      explainFactorCoefficientOfVariation: 'Coefficient of variation',
+      explainFactorInterrupted: 'Interrupted',
+      explainFactorStepCount: 'Steps',
+      explainFactorCrossDayCount: 'Cross-day revisits',
+      explainFactorTrailCount: 'Trail count',
+      explainFactorSearchArrivalCount: 'Search arrivals',
+      explainFactorTypedRevisitCount: 'Typed revisits',
 
       // View Mode
       viewModeLabel: 'View by',
@@ -3250,6 +3381,16 @@ const catalog: Record<
       observedScroll: 'Scrolled {duration}',
       observedKeyPresses: '{count} key presses',
       observedLoadFailed: 'Load failed',
+      scopedViewTitle: 'Profile-scoped view',
+      scopedViewBody:
+        'Core Intelligence is only reading {profile} right now. Clear the shared profile scope to return to the whole archive.',
+      archiveWideBadge: 'Archive-wide metrics',
+      archiveWideBody:
+        'You are looking at archive-wide Core Intelligence results. Switch to one browser profile when you want the analysis to narrow with it.',
+      externalOutputsReviewTitle: 'Manual output review moved to Settings',
+      externalOutputsReviewBody:
+        'Embed cards, widget snapshots, public snapshots, and browser-snippet-v1 build / copy flows now live in Settings.',
+      externalOutputsReviewAction: 'Review in Settings',
       sectionMetaTitle: 'Evidence & freshness',
       sectionMetaStateDegraded: 'Degraded',
       sectionMetaGeneratedAt: 'Generated at',
@@ -3266,6 +3407,8 @@ const catalog: Record<
       sectionMetaWindowDateRange: '{start} → {end}',
       sectionMetaWindowCalendarDayHistory:
         'Same calendar day across previous years ({date})',
+      sectionMetaMetadataFallback:
+        'This section metadata is incomplete, so PathKeep is showing a degraded review state instead of crashing the page.',
       runtimeDigestTitle: 'Runtime Digest',
       runtimeDigestNeedsArchiveTitle: 'Archive setup required',
       runtimeDigestNeedsArchiveBody:
@@ -3290,10 +3433,6 @@ const catalog: Record<
       externalOutputsDeferredTitle: 'Saved snippets and widgets are deferred',
       externalOutputsDeferredBody:
         'PathKeep can prepare internal payloads for future embed cards, widgets, and public snapshots, but no external host integrations ship in this release yet.',
-      externalOutputsReviewTitle: 'Manual output review moved to Settings',
-      externalOutputsReviewBody:
-        'Use Settings to preview and copy embed cards, widget snapshots, and public snapshots. `/intelligence` stays focused on the live Core Intelligence surface.',
-      externalOutputsReviewAction: 'Review in Settings',
     },
     explorer: {
       waitingForQuery: 'Type to search',
@@ -3742,7 +3881,25 @@ const catalog: Record<
       selectHours: 'Hours between checks',
       intervalChipLabel: '{hours}h',
       previewingSchedule: 'Generating schedule preview…',
-      schedulePreview: 'SCHEDULE PREVIEW',
+      schedulePreview: 'Preview',
+      scheduleManualStepLaunchAgentSave:
+        'Save the plist to ~/Library/LaunchAgents/{label}.plist.',
+      scheduleManualStepLaunchAgentBootstrap:
+        'Run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist` to load the new schedule.',
+      scheduleManualStepLaunchAgentReviewInstalled:
+        'Open the desktop app to review the LaunchAgent file and install status.',
+      scheduleManualStepLaunchAgentRemove:
+        'Remove the LaunchAgent if you no longer want automatic backups.',
+      scheduleManualStepWindowsSaveXml:
+        'Save the XML file and import it in Task Scheduler.',
+      scheduleManualStepWindowsCreateTask:
+        'Alternatively run `schtasks /Create /TN {label} /XML {label}.task.xml`.',
+      scheduleManualStepLinuxCopy: 'Copy the files to ~/.config/systemd/user/.',
+      scheduleManualStepLinuxReload: 'Run `systemctl --user daemon-reload`.',
+      scheduleManualStepLinuxEnable:
+        'Run `systemctl --user enable --now {label}.timer`.',
+      scheduleManualStepLinuxVerify:
+        'Run `systemctl --user list-timers {label}.timer` to verify the next scheduled run.',
       readyTitle: 'All Set',
       readyDesc: 'Review your choices below, then start the first backup.',
       configSummary: 'YOUR CHOICES',
@@ -3825,6 +3982,13 @@ const catalog: Record<
       loadingExplorerResults: '正在加载搜索结果',
       loadingInsights: '正在加载洞察',
       loadingSettings: '正在加载设置',
+      routeRenderErrorEyebrow: '页面暂不可用',
+      routeRenderErrorTitle: '这个页面暂时无法显示',
+      routeRenderErrorBody:
+        'PathKeep 在这个页面上遇到了渲染错误。你可以重新加载应用、打开后台任务，或先回到总览。',
+      routeRenderErrorRetry: '重新加载应用',
+      routeRenderErrorOverview: '返回总览',
+      routeRenderErrorDetails: '技术细节',
       whyThisStepMatters: '为什么需要这一步',
       filesLabel: '文件',
       commandsLabel: '命令',
@@ -3999,7 +4163,7 @@ const catalog: Record<
       llmLabel: 'AI 模型',
       embeddingLabel: '搜索模型',
       embeddingFallback: '仅关键词搜索',
-      queueLabel: '任务队列',
+      queueLabel: '后台任务',
       semanticSearchAction: '智能搜索',
       openAssistantAction: '打开助手',
       reviewInsightsAction: '打开智能分析',
@@ -4904,6 +5068,24 @@ const catalog: Record<
       intervalChipLabel: '{hours} 小时',
       previewingSchedule: '生成定时备份预览…',
       schedulePreview: '预览',
+      scheduleManualStepLaunchAgentSave:
+        '将 plist 保存到 ~/Library/LaunchAgents/{label}.plist。',
+      scheduleManualStepLaunchAgentBootstrap:
+        '运行 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist` 以加载新的计划。',
+      scheduleManualStepLaunchAgentReviewInstalled:
+        '打开桌面应用，检查 LaunchAgent 文件和安装状态。',
+      scheduleManualStepLaunchAgentRemove:
+        '如果你不再需要自动备份，请移除这个 LaunchAgent。',
+      scheduleManualStepWindowsSaveXml:
+        '保存 XML 文件，然后在任务计划程序中导入。',
+      scheduleManualStepWindowsCreateTask:
+        '也可以运行 `schtasks /Create /TN {label} /XML {label}.task.xml`。',
+      scheduleManualStepLinuxCopy: '把这些文件复制到 ~/.config/systemd/user/。',
+      scheduleManualStepLinuxReload: '运行 `systemctl --user daemon-reload`。',
+      scheduleManualStepLinuxEnable:
+        '运行 `systemctl --user enable --now {label}.timer`。',
+      scheduleManualStepLinuxVerify:
+        '运行 `systemctl --user list-timers {label}.timer`，确认下一次计划执行时间。',
       readyTitle: '一切就绪',
       readyDesc: '检查下方的设置，然后开始首次备份。',
       configSummary: '你的设置',
@@ -4987,6 +5169,13 @@ const catalog: Record<
       loadingExplorerResults: '正在載入搜尋結果',
       loadingInsights: '正在載入洞察',
       loadingSettings: '正在載入設定',
+      routeRenderErrorEyebrow: '頁面暫時無法使用',
+      routeRenderErrorTitle: '這個頁面目前無法顯示',
+      routeRenderErrorBody:
+        'PathKeep 在這個頁面上遇到了渲染錯誤。你可以重新載入應用、打開背景工作，或先回到總覽。',
+      routeRenderErrorRetry: '重新載入應用',
+      routeRenderErrorOverview: '返回總覽',
+      routeRenderErrorDetails: '技術細節',
       whyThisStepMatters: '為什麼需要這一步',
       filesLabel: '檔案',
       commandsLabel: '指令',
@@ -5161,7 +5350,7 @@ const catalog: Record<
       llmLabel: 'AI 模型',
       embeddingLabel: '搜尋模型',
       embeddingFallback: '僅關鍵字搜尋',
-      queueLabel: '工作佇列',
+      queueLabel: '背景工作',
       semanticSearchAction: '智慧搜尋',
       openAssistantAction: '開啟助手',
       reviewInsightsAction: '打開智慧分析',
@@ -6066,6 +6255,24 @@ const catalog: Record<
       intervalChipLabel: '{hours} 小時',
       previewingSchedule: '產生定時備份預覽…',
       schedulePreview: '預覽',
+      scheduleManualStepLaunchAgentSave:
+        '將 plist 儲存到 ~/Library/LaunchAgents/{label}.plist。',
+      scheduleManualStepLaunchAgentBootstrap:
+        '執行 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist` 以載入新的排程。',
+      scheduleManualStepLaunchAgentReviewInstalled:
+        '打開桌面應用，檢查 LaunchAgent 檔案與安裝狀態。',
+      scheduleManualStepLaunchAgentRemove:
+        '如果你不再需要自動備份，請移除這個 LaunchAgent。',
+      scheduleManualStepWindowsSaveXml:
+        '儲存 XML 檔案，然後在工作排程器中匯入。',
+      scheduleManualStepWindowsCreateTask:
+        '也可以執行 `schtasks /Create /TN {label} /XML {label}.task.xml`。',
+      scheduleManualStepLinuxCopy: '把這些檔案複製到 ~/.config/systemd/user/。',
+      scheduleManualStepLinuxReload: '執行 `systemctl --user daemon-reload`。',
+      scheduleManualStepLinuxEnable:
+        '執行 `systemctl --user enable --now {label}.timer`。',
+      scheduleManualStepLinuxVerify:
+        '執行 `systemctl --user list-timers {label}.timer`，確認下一次排程執行時間。',
       readyTitle: '一切就緒',
       readyDesc: '檢查下方的設定，然後開始首次備份。',
       configSummary: '你的設定',

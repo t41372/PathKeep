@@ -85,6 +85,109 @@ function directSectionFallback(
   }
 }
 
+function normalizeSectionWindow(
+  window: unknown,
+  fallback: CoreIntelligenceSectionWindow,
+): CoreIntelligenceSectionWindow {
+  if (!window || typeof window !== 'object') {
+    return fallback
+  }
+
+  const raw = window as Record<string, unknown>
+  if (raw.kind === 'date-range') {
+    const rawDateRange =
+      raw.dateRange && typeof raw.dateRange === 'object'
+        ? raw.dateRange
+        : raw.date_range && typeof raw.date_range === 'object'
+          ? raw.date_range
+          : null
+    const start =
+      rawDateRange &&
+      typeof (rawDateRange as Record<string, unknown>).start === 'string'
+        ? ((rawDateRange as Record<string, unknown>).start as string)
+        : fallback.kind === 'date-range'
+          ? fallback.dateRange.start
+          : ''
+    const end =
+      rawDateRange &&
+      typeof (rawDateRange as Record<string, unknown>).end === 'string'
+        ? ((rawDateRange as Record<string, unknown>).end as string)
+        : fallback.kind === 'date-range'
+          ? fallback.dateRange.end
+          : ''
+
+    return {
+      kind: 'date-range',
+      dateRange: { start, end },
+    }
+  }
+
+  if (raw.kind === 'calendar-day-history') {
+    const referenceDate =
+      typeof raw.referenceDate === 'string'
+        ? raw.referenceDate
+        : typeof raw.reference_date === 'string'
+          ? raw.reference_date
+          : fallback.kind === 'calendar-day-history'
+            ? fallback.referenceDate
+            : formatLocalDateKey(new Date())
+
+    return {
+      kind: 'calendar-day-history',
+      referenceDate,
+    }
+  }
+
+  return fallback
+}
+
+function normalizeSectionMeta(
+  sectionId: string,
+  fallbackWindow: CoreIntelligenceSectionWindow,
+  meta: unknown,
+): CoreIntelligenceSectionMeta {
+  if (!meta || typeof meta !== 'object') {
+    return directSectionFallback(sectionId, fallbackWindow)
+  }
+
+  const raw = meta as Record<string, unknown>
+  const state =
+    raw.state === 'ready' ||
+    raw.state === 'stale' ||
+    raw.state === 'disabled' ||
+    raw.state === 'degraded'
+      ? raw.state
+      : 'degraded'
+
+  return {
+    sectionId: typeof raw.sectionId === 'string' ? raw.sectionId : sectionId,
+    generatedAt:
+      typeof raw.generatedAt === 'string' || raw.generatedAt === null
+        ? (raw.generatedAt ?? null)
+        : null,
+    window: normalizeSectionWindow(raw.window, fallbackWindow),
+    moduleIds: Array.isArray(raw.moduleIds)
+      ? raw.moduleIds.filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [],
+    sourceTables: Array.isArray(raw.sourceTables)
+      ? raw.sourceTables.filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [],
+    includesEnrichment: Boolean(raw.includesEnrichment),
+    state,
+    stateReason:
+      typeof raw.stateReason === 'string' || raw.stateReason === null
+        ? (raw.stateReason ?? null)
+        : null,
+    notes: Array.isArray(raw.notes)
+      ? raw.notes.filter((value): value is string => typeof value === 'string')
+      : [],
+  }
+}
+
 function formatLocalDateKey(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -103,7 +206,10 @@ function normalizeSectionResult<T>(
     'data' in result &&
     'meta' in result
   ) {
-    return result
+    return {
+      data: result.data,
+      meta: normalizeSectionMeta(sectionId, window, result.meta),
+    }
   }
 
   return {

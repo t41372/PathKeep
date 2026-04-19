@@ -37,6 +37,12 @@ const stepKeys = [
 ] as const
 const dueAfterOptions = [6, 12, 24, 72]
 
+interface SecurityDraftState {
+  confirmPassword: string
+  masterPassword: string
+  rememberKey: boolean
+}
+
 /**
  * Renders the onboarding route.
  *
@@ -56,10 +62,13 @@ export function OnboardingPage() {
   } = useShellData()
   const { language, t, ns } = useI18n('onboarding')
   const commonT = ns('common')
+  const platformT = ns('platform')
   const [step, setStep] = useState(0)
-  const [masterPassword, setMasterPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [rememberKey, setRememberKey] = useState(false)
+  const [securityDraft, setSecurityDraft] = useState<SecurityDraftState>({
+    masterPassword: '',
+    confirmPassword: '',
+    rememberKey: false,
+  })
   const [localError, setLocalError] = useState<string | null>(null)
   const [schedulePlan, setSchedulePlan] = useState<SchedulePlan | null>(null)
   const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false)
@@ -206,11 +215,11 @@ export function OnboardingPage() {
     }
     const encrypted = currentConfig.archiveMode === 'Encrypted'
     if (encrypted) {
-      if (!masterPassword.trim()) {
+      if (!securityDraft.masterPassword.trim()) {
         setLocalError(t('errorNeedPassword'))
         return
       }
-      if (masterPassword !== confirmPassword) {
+      if (securityDraft.masterPassword !== securityDraft.confirmPassword) {
         setLocalError(t('errorPasswordMismatch'))
         return
       }
@@ -219,10 +228,10 @@ export function OnboardingPage() {
       if (!currentConfig.initialized) {
         await initializeArchive(
           currentConfig,
-          encrypted ? masterPassword : null,
+          encrypted ? securityDraft.masterPassword : null,
         )
-        if (encrypted && rememberKey) {
-          await backend.keyringStoreDatabaseKey(masterPassword)
+        if (encrypted && securityDraft.rememberKey) {
+          await backend.keyringStoreDatabaseKey(securityDraft.masterPassword)
         }
       }
       await runBackup()
@@ -230,6 +239,93 @@ export function OnboardingPage() {
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : t('errorFinishFailed'))
     }
+  }
+
+  /**
+   * Updates the local encrypted-onboarding draft without depending on blur or step transitions.
+   */
+  function updateSecurityDraft(next: Partial<SecurityDraftState>) {
+    setLocalError(null)
+    setSecurityDraft((current) => ({
+      ...current,
+      ...next,
+    }))
+  }
+
+  /**
+   * Prevents the user from leaving the security step with an incomplete encrypted setup.
+   */
+  function handleSecurityContinue() {
+    setLocalError(null)
+    if (currentConfig.archiveMode !== 'Encrypted') {
+      setStep(4)
+      return
+    }
+
+    if (!securityDraft.masterPassword.trim()) {
+      setLocalError(t('errorNeedPassword'))
+      return
+    }
+
+    if (securityDraft.masterPassword !== securityDraft.confirmPassword) {
+      setLocalError(t('errorPasswordMismatch'))
+      return
+    }
+
+    setStep(4)
+  }
+
+  function schedulePlatformLabel(platform: string) {
+    if (platform === 'macos') return platformT('macosLabel')
+    if (platform === 'windows') return platformT('windowsLabel')
+    if (platform === 'linux') return platformT('linuxLabel')
+    return platform
+  }
+
+  function localizeScheduleManualStep(step: string, label: string) {
+    if (step === `Save the plist to ~/Library/LaunchAgents/${label}.plist.`) {
+      return t('scheduleManualStepLaunchAgentSave', { label })
+    }
+    if (
+      step ===
+      `Run \`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/${label}.plist\` to load the new schedule.`
+    ) {
+      return t('scheduleManualStepLaunchAgentBootstrap', { label })
+    }
+    if (
+      step ===
+      'Open the desktop build to verify the LaunchAgent artifact and install status.'
+    ) {
+      return t('scheduleManualStepLaunchAgentReviewInstalled')
+    }
+    if (step === 'Remove the LaunchAgent if you no longer want automation.') {
+      return t('scheduleManualStepLaunchAgentRemove')
+    }
+    if (step === 'Save the XML file and import it in Task Scheduler.') {
+      return t('scheduleManualStepWindowsSaveXml')
+    }
+    if (
+      step ===
+      `Alternatively run \`schtasks /Create /TN ${label} /XML ${label}.task.xml\`.`
+    ) {
+      return t('scheduleManualStepWindowsCreateTask', { label })
+    }
+    if (step === 'Copy the files to ~/.config/systemd/user/.') {
+      return t('scheduleManualStepLinuxCopy')
+    }
+    if (step === 'Run `systemctl --user daemon-reload`.') {
+      return t('scheduleManualStepLinuxReload')
+    }
+    if (step === `Run \`systemctl --user enable --now ${label}.timer\`.`) {
+      return t('scheduleManualStepLinuxEnable', { label })
+    }
+    if (
+      step ===
+      `Run \`systemctl --user list-timers ${label}.timer\` to verify the next scheduled run.`
+    ) {
+      return t('scheduleManualStepLinuxVerify', { label })
+    }
+    return step
   }
 
   /**
@@ -720,8 +816,12 @@ export function OnboardingPage() {
                         className="form-input"
                         type="password"
                         autoComplete="new-password"
-                        value={masterPassword}
-                        onChange={(e) => setMasterPassword(e.target.value)}
+                        value={securityDraft.masterPassword}
+                        onChange={(e) =>
+                          updateSecurityDraft({
+                            masterPassword: e.target.value,
+                          })
+                        }
                         placeholder={t('masterPasswordPlaceholder')}
                       />
                     </div>
@@ -733,16 +833,24 @@ export function OnboardingPage() {
                         className="form-input"
                         type="password"
                         autoComplete="new-password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        value={securityDraft.confirmPassword}
+                        onChange={(e) =>
+                          updateSecurityDraft({
+                            confirmPassword: e.target.value,
+                          })
+                        }
                         placeholder={t('confirmPasswordPlaceholder')}
                       />
                     </div>
                     <label className="form-checkbox-row">
                       <input
                         type="checkbox"
-                        checked={rememberKey}
-                        onChange={(e) => setRememberKey(e.target.checked)}
+                        checked={securityDraft.rememberKey}
+                        onChange={(e) =>
+                          updateSecurityDraft({
+                            rememberKey: e.target.checked,
+                          })
+                        }
                       />
                       <span>{t('storeInKeyring')}</span>
                     </label>
@@ -809,6 +917,12 @@ export function OnboardingPage() {
             </span>
           </div>
 
+          {localError ? (
+            <p className="inline-error" role="alert">
+              {localError}
+            </p>
+          ) : null}
+
           <div className="ob-actions">
             <button
               className="btn-secondary"
@@ -820,7 +934,7 @@ export function OnboardingPage() {
             <button
               className="btn-primary"
               type="button"
-              onClick={() => setStep(4)}
+              onClick={handleSecurityContinue}
             >
               {t('continueButton')}
             </button>
@@ -874,14 +988,18 @@ export function OnboardingPage() {
             <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
               <div className="panel-header">
                 <span className="panel-title">{t('schedulePreview')}</span>
-                <span className="panel-action">{schedulePlan.platform}</span>
+                <span className="panel-action">
+                  {schedulePlatformLabel(schedulePlan.platform)}
+                </span>
               </div>
               <div className="panel-body">
                 <div className="manual-steps">
                   {schedulePlan.manualSteps.map((s, i) => (
                     <div key={i} className="manual-step">
                       <span className="step-num-inline">{i + 1}.</span>
-                      <span>{s}</span>
+                      <span>
+                        {localizeScheduleManualStep(s, schedulePlan.label)}
+                      </span>
                     </div>
                   ))}
                 </div>

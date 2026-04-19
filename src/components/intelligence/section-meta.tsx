@@ -25,6 +25,35 @@ interface IntelligenceSectionMetaProps {
   scopeLabel: string
 }
 
+function isDateRangeWindow(window: unknown): window is {
+  kind: 'date-range'
+  dateRange: { start: string; end: string }
+} {
+  return (
+    typeof window === 'object' &&
+    window !== null &&
+    (window as { kind?: unknown }).kind === 'date-range' &&
+    typeof (window as { dateRange?: unknown }).dateRange === 'object' &&
+    (window as { dateRange?: unknown }).dateRange !== null &&
+    typeof (window as { dateRange: { start?: unknown } }).dateRange.start ===
+      'string' &&
+    typeof (window as { dateRange: { end?: unknown } }).dateRange.end ===
+      'string'
+  )
+}
+
+function isCalendarDayHistoryWindow(window: unknown): window is {
+  kind: 'calendar-day-history'
+  referenceDate: string
+} {
+  return (
+    typeof window === 'object' &&
+    window !== null &&
+    (window as { kind?: unknown }).kind === 'calendar-day-history' &&
+    typeof (window as { referenceDate?: unknown }).referenceDate === 'string'
+  )
+}
+
 function sectionStateLabel(
   state: CoreIntelligenceSectionMeta['state'],
   t: (key: string) => string,
@@ -43,19 +72,24 @@ function sectionStateLabel(
 }
 
 function formatWindow(
-  meta: CoreIntelligenceSectionMeta,
+  window: unknown,
   t: (key: string, vars?: Record<string, string | number>) => string,
+  commonT: (key: string) => string,
 ) {
-  if (meta.window.kind === 'date-range') {
+  if (isDateRangeWindow(window)) {
     return t('sectionMetaWindowDateRange', {
-      start: meta.window.dateRange.start,
-      end: meta.window.dateRange.end,
+      start: window.dateRange.start,
+      end: window.dateRange.end,
     })
   }
 
-  return t('sectionMetaWindowCalendarDayHistory', {
-    date: meta.window.referenceDate,
-  })
+  if (isCalendarDayHistoryWindow(window)) {
+    return t('sectionMetaWindowCalendarDayHistory', {
+      date: window.referenceDate,
+    })
+  }
+
+  return commonT('notAvailable')
 }
 
 /**
@@ -69,16 +103,22 @@ export function IntelligenceSectionMeta({
   const t = ns('intelligence')
   const settingsT = ns('settings')
   const commonT = ns('common')
+  const malformedWindow =
+    !isDateRangeWindow(meta.window) && !isCalendarDayHistoryWindow(meta.window)
+  const effectiveState = malformedWindow ? 'degraded' : meta.state
   const moduleSummary = meta.moduleIds.length
     ? meta.moduleIds
         .map((moduleId) => deterministicModuleLabel(moduleId, settingsT))
         .join(', ')
     : t('sectionMetaDirectRead')
+  const notes = malformedWindow
+    ? [t('sectionMetaMetadataFallback'), ...meta.notes]
+    : meta.notes
 
   return (
     <details
       className="intelligence-section-meta"
-      open={meta.state !== 'ready'}
+      open={effectiveState !== 'ready'}
       data-testid={`intelligence-section-meta-${meta.sectionId}`}
     >
       <summary className="intelligence-section-meta__summary">
@@ -86,9 +126,9 @@ export function IntelligenceSectionMeta({
           {t('sectionMetaTitle')}
         </span>
         <span
-          className={`status-badge intelligence-section-meta__state intelligence-section-meta__state--${meta.state}`}
+          className={`status-badge intelligence-section-meta__state intelligence-section-meta__state--${effectiveState}`}
         >
-          {sectionStateLabel(meta.state, t, settingsT)}
+          {sectionStateLabel(effectiveState, t, settingsT)}
         </span>
       </summary>
 
@@ -114,7 +154,7 @@ export function IntelligenceSectionMeta({
             {t('sectionMetaWindow')}
           </span>
           <span className="intelligence-section-meta__value mono-support">
-            {formatWindow(meta, t)}
+            {formatWindow(meta.window, t, commonT)}
           </span>
         </div>
         <div className="intelligence-section-meta__row">
@@ -157,12 +197,12 @@ export function IntelligenceSectionMeta({
         ) : null}
       </div>
 
-      {meta.notes.length ? (
+      {notes.length ? (
         <div className="intelligence-section-meta__notes">
           <span className="intelligence-section-meta__label">
             {t('sectionMetaNotes')}
           </span>
-          {meta.notes.map((note) => (
+          {notes.map((note) => (
             <p key={`${meta.sectionId}-${note}`} className="mono-support">
               {note}
             </p>

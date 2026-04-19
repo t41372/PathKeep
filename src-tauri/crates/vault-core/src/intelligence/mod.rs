@@ -2480,20 +2480,60 @@ fn build_daily_rollups_for_profile_in_batches(
     }
 
     let mut domain_statement = connection.prepare(
-        "SELECT strftime('%Y-%m-%d', archive.visits.visit_time_ms / 1000.0, 'unixepoch', 'localtime') AS date_key,
-                visit_derived_facts.profile_id,
-                visit_derived_facts.registrable_domain,
-                visit_derived_facts.domain_category,
-                COUNT(*) AS visit_count,
-                SUM(visit_derived_facts.is_search_event),
-                SUM(visit_derived_facts.is_new_domain),
-                COUNT(DISTINCT visit_derived_facts.canonical_url)
-         FROM visit_derived_facts
-         JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
-         WHERE visit_derived_facts.profile_id = ?1
-           AND archive.visits.reverted_at IS NULL
-         GROUP BY date_key, visit_derived_facts.profile_id, visit_derived_facts.registrable_domain, visit_derived_facts.domain_category
-         ORDER BY date_key ASC, visit_derived_facts.registrable_domain ASC",
+        "WITH category_counts AS (
+             SELECT strftime('%Y-%m-%d', archive.visits.visit_time_ms / 1000.0, 'unixepoch', 'localtime') AS date_key,
+                    visit_derived_facts.profile_id AS profile_id,
+                    visit_derived_facts.registrable_domain AS registrable_domain,
+                    visit_derived_facts.domain_category AS domain_category,
+                    COUNT(*) AS category_visits
+             FROM visit_derived_facts
+             JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+             WHERE visit_derived_facts.profile_id = ?1
+               AND archive.visits.reverted_at IS NULL
+             GROUP BY date_key, profile_id, registrable_domain, domain_category
+         ),
+         ranked_categories AS (
+             SELECT date_key,
+                    profile_id,
+                    registrable_domain,
+                    domain_category,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY date_key, profile_id, registrable_domain
+                        ORDER BY category_visits DESC,
+                                 CASE WHEN domain_category = 'unknown' THEN 1 ELSE 0 END ASC,
+                                 domain_category ASC
+                    ) AS category_rank
+             FROM category_counts
+         ),
+         domain_totals AS (
+             SELECT strftime('%Y-%m-%d', archive.visits.visit_time_ms / 1000.0, 'unixepoch', 'localtime') AS date_key,
+                    visit_derived_facts.profile_id AS profile_id,
+                    visit_derived_facts.registrable_domain AS registrable_domain,
+                    COUNT(*) AS visit_count,
+                    SUM(visit_derived_facts.is_search_event) AS search_count,
+                    SUM(visit_derived_facts.is_new_domain) AS new_domain_visits,
+                    COUNT(DISTINCT visit_derived_facts.canonical_url) AS unique_urls
+             FROM visit_derived_facts
+             JOIN archive.visits ON archive.visits.id = visit_derived_facts.visit_id
+             WHERE visit_derived_facts.profile_id = ?1
+               AND archive.visits.reverted_at IS NULL
+             GROUP BY date_key, profile_id, registrable_domain
+         )
+         SELECT domain_totals.date_key,
+                domain_totals.profile_id,
+                domain_totals.registrable_domain,
+                COALESCE(ranked_categories.domain_category, 'unknown') AS domain_category,
+                domain_totals.visit_count,
+                domain_totals.search_count,
+                domain_totals.new_domain_visits,
+                domain_totals.unique_urls
+         FROM domain_totals
+         LEFT JOIN ranked_categories
+           ON ranked_categories.date_key = domain_totals.date_key
+          AND ranked_categories.profile_id = domain_totals.profile_id
+          AND ranked_categories.registrable_domain = domain_totals.registrable_domain
+          AND ranked_categories.category_rank = 1
+         ORDER BY domain_totals.date_key ASC, domain_totals.registrable_domain ASC",
     )?;
     let domain_rows = domain_statement
         .query_map([profile_id], |row| {
@@ -2541,16 +2581,14 @@ fn build_daily_rollups_for_profile_in_batches(
     for (
         date_key,
         profile_id,
-        registrable_domain,
+        _,
         domain_category,
         visit_count,
         search_count,
         new_domain_visits,
-        unique_urls,
+        _,
     ) in &domain_rows
     {
-        let _ = registrable_domain;
-        let _ = unique_urls;
         dirty_date_keys.insert(date_key.clone());
 
         let category_entry = category_map
@@ -2927,6 +2965,7 @@ fn replace_daily_rollups(
         tx.execute("DELETE FROM daily_summary_rollups WHERE profile_id = ?1", [profile_id])?;
     }
 
+    ensure_unique_domain_rollup_rows(&rollups.domain_rows)?;
     for row in &rollups.domain_rows {
         tx.execute(
             "INSERT INTO domain_daily_rollups
@@ -2960,6 +2999,24 @@ fn replace_daily_rollups(
         )?;
     }
     tx.commit()?;
+    Ok(())
+}
+
+fn ensure_unique_domain_rollup_rows(
+    domain_rows: &[(String, String, String, String, i64, i64, i64, i64)],
+) -> Result<()> {
+    let mut seen = HashSet::<(String, String, String)>::new();
+    for (date_key, profile_id, registrable_domain, _, _, _, _, _) in domain_rows {
+        let key = (date_key.clone(), profile_id.clone(), registrable_domain.clone());
+        if !seen.insert(key.clone()) {
+            anyhow::bail!(
+                "duplicate domain daily rollup row prepared for {} / {} / {}",
+                key.0,
+                key.1,
+                key.2
+            );
+        }
+    }
     Ok(())
 }
 
@@ -4759,6 +4816,7 @@ fn persist_core_state_for_job_kind(
 ) -> Result<()> {
     let tx = connection.unchecked_transaction()?;
     clear_core_tables_for_job_kind(&tx, profile_id, job_kind)?;
+    ensure_unique_domain_rollup_rows(&rollups.domain_rows)?;
 
     for visit in visits {
         tx.execute(
@@ -8040,6 +8098,96 @@ mod tests {
             *expected_totals.get(&expected_dirty_dates[1]).unwrap_or(&0)
         );
         assert_eq!(summary_row_count, expected_totals.len() as i64);
+    }
+
+    #[test]
+    fn daily_rollup_fallback_collapses_conflicting_categories_into_one_domain_row() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        append_fixture_visit(
+            &archive,
+            4,
+            "https://github.com/example/repo/pulls/7",
+            "Pull Request 7",
+            1711929720000,
+            Some(2),
+            None,
+        );
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        intelligence
+            .execute(
+                "UPDATE visit_derived_facts
+                 SET domain_category = CASE
+                     WHEN visit_id = 2 THEN 'docs'
+                     WHEN visit_id = 4 THEN 'developer'
+                     ELSE domain_category
+                 END
+                 WHERE visit_id IN (2, 4)",
+                [],
+            )
+            .expect("inject conflicting categories");
+        intelligence
+            .execute(
+                "DELETE FROM core_intelligence_stage_checkpoints
+                 WHERE profile_id = 'chrome:Default' AND stage = 'daily-rollup'",
+                [],
+            )
+            .expect("clear daily rollup checkpoint");
+        drop(intelligence);
+
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            "daily-rollup",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .expect("daily rollup fallback");
+        assert_eq!(report.execution_mode.as_deref(), Some("fallback-full"));
+
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("intelligence reopen");
+        let row_count: i64 = intelligence
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM domain_daily_rollups
+                 WHERE profile_id = 'chrome:Default'
+                   AND date_key = ?1
+                   AND registrable_domain = 'github.com'",
+                [local_date_key(1711929600000)],
+                |row| row.get(0),
+            )
+            .expect("domain row count");
+        let category: String = intelligence
+            .query_row(
+                "SELECT domain_category
+                 FROM domain_daily_rollups
+                 WHERE profile_id = 'chrome:Default'
+                   AND date_key = ?1
+                   AND registrable_domain = 'github.com'",
+                [local_date_key(1711929600000)],
+                |row| row.get(0),
+            )
+            .expect("selected domain category");
+        assert_eq!(row_count, 1);
+        assert_eq!(category, "developer");
     }
 
     #[test]

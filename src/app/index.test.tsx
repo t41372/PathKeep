@@ -603,6 +603,83 @@ describe('App shell', () => {
     ).toBeVisible()
   })
 
+  test('completes encrypted onboarding without saving the password to the keychain', async () => {
+    const user = userEvent.setup()
+    const keyringStoreSpy = vi.spyOn(backend, 'keyringStoreDatabaseKey')
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/onboarding'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+
+    await user.click(
+      await screen.findByRole('button', { name: onboardingT('beginSetup') }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      onboardingT('errorNeedPassword'),
+    )
+
+    await user.type(
+      screen.getByPlaceholderText(onboardingT('masterPasswordPlaceholder')),
+      '000000',
+    )
+    await user.type(
+      screen.getByPlaceholderText(onboardingT('confirmPasswordPlaceholder')),
+      '000000',
+    )
+    expect(
+      screen.getByRole('checkbox', { name: onboardingT('storeInKeyring') }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+    expect(
+      await screen.findByRole('heading', {
+        name: onboardingT('scheduleTitle'),
+      }),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('backButton') }),
+    )
+    expect(
+      await screen.findByPlaceholderText(
+        onboardingT('masterPasswordPlaceholder'),
+      ),
+    ).toHaveValue('000000')
+    expect(
+      screen.getByPlaceholderText(onboardingT('confirmPasswordPlaceholder')),
+    ).toHaveValue('000000')
+
+    await user.click(
+      screen.getByRole('button', { name: onboardingT('continueButton') }),
+    )
+    await user.click(
+      await screen.findByRole('button', {
+        name: onboardingT('continueButton'),
+      }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: onboardingT('initButton') }),
+    )
+
+    expect(await screen.findByTestId('dashboard-page')).toBeInTheDocument()
+    expect(keyringStoreSpy).not.toHaveBeenCalled()
+  })
+
   test('renders explorer filters, detail, export, and audit run detail from live shell data', async () => {
     await seedArchiveRun()
     const user = userEvent.setup()

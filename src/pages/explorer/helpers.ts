@@ -28,6 +28,9 @@ import type { RecentSearchEntry } from './types'
 export const recentSearchesStorageKey = 'pathkeep.explorer.recent-searches'
 export const keywordPageSize = 50
 export const semanticPageSize = 8
+const sensitiveQueryParamPattern =
+  /\b(token|code|state|email|callbackUrl|session|otp|nonce|auth|password)=([^&\s]+)/gi
+const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 
 export const dateShortcutWindows = [
   { key: 'day', days: 1, labelKey: 'shortcutDay' },
@@ -117,6 +120,47 @@ export function browserLabel(kind: string) {
   if (kind === 'firefox') return 'Firefox'
   if (kind === 'safari') return 'Safari'
   return kind
+}
+
+function compactMiddle(text: string, maxLength: number) {
+  if (text.length <= maxLength) return text
+
+  const head = Math.max(12, Math.floor((maxLength - 1) / 2))
+  const tail = Math.max(8, maxLength - head - 1)
+  return `${text.slice(0, head)}…${text.slice(-tail)}`
+}
+
+function sanitizeUrlForDisplay(rawUrl: string, maxLength: number) {
+  try {
+    const parsed = new URL(rawUrl)
+    const hostname = parsed.hostname.replace(/^www\./, '')
+    const decodedPath = decodeURIComponent(parsed.pathname)
+      .replace(/\/+$/, '')
+      .replace(/^$/, '/')
+    const path = decodedPath === '/' ? '' : decodedPath
+    return compactMiddle(`${hostname}${path}`, maxLength)
+  } catch {
+    return compactMiddle(rawUrl, maxLength)
+  }
+}
+
+/**
+ * Redacts callback URLs, token-like query params, and email-like strings before
+ * they become Explorer titles or chips.
+ */
+export function sanitizeExplorerDisplayText(
+  text: string | null | undefined,
+  maxLength = 96,
+) {
+  if (!text?.trim()) return ''
+
+  const withRedactedParams = text
+    .trim()
+    .replace(emailPattern, '…')
+    .replace(sensitiveQueryParamPattern, (_match, key: string) => `${key}=…`)
+    .replace(/https?:\/\/\S+/gi, (url) => sanitizeUrlForDisplay(url, 64))
+
+  return compactMiddle(withRedactedParams, maxLength)
 }
 
 /**
