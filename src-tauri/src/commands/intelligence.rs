@@ -221,6 +221,15 @@ pub(crate) fn get_query_families(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn get_query_family_detail(
+    request: vault_core::QueryFamilyDetailRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyDetail>, String> {
+    worker_bridge::get_query_family_detail_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_top_sites(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
@@ -244,6 +253,15 @@ pub(crate) fn get_refind_pages(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, String> {
     worker_bridge::get_refind_pages_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn get_refind_page_detail(
+    request: vault_core::RefindPageDetailRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, String> {
+    worker_bridge::get_refind_page_detail_impl(request, state.get_key().as_deref())
 }
 
 #[cfg(not(test))]

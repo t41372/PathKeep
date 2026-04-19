@@ -32,7 +32,9 @@ import type {
   DomainTrend,
   EngineRanking,
   SearchConcept,
+  QueryFamilyDetail,
   QueryFamilyResult,
+  RefindPageDetail,
   RefindPage,
   RefindExplanation,
   HabitPattern,
@@ -796,6 +798,33 @@ export function getQueryFamilies(
   )
 }
 
+export function getQueryFamilyDetail(
+  familyId: string,
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return invokeSectionRequest<
+    QueryFamilyDetail,
+    {
+      familyId: string
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >(
+    'get_query_family_detail',
+    {
+      familyId,
+      dateRange,
+      profileId,
+    },
+    'query-family-detail',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
+}
+
 // ---------------------------------------------------------------------------
 // 2.3 Refind Pages
 // ---------------------------------------------------------------------------
@@ -827,6 +856,33 @@ export function getRefindPages(
       limit,
     },
     'refind-pages',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
+}
+
+export function getRefindPageDetail(
+  canonicalUrl: string,
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return invokeSectionRequest<
+    RefindPageDetail,
+    {
+      canonicalUrl: string
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >(
+    'get_refind_page_detail',
+    {
+      canonicalUrl,
+      dateRange,
+      profileId,
+    },
+    'refind-page-detail',
     {
       kind: 'date-range',
       dateRange,

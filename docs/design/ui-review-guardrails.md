@@ -185,7 +185,8 @@ Explorer 是 canonical evidence workbench，不是靜態內容頁。
 
 ### grouped views 紅線
 
-- `session` / `trail` 仍屬 `/explorer` 的 canonical view，不可做成另一套路由或另一套不一致的 detail 行為。
+- `session` / `trail` 仍屬 `/explorer` 的 canonical view，不可把 grouped view 本身偷換成另一套路由或另一套不一致的 detail 行為。
+- 若要補 `Open session insights` / `Open trail insights` 這類 CTA，可以加，但它們只能是 shared secondary entry；不能取代 grouped Explorer 的 browse-first 工作流。
 - grouped view 也必須保留 window / scope honesty，不能偷偷退回 archive-wide。
 
 只要有人提議把 Explorer 改成「更像 feed」「更像 infinite scroll」「先拿掉 detail rail 以後再補」，預設答案就是 **不行**。

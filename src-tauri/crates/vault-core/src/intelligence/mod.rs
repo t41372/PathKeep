@@ -42,8 +42,9 @@ use crate::{
         Explanation, FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage,
         IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
         IntelligenceStatus, IntelligenceWidgetSnapshot, KpiMetric, NavigationPath,
-        NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily, QueryFamilyResult,
-        RefindExplanation, RefindPage, RefindPagesRequest, RefindScoreFactor,
+        NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily, QueryFamilyDetail,
+        QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation, RefindPage,
+        RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest, RefindScoreFactor,
         ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell, ScopedDateRangeRequest,
         SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchTrailQueryRequest,
         SessionDetail, SessionListResult, SessionSummary, SessionVisit, StableSource,
@@ -5722,20 +5723,44 @@ pub fn get_query_families(
                 request.page_size.max(1) as i64,
                 offset
             ],
-            |row| {
-                Ok(QueryFamily {
-                    family_id: row.get(0)?,
-                    anchor_query: row.get(1)?,
-                    member_count: row.get(2)?,
-                    search_engine: row.get(3)?,
-                    first_seen_at: rfc3339_from_millis(row.get(4)?),
-                    last_seen_at: rfc3339_from_millis(row.get(5)?),
-                    queries: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
-                })
-            },
+            query_family_from_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(QueryFamilyResult { families, total, page: request.page, page_size: request.page_size })
+}
+
+pub fn get_query_family_detail(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &QueryFamilyDetailRequest,
+) -> Result<QueryFamilyDetail> {
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (profile_id, family) = load_query_family_detail_row(&connection, request)?;
+    let normalized_queries =
+        family.queries.iter().map(|query| normalize_query(query)).collect::<HashSet<_>>();
+    let mut statement = connection.prepare(
+        "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
+                landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
+         FROM search_trails
+         WHERE profile_id = ?1
+           AND last_visit_ms >= ?2
+           AND first_visit_ms < ?3
+         ORDER BY last_visit_ms DESC, trail_id DESC",
+    )?;
+    let related_trails = statement
+        .query_map(params![profile_id, start_ms, end_ms], trail_summary_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|trail| {
+            trail.queries.iter().any(|query| normalized_queries.contains(&normalize_query(query)))
+                || normalized_queries.contains(&normalize_query(&trail.initial_query))
+        })
+        .take(8)
+        .collect::<Vec<_>>();
+    Ok(QueryFamilyDetail { family, related_trails })
 }
 
 pub fn get_top_sites(
@@ -5849,24 +5874,33 @@ pub fn get_refind_pages(
                 end_ms,
                 request.limit.unwrap_or(20).max(1) as i64
             ],
-            |row| {
-                Ok(RefindPage {
-                    canonical_url: row.get(0)?,
-                    url: row.get(1)?,
-                    title: row.get(2)?,
-                    registrable_domain: row.get(3)?,
-                    cross_day_count: row.get(4)?,
-                    trail_count: row.get(5)?,
-                    search_arrival_count: row.get(6)?,
-                    typed_revisit_count: row.get(7)?,
-                    refind_score: row.get(8)?,
-                    first_seen_at: rfc3339_from_millis(row.get(9)?),
-                    last_seen_at: rfc3339_from_millis(row.get(10)?),
-                })
-            },
+            |row| refind_page_from_row_with_offset(row, 0),
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+pub fn get_refind_page_detail(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &RefindPageDetailRequest,
+) -> Result<RefindPageDetail> {
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (profile_id, page) = load_refind_page_detail_row(&connection, request)?;
+    let explanation = build_refind_explanation(&connection, &page.canonical_url)?;
+    let recent_days = load_refind_recent_days(&connection, &explanation.visit_ids)?;
+    let related_trails = load_refind_related_trails(
+        &connection,
+        &profile_id,
+        &explanation.visit_ids,
+        start_ms,
+        end_ms,
+    )?;
+
+    Ok(RefindPageDetail { page, explanation, recent_days, related_trails })
 }
 
 pub fn explain_refind(
@@ -6368,6 +6402,121 @@ fn load_query_family_visit_ids(
         .map_err(Into::into)
 }
 
+fn load_query_family_detail_row(
+    connection: &Connection,
+    request: &QueryFamilyDetailRequest,
+) -> Result<(String, QueryFamily)> {
+    connection
+        .query_row(
+            "SELECT profile_id, family_id, anchor_query, member_count, search_engine, first_seen_ms, last_seen_ms, queries_json
+             FROM query_families
+             WHERE family_id = ?1
+               AND (?2 IS NULL OR profile_id = ?2)",
+            params![request.family_id, request.profile_id.as_deref()],
+            |row| Ok((row.get::<_, String>(0)?, query_family_from_row_with_offset(row, 1)?)),
+        )
+        .optional()?
+        .with_context(|| format!("query family {} was not found", request.family_id))
+}
+
+fn load_refind_page_detail_row(
+    connection: &Connection,
+    request: &RefindPageDetailRequest,
+) -> Result<(String, RefindPage)> {
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    connection
+        .query_row(
+            "SELECT profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
+                    search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms
+             FROM refind_pages
+             WHERE canonical_url = ?1
+               AND (?2 IS NULL OR profile_id = ?2)
+               AND last_seen_ms >= ?3
+               AND first_seen_ms < ?4
+             ORDER BY refind_score DESC, last_seen_ms DESC
+             LIMIT 1",
+            params![request.canonical_url, request.profile_id.as_deref(), start_ms, end_ms],
+            |row| Ok((row.get::<_, String>(0)?, refind_page_from_row_with_offset(row, 1)?)),
+        )
+        .optional()?
+        .with_context(|| format!("refind page {} was not found", request.canonical_url))
+}
+
+fn load_refind_recent_days(connection: &Connection, visit_ids: &[i64]) -> Result<Vec<String>> {
+    if visit_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = std::iter::repeat_n("?", visit_ids.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT DISTINCT strftime('%Y-%m-%d', datetime(visit_time_ms / 1000, 'unixepoch', 'localtime'))
+         FROM archive.visits
+         WHERE id IN ({placeholders})
+         ORDER BY 1 DESC"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    statement
+        .query_map(
+            rusqlite::params_from_iter(visit_ids.iter().map(|value| value as &dyn rusqlite::ToSql)),
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn load_refind_related_trails(
+    connection: &Connection,
+    profile_id: &str,
+    visit_ids: &[i64],
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<Vec<TrailSummary>> {
+    if visit_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = std::iter::repeat_n("?", visit_ids.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT DISTINCT visit_derived_facts.trail_id
+         FROM visit_derived_facts
+         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         WHERE visit_derived_facts.profile_id = ?1
+           AND visit_derived_facts.visit_id IN ({placeholders})
+           AND visit_derived_facts.trail_id IS NOT NULL
+           AND visits.visit_time_ms >= ?2
+           AND visits.visit_time_ms < ?3"
+    );
+    let mut trail_id_statement = connection.prepare(&sql)?;
+    let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+        .chain(visit_ids.iter().map(|value| value as &dyn rusqlite::ToSql))
+        .chain(std::iter::once(&start_ms as &dyn rusqlite::ToSql))
+        .chain(std::iter::once(&end_ms as &dyn rusqlite::ToSql));
+    let trail_ids = trail_id_statement
+        .query_map(rusqlite::params_from_iter(params), |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if trail_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = std::iter::repeat_n("?", trail_ids.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
+                landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
+         FROM search_trails
+         WHERE trail_id IN ({placeholders})
+         ORDER BY last_visit_ms DESC, trail_id DESC"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    statement
+        .query_map(
+            rusqlite::params_from_iter(trail_ids.iter().map(|value| value as &dyn rusqlite::ToSql)),
+            trail_summary_from_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map(|items| items.into_iter().take(8).collect())
+        .map_err(Into::into)
+}
+
 fn load_domain_visit_ids(
     connection: &Connection,
     profile_id: &str,
@@ -6683,7 +6832,7 @@ pub fn get_search_effectiveness(
         },
     )?;
     let mut family_statement = connection.prepare(
-        "SELECT anchor_query, member_count, first_seen_ms, last_seen_ms
+        "SELECT family_id, anchor_query, member_count, first_seen_ms, last_seen_ms
          FROM query_families
          WHERE (?1 IS NULL OR profile_id = ?1)
            AND (?2 IS NULL OR search_engine = ?2)
@@ -6696,12 +6845,14 @@ pub fn get_search_effectiveness(
         .query_map(
             params![request.profile_id.as_deref(), request.engine.as_deref(), start_ms, end_ms],
             |row| {
-                let first_seen: i64 = row.get(2)?;
-                let last_seen: i64 = row.get(3)?;
+                let family_id: String = row.get(0)?;
+                let first_seen: i64 = row.get(3)?;
+                let last_seen: i64 = row.get(4)?;
                 let lag_days = ((last_seen - first_seen) as f32 / 86_400_000.0).max(0.0);
                 Ok(HardTopic {
-                    query_family: row.get(0)?,
-                    reformulation_count: row.get(1)?,
+                    family_id,
+                    query_family: row.get(1)?,
+                    reformulation_count: row.get(2)?,
                     re_search_lag_days: lag_days,
                 })
             },
@@ -7292,6 +7443,41 @@ fn load_session_trails(connection: &Connection, session_id: &str) -> Result<Vec<
         .query_map([session_id], trail_summary_from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+fn query_family_from_row(row: &Row<'_>) -> rusqlite::Result<QueryFamily> {
+    query_family_from_row_with_offset(row, 0)
+}
+
+fn query_family_from_row_with_offset(
+    row: &Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<QueryFamily> {
+    Ok(QueryFamily {
+        family_id: row.get(offset)?,
+        anchor_query: row.get(offset + 1)?,
+        member_count: row.get(offset + 2)?,
+        search_engine: row.get(offset + 3)?,
+        first_seen_at: rfc3339_from_millis(row.get(offset + 4)?),
+        last_seen_at: rfc3339_from_millis(row.get(offset + 5)?),
+        queries: serde_json::from_str(&row.get::<_, String>(offset + 6)?).unwrap_or_default(),
+    })
+}
+
+fn refind_page_from_row_with_offset(row: &Row<'_>, offset: usize) -> rusqlite::Result<RefindPage> {
+    Ok(RefindPage {
+        canonical_url: row.get(offset)?,
+        url: row.get(offset + 1)?,
+        title: row.get(offset + 2)?,
+        registrable_domain: row.get(offset + 3)?,
+        cross_day_count: row.get(offset + 4)?,
+        trail_count: row.get(offset + 5)?,
+        search_arrival_count: row.get(offset + 6)?,
+        typed_revisit_count: row.get(offset + 7)?,
+        refind_score: row.get(offset + 8)?,
+        first_seen_at: rfc3339_from_millis(row.get(offset + 9)?),
+        last_seen_at: rfc3339_from_millis(row.get(offset + 10)?),
+    })
 }
 
 fn trail_summary_from_row(row: &Row<'_>) -> rusqlite::Result<TrailSummary> {

@@ -14,7 +14,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { InsightEntityActions } from '../../../components/intelligence/entity-actions'
 import {
   localDateKeyFromIso,
   singleDayDateRange,
@@ -110,39 +110,39 @@ export function ExplorerDetailPanel({
             className="intelligence-actions"
             style={{ marginBottom: 'var(--space-3)' }}
           >
-            <Link
-              className="btn-secondary"
-              to={visitDayInsightsHref(
-                selectedVisit.visitedAt,
-                selectedVisit.profileId ?? null,
-              )}
-            >
-              {explorerT('openDayInsights')}
-            </Link>
-            {selectedVisit.domain ? (
-              <Link
-                className="btn-secondary"
-                to={domainInsightsHref({
-                  domain: selectedVisit.domain,
-                  dateRange: singleDayDateRange(selectedDay!),
-                  preset: 'custom',
-                  profileId: selectedVisit.profileId ?? null,
-                })}
-              >
-                {explorerT('openDomainInsights')}
-              </Link>
-            ) : null}
-            <Link
-              className="btn-secondary"
-              to={evidenceHref({
-                profileId: selectedVisit.profileId ?? null,
-                domain: selectedVisit.domain ?? null,
-                url: selectedVisit.url,
-                dateRange: singleDayDateRange(selectedDay!),
-              })}
-            >
-              {explorerT('openDayEvidence')}
-            </Link>
+            <InsightEntityActions
+              items={[
+                {
+                  href: visitDayInsightsHref(
+                    selectedVisit.visitedAt,
+                    selectedVisit.profileId ?? null,
+                  ),
+                  label: explorerT('openDayInsights'),
+                },
+                ...(selectedVisit.domain
+                  ? [
+                      {
+                        href: domainInsightsHref({
+                          domain: selectedVisit.domain,
+                          dateRange: singleDayDateRange(selectedDay!),
+                          preset: 'custom' as const,
+                          profileId: selectedVisit.profileId ?? null,
+                        }),
+                        label: explorerT('openDomainInsights'),
+                      },
+                    ]
+                  : []),
+                {
+                  href: evidenceHref({
+                    profileId: selectedVisit.profileId ?? null,
+                    domain: selectedVisit.domain ?? null,
+                    url: selectedVisit.url,
+                    dateRange: singleDayDateRange(selectedDay!),
+                  }),
+                  label: explorerT('openDayEvidence'),
+                },
+              ]}
+            />
             <button
               className="btn-secondary"
               type="button"

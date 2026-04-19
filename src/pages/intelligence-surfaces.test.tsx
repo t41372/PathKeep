@@ -44,6 +44,8 @@ import type {
   IntelligenceLocalHostBundle,
   IntelligenceLocalHostBuildResult,
   IntelligenceLocalHostPreview,
+  QueryFamilyDetail,
+  RefindPageDetail,
 } from '../lib/core-intelligence/types'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import { ProfileScopeContext } from '../lib/profile-scope-context'
@@ -62,6 +64,10 @@ import {
   DayInsightsRoutePage,
   DomainDeepDiveRoutePage,
   IntelligencePage,
+  QueryFamilyInsightsRoutePage,
+  RefindPageInsightsRoutePage,
+  SessionInsightsRoutePage,
+  TrailInsightsRoutePage,
 } from './intelligence'
 import { JobsPage } from './jobs'
 import { SettingsPage } from './settings'
@@ -3758,6 +3764,311 @@ describe('intelligence surfaces', () => {
     )
   })
 
+  test('renders query-family insights as a first-class route with related trail links', async () => {
+    const { snapshot } = await seedArchiveState()
+    const detailSpy = vi
+      .spyOn(coreIntelligenceApi, 'getQueryFamilyDetail')
+      .mockResolvedValue(
+        wrapSection<QueryFamilyDetail>(
+          'query-family-detail',
+          {
+            family: {
+              familyId: 'family-1',
+              anchorQuery: 'sqlite wal',
+              memberCount: 3,
+              searchEngine: 'google',
+              queries: ['sqlite wal', 'sqlite checkpoint'],
+              firstSeenAt: '2026-04-18T00:00:00Z',
+              lastSeenAt: '2026-04-18T01:00:00Z',
+            },
+            relatedTrails: [
+              {
+                trailId: 'trail-1',
+                sessionId: 'session-1',
+                initialQuery: 'sqlite wal',
+                searchEngine: 'google',
+                reformulationCount: 1,
+                visitCount: 2,
+                landingUrl: 'https://sqlite.org/wal.html',
+                landingDomain: 'sqlite.org',
+                firstVisitMs: Date.parse('2026-04-18T00:00:00Z'),
+                lastVisitMs: Date.parse('2026-04-18T00:10:00Z'),
+                maxDepth: 2,
+                queries: ['sqlite wal', 'sqlite checkpoint'],
+              },
+            ],
+          },
+          {
+            moduleIds: ['search-trails'],
+            sourceTables: ['query_families', 'search_trails', 'search_events'],
+          },
+        ),
+      )
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/query-family/:familyId"
+          element={<QueryFamilyInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/query-family/family-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /sqlite wal/i }),
+    ).toBeVisible()
+    expect(detailSpy).toHaveBeenCalledWith(
+      'family-1',
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+    )
+    expect(
+      screen.getByRole('link', { name: 'Open evidence in Explorer' }),
+    ).toHaveAttribute(
+      'href',
+      '/explorer?profileId=chrome%3ADefault&start=2026-04-01&end=2026-04-30&q=sqlite+wal',
+    )
+    expect(screen.getByRole('link', { name: /sqlite wal/i })).toHaveAttribute(
+      'href',
+      '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+  })
+
+  test('renders refind-page insights with day and trail drilldowns', async () => {
+    const { snapshot } = await seedArchiveState()
+    const detailSpy = vi
+      .spyOn(coreIntelligenceApi, 'getRefindPageDetail')
+      .mockResolvedValue(
+        wrapSection<RefindPageDetail>(
+          'refind-page-detail',
+          {
+            page: {
+              canonicalUrl: 'https://sqlite.org/lang.html',
+              url: 'https://sqlite.org/lang.html',
+              title: 'SQLite docs',
+              registrableDomain: 'sqlite.org',
+              crossDayCount: 3,
+              trailCount: 2,
+              searchArrivalCount: 1,
+              typedRevisitCount: 0,
+              refindScore: 5,
+              firstSeenAt: '2026-04-10T00:00:00Z',
+              lastSeenAt: '2026-04-18T00:00:00Z',
+            },
+            explanation: {
+              canonicalUrl: 'https://sqlite.org/lang.html',
+              refindScore: 5,
+              factors: [
+                {
+                  signal: 'cross_day_count',
+                  rawValue: 3,
+                  weight: 3,
+                  contribution: 9,
+                },
+              ],
+              visitIds: [101, 102],
+            },
+            recentDays: ['2026-04-18', '2026-04-12'],
+            relatedTrails: [
+              {
+                trailId: 'trail-1',
+                sessionId: 'session-1',
+                initialQuery: 'sqlite wal',
+                searchEngine: 'google',
+                reformulationCount: 1,
+                visitCount: 2,
+                landingUrl: 'https://sqlite.org/lang.html',
+                landingDomain: 'sqlite.org',
+                firstVisitMs: Date.parse('2026-04-18T00:00:00Z'),
+                lastVisitMs: Date.parse('2026-04-18T00:10:00Z'),
+                maxDepth: 2,
+                queries: ['sqlite wal', 'sqlite checkpoint'],
+              },
+            ],
+          },
+          {
+            moduleIds: ['refind-pages', 'search-trails'],
+            sourceTables: [
+              'refind_pages',
+              'visit_derived_facts',
+              'search_trails',
+            ],
+          },
+        ),
+      )
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/refind/:canonicalUrl"
+          element={<RefindPageInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/refind/https%3A%2F%2Fsqlite.org%2Flang.html?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'SQLite docs' }),
+    ).toBeVisible()
+    expect(detailSpy).toHaveBeenCalledWith(
+      'https://sqlite.org/lang.html',
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+    )
+    expect(screen.getByRole('link', { name: '2026-04-18' })).toHaveAttribute(
+      'href',
+      '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
+    )
+    expect(screen.getByRole('link', { name: /sqlite wal/i })).toHaveAttribute(
+      'href',
+      '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+  })
+
+  test('renders session insights as a route-first destination while keeping Explorer inline sessions', async () => {
+    const { snapshot } = await seedArchiveState()
+    vi.spyOn(coreIntelligenceApi, 'getSessionDetail').mockResolvedValue({
+      session: {
+        sessionId: 'session-1',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:30:00Z'),
+        visitCount: 3,
+        searchCount: 1,
+        domainCount: 2,
+        isDeepDive: true,
+        autoTitle: 'SQLite WAL research',
+      },
+      visits: [
+        {
+          visitId: 101,
+          url: 'https://www.sqlite.org/wal.html',
+          title: 'SQLite WAL',
+          registrableDomain: 'sqlite.org',
+          visitTimeMs: Date.parse('2026-04-05T14:05:00Z'),
+          isSearchEvent: false,
+          searchQuery: null,
+          searchEngine: null,
+          trailId: 'trail-1',
+          transitionType: 'link',
+        },
+      ],
+      trails: [
+        {
+          trailId: 'trail-1',
+          sessionId: 'session-1',
+          initialQuery: 'sqlite wal',
+          searchEngine: 'google',
+          reformulationCount: 1,
+          visitCount: 2,
+          landingUrl: 'https://sqlite.org/wal.html',
+          landingDomain: 'sqlite.org',
+          firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+          lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+          maxDepth: 2,
+          queries: ['sqlite wal', 'sqlite checkpoint'],
+        },
+      ],
+    })
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/session/:sessionId"
+          element={<SessionInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/session/session-1?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /SQLite WAL research/i }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'Open evidence in Explorer' }),
+    ).toHaveAttribute(
+      'href',
+      '/explorer?profileId=chrome%3ADefault&start=2026-04-05&end=2026-04-05',
+    )
+    expect(screen.getByRole('link', { name: /sqlite wal/i })).toHaveAttribute(
+      'href',
+      '/intelligence/trail/trail-1?range=custom&start=2026-04-05&end=2026-04-05&profileId=chrome%3ADefault',
+    )
+  })
+
+  test('renders trail insights with session handoff and member entity links', async () => {
+    const { snapshot } = await seedArchiveState()
+    vi.spyOn(coreIntelligenceApi, 'getTrailDetail').mockResolvedValue({
+      trail: {
+        trailId: 'trail-1',
+        sessionId: 'session-1',
+        initialQuery: 'sqlite wal checkpoint',
+        searchEngine: 'Google',
+        reformulationCount: 1,
+        visitCount: 2,
+        landingUrl: 'https://www.sqlite.org/pragma.html',
+        landingDomain: 'sqlite.org',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+        maxDepth: 2,
+        queries: ['sqlite wal checkpoint', 'sqlite wal checkpoint passive'],
+      },
+      members: [
+        {
+          trailId: 'trail-1',
+          visitId: 202,
+          ordinal: 1,
+          role: 'landing',
+          url: 'https://www.sqlite.org/pragma.html',
+          title: 'PRAGMA wal_checkpoint',
+          registrableDomain: 'sqlite.org',
+          visitTimeMs: Date.parse('2026-04-05T14:03:00Z'),
+          searchQuery: null,
+        },
+      ],
+    })
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/trail/:trailId"
+          element={<TrailInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /sqlite wal checkpoint/i }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'Open session insights' }),
+    ).toHaveAttribute(
+      'href',
+      '/intelligence/session/session-1?range=custom&start=2026-04-05&end=2026-04-05&profileId=chrome%3ADefault',
+    )
+    expect(screen.getByRole('link', { name: 'sqlite.org' })).toHaveAttribute(
+      'href',
+      '/intelligence/domain/sqlite.org?range=custom&start=2026-04-05&end=2026-04-05&profileId=chrome%3ADefault',
+    )
+  })
+
   test('limits path-flow steps to supported values and wires explainability to supported intelligence entities', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
@@ -4097,6 +4408,7 @@ describe('intelligence surfaces', () => {
         ],
         hardestTopics: [
           {
+            familyId: 'family-hardest-1',
             queryFamily: 'sqlite wal checkpoint',
             reformulationCount: 3,
             reSearchLagDays: 2.5,

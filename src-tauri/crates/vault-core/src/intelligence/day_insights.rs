@@ -67,21 +67,7 @@ pub fn get_day_insights(
             page_size: 8,
         },
     )?;
-
-    // TODO: M7 — `get_browsing_rhythm()` still exposes a generic weekly/hourly
-    // bucket contract. Keep it wrapped here for exact-day hourly activity until
-    // the lower-level API is renamed and split into clearer entity-first reads.
-    let hourly_activity = get_browsing_rhythm(
-        paths,
-        config,
-        key,
-        &CategoryFilteredDateRangeRequest {
-            date_range: date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            category: None,
-        },
-    )
-    .map(hourly_activity_from_rhythm)?;
+    let hourly_activity = get_exact_day_hourly_activity(paths, config, key, request, &date_range)?;
 
     Ok(DayInsights {
         date: request.date.clone(),
@@ -99,6 +85,26 @@ fn exact_day_range(date: &str) -> Result<DateRange> {
     NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .with_context(|| format!("invalid local calendar day '{date}'"))?;
     Ok(DateRange { start: date.to_string(), end: date.to_string() })
+}
+
+fn get_exact_day_hourly_activity(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &DayInsightsRequest,
+    date_range: &DateRange,
+) -> Result<Vec<DayInsightsHourlyBucket>> {
+    get_browsing_rhythm(
+        paths,
+        config,
+        key,
+        &CategoryFilteredDateRangeRequest {
+            date_range: date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            category: None,
+        },
+    )
+    .map(hourly_activity_from_rhythm)
 }
 
 fn hourly_activity_from_rhythm(

@@ -42,12 +42,52 @@ import {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export type IntelligenceTone = 'success' | 'warning' | 'blocked' | 'info'
+export type InsightEntityKind =
+  | 'day'
+  | 'domain'
+  | 'queryFamily'
+  | 'refindPage'
+  | 'session'
+  | 'trail'
 /**
  * Defines the type-level contract for translate.
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 type Translate = (key: string, vars?: Record<string, string | number>) => string
+
+type RoutedInsightEntityTarget = {
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}
+
+export type InsightEntityTarget =
+  | {
+      kind: 'day'
+      date: string
+      profileId?: string | null
+    }
+  | ({
+      kind: 'domain'
+      domain: string
+    } & RoutedInsightEntityTarget)
+  | ({
+      kind: 'queryFamily'
+      familyId: string
+    } & RoutedInsightEntityTarget)
+  | ({
+      kind: 'refindPage'
+      canonicalUrl: string
+    } & RoutedInsightEntityTarget)
+  | ({
+      kind: 'session'
+      sessionId: string
+    } & RoutedInsightEntityTarget)
+  | ({
+      kind: 'trail'
+      trailId: string
+    } & RoutedInsightEntityTarget)
 
 /**
  * Provides selected ai to descendant components.
@@ -187,10 +227,45 @@ export function evidenceHref(evidence: {
   return query ? `/explorer?${query}` : '/explorer'
 }
 
-export function dayInsightsHref(date: string, profileId?: string | null) {
-  const params = buildDayInsightsSearchParams(profileId)
+function buildInsightEntityRoutePath(
+  target: Exclude<InsightEntityTarget, { kind: 'day' }>,
+) {
+  switch (target.kind) {
+    case 'domain':
+      return `/intelligence/domain/${encodeURIComponent(target.domain)}`
+    case 'queryFamily':
+      return `/intelligence/query-family/${encodeURIComponent(target.familyId)}`
+    case 'refindPage':
+      return `/intelligence/refind/${encodeURIComponent(target.canonicalUrl)}`
+    case 'session':
+      return `/intelligence/session/${encodeURIComponent(target.sessionId)}`
+    case 'trail':
+      return `/intelligence/trail/${encodeURIComponent(target.trailId)}`
+  }
+}
+
+export function insightEntityHref(target: InsightEntityTarget) {
+  if (target.kind === 'day') {
+    const params = buildDayInsightsSearchParams(target.profileId)
+    const query = params.toString()
+    return `/intelligence/day/${encodeURIComponent(target.date)}${query ? `?${query}` : ''}`
+  }
+
+  const params = buildIntelligenceSearchParams({
+    dateRange: target.dateRange,
+    preset: target.preset ?? 'custom',
+    profileId: target.profileId,
+  })
   const query = params.toString()
-  return `/intelligence/day/${encodeURIComponent(date)}${query ? `?${query}` : ''}`
+  return `${buildInsightEntityRoutePath(target)}${query ? `?${query}` : ''}`
+}
+
+export function dayInsightsHref(date: string, profileId?: string | null) {
+  return insightEntityHref({
+    kind: 'day',
+    date,
+    profileId,
+  })
 }
 
 export function visitDayInsightsHref(
@@ -206,13 +281,13 @@ export function domainInsightsHref(options: {
   preset?: TimeRangePreset
   profileId?: string | null
 }) {
-  const params = buildIntelligenceSearchParams({
+  return insightEntityHref({
+    kind: 'domain',
+    domain: options.domain,
     dateRange: options.dateRange,
-    preset: options.preset ?? 'custom',
+    preset: options.preset,
     profileId: options.profileId,
   })
-  const query = params.toString()
-  return `/intelligence/domain/${encodeURIComponent(options.domain)}${query ? `?${query}` : ''}`
 }
 
 export function domainDayInsightsHref(
@@ -226,6 +301,88 @@ export function domainDayInsightsHref(
     preset: 'custom',
     profileId,
   })
+}
+
+export function queryFamilyInsightsHref(options: {
+  familyId: string
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}) {
+  return insightEntityHref({
+    kind: 'queryFamily',
+    familyId: options.familyId,
+    dateRange: options.dateRange,
+    preset: options.preset,
+    profileId: options.profileId,
+  })
+}
+
+export function refindInsightsHref(options: {
+  canonicalUrl: string
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}) {
+  return insightEntityHref({
+    kind: 'refindPage',
+    canonicalUrl: options.canonicalUrl,
+    dateRange: options.dateRange,
+    preset: options.preset,
+    profileId: options.profileId,
+  })
+}
+
+export function sessionInsightsHref(options: {
+  sessionId: string
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}) {
+  return insightEntityHref({
+    kind: 'session',
+    sessionId: options.sessionId,
+    dateRange: options.dateRange,
+    preset: options.preset,
+    profileId: options.profileId,
+  })
+}
+
+export function trailInsightsHref(options: {
+  trailId: string
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}) {
+  return insightEntityHref({
+    kind: 'trail',
+    trailId: options.trailId,
+    dateRange: options.dateRange,
+    preset: options.preset,
+    profileId: options.profileId,
+  })
+}
+
+export function reopenedInvestigationHref(options: {
+  anchorId: string
+  anchorType: 'query_family' | 'reference_page'
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+}) {
+  return options.anchorType === 'query_family'
+    ? queryFamilyInsightsHref({
+        familyId: options.anchorId,
+        dateRange: options.dateRange,
+        preset: options.preset,
+        profileId: options.profileId,
+      })
+    : refindInsightsHref({
+        canonicalUrl: options.anchorId,
+        dateRange: options.dateRange,
+        preset: options.preset,
+        profileId: options.profileId,
+      })
 }
 
 /**

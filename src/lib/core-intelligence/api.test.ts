@@ -244,4 +244,40 @@ describe('core intelligence api', () => {
       },
     })
   })
+
+  test('requests query-family detail through the dedicated entity command', async () => {
+    const { getQueryFamilyDetail } = await import('./api')
+
+    await getQueryFamilyDetail(
+      'family-123',
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('get_query_family_detail', {
+      request: {
+        familyId: 'family-123',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+      },
+    })
+  })
+
+  test('requests refind-page detail through the dedicated entity command', async () => {
+    const { getRefindPageDetail } = await import('./api')
+
+    await getRefindPageDetail(
+      'https://example.com/docs',
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('get_refind_page_detail', {
+      request: {
+        canonicalUrl: 'https://example.com/docs',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+      },
+    })
+  })
 })

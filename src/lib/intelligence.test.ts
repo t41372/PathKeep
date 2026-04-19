@@ -26,8 +26,14 @@ import {
   domainDayInsightsHref,
   domainInsightsHref,
   evidenceHref,
+  insightEntityHref,
+  queryFamilyInsightsHref,
+  reopenedInvestigationHref,
+  refindInsightsHref,
   scoreBand,
   selectedAiProvider,
+  sessionInsightsHref,
+  trailInsightsHref,
   visitDayInsightsHref,
 } from './intelligence'
 
@@ -333,6 +339,76 @@ describe('intelligence helpers', () => {
       domainDayInsightsHref('example.com', '2026-04-18', 'chrome:Default'),
     ).toBe(
       '/intelligence/domain/example.com?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
+    )
+    expect(
+      insightEntityHref({
+        kind: 'queryFamily',
+        familyId: 'family-123',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        preset: 'month',
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/query-family/family-123?range=month&profileId=chrome%3ADefault',
+    )
+    expect(
+      queryFamilyInsightsHref({
+        familyId: 'family-123',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        preset: 'custom',
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/query-family/family-123?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+    expect(
+      refindInsightsHref({
+        canonicalUrl: 'https://example.com/docs?id=7',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        preset: 'custom',
+      }),
+    ).toBe(
+      '/intelligence/refind/https%3A%2F%2Fexample.com%2Fdocs%3Fid%3D7?range=custom&start=2026-04-01&end=2026-04-30',
+    )
+    expect(
+      sessionInsightsHref({
+        sessionId: 'session:chrome:Default:7',
+        dateRange: { start: '2026-04-18', end: '2026-04-18' },
+        preset: 'custom',
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/session/session%3Achrome%3ADefault%3A7?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
+    )
+    expect(
+      trailInsightsHref({
+        trailId: 'trail-42',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        preset: 'custom',
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/trail/trail-42?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+    expect(
+      reopenedInvestigationHref({
+        anchorType: 'query_family',
+        anchorId: 'family-123',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/query-family/family-123?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+    expect(
+      reopenedInvestigationHref({
+        anchorType: 'reference_page',
+        anchorId: 'https://example.com/docs',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/refind/https%3A%2F%2Fexample.com%2Fdocs?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
     )
   })
 

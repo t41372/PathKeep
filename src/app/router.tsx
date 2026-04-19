@@ -269,6 +269,38 @@ const appRouteChildren: RouteObject[] = [
         },
       },
       {
+        path: 'query-family/:familyId',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.QueryFamilyInsightsRoutePage }
+        },
+      },
+      {
+        path: 'refind/:canonicalUrl',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.RefindPageInsightsRoutePage }
+        },
+      },
+      {
+        path: 'session/:sessionId',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.SessionInsightsRoutePage }
+        },
+      },
+      {
+        path: 'trail/:trailId',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.TrailInsightsRoutePage }
+        },
+      },
+      {
         path: 'day/:date',
         ErrorBoundary: ShellRouteErrorBoundary,
         lazy: async () => {

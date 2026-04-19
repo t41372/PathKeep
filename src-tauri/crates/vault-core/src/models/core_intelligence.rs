@@ -241,6 +241,24 @@ pub struct DomainDeepDiveRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request shape for one query-family detail read.
+pub struct QueryFamilyDetailRequest {
+    pub family_id: String,
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request shape for one refind-page detail read.
+pub struct RefindPageDetailRequest {
+    pub canonical_url: String,
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 /// Request shape for one local-calendar-day insights read.
 pub struct DayInsightsRequest {
     pub date: String,
@@ -429,6 +447,13 @@ pub struct QueryFamilyResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct QueryFamilyDetail {
+    pub family: QueryFamily,
+    pub related_trails: Vec<TrailSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct RefindPage {
     pub canonical_url: String,
     pub url: String,
@@ -459,6 +484,15 @@ pub struct RefindExplanation {
     pub refind_score: f32,
     pub factors: Vec<RefindScoreFactor>,
     pub visit_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RefindPageDetail {
+    pub page: RefindPage,
+    pub explanation: RefindExplanation,
+    pub recent_days: Vec<String>,
+    pub related_trails: Vec<TrailSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -665,6 +699,7 @@ pub struct EngineEffectiveness {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HardTopic {
+    pub family_id: String,
     pub query_family: String,
     pub reformulation_count: i64,
     pub re_search_lag_days: f32,
@@ -801,6 +836,7 @@ pub struct CompareSetPage {
 #[serde(rename_all = "camelCase")]
 pub struct CompareSet {
     pub compare_set_id: String,
+    pub trail_id: String,
     pub search_query: String,
     pub pages: Vec<CompareSetPage>,
 }

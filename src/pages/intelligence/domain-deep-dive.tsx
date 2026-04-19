@@ -15,6 +15,8 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
+import { InsightEntityActions } from '../../components/intelligence/entity-actions'
+import { InsightEntityHero } from '../../components/intelligence/entity-hero'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -174,32 +176,33 @@ export function DomainDeepDivePage({
 
   return (
     <div className="intelligence-page domain-deep-dive">
-      <Link className="btn-secondary" to={backHref}>
-        ← {t('domainDeepDiveBack')}
-      </Link>
-      <div className="day-insights__hero-copy">
-        <span className="mono-kicker">{t('domainInsightsTitle')}</span>
-        <h1 className="day-insights__title">
-          {detail.displayName ?? detail.registrableDomain}
-        </h1>
-        <p className="day-insights__subtitle">{t('domainInsightsSubtitle')}</p>
-      </div>
+      <InsightEntityHero
+        actions={
+          <InsightEntityActions
+            items={[
+              {
+                href: evidenceHref({
+                  profileId,
+                  domain: detail.registrableDomain,
+                  dateRange,
+                }),
+                label: t('domainInsightsOpenExplorer'),
+              },
+            ]}
+          />
+        }
+        backHref={backHref}
+        backLabel={t('domainDeepDiveBack')}
+        eyebrow={t('domainInsightsTitle')}
+        subtitle={t('domainInsightsSubtitle')}
+        title={detail.displayName ?? detail.registrableDomain}
+      />
       <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
 
       <div className="domain-deep-dive__header">
         <span className="domain-deep-dive__category-badge">
           {intelligenceCategoryLabel(language, t, detail.domainCategory)}
         </span>
-        <Link
-          className="btn-secondary"
-          to={evidenceHref({
-            profileId,
-            domain: detail.registrableDomain,
-            dateRange,
-          })}
-        >
-          {t('domainInsightsOpenExplorer')}
-        </Link>
       </div>
 
       <div className="domain-deep-dive__kpi-row">

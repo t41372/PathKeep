@@ -11,6 +11,8 @@
 > - [../features/intelligence-current-state.md](../features/intelligence-current-state.md)
 > - [../features/core-intelligence-ultimate-design.md](../features/core-intelligence-ultimate-design.md)
 > - [../plan/m6-shared-insight-surfaces/README.md](../plan/m6-shared-insight-surfaces/README.md)
+>
+> **2026-04-19 M7 follow-up:** 更通用的 `query family` / `refind page` / `session` / `trail` entity promotion 已由 [intelligence-generic-entity-navigation-tradeoff.md](intelligence-generic-entity-navigation-tradeoff.md) 接手；本文件現在只定義 M6 的 day/domain baseline。
 
 ---
 
@@ -161,8 +163,8 @@ Core Intelligence 的計算層其實已經有 shared rollup / section envelope /
 
 **緩解**
 
-- 必須在代碼中留下 `TODO: M7`
-- 並在 M7 plan / status / backlog 中對應追蹤
+- M6 當時必須在代碼中留下 `TODO: M7`
+- 這些 follow-up 現已由 M7 收口；剩餘更深的 identity / context reuse gap 改由 M8 追蹤
 
 ---
 
@@ -179,20 +181,12 @@ Core Intelligence 的計算層其實已經有 shared rollup / section envelope /
 
 ---
 
-## 8. M7 後續
+## 8. 後續演進
 
-這次只把 `day` / `domain` 升格成 first-class entity。
+M6 只處理 `day` / `domain` baseline；後續 generic entity promotion 已在 M7 完成第一輪 closeout。
 
-下一輪 M7 要處理的是：
-
-- query family
-- refind page
-- source / domain role
-- session / trail
-- category mix
-- external-output review surfaces
-
-目標是把這些 entity 的 link grammar、entry affordance、shared digest component 與 drilldown behavior 也抽成統一系統。
+- `query family`、`refind page`、`session`、`trail` 的 first-class route 見 [intelligence-generic-entity-navigation-tradeoff.md](intelligence-generic-entity-navigation-tradeoff.md)
+- 剩餘的 aggregate identity / context focus gap 已轉交 [M8](../plan/m8-aggregate-entity-identity/README.md)
 
 ---
 
@@ -205,4 +199,4 @@ Core Intelligence 的計算層其實已經有 shared rollup / section envelope /
 - `Browsing Rhythm` 不該再以卡內 detail 作為主工作流
 - 後續還要以本輪經驗為基礎，進一步做跨 app reuse audit
 
-因此本文件作為 accepted trade-off 記錄，後續設計、feature、plan 與 route contract 應以這裡為準。
+因此本文件作為 accepted day/domain baseline 記錄；generic entity promotion 的後續 accepted contract 需與 M7/M8 文檔一起閱讀。

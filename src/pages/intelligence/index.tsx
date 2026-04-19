@@ -21,7 +21,13 @@ import { useShellData } from '../../app/shell-data-context'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { peekIntelligencePrimaryOverview } from '../../lib/core-intelligence'
 import { useI18n } from '../../lib/i18n/hooks'
-import { dayInsightsHref, domainInsightsHref } from '../../lib/intelligence'
+import {
+  dayInsightsHref,
+  domainInsightsHref,
+  queryFamilyInsightsHref,
+  refindInsightsHref,
+  trailInsightsHref,
+} from '../../lib/intelligence'
 import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'
@@ -56,6 +62,27 @@ export function IntelligencePage() {
   const domainHref = (domain: string) =>
     domainInsightsHref({
       domain,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
+    })
+  const queryFamilyHref = (familyId: string) =>
+    queryFamilyInsightsHref({
+      familyId,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
+    })
+  const refindHref = (canonicalUrl: string) =>
+    refindInsightsHref({
+      canonicalUrl,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
+    })
+  const trailHref = (trailId: string) =>
+    trailInsightsHref({
+      trailId,
       dateRange,
       preset,
       profileId: effectiveProfileId,
@@ -105,12 +132,15 @@ export function IntelligencePage() {
           domainHref={domainHref}
           language={language}
           profileId={effectiveProfileId}
+          queryFamilyHref={queryFamilyHref}
+          refindHref={refindHref}
           scopeLabel={
             effectiveProfileId
               ? (profileScopeLabel ?? effectiveProfileId)
               : archiveWideBadge
           }
           secondaryReady={stagedOverview.secondaryReady}
+          trailHref={trailHref}
           t={t}
         />
       ) : (
@@ -202,3 +232,9 @@ function InsightAccessStrip({
 
 export { DayInsightsRoutePage } from './day-insights'
 export { DomainDeepDiveRoutePage } from './domain-deep-dive'
+export {
+  QueryFamilyInsightsRoutePage,
+  RefindPageInsightsRoutePage,
+  SessionInsightsRoutePage,
+  TrailInsightsRoutePage,
+} from './promoted-entity-routes'

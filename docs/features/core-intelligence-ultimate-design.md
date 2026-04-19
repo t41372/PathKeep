@@ -10,6 +10,8 @@
 > **2026-04-19 accepted override:** `Browsing Rhythm` 主圖不再沿用本文早期版本裡的「週 × 小時」首屏契約。使用者已明確確認改成 **真實日期日曆熱力圖**，並把小時分布退到「選中某一天後的 detail 區」。完整 trade-off 與回滾邊界見 [`../design/intelligence-rhythm-calendar-heatmap-tradeoff.md`](../design/intelligence-rhythm-calendar-heatmap-tradeoff.md)。
 >
 > **2026-04-19 accepted entity note:** `day` 與 `domain` 現在都已升格成 first-class shared entity surface。`/intelligence/day/:date` 是 exact local day 的完整 insights route；`/intelligence/domain/:domain` 正式作為 `Domain Insights` module。overview / Dashboard / Explorer 的 primary interaction 預設採 `Insights first`，Explorer evidence 降為 secondary CTA。完整 trade-off 見 [`../design/intelligence-entity-route-tradeoff.md`](../design/intelligence-entity-route-tradeoff.md)。
+>
+> **2026-04-19 accepted generic-entity note:** M7 已把 generic insight-entity navigation 收斂成正式 contract：`query family`、`refind page`、`session`、`trail` 也已升格成 first-class shared insights route，其餘 active entity 則必須解析到既有 shared destination，而不是各 surface 各自決定 deep-link。Explorer 的 `session` / `trail` grouped view 仍是 browse-first canonical surface；route promotion 只承接 reusable detail / explainability / evidence CTA。完整 trade-off 見 [`../design/intelligence-generic-entity-navigation-tradeoff.md`](../design/intelligence-generic-entity-navigation-tradeoff.md)。
 
 ---
 

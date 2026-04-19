@@ -10,6 +10,8 @@
 
 import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { InsightEntityActions } from '../../components/intelligence/entity-actions'
+import { InsightEntityHero } from '../../components/intelligence/entity-hero'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
@@ -19,7 +21,12 @@ import {
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import { useI18n } from '../../lib/i18n/hooks'
-import { domainDayInsightsHref, evidenceHref } from '../../lib/intelligence'
+import {
+  domainDayInsightsHref,
+  evidenceHref,
+  queryFamilyInsightsHref,
+  refindInsightsHref,
+} from '../../lib/intelligence'
 import {
   profileIdLabel,
   useProfileScope,
@@ -142,21 +149,23 @@ export function DayInsightsPage({
 
   return (
     <div className="intelligence-page day-insights">
-      <div className="day-insights__hero">
-        <div className="day-insights__hero-copy">
-          <Link className="btn-secondary" to={backHref}>
-            ← {t('dayInsightsBack')}
-          </Link>
-          <span className="mono-kicker">{t('dayInsightsTitle')}</span>
-          <h1 className="day-insights__title">{date}</h1>
-          <p className="day-insights__subtitle">{t('dayInsightsSubtitle')}</p>
-        </div>
-        <div className="day-insights__actions">
-          <Link className="btn-secondary" to={explorerHref}>
-            {t('dayInsightsOpenExplorer')}
-          </Link>
-        </div>
-      </div>
+      <InsightEntityHero
+        actions={
+          <InsightEntityActions
+            items={[
+              {
+                href: explorerHref,
+                label: t('dayInsightsOpenExplorer'),
+              },
+            ]}
+          />
+        }
+        backHref={backHref}
+        backLabel={t('dayInsightsBack')}
+        eyebrow={t('dayInsightsTitle')}
+        subtitle={t('dayInsightsSubtitle')}
+        title={date}
+      />
 
       <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
 
@@ -310,10 +319,11 @@ export function DayInsightsPage({
                 <Link
                   key={family.familyId}
                   className="query-family-card"
-                  to={evidenceHref({
-                    profileId,
-                    title: family.anchorQuery,
+                  to={queryFamilyInsightsHref({
+                    familyId: family.familyId,
                     dateRange: detail.drilldown.explorerDateRange,
+                    preset: 'custom',
+                    profileId,
                   })}
                 >
                   <div className="query-family-card__header">
@@ -349,11 +359,11 @@ export function DayInsightsPage({
                     <span className="refind-card__icon">📄</span>
                     <Link
                       className="refind-card__title"
-                      to={evidenceHref({
-                        profileId,
-                        domain: page.registrableDomain,
-                        url: page.canonicalUrl,
+                      to={refindInsightsHref({
+                        canonicalUrl: page.canonicalUrl,
                         dateRange: detail.drilldown.explorerDateRange,
+                        preset: 'custom',
+                        profileId,
                       })}
                     >
                       {page.title ?? page.url}
@@ -365,16 +375,30 @@ export function DayInsightsPage({
                       searches: page.searchArrivalCount,
                     })}
                   </p>
-                  <Link
-                    className="intelligence-link"
-                    to={domainDayInsightsHref(
-                      page.registrableDomain,
-                      detail.date,
-                      profileId,
-                    )}
-                  >
-                    {page.registrableDomain}
-                  </Link>
+                  <InsightEntityActions
+                    className="intelligence-actions"
+                    items={[
+                      {
+                        href: domainDayInsightsHref(
+                          page.registrableDomain,
+                          detail.date,
+                          profileId,
+                        ),
+                        label: page.registrableDomain,
+                        style: 'text',
+                      },
+                      {
+                        href: evidenceHref({
+                          profileId,
+                          domain: page.registrableDomain,
+                          url: page.canonicalUrl,
+                          dateRange: detail.drilldown.explorerDateRange,
+                        }),
+                        label: t('entityOpenExplorer'),
+                        style: 'text',
+                      },
+                    ]}
+                  />
                 </div>
               ))}
             </IntelligenceSectionBody>

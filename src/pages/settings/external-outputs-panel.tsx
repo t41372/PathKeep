@@ -38,6 +38,7 @@ import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
+import { dayInsightsHref, domainInsightsHref } from '../../lib/intelligence'
 import { SettingsExternalOutputLocalHostPanel } from './external-output-local-host-panel'
 
 type OutputTab = 'embed' | 'widget' | 'public'
@@ -286,6 +287,7 @@ export function SettingsExternalOutputsPanel({
 
                 {activeTab === 'public' ? (
                   <PublicSnapshotTab
+                    activeProfileId={activeProfileId}
                     copyFeedback={copyFeedback}
                     copyLabel={commonT('copyAction')}
                     commonT={commonT}
@@ -493,6 +495,7 @@ function WidgetSnapshotTab({
 }
 
 function PublicSnapshotTab({
+  activeProfileId,
   copyFeedback,
   copyLabel,
   commonT,
@@ -503,6 +506,7 @@ function PublicSnapshotTab({
   t,
   intelligenceT,
 }: {
+  activeProfileId: string | null
   copyFeedback: CopyFeedback | null
   copyLabel: string
   commonT: Translate
@@ -548,14 +552,20 @@ function PublicSnapshotTab({
             <div className="result-row__header">
               <strong>{t('externalOutputsTopDomains')}</strong>
             </div>
-            {/* TODO: M7 — external-output review surfaces still show static top-domain chips.
-                Once M7 lands generic insight-entity navigation, these review artifacts should
-                deep-link into shared domain/day insights instead of remaining isolated payload text. */}
             <div className="settings-output-chip-list">
               {snapshot.topDomains.map((domain) => (
-                <span key={domain} className="chip-button chip-button--static">
+                <Link
+                  key={domain}
+                  className="chip-button"
+                  to={domainInsightsHref({
+                    domain,
+                    dateRange: snapshot.dateRange,
+                    preset: 'custom',
+                    profileId: activeProfileId,
+                  })}
+                >
                   {domain}
-                </span>
+                </Link>
               ))}
             </div>
           </div>
@@ -587,7 +597,12 @@ function PublicSnapshotTab({
             {snapshot.discoveryTrend.points.length > 0 ? (
               snapshot.discoveryTrend.points.map((point) => (
                 <div key={point.dateKey} className="config-row">
-                  <span className="config-label mono">{point.dateKey}</span>
+                  <Link
+                    className="config-label mono intelligence-link"
+                    to={dayInsightsHref(point.dateKey, activeProfileId)}
+                  >
+                    {point.dateKey}
+                  </Link>
                   <span className="config-value mono">
                     {point.discoveryRate.toFixed(2)}
                   </span>

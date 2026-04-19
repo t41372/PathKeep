@@ -210,6 +210,7 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
 
         compare_sets.push(CompareSet {
             compare_set_id: format!("compare:{trail_id}:{page_category}"),
+            trail_id,
             search_query: members[0].initial_query.clone(),
             pages: pages
                 .into_iter()

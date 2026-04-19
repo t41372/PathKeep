@@ -18,6 +18,7 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import {
@@ -57,8 +58,11 @@ interface IntelligenceSectionsProps {
   domainHref: (domain: string) => string
   language: ResolvedLanguage
   profileId: string | null
+  queryFamilyHref: (familyId: string) => string
+  refindHref: (canonicalUrl: string) => string
   secondaryReady: boolean
   scopeLabel: string
+  trailHref: (trailId: string) => string
   t: T
 }
 
@@ -71,8 +75,11 @@ export function IntelligenceSections({
   domainHref,
   language,
   profileId,
+  queryFamilyHref,
+  refindHref,
   secondaryReady,
   scopeLabel,
+  trailHref,
   t,
 }: IntelligenceSectionsProps) {
   return (
@@ -94,6 +101,7 @@ export function IntelligenceSections({
         <RefindPagesSection
           dateRange={dateRange}
           profileId={profileId}
+          refindHref={refindHref}
           scopeLabel={scopeLabel}
           t={t}
         />
@@ -102,6 +110,7 @@ export function IntelligenceSections({
         <SearchActivitySection
           dateRange={dateRange}
           profileId={profileId}
+          queryFamilyHref={queryFamilyHref}
           scopeLabel={scopeLabel}
           t={t}
         />
@@ -135,6 +144,7 @@ export function IntelligenceSections({
             dateRange={dateRange}
             domainHref={domainHref}
             profileId={profileId}
+            queryFamilyHref={queryFamilyHref}
             scopeLabel={scopeLabel}
             t={t}
           />
@@ -174,6 +184,7 @@ export function IntelligenceSections({
           />
           <PathFlowsSection
             dateRange={dateRange}
+            domainHref={domainHref}
             profileId={profileId}
             scopeLabel={scopeLabel}
             t={t}
@@ -183,6 +194,7 @@ export function IntelligenceSections({
             domainHref={domainHref}
             profileId={profileId}
             scopeLabel={scopeLabel}
+            trailHref={trailHref}
             t={t}
           />
           <MultiBrowserDiffSection
@@ -460,11 +472,13 @@ function TopSitesSection({
 function RefindPagesSection({
   dateRange,
   profileId,
+  refindHref,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  refindHref: (canonicalUrl: string) => string
   scopeLabel: string
   t: T
 }) {
@@ -493,6 +507,7 @@ function RefindPagesSection({
               key={page.canonicalUrl}
               page={page}
               profileId={profileId}
+              refindHref={refindHref}
               t={t}
             />
           ))}
@@ -505,10 +520,12 @@ function RefindPagesSection({
 function RefindCard({
   page,
   profileId,
+  refindHref,
   t,
 }: {
   page: RefindPage
   profileId: string | null
+  refindHref: (canonicalUrl: string) => string
   t: T
 }) {
   const [showFactors, setShowFactors] = useState(false)
@@ -531,14 +548,7 @@ function RefindCard({
     <div className="refind-card">
       <div className="refind-card__header">
         <span className="refind-card__icon">📄</span>
-        <Link
-          className="refind-card__title"
-          to={evidenceHref({
-            domain: page.registrableDomain,
-            profileId,
-            url: page.canonicalUrl,
-          })}
-        >
+        <Link className="refind-card__title" to={refindHref(page.canonicalUrl)}>
           {page.title ?? page.url}
         </Link>
       </div>
@@ -559,6 +569,20 @@ function RefindCard({
           {t('refindScore')}: {page.refindScore.toFixed(1)}
         </span>
       </button>
+      <InsightEntityActions
+        className="intelligence-actions"
+        items={[
+          {
+            href: evidenceHref({
+              domain: page.registrableDomain,
+              profileId,
+              url: page.canonicalUrl,
+            }),
+            label: t('entityOpenExplorer'),
+            style: 'text',
+          },
+        ]}
+      />
       {showFactors ? (
         <div className="refind-card__factors">
           {factors.map((factor) => (

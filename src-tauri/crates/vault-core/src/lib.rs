@@ -66,11 +66,11 @@ pub use intelligence::{
     get_hub_pages, get_intelligence_embed_cards, get_intelligence_public_snapshot,
     get_intelligence_widget_snapshot, get_interrupted_habits, get_multi_browser_diff,
     get_navigation_path, get_observed_interactions, get_on_this_day, get_path_flows,
-    get_query_families, get_refind_pages, get_reopened_investigations, get_search_effectiveness,
-    get_search_engine_ranking, get_search_trails, get_session_detail, get_sessions,
-    get_stable_sources, get_top_search_concepts, get_top_sites, get_trail_detail,
-    intelligence_status, preview_intelligence_local_host, run_core_intelligence,
-    run_core_intelligence_with_progress,
+    get_query_families, get_query_family_detail, get_refind_page_detail, get_refind_pages,
+    get_reopened_investigations, get_search_effectiveness, get_search_engine_ranking,
+    get_search_trails, get_session_detail, get_sessions, get_stable_sources,
+    get_top_search_concepts, get_top_sites, get_trail_detail, intelligence_status,
+    preview_intelligence_local_host, run_core_intelligence, run_core_intelligence_with_progress,
 };
 pub use intelligence_runtime::{
     cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,

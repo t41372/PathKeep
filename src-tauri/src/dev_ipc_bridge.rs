@@ -33,10 +33,10 @@ use vault_core::{
     EntityExplanationRequest, ExplainRefindRequest, ExportRequest, FrontendErrorReportRequest,
     GranularityDateRangeRequest, HistoryQuery, IntelligenceEmbedCardsRequest,
     IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    RefindPagesRequest, RetentionPruneRequest, S3CredentialInput, SchedulePlan,
-    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchTrailQueryRequest,
-    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
-    TopSitesRequest, UnlockAppSessionRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
+    S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
+    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
+    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -666,6 +666,13 @@ async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "get_query_family_detail" => {
+            let payload = parse_payload::<WrappedRequest<QueryFamilyDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_query_family_detail_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "get_top_sites" => {
             let payload = parse_payload::<WrappedRequest<TopSitesRequest>>(payload)?;
             json_value!(worker_bridge::get_top_sites_impl(
@@ -683,6 +690,13 @@ async fn dispatch_command(
         "get_refind_pages" => {
             let payload = parse_payload::<WrappedRequest<RefindPagesRequest>>(payload)?;
             json_value!(worker_bridge::get_refind_pages_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_refind_page_detail" => {
+            let payload = parse_payload::<WrappedRequest<RefindPageDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_refind_page_detail_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

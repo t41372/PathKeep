@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react'
+import { InsightEntityActions } from '../../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { useAsyncData } from '../../../lib/core-intelligence/hooks'
 import * as api from '../../../lib/core-intelligence/api'
@@ -21,6 +22,7 @@ import type {
   SessionVisit,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
+import { sessionInsightsHref } from '../../../lib/intelligence'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import type { ExplorerVisitSelection, Translator } from '../types'
 
@@ -89,6 +91,7 @@ export function SessionGroupPanel({
       <div className="session-group-panel__list">
         {data.sessions.map((session) => (
           <SessionCard
+            dateRange={dateRange}
             key={session.sessionId}
             profileId={profileId}
             session={session}
@@ -129,12 +132,14 @@ export function SessionGroupPanel({
 // ---------------------------------------------------------------------------
 
 function SessionCard({
+  dateRange,
   profileId,
   session,
   language,
   intelligenceT,
   onSelectVisit,
 }: {
+  dateRange: DateRange
   profileId?: string | null
   session: SessionSummary
   language: ResolvedLanguage
@@ -213,6 +218,19 @@ function SessionCard({
 
       {expanded && (
         <div className="session-card__body">
+          <InsightEntityActions
+            items={[
+              {
+                href: sessionInsightsHref({
+                  sessionId: session.sessionId,
+                  dateRange,
+                  preset: 'custom',
+                  profileId: profileId ?? null,
+                }),
+                label: intelligenceT('sessionRouteOpenInsights'),
+              },
+            ]}
+          />
           {detailLoading ? (
             <div
               className="intelligence-skeleton intelligence-skeleton--list"

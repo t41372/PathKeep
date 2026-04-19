@@ -33,11 +33,13 @@ import { firstSectionMeta, formatNumber, type T } from './shared'
 export function SearchActivitySection({
   dateRange,
   profileId,
+  queryFamilyHref,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  queryFamilyHref: (familyId: string) => string
   scopeLabel: string
   t: T
 }) {
@@ -93,6 +95,7 @@ export function SearchActivitySection({
           <QueryFamiliesPanel
             dateRange={dateRange}
             profileId={profileId}
+            queryFamilyHref={queryFamilyHref}
             t={t}
           />
         ) : null}
@@ -198,10 +201,12 @@ function ConceptCloudPanel({
 function QueryFamiliesPanel({
   dateRange,
   profileId,
+  queryFamilyHref,
   t,
 }: {
   dateRange: DateRange
   profileId: string | null
+  queryFamilyHref: (familyId: string) => string
   t: T
 }) {
   const { data, loading, error } = useAsyncData(
@@ -227,22 +232,38 @@ function QueryFamiliesPanel({
   return (
     <div className="query-families">
       {families.map((family) => (
-        <QueryFamilyCard key={family.familyId} family={family} t={t} />
+        <QueryFamilyCard
+          key={family.familyId}
+          family={family}
+          queryFamilyHref={queryFamilyHref}
+          t={t}
+        />
       ))}
     </div>
   )
 }
 
-function QueryFamilyCard({ family, t }: { family: QueryFamily; t: T }) {
+function QueryFamilyCard({
+  family,
+  queryFamilyHref,
+  t,
+}: {
+  family: QueryFamily
+  queryFamilyHref: (familyId: string) => string
+  t: T
+}) {
   const [expanded, setExpanded] = useState(false)
   const visibleQueries = expanded ? family.queries : family.queries.slice(0, 3)
 
   return (
     <div className="query-family-card">
       <div className="query-family-card__header">
-        <span className="query-family-card__anchor">
+        <Link
+          className="query-family-card__anchor intelligence-link"
+          to={queryFamilyHref(family.familyId)}
+        >
           "{family.anchorQuery}"
-        </span>
+        </Link>
         <span className="query-family-card__engine">{family.searchEngine}</span>
         <span className="query-family-card__count">
           {family.memberCount} {t('queryFamilyMemberCount')}
@@ -258,7 +279,11 @@ function QueryFamilyCard({ family, t }: { family: QueryFamily; t: T }) {
           <button
             className="intelligence-link"
             type="button"
-            onClick={() => setExpanded(true)}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setExpanded(true)
+            }}
           >
             +{family.queries.length - 3} {t('queryFamilyMore')}
           </button>

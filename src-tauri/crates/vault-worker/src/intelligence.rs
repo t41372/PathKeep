@@ -44,7 +44,8 @@ use vault_core::{
     IntelligenceLocalHostRequest, IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot,
     IntelligenceWidgetSnapshot, InterruptedHabit, NavigationPath, ObservedInteraction,
     OnThisDayEntry, PagedDateRangeRequest, PathFlow, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyResult, RefindExplanation, RefindPage, RefindPagesRequest, ReopenedInvestigation,
+    QueryFamilyDetail, QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation, RefindPage,
+    RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest, ReopenedInvestigation,
     RhythmHeatmap, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
     SearchEffectivenessRequest, SearchTrailQueryRequest, SessionDetail, SessionListResult,
     StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
@@ -1270,6 +1271,21 @@ pub fn get_query_families(
     )
 }
 
+pub fn get_query_family_detail(
+    session_database_key: Option<&str>,
+    request: &QueryFamilyDetailRequest,
+) -> Result<CoreIntelligenceSectionResult<QueryFamilyDetail>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "query-family-detail",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_query_family_detail(paths, config, session_database_key, request)
+        },
+        |data| data.related_trails.is_empty(),
+    )
+}
+
 pub fn get_top_sites(
     session_database_key: Option<&str>,
     request: &TopSitesRequest,
@@ -1304,6 +1320,25 @@ pub fn get_refind_pages(
             intelligence::get_refind_pages(paths, config, session_database_key, request)
         },
         |data| data.is_empty(),
+    )
+}
+
+pub fn get_refind_page_detail(
+    session_database_key: Option<&str>,
+    request: &RefindPageDetailRequest,
+) -> Result<CoreIntelligenceSectionResult<RefindPageDetail>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "refind-page-detail",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_refind_page_detail(paths, config, session_database_key, request)
+        },
+        |data| {
+            data.explanation.visit_ids.is_empty()
+                && data.related_trails.is_empty()
+                && data.recent_days.is_empty()
+        },
     )
 }
 

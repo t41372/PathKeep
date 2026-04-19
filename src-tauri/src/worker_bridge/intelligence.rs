@@ -6,8 +6,8 @@ use vault_core::{
     DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
     ExplainRefindRequest, GranularityDateRangeRequest, IntelligenceEmbedCardsRequest,
     IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    RefindPagesRequest, ScopedDateRangeRequest, SearchEffectivenessRequest,
-    SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -213,6 +213,14 @@ pub(crate) fn get_query_families_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_query_family_detail_impl(
+    request: QueryFamilyDetailRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyDetail>, String> {
+    worker_result(vault_worker::get_query_family_detail(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_top_sites_impl(
     request: TopSitesRequest,
     session_database_key: Option<&str>,
@@ -234,6 +242,14 @@ pub(crate) fn get_refind_pages_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, String> {
     worker_result(vault_worker::get_refind_pages(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_refind_page_detail_impl(
+    request: RefindPageDetailRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, String> {
+    worker_result(vault_worker::get_refind_page_detail(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

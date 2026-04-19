@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react'
+import { InsightEntityActions } from '../../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { useAsyncData } from '../../../lib/core-intelligence/hooks'
 import * as api from '../../../lib/core-intelligence/api'
@@ -20,6 +21,7 @@ import type {
   TrailMember,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
+import { trailInsightsHref } from '../../../lib/intelligence'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import type { ExplorerVisitSelection, Translator } from '../types'
 
@@ -92,6 +94,7 @@ export function TrailGroupPanel({
       <div className="trail-group-panel__list">
         {data.trails.map((trail) => (
           <TrailCard
+            dateRange={dateRange}
             key={trail.trailId}
             profileId={profileId}
             trail={trail}
@@ -145,12 +148,14 @@ function engineIcon(engine: string): string {
 }
 
 function TrailCard({
+  dateRange,
   profileId,
   trail,
   language,
   intelligenceT,
   onSelectVisit,
 }: {
+  dateRange: DateRange
   profileId?: string | null
   trail: TrailSummary
   language: ResolvedLanguage
@@ -216,6 +221,19 @@ function TrailCard({
 
       {expanded && (
         <div className="trail-card__body">
+          <InsightEntityActions
+            items={[
+              {
+                href: trailInsightsHref({
+                  trailId: trail.trailId,
+                  dateRange,
+                  preset: 'custom',
+                  profileId: profileId ?? null,
+                }),
+                label: intelligenceT('trailRouteOpenInsights'),
+              },
+            ]}
+          />
           {/* Query evolution chain */}
           {trail.queries.length > 1 && (
             <div className="trail-card__evolution">

@@ -229,6 +229,9 @@
 - Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。
 - `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。點日格後的 primary workflow 現在是進 `/intelligence/day/:date`；若 overview 保留任何 inline preview，也只能是 secondary information。
 - `/intelligence` 頂部固定提供 `Insight Access` strip：使用者可直接輸入本地日曆日或 domain，打開完整 day/domain insights route。這條 strip 必須吃 shared href grammar，而不是再長出另一套局部 state / fetch story。
+- M7 起，active intelligence entity 也必須統一吃 shared entity contract：`query family`、`refind page`、`session`、`trail` 正式有 first-class shared insights route；`reopened investigation`、`habit`、`stable source`、`friction`、`multi-browser diff`、`compare set` 等 surface 也都必須解析到單一 shared destination，而不是各自拼 `/explorer` deep-link。
+- `session` / `trail` 在 Explorer 仍維持 browse-first canonical grouped view；shared insights route 只承接 reusable detail / explainability / evidence CTA，不得把 grouped Explorer 改成 route-only workflow。
+- `refind` route 直接使用 encoded canonical URL 作 path identity；`domain insights` route 暫不增加 `focus` / context-highlight query param。若未來需要更細的 entity-context reuse，必須交由後續 milestone 處理，而不是讓 consumer-local state 再次分裂 route grammar。
 - route 切換時必須丟棄過期 request；離開 `/intelligence` 後，上一個 scope / date range 的 section response 不得再 commit 回 UI，也不得偷偷繼續觸發後續 detail fetch。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 

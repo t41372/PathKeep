@@ -31,7 +31,7 @@ struct CoreIntelligenceSectionDescriptor {
     empty_degraded_reason: Option<&'static str>,
 }
 
-const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 20] = [
+const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 22] = [
     CoreIntelligenceSectionDescriptor {
         id: "digest-summary",
         module_ids: &["daily-rollups"],
@@ -191,6 +191,28 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[
             "Day insights reuse the existing deterministic entities for one exact local calendar day.",
+        ],
+        empty_degraded_reason: None,
+    },
+    CoreIntelligenceSectionDescriptor {
+        id: "query-family-detail",
+        module_ids: &["search-trails"],
+        source_tables: &["query_families", "search_trails", "search_events"],
+        includes_enrichment: false,
+        data_kind: SectionDataKind::PersistedDerived,
+        notes: &[
+            "Query-family detail promotes one search family into a shared route-first review surface.",
+        ],
+        empty_degraded_reason: None,
+    },
+    CoreIntelligenceSectionDescriptor {
+        id: "refind-page-detail",
+        module_ids: &["refind-pages", "search-trails"],
+        source_tables: &["refind_pages", "visit_derived_facts", "search_trails"],
+        includes_enrichment: false,
+        data_kind: SectionDataKind::PersistedDerived,
+        notes: &[
+            "Refind-page detail keeps evidence, repeat history, and related trails under one route.",
         ],
         empty_degraded_reason: None,
     },

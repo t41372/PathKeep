@@ -354,6 +354,11 @@ export interface QueryFamilyResult {
   pageSize: number
 }
 
+export interface QueryFamilyDetail {
+  family: QueryFamily
+  relatedTrails: TrailSummary[]
+}
+
 // ---------------------------------------------------------------------------
 // 2.3 Refind Pages (常重找的頁面)
 // ---------------------------------------------------------------------------
@@ -378,6 +383,13 @@ export interface RefindExplanation {
   refindScore: number
   factors: RefindScoreFactor[]
   visitIds: number[]
+}
+
+export interface RefindPageDetail {
+  page: RefindPage
+  explanation: RefindExplanation
+  recentDays: string[]
+  relatedTrails: TrailSummary[]
 }
 
 export interface RefindScoreFactor {
@@ -590,6 +602,7 @@ export interface EngineEffectiveness {
 }
 
 export interface HardTopic {
+  familyId: string
   queryFamily: string
   reformulationCount: number
   reSearchLagDays: number
@@ -726,6 +739,7 @@ export interface PathFlow {
 
 export interface CompareSet {
   compareSetId: string
+  trailId: string
   searchQuery: string
   pages: CompareSetPage[]
 }

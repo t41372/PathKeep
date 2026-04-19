@@ -3080,6 +3080,35 @@ async function call<T>(
         page: 0,
         pageSize: 20,
       } as T
+    case 'get_query_family_detail':
+      return {
+        data: {
+          family: {
+            familyId: '',
+            anchorQuery: '',
+            memberCount: 0,
+            searchEngine: '',
+            queries: [],
+            firstSeenAt: '',
+            lastSeenAt: '',
+          },
+          relatedTrails: [],
+        },
+        meta: {
+          sectionId: 'query-family-detail',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '', end: '' },
+          },
+          moduleIds: [],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'degraded',
+          stateReason: null,
+          notes: [],
+        },
+      } as T
     case 'get_search_effectiveness':
       return {
         engineStats: [],
@@ -3101,6 +3130,46 @@ async function call<T>(
         topReferrers: [],
         topExits: [],
         visitTrend: [],
+      } as T
+    case 'get_refind_page_detail':
+      return {
+        data: {
+          page: {
+            canonicalUrl: '',
+            url: '',
+            title: null,
+            registrableDomain: '',
+            crossDayCount: 0,
+            trailCount: 0,
+            searchArrivalCount: 0,
+            typedRevisitCount: 0,
+            refindScore: 0,
+            firstSeenAt: '',
+            lastSeenAt: '',
+          },
+          explanation: {
+            canonicalUrl: '',
+            refindScore: 0,
+            factors: [],
+            visitIds: [],
+          },
+          recentDays: [],
+          relatedTrails: [],
+        },
+        meta: {
+          sectionId: 'refind-page-detail',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '', end: '' },
+          },
+          moduleIds: [],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'degraded',
+          stateReason: null,
+          notes: [],
+        },
       } as T
     case 'get_session_detail':
       return { session: null, visits: [], trails: [] } as T

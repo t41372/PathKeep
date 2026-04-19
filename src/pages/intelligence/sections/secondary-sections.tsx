@@ -46,6 +46,7 @@ import {
 } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../../lib/i18n'
+import { reopenedInvestigationHref } from '../../../lib/intelligence'
 import { intelligenceText } from '../copy'
 import { IntelligenceSectionBody } from './section-body'
 import {
@@ -180,12 +181,14 @@ export function SearchEffectivenessSection({
   dateRange,
   domainHref,
   profileId,
+  queryFamilyHref,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
   domainHref: (domain: string) => string
   profileId: string | null
+  queryFamilyHref: (familyId: string) => string
   scopeLabel: string
   t: T
 }) {
@@ -291,9 +294,12 @@ export function SearchEffectivenessSection({
                   className="search-effectiveness__topic-row"
                 >
                   <span className="search-effectiveness__topic-main">
-                    <span className="search-effectiveness__topic-query">
+                    <Link
+                      className="search-effectiveness__topic-query intelligence-link"
+                      to={queryFamilyHref(topic.familyId)}
+                    >
                       "{topic.queryFamily}"
-                    </span>
+                    </Link>
                     <span className="search-effectiveness__topic-detail">
                       {t('searchEffectivenessLag', {
                         days: topic.reSearchLagDays.toFixed(1),
@@ -492,9 +498,17 @@ export function ReopenedInvestigationsSection({
                       ? t('reopenedAnchorQuery')
                       : t('reopenedAnchorPage')}
                   </span>
-                  <span className="reopened-card__label">
+                  <Link
+                    className="reopened-card__label intelligence-link"
+                    to={reopenedInvestigationHref({
+                      anchorId: item.anchorId,
+                      anchorType: item.anchorType,
+                      dateRange,
+                      profileId,
+                    })}
+                  >
                     {item.anchorLabel}
-                  </span>
+                  </Link>
                 </div>
                 <div className="reopened-card__meta">
                   <span>
@@ -701,11 +715,13 @@ function BreadthIndexBody({ data, t }: { data: BreadthIndex; t: T }) {
 
 export function PathFlowsSection({
   dateRange,
+  domainHref,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  domainHref: (domain: string) => string
   profileId: string | null
   scopeLabel: string
   t: T
@@ -750,6 +766,7 @@ export function PathFlowsSection({
             {flows.map((flow, index) => (
               <PathFlowRow
                 key={`${flow.flowPattern}:${flow.stepCount}:${index}`}
+                domainHref={domainHref}
                 flow={flow}
                 profileId={profileId}
                 t={t}
@@ -763,10 +780,12 @@ export function PathFlowsSection({
 }
 
 function PathFlowRow({
+  domainHref,
   flow,
   profileId,
   t,
 }: {
+  domainHref: (domain: string) => string
   flow: PathFlow
   profileId: string | null
   t: T
@@ -776,15 +795,24 @@ function PathFlowRow({
     ? `${profileId}::${flow.stepCount}::${flow.flowPattern}`
     : null
 
-  // TODO: M7 — path-flow chips still render opaque pattern strings rather than
-  // shared entity links. They need the broader insight-entity navigation system
-  // once flow steps can be resolved into stable domain/day/query targets.
+  // TODO: M8 — current flow steps only resolve stable domain entities. If M8
+  // promotes page/category/path anchors, extend this resolver instead of
+  // falling back to consumer-local route building again.
   return (
     <li className="path-flow-row">
       <div className="path-flow-row__chips">
         {steps.map((step, index) => (
           <span key={index} className="path-flow-row__group">
-            <span className="path-flow-row__chip">{step}</span>
+            {isRegistrableDomain(step) ? (
+              <Link
+                className="path-flow-row__chip intelligence-link"
+                to={domainHref(step)}
+              >
+                {step}
+              </Link>
+            ) : (
+              <span className="path-flow-row__chip">{step}</span>
+            )}
             {index < steps.length - 1 ? (
               <span className="path-flow-row__arrow" aria-hidden="true">
                 →
@@ -1004,12 +1032,14 @@ export function CompareSetsSection({
   domainHref,
   profileId,
   scopeLabel,
+  trailHref,
   t,
 }: {
   dateRange: DateRange
   domainHref: (domain: string) => string
   profileId: string | null
   scopeLabel: string
+  trailHref: (trailId: string) => string
   t: T
 }) {
   const { data, loading } = useAsyncData(
@@ -1038,6 +1068,7 @@ export function CompareSetsSection({
                 key={set.compareSetId}
                 domainHref={domainHref}
                 set={set}
+                trailHref={trailHref}
                 t={t}
               />
             ))}
@@ -1051,16 +1082,23 @@ export function CompareSetsSection({
 function CompareSetCard({
   domainHref,
   set,
+  trailHref,
   t,
 }: {
   domainHref: (domain: string) => string
   set: CompareSet
+  trailHref: (trailId: string) => string
   t: T
 }) {
   return (
     <li className="compare-set">
       <div className="compare-set__header">
-        <span className="compare-set__query">{set.searchQuery}</span>
+        <Link
+          className="compare-set__query intelligence-link"
+          to={trailHref(set.trailId)}
+        >
+          {set.searchQuery}
+        </Link>
         <span className="compare-set__count">
           {t('compareSetsPages', { count: set.pages.length })}
         </span>
@@ -1090,6 +1128,10 @@ function CompareSetCard({
       </ul>
     </li>
   )
+}
+
+function isRegistrableDomain(value: string) {
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)
 }
 
 export function MultiBrowserDiffSection({
