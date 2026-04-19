@@ -219,6 +219,29 @@
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/decisions/003-run-model.md`](../architecture/decisions/003-run-model.md)、[`docs/plan/m1-solid-archive/schema-backup-and-ledger.md`](m1-solid-archive/schema-backup-and-ledger.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md) 與 [`docs/plan/m1-solid-archive/README.md`](m1-solid-archive/README.md)，把 M1 的 restore / snapshot / retention / rekey audit 邊界誠實收斂成 shipping vs deferred truth，而不是混用名詞或假裝已交付 snapshot restore
   - 驗收：`bun run check`、`bun run build`
 
+- [x] **WORK-CI-L** — Core Intelligence Desktop Truth Repair
+  - 讀先：
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 2026-04-18 後續實機驗證抓到的前端 shipped-truth drift 再收一輪：archive-wide callout / activity-mix copy、external-output CTA、Explorer 可見 URL redaction、domain deep-dive decoded path、以及 `/intelligence` runtime digest 的 data dependency。
+  - 契約：不新增 Tauri command、不改 Core Intelligence schema / payload-provider contract；`/intelligence` digest 只看 Core Intelligence runtime truth，不再主動讀 AI queue；Explorer 任何可見 UI 都不能再直接外露 callback URL、token、auth code 或 email-like 字串。
+  - 實作：
+    - 新增 [`src/pages/intelligence/copy.ts`](../../src/pages/intelligence/copy.ts) 與 [`copy.test.ts`](../../src/pages/intelligence/copy.test.ts)，把 archive-wide callout / external-output CTA / `category_community` 的 shipped copy 固定成顯示層 repair layer，並補上 domain deep-dive page path decode helper。
+    - 更新 [`src/pages/intelligence/index.tsx`](../../src/pages/intelligence/index.tsx)、[`domain-deep-dive.tsx`](../../src/pages/intelligence/domain-deep-dive.tsx)、[`sections.tsx`](../../src/pages/intelligence/sections.tsx)、[`runtime-digest.tsx`](../../src/pages/intelligence/runtime-digest.tsx)，讓 `/intelligence` digest 只讀 `load_intelligence_runtime`，不再主動輪詢 `load_ai_queue_status`。
+    - 更新 [`src/pages/explorer/panels/results-panel.tsx`](../../src/pages/explorer/panels/results-panel.tsx)、[`detail-panel.tsx`](../../src/pages/explorer/panels/detail-panel.tsx)、[`semantic-panel.tsx`](../../src/pages/explorer/panels/semantic-panel.tsx) 與 [`privacy-redaction.test.tsx`](../../src/pages/explorer/panels/privacy-redaction.test.tsx)，把可見 URL / title 統一走 redaction/sanitize。
+    - 更新 [`src/app/shell-data.tsx`](../../src/app/shell-data.tsx) 與 [`src/app/shell-data.test.tsx`](../../src/app/shell-data.test.tsx)，讓 fresh desktop app 在 dashboard read model 暫時失敗但 archive 尚未初始化時，仍能降級成 zero-state dashboard，而不是把 shell 卡死在 generic error。
+    - 同步回寫 [`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/plan/core-intelligence-progress.md`](core-intelligence-progress.md)、[`docs/plan/core-intelligence-handoff.md`](core-intelligence-handoff.md) 與 `STATUS.md`。
+  - 驗收：
+    - `bunx vitest run src/app/shell-data.test.tsx src/pages/intelligence/copy.test.ts src/lib/i18n.test.ts src/pages/explorer/panels/privacy-redaction.test.tsx src/pages/intelligence-surfaces.test.tsx`
+    - `bun run check`
+    - `bun run build`
+  - 手動驗證註記：
+    - fresh Tauri dev app 仍可在 current host 觀察到 stale WebView / bundle cache drift：桌面畫面繼續顯示 raw `intelligence.archiveWideBadge`、舊 external-output CTA 與舊 queue grammar，但同一時間 `devUrl` 直讀的 `src/pages/intelligence/{index,sections,domain-deep-dive,copy}.tsx` 已經是修補後 source。
+    - 這輪因此把 current-host stale WebView / bundle cache 噪音明確回寫到 source docs；原始 deterministic Core Intelligence P1–P4 scope 仍視為已完成，真正剩下的原規劃只有 `browser-snippet-v1` 之外的 external host integration。
+
 - [x] **WORK-CI-K** — Core Intelligence App Truth Repairs
   - 2026-04-18：更新 [`src-tauri/crates/vault-core/src/models/core_intelligence.rs`](../../src-tauri/crates/vault-core/src/models/core_intelligence.rs)、[`src/lib/core-intelligence/api.ts`](../../src/lib/core-intelligence/api.ts) 與對應 tests，正式把 section window transport 收斂成 camelCase wire shape，並讓前端對 legacy `date_range` / `reference_date` envelope 做 normalize，而不是在 `/intelligence` 直接讀炸 `meta.window.dateRange.start`
   - 更新 [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](../../src-tauri/crates/vault-core/src/intelligence/mod.rs) 與 Rust regressions，修正 `daily-rollup` fallback 仍按 `domain_category` 生成重複 domain-day rows 的 bug，並在持久化前加入 duplicate-key 斷言，確保 `domain_daily_rollups` 維持一天 / 一 profile / 一 registrable domain 一列

@@ -62,7 +62,7 @@ export function ExplorerDetailPanel({
             <div className="detail-field">
               <span className="field-label">{explorerT('fieldUrl')}</span>
               <span className="field-value" style={{ wordBreak: 'break-all' }}>
-                {selectedVisit.url}
+                {sanitizeExplorerDisplayText(selectedVisit.url, 128)}
               </span>
             </div>
           </div>

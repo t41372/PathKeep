@@ -40,13 +40,16 @@ import {
   type ObservedInteraction,
 } from '../../lib/core-intelligence'
 import { evidenceHref } from '../../lib/intelligence'
+import type { ResolvedLanguage } from '../../lib/i18n'
 import * as api from '../../lib/core-intelligence/api'
+import { intelligenceCategoryLabel, intelligenceText } from './copy'
 
 type T = (key: string, vars?: Record<string, string | number>) => string
 
 interface IntelligenceSectionsProps {
   dateRange: DateRange
   domainHref: (domain: string) => string
+  language: ResolvedLanguage
   profileId: string | null
   scopeLabel: string
   t: T
@@ -64,6 +67,7 @@ function firstSectionMeta(
 export function IntelligenceSections({
   dateRange,
   domainHref,
+  language,
   profileId,
   scopeLabel,
   t,
@@ -101,6 +105,7 @@ export function IntelligenceSections({
       <div className="intelligence-row intelligence-row--two-col">
         <ActivityMixSection
           dateRange={dateRange}
+          language={language}
           profileId={profileId}
           scopeLabel={scopeLabel}
           t={t}
@@ -180,6 +185,7 @@ export function IntelligenceSections({
         />
         <MultiBrowserDiffSection
           dateRange={dateRange}
+          language={language}
           scopeLabel={scopeLabel}
           t={t}
         />
@@ -868,11 +874,13 @@ function RefindCard({
 
 function ActivityMixSection({
   dateRange,
+  language,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  language: ResolvedLanguage
   profileId: string | null
   scopeLabel: string
   t: T
@@ -905,8 +913,11 @@ function ActivityMixSection({
             return (
               <div key={category.domainCategory} className="activity-mix__row">
                 <span className="activity-mix__category">
-                  {t(`category_${category.domainCategory}`) ||
-                    category.domainCategory}
+                  {intelligenceCategoryLabel(
+                    language,
+                    t,
+                    category.domainCategory,
+                  )}
                 </span>
                 <span className="activity-mix__bar">
                   <span
@@ -1897,10 +1908,12 @@ function CompareSetCard({ set, t }: { set: CompareSet; t: T }) {
 
 function MultiBrowserDiffSection({
   dateRange,
+  language,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
+  language: ResolvedLanguage
   scopeLabel: string
   t: T
 }) {
@@ -1917,7 +1930,7 @@ function MultiBrowserDiffSection({
           {t('multiBrowserTitle')}
         </h2>
         <span className="status-badge status-info">
-          {t('archiveWideBadge')}
+          {intelligenceText(language, t, 'archiveWideBadge')}
         </span>
       </div>
       {data ? (

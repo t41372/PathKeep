@@ -115,7 +115,9 @@ export function ExplorerResultsPanel({
                 <div className="record-title">
                   {sanitizeExplorerDisplayText(item.title || item.url)}
                 </div>
-                <div className="record-url dim mono">{item.url}</div>
+                <div className="record-url dim mono">
+                  {sanitizeExplorerDisplayText(item.url, 72)}
+                </div>
               </div>
               <div className="record-meta">
                 <span className="dim mono" style={{ fontSize: '10px' }}>

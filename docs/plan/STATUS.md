@@ -66,6 +66,19 @@
   - 契約：section metadata 再壞也只能 degraded 顯示、不得把整頁炸成 React 預設錯誤頁；`domain_daily_rollups` 維持一天 / 一 profile / 一 registrable domain 一列；加密 onboarding 在不儲存鑰匙圈的情境下必須能走完；Explorer / explainability / onboarding / dashboard 不能外露未處理的 raw callback URL、token、email 或明顯半成品文案。
   - 驗收：targeted Rust / Vitest regressions、`bun run check && bun run build`；browser preview `/intelligence` truth pass；手動桌面驗證若仍撞上 stale bundled assets，要在 source docs 誠實記錄 host-specific noise，而不是把 source 修復誤記成未完成。
 
+- [x] **WORK-CI-L** — Core Intelligence Desktop Truth Repair
+  - 讀先：
+    `docs/plan/core-intelligence-progress.md`
+    `docs/plan/core-intelligence-handoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：把 2026-04-18 後續實機驗證抓到的前端 shipped-truth drift 再收一輪：archive-wide callout / activity-mix copy、external-output CTA、Explorer 可見 URL redaction、domain deep-dive decoded path、以及 `/intelligence` runtime digest 的 data dependency。
+  - 契約：不新增 Tauri command、不改 Core Intelligence schema / payload-provider contract；`/intelligence` digest 只看 Core Intelligence runtime truth，不再主動讀 AI queue；Explorer 任何可見 UI 都不能再直接外露 callback URL、token、auth code 或 email-like 字串。
+  - 驗收：targeted Vitest regressions、`bun run check && bun run build`；fresh desktop app manual pass 若仍顯示 raw key / 舊 CTA / 舊 queue 行為，必須把 current-host stale WebView / bundle cache noise 寫回 source docs，而不是把 source 修補誤記成未完成。
+
+> 2026-04-18 desktop truth repair closeout：`WORK-CI-L` 已完成。source 現在已固定 archive-wide callout copy、`category_community` label、external-output CTA、Explorer URL redaction、domain deep-dive decoded path，且 `/intelligence` digest 只讀 `load_intelligence_runtime`。planning truth 也已回寫：原始 deterministic Core Intelligence P1–P4 scope 已完成，只剩 `browser-snippet-v1` 之外的 external host integration。這台主機的 fresh Tauri dev app 若仍顯示 raw `intelligence.*` key、舊 CTA 文案或舊 queue 行為，應先視為 current-host WebView / stale bundle cache noise。
+
 ---
 
 > 2026-04-10 unblock：使用者已對 `ADR-006` 明確 sign off，`WORK-M5-A` 因此從 proposal / blocked 轉為 active。M4 closeout 仍維持完成，但 2026-04-10 也補修了 onboarding archive-mode IPC 契約與 insights refresh queue regression。

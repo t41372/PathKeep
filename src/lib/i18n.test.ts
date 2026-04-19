@@ -154,4 +154,23 @@ describe('i18n helpers', () => {
     expect(traditional('featureBackupDesc')).not.toContain('Edge')
     expect(traditional('firefoxSafariInfo')).toContain('公開支援承諾')
   })
+
+  test('keeps intelligence archive-wide and category copy available in every shipping locale', () => {
+    for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
+      const intelligence = createNamespaceTranslator(language, 'intelligence')
+
+      expect(intelligence('archiveWideBadge')).not.toBe(
+        'intelligence.archiveWideBadge',
+      )
+      expect(intelligence('archiveWideBody')).not.toBe(
+        'intelligence.archiveWideBody',
+      )
+      expect(intelligence('externalOutputsReviewBody')).not.toBe(
+        'intelligence.externalOutputsReviewBody',
+      )
+      expect(intelligence('category_community')).not.toBe(
+        'intelligence.category_community',
+      )
+    }
+  })
 })

@@ -2237,16 +2237,6 @@ describe('intelligence surfaces', () => {
   test('shows a small runtime digest and points manual output review to settings', async () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
-    const loadAiQueueStatusSpy = vi
-      .spyOn(backend, 'loadAiQueueStatus')
-      .mockResolvedValue({
-        paused: false,
-        concurrency: 1,
-        queued: 1,
-        running: 0,
-        failed: 0,
-        recentJobs: [],
-      })
     const loadIntelligenceRuntimeSpy = vi
       .spyOn(backend, 'loadIntelligenceRuntime')
       .mockResolvedValue({
@@ -2295,8 +2285,9 @@ describe('intelligence surfaces', () => {
     })
 
     const digest = await screen.findByTestId('intelligence-runtime-digest')
-    await waitFor(() => expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(1))
-    expect(loadIntelligenceRuntimeSpy).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(loadIntelligenceRuntimeSpy).toHaveBeenCalledTimes(1),
+    )
     expect(
       within(digest).getByText(intelligenceT('runtimeDigestTitle')),
     ).toBeVisible()
@@ -2318,6 +2309,180 @@ describe('intelligence surfaces', () => {
         name: intelligenceT('externalOutputsReviewAction'),
       }),
     ).toHaveAttribute('href', '/settings#settings-external-outputs')
+  })
+
+  test('renders archive-wide copy and decoded domain paths without raw keys in zh-TW', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('zh-TW', 'intelligence')
+
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockResolvedValue(
+      wrapSection('digest-summary', {
+        dateRange: { start: '2026-04-01', end: '2026-04-07' },
+        totalVisits: { value: 12, trend: 'flat' as const },
+        totalSearches: { value: 3, trend: 'flat' as const },
+        newDomains: { value: 2, trend: 'flat' as const },
+        deepReadPages: { value: 1, trend: 'flat' as const },
+        refindPages: { value: 1, trend: 'flat' as const },
+      }),
+    )
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue(
+      wrapSection('on-this-day', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection('top-sites', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('query-families', {
+        page: 0,
+        pageSize: 20,
+        total: 0,
+        families: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [
+          { domainCategory: 'community', visitCount: 5, share: 0.25 },
+          { domainCategory: 'search', visitCount: 15, share: 0.75 },
+        ],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockResolvedValue(
+      wrapSection('browsing-rhythm', {
+        cells: [],
+        maxCount: 0,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+      wrapSection('discovery-trend', { points: [] }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 42,
+        hhi: 0.42,
+        concentrationDomainCount: 5,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habit-patterns', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('interrupted-habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDomainDeepDive').mockResolvedValue(
+      wrapSection('domain-deep-dive', {
+        registrableDomain: 'github.com',
+        displayName: 'GitHub',
+        domainCategory: 'community',
+        totalVisits: 38,
+        activeDays: 7,
+        trailCount: 4,
+        arrivalBreakdown: { search: 10, link: 12, typed: 8, other: 8 },
+        topPages: [
+          {
+            path: '/wiki/%E5%93%88%E5%B8%83%E6%96%AF%E5%A0%A1%E5%90%9B%E4%B8%BB%E5%9C%8B',
+            visitCount: 12,
+          },
+        ],
+        topReferrers: [],
+        topExits: [],
+        visitTrend: [],
+      }),
+    )
+
+    const first = renderSurface(<IntelligencePage />, {
+      language: 'zh-TW',
+      route: '/intelligence',
+      snapshot,
+    })
+
+    expect(
+      (await screen.findAllByText(intelligenceT('archiveWideBadge'))).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText(intelligenceT('archiveWideBody'))).toBeVisible()
+    expect(
+      screen.getByText(intelligenceT('externalOutputsReviewBody')),
+    ).toBeVisible()
+    expect(
+      screen.getAllByText(intelligenceT('category_community')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryByText('intelligence.archiveWideBadge'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('intelligence.archiveWideBody'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Intelligence.category_community'),
+    ).not.toBeInTheDocument()
+
+    first.unmount()
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/domain/:domain"
+          element={<DomainDeepDiveRoutePage />}
+        />
+      </Routes>,
+      {
+        language: 'zh-TW',
+        route: '/intelligence/domain/github.com?range=month',
+        snapshot,
+      },
+    )
+
+    expect(await screen.findByText('/wiki/哈布斯堡君主國')).toBeVisible()
+    expect(
+      screen.queryByText(/%E5%93%88%E5%B8%83%E6%96%AF/i),
+    ).not.toBeInTheDocument()
   })
 
   test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {

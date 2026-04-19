@@ -22,10 +22,7 @@ import {
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
-import type {
-  AiQueueStatus,
-  IntelligenceRuntimeSnapshot,
-} from '../../lib/types'
+import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
 
 interface IntelligenceRuntimeDigestProps {
   initialized: boolean
@@ -34,15 +31,9 @@ interface IntelligenceRuntimeDigestProps {
 
 type DigestTone = 'info' | 'warning' | 'success'
 
-function loadDelay(
-  aiQueue: AiQueueStatus | null,
-  runtime: IntelligenceRuntimeSnapshot | null,
-) {
+function loadDelay(runtime: IntelligenceRuntimeSnapshot | null) {
   const activeJobs =
-    (aiQueue?.queued ?? 0) +
-    (aiQueue?.running ?? 0) +
-    (runtime?.queue.queued ?? 0) +
-    (runtime?.queue.running ?? 0)
+    (runtime?.queue.queued ?? 0) + (runtime?.queue.running ?? 0)
 
   return activeJobs > 0 ? 3000 : 15000
 }
@@ -55,7 +46,6 @@ export function IntelligenceRuntimeDigest({
   const intelligenceT = ns('intelligence')
   const jobsT = ns('jobs')
   const commonT = ns('common')
-  const [aiQueue, setAiQueue] = useState<AiQueueStatus | null>(null)
   const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
     null,
   )
@@ -78,19 +68,14 @@ export function IntelligenceRuntimeDigest({
 
     const load = async () => {
       try {
-        const [nextAiQueue, nextRuntime] = await Promise.all([
-          backend.loadAiQueueStatus(),
-          backend.loadIntelligenceRuntime(),
-        ])
+        const nextRuntime = await backend.loadIntelligenceRuntime()
 
         if (cancelled) return
-        setAiQueue(nextAiQueue)
         setRuntime(nextRuntime)
         setError(null)
-        scheduleNext(loadDelay(nextAiQueue, nextRuntime))
+        scheduleNext(loadDelay(nextRuntime))
       } catch (nextError) {
         if (cancelled) return
-        setAiQueue(null)
         setRuntime(null)
         setError(
           nextError instanceof Error
@@ -132,18 +117,12 @@ export function IntelligenceRuntimeDigest({
       }
     }
 
-    const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
-    const running = (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0)
-    const failed = (aiQueue?.failed ?? 0) + (runtime?.queue.failed ?? 0)
+    const queued = runtime?.queue.queued ?? 0
+    const running = runtime?.queue.running ?? 0
+    const failed = runtime?.queue.failed ?? 0
     const recentRuntimeJob = runtime?.recentJobs[0] ?? null
-    const recentAiJob = aiQueue?.recentJobs[0] ?? null
     const lastActivityAt =
-      runtime?.queue.lastActivityAt ??
-      recentRuntimeJob?.updatedAt ??
-      recentAiJob?.finishedAt ??
-      recentAiJob?.startedAt ??
-      recentAiJob?.queuedAt ??
-      null
+      runtime?.queue.lastActivityAt ?? recentRuntimeJob?.updatedAt ?? null
 
     const baseMeta = lastActivityAt
       ? intelligenceT('runtimeDigestLastActivity', {
@@ -161,7 +140,7 @@ export function IntelligenceRuntimeDigest({
         }),
         jobDetail: recentRuntimeJob?.lastError
           ? summarizeRuntimeJobError(recentRuntimeJob, jobsT)
-          : (recentAiJob?.summary ?? null),
+          : null,
         meta: baseMeta,
       }
     }
@@ -175,7 +154,7 @@ export function IntelligenceRuntimeDigest({
         }),
         jobDetail: recentRuntimeJob
           ? summarizeRuntimeJob(recentRuntimeJob, jobsT)
-          : (recentAiJob?.summary ?? null),
+          : null,
         meta: baseMeta,
       }
     }
@@ -185,7 +164,7 @@ export function IntelligenceRuntimeDigest({
         tone: 'info' as DigestTone,
         title: intelligenceT('runtimeDigestQueuedTitle', { count: queued }),
         body: intelligenceT('runtimeDigestQueuedBody'),
-        jobDetail: recentRuntimeJob?.title ?? recentAiJob?.summary ?? null,
+        jobDetail: recentRuntimeJob?.title ?? null,
         meta: baseMeta,
       }
     }
@@ -197,16 +176,7 @@ export function IntelligenceRuntimeDigest({
       jobDetail: null,
       meta: baseMeta,
     }
-  }, [
-    aiQueue,
-    error,
-    initialized,
-    intelligenceT,
-    jobsT,
-    language,
-    runtime,
-    unlocked,
-  ])
+  }, [error, initialized, intelligenceT, jobsT, language, runtime, unlocked])
 
   return (
     <section

@@ -2,7 +2,7 @@
 
 > **Date:** 2026-04-18
 > **Audience:** frontend implementer, next backend implementer  
-> **Status:** current handoff after `WORK-CI-I` closeout
+> **Status:** current handoff after desktop truth repair follow-up
 
 ---
 
@@ -39,6 +39,7 @@ That means:
 - 2026-04-18 host follow-up: Settings external outputs now also ship the first reusable trusted local host, `browser-snippet-v1`. The app can preview, build, and verify a fixed `index.html` + `bundle.json` artifact under `app_root/integrations/core-intelligence/browser-snippet-v1/`, and that host reuses the same embed/widget/public payload-provider results as the manual baseline.
 - 2026-04-18 app truth-gate follow-up: the repo also absorbed a post-closeout repair pass for real-app blockers — section-envelope camel/snake drift, `daily-rollup` duplicate domain-day rows, encrypted onboarding without keychain persistence, and several product-truth issues (mixed copy, default React Router error page, explorer title redaction, dashboard/sidebar queue drift). Those fixes are in source and covered by targeted regressions, so a fresh agent should treat them as already landed rather than reopen them as TODOs.
 - `bun run check` and `bun run build` were green at handoff time
+- 2026-04-18 desktop truth repair follow-up: source also landed the front-end shipped-truth repairs for archive-wide callout copy, `category_community`, external-output CTA wording, Explorer visible URL redaction, domain deep-dive decoded page paths, and `/intelligence` runtime digest dependency narrowing (`load_intelligence_runtime` only; no new Tauri commands, no schema change)
 
 What is **not** done, plus the latest backend truth:
 
@@ -48,8 +49,9 @@ What is **not** done, plus the latest backend truth:
 - 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
 - 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
 - 2026-04-18 long-horizon signoff note: `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/{full-14_4m-60y-signoff,expired-lease-recovery-14_4m-signoff}.json` now close the current-host `14.4M / 60y` envelope. Full replay measured about `4,758,160 ms` baseline rebuild / `8,969 ms` query surfaces / `1.74 GiB` peak RSS; expired-lease replay measured about `2,013 ms` query surfaces / `598.6 MiB` peak RSS while recovering the queued lease and leaving the cancelled lease untouched.
-- host verification caveat: on this machine, Computer Use could still attach to a stale `target/release/bundle/macos/PathKeep.app` that served old hashed assets (`index-CNXdWxTA.js`, `intelligence-mc5c_cvZ.js`) even after the source fixes landed. Treat that as host-specific bundle/cache drift, not as current source truth. If someone needs fresh desktop screenshots, rebuild or refresh that `.app` bundle first.
+- host verification caveat: on this machine, Computer Use can still end up showing stale frontend behavior even when `devUrl` is already serving the repaired modules. In practice that meant raw `intelligence.archiveWideBadge` / `archiveWideBody`, the old external-output CTA copy, and the old `/intelligence` queue digest behavior were still visible in the desktop app while `http://127.0.0.1:1420/src/pages/intelligence/{index,sections,domain-deep-dive,copy}.tsx` already exposed the repaired source. Treat that as current-host WebView / stale bundle cache drift, not as current source truth. If someone needs fresh desktop screenshots, rebuild / relaunch and invalidate the stale desktop bundle before reopening a frontend TODO.
 - `PG-RD-AI-011`, `WORK-CI-B`, and `WORK-CI-C` are now closed. If we later want second-machine benchmark parity, that should be an explicitly re-scoped follow-up rather than a queued continuation of this cleanup block.
+- after this follow-up, the original deterministic Core Intelligence P1–P4 scope should be treated as complete. The only original-scope work still genuinely open is external host integration beyond `browser-snippet-v1` (OS widget install, localhost host/API, public API, alternate hosts).
 
 ---
 

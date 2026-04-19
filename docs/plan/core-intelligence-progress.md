@@ -1,7 +1,7 @@
 # Core Intelligence Progress
 
 > **Status:** Closeout tracker
-> **Last audited:** 2026-04-18
+> **Last audited:** 2026-04-18 (desktop truth repair follow-up)
 > **Purpose:** 把 [`core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md) 自 2026-04-15 hard reset 之後的**實際完成度**、`WORK-CI-C` closeout truth、以及 future frontend/backend continuation 應如何重新開 block 收斂成一份 planning-side source of truth。
 
 ---
@@ -111,6 +111,11 @@
   - source 已補上 camelCase section envelope、legacy metadata normalize、`domain_daily_rollups` duplicate-key regression / guard、onboarding security draft persistence、Explorer redaction、explainability / schedule copy 收口，以及 shared route error boundary / malformed section-meta degradation
   - automated truth 現在以 targeted Rust / Vitest + `bun run check && bun run build` 回綠；browser preview `/intelligence` 也已驗到 section metadata degraded 顯示而不是直接 crash
   - 但 current host 的 Computer Use 手動驗證仍觀察到 stale bundled assets：`target/release/bundle/macos/PathKeep.app` 會繼續載入舊 hash bundle（例如 `index-CNXdWxTA.js`、`intelligence-mc5c_cvZ.js`）。這應視為 host-specific bundle/cache noise，而不是現在 source truth；下次若要用桌面 screenshot 驗收，先 refresh / rebuild那個 `.app` bundle
+- 2026-04-18 desktop truth repair follow-up：
+  - source 又收了一輪純前端 shipped-truth 修補：archive-wide callout copy 不再依賴 live translator 回傳、`category_community` 補齊並在顯示層強制本地化、external-output CTA 改成全量人話文案、Explorer time/detail/session/trail/tracer 可見文字統一 redaction、domain deep dive 的熱門頁面 path 會先 decode / sanitize
+  - `/intelligence` top digest 現在只讀 `load_intelligence_runtime`；完整 AI queue review 繼續留在 `/jobs`，這輪沒有新增 Tauri command，也沒有改 schema / payload-provider contract
+  - fresh desktop pass 另外暴露 current-host shell noise：Tauri dev app 的 WebView 仍可能卡在 stale frontend module / cache，上屏繼續顯示 raw `intelligence.archiveWideBadge`、舊 external-output CTA 文案與舊 queue behavior；同一時間 `devUrl` 直讀的 module 已經是更新後 source。這要視為 host-specific validation noise，不是 current repo truth
+  - 因此這輪之後的 planning truth 是：**原始 Core Intelligence P1–P4 deterministic product scope 已完成**，真正未交付的原規劃只剩 `browser-snippet-v1` 之外的 external host integration（OS widget / localhost host / public API / alternate hosts）
 - 2026-04-18 backend closeout：
   - crate-internal legacy `vault-core::insights` tree 已刪除；queued enrichment / readable-content helper 現在都歸 `enrichment` / `intelligence`
   - repo 只保留 registry-backed module ids、canonical derived-table names、以及 grouped clear-state counts；snapshot-era `Insight*` transport、legacy module-id alias 與 transitional `insight_status` wrapper 都已退場
@@ -154,7 +159,7 @@
    - backend payload providers 與 TS API draft 現在不只接上 Settings manual review / copy-export surface，也已接上 `browser-snippet-v1` 的 preview / build / verify flow。
    - 仍未完成的是 OS widget install、localhost/public host API、以及 `browser-snippet-v1` 之外的其他 trusted/local/public hosts。
 2. **前端主產品 finish-line truth 已完成**
-   - `/intelligence`、`/intelligence/domain/:domain`、Dashboard CTA、runtime digest、shared scope copy、section evidence / freshness drawer、以及 repo 內主要 `/insights` route/test 漂移現在都已收口。
+   - `/intelligence`、`/intelligence/domain/:domain`、Dashboard CTA、runtime digest、shared scope copy、section evidence / freshness drawer、Explorer 可見 URL redaction、activity-mix/domain deep dive copy truth，與 repo 內主要 `/insights` route/test 漂移現在都已收口。
    - 後續如果再有 frontend continuation，預設只剩 `browser-snippet-v1` 之外的 host integration / polish，不需要再重開 manual Settings consumer baseline。
 
 ### Planning / docs note
@@ -199,6 +204,7 @@
 
 1. `WORK-CI-C` 之外若還要做 frontend continuation，預設只剩 `browser-snippet-v1` 之外的 external host integration / polish
 2. residual frontend polish（如果它真的超出已完成的 manual Settings consumer）
+3. 若手動桌面驗證又看到 raw `intelligence.*` key、舊 external-output CTA 文案或舊 `load_ai_queue_status` behavior，先查 current-host WebView / stale bundle cache，不要直接把 screenshot 當成 current source regression
 
 ---
 

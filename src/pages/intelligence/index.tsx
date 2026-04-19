@@ -23,12 +23,13 @@ import { Link } from 'react-router-dom'
 import { IntelligenceSections } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'
+import { intelligenceText } from './copy'
 
 /**
  * Renders the `/intelligence` route.
  */
 export function IntelligencePage() {
-  const { t } = useI18n('intelligence')
+  const { language, t } = useI18n('intelligence')
   const { snapshot } = useShellData()
   const {
     dateRange,
@@ -42,6 +43,13 @@ export function IntelligencePage() {
 
   const domainHref = (domain: string) =>
     `/intelligence/domain/${encodeURIComponent(domain)}${withCurrentRouteSearch()}`
+  const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
+  const archiveWideBody = intelligenceText(language, t, 'archiveWideBody')
+  const externalOutputsReviewBody = intelligenceText(
+    language,
+    t,
+    'externalOutputsReviewBody',
+  )
 
   return (
     <div className="intelligence-page" data-testid="intelligence-page">
@@ -56,15 +64,13 @@ export function IntelligencePage() {
 
       <StatusCallout
         tone="info"
-        title={
-          effectiveProfileId ? t('scopedViewTitle') : t('archiveWideBadge')
-        }
+        title={effectiveProfileId ? t('scopedViewTitle') : archiveWideBadge}
         body={
           effectiveProfileId
             ? t('scopedViewBody', {
                 profile: profileScopeLabel ?? effectiveProfileId,
               })
-            : t('archiveWideBody')
+            : archiveWideBody
         }
       />
 
@@ -76,7 +82,7 @@ export function IntelligencePage() {
       <StatusCallout
         tone="info"
         title={t('externalOutputsReviewTitle')}
-        body={t('externalOutputsReviewBody')}
+        body={externalOutputsReviewBody}
         actions={
           <Link
             className="btn-secondary"
@@ -90,11 +96,12 @@ export function IntelligencePage() {
       <IntelligenceSections
         dateRange={dateRange}
         domainHref={domainHref}
+        language={language}
         profileId={effectiveProfileId}
         scopeLabel={
           effectiveProfileId
             ? (profileScopeLabel ?? effectiveProfileId)
-            : t('archiveWideBadge')
+            : archiveWideBadge
         }
         t={t}
       />

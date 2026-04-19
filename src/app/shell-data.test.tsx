@@ -175,6 +175,9 @@ function ShellProbe({ onReady }: { onReady?: () => void }) {
       <div data-testid="snapshot-language">
         {shell.snapshot?.config.preferredLanguage ?? 'none'}
       </div>
+      <div data-testid="dashboard-generated-at">
+        {shell.dashboard?.generatedAt ?? 'none'}
+      </div>
       <div data-testid="app-lock-enabled">
         {String(shell.appLockStatus?.enabled ?? false)}
       </div>
@@ -635,6 +638,52 @@ describe('ShellDataProvider', () => {
     )
     expect(screen.getByTestId('error')).toHaveTextContent(
       'initial refresh failed',
+    )
+  })
+
+  test('falls back to a zero-state dashboard when the archive is still uninitialized', async () => {
+    const { snapshot } = await seedSnapshot()
+    const uninitializedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: { ...snapshot.config, initialized: false },
+      archiveStatus: {
+        ...snapshot.archiveStatus,
+        initialized: false,
+        encrypted: false,
+        unlocked: false,
+      },
+      recentRuns: [],
+    }
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(
+      uninitializedSnapshot.appLockStatus,
+    )
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(uninitializedSnapshot)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockRejectedValueOnce(
+      new Error('dashboard bootstrap failed before onboarding'),
+    )
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('error')).toHaveTextContent('none')
+    expect(screen.getByTestId('snapshot-language')).toHaveTextContent('system')
+    expect(screen.getByTestId('dashboard-generated-at')).not.toHaveTextContent(
+      'none',
     )
   })
 

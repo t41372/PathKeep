@@ -16,6 +16,8 @@
 > **2026-04-18 M5 evidence note:** `WORK-M5-C` 已完成。`/intelligence` 與 `/intelligence/domain/:domain` 現在會以 shared section envelope / drawer 顯示 generated-at、active scope / window、owning modules、source tables、enrichment flag、以及 stale / disabled / degraded reason；Settings / Jobs 繼續保留 rebuild / clear / retry mutation controls。
 >
 > **2026-04-18 app truth-gate note:** closeout 之後又做了一輪實機驗證修補：source 現在已修正 `/intelligence` section-envelope camel/snake drift、`daily-rollup` duplicate domain-day fallback、encrypted onboarding 無 keychain regression、queue / copy / privacy drift、以及 route-level error fallback。不過這台主機的 Computer Use 在手動驗證時仍可能附著到 stale `target/release/bundle/macos/PathKeep.app`，繼續載入舊 hash bundle（例如 `index-CNXdWxTA.js`、`intelligence-mc5c_cvZ.js`）。看到那類 screenshot 時，要先把它當成 host-specific stale bundle / cache noise，而不是 current source truth。
+>
+> **2026-04-18 desktop truth repair note:** 又補了一輪 `/intelligence` / Explorer / domain deep dive 的 shipped-truth 修補：source 現在已固定 archive-wide callout copy、`category_community` label、external-output CTA 文案、Explorer 可見 URL redaction、domain deep dive 的 decoded page path，以及 `/intelligence` runtime digest 只讀 `load_intelligence_runtime`（不再主動輪詢 `load_ai_queue_status`）。這一輪之後，原始 Core Intelligence P1–P4 deterministic 主體範圍已可視為完成；真正還沒交付的原規劃，只剩 `browser-snippet-v1` 之外的 external host integration。若這台主機的 fresh Tauri dev app 仍截到 raw key / 舊 CTA 文案 / 舊 queue 行為，請先把它視為 current-host WebView stale cache noise，而不是 source regression：同一時間 `devUrl` 已能直接提供更新後的 `src/pages/intelligence/{index,sections,domain-deep-dive,copy}.tsx`。
 
 ---
 

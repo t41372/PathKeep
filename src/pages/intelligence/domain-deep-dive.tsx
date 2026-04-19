@@ -25,6 +25,11 @@ import {
   type DomainTrendPoint,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
+import {
+  formatDomainPagePath,
+  intelligenceCategoryLabel,
+  intelligenceText,
+} from './copy'
 import { useIntelligenceRouteState } from './route-state'
 
 interface DomainDeepDivePageProps {
@@ -40,7 +45,7 @@ interface DomainDeepDivePageProps {
  */
 export function DomainDeepDiveRoutePage() {
   const { domain } = useParams<{ domain: string }>()
-  const { t } = useI18n('intelligence')
+  const { language, t } = useI18n('intelligence')
   const {
     dateRange,
     effectiveProfileId,
@@ -61,6 +66,9 @@ export function DomainDeepDiveRoutePage() {
     )
   }
 
+  const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
+  const archiveWideBody = intelligenceText(language, t, 'archiveWideBody')
+
   return (
     <div
       className="intelligence-page domain-deep-dive"
@@ -77,15 +85,13 @@ export function DomainDeepDiveRoutePage() {
 
       <StatusCallout
         tone="info"
-        title={
-          effectiveProfileId ? t('scopedViewTitle') : t('archiveWideBadge')
-        }
+        title={effectiveProfileId ? t('scopedViewTitle') : archiveWideBadge}
         body={
           effectiveProfileId
             ? t('scopedViewBody', {
                 profile: profileScopeLabel ?? effectiveProfileId,
               })
-            : t('archiveWideBody')
+            : archiveWideBody
         }
       />
 
@@ -97,7 +103,7 @@ export function DomainDeepDiveRoutePage() {
         scopeLabel={
           effectiveProfileId
             ? (profileScopeLabel ?? effectiveProfileId)
-            : t('archiveWideBadge')
+            : archiveWideBadge
         }
       />
     </div>
@@ -114,7 +120,7 @@ export function DomainDeepDivePage({
   profileId,
   scopeLabel,
 }: DomainDeepDivePageProps) {
-  const { t } = useI18n('intelligence')
+  const { language, t } = useI18n('intelligence')
   const { data, loading, error } = useAsyncData(
     () => api.getDomainDeepDive(domain, dateRange, profileId),
     [dateRange, domain, profileId],
@@ -159,7 +165,7 @@ export function DomainDeepDivePage({
           {detail.displayName ?? detail.registrableDomain}
         </span>
         <span className="domain-deep-dive__category-badge">
-          {t(`category_${detail.domainCategory}`) || detail.domainCategory}
+          {intelligenceCategoryLabel(language, t, detail.domainCategory)}
         </span>
       </div>
 
@@ -246,7 +252,9 @@ export function DomainDeepDivePage({
             </h3>
             {detail.topPages.slice(0, 10).map((page) => (
               <div key={page.path} className="domain-deep-dive__page-row">
-                <span className="domain-deep-dive__page-path">{page.path}</span>
+                <span className="domain-deep-dive__page-path">
+                  {formatDomainPagePath(page.path)}
+                </span>
                 <span className="domain-deep-dive__page-count">
                   {formatNumber(page.visitCount)}
                 </span>

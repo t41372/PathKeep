@@ -25,6 +25,7 @@ import {
 import { formatDateTime } from '../../../lib/format'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { AiSearchResponse } from '../../../lib/types'
+import { sanitizeExplorerDisplayText } from '../helpers'
 import type { Translator } from '../types'
 
 /**
@@ -114,10 +115,14 @@ export function ExplorerSemanticPanel({
             <div className="intelligence-result-list">
               {semanticResults.items.map((item) => {
                 const band = scoreBand(item.score, intelligenceT)
+                const displayTitle = sanitizeExplorerDisplayText(
+                  item.title ?? item.url,
+                )
+                const displayUrl = sanitizeExplorerDisplayText(item.url, 96)
                 return (
                   <div key={item.historyId} className="result-row">
                     <div className="result-row__header">
-                      <strong>{item.title ?? item.url}</strong>
+                      <strong>{displayTitle}</strong>
                       <span className={`status-badge status-${band.tone}`}>
                         {band.label}
                       </span>
@@ -129,7 +134,7 @@ export function ExplorerSemanticPanel({
                         {formatDateTime(item.visitedAt, language) ??
                           item.visitedAt}
                       </span>
-                      <span className="mono-support">{item.url}</span>
+                      <span className="mono-support">{displayUrl}</span>
                     </div>
                     <div className="intelligence-actions">
                       <button
@@ -146,7 +151,7 @@ export function ExplorerSemanticPanel({
                         className="btn-tiny"
                         to={assistantHref(
                           explorerT('assistantExplainPrompt', {
-                            item: item.title ?? item.url,
+                            item: displayTitle,
                             query: semanticQuery.query,
                           }),
                           item.profileId,

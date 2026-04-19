@@ -82,6 +82,41 @@ function isAppLockError(error: unknown) {
 }
 
 /**
+ * Builds a shell-safe dashboard fallback when the archive has not been
+ * initialized yet but the dashboard read model still failed to load.
+ *
+ * This keeps the shell usable enough to reach onboarding instead of trapping
+ * first-run desktop sessions behind a generic archive read error.
+ */
+function buildUninitializedDashboardFallback(
+  snapshot: AppSnapshot,
+): DashboardSnapshot {
+  return {
+    generatedAt: new Date().toISOString(),
+    totalProfiles: 0,
+    totalUrls: 0,
+    totalVisits: 0,
+    totalDownloads: 0,
+    lastSuccessfulBackupAt: null,
+    recentRuns: snapshot.recentRuns,
+    storage: {
+      archiveDatabaseBytes: 0,
+      sourceEvidenceDatabaseBytes: 0,
+      searchDatabaseBytes: 0,
+      intelligenceDatabaseBytes: 0,
+      manifestBytes: 0,
+      snapshotBytes: 0,
+      exportBytes: 0,
+      stagingBytes: 0,
+      quarantineBytes: 0,
+      semanticSidecarBytes: 0,
+      intelligenceBlobBytes: 0,
+    },
+    nextAction: null,
+  }
+}
+
+/**
  * Returns whether the shell is allowed to try the best-effort keyring auto
  * unlock path during bootstrap.
  *
@@ -286,14 +321,22 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const nextDashboard = await backend.loadDashboardSnapshot()
         setLanguagePreference(nextSnapshot.config.preferredLanguage, {
           persist: false,
         })
         setSnapshot(nextSnapshot)
         setBuildInfo(nextBuildInfo)
-        setDashboard(nextDashboard)
         setAppLockStatus(nextSnapshot.appLockStatus)
+        try {
+          const nextDashboard = await backend.loadDashboardSnapshot()
+          setDashboard(nextDashboard)
+        } catch (dashboardError) {
+          if (nextSnapshot.config.initialized) {
+            throw dashboardError
+          }
+
+          setDashboard(buildUninitializedDashboardFallback(nextSnapshot))
+        }
         setRefreshKey((value) => value + 1)
       } catch (nextError) {
         if (isAppLockError(nextError)) {
