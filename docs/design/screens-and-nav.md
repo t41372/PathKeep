@@ -58,6 +58,7 @@
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
+- Intelligence 的 `Browsing Rhythm` 必須保留週內 × 小時的熱力圖語法，不可直接換成另一種日曆視覺再稱作同一張圖；如果要補「當天摘要 / digest」，應該在同一卡片內用附加的日期 chooser / detail area 處理，而不是把原本的熱力圖刪掉。
 - `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
@@ -103,7 +104,9 @@
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
 - Intelligence section cards與 domain deep dive 的 evidence / freshness drawer 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
+- Explorer 的 time view 必須同時在上方 timeline / summary 與底部分頁列明確顯示「當前頁 / 總頁數」；底部分頁列還要承接跳頁與每頁筆數控制，避免使用者只看到 loaded count 卻不知道自己在整個結果集的哪裡。
 - Explorer 的 time-view detail rail 必須 sticky 在可視區內，而不是跟著左側長列表一起被拉成整列高度；使用者在頁面底部選到某筆記錄時，不應再為了看 detail 被迫捲回頁首。
+- Explorer 的翻頁與每頁筆數切換只能刷新結果，不得把 `workspace-scroll` 強制拉回頁面頂端；用戶在列表底部操作分頁後，視角要留在原位。
 - Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、`browser-snippet-v1` 本地宿主的 preview / execute / verify、plugin enable / disable、derived rebuild / clear，並回鏈到 Audit run 驗證最新 growth signal。
 
 ### App Lock 畫面與導航規則
