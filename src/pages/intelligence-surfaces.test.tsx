@@ -947,27 +947,32 @@ describe('intelligence surfaces', () => {
 
     await user.click(screen.getByRole('button', { name: 'Switch profile' }))
     await waitFor(() => {
-      expect(topSitesSpy).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          start: '2026-04-01',
-          end: '2026-04-07',
-        }),
-        'firefox:Research',
-        expect.anything(),
-        expect.anything(),
-      )
+      expect(
+        topSitesSpy.mock.calls.some(
+          (call) =>
+            call[0]?.start === '2026-04-01' &&
+            call[0]?.end === '2026-04-07' &&
+            call[1] === 'firefox:Research',
+        ),
+      ).toBe(true)
     })
     expect(await screen.findByText('firefox:Research')).toBeVisible()
+
+    const previousTopSitesCallCount = topSitesSpy.mock.calls.length
 
     await user.click(
       screen.getByRole('button', { name: intelligenceT('rangeWeek') }),
     )
     await waitFor(() => {
-      const lastCall = topSitesSpy.mock.calls.at(-1)
-      expect(lastCall?.[0]).not.toEqual({
-        start: '2026-04-01',
-        end: '2026-04-07',
-      })
+      expect(topSitesSpy.mock.calls.length).toBeGreaterThan(
+        previousTopSitesCallCount,
+      )
+      const matchingWeekCalls = topSitesSpy.mock.calls.filter(
+        (call) =>
+          call[1] === 'firefox:Research' &&
+          (call[0]?.start !== '2026-04-01' || call[0]?.end !== '2026-04-07'),
+      )
+      expect(matchingWeekCalls.length).toBeGreaterThan(0)
     })
     expect(
       screen.queryByText('2026-04-01 → 2026-04-07'),
@@ -2716,11 +2721,20 @@ describe('intelligence surfaces', () => {
         changeVsPrevious: [],
       }),
     )
-    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockResolvedValue(
-      wrapSection('browsing-rhythm', {
-        cells: [{ dow: 3, hour: 10, visitCount: 9 }],
-        maxCount: 9,
-      }),
+    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockImplementation(
+      (dateRange) =>
+        Promise.resolve(
+          wrapSection('browsing-rhythm', {
+            cells:
+              dateRange.start === '2026-04-15' && dateRange.end === '2026-04-15'
+                ? [{ dow: 3, hour: 10, visitCount: 9 }]
+                : [{ dow: 4, hour: 8, visitCount: 4 }],
+            maxCount:
+              dateRange.start === '2026-04-15' && dateRange.end === '2026-04-15'
+                ? 9
+                : 4,
+          }),
+        ),
     )
     vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
       wrapSection('stable-sources', []),
@@ -2809,6 +2823,241 @@ describe('intelligence surfaces', () => {
     expect(await screen.findByText('2026-04-15 summary')).toBeVisible()
     expect(screen.getByText('42 visits on this day')).toBeVisible()
     expect(screen.getByRole('link', { name: 'sqlite.org' })).toBeVisible()
+    expect(
+      screen.getByLabelText('Hourly browsing distribution for 2026-04-15'),
+    ).toBeVisible()
+  })
+
+  test('renders browsing rhythm as a real-date calendar and keeps secondary cards capped', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockImplementation(
+      (dateRange) =>
+        Promise.resolve(
+          wrapSection('digest-summary', {
+            dateRange,
+            totalVisits: {
+              value: dateRange.start === dateRange.end ? 8 : 180,
+              trend: 'flat' as const,
+            },
+            totalSearches: { value: 6, trend: 'flat' as const },
+            newDomains: { value: 2, trend: 'flat' as const },
+            deepReadPages: { value: 4, trend: 'flat' as const },
+            refindPages: { value: 1, trend: 'flat' as const },
+          }),
+        ),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue(
+      wrapSection('on-this-day', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockImplementation(
+      (dateRange) =>
+        Promise.resolve(
+          wrapSection('top-sites', [
+            {
+              registrableDomain:
+                dateRange.start === dateRange.end
+                  ? 'calendar.test'
+                  : 'example.com',
+              displayName:
+                dateRange.start === dateRange.end
+                  ? 'calendar.test'
+                  : 'example.com',
+              domainCategory: 'docs',
+              visitCount: dateRange.start === dateRange.end ? 8 : 24,
+              uniqueDays: 1,
+              averageDailyVisits: 8,
+              uniqueUrls: 3,
+            },
+          ]),
+        ),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('query-families', {
+        page: 0,
+        pageSize: 10,
+        total: 0,
+        families: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [
+          { domainCategory: 'docs', visitCount: 24, share: 0.6 },
+          { domainCategory: 'search', visitCount: 16, share: 0.4 },
+        ],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBrowsingRhythm').mockImplementation(
+      (dateRange) =>
+        Promise.resolve(
+          wrapSection('browsing-rhythm', {
+            cells:
+              dateRange.start === dateRange.end
+                ? [
+                    { dow: 6, hour: 9, visitCount: 2 },
+                    { dow: 6, hour: 10, visitCount: 6 },
+                    { dow: 6, hour: 14, visitCount: 4 },
+                  ]
+                : [],
+            maxCount: dateRange.start === dateRange.end ? 6 : 0,
+          }),
+        ),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockImplementation(
+      (_dateRange, _profileId, granularity) =>
+        Promise.resolve(
+          wrapSection('discovery-trend', {
+            points:
+              granularity === 'day'
+                ? [
+                    {
+                      dateKey: '2026-01-03',
+                      discoveryRate: 0.25,
+                      newDomainCount: 1,
+                      totalVisits: 4,
+                    },
+                    {
+                      dateKey: '2026-01-17',
+                      discoveryRate: 0.125,
+                      newDomainCount: 1,
+                      totalVisits: 8,
+                    },
+                    {
+                      dateKey: '2026-01-30',
+                      discoveryRate: 0.25,
+                      newDomainCount: 2,
+                      totalVisits: 8,
+                    },
+                  ]
+                : [
+                    {
+                      dateKey: '2026-W01',
+                      discoveryRate: 0.14,
+                      newDomainCount: 3,
+                      totalVisits: 21,
+                    },
+                    {
+                      dateKey: '2026-W04',
+                      discoveryRate: 0.22,
+                      newDomainCount: 5,
+                      totalVisits: 23,
+                    },
+                  ],
+          }),
+        ),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 62,
+        hhi: 0.32,
+        concentrationDomainCount: 5,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habit-patterns', [
+        {
+          registrableDomain: 'linux.do',
+          displayName: 'linux.do',
+          habitType: 'daily_habit',
+          meanIntervalDays: 1.8,
+          cv: 0.2,
+          visitCount: 12,
+          lastVisitedAt: '2026-01-30T08:00:00Z',
+          isInterrupted: false,
+        },
+      ]),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('interrupted-habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+
+    const { container } = renderSurface(<IntelligencePage />, {
+      language: 'en',
+      route: '/intelligence?range=custom&start=2026-01-01&end=2026-01-31',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByRole('button', {
+        name: /2026-01-03 · 4 visits · 1 new sites/i,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', {
+        name: /2026-01-30 · 8 visits · 2 new sites/i,
+      }),
+    ).toBeVisible()
+    expect(screen.getByText('2026 Week 4')).toBeVisible()
+
+    const searchSection = screen.getByText('Search Activity').closest('section')
+    const mixSection = screen.getByText('Activity Mix').closest('section')
+    const sharedRow = searchSection?.parentElement
+    expect(sharedRow).toHaveClass('intelligence-row--two-col')
+    expect(sharedRow).toContainElement(mixSection)
+
+    expect(
+      searchSection?.querySelector('.intelligence-section__body'),
+    ).not.toBeNull()
+    expect(
+      mixSection?.querySelector('.intelligence-section__body'),
+    ).not.toBeNull()
+    expect(
+      screen
+        .getByText('Browsing Rhythm')
+        .closest('section')
+        ?.querySelector('.intelligence-section__body--workbench'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('.intelligence-secondary-grid'),
+    ).not.toBeNull()
   })
 
   test('renders explorer session view and keeps navigation tracing wired to the selected grouped visit', async () => {

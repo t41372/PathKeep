@@ -43,13 +43,14 @@
 
 .intelligence-secondary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-6);
 }
 
 .intelligence-row {
   display: flex;
   gap: var(--space-6);
+  align-items: stretch;
 }
 
 .intelligence-row--two-col > * {
@@ -66,6 +67,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .intelligence-section__title {
@@ -102,6 +105,14 @@
   overscroll-behavior: contain;
   padding-right: var(--space-1);
   scrollbar-gutter: stable;
+}
+
+.intelligence-section__body {
+  min-height: 0;
+}
+
+.intelligence-section__body--workbench.intelligence-section__scroll-region {
+  max-height: min(40rem, 72vh);
 }
 
 .intelligence-runtime-digest {
@@ -722,141 +733,128 @@
   gap: var(--space-4);
 }
 
-.rhythm-heatmap {
+.rhythm-calendar-shell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-2);
   overflow-x: auto;
+  padding-bottom: var(--space-1);
 }
 
-.rhythm-heatmap__header {
+.rhythm-calendar__legend {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.rhythm-calendar__months {
   display: flex;
-  gap: 2px;
+  gap: var(--space-2);
+  min-width: max-content;
 }
 
-.rhythm-heatmap__corner {
-  width: 32px;
+.rhythm-calendar__months-spacer {
+  width: 18px;
   flex-shrink: 0;
 }
 
-.rhythm-heatmap__hour {
+.rhythm-calendar__months-track {
+  display: flex;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.rhythm-calendar__month {
   width: 16px;
-  font-size: 0.5625rem;
+  font-size: 0.625rem;
+  line-height: 1;
   color: var(--text-faint);
-  text-align: center;
+  text-align: left;
   flex-shrink: 0;
 }
 
-.rhythm-heatmap__row {
+.rhythm-calendar {
   display: flex;
-  gap: 2px;
-  align-items: center;
+  gap: var(--space-2);
+  min-width: max-content;
 }
 
-.rhythm-heatmap__day {
-  width: 32px;
+.rhythm-calendar__weekday-rail {
+  display: grid;
+  grid-template-rows: repeat(7, 16px);
+  gap: 3px;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.rhythm-calendar__weekday {
   font-size: 0.625rem;
   color: var(--text-muted);
-  flex-shrink: 0;
-  text-align: right;
-  padding-right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
-.rhythm-heatmap__cell-button {
+.rhythm-calendar__weeks {
+  display: flex;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.rhythm-calendar__week {
+  display: grid;
+  grid-template-rows: repeat(7, 16px);
+  gap: 3px;
+}
+
+.rhythm-calendar__day {
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
   cursor: pointer;
   flex-shrink: 0;
-}
-
-.rhythm-heatmap__cell-button:hover,
-.rhythm-heatmap__cell-button--active {
-  border-color: var(--accent);
-}
-
-.rhythm-heatmap__cell {
-  display: block;
-  width: 100%;
-  height: 100%;
-  transition: opacity var(--transition);
-}
-
-.rhythm-bucket-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-
-.rhythm-bucket-summary__title,
-.rhythm-bucket-summary__text {
-  margin: 0;
-}
-
-.rhythm-bucket-summary__title {
-  color: var(--text);
-  font-size: 0.8125rem;
-}
-
-.rhythm-bucket-summary__text {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-}
-
-.rhythm-day-picker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.rhythm-day-picker__title {
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-}
-
-.rhythm-day-picker__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: var(--space-2);
-}
-
-.rhythm-day-picker__day {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
+  border-radius: 3px;
   transition:
     border-color var(--transition),
-    background var(--transition);
+    background-color var(--transition),
+    transform var(--transition);
 }
 
-.rhythm-day-picker__day:hover,
-.rhythm-day-picker__day--active {
+.rhythm-calendar__day:hover:not(:disabled),
+.rhythm-calendar__day--active {
   border-color: var(--accent);
-  background: var(--accent-glow);
+  transform: translateY(-1px);
 }
 
-.rhythm-day-picker__date {
-  font-family: var(--font-code);
-  font-size: 0.75rem;
+.rhythm-calendar__day:disabled {
+  cursor: default;
 }
 
-.rhythm-day-picker__count {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
+.rhythm-calendar__day--outside {
+  border-color: transparent;
+  background: transparent;
+}
+
+.rhythm-calendar__day[data-level='0'] {
+  background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
+}
+
+.rhythm-calendar__day[data-level='1'] {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface) 80%);
+}
+
+.rhythm-calendar__day[data-level='2'] {
+  background: color-mix(in srgb, var(--accent) 40%, var(--bg-surface) 60%);
+}
+
+.rhythm-calendar__day[data-level='3'] {
+  background: color-mix(in srgb, var(--accent) 65%, var(--bg-surface) 35%);
+}
+
+.rhythm-calendar__day[data-level='4'] {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg-surface) 15%);
 }
 
 .rhythm-day-detail {
@@ -903,6 +901,57 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: var(--space-3);
+}
+
+.rhythm-day-detail__hours {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-hour-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-hour-strip__grid {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.rhythm-hour-strip__cell {
+  display: block;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
+}
+
+.rhythm-hour-strip__cell[data-level='1'] {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface) 80%);
+}
+
+.rhythm-hour-strip__cell[data-level='2'] {
+  background: color-mix(in srgb, var(--accent) 40%, var(--bg-surface) 60%);
+}
+
+.rhythm-hour-strip__cell[data-level='3'] {
+  background: color-mix(in srgb, var(--accent) 65%, var(--bg-surface) 35%);
+}
+
+.rhythm-hour-strip__cell[data-level='4'] {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg-surface) 15%);
+}
+
+.rhythm-hour-strip__labels {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  color: var(--text-faint);
 }
 
 .rhythm-day-detail__stat {
@@ -2872,9 +2921,5 @@
 
   .top-site-row__bar {
     display: none;
-  }
-
-  .rhythm-day-picker__grid {
-    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   }
 }

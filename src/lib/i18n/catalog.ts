@@ -203,7 +203,10 @@ const zhCnM3Namespaces = {
 
     rhythmTitle: '浏览节奏',
     rhythmEmpty: '数据不足，暂无法显示浏览节奏。',
-    rhythmLabel: '每周浏览活动热力图',
+    rhythmLabel: '按真实日期显示的浏览热力图',
+    rhythmHelp:
+      '每个方块都对应一天真实日期；颜色越深，表示当天浏览次数越多。点某一天可查看当天摘要和小时分布。',
+    rhythmLegend: '每格 = 一天',
     rhythmAllCategories: '所有分类',
     rhythmCategoryFilter: '按分类筛选浏览节奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次访问',
@@ -211,6 +214,10 @@ const zhCnM3Namespaces = {
     rhythmDaySummaryTitle: '{date} 当天摘要',
     rhythmDayVisits: '当天共浏览 {count} 次',
     rhythmDayNewSites: '{count} 个新网站',
+    rhythmDayHoursTitle: '当天 24 小时分布',
+    rhythmHourStripLabel: '{date} 的逐小时浏览分布',
+    rhythmHourTooltip: '{hour} · {count} 次访问',
+    rhythmDayNoHourlyData: '这一天没有可显示的小时级分布。',
     rhythmDayNoSites: '这一天没有可显示的重点网站。',
     rhythmBucketTitle: '{day} {hour}',
     rhythmBucketVisits: '这个时段在当前范围内共出现 {count} 次访问',
@@ -379,7 +386,7 @@ const zhCnM3Namespaces = {
     discoveryTrendNewDomains: '个新网站',
     discoveryTrendRateLabel: '探索率 %',
     discoveryTrendDomainsLabel: '新网站数',
-    discoveryTrendWeekLabel: '{week}',
+    discoveryTrendWeekLabel: '{year} 第{week}周',
     discoveryTrendRatePercent: '{count}%',
     discoveryTrendVisitsLabel: '{count} 次浏览',
 
@@ -1104,7 +1111,10 @@ const zhTwM3Namespaces = {
 
     rhythmTitle: '瀏覽節奏',
     rhythmEmpty: '資料不足，暫無法顯示瀏覽節奏。',
-    rhythmLabel: '每週瀏覽活動熱力圖',
+    rhythmLabel: '按真實日期顯示的瀏覽熱力圖',
+    rhythmHelp:
+      '每個方塊都對應一天真實日期；顏色越深，表示當天瀏覽次數越多。點某一天可查看當天摘要和小時分布。',
+    rhythmLegend: '每格 = 一天',
     rhythmAllCategories: '所有分類',
     rhythmCategoryFilter: '按分類篩選瀏覽節奏',
     rhythmCellTooltip: '{day} {hour}:00 — {count} 次造訪',
@@ -1112,6 +1122,10 @@ const zhTwM3Namespaces = {
     rhythmDaySummaryTitle: '{date} 當天摘要',
     rhythmDayVisits: '當天共瀏覽 {count} 次',
     rhythmDayNewSites: '{count} 個新網站',
+    rhythmDayHoursTitle: '當天 24 小時分布',
+    rhythmHourStripLabel: '{date} 的逐小時瀏覽分布',
+    rhythmHourTooltip: '{hour} · {count} 次造訪',
+    rhythmDayNoHourlyData: '這一天沒有可顯示的小時級分布。',
     rhythmDayNoSites: '這一天沒有可顯示的重點網站。',
     rhythmBucketTitle: '{day} {hour}',
     rhythmBucketVisits: '這個時段在目前範圍內共出現 {count} 次造訪',
@@ -1281,7 +1295,7 @@ const zhTwM3Namespaces = {
     discoveryTrendNewDomains: '個新網站',
     discoveryTrendRateLabel: '探索率 %',
     discoveryTrendDomainsLabel: '新網站數',
-    discoveryTrendWeekLabel: '{week}',
+    discoveryTrendWeekLabel: '{year} 第{week}周',
     discoveryTrendRatePercent: '{count}%',
     discoveryTrendVisitsLabel: '{count} 次瀏覽',
 
@@ -3293,7 +3307,10 @@ const catalog: Record<
       // Browsing Rhythm
       rhythmTitle: 'Browsing Rhythm',
       rhythmEmpty: 'Not enough data to show browsing patterns.',
-      rhythmLabel: 'Weekly browsing activity heatmap',
+      rhythmLabel: 'Calendar heatmap of browsing activity by day',
+      rhythmHelp:
+        'Each square maps to one real date. Darker squares mean more visits that day. Click a day to inspect its summary and hourly pattern.',
+      rhythmLegend: 'Each square = one day',
       rhythmAllCategories: 'All categories',
       rhythmCategoryFilter: 'Filter browsing rhythm by category',
       rhythmCellTooltip: '{day} {hour}:00 — {count} visits',
@@ -3301,6 +3318,10 @@ const catalog: Record<
       rhythmDaySummaryTitle: '{date} summary',
       rhythmDayVisits: '{count} visits on this day',
       rhythmDayNewSites: '{count} new sites',
+      rhythmDayHoursTitle: 'Hourly activity on this day',
+      rhythmHourStripLabel: 'Hourly browsing distribution for {date}',
+      rhythmHourTooltip: '{hour} · {count} visits',
+      rhythmDayNoHourlyData: 'No hourly pattern was available for this day.',
       rhythmDayNoSites: 'No standout sites were available for this day.',
       rhythmBucketTitle: '{day} {hour}',
       rhythmBucketVisits:
@@ -3478,7 +3499,7 @@ const catalog: Record<
       discoveryTrendNewDomains: 'new sites',
       discoveryTrendRateLabel: 'Discovery Rate %',
       discoveryTrendDomainsLabel: 'New Sites',
-      discoveryTrendWeekLabel: '{week}',
+      discoveryTrendWeekLabel: '{year} Week {week}',
       discoveryTrendRatePercent: '{count}%',
       discoveryTrendVisitsLabel: '{count} visits',
 
