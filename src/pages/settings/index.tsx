@@ -1692,7 +1692,7 @@ export function SettingsPage() {
   return (
     <section className="page-shell settings-page" data-testid="settings-page">
       <div className="settings-group">
-        <div className="settings-group__label">Core</div>
+        <div className="settings-group__label">{t('settings.groupCore')}</div>
 
         <div className="panel" id="settings-general">
           <div className="panel-header">
@@ -1898,7 +1898,9 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group__label">Data & Updates</div>
+        <div className="settings-group__label">
+          {t('settings.groupDataUpdates')}
+        </div>
 
         <div className="panel panel--optional" id="settings-analytics">
           <div className="panel-header">
@@ -2296,7 +2298,9 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group__label">Security & Access</div>
+        <div className="settings-group__label">
+          {t('settings.groupSecurityAccess')}
+        </div>
 
         <div className="panel panel--security" id="settings-applock">
           <div className="panel-header">
@@ -2596,7 +2600,9 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group__label">Intelligence</div>
+        <div className="settings-group__label">
+          {t('settings.groupIntelligence')}
+        </div>
 
         <div className="panel panel--optional" id="settings-ai">
           <div className="panel-header">
@@ -3637,7 +3643,9 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group__label">Backup & Sync</div>
+        <div className="settings-group__label">
+          {t('settings.groupBackupSync')}
+        </div>
 
         <div className="panel panel--optional" id="settings-remote">
           <div className="panel-header">
@@ -4098,7 +4106,9 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group__label">Platform</div>
+        <div className="settings-group__label">
+          {t('settings.groupPlatform')}
+        </div>
 
         <div className="panel" id="settings-platform">
           <div className="panel-header">

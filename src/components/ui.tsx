@@ -294,15 +294,22 @@ export type GlyphIconName = keyof typeof glyphVectors
 export function Glyph({
   icon,
   filled = false,
+  label,
 }: {
   icon: GlyphIconName
   filled?: boolean
+  label?: string
 }) {
   const renderVector = glyphVectors[icon]
+  const decorative = !label
 
   return (
     <svg
+      aria-hidden={decorative ? 'true' : undefined}
+      aria-label={label}
       className={`glyph ${filled ? 'filled' : ''}`}
+      focusable="false"
+      role={decorative ? undefined : 'img'}
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -516,7 +523,7 @@ export function EmptyState({
   message,
 }: {
   children?: ReactNode
-  icon?: string
+  icon?: GlyphIconName
   message?: string
 }) {
   return (

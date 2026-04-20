@@ -125,6 +125,20 @@ describe('App helpers', () => {
     expect(pathSpy).toHaveBeenCalledTimes(1)
   })
 
+  test('keeps glyphs decorative by default and supports explicit labels', () => {
+    renderWithI18n(
+      <div>
+        <Glyph icon="check" />
+        <Glyph icon="warning" label="Warning state" />
+      </div>,
+    )
+
+    expect(screen.queryByRole('img', { name: /check/i })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: 'Warning state' }),
+    ).toBeInTheDocument()
+  })
+
   test('renders workflow states and supports command copy', async () => {
     const user = userEvent.setup()
     const copySpy = vi.fn().mockResolvedValue(undefined)

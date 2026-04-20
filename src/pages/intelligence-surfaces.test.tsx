@@ -1363,6 +1363,27 @@ describe('intelligence surfaces', () => {
     ).toHaveAttribute('href', '/security')
   })
 
+  test('localizes settings group dividers in zh-TW', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('zh-TW', 'settings')
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'zh-TW',
+      route: '/settings',
+      snapshot,
+    })
+
+    expect(await screen.findByText(settingsT('groupCore'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupDataUpdates'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupSecurityAccess'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupIntelligence'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupBackupSync'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupPlatform'))).toBeVisible()
+    expect(screen.queryByText(/^CORE$/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^DATA & UPDATES$/)).not.toBeInTheDocument()
+  })
+
   test('renders settings enrichment runtime review and syncs plugin toggles', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedArchiveState()
@@ -2948,6 +2969,24 @@ describe('intelligence surfaces', () => {
     expect(
       screen.queryByText(intelligenceT('externalOutputsReviewTitle')),
     ).not.toBeInTheDocument()
+  })
+
+  test('keeps intelligence digest icons decorative instead of exposing raw ids', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+    renderSurface(<IntelligencePage />, {
+      dashboard,
+      route: '/intelligence',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByRole('heading', { name: intelligenceT('digestTitle') }),
+    ).toBeVisible()
+    expect(screen.queryByText('bar_chart')).not.toBeInTheDocument()
+    expect(screen.queryByText('auto_stories')).not.toBeInTheDocument()
+    expect(screen.queryByText('sync')).not.toBeInTheDocument()
   })
 
   test('renders archive-wide copy and decoded domain paths without raw keys in zh-TW', async () => {
