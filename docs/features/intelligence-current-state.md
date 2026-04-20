@@ -40,6 +40,8 @@
 > **2026-04-19 IA cleanup note:** `On This Day` 已從 `/intelligence` 移除，改成 Dashboard-only surface。原因不是功能失效，而是這張卡不受 `/intelligence` route time scope 影響，放在 Dashboard 更誠實；相對地，`/intelligence` 的 spotlight 現在保留 summary / top sites / browsing rhythm，而 storage analytics 也改成 `core history` / `other data` 的兩層 bucket 心智。
 >
 > **2026-04-18 desktop-only truth repair note:** 這一輪後續修補不再把 browser preview 當成 `/intelligence` 的驗收替身。current-host live desktop 才是正式 truth gate；因此 `/intelligence` 現在除了保留上面的首屏 hierarchy，也進一步把低信度 section 做成更保守的桌面行為：`Stable Sources` 若只有單邊 leaderboard、`Friction` 若沒有可站得住腳的 signal、`Reopened Investigations` 若只剩不像搜尋問題的 label、`Path Flows` 若看起來更像 auth / callback / canonical redirect path，都會直接隱藏而不是硬佔版面。`Activity Mix` 也補上分類說明，讓 category label 旁邊有代表性網站例子，不再只剩抽象名詞。這台 host 最後是靠重打 release `.app` / 直接啟動 `src-tauri/target/release/pathkeep-desktop` 才看見最新前端；Computer Use 已能在 live desktop 上看到 Explorer 的「第 x / y 頁」摘要與 Habits 新 copy，但 CUA 對直接啟動的 release binary 仍偶發 `noWindowsAvailable`，所以較下方 sections 的簽收仍保留一部分 regression-test 支撐。
+>
+> **2026-04-20 performance recovery note:** 使用者在三個月真實 archive 上回報 `/intelligence` route 與跨頁返回仍會整個 UI 凍住。這輪 stop-ship 修補後，current source truth 變成：overview batch 在 backend 只重用一條 intelligence SQLite connection / attached archive 與一份 runtime snapshot；frontend 則改成 scope-keyed warm cache + in-flight dedupe + stale-while-revalidate。`domain/day/entity -> back -> /intelligence` 的 same-scope revisit 會先把已看過的卡片用 cache 還原，再做 background refresh，而不是重新打出一整串 foreground request。`Search Activity` 的 hidden tabs (`Recent Queries` / `Query Evolution`) 也改成在首屏穩定後自動 idle prewarm，不再等第一次點 tab 才開始冷載。
 
 ---
 

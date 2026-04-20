@@ -126,6 +126,9 @@ SQL
 - Explorer day-one keyword recall 已切回 FTS5 `history_search` projection，不再走 `LIKE` 當 fast path
 - backup overlay 會收到 profile-scoped phase progress event，不再只剩 opaque spinner
 - `/intelligence` route 現在改成 staged overview：primary overview 先批次載入並 prime section cache，secondary grid 在 first paint / idle 後再補
+- 2026-04-20 hot-path recovery：overview batch 現在同一批只重用一條 intelligence SQLite connection / attached archive 與一份 runtime snapshot，不再為每個 module-backed section 重複載入 runtime metadata
+- 2026-04-20 warm-cache recovery：前端現在有 scope-keyed warm cache + in-flight dedupe；`domain/day/entity route -> back -> /intelligence` 的同 scope revisit 會先用現有 cache 畫出卡片，再做 background revalidate，而不是先整頁 cold skeleton
+- 2026-04-20 Search Activity prewarm：`Recent Queries` 與 `Query Evolution` 不再等點 tab 才第一次發 request；首屏穩定後會在 idle 階段自動 prewarm，避免使用者第一次切 tab 又撞冷啟
 - sidebar、Dashboard 與 Intelligence runtime digest 現在共享同一個 shell-level runtime polling source，不再各自重複輪詢 queue/runtime
 - `Browsing Rhythm` 初次進頁不再自動抓同日 detail；只有使用者真的選某一天，或 primary overview 已經穩定後才會做額外 detail fetch
 - import / onboarding finalization 現在支援 typed progress stream（`phase/current/total/percent/detail/logLines`），follow-up backup / refresh 也改成 background-style 收尾，而不是把 overlay 凍住到最後

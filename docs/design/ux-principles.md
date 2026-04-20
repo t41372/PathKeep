@@ -91,5 +91,7 @@
 - `prefers-reduced-motion`：skeleton pulse 應變為靜態或極微微的透明度變化，不得使用持續循環動畫。
 - Progress overlay 必須包含進度數字（百分比或筆數）和可讀的狀態說明，不能只有轉圈。
 - 對於重型 route（尤其 `/intelligence`），初始 render 不得一次 fan-out 十多個 foreground requests；應先有 route-level skeleton，再以優先順序把 section 資料分批填回。
+- `/intelligence` 的 same-scope revisit（例如從 day/domain/entity route 返回 overview）必須優先用 warm cache 立即還原已看過的卡片，再在背景 revalidate；不能每次返回都把整頁打回 cold skeleton。
+- tabbed secondary content 若屬於目前可見的重型分析頁面，也必須在首屏穩定後自動 prewarm；不得把第一次 request 綁死在「使用者必須先點 tab」這個互動上。
 - AI 操作的 pulsing indicator 必須同時顯示目前階段說明文字，讓用戶知道系統在做什麼。
 - 同一份 runtime / queue truth 只能由 shell 層共享 polling source 提供；sidebar、dashboard 與 intelligence digest 不得各自重複輪詢同一組背景狀態。

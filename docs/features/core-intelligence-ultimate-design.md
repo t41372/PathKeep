@@ -18,6 +18,8 @@
 > **2026-04-19 accepted M8 note:** M8 已把 aggregate entity identity / context reuse 收口成正式 contract：`compare set` 升格成 `/intelligence/compare-set/:compareSetId` first-class route；shared non-overview insights routes additive 支援受限的 `focusType` / `focusId`；`path flow` 改成 stable `flowId` + typed `steps`；trusted external outputs 也改帶 structured entity targets，而 `public snapshot` 維持 redacted。完整 trade-off 見 [`../design/intelligence-aggregate-entity-focus-tradeoff.md`](../design/intelligence-aggregate-entity-focus-tradeoff.md)。
 >
 > **2026-04-19 accepted M9 note:** M9 已正式把 shared route composition 收斂成 accepted contract：route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 section heading + evidence/freshness badge 現在都屬 single-source front-end primitive；這一輪刻意不把 scope 擴成 backend transport refactor。完整 trade-off 見 [`../design/intelligence-shared-route-composition-tradeoff.md`](../design/intelligence-shared-route-composition-tradeoff.md)。
+>
+> **2026-04-20 accepted performance note:** `/intelligence` overview 的 request-path contract 進一步收緊：同一批 primary / secondary overview 讀取，backend 只允許重用一條 intelligence connection / attached archive 與一份 runtime snapshot；frontend same-scope revisit 必須優先走 warm cache + in-flight dedupe + background revalidate，而不是重新把整頁打回 cold skeleton。`Search Activity` 的 hidden tabs 也必須在首屏穩定後自動 prewarm，而不是等第一次點 tab 才開始載入。
 
 ---
 
