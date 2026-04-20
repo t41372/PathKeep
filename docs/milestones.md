@@ -107,3 +107,12 @@
 - 把所有新的 deferred reuse gap 明確改用 `TODO: M8` 與 source docs / status 對齊
 
 📋 詳細待辦 → [plan/m8-aggregate-entity-identity/README.md](plan/m8-aggregate-entity-identity/README.md)
+
+## M9 — Cross-App Reuse Audit And Shared Composition
+
+- 全面盤點 app 內仍然重複造輪子的 UI composition、helper、read-model glue 與 review chrome
+- 抽出 shared digest / CTA / evidence / focus / review composition，降低 Dashboard / Intelligence / Explorer / Settings 間的 drift
+- 把新的 reuse debt 改記 `TODO: M9` / `TODO: M10`，並同步回寫 `STATUS.md`、`BACKLOG.md` 與 source docs
+- 延續 M6–M8 已接受的 entity-first / focus / trusted-output 邊界，不回退成 consumer-local state
+
+📋 詳細待辦 → [plan/m9-cross-app-reuse/README.md](plan/m9-cross-app-reuse/README.md)

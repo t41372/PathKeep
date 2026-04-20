@@ -33,6 +33,8 @@
 > **2026-04-19 M6 closeout note**：`WORK-M6-A` 已完成。`day` 與 `domain` 現在都已升格成 first-class shared insights entity：新增 `/intelligence/day/:date`、保留但正式升格 `/intelligence/domain/:domain`、shared href grammar、`Insight Access` strip，以及 Dashboard / Intelligence / Explorer 的 route-first entry。下一輪 active 規劃改成 `M7 — Cross-App Reuse Audit And Insight Entity Consolidation`，用來盤點其餘仍然 consumer-local 的 intelligence entity surface。
 >
 > **2026-04-19 M7 closeout note**：`WORK-M7-A` 已完成。repo 現在正式有 generic insight-entity navigation contract、shared entity CTA chrome，以及 `query family` / `refind page` / `session` / `trail` 四條 first-class shared insights route；非 promoted entity 也都已收斂到 shared destination。下一輪 active 規劃改成 `M8 — Aggregate Entity Identity And Context Reuse`，專門處理 path-flow stable identity、compare-set full detail、context focus 與更多 reusable entity IDs。
+>
+> **2026-04-19 M8 closeout note**：`WORK-M8-A` 已完成。repo 現在正式有 `compare set` first-class insights route、受限的 shared `focusType` / `focusId` query grammar、typed `path flow` identity，以及 trusted external-output payload 的 structured entity targets；`public snapshot` 仍維持 redacted。下一輪 active 規劃改成 `M9 — Cross-App Reuse Audit And Shared Composition`，用來全面盤點剩餘 consumer-local composition 與 shared extraction 機會。
 
 ---
 
@@ -56,6 +58,8 @@
 | M5 Runtime & Extensions                           | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)         |
 | M6 Shared Insight Surfaces                        | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)       |
 | M7 Reuse Audit                                    | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                               |
+| M8 Aggregate Entity Identity                      | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md)   |
+| M9 Cross-App Reuse / Shared Composition           | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                       |
 | 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
 
 ---
@@ -149,6 +153,7 @@ M5  Deterministic Intelligence / Runtime & Extensions
 M6  Shared Day And Domain Insights
 M7  Cross-App Reuse Audit And Insight Entity Consolidation
 M8  Aggregate Entity Identity And Context Reuse
+M9  Cross-App Reuse Audit And Shared Composition
 ```
 
 每個里程碑目錄都有：
@@ -161,18 +166,19 @@ M8  Aggregate Entity Identity And Context Reuse
 
 ## 里程碑入口
 
-| 里程碑 | 目標                                                                     | 狀態  | 入口                                                                             |
-| ------ | ------------------------------------------------------------------------ | ----- | -------------------------------------------------------------------------------- |
-| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                 | `[/]` | [program/README.md](program/README.md)                                           |
-| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                 | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                               |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎        | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                         |
-| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                 | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                   |
-| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                           |
-| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證    | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                             |
-| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime   | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)       |
-| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface    | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)     |
-| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation         | `[x]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                             |
-| `M8`   | 補齊 aggregate entity identity、context focus 與 reusable entity IDs     | `[/]` | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md) |
+| 里程碑 | 目標                                                                      | 狀態  | 入口                                                                             |
+| ------ | ------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
+| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                  | `[/]` | [program/README.md](program/README.md)                                           |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                  | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                               |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎         | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                         |
+| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                  | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                   |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights  | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                           |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證     | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                             |
+| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime    | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)       |
+| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface     | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)     |
+| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation          | `[x]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                             |
+| `M8`   | 補齊 aggregate entity identity、context focus 與 reusable entity IDs      | `[x]` | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md) |
+| `M9`   | 全面盤點剩餘重複造輪子處，並收斂 shared composition / extraction strategy | `[/]` | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                     |
 
 ---
 
@@ -196,5 +202,7 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m5-deterministic-intelligence/
        ├── m5-runtime-and-extensions/
        ├── m6-shared-insight-surfaces/
-       └── m7-reuse-audit/
+       ├── m7-reuse-audit/
+       ├── m8-aggregate-entity-identity/
+       └── m9-cross-app-reuse/
 ```
