@@ -22,17 +22,7 @@
 > 2026-04-19 M8 closeout：`WORK-M8-A` 已完成。repo 現在正式有 `/intelligence/compare-set/:compareSetId`、shared `focusType` / `focusId` query grammar、typed `path flow` identity、以及 trusted external-output payload 的 structured entity targets；`public snapshot` 仍維持 redacted。下一輪 active current-focus 改成 `WORK-M9-A` / `WORK-M9-B`，全面盤點剩餘 consumer-local composition 與 shared extraction 機會。
 > 2026-04-19 M9 closeout：`WORK-M9-A` 與 `WORK-M9-B` 已完成。repo 現在正式有 shared route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 inline-end section-meta header chrome；`證據與新鮮度` badge 不再佔整行或吃滿整個 card header。下一輪 active current-focus 改成 `WORK-M10-A` / `WORK-M10-B`，專門處理仍未抽出的 workbench/review rows 與 route / desktop glue decomposition。
 > 2026-04-19 M10 closeout：`WORK-M10-A` 與 `WORK-M10-B` 已完成。repo 現在正式有 shared `refind` workbench shell、Explorer session/trail shared group-card/member-row primitive、Settings external-output/local-host shared review chrome，以及 split 的 promoted routes / Core Intelligence API / Tauri command + worker-bridge intelligence facade；public route / payload contract 維持不變。下一輪 active current-focus 改成 `WORK-M11-A` / `WORK-M11-B`，從 app-wide reuse / review grammar 角度盤點剩餘 mixed helper、dev mirror 與 diagnostics surface。
-
-- [ ] **WORK-M11-A** — App-Wide Reuse Inventory And Single-Source Map
-  - 讀先：
-    `docs/plan/m11-app-wide-reuse/README.md`
-    `docs/plan/m10-workbench-reuse/README.md`
-    `docs/design/intelligence-workbench-transport-hygiene-tradeoff.md`
-    `docs/design/screens-and-nav.md`
-    `docs/features/intelligence-current-state.md`
-  - 目標：盤點全 app 仍然重複造輪子的 review / PME / diagnostics surface，以及 `src/lib/intelligence.ts`、dev IPC mirror、`vault-worker` pass-through 等 mixed helper / transport glue，建立 single-source map。
-  - 契約：不得重開 M6–M10 已接受的 route grammar、payload shape、trusted-output boundary；這一輪先做 inventory、boundary 與 source-of-truth 收斂，不把 M11 又擴成新的 feature milestone。
-  - 驗收：source docs、inventory map、`TODO: M11` 對應與後續抽取策略存在
+> 2026-04-19 M11-A closeout：`WORK-M11-A` 已完成。repo 現在已有 app-wide review grammar single-source map、[`docs/design/app-wide-review-grammar-tradeoff.md`](../design/app-wide-review-grammar-tradeoff.md)、`PG-RD-UX-012`、以及 M12 seed 計劃；`src/lib/intelligence.ts` / dev IPC mirror / worker pass-through 的後續邊界也已定案。active current-focus 現在只剩 `WORK-M11-B`，專門把 neutral review primitive 抽到 Settings / Schedule / Audit / Jobs。
 
 - [ ] **WORK-M11-B** — Shared Review / PME / Diagnostics Surface Extraction
   - 讀先：

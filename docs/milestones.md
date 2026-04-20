@@ -134,3 +134,12 @@
 - 延續 M10 的 workbench reuse / transport hygiene baseline，不回退成各頁再手搓 trust / review chrome
 
 📋 詳細待辦 → [plan/m11-app-wide-reuse/README.md](plan/m11-app-wide-reuse/README.md)
+
+## M12 — Shared Support Actions And Diagnostics Decomposition
+
+- 延續 M11 的 neutral review primitive，把 copy / open-path / support action 再收斂成 shared grammar
+- 抽出 diagnostics rows / support summary，降低 Settings / Import / Audit / Jobs 的 page-local drift
+- 決定 Settings mega-route 還有哪些 slices 值得繼續拆，而不是再靠同一支 mega-file 吸收新 surface
+- 評估是否需要更輕量的 transport parity automation，而不是直接重開 codegen / manifest 專案
+
+📋 詳細待辦 → [plan/m12-support-actions-and-diagnostics/README.md](plan/m12-support-actions-and-diagnostics/README.md)

@@ -189,6 +189,7 @@ M11 App-Wide Reuse And Shared Review Grammar
 | `M9`   | 全面盤點剩餘重複造輪子處，並收斂 shared composition / extraction strategy                           | `[x]` | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                     |
 | `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition                          | `[x]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                   |
 | `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift | `[/]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                     |
+| `M12`  | 收斂 shared support actions / diagnostics rows，並盤點 Settings 與 transport parity 的下一輪拆分    | `[ ]` | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
 
 ---
 
@@ -216,5 +217,6 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m8-aggregate-entity-identity/
        ├── m9-cross-app-reuse/
        ├── m10-workbench-reuse/
-       └── m11-app-wide-reuse/
+       ├── m11-app-wide-reuse/
+       └── m12-support-actions-and-diagnostics/
 ```

@@ -660,3 +660,17 @@
   - 更新 [`src-tauri/src/{commands,worker_bridge}/intelligence.rs`](../../src-tauri/src/commands/intelligence.rs) 與新拆出的 `ai` / `core` / `runtime` submodules，降低 command facade / worker bridge mega-file 壓力，但維持 command name 與 transport payload 完全不變；同時把 `src/lib/intelligence.ts`、`src-tauri/src/dev_ipc_bridge.rs`、與剩餘 `vault-worker` pass-through debt 明確改記 `TODO: M11`。
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md}`](STATUS.md)、[`docs/plan/m10-workbench-reuse/README.md`](m10-workbench-reuse/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md) 與 [`docs/milestones.md`](../milestones.md)，把 M10 closeout 與 M11 active current-focus 寫回 source-of-truth。
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M11-A** — App-Wide Reuse Inventory And Single-Source Map
+  - 讀先：
+    `docs/plan/m11-app-wide-reuse/README.md`
+    `docs/plan/m10-workbench-reuse/README.md`
+    `docs/design/intelligence-workbench-transport-hygiene-tradeoff.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/intelligence-current-state.md`
+  - 目標：盤點全 app 仍然重複造輪子的 review / PME / diagnostics surface，以及 `src/lib/intelligence.ts`、dev IPC mirror、`vault-worker` pass-through 等 mixed helper / transport glue，建立 single-source map。
+  - 契約：不得重開 M6–M10 已接受的 route grammar、payload shape、trusted-output boundary；這一輪先做 inventory、boundary 與 source-of-truth 收斂，不把 M11 又擴成新的 feature milestone。
+  - 2026-04-19：新增 [`docs/design/app-wide-review-grammar-tradeoff.md`](../design/app-wide-review-grammar-tradeoff.md)，正式接受 M11 的 canonical owner map：entity route grammar 回 [`src/lib/core-intelligence/routes.ts`](../../src/lib/core-intelligence/routes.ts)，AI/provider/assistant presentation 與 evidence/assistant link helper 分別回各自 owner，neutral review shell 則升格到 app-wide primitive；transport 只做 inventory，不重開 codegen。
+  - 更新 [`docs/plan/m11-app-wide-reuse/README.md`](m11-app-wide-reuse/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/milestones.md`](../milestones.md) 與 [`docs/plan/README.md`](README.md)，把 single-source map、consumer-local drift inventory、`PG-RD-UX-012` 與 M12 seed plan 寫回 source-of-truth。
+  - 新增 [`docs/plan/m12-support-actions-and-diagnostics/README.md`](m12-support-actions-and-diagnostics/README.md) 並同步回寫 [`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/STATUS.md`](STATUS.md)，把下一輪 `WORK-M12-A` / `WORK-M12-B` seed 先落回 planning docs，同時保留 `WORK-M11-B` 為當前 active block。
+  - 驗收：source docs、inventory map、`TODO: M11` 對應與後續抽取策略存在
