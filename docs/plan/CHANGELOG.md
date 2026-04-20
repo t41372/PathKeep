@@ -674,3 +674,20 @@
   - 更新 [`docs/plan/m11-app-wide-reuse/README.md`](m11-app-wide-reuse/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/milestones.md`](../milestones.md) 與 [`docs/plan/README.md`](README.md)，把 single-source map、consumer-local drift inventory、`PG-RD-UX-012` 與 M12 seed plan 寫回 source-of-truth。
   - 新增 [`docs/plan/m12-support-actions-and-diagnostics/README.md`](m12-support-actions-and-diagnostics/README.md) 並同步回寫 [`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/STATUS.md`](STATUS.md)，把下一輪 `WORK-M12-A` / `WORK-M12-B` seed 先落回 planning docs，同時保留 `WORK-M11-B` 為當前 active block。
   - 驗收：source docs、inventory map、`TODO: M11` 對應與後續抽取策略存在
+
+- [x] **WORK-M11-B** — Shared Review / PME / Diagnostics Surface Extraction
+  - 讀先：
+    `docs/plan/m11-app-wide-reuse/README.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/plan/e2e-workflow-tests.md`
+  - 目標：根據 `WORK-M11-A` 的 inventory，把至少一輪跨 route 的 shared review / PME / diagnostics primitive 抽離，優先處理 Settings / Jobs / Import / Audit 之間仍漂移的 review row、code preview、target-link、verify/result grammar。
+  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而引入新的 global state、也不得回退成 page-local trust / PME copy。
+  - 2026-04-19：新增 [`src/components/review/`](../../src/components/review/index.ts) neutral layer，正式升格 `review-surface`、`PmeTabBar`、`GeneratedArtifactViewer`、`VerifyCheckList`；[`src/components/intelligence/workbench/review-surface.tsx`](../../src/components/intelligence/workbench/review-surface.tsx) 現在只保留 compatibility re-export。
+  - 更新 [`src/lib/{intelligence.ts,intelligence-ai-presentation.ts,intelligence-links.ts}`](../../src/lib/intelligence.ts) 與 [`src/lib/core-intelligence/routes.ts`](../../src/lib/core-intelligence/routes.ts)，把 route grammar、AI/provider/assistant presentation、以及 evidence/assistant links 各自拆回 canonical owner；`src/lib/intelligence.test.ts` 也改成直接驗 canonical modules，而不是只透過 mixed barrel。
+  - 更新 [`src/pages/settings/{index.tsx,external-outputs-panel.tsx,external-output-local-host-panel.tsx}`](../../src/pages/settings/index.tsx)、[`src/pages/schedule/index.tsx`](../../src/pages/schedule/index.tsx)、[`src/pages/audit/panels/run-detail.tsx`](../../src/pages/audit/panels/run-detail.tsx) 與 [`src/pages/jobs/index.tsx`](../../src/pages/jobs/index.tsx)，讓 Settings remote backup / AI integration / local-host review、Schedule PME、Audit artifact rows、以及 Jobs recent job rows 都改吃 shared review grammar。
+  - 更新 [`src-tauri/src/{dev_ipc_bridge.rs,worker_bridge/intelligence.rs}`](../../src-tauri/src/dev_ipc_bridge.rs)，把剩餘 transport follow-up 從 `TODO: M11` 正式改記到 M12 parity inventory；本輪不再機械拆 transport glue。
+  - 新增 [`src/components/review/review.test.tsx`](../../src/components/review/review.test.tsx) 並維持 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)、[`src/pages/trust-flows.test.tsx`](../../src/pages/trust-flows.test.tsx) 與 [`src/lib/intelligence.test.ts`](../../src/lib/intelligence.test.ts) 綠燈，覆蓋 code preview、target links、generated artifact viewer、verify rows、PME tabs，以及受影響的 Settings / Schedule / Audit / Jobs surface。
+  - 同步回寫 [`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m11-app-wide-reuse/README.md`](m11-app-wide-reuse/README.md)、[`docs/plan/{STATUS.md,BACKLOG.md,README.md}`](STATUS.md)，把 M11 closeout 與 M12 active current-focus 寫回 source-of-truth。
+  - 驗收：`bun run check`、`bun run build`

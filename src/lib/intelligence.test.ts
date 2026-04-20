@@ -15,30 +15,34 @@
 
 import { describe, expect, test } from 'vitest'
 import type { DateRange } from './core-intelligence'
-import type { AiAssistantResponse, AiIndexStatus, AppConfig } from './types'
-import { createNamespaceTranslator } from './i18n/catalog'
 import {
-  aiStatusMeta,
-  assistantHref,
-  assistantResponseMeta,
   compareSetInsightsHref,
-  dedupeEvidence,
   dayInsightsHref,
   domainDayInsightsHref,
   domainInsightsHref,
-  evidenceHref,
   insightEntityHref,
   insightEntityReferenceLabel,
   insightEntityReferenceHref,
   queryFamilyInsightsHref,
   reopenedInvestigationHref,
   refindInsightsHref,
-  scoreBand,
-  selectedAiProvider,
   sessionInsightsHref,
   trailInsightsHref,
   visitDayInsightsHref,
-} from './intelligence'
+} from './core-intelligence/routes'
+import {
+  aiStatusMeta,
+  assistantResponseMeta,
+  scoreBand,
+  selectedAiProvider,
+} from './intelligence-ai-presentation'
+import {
+  assistantHref,
+  dedupeEvidence,
+  evidenceHref,
+} from './intelligence-links'
+import type { AiAssistantResponse, AiIndexStatus, AppConfig } from './types'
+import { createNamespaceTranslator } from './i18n/catalog'
 
 const t = createNamespaceTranslator('en', 'intelligence')
 

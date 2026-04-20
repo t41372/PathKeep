@@ -22,12 +22,12 @@ import { Link } from 'react-router-dom'
 import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import {
-  WorkbenchCodePreview,
-  WorkbenchReviewSection,
-  WorkbenchTargetLinksRow,
-  type WorkbenchCopyFeedback,
-  type WorkbenchTargetLink,
-} from '../../components/intelligence/workbench'
+  ReviewCodePreview,
+  ReviewSection,
+  ReviewTargetLinksRow,
+  type ReviewCopyFeedback,
+  type ReviewTargetLink,
+} from '../../components/review'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
@@ -90,8 +90,9 @@ export function SettingsExternalOutputsPanel({
   const { activeProfileId } = useProfileScope()
   const { dateRange, preset, setCustomRange, setPreset } = useTimeRange('month')
   const [activeTab, setActiveTab] = useState<OutputTab>('embed')
-  const [copyFeedback, setCopyFeedback] =
-    useState<WorkbenchCopyFeedback | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
   const ready = initialized && unlocked
   const profileScopeLabel = activeProfileId
     ? profileIdLabel(activeProfileId)
@@ -341,7 +342,7 @@ function EmbedCardsTab({
 }: {
   activeProfileId: string | null
   cards: IntelligenceEmbedCardPayload[]
-  copyFeedback: WorkbenchCopyFeedback | null
+  copyFeedback: ReviewCopyFeedback | null
   copyLabel: string
   commonT: Translate
   dateRange: DateRange
@@ -351,7 +352,7 @@ function EmbedCardsTab({
 }) {
   return (
     <>
-      <WorkbenchReviewSection title={t('externalOutputsEmbedPreviewTitle')}>
+      <ReviewSection title={t('externalOutputsEmbedPreviewTitle')}>
         {cards.length > 0 ? (
           <div className="settings-output-card-grid">
             {cards.map((card) => (
@@ -392,9 +393,9 @@ function EmbedCardsTab({
         ) : (
           <p>{t('externalOutputsEmbedEmpty')}</p>
         )}
-      </WorkbenchReviewSection>
+      </ReviewSection>
 
-      <WorkbenchCodePreview
+      <ReviewCodePreview
         copyFeedback={copyFeedback}
         copyKey="embed"
         copyLabel={copyLabel}
@@ -422,7 +423,7 @@ function WidgetSnapshotTab({
   intelligenceT,
 }: {
   activeProfileId: string | null
-  copyFeedback: WorkbenchCopyFeedback | null
+  copyFeedback: ReviewCopyFeedback | null
   copyLabel: string
   commonT: Translate
   json: string
@@ -435,7 +436,7 @@ function WidgetSnapshotTab({
 }) {
   return (
     <>
-      <WorkbenchReviewSection
+      <ReviewSection
         headerMeta={
           <span className="mono">
             {formatDateTime(snapshot.generatedAt, language) ??
@@ -534,9 +535,9 @@ function WidgetSnapshotTab({
             ))}
           </div>
         ) : null}
-      </WorkbenchReviewSection>
+      </ReviewSection>
 
-      <WorkbenchCodePreview
+      <ReviewCodePreview
         copyFeedback={copyFeedback}
         copyKey="widget"
         copyLabel={copyLabel}
@@ -563,7 +564,7 @@ function PublicSnapshotTab({
   intelligenceT,
 }: {
   activeProfileId: string | null
-  copyFeedback: WorkbenchCopyFeedback | null
+  copyFeedback: ReviewCopyFeedback | null
   copyLabel: string
   commonT: Translate
   json: string
@@ -575,7 +576,7 @@ function PublicSnapshotTab({
 }) {
   return (
     <>
-      <WorkbenchReviewSection
+      <ReviewSection
         headerMeta={
           <span className="mono">
             {formatDateTime(snapshot.generatedAt, language) ??
@@ -712,9 +713,9 @@ function PublicSnapshotTab({
             ))}
           </div>
         ) : null}
-      </WorkbenchReviewSection>
+      </ReviewSection>
 
-      <WorkbenchCodePreview
+      <ReviewCodePreview
         copyFeedback={copyFeedback}
         copyKey="public"
         copyLabel={copyLabel}
@@ -758,12 +759,12 @@ function OutputTargetLinks({
   }
 
   return (
-    <WorkbenchTargetLinksRow
+    <ReviewTargetLinksRow
       fallback={card.href ? <span className="mono">{card.href}</span> : null}
       label={t('externalOutputsHref')}
       primaryHref={primaryHref}
       primaryLabel={t('externalOutputsOpenInsights')}
-      secondaryLinks={secondaryTargets.map<WorkbenchTargetLink>(
+      secondaryLinks={secondaryTargets.map<ReviewTargetLink>(
         (target, index) => ({
           href: insightEntityReferenceHref(target, {
             dateRange,

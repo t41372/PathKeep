@@ -14,6 +14,7 @@
  */
 
 import { Link } from 'react-router-dom'
+import { ReviewSection } from '../../../components/review'
 import { PreviewEntryList } from '../../../components/ui'
 import { StatusCallout } from '../../../components/primitives/status-callout'
 import { backend } from '../../../lib/backend-client'
@@ -376,24 +377,20 @@ export function AuditRunDetailPanel({
             </span>
             {detail.artifacts.length > 0 ? (
               detail.artifacts.map((artifact) => (
-                <div
+                <ReviewSection
                   key={`${artifact.kind}:${artifact.path}`}
-                  style={{ marginBottom: 'var(--space-2)' }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span className="mono" style={{ fontSize: '11px' }}>
-                      {artifact.kind} — {artifact.path}
-                    </span>
+                  className="audit-artifact-row"
+                  headerMeta={
                     <span className="dim mono" style={{ fontSize: '10px' }}>
                       {formatBytes(artifact.sizeBytes ?? 0, language)}
                     </span>
-                  </div>
+                  }
+                  title={
+                    <span className="mono" style={{ fontSize: '11px' }}>
+                      {artifact.kind} — {artifact.path}
+                    </span>
+                  }
+                >
                   <div
                     style={{
                       display: 'flex',
@@ -441,7 +438,7 @@ export function AuditRunDetailPanel({
                         : t('audit.copyFailed')}
                     </span>
                   ) : null}
-                </div>
+                </ReviewSection>
               ))
             ) : (
               <p className="dashboard-next-action">

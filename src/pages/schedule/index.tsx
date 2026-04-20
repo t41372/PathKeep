@@ -18,6 +18,12 @@ import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
+import {
+  GeneratedArtifactViewer,
+  PmeTabBar,
+  type ReviewCopyFeedback,
+  VerifyCheckList,
+} from '../../components/review'
 import { useShellData } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
@@ -101,6 +107,22 @@ function joinCommand(command: string[]) {
     .join(' ')
 }
 
+async function copyGeneratedArtifact(
+  key: string,
+  value: string,
+  onFeedback: (feedback: ReviewCopyFeedback) => void,
+) {
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('clipboard unavailable')
+    }
+    await navigator.clipboard.writeText(value)
+    onFeedback({ key, tone: 'success' })
+  } catch {
+    onFeedback({ key, tone: 'error' })
+  }
+}
+
 /**
  * Renders the schedule route.
  *
@@ -115,7 +137,9 @@ export function SchedulePage() {
     status: null,
     error: null,
   })
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
   const [pmeTab, setPmeTab] = useState<PmeTab>('preview')
   const [executionResult, setExecutionResult] =
     useState<ScheduleExecutionState | null>(null)
@@ -143,7 +167,7 @@ export function SchedulePage() {
             status: nextStatus,
             error: null,
           })
-          setSelectedFileIndex(0)
+          setCopyFeedback(null)
         }
       } catch (nextError) {
         if (!cancelled)
@@ -166,7 +190,6 @@ export function SchedulePage() {
   const status = loadState.requestKey === refreshKey ? loadState.status : null
   const error = loadState.requestKey === refreshKey ? loadState.error : null
   const loading = loadState.requestKey !== refreshKey
-  const selectedFile = plan?.generatedFiles[selectedFileIndex] ?? null
   const lastBackup =
     status?.lastSuccessfulBackupAt ??
     snapshot?.archiveStatus.lastSuccessfulBackupAt
@@ -379,27 +402,16 @@ export function SchedulePage() {
       <div className="panel">
         <div className="panel-header">
           <span className="panel-title">{t('schedule.pmeTitle')}</span>
-          <div className="pme-tabs">
-            {(['preview', 'manual', 'execute', 'verify'] as PmeTab[]).map(
-              (tab) => (
-                <button
-                  aria-pressed={pmeTab === tab}
-                  key={tab}
-                  className={`pme-tab ${pmeTab === tab ? 'active' : ''}`}
-                  type="button"
-                  onClick={() => setPmeTab(tab)}
-                >
-                  {tab === 'preview'
-                    ? t('common.previewTab')
-                    : tab === 'manual'
-                      ? t('common.manualTab')
-                      : tab === 'execute'
-                        ? t('common.executeTab')
-                        : t('common.verifyTab')}
-                </button>
-              ),
-            )}
-          </div>
+          <PmeTabBar
+            activeTab={pmeTab}
+            onChange={setPmeTab}
+            tabs={[
+              { key: 'preview', label: t('common.previewTab') },
+              { key: 'manual', label: t('common.manualTab') },
+              { key: 'execute', label: t('common.executeTab') },
+              { key: 'verify', label: t('common.verifyTab') },
+            ]}
+          />
         </div>
         <div className="panel-body">
           {pmeTab === 'preview' && (
@@ -411,56 +423,21 @@ export function SchedulePage() {
                 {t('schedule.previewBody')}
               </p>
               {plan.generatedFiles.length > 0 ? (
-                <>
-                  <div
-                    className="generated-file-tabs"
-                    style={{ marginBottom: 'var(--space-3)' }}
-                  >
-                    {plan.generatedFiles.map((file, index) => (
-                      <button
-                        key={file.relativePath}
-                        className={`chip-button ${
-                          selectedFileIndex === index
-                            ? 'chip-button--active'
-                            : ''
-                        }`}
-                        type="button"
-                        onClick={() => setSelectedFileIndex(index)}
-                      >
-                        {file.relativePath}
-                      </button>
-                    ))}
-                  </div>
-                  {selectedFile && (
-                    <div className="code-panel">
-                      <div className="row-between">
-                        <strong>{selectedFile.purpose}</strong>
-                        <span className="mono dim">
-                          {selectedFile.relativePath}
-                        </span>
-                      </div>
-                      <pre className="code-block">
-                        <code>{selectedFile.contents}</code>
-                      </pre>
-                      {selectedFile.absolutePath && (
-                        <div className="code-actions">
-                          <button
-                            className="btn-tiny"
-                            type="button"
-                            onClick={() => {
-                              void backend.openPathInFileManager(
-                                selectedFile.absolutePath ??
-                                  selectedFile.relativePath,
-                              )
-                            }}
-                          >
-                            {t('common.openPath')}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
+                <GeneratedArtifactViewer
+                  copyFeedback={copyFeedback}
+                  copyLabel={t('common.copyAction')}
+                  copyPathLabel={t('common.copyAction')}
+                  errorMessage={t('audit.copyFailed')}
+                  files={plan.generatedFiles}
+                  onCopy={(key, value) => {
+                    void copyGeneratedArtifact(key, value, setCopyFeedback)
+                  }}
+                  onOpenPath={(path) => {
+                    void backend.openPathInFileManager(path)
+                  }}
+                  openPathLabel={t('common.openPath')}
+                  successMessage={t('common.copiedNotice')}
+                />
               ) : (
                 <div className="dim" style={{ fontSize: '12px' }}>
                   {t('schedule.noGeneratedFiles')}
@@ -613,30 +590,35 @@ export function SchedulePage() {
             <div className="settings-result-list">
               <div className="summary-label">{t('common.verifyTab')}</div>
               <p className="dashboard-next-action">{installDescription}</p>
-              <div className="config-row">
-                <span className="config-label">
-                  {t('schedule.installState')}
-                </span>
-                <span className="config-value">{badge}</span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">
-                  {t('schedule.lastTriggered')}
-                </span>
-                <span className="config-value mono">
-                  {lastBackup
-                    ? formatRelativeTime(lastBackup, language)
-                    : t('common.notAvailable')}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">{t('common.filesLabel')}</span>
-                <span className="config-value mono">
-                  {status.detectedFiles.length > 0
-                    ? String(status.detectedFiles.length)
-                    : t('common.notAvailable')}
-                </span>
-              </div>
+              <VerifyCheckList
+                items={[
+                  {
+                    key: 'install-state',
+                    label: t('schedule.installState'),
+                    status: badge,
+                    body: installDescription,
+                  },
+                  {
+                    key: 'last-triggered',
+                    label: t('schedule.lastTriggered'),
+                    status: lastBackup
+                      ? formatRelativeTime(lastBackup, language)
+                      : t('common.notAvailable'),
+                  },
+                  {
+                    key: 'detected-files',
+                    label: t('common.filesLabel'),
+                    status:
+                      status.detectedFiles.length > 0
+                        ? String(status.detectedFiles.length)
+                        : t('common.notAvailable'),
+                    body:
+                      status.detectedFiles.length > 0
+                        ? status.detectedFiles.join(' · ')
+                        : undefined,
+                  },
+                ]}
+              />
               {status.detectedFiles.length > 0 ? (
                 <div className="manual-steps">
                   {status.detectedFiles.map((path) => (

@@ -58,6 +58,7 @@
 - `refind` overview/day/detail route 現在也共用同一套 workbench shell：title / description / factor presentation / entity-first CTA grammar 不得再由各頁各自手寫。
 - Explorer `session` / `trail` grouped view 與 promoted route member list 現在共用同一套 workbench row primitive；expand header 仍維持 browse-first canonical surface，不可偷渡成直接導頁。
 - Settings external outputs 與 trusted local host review 現在共用同一套 review row / code preview / target-link grammar；後續若要再擴到 Jobs / Import / Audit，必須沿用這批 primitive，而不是再長一套新 shell。
+- M11 之後，neutral review primitive 不再只屬於 intelligence subtree：Settings、Schedule、Audit 與 Jobs 也正式共用同一套 `review-surface`、PME tab、generated-artifact viewer 與 verify checklist grammar；剩餘 general diagnostics / support actions / Import follow-through 漂移改由 M12 追蹤。
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。

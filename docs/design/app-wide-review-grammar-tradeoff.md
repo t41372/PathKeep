@@ -85,17 +85,17 @@ M6–M10 已把 shared insights entity、route grammar、shared composition、�
 
 ### 4.1 canonical owner map
 
-| 契約 / 能力 | canonical owner | M11 結論 |
-| --- | --- | --- |
-| entity route / search-param grammar | `src/lib/core-intelligence/routes.ts` | 正式升格成單一來源 |
-| AI/provider/assistant status presentation | `src/lib/intelligence-ai-presentation.ts` | 從 `src/lib/intelligence.ts` 拆出 |
-| evidence / assistant link + citation dedupe | `src/lib/intelligence-links.ts` | 從 `src/lib/intelligence.ts` 拆出 |
-| archive / import / security / schedule status tone policy | `src/lib/trust-review.ts` | 維持單一來源 |
-| deterministic runtime / plugin / module label policy | `src/lib/intelligence-runtime.ts` | 維持單一來源 |
-| runtime-job summary / compact error policy | `src/lib/intelligence-presentation.ts` | 維持單一來源 |
-| app-level diagnostics capture | `src/lib/runtime-diagnostics.ts` | 維持單一來源 |
-| neutral review shell | `src/components/review/` | M11-B 正式升格 |
-| transport chain | front-end client → IPC bridge → Tauri command / dev bridge → worker bridge → `vault-worker` | M11 只做 inventory，不開 codegen |
+| 契約 / 能力                                               | canonical owner                                                                             | M11 結論                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- |
+| entity route / search-param grammar                       | `src/lib/core-intelligence/routes.ts`                                                       | 正式升格成單一來源                |
+| AI/provider/assistant status presentation                 | `src/lib/intelligence-ai-presentation.ts`                                                   | 從 `src/lib/intelligence.ts` 拆出 |
+| evidence / assistant link + citation dedupe               | `src/lib/intelligence-links.ts`                                                             | 從 `src/lib/intelligence.ts` 拆出 |
+| archive / import / security / schedule status tone policy | `src/lib/trust-review.ts`                                                                   | 維持單一來源                      |
+| deterministic runtime / plugin / module label policy      | `src/lib/intelligence-runtime.ts`                                                           | 維持單一來源                      |
+| runtime-job summary / compact error policy                | `src/lib/intelligence-presentation.ts`                                                      | 維持單一來源                      |
+| app-level diagnostics capture                             | `src/lib/runtime-diagnostics.ts`                                                            | 維持單一來源                      |
+| neutral review shell                                      | `src/components/review/`                                                                    | M11-B 正式升格                    |
+| transport chain                                           | front-end client → IPC bridge → Tauri command / dev bridge → worker bridge → `vault-worker` | M11 只做 inventory，不開 codegen  |
 
 ### 4.2 consumer-local drift inventory
 

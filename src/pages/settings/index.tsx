@@ -16,6 +16,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import {
+  GeneratedArtifactViewer,
+  PmeTabBar,
+  type ReviewCopyFeedback,
+  ReviewSection,
+  VerifyCheckList,
+} from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
@@ -232,8 +239,8 @@ export function SettingsPage() {
   const [aiIntegrationError, setAiIntegrationError] = useState<string | null>(
     null,
   )
-  const [selectedAiGeneratedFileIndex, setSelectedAiGeneratedFileIndex] =
-    useState(0)
+  const [aiIntegrationCopyFeedback, setAiIntegrationCopyFeedback] =
+    useState<ReviewCopyFeedback | null>(null)
   const lastSyncedAiSignatureRef = useRef<string | null>(null)
 
   /**
@@ -470,6 +477,7 @@ export function SettingsPage() {
         if (!cancelled) {
           setAiIntegrationPreview(preview)
           setAiIntegrationError(null)
+          setAiIntegrationCopyFeedback(null)
         }
       } catch (error) {
         if (!cancelled) {
@@ -477,6 +485,7 @@ export function SettingsPage() {
           setAiIntegrationError(
             error instanceof Error ? error.message : t('common.notAvailable'),
           )
+          setAiIntegrationCopyFeedback(null)
         }
       }
     }
@@ -486,10 +495,6 @@ export function SettingsPage() {
       cancelled = true
     }
   }, [snapshotAiSignature, t])
-
-  useEffect(() => {
-    setSelectedAiGeneratedFileIndex(0)
-  }, [aiIntegrationPreview?.generatedFiles.length])
 
   const enrichmentSettings = useMemo(
     () => resolveEnrichmentSettings(snapshot?.config.enrichment),
@@ -637,10 +642,6 @@ export function SettingsPage() {
   const currentAppLockSettings = appLockDraft ?? snapshot.config.appLock
   const currentAnalyticsSettings = analyticsDraft ?? snapshot.config.analytics
   const aiIndexMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
-  const selectedAiGeneratedFile =
-    aiIntegrationPreview?.generatedFiles[selectedAiGeneratedFileIndex] ??
-    aiIntegrationPreview?.generatedFiles[0] ??
-    null
   const aiConfigDirty =
     snapshotAiSignature !== null &&
     serializeAiSettings(currentAiSettings) !== snapshotAiSignature
@@ -653,6 +654,17 @@ export function SettingsPage() {
       ...snapshot.config.ai.embeddingProviders,
     ].map((provider) => provider.id),
   )
+  async function handleAiIntegrationCopy(key: string, value: string) {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('clipboard unavailable')
+      }
+      await navigator.clipboard.writeText(value)
+      setAiIntegrationCopyFeedback({ key, tone: 'success' })
+    } catch {
+      setAiIntegrationCopyFeedback({ key, tone: 'error' })
+    }
+  }
   const appLockCanEnable =
     currentAppLockSettings.passcodeConfigured ||
     Boolean(appLockStatus?.passcodeConfigured)
@@ -2712,106 +2724,51 @@ export function SettingsPage() {
                   title={t('settings.aiIntegrationReview')}
                   body={aiIntegrationPreview.consentSummary}
                 />
-                <div className="code-panel">
-                  <span>{t('settings.aiMcpCommand')}</span>
-                  <pre>{aiIntegrationPreview.mcpCommand}</pre>
-                </div>
-                <div className="result-row">
-                  <div className="result-row__header">
-                    <strong>{t('settings.aiCapabilityNotes')}</strong>
+                <ReviewSection title={t('settings.aiMcpCommand')}>
+                  <div className="code-panel">
+                    <pre>{aiIntegrationPreview.mcpCommand}</pre>
                   </div>
+                </ReviewSection>
+                <ReviewSection title={t('settings.aiCapabilityNotes')}>
                   {aiIntegrationPreview.capabilityNotes.map((note) => (
                     <p key={note}>{note}</p>
                   ))}
-                </div>
-                <div className="result-row">
-                  <div className="result-row__header">
-                    <strong>{t('settings.aiScopeBoundary')}</strong>
-                  </div>
+                </ReviewSection>
+                <ReviewSection title={t('settings.aiScopeBoundary')}>
                   {aiIntegrationPreview.scopeBoundary.map((note) => (
                     <p key={note}>{note}</p>
                   ))}
-                </div>
-                <div className="result-row">
-                  <div className="result-row__header">
-                    <strong>{t('settings.aiAuditTrace')}</strong>
-                  </div>
+                </ReviewSection>
+                <ReviewSection title={t('settings.aiAuditTrace')}>
                   {aiIntegrationPreview.auditTrace.map((note) => (
                     <p key={note}>{note}</p>
                   ))}
-                </div>
-                <div className="result-row">
-                  <div className="result-row__header">
-                    <strong>{t('settings.aiGeneratedFiles')}</strong>
-                  </div>
+                </ReviewSection>
+                <ReviewSection title={t('settings.aiGeneratedFiles')}>
                   {aiIntegrationPreview.generatedFiles.length > 0 ? (
-                    <>
-                      <div
-                        className="generated-file-tabs"
-                        style={{ marginBottom: 'var(--space-3)' }}
-                      >
-                        {aiIntegrationPreview.generatedFiles.map(
-                          (file, index) => (
-                            <button
-                              key={file.relativePath}
-                              className={`chip-button ${
-                                selectedAiGeneratedFileIndex === index
-                                  ? 'chip-button--active'
-                                  : ''
-                              }`}
-                              type="button"
-                              onClick={() =>
-                                setSelectedAiGeneratedFileIndex(index)
-                              }
-                            >
-                              {file.relativePath}
-                            </button>
-                          ),
-                        )}
-                      </div>
-                      {selectedAiGeneratedFile ? (
-                        <div className="code-panel">
-                          <div className="row-between">
-                            <strong>{selectedAiGeneratedFile.purpose}</strong>
-                            <span className="mono dim">
-                              {selectedAiGeneratedFile.relativePath}
-                            </span>
-                          </div>
-                          <pre className="code-block">
-                            <code>{selectedAiGeneratedFile.contents}</code>
-                          </pre>
-                          {selectedAiGeneratedFile.absolutePath ? (
-                            <div className="code-actions">
-                              <button
-                                className="btn-tiny"
-                                type="button"
-                                onClick={() => {
-                                  void backend.openPathInFileManager(
-                                    selectedAiGeneratedFile.absolutePath ??
-                                      selectedAiGeneratedFile.relativePath,
-                                  )
-                                }}
-                              >
-                                {t('common.openPath')}
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </>
+                    <GeneratedArtifactViewer
+                      copyFeedback={aiIntegrationCopyFeedback}
+                      copyLabel={t('common.copyAction')}
+                      copyPathLabel={t('common.copyAction')}
+                      errorMessage={t('audit.copyFailed')}
+                      files={aiIntegrationPreview.generatedFiles}
+                      onCopy={handleAiIntegrationCopy}
+                      onOpenPath={(path) => {
+                        void backend.openPathInFileManager(path)
+                      }}
+                      openPathLabel={t('common.openPath')}
+                      successMessage={t('common.copiedNotice')}
+                    />
                   ) : null}
-                </div>
-                <div className="result-row">
-                  <div className="result-row__header">
-                    <strong>{t('settings.aiManualSteps')}</strong>
-                  </div>
+                </ReviewSection>
+                <ReviewSection title={t('settings.aiManualSteps')}>
                   {aiIntegrationPreview.manualSteps.map((step) => (
                     <p key={step}>{step}</p>
                   ))}
                   {aiIntegrationPreview.warnings.map((warning) => (
                     <p key={warning}>{warning}</p>
                   ))}
-                </div>
+                </ReviewSection>
               </>
             ) : null}
           </div>
@@ -3802,28 +3759,16 @@ export function SettingsPage() {
               <span className="panel-title">{t('settings.remotePme')}</span>
             </div>
             <div className="panel-body">
-              <div className="pme-tabs">
-                {(['preview', 'manual', 'execute', 'verify'] as const).map(
-                  (tab) => (
-                    <button
-                      key={tab}
-                      className={`pme-tab ${remoteTab === tab ? 'active' : ''}`}
-                      type="button"
-                      onClick={() => {
-                        setRemoteTab(tab)
-                      }}
-                    >
-                      {tab === 'preview'
-                        ? t('common.previewTab')
-                        : tab === 'manual'
-                          ? t('common.manualTab')
-                          : tab === 'execute'
-                            ? t('common.executeTab')
-                            : t('common.verifyTab')}
-                    </button>
-                  ),
-                )}
-              </div>
+              <PmeTabBar
+                activeTab={remoteTab}
+                onChange={setRemoteTab}
+                tabs={[
+                  { key: 'preview', label: t('common.previewTab') },
+                  { key: 'manual', label: t('common.manualTab') },
+                  { key: 'execute', label: t('common.executeTab') },
+                  { key: 'verify', label: t('common.verifyTab') },
+                ]}
+              />
 
               {remoteAction ? (
                 <StatusCallout tone="info" title={remoteAction} body="" />
@@ -3967,40 +3912,35 @@ export function SettingsPage() {
                   />
                   {remoteVerification ? (
                     <>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.bundleVersion')}
-                        </span>
-                        <span className="config-value mono">
-                          {remoteVerification.bundleVersion}
-                        </span>
-                      </div>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.restoreReady')}
-                        </span>
-                        <span className="config-value">
-                          {remoteVerification.restoreReady
-                            ? t('common.statusClear')
-                            : t('common.statusNeedsAttention')}
-                        </span>
-                      </div>
-                      <div className="inline-note-list">
-                        {remoteVerification.checks.map((check) => (
-                          <div key={check.name} className="result-row">
-                            <div className="result-row__header">
-                              <strong>{check.name}</strong>
-                              <span className="mono">{check.status}</span>
-                            </div>
-                            <p>{check.message}</p>
-                          </div>
-                        ))}
-                        {remoteVerification.restoreSteps.map((step) => (
-                          <div key={step} className="result-row">
-                            <p>{step}</p>
-                          </div>
-                        ))}
-                      </div>
+                      <VerifyCheckList
+                        items={[
+                          {
+                            key: 'bundle-version',
+                            label: t('settings.bundleVersion'),
+                            status: remoteVerification.bundleVersion,
+                          },
+                          {
+                            key: 'restore-ready',
+                            label: t('settings.restoreReady'),
+                            status: remoteVerification.restoreReady
+                              ? t('common.statusClear')
+                              : t('common.statusNeedsAttention'),
+                          },
+                          ...remoteVerification.checks.map((check) => ({
+                            body: check.message,
+                            key: check.name,
+                            label: check.name,
+                            status: check.status,
+                          })),
+                        ]}
+                      />
+                      {remoteVerification.restoreSteps.length > 0 ? (
+                        <ReviewSection title={t('settings.restoreReady')}>
+                          {remoteVerification.restoreSteps.map((step) => (
+                            <p key={step}>{step}</p>
+                          ))}
+                        </ReviewSection>
+                      ) : null}
                     </>
                   ) : (
                     <StatusCallout

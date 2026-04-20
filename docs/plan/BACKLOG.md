@@ -14,29 +14,7 @@
 > 2026-04-19 M8 follow-up：`WORK-M8-A` 已完成，並把下一輪 `WORK-M9-A — Remaining Reuse Inventory And Single-Source Map` 與 `WORK-M9-B — Shared Digest / CTA / Evidence Composition Extraction` 正式立項、提升到 `STATUS.md`。BACKLOG 目前再次只剩 blocked 的 `WORK-CI-N`；M9 的 active plan 改在 `STATUS.md` 與 `docs/plan/m9-cross-app-reuse/README.md` 維護。
 > 2026-04-19 M9 follow-up：`WORK-M9-A` 與 `WORK-M9-B` 已完成，並把下一輪 `WORK-M10-A — Shared Review Rows And Workbench Surface Reuse` 與 `WORK-M10-B — Intelligence Route And Desktop Glue Decomposition` 正式立項、提升到 `STATUS.md`。BACKLOG 目前再次只剩 blocked 的 `WORK-CI-N`；M10 的 active plan 改在 `STATUS.md` 與 `docs/plan/m10-workbench-reuse/README.md` 維護。
 > 2026-04-19 M10 follow-up：`WORK-M10-A` 與 `WORK-M10-B` 已完成，並把下一輪 `WORK-M11-A — App-Wide Reuse Inventory And Single-Source Map` 與 `WORK-M11-B — Shared Review / PME / Diagnostics Surface Extraction` 正式立項、提升到 `STATUS.md`。BACKLOG 目前再次只剩 blocked 的 `WORK-CI-N`；M11 的 active plan 改在 `STATUS.md` 與 `docs/plan/m11-app-wide-reuse/README.md` 維護。
-> 2026-04-19 M11-A follow-up：`WORK-M11-A` 已完成。repo 現在已有 app-wide review grammar single-source map、`PG-RD-UX-012`、以及 M12 seed；`WORK-M11-B` 仍留在 `STATUS.md` 作為 active block。下一輪 seed 已新增 `WORK-M12-A` / `WORK-M12-B`，但在 M11-B 完成前不提前提升。
-
-- [ ] **WORK-M12-A** — Shared Support Actions And Diagnostics Inventory
-  - 讀先：
-    `docs/plan/m12-support-actions-and-diagnostics/README.md`
-    `docs/plan/m11-app-wide-reuse/README.md`
-    `docs/design/app-wide-review-grammar-tradeoff.md`
-    `docs/design/screens-and-nav.md`
-    `docs/features/intelligence-current-state.md`
-  - 目標：盤點全 app 還未進 shared review grammar 的 support actions、diagnostics rows、以及 Settings mega-route 的下一輪拆分機會，建立 single-source map 與 extraction boundary。
-  - 契約：延續 M11 已 accepted 的 neutral review primitive / route / trusted-output 邊界；這一輪先做 inventory 與 owner map，不直接擴成大規模 route rewrite 或 transport automation 專案。
-  - 驗收：source docs、inventory map、後續 `TODO: M12` 與 extraction strategy 存在
-
-- [ ] **WORK-M12-B** — Support Action / Diagnostics Primitive Extraction
-  - 讀先：
-    `docs/plan/m12-support-actions-and-diagnostics/README.md`
-    `docs/design/screens-and-nav.md`
-    `docs/design/ux-principles.md`
-    `docs/features/intelligence-current-state.md`
-    `docs/plan/e2e-workflow-tests.md`
-  - 目標：根據 `WORK-M12-A` 的 inventory，把至少一輪高價值的 shared support action / diagnostics primitive 抽離，優先處理 open-path / copy action、general diagnostics rows、以及 Settings / Import / Audit / Jobs 的 support summary drift。
-  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而重開 M11 已收斂的 route / payload / review shell contract。
-  - 驗收：`bun run check && bun run build`
+> 2026-04-19 M11 follow-up：`WORK-M11-A` 與 `WORK-M11-B` 已完成，並把下一輪 `WORK-M12-A — Shared Support Actions And Diagnostics Inventory` 與 `WORK-M12-B — Support Action / Diagnostics Primitive Extraction` 正式立項、提升到 `STATUS.md`。BACKLOG 目前再次只剩 blocked 的 `WORK-CI-N`；M12 的 active plan 改在 `STATUS.md` 與 `docs/plan/m12-support-actions-and-diagnostics/README.md` 維護。
 
 - [!] **WORK-CI-N** — Full Desktop Truth Pass After Locked-Archive Bootstrap Recovery
   - 讀先：

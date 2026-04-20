@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M11 — App-Wide Reuse And Shared Review Grammar**
+**當前 Milestone：M12 — Shared Support Actions And Diagnostics Decomposition**
 
 ---
 
@@ -23,16 +23,28 @@
 > 2026-04-19 M9 closeout：`WORK-M9-A` 與 `WORK-M9-B` 已完成。repo 現在正式有 shared route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 inline-end section-meta header chrome；`證據與新鮮度` badge 不再佔整行或吃滿整個 card header。下一輪 active current-focus 改成 `WORK-M10-A` / `WORK-M10-B`，專門處理仍未抽出的 workbench/review rows 與 route / desktop glue decomposition。
 > 2026-04-19 M10 closeout：`WORK-M10-A` 與 `WORK-M10-B` 已完成。repo 現在正式有 shared `refind` workbench shell、Explorer session/trail shared group-card/member-row primitive、Settings external-output/local-host shared review chrome，以及 split 的 promoted routes / Core Intelligence API / Tauri command + worker-bridge intelligence facade；public route / payload contract 維持不變。下一輪 active current-focus 改成 `WORK-M11-A` / `WORK-M11-B`，從 app-wide reuse / review grammar 角度盤點剩餘 mixed helper、dev mirror 與 diagnostics surface。
 > 2026-04-19 M11-A closeout：`WORK-M11-A` 已完成。repo 現在已有 app-wide review grammar single-source map、[`docs/design/app-wide-review-grammar-tradeoff.md`](../design/app-wide-review-grammar-tradeoff.md)、`PG-RD-UX-012`、以及 M12 seed 計劃；`src/lib/intelligence.ts` / dev IPC mirror / worker pass-through 的後續邊界也已定案。active current-focus 現在只剩 `WORK-M11-B`，專門把 neutral review primitive 抽到 Settings / Schedule / Audit / Jobs。
+> 2026-04-19 M11-B closeout：`WORK-M11-B` 已完成。repo 現在正式有 app-wide neutral review primitive（`review-surface`、`PmeTabBar`、`GeneratedArtifactViewer`、`VerifyCheckList`），而 Settings / Schedule / Audit / Jobs 也都已接上 shared review grammar；`src/lib/intelligence.ts` 只剩 compatibility barrel，dev mirror / worker pass-through follow-up 則改由 M12 parity inventory 追蹤。依照工作流，下一輪 active current-focus 已切到 `WORK-M12-A` / `WORK-M12-B`。
 
-- [ ] **WORK-M11-B** — Shared Review / PME / Diagnostics Surface Extraction
+- [ ] **WORK-M12-A** — Shared Support Actions And Diagnostics Inventory
   - 讀先：
+    `docs/plan/m12-support-actions-and-diagnostics/README.md`
     `docs/plan/m11-app-wide-reuse/README.md`
+    `docs/design/app-wide-review-grammar-tradeoff.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/intelligence-current-state.md`
+  - 目標：盤點全 app 還未進 shared review grammar 的 support actions、diagnostics rows、以及 Settings mega-route 的下一輪拆分機會，建立 single-source map 與 extraction boundary。
+  - 契約：延續 M11 已 accepted 的 neutral review primitive / route / trusted-output 邊界；這一輪先做 inventory 與 owner map，不直接擴成大規模 route rewrite 或 transport automation 專案。
+  - 驗收：source docs、inventory map、後續 `TODO: M12` 與 extraction strategy 存在
+
+- [ ] **WORK-M12-B** — Support Action / Diagnostics Primitive Extraction
+  - 讀先：
+    `docs/plan/m12-support-actions-and-diagnostics/README.md`
     `docs/design/screens-and-nav.md`
     `docs/design/ux-principles.md`
     `docs/features/intelligence-current-state.md`
     `docs/plan/e2e-workflow-tests.md`
-  - 目標：根據 `WORK-M11-A` 的 inventory，把至少一輪跨 route 的 shared review / PME / diagnostics primitive 抽離，優先處理 Settings / Jobs / Import / Audit 之間仍漂移的 review row、code preview、target-link、verify/result grammar。
-  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而引入新的 global state、也不得回退成 page-local trust / PME copy。
+  - 目標：根據 `WORK-M12-A` 的 inventory，把至少一輪高價值的 shared support action / diagnostics primitive 抽離，優先處理 open-path / copy action、general diagnostics rows、以及 Settings / Import / Audit / Jobs 的 support summary drift。
+  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而重開 M11 已收斂的 route / payload / review shell contract。
   - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup

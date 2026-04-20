@@ -20,11 +20,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  WorkbenchCodePreview,
-  WorkbenchCopyStatus,
-  WorkbenchReviewSection,
-  type WorkbenchCopyFeedback,
-} from '../../components/intelligence/workbench'
+  GeneratedArtifactViewer,
+  ReviewCopyStatus,
+  ReviewSection,
+  type ReviewCopyFeedback,
+} from '../../components/review'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
@@ -35,12 +35,9 @@ import {
   useAsyncData,
   type DateRange,
   type IntelligenceInstalledLocalHost,
-  type IntelligenceLocalHostGeneratedFile,
 } from '../../lib/core-intelligence'
 import { useI18n } from '../../lib/i18n/hooks'
 import { profileIdLabel } from '../../lib/profile-scope-context'
-
-type Translate = (key: string, vars?: Record<string, string | number>) => string
 
 interface SettingsExternalOutputLocalHostPanelProps {
   activeProfileId: string | null
@@ -67,9 +64,9 @@ export function SettingsExternalOutputLocalHostPanel({
   const { language, ns } = useI18n()
   const t = ns('settings')
   const commonT = ns('common')
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0)
-  const [copyFeedback, setCopyFeedback] =
-    useState<WorkbenchCopyFeedback | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
   const [buildState, setBuildState] = useState<{
     tone: 'success' | 'error'
     message: string
@@ -86,7 +83,6 @@ export function SettingsExternalOutputLocalHostPanel({
   }, [ready, dateRange, language, activeProfileId])
 
   useEffect(() => {
-    setSelectedFileIndex(0)
     setCopyFeedback(null)
     setBuildState(null)
     setLastBuiltHost(null)
@@ -94,8 +90,6 @@ export function SettingsExternalOutputLocalHostPanel({
 
   const currentPreview = preview.data
   const generatedFiles = currentPreview?.generatedFiles ?? []
-  const selectedFile =
-    generatedFiles[selectedFileIndex] ?? generatedFiles[0] ?? null
   const installedHost = currentPreview?.installedHost ?? lastBuiltHost ?? null
   const scopeValue = activeProfileId
     ? profileIdLabel(activeProfileId)
@@ -177,7 +171,7 @@ export function SettingsExternalOutputLocalHostPanel({
         />
       ) : (
         <>
-          <WorkbenchReviewSection
+          <ReviewSection
             headerMeta={
               <span className="panel-badge">
                 {t('externalOutputsLocalHostBadge')}
@@ -214,33 +208,27 @@ export function SettingsExternalOutputLocalHostPanel({
                 </span>
               </div>
             </div>
-          </WorkbenchReviewSection>
+          </ReviewSection>
 
-          <WorkbenchReviewSection
-            title={t('externalOutputsLocalHostBoundaryTitle')}
-          >
+          <ReviewSection title={t('externalOutputsLocalHostBoundaryTitle')}>
             <div className="inline-note-list">
               {currentPreview.boundaryNotes.map((note) => (
                 <p key={note}>{note}</p>
               ))}
             </div>
-          </WorkbenchReviewSection>
+          </ReviewSection>
 
           {currentPreview.warnings.length > 0 ? (
-            <WorkbenchReviewSection
-              title={t('externalOutputsLocalHostWarningsTitle')}
-            >
+            <ReviewSection title={t('externalOutputsLocalHostWarningsTitle')}>
               <div className="inline-note-list">
                 {currentPreview.warnings.map((warning) => (
                   <p key={warning}>{warning}</p>
                 ))}
               </div>
-            </WorkbenchReviewSection>
+            </ReviewSection>
           ) : null}
 
-          <WorkbenchReviewSection
-            title={t('externalOutputsLocalHostManualTitle')}
-          >
+          <ReviewSection title={t('externalOutputsLocalHostManualTitle')}>
             {manualSteps.length > 0 ? (
               <div className="inline-note-list">
                 {manualSteps.map((step) => (
@@ -249,33 +237,21 @@ export function SettingsExternalOutputLocalHostPanel({
               </div>
             ) : null}
             {generatedFiles.length > 0 ? (
-              <>
-                <div className="generated-file-tabs">
-                  {generatedFiles.map((file, index) => (
-                    <button
-                      key={file.relativePath}
-                      className={`chip-button ${
-                        selectedFileIndex === index ? 'chip-button--active' : ''
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedFileIndex(index)}
-                    >
-                      {file.relativePath}
-                    </button>
-                  ))}
-                </div>
-                {selectedFile ? (
-                  <GeneratedFilePanel
-                    commonT={commonT}
-                    copyFeedback={copyFeedback}
-                    file={selectedFile}
-                    onCopy={handleCopy}
-                    t={t}
-                  />
-                ) : null}
-              </>
+              <GeneratedArtifactViewer
+                copyFeedback={copyFeedback}
+                copyLabel={commonT('copyAction')}
+                copyPathLabel={t('externalOutputsLocalHostCopyPathAction')}
+                errorMessage={t('externalOutputsCopyFailed')}
+                files={generatedFiles}
+                onCopy={handleCopy}
+                onOpenPath={(path) => {
+                  void backend.openPathInFileManager(path)
+                }}
+                openPathLabel={commonT('openPath')}
+                successMessage={commonT('copiedNotice')}
+              />
             ) : null}
-          </WorkbenchReviewSection>
+          </ReviewSection>
 
           <StatusCallout
             tone="info"
@@ -312,9 +288,7 @@ export function SettingsExternalOutputLocalHostPanel({
           ) : null}
 
           {installedHost ? (
-            <WorkbenchReviewSection
-              title={t('externalOutputsLocalHostVerifyTitle')}
-            >
+            <ReviewSection title={t('externalOutputsLocalHostVerifyTitle')}>
               <div className="settings-field-grid">
                 <div className="config-row">
                   <span className="config-label">
@@ -399,13 +373,13 @@ export function SettingsExternalOutputLocalHostPanel({
                   {commonT('copyAction')}
                 </button>
               </div>
-              <WorkbenchCopyStatus
+              <ReviewCopyStatus
                 copyFeedback={copyFeedback}
                 copyKey="installed-entry-path"
                 errorMessage={t('externalOutputsCopyFailed')}
                 successMessage={commonT('copiedNotice')}
               />
-            </WorkbenchReviewSection>
+            </ReviewSection>
           ) : (
             <StatusCallout
               tone="info"
@@ -415,73 +389,6 @@ export function SettingsExternalOutputLocalHostPanel({
           )}
         </>
       )}
-    </>
-  )
-}
-
-function GeneratedFilePanel({
-  commonT,
-  copyFeedback,
-  file,
-  onCopy,
-  t,
-}: {
-  commonT: Translate
-  copyFeedback: WorkbenchCopyFeedback | null
-  file: IntelligenceLocalHostGeneratedFile
-  onCopy: (key: string, value: string) => void
-  t: Translate
-}) {
-  const pathKey = `path:${file.relativePath}`
-  const contentsKey = `contents:${file.relativePath}`
-
-  return (
-    <>
-      <WorkbenchCodePreview
-        actions={
-          file.absolutePath ? (
-            <>
-              <button
-                className="btn-tiny"
-                type="button"
-                onClick={() => {
-                  void backend.openPathInFileManager(
-                    file.absolutePath ?? file.relativePath,
-                  )
-                }}
-              >
-                {commonT('openPath')}
-              </button>
-              <button
-                className="btn-tiny"
-                type="button"
-                onClick={() => {
-                  void onCopy(pathKey, file.absolutePath ?? file.relativePath)
-                }}
-              >
-                {t('externalOutputsLocalHostCopyPathAction')}
-              </button>
-            </>
-          ) : null
-        }
-        code={file.contents}
-        copyFeedback={copyFeedback}
-        copyKey={contentsKey}
-        copyLabel={commonT('copyAction')}
-        errorMessage={t('externalOutputsCopyFailed')}
-        onCopy={onCopy}
-        successMessage={commonT('copiedNotice')}
-        title={file.purpose}
-        titleMeta={<span className="mono dim">{file.relativePath}</span>}
-      />
-      {file.absolutePath ? (
-        <WorkbenchCopyStatus
-          copyFeedback={copyFeedback}
-          copyKey={pathKey}
-          errorMessage={t('externalOutputsCopyFailed')}
-          successMessage={commonT('copiedNotice')}
-        />
-      ) : null}
     </>
   )
 }

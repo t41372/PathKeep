@@ -6,10 +6,10 @@
 
 ## M11 的完成定義
 
-- [ ] 盤點 app-wide reusable review / PME / diagnostics grammar，建立 single-source map
-- [ ] 決定哪些剩餘 mixed helper / dev mirror / pass-through glue 值得正式拆分，哪些只保留 inventory
-- [ ] 至少完成一輪跨 route 的 shared review / PME / diagnostics primitive extraction
-- [ ] 把新的 deferred gap 誠實改記後續 milestone，而不是讓 M11 無限膨脹
+- [x] 盤點 app-wide reusable review / PME / diagnostics grammar，建立 single-source map
+- [x] 決定哪些剩餘 mixed helper / dev mirror / pass-through glue 值得正式拆分，哪些只保留 inventory
+- [x] 至少完成一輪跨 route 的 shared review / PME / diagnostics primitive extraction
+- [x] 把新的 deferred gap 誠實改記後續 milestone，而不是讓 M11 無限膨脹
 
 ---
 
@@ -27,8 +27,8 @@
 
 - [x] `M11-001` 盤點全 app reusable review / PME / diagnostics surface
 - [x] `M11-002` 決定 mixed helper / dev mirror / transport glue 的下一輪 decomposition 邊界
-- [ ] `M11-003` 抽出一輪跨 route shared review grammar
-- [ ] `M11-004` 回寫 source docs、status、backlog 與 `TODO: M11` inventory
+- [x] `M11-003` 抽出一輪跨 route shared review grammar
+- [x] `M11-004` 回寫 source docs、status、backlog 與 deferred inventory
 
 ---
 
@@ -60,13 +60,13 @@
 
 ## Single-Source Map
 
-| 契約 / 能力 | canonical owner | 目前狀態 |
-| --- | --- | --- |
-| entity route / search-param grammar | `src/lib/core-intelligence/routes.ts` | accepted；M11 明確禁止再回 `src/lib/intelligence.ts` 混寫 |
-| status / tone / label policy | `src/lib/trust-review.ts`、`src/lib/intelligence-runtime.ts`、`src/lib/intelligence-presentation.ts` | accepted |
-| app-level diagnostics capture | `src/lib/runtime-diagnostics.ts` | accepted |
-| neutral review shell | `src/components/review/` | M11-B 正式升格；原 `src/components/intelligence/workbench/review-surface.tsx` 只留 compatibility re-export |
-| transport chain | front-end client → IPC bridge → Tauri command / dev bridge → worker bridge → `vault-worker` | M11 只做 inventory / boundary，不做 codegen |
+| 契約 / 能力                         | canonical owner                                                                                      | 目前狀態                                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| entity route / search-param grammar | `src/lib/core-intelligence/routes.ts`                                                                | accepted；M11 明確禁止再回 `src/lib/intelligence.ts` 混寫                                                  |
+| status / tone / label policy        | `src/lib/trust-review.ts`、`src/lib/intelligence-runtime.ts`、`src/lib/intelligence-presentation.ts` | accepted                                                                                                   |
+| app-level diagnostics capture       | `src/lib/runtime-diagnostics.ts`                                                                     | accepted                                                                                                   |
+| neutral review shell                | `src/components/review/`                                                                             | M11-B 正式升格；原 `src/components/intelligence/workbench/review-surface.tsx` 只留 compatibility re-export |
+| transport chain                     | front-end client → IPC bridge → Tauri command / dev bridge → worker bridge → `vault-worker`          | M11 只做 inventory / boundary，不做 codegen                                                                |
 
 ---
 
@@ -95,3 +95,12 @@
 - `src/lib/intelligence.ts` 的結論已定案：route href / entity label helper 回 `src/lib/core-intelligence/routes.ts`；AI/provider/assistant presentation 進 `src/lib/intelligence-ai-presentation.ts`；evidence / assistant link 與 citation dedupe 進 `src/lib/intelligence-links.ts`；barrel 只留 compatibility role。
 - `src-tauri/src/dev_ipc_bridge.rs` 與 `src-tauri/src/worker_bridge/intelligence.rs` / `vault-worker` 的後續也已定案：M11 不再機械拆 transport；只有在 M12 inventory 證明 owner drift / parity cost 持續存在時才重開。
 - 下一輪 seed 已整理到 [`../m12-support-actions-and-diagnostics/README.md`](../m12-support-actions-and-diagnostics/README.md)，主題固定為 support actions、diagnostics rows、Settings mega-route further split，以及更輕量的 transport parity automation 評估。
+
+---
+
+## 2026-04-19 WORK-M11-B Closeout
+
+- neutral review primitive 現在正式升格到 [`src/components/review/`](../../src/components/review/index.ts)：`review-surface`、`PmeTabBar`、`GeneratedArtifactViewer`、`VerifyCheckList` 不再只屬於 intelligence subtree。
+- Settings external-output local host、Settings AI integration preview、Settings remote backup PME、Schedule PME、Audit artifact rows、以及 Jobs recent AI/runtime jobs 現在都改吃 neutral review grammar，而不是各自手搓 row / tab / artifact / verify shell。
+- `src/lib/intelligence.ts` 已退回 thin barrel；active code owner 現在分別掛回 `src/lib/core-intelligence/routes.ts`、`src/lib/intelligence-ai-presentation.ts`、`src/lib/intelligence-links.ts`。
+- code 中剩餘的 dev bridge / worker pass-through follow-up 已從 `TODO: M11` 改記到 M12 的 parity inventory，M11 不再保留漂浮中的 active TODO。

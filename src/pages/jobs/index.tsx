@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { ReviewSection } from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
@@ -896,13 +897,17 @@ function JobPanel({
           <p className="mono-support">{emptyLabel}</p>
         ) : (
           jobs.map((job) => (
-            <div key={job.id} className="result-row">
-              <div className="result-row__header">
-                <strong>
-                  {job.jobType} · #{job.id}
-                </strong>
+            <ReviewSection
+              key={job.id}
+              headerMeta={
                 <span className="mono-support">{stateLabel(job.state)}</span>
-              </div>
+              }
+              title={
+                <>
+                  {job.jobType} · #{job.id}
+                </>
+              }
+            >
               <p>{job.summary ?? job.errorMessage ?? noDetailsLabel}</p>
               <div className="jobs-meta-grid mono-support">
                 <span>
@@ -946,7 +951,7 @@ function JobPanel({
                   </button>
                 ) : null}
               </div>
-            </div>
+            </ReviewSection>
           ))
         )}
       </div>
@@ -985,18 +990,22 @@ function RuntimeJobPanel({
           <p className="mono-support">{emptyLabel}</p>
         ) : (
           jobs.map((job) => (
-            <div key={job.id} className="result-row">
-              <div className="result-row__header">
-                <strong>
+            <ReviewSection
+              key={job.id}
+              headerMeta={
+                <span className="mono-support">
+                  {intelligenceRuntimeJobStateLabel(job.state, settingsT)}
+                </span>
+              }
+              title={
+                <>
                   {(job.pluginId
                     ? enrichmentPluginLabel(job.pluginId, settingsT)
                     : job.jobType) || job.jobType}{' '}
                   · #{job.id}
-                </strong>
-                <span className="mono-support">
-                  {intelligenceRuntimeJobStateLabel(job.state, settingsT)}
-                </span>
-              </div>
+                </>
+              }
+            >
               <p>{summarizeRuntimeJob(job, jobsT)}</p>
               {job.lastError &&
               summarizeRuntimeJob(job, jobsT) !== job.lastError ? (
@@ -1070,7 +1079,7 @@ function RuntimeJobPanel({
                   </button>
                 ) : null}
               </div>
-            </div>
+            </ReviewSection>
           ))
         )}
       </div>
