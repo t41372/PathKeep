@@ -162,6 +162,8 @@ M8  Aggregate Entity Identity And Context Reuse
 M9  Cross-App Reuse Audit And Shared Composition
 M10 Workbench Reuse And Transport Hygiene
 M11 App-Wide Reuse And Shared Review Grammar
+M12 Shared Support Actions And Diagnostics Decomposition
+M13 Broad Reuse Audit Across Support / Trust / Workflow Surfaces
 ```
 
 每個里程碑目錄都有：
@@ -190,6 +192,7 @@ M11 App-Wide Reuse And Shared Review Grammar
 | `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition                          | `[x]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                                 |
 | `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift | `[x]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                                   |
 | `M12`  | 收斂 shared support actions / diagnostics rows，並盤點 Settings 與 transport parity 的下一輪拆分    | `[/]` | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
+| `M13`  | 以 support / trust / workflow surface 為主題，延續 broad reuse audit 與 shared composition extraction | `[ ]` | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
 
 ---
 
@@ -218,5 +221,6 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m9-cross-app-reuse/
        ├── m10-workbench-reuse/
        ├── m11-app-wide-reuse/
-       └── m12-support-actions-and-diagnostics/
+       ├── m12-support-actions-and-diagnostics/
+       └── m13-broad-reuse-audit/
 ```

@@ -143,3 +143,11 @@
 - 評估是否需要更輕量的 transport parity automation，而不是直接重開 codegen / manifest 專案
 
 📋 詳細待辦 → [plan/m12-support-actions-and-diagnostics/README.md](plan/m12-support-actions-and-diagnostics/README.md)
+
+## M13 — Broad Reuse Audit Across Support, Trust, And Workflow Surfaces
+
+- 以 support / trust / workflow surface 為主題繼續盤點 reusable grammar，而不是再把 reuse 只局限在單一路由或單一 primitive
+- 延續 M12 的 support-action single-source 方法，擴到 Jobs summary、Settings split、Explorer / Import / Audit / Schedule follow-through
+- 讓 transport parity 繼續保持 subordinate inventory；除非 owner drift / maintenance cost 證據升高，否則不重開 codegen / manifest 主線
+
+📋 詳細待辦 → [plan/m13-broad-reuse-audit/README.md](plan/m13-broad-reuse-audit/README.md)
