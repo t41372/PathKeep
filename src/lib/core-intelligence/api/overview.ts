@@ -367,6 +367,7 @@ export function peekSearchQueries(
     profileId?: string | null
     browserKind?: string | null
     engine?: string | null
+    domain?: string | null
     query?: string | null
     sort?: SearchQuerySort
     pagination?: { page: number; pageSize: number }
@@ -377,6 +378,7 @@ export function peekSearchQueries(
     profileId: options?.profileId,
     browserKind: options?.browserKind,
     engine: options?.engine,
+    domain: options?.domain,
     query: options?.query,
     sort: options?.sort,
     page: options?.pagination?.page ?? 0,
@@ -797,6 +799,7 @@ export function getSearchQueries(
     profileId?: string | null
     browserKind?: string | null
     engine?: string | null
+    domain?: string | null
     query?: string | null
     sort?: SearchQuerySort
     pagination?: { page: number; pageSize: number }
@@ -809,6 +812,7 @@ export function getSearchQueries(
       profileId?: string | null
       browserKind?: string | null
       engine?: string | null
+      domain?: string | null
       query?: string | null
       sort?: SearchQuerySort
       page: number
@@ -821,6 +825,7 @@ export function getSearchQueries(
       profileId: options?.profileId,
       browserKind: options?.browserKind,
       engine: options?.engine,
+      domain: options?.domain,
       query: options?.query,
       sort: options?.sort,
       page: options?.pagination?.page ?? 0,

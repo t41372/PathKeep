@@ -744,6 +744,7 @@ function buildMockSearchQueries(request?: {
   profileId?: string | null
   browserKind?: string | null
   engine?: string | null
+  domain?: string | null
   query?: string | null
   sort?: SearchQuerySort
   page?: number

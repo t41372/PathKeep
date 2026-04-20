@@ -207,6 +207,7 @@ pub struct SearchQueryListRequest {
     pub profile_id: Option<String>,
     pub browser_kind: Option<String>,
     pub engine: Option<String>,
+    pub domain: Option<String>,
     pub query: Option<String>,
     pub sort: Option<String>,
     pub page: u32,

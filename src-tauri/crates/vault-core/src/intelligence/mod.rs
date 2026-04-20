@@ -66,6 +66,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Timelike, Utc};
+use reqwest::Url;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::json;
 use std::{
@@ -194,11 +195,13 @@ CREATE TABLE IF NOT EXISTS search_events (
   search_engine      TEXT NOT NULL,
   raw_query          TEXT NOT NULL,
   normalized_query   TEXT NOT NULL,
+  query_kind         TEXT NOT NULL DEFAULT 'keyword',
   trail_id           TEXT,
   computed_at        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_search_events_profile_engine ON search_events(profile_id, search_engine);
 CREATE INDEX IF NOT EXISTS idx_search_events_profile_visit ON search_events(profile_id, visit_id);
+CREATE INDEX IF NOT EXISTS idx_search_events_profile_kind ON search_events(profile_id, query_kind);
 
 CREATE TABLE IF NOT EXISTS search_event_terms (
   visit_id           INTEGER NOT NULL,
@@ -334,6 +337,11 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "search-engine-rules",
         apply: apply_search_engine_rule_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 6,
+        name: "search-query-kind",
+        apply: apply_search_query_kind_migration,
+    },
 ];
 
 const LEGACY_INSIGHT_TABLES: &[&str] = &[
@@ -423,8 +431,35 @@ struct SearchEventRecord {
     search_engine: String,
     raw_query: String,
     normalized_query: String,
+    query_kind: SearchQueryKind,
     trail_id: Option<String>,
     visit_time_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchQueryKind {
+    Keyword,
+    Navigational,
+}
+
+impl SearchQueryKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Keyword => "keyword",
+            Self::Navigational => "navigational",
+        }
+    }
+
+    fn is_keyword(self) -> bool {
+        matches!(self, Self::Keyword)
+    }
+}
+
+fn parse_search_query_kind(value: &str) -> SearchQueryKind {
+    match value {
+        "navigational" => SearchQueryKind::Navigational,
+        _ => SearchQueryKind::Keyword,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -834,6 +869,22 @@ fn apply_search_engine_rule_migration(connection: &Connection) -> Result<()> {
     ensure_search_engine_rule_schema(connection)
 }
 
+fn apply_search_query_kind_migration(connection: &Connection) -> Result<()> {
+    if !table_has_column(connection, "search_events", "query_kind")? {
+        connection.execute(
+            "ALTER TABLE search_events
+             ADD COLUMN query_kind TEXT NOT NULL DEFAULT 'keyword'",
+            [],
+        )?;
+    }
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_events_profile_kind
+         ON search_events(profile_id, query_kind)",
+        [],
+    )?;
+    backfill_search_event_query_kinds(connection)
+}
+
 fn apply_core_intelligence_batch_index_migration(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_vdf_profile_visit_id
@@ -843,6 +894,47 @@ fn apply_core_intelligence_batch_index_migration(connection: &Connection) -> Res
          CREATE INDEX IF NOT EXISTS idx_search_events_profile_visit
            ON search_events(profile_id, visit_id);",
     )?;
+    Ok(())
+}
+
+fn table_has_column(connection: &Connection, table: &str, column: &str) -> Result<bool> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut statement = connection.prepare(&pragma)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(columns.iter().any(|candidate| candidate == column))
+}
+
+fn backfill_search_event_query_kinds(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare(
+        "SELECT search_events.visit_id,
+                search_events.raw_query,
+                search_events.normalized_query,
+                search_trails.landing_domain
+         FROM search_events
+         LEFT JOIN search_trails ON search_trails.trail_id = search_events.trail_id",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+    let tx = connection.unchecked_transaction()?;
+    let mut update = tx.prepare("UPDATE search_events SET query_kind = ?2 WHERE visit_id = ?1")?;
+    for (visit_id, raw_query, normalized_query, landing_domain) in rows {
+        let query_kind =
+            classify_search_query_kind(&raw_query, &normalized_query, landing_domain.as_deref());
+        update.execute(params![visit_id, query_kind.as_str()])?;
+    }
+    drop(update);
+    tx.commit()?;
     Ok(())
 }
 
@@ -2682,6 +2774,7 @@ fn load_profile_search_events(
                 search_events.search_engine,
                 search_events.raw_query,
                 search_events.normalized_query,
+                search_events.query_kind,
                 search_events.trail_id,
                 archive.visits.visit_time_ms
          FROM search_events
@@ -2697,8 +2790,9 @@ fn load_profile_search_events(
                 search_engine: row.get(2)?,
                 raw_query: row.get(3)?,
                 normalized_query: row.get(4)?,
-                trail_id: row.get(5)?,
-                visit_time_ms: row.get(6)?,
+                query_kind: parse_search_query_kind(&row.get::<_, String>(5)?),
+                trail_id: row.get(6)?,
+                visit_time_ms: row.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -2717,6 +2811,7 @@ fn load_profile_search_event_batch(
                 search_events.search_engine,
                 search_events.raw_query,
                 search_events.normalized_query,
+                search_events.query_kind,
                 search_events.trail_id,
                 archive.visits.visit_time_ms
          FROM search_events
@@ -2736,8 +2831,9 @@ fn load_profile_search_event_batch(
                     search_engine: row.get(2)?,
                     raw_query: row.get(3)?,
                     normalized_query: row.get(4)?,
-                    trail_id: row.get(5)?,
-                    visit_time_ms: row.get(6)?,
+                    query_kind: parse_search_query_kind(&row.get::<_, String>(5)?),
+                    trail_id: row.get(6)?,
+                    visit_time_ms: row.get(7)?,
                 })
             },
         )?
@@ -3169,6 +3265,8 @@ struct StructuralTailPersist<'tx> {
     trail_statement: rusqlite::Statement<'tx>,
     trail_member_statement: rusqlite::Statement<'tx>,
     search_event_statement: rusqlite::Statement<'tx>,
+    search_event_kind_statement: rusqlite::Statement<'tx>,
+    search_event_term_delete_statement: rusqlite::Statement<'tx>,
     search_term_statement: rusqlite::Statement<'tx>,
 }
 
@@ -3197,8 +3295,14 @@ impl<'tx> StructuralTailPersist<'tx> {
             )?,
             search_event_statement: tx.prepare(
                 "INSERT INTO search_events
-                 (visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?,
+            search_event_kind_statement: tx.prepare(
+                "UPDATE search_events SET query_kind = ?2 WHERE visit_id = ?1",
+            )?,
+            search_event_term_delete_statement: tx.prepare(
+                "DELETE FROM search_event_terms WHERE visit_id = ?1",
             )?,
             search_term_statement: tx.prepare(
                 "INSERT INTO search_event_terms (visit_id, profile_id, term)
@@ -3272,13 +3376,38 @@ impl<'tx> StructuralTailPersist<'tx> {
             event.search_engine,
             event.raw_query,
             event.normalized_query,
+            event.query_kind.as_str(),
             event.trail_id,
             computed_at,
         ])?;
-        for term in
-            tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
-        {
-            self.search_term_statement.execute(params![event.visit_id, event.profile_id, term])?;
+        if event.query_kind.is_keyword() {
+            for term in
+                tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
+            {
+                self.search_term_statement.execute(params![
+                    event.visit_id,
+                    event.profile_id,
+                    term
+                ])?;
+            }
+        }
+        Ok(())
+    }
+
+    fn update_search_event_kind(
+        &mut self,
+        visit_id: i64,
+        profile_id: &str,
+        normalized_query: &str,
+        query_kind: SearchQueryKind,
+    ) -> Result<()> {
+        self.search_event_kind_statement.execute(params![visit_id, query_kind.as_str()])?;
+        self.search_event_term_delete_statement.execute([visit_id])?;
+        if query_kind.is_keyword() {
+            for term in tokenize_query_terms(normalized_query).into_iter().collect::<BTreeSet<_>>()
+            {
+                self.search_term_statement.execute(params![visit_id, profile_id, term])?;
+            }
         }
         Ok(())
     }
@@ -3318,16 +3447,15 @@ impl StructuralTailStreamState {
         if visit.is_search_event {
             self.finish_trail(computed_at, persist)?;
             let trail = TrailBuildState::new(&visit, &session_id);
+            let raw_query = visit.search_query.clone().unwrap_or_default();
+            let normalized_query = normalize_query(&raw_query);
             let event = SearchEventRecord {
                 visit_id: visit.visit_id,
                 profile_id: visit.profile_id.clone(),
                 search_engine: trail.record.search_engine.clone(),
-                raw_query: visit.search_query.clone().unwrap_or_default(),
-                normalized_query: visit
-                    .search_query
-                    .as_deref()
-                    .map(normalize_query)
-                    .unwrap_or_default(),
+                raw_query: raw_query.clone(),
+                normalized_query: normalized_query.clone(),
+                query_kind: classify_search_query_kind(&raw_query, &normalized_query, None),
                 trail_id: Some(trail.record.trail_id.clone()),
                 visit_time_ms: visit.visit_time_ms,
             };
@@ -3362,6 +3490,22 @@ impl StructuralTailStreamState {
         persist: &mut StructuralTailPersist<'_>,
     ) -> Result<()> {
         if let Some(trail) = self.current_trail.take() {
+            if let Some(search_visit_id) =
+                trail.record.members.first().map(|member| member.visit_id)
+            {
+                let normalized_query = normalize_query(&trail.record.initial_query);
+                let query_kind = classify_search_query_kind(
+                    &trail.record.initial_query,
+                    &normalized_query,
+                    trail.record.landing_domain.as_deref(),
+                );
+                persist.update_search_event_kind(
+                    search_visit_id,
+                    &trail.record.profile_id,
+                    &normalized_query,
+                    query_kind,
+                )?;
+            }
             persist.persist_trail(&trail.finish(), computed_at)?;
             self.report.trails += 1;
         }
@@ -4001,6 +4145,7 @@ fn build_search_trails(visits: &mut [VisitRecord]) -> (Vec<SearchEventRecord>, V
                 search_engine: visit.search_engine.clone().unwrap_or_else(|| "unknown".to_string()),
                 raw_query: visit_query.clone().unwrap_or_default(),
                 normalized_query: visit_query.as_deref().map(normalize_query).unwrap_or_default(),
+                query_kind: SearchQueryKind::Keyword,
                 trail_id: None,
                 visit_time_ms: visit.visit_time_ms,
             });
@@ -4069,6 +4214,22 @@ fn build_search_trails(visits: &mut [VisitRecord]) -> (Vec<SearchEventRecord>, V
         trails.push(trail);
     }
 
+    let landing_domains = trails
+        .iter()
+        .map(|trail| (trail.trail_id.clone(), trail.landing_domain.clone()))
+        .collect::<HashMap<_, _>>();
+    for event in &mut search_events {
+        event.query_kind = classify_search_query_kind(
+            &event.raw_query,
+            &event.normalized_query,
+            event
+                .trail_id
+                .as_ref()
+                .and_then(|trail_id| landing_domains.get(trail_id))
+                .and_then(|domain| domain.as_deref()),
+        );
+    }
+
     let mut trail_events = HashMap::<String, Vec<String>>::new();
     for event in &search_events {
         if let Some(trail_id) = &event.trail_id {
@@ -4095,7 +4256,7 @@ fn build_search_trails(visits: &mut [VisitRecord]) -> (Vec<SearchEventRecord>, V
 
 fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFamilyRecord> {
     let mut families: Vec<QueryFamilyRecord> = Vec::new();
-    for event in events {
+    for event in events.iter().filter(|event| event.query_kind.is_keyword()) {
         let tokens = query_token_set(&event.normalized_query);
         if tokens.is_empty() {
             continue;
@@ -4989,25 +5150,28 @@ fn persist_core_state_for_job_kind(
     for event in search_events {
         tx.execute(
             "INSERT INTO search_events
-             (visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 event.visit_id,
                 event.profile_id,
                 event.search_engine,
                 event.raw_query,
                 event.normalized_query,
+                event.query_kind.as_str(),
                 event.trail_id,
                 computed_at,
             ],
         )?;
-        for term in
-            tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
-        {
-            tx.execute(
-                "INSERT INTO search_event_terms (visit_id, profile_id, term) VALUES (?1, ?2, ?3)",
-                params![event.visit_id, event.profile_id, term],
-            )?;
+        if event.query_kind.is_keyword() {
+            for term in
+                tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
+            {
+                tx.execute(
+                    "INSERT INTO search_event_terms (visit_id, profile_id, term) VALUES (?1, ?2, ?3)",
+                    params![event.visit_id, event.profile_id, term],
+                )?;
+            }
         }
     }
 
@@ -5398,7 +5562,10 @@ fn resolve_local_date(date: NaiveDate) -> Result<chrono::DateTime<Local>> {
 }
 
 fn tokenize_query_terms(query: &str) -> Vec<String> {
-    let stop_words = ["the", "and", "for", "with", "from", "what", "when", "where", "how"];
+    let stop_words = [
+        "a", "an", "and", "com", "edu", "for", "from", "how", "html", "http", "https", "in", "is",
+        "net", "of", "on", "org", "the", "to", "what", "when", "where", "with", "www",
+    ];
     query
         .split(|ch: char| !ch.is_alphanumeric() && !is_cjk_like(ch))
         .filter_map(|token| {
@@ -5414,6 +5581,53 @@ fn tokenize_query_terms(query: &str) -> Vec<String> {
 
 fn query_token_set(query: &str) -> HashSet<String> {
     tokenize_query_terms(query).into_iter().collect()
+}
+
+fn classify_search_query_kind(
+    raw_query: &str,
+    normalized_query: &str,
+    landing_domain: Option<&str>,
+) -> SearchQueryKind {
+    if normalized_query.trim().is_empty() {
+        return SearchQueryKind::Navigational;
+    }
+
+    if let Some(candidate_domain) =
+        query_domain_candidate(raw_query).or_else(|| query_domain_candidate(normalized_query))
+    {
+        let landing_matches = landing_domain.is_none_or(|domain| {
+            domain == candidate_domain
+                || landing_domain_matches_candidate(domain, &candidate_domain)
+        });
+        if landing_matches {
+            return SearchQueryKind::Navigational;
+        }
+    }
+
+    SearchQueryKind::Keyword
+}
+
+fn landing_domain_matches_candidate(landing_domain: &str, candidate_domain: &str) -> bool {
+    landing_domain == candidate_domain
+        || landing_domain.ends_with(&format!(".{candidate_domain}"))
+        || candidate_domain.ends_with(&format!(".{landing_domain}"))
+}
+
+fn query_domain_candidate(query: &str) -> Option<String> {
+    let trimmed = query.trim().trim_matches('"').trim_matches('\'');
+    if trimmed.is_empty() || trimmed.contains(char::is_whitespace) {
+        return None;
+    }
+
+    let parsed = Url::parse(trimmed).ok().or_else(|| {
+        if trimmed.contains('.') { Url::parse(&format!("https://{trimmed}")).ok() } else { None }
+    })?;
+    let host = parsed.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+
+    Some(crate::deterministic::registrable_domain_for_host(&host))
 }
 
 fn jaccard(left: &HashSet<String>, right: &HashSet<String>) -> f32 {
@@ -5810,6 +6024,7 @@ fn get_top_search_concepts_with_connection(
          JOIN search_events ON search_events.visit_id = search_event_terms.visit_id
          JOIN archive.visits AS visits ON visits.id = search_events.visit_id
          WHERE (?1 IS NULL OR search_events.profile_id = ?1)
+           AND search_events.query_kind = 'keyword'
            AND visits.visit_time_ms >= ?2
            AND visits.visit_time_ms < ?3
          GROUP BY search_event_terms.term
@@ -5867,14 +6082,17 @@ pub fn get_search_queries(
             JOIN archive.visits AS visits ON visits.id = search_events.visit_id
             JOIN archive.source_profiles AS source_profiles
               ON source_profiles.profile_key = search_events.profile_id
+            JOIN visit_derived_facts ON visit_derived_facts.visit_id = search_events.visit_id
             WHERE (?1 IS NULL OR search_events.profile_id = ?1)
               AND (?2 IS NULL OR source_profiles.browser_kind = ?2)
               AND (?3 IS NULL OR search_events.search_engine = ?3)
-              AND (?4 IS NULL
-                   OR search_events.normalized_query LIKE '%' || ?4 || '%'
-                   OR LOWER(search_events.raw_query) LIKE '%' || ?4 || '%')
-              AND visits.visit_time_ms >= ?5
-              AND visits.visit_time_ms < ?6
+              AND (?4 IS NULL OR visit_derived_facts.registrable_domain = ?4)
+              AND (?5 IS NULL
+                   OR search_events.normalized_query LIKE '%' || ?5 || '%'
+                   OR LOWER(search_events.raw_query) LIKE '%' || ?5 || '%')
+              AND search_events.query_kind = 'keyword'
+              AND visits.visit_time_ms >= ?6
+              AND visits.visit_time_ms < ?7
          ),
          ranked AS (
             SELECT filtered.*,
@@ -5889,6 +6107,7 @@ pub fn get_search_queries(
             request.profile_id.as_deref(),
             request.browser_kind.as_deref(),
             request.engine.as_deref(),
+            request.domain.as_deref(),
             query_filter.as_deref(),
             start_ms,
             end_ms,
@@ -5914,14 +6133,17 @@ pub fn get_search_queries(
             JOIN archive.visits AS visits ON visits.id = search_events.visit_id
             JOIN archive.source_profiles AS source_profiles
               ON source_profiles.profile_key = search_events.profile_id
+            JOIN visit_derived_facts ON visit_derived_facts.visit_id = search_events.visit_id
             WHERE (?1 IS NULL OR search_events.profile_id = ?1)
               AND (?2 IS NULL OR source_profiles.browser_kind = ?2)
               AND (?3 IS NULL OR search_events.search_engine = ?3)
-              AND (?4 IS NULL
-                   OR search_events.normalized_query LIKE '%' || ?4 || '%'
-                   OR LOWER(search_events.raw_query) LIKE '%' || ?4 || '%')
-              AND visits.visit_time_ms >= ?5
-              AND visits.visit_time_ms < ?6
+              AND (?4 IS NULL OR visit_derived_facts.registrable_domain = ?4)
+              AND (?5 IS NULL
+                   OR search_events.normalized_query LIKE '%' || ?5 || '%'
+                   OR LOWER(search_events.raw_query) LIKE '%' || ?5 || '%')
+              AND search_events.query_kind = 'keyword'
+              AND visits.visit_time_ms >= ?6
+              AND visits.visit_time_ms < ?7
          ),
          ranked AS (
             SELECT filtered.*,
@@ -5946,7 +6168,7 @@ pub fn get_search_queries(
          FROM ranked
          WHERE row_rank = 1
          ORDER BY {order_by}
-         LIMIT ?7 OFFSET ?8"
+         LIMIT ?8 OFFSET ?9"
     );
     let rows = connection
         .prepare(&sql)?
@@ -5955,6 +6177,7 @@ pub fn get_search_queries(
                 request.profile_id.as_deref(),
                 request.browser_kind.as_deref(),
                 request.engine.as_deref(),
+                request.domain.as_deref(),
                 query_filter.as_deref(),
                 start_ms,
                 end_ms,
@@ -8677,17 +8900,17 @@ fn path_from_url(url: &str) -> String {
 mod tests {
     use super::{
         DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, STRUCTURAL_TAIL_STREAM_BATCH_SIZE,
-        StageRunResult, VISIT_DERIVE_FALLBACK_BATCH_SIZE, build_habit_patterns, build_kpi,
-        build_path_flows, build_query_families, build_query_families_from_batches,
+        SearchQueryKind, StageRunResult, VISIT_DERIVE_FALLBACK_BATCH_SIZE, build_habit_patterns,
+        build_kpi, build_path_flows, build_query_families, build_query_families_from_batches,
         build_refind_pages, build_source_effectiveness, build_source_effectiveness_from_database,
-        build_structural_profile_aggregates_from_batches, collapse_date_key,
-        ensure_core_intelligence_schema, explain_entity, get_day_insights, get_discovery_trend,
-        get_domain_deep_dive, get_intelligence_embed_cards, get_intelligence_primary_overview,
-        get_intelligence_public_snapshot, get_intelligence_secondary_overview,
-        get_intelligence_widget_snapshot, get_path_flows, get_search_queries,
-        load_profile_derived_visits, load_profile_search_events, load_profile_trails,
-        local_date_key, merge_stage_run_result, normalize_query, run_core_intelligence,
-        run_core_intelligence_job_type_with_progress,
+        build_structural_profile_aggregates_from_batches, classify_search_query_kind,
+        collapse_date_key, ensure_core_intelligence_schema, explain_entity, get_day_insights,
+        get_discovery_trend, get_domain_deep_dive, get_intelligence_embed_cards,
+        get_intelligence_primary_overview, get_intelligence_public_snapshot,
+        get_intelligence_secondary_overview, get_intelligence_widget_snapshot, get_path_flows,
+        get_search_queries, get_top_search_concepts, load_profile_derived_visits,
+        load_profile_search_events, load_profile_trails, local_date_key, merge_stage_run_result,
+        normalize_query, run_core_intelligence, run_core_intelligence_job_type_with_progress,
     };
     use crate::{
         archive::{
@@ -8706,12 +8929,12 @@ mod tests {
             AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings,
             DateRange, DayInsightsRequest, DomainDeepDiveRequest, EntityExplanationRequest,
             GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, PathFlowRequest,
-            ScopedDateRangeRequest, SearchQueryListRequest,
+            ScopedDateRangeRequest, SearchQueryListRequest, TopSearchConceptsRequest,
         },
         utils::now_rfc3339,
     };
     use rusqlite::{Connection, OptionalExtension, params};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
 
     fn has_index(connection: &Connection, index_name: &str) -> bool {
         connection
@@ -8756,10 +8979,27 @@ mod tests {
         let migration_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(migration_count, 5);
+        assert_eq!(migration_count, 6);
         assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
         assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
         assert!(has_index(&connection, "idx_search_events_profile_visit"));
+        assert!(has_index(&connection, "idx_search_events_profile_kind"));
+    }
+
+    #[test]
+    fn classifies_url_like_search_queries_as_navigational_noise() {
+        assert_eq!(
+            classify_search_query_kind("https://asu.edu", "https://asu.edu", Some("asu.edu")),
+            SearchQueryKind::Navigational
+        );
+        assert_eq!(
+            classify_search_query_kind("asu.edu", "asu.edu", Some("asu.edu")),
+            SearchQueryKind::Navigational
+        );
+        assert_eq!(
+            classify_search_query_kind("pathkeep sqlite", "pathkeep sqlite", Some("github.com")),
+            SearchQueryKind::Keyword
+        );
     }
 
     #[test]
@@ -9034,6 +9274,7 @@ mod tests {
                 profile_id: Some("chrome:Default".to_string()),
                 browser_kind: Some("chrome".to_string()),
                 engine: Some("google".to_string()),
+                domain: None,
                 query: Some("sqlite".to_string()),
                 sort: Some("family-frequency".to_string()),
                 page: 0,
@@ -9047,6 +9288,93 @@ mod tests {
         let top_row = &queries.rows[0];
         assert!(top_row.family_count >= top_row.exact_repeat_count);
         assert_eq!(top_row.display_name.as_deref(), Some("Google"));
+    }
+
+    #[test]
+    fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        seed_search_keyword_noise_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("rebuild intelligence");
+
+        let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
+        let search_events =
+            load_profile_search_events(&intelligence, "chrome:Default").expect("search events");
+        let navigation_event = search_events
+            .iter()
+            .find(|event| event.raw_query == "https://asu.edu")
+            .expect("navigational event");
+        assert_eq!(navigation_event.query_kind, SearchQueryKind::Navigational);
+        drop(intelligence);
+        let fixture_day = local_date_key(1711929600000);
+
+        let google_queries = get_search_queries(
+            &paths,
+            &config,
+            None,
+            &SearchQueryListRequest {
+                date_range: DateRange { start: fixture_day.clone(), end: "2024-04-30".to_string() },
+                profile_id: Some("chrome:Default".to_string()),
+                browser_kind: Some("chrome".to_string()),
+                engine: None,
+                domain: Some("google.com".to_string()),
+                query: None,
+                sort: Some("newest".to_string()),
+                page: 0,
+                page_size: 20,
+            },
+        )
+        .expect("google queries");
+        assert_eq!(google_queries.total, 1);
+        assert_eq!(google_queries.rows[0].raw_query, "sqlite wal");
+
+        let github_queries = get_search_queries(
+            &paths,
+            &config,
+            None,
+            &SearchQueryListRequest {
+                date_range: DateRange { start: fixture_day.clone(), end: "2024-04-30".to_string() },
+                profile_id: Some("chrome:Default".to_string()),
+                browser_kind: Some("chrome".to_string()),
+                engine: None,
+                domain: Some("github.com".to_string()),
+                query: None,
+                sort: Some("newest".to_string()),
+                page: 0,
+                page_size: 20,
+            },
+        )
+        .expect("github queries");
+        assert_eq!(github_queries.total, 1);
+        assert_eq!(github_queries.rows[0].raw_query, "pathkeep sqlite");
+
+        let concepts = get_top_search_concepts(
+            &paths,
+            &config,
+            None,
+            &TopSearchConceptsRequest {
+                date_range: DateRange { start: fixture_day, end: "2024-04-30".to_string() },
+                profile_id: Some("chrome:Default".to_string()),
+                limit: Some(20),
+            },
+        )
+        .expect("top concepts");
+        let terms = concepts.into_iter().map(|concept| concept.term).collect::<HashSet<_>>();
+        assert!(terms.contains("sqlite"));
+        assert!(terms.contains("pathkeep"));
+        assert!(!terms.contains("https"));
+        assert!(!terms.contains("asu"));
+        assert!(!terms.contains("edu"));
     }
 
     #[test]
@@ -9308,7 +9636,7 @@ mod tests {
         let migration_count: i64 = intelligence
             .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(migration_count, 5);
+        assert_eq!(migration_count, 6);
     }
 
     #[test]
@@ -10682,5 +11010,34 @@ mod tests {
                 [],
             )
             .expect("search term");
+    }
+
+    fn seed_search_keyword_noise_fixture(connection: &Connection) {
+        connection
+            .execute(
+                "INSERT INTO urls (
+                    id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+                    source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                 ) VALUES
+                 (3, 'https://www.google.com/search?q=https%3A%2F%2Fasu.edu', 'asu.edu - Google Search', 1, 0, 1711929720000, '2024-04-01T00:02:00Z', 1711929720000, '2024-04-01T00:02:00Z', 1, 1, 13, 0, 'hash-3', '2026-04-14T00:00:00Z'),
+                 (4, 'https://asu.edu/', 'Arizona State University', 1, 0, 1711929780000, '2024-04-01T00:03:00Z', 1711929780000, '2024-04-01T00:03:00Z', 1, 1, 14, 0, 'hash-4', '2026-04-14T00:00:00Z'),
+                 (5, 'https://github.com/search?q=pathkeep+sqlite', 'Repository search results', 1, 0, 1711929840000, '2024-04-01T00:04:00Z', 1711929840000, '2024-04-01T00:04:00Z', 1, 1, 15, 0, 'hash-5', '2026-04-14T00:00:00Z'),
+                 (6, 'https://github.com/example/pathkeep', 'PathKeep repo', 1, 0, 1711929900000, '2024-04-01T00:05:00Z', 1711929900000, '2024-04-01T00:05:00Z', 1, 1, 16, 0, 'hash-6', '2026-04-14T00:00:00Z')",
+                [],
+            )
+            .expect("extra urls");
+        connection
+            .execute(
+                "INSERT INTO visits (
+                    id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
+                    source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
+                 ) VALUES
+                 (4, 3, '4', 1711929720000, '2024-04-01T00:02:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-4', 'visit-hash-4', '2026-04-14T00:00:00Z'),
+                 (5, 4, '5', 1711929780000, '2024-04-01T00:03:00Z', 1, 0, 1, 1, 4, 0, 'fingerprint-5', 'visit-hash-5', '2026-04-14T00:00:00Z'),
+                 (6, 5, '6', 1711929840000, '2024-04-01T00:04:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-6', 'visit-hash-6', '2026-04-14T00:00:00Z'),
+                 (7, 6, '7', 1711929900000, '2024-04-01T00:05:00Z', 1, 0, 1, 1, 6, 0, 'fingerprint-7', 'visit-hash-7', '2026-04-14T00:00:00Z')",
+                [],
+            )
+            .expect("extra visits");
     }
 }
