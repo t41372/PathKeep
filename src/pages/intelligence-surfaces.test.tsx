@@ -303,6 +303,7 @@ function renderSurface(
     snapshot: AppSnapshot
   },
 ) {
+  window.location.hash = ''
   return render(
     <MemoryRouter initialEntries={[route]}>
       <I18nContext.Provider value={createI18nValue(language)}>
@@ -2982,7 +2983,9 @@ describe('intelligence surfaces', () => {
     })
 
     expect(
-      await screen.findByRole('heading', { name: intelligenceT('digestTitle') }),
+      await screen.findByRole('heading', {
+        name: intelligenceT('runtimeDigestTitle'),
+      }),
     ).toBeVisible()
     expect(screen.queryByText('bar_chart')).not.toBeInTheDocument()
     expect(screen.queryByText('auto_stories')).not.toBeInTheDocument()
