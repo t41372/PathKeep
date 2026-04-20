@@ -17,9 +17,17 @@
  *   `docs/design/screens-and-nav.md`.
  */
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
+import {
+  WorkbenchCodePreview,
+  WorkbenchReviewSection,
+  WorkbenchTargetLinksRow,
+  type WorkbenchCopyFeedback,
+  type WorkbenchTargetLink,
+} from '../../components/intelligence/workbench'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
@@ -62,11 +70,6 @@ interface ExternalOutputsPayload {
   publicSnapshot: IntelligencePublicSnapshot
 }
 
-interface CopyFeedback {
-  key: string
-  tone: 'success' | 'error'
-}
-
 function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
@@ -87,7 +90,9 @@ export function SettingsExternalOutputsPanel({
   const { activeProfileId } = useProfileScope()
   const { dateRange, preset, setCustomRange, setPreset } = useTimeRange('month')
   const [activeTab, setActiveTab] = useState<OutputTab>('embed')
-  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<WorkbenchCopyFeedback | null>(
+    null,
+  )
   const ready = initialized && unlocked
   const profileScopeLabel = activeProfileId
     ? profileIdLabel(activeProfileId)
@@ -337,7 +342,7 @@ function EmbedCardsTab({
 }: {
   activeProfileId: string | null
   cards: IntelligenceEmbedCardPayload[]
-  copyFeedback: CopyFeedback | null
+  copyFeedback: WorkbenchCopyFeedback | null
   copyLabel: string
   commonT: Translate
   dateRange: DateRange
@@ -347,10 +352,7 @@ function EmbedCardsTab({
 }) {
   return (
     <>
-      <div className="result-row">
-        <div className="result-row__header">
-          <strong>{t('externalOutputsEmbedPreviewTitle')}</strong>
-        </div>
+      <WorkbenchReviewSection title={t('externalOutputsEmbedPreviewTitle')}>
         {cards.length > 0 ? (
           <div className="settings-output-card-grid">
             {cards.map((card) => (
@@ -391,16 +393,16 @@ function EmbedCardsTab({
         ) : (
           <p>{t('externalOutputsEmbedEmpty')}</p>
         )}
-      </div>
+      </WorkbenchReviewSection>
 
-      <JsonPreviewPanel
+      <WorkbenchCodePreview
         copyFeedback={copyFeedback}
         copyKey="embed"
         copyLabel={copyLabel}
-        commonT={commonT}
-        json={json}
+        code={json}
+        errorMessage={t('externalOutputsCopyFailed')}
         onCopy={onCopy}
-        t={t}
+        successMessage={commonT('copiedNotice')}
         title={t('externalOutputsJsonTitle')}
       />
     </>
@@ -421,7 +423,7 @@ function WidgetSnapshotTab({
   intelligenceT,
 }: {
   activeProfileId: string | null
-  copyFeedback: CopyFeedback | null
+  copyFeedback: WorkbenchCopyFeedback | null
   copyLabel: string
   commonT: Translate
   json: string
@@ -434,14 +436,15 @@ function WidgetSnapshotTab({
 }) {
   return (
     <>
-      <div className="result-row">
-        <div className="result-row__header">
-          <strong>{t('externalOutputsWidgetPreviewTitle')}</strong>
+      <WorkbenchReviewSection
+        headerMeta={
           <span className="mono">
             {formatDateTime(snapshot.generatedAt, language) ??
               snapshot.generatedAt}
           </span>
-        </div>
+        }
+        title={t('externalOutputsWidgetPreviewTitle')}
+      >
 
         <p className="dashboard-next-action">
           {t('externalOutputsWindowLabel', {
@@ -458,10 +461,40 @@ function WidgetSnapshotTab({
           />
         ) : null}
 
-        <DigestSummaryGrid
-          digest={snapshot.digestSummary}
-          intelligenceT={intelligenceT}
-          language={language}
+        <IntelligenceMetricGrid
+          className="digest-cards settings-output-digest-grid"
+          items={[
+            {
+              label: intelligenceT('digestVisits'),
+              value: snapshot.digestSummary.totalVisits.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestSearches'),
+              value: snapshot.digestSummary.totalSearches.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestNewSites'),
+              value: snapshot.digestSummary.newDomains.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestDeepRead'),
+              value: snapshot.digestSummary.deepReadPages.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestRefind'),
+              value: snapshot.digestSummary.refindPages.value.toLocaleString(
+                language,
+              ),
+            },
+          ]}
         />
 
         <div className="settings-output-card-grid">
@@ -498,16 +531,16 @@ function WidgetSnapshotTab({
             ))}
           </div>
         ) : null}
-      </div>
+      </WorkbenchReviewSection>
 
-      <JsonPreviewPanel
+      <WorkbenchCodePreview
         copyFeedback={copyFeedback}
         copyKey="widget"
         copyLabel={copyLabel}
-        commonT={commonT}
-        json={json}
+        code={json}
+        errorMessage={t('externalOutputsCopyFailed')}
         onCopy={onCopy}
-        t={t}
+        successMessage={commonT('copiedNotice')}
         title={t('externalOutputsJsonTitle')}
       />
     </>
@@ -527,7 +560,7 @@ function PublicSnapshotTab({
   intelligenceT,
 }: {
   activeProfileId: string | null
-  copyFeedback: CopyFeedback | null
+  copyFeedback: WorkbenchCopyFeedback | null
   copyLabel: string
   commonT: Translate
   json: string
@@ -539,14 +572,15 @@ function PublicSnapshotTab({
 }) {
   return (
     <>
-      <div className="result-row">
-        <div className="result-row__header">
-          <strong>{t('externalOutputsPublicPreviewTitle')}</strong>
+      <WorkbenchReviewSection
+        headerMeta={
           <span className="mono">
             {formatDateTime(snapshot.generatedAt, language) ??
               snapshot.generatedAt}
           </span>
-        </div>
+        }
+        title={t('externalOutputsPublicPreviewTitle')}
+      >
 
         <StatusCallout
           tone="info"
@@ -561,10 +595,40 @@ function PublicSnapshotTab({
           })}
         </p>
 
-        <DigestSummaryGrid
-          digest={snapshot.digestSummary}
-          intelligenceT={intelligenceT}
-          language={language}
+        <IntelligenceMetricGrid
+          className="digest-cards settings-output-digest-grid"
+          items={[
+            {
+              label: intelligenceT('digestVisits'),
+              value: snapshot.digestSummary.totalVisits.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestSearches'),
+              value: snapshot.digestSummary.totalSearches.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestNewSites'),
+              value: snapshot.digestSummary.newDomains.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestDeepRead'),
+              value: snapshot.digestSummary.deepReadPages.value.toLocaleString(
+                language,
+              ),
+            },
+            {
+              label: intelligenceT('digestRefind'),
+              value: snapshot.digestSummary.refindPages.value.toLocaleString(
+                language,
+              ),
+            },
+          ]}
         />
 
         <div className="settings-field-grid">
@@ -641,126 +705,19 @@ function PublicSnapshotTab({
             ))}
           </div>
         ) : null}
-      </div>
+      </WorkbenchReviewSection>
 
-      <JsonPreviewPanel
+      <WorkbenchCodePreview
         copyFeedback={copyFeedback}
         copyKey="public"
         copyLabel={copyLabel}
-        commonT={commonT}
-        json={json}
+        code={json}
+        errorMessage={t('externalOutputsCopyFailed')}
         onCopy={onCopy}
-        t={t}
+        successMessage={commonT('copiedNotice')}
         title={t('externalOutputsJsonTitle')}
       />
     </>
-  )
-}
-
-function DigestSummaryGrid({
-  digest,
-  intelligenceT,
-  language,
-}: {
-  digest: IntelligenceWidgetSnapshot['digestSummary']
-  intelligenceT: Translate
-  language: ReturnType<typeof useI18n>['language']
-}) {
-  const items = useMemo(
-    () => [
-      {
-        label: intelligenceT('digestVisits'),
-        value: digest.totalVisits.value,
-      },
-      {
-        label: intelligenceT('digestSearches'),
-        value: digest.totalSearches.value,
-      },
-      {
-        label: intelligenceT('digestNewSites'),
-        value: digest.newDomains.value,
-      },
-      {
-        label: intelligenceT('digestDeepRead'),
-        value: digest.deepReadPages.value,
-      },
-      {
-        label: intelligenceT('digestRefind'),
-        value: digest.refindPages.value,
-      },
-    ],
-    [digest, intelligenceT],
-  )
-
-  return (
-    <div className="settings-output-digest-grid">
-      {items.map((item) => (
-        <div key={item.label} className="settings-output-digest-card">
-          <span className="config-label">{item.label}</span>
-          <strong className="mono">
-            {item.value.toLocaleString(language)}
-          </strong>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function JsonPreviewPanel({
-  copyFeedback,
-  copyKey,
-  copyLabel,
-  commonT,
-  json,
-  onCopy,
-  t,
-  title,
-}: {
-  copyFeedback: CopyFeedback | null
-  copyKey: string
-  copyLabel: string
-  commonT: Translate
-  json: string
-  onCopy: (key: string, payload: string) => void
-  t: Translate
-  title: string
-}) {
-  return (
-    <div className="result-row">
-      <div className="result-row__header">
-        <strong>{title}</strong>
-      </div>
-      <div className="code-panel">
-        <pre className="code-block">
-          <code>{json}</code>
-        </pre>
-        <div className="code-actions">
-          <button
-            className="btn-tiny"
-            type="button"
-            onClick={() => {
-              void onCopy(copyKey, json)
-            }}
-          >
-            {copyLabel}
-          </button>
-        </div>
-      </div>
-      {copyFeedback?.key === copyKey ? (
-        <p
-          className={
-            copyFeedback.tone === 'success'
-              ? 'dashboard-next-action'
-              : 'inline-error'
-          }
-          role="status"
-        >
-          {copyFeedback.tone === 'success'
-            ? commonT('copiedNotice')
-            : t('externalOutputsCopyFailed')}
-        </p>
-      ) : null}
-    </div>
   )
 }
 
@@ -794,34 +751,22 @@ function OutputTargetLinks({
   }
 
   return (
-    <div className="config-row">
-      <span className="config-label">{t('externalOutputsHref')}</span>
-      <span className="config-value">
-        {primaryHref ? (
-          <Link className="intelligence-link" to={primaryHref}>
-            {t('externalOutputsOpenInsights')}
-          </Link>
-        ) : card.href ? (
-          <span className="mono">{card.href}</span>
-        ) : null}
-        {secondaryTargets.length > 0 ? (
-          <span className="settings-output-chip-list">
-            {secondaryTargets.map((target, index) => (
-              <Link
-                key={`${card.cardId}:${target.kind}:${index}`}
-                className="chip-button"
-                to={insightEntityReferenceHref(target, {
-                  dateRange,
-                  preset: 'custom',
-                  profileId: activeProfileId,
-                })}
-              >
-                {insightEntityReferenceLabel(target, intelligenceT)}
-              </Link>
-            ))}
-          </span>
-        ) : null}
-      </span>
-    </div>
+    <WorkbenchTargetLinksRow
+      fallback={card.href ? <span className="mono">{card.href}</span> : null}
+      label={t('externalOutputsHref')}
+      primaryHref={primaryHref}
+      primaryLabel={t('externalOutputsOpenInsights')}
+      secondaryLinks={secondaryTargets.map<WorkbenchTargetLink>(
+        (target, index) => ({
+          href: insightEntityReferenceHref(target, {
+            dateRange,
+            preset: 'custom',
+            profileId: activeProfileId,
+          }),
+          key: `${card.cardId}:${target.kind}:${index}`,
+          label: insightEntityReferenceLabel(target, intelligenceT),
+        }),
+      )}
+    />
   )
 }

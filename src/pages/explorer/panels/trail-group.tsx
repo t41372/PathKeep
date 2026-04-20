@@ -13,6 +13,10 @@
 import { useState } from 'react'
 import { InsightEntityActions } from '../../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
+import {
+  WorkbenchEntityRow,
+  WorkbenchExpandableGroupCard,
+} from '../../../components/intelligence/workbench'
 import { useAsyncData } from '../../../lib/core-intelligence/hooks'
 import * as api from '../../../lib/core-intelligence/api'
 import type {
@@ -194,133 +198,123 @@ function TrailCard({
   }
 
   return (
-    <div className={`trail-card${expanded ? ' trail-card--expanded' : ''}`}>
-      <button
-        className="trail-card__header"
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => void handleToggle()}
-      >
-        <span className="trail-card__expand-icon">{expanded ? '▼' : '▶'}</span>
-        <span className="trail-card__engine-icon">
-          {engineIcon(trail.searchEngine)}
-        </span>
-        <span className="trail-card__query">
-          "{sanitizeExplorerDisplayText(trail.initialQuery, 72)}"
-        </span>
-        {trail.reformulationCount > 0 && (
-          <span className="trail-card__reformulation-badge">
-            {trail.reformulationCount}× {intelligenceT('trailReformulation')}
+    <WorkbenchExpandableGroupCard
+      bodyClassName="trail-card__body"
+      expanded={expanded}
+      headerClassName="trail-card__header"
+      headerContent={
+        <>
+          <span className="trail-card__expand-icon">
+            {expanded ? '▼' : '▶'}
           </span>
-        )}
-        <span className="trail-card__meta">
-          {dateStr} {startTime} · {trail.visitCount}{' '}
-          {intelligenceT('sessionVisitLabel')}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="trail-card__body">
-          <InsightEntityActions
-            items={[
-              {
-                href: trailInsightsHref({
-                  trailId: trail.trailId,
-                  dateRange,
-                  preset: 'custom',
-                  profileId: profileId ?? null,
-                }),
-                label: intelligenceT('trailRouteOpenInsights'),
-              },
-            ]}
-          />
-          {/* Query evolution chain */}
-          {trail.queries.length > 1 && (
-            <div className="trail-card__evolution">
-              <span className="trail-card__evolution-label">
-                {intelligenceT('trailEvolution')}
-              </span>
-              <div className="trail-card__evolution-chain">
-                {trail.queries.map((q, i) => (
-                  <span key={i} className="trail-card__evolution-step">
-                    {i > 0 && (
-                      <span className="trail-card__evolution-arrow">→</span>
-                    )}
-                    <span className="trail-card__evolution-query">
-                      "{sanitizeExplorerDisplayText(q, 72)}"
-                    </span>
-                  </span>
-                ))}
-                {trail.landingUrl && (
-                  <>
-                    <span className="trail-card__evolution-arrow">└──</span>
-                    <span className="trail-card__evolution-landing">
-                      {intelligenceT('trailLanding')}:{' '}
-                      {sanitizeExplorerDisplayText(
-                        trail.landingDomain ?? trail.landingUrl,
-                        72,
-                      )}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Trail members */}
-          {detailLoading ? (
-            <div
-              className="intelligence-skeleton intelligence-skeleton--list"
-              style={{ height: 120 }}
-            />
-          ) : detail ? (
-            <div className="trail-card__members">
-              {detail.map((member) => (
-                <div
-                  key={member.visitId}
-                  className={`trail-member-row trail-member-row--${member.role}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() =>
-                    onSelectVisit?.(toSelection(member, profileId))
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onSelectVisit?.(toSelection(member, profileId))
-                    }
-                  }}
-                >
-                  <span className="trail-member-row__ordinal">
-                    {member.role === 'search_event'
-                      ? '🔍'
-                      : member.role === 'landing'
-                        ? '🎯'
-                        : '📄'}
-                  </span>
-                  <span className="trail-member-row__content">
-                    {member.role === 'search_event' && member.searchQuery
-                      ? `"${sanitizeExplorerDisplayText(member.searchQuery, 72)}"`
-                      : sanitizeExplorerDisplayText(member.title || member.url)}
-                  </span>
-                  <span className="trail-member-row__time">
-                    {new Date(member.visitTimeMs).toLocaleTimeString(locale, {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </div>
-              ))}
-            </div>
+          <span className="trail-card__engine-icon">
+            {engineIcon(trail.searchEngine)}
+          </span>
+          <span className="trail-card__query">
+            "{sanitizeExplorerDisplayText(trail.initialQuery, 72)}"
+          </span>
+          {trail.reformulationCount > 0 ? (
+            <span className="trail-card__reformulation-badge">
+              {trail.reformulationCount}× {intelligenceT('trailReformulation')}
+            </span>
           ) : null}
-          <ExplainabilityPanel
-            entityType="search_trail"
-            entityId={trail.trailId}
-            t={intelligenceT}
-          />
+          <span className="trail-card__meta">
+            {dateStr} {startTime} · {trail.visitCount}{' '}
+            {intelligenceT('sessionVisitLabel')}
+          </span>
+        </>
+      }
+      onToggle={() => {
+        void handleToggle()
+      }}
+      rootClassName="trail-card"
+    >
+      <InsightEntityActions
+        items={[
+          {
+            href: trailInsightsHref({
+              trailId: trail.trailId,
+              dateRange,
+              preset: 'custom',
+              profileId: profileId ?? null,
+            }),
+            label: intelligenceT('trailRouteOpenInsights'),
+          },
+        ]}
+      />
+      {trail.queries.length > 1 ? (
+        <div className="trail-card__evolution">
+          <span className="trail-card__evolution-label">
+            {intelligenceT('trailEvolution')}
+          </span>
+          <div className="trail-card__evolution-chain">
+            {trail.queries.map((q, i) => (
+              <span key={i} className="trail-card__evolution-step">
+                {i > 0 ? (
+                  <span className="trail-card__evolution-arrow">→</span>
+                ) : null}
+                <span className="trail-card__evolution-query">
+                  "{sanitizeExplorerDisplayText(q, 72)}"
+                </span>
+              </span>
+            ))}
+            {trail.landingUrl ? (
+              <>
+                <span className="trail-card__evolution-arrow">└──</span>
+                <span className="trail-card__evolution-landing">
+                  {intelligenceT('trailLanding')}:{' '}
+                  {sanitizeExplorerDisplayText(
+                    trail.landingDomain ?? trail.landingUrl,
+                    72,
+                  )}
+                </span>
+              </>
+            ) : null}
+          </div>
         </div>
-      )}
-    </div>
+      ) : null}
+
+      {detailLoading ? (
+        <div
+          className="intelligence-skeleton intelligence-skeleton--list"
+          style={{ height: 120 }}
+        />
+      ) : detail ? (
+        <div className="trail-card__members">
+          {detail.map((member) => (
+            <WorkbenchEntityRow
+              key={member.visitId}
+              className={`trail-member-row trail-member-row--${member.role}`}
+              content={
+                member.role === 'search_event' && member.searchQuery
+                  ? `"${sanitizeExplorerDisplayText(member.searchQuery, 72)}"`
+                  : sanitizeExplorerDisplayText(member.title || member.url)
+              }
+              contentClassName="trail-member-row__content"
+              icon={
+                member.role === 'search_event'
+                  ? '🔍'
+                  : member.role === 'landing'
+                    ? '🎯'
+                    : '📄'
+              }
+              iconClassName="trail-member-row__ordinal"
+              meta={new Date(member.visitTimeMs).toLocaleTimeString(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+              metaClassName="trail-member-row__time"
+              onSelect={() => onSelectVisit?.(toSelection(member, profileId))}
+            />
+          ))}
+        </div>
+      ) : null}
+      <ExplainabilityPanel
+        entityType="search_trail"
+        entityId={trail.trailId}
+        t={intelligenceT}
+      />
+    </WorkbenchExpandableGroupCard>
   )
 }
 

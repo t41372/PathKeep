@@ -14,6 +14,10 @@
 import { useState } from 'react'
 import { InsightEntityActions } from '../../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
+import {
+  WorkbenchEntityRow,
+  WorkbenchExpandableGroupCard,
+} from '../../../components/intelligence/workbench'
 import { useAsyncData } from '../../../lib/core-intelligence/hooks'
 import * as api from '../../../lib/core-intelligence/api'
 import type {
@@ -180,123 +184,115 @@ function SessionCard({
   }
 
   return (
-    <div className={`session-card${expanded ? ' session-card--expanded' : ''}`}>
-      <button
-        className="session-card__header"
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => void handleToggle()}
-      >
-        <span className="session-card__expand-icon">
-          {expanded ? '▼' : '▶'}
-        </span>
-        <span className="session-card__date-badge">
-          {dateStr} {startTime} – {endTime}
-        </span>
-        <span className="session-card__title">
-          {sanitizeExplorerDisplayText(session.autoTitle) ||
-            intelligenceT('sessionUntitled')}
-        </span>
-        <span className="session-card__meta">
-          {session.visitCount} {intelligenceT('sessionVisitLabel')}
-          {session.searchCount > 0 && (
-            <>
-              {' '}
-              · {session.searchCount} {intelligenceT('sessionSearchLabel')}
-            </>
-          )}
-        </span>
-        {session.isDeepDive && (
-          <span
-            className="session-card__deep-dive-badge"
-            title={intelligenceT('sessionDeepDive')}
-          >
-            🔬
+    <WorkbenchExpandableGroupCard
+      bodyClassName="session-card__body"
+      expanded={expanded}
+      headerClassName="session-card__header"
+      headerContent={
+        <>
+          <span className="session-card__expand-icon">
+            {expanded ? '▼' : '▶'}
           </span>
-        )}
-      </button>
-
-      {expanded && (
-        <div className="session-card__body">
-          <InsightEntityActions
-            items={[
-              {
-                href: sessionInsightsHref({
-                  sessionId: session.sessionId,
-                  dateRange,
-                  preset: 'custom',
-                  profileId: profileId ?? null,
-                }),
-                label: intelligenceT('sessionRouteOpenInsights'),
-              },
-            ]}
-          />
-          {detailLoading ? (
-            <div
-              className="intelligence-skeleton intelligence-skeleton--list"
-              style={{ height: 120 }}
+          <span className="session-card__date-badge">
+            {dateStr} {startTime} – {endTime}
+          </span>
+          <span className="session-card__title">
+            {sanitizeExplorerDisplayText(session.autoTitle) ||
+              intelligenceT('sessionUntitled')}
+          </span>
+          <span className="session-card__meta">
+            {session.visitCount} {intelligenceT('sessionVisitLabel')}
+            {session.searchCount > 0 && (
+              <>
+                {' '}
+                · {session.searchCount} {intelligenceT('sessionSearchLabel')}
+              </>
+            )}
+          </span>
+          {session.isDeepDive ? (
+            <span
+              className="session-card__deep-dive-badge"
+              title={intelligenceT('sessionDeepDive')}
+            >
+              🔬
+            </span>
+          ) : null}
+        </>
+      }
+      onToggle={() => {
+        void handleToggle()
+      }}
+      rootClassName="session-card"
+    >
+      <InsightEntityActions
+        items={[
+          {
+            href: sessionInsightsHref({
+              sessionId: session.sessionId,
+              dateRange,
+              preset: 'custom',
+              profileId: profileId ?? null,
+            }),
+            label: intelligenceT('sessionRouteOpenInsights'),
+          },
+        ]}
+      />
+      {detailLoading ? (
+        <div
+          className="intelligence-skeleton intelligence-skeleton--list"
+          style={{ height: 120 }}
+        />
+      ) : detail ? (
+        <div className="session-card__visits">
+          {detail.map((visit) => (
+            <WorkbenchEntityRow
+              key={visit.visitId}
+              className={`session-visit-row${visit.isSearchEvent ? ' session-visit-row--search' : ''}`}
+              content={
+                visit.isSearchEvent && visit.searchQuery ? (
+                  <span className="session-visit-row__query">
+                    {visit.searchEngine ?? 'Search'}: "
+                    {sanitizeExplorerDisplayText(visit.searchQuery, 72)}"
+                  </span>
+                ) : (
+                  <span className="session-visit-row__title">
+                    {sanitizeExplorerDisplayText(visit.title || visit.url)}
+                  </span>
+                )
+              }
+              contentClassName="session-visit-row__content"
+              icon={visit.isSearchEvent ? '🔍' : '📄'}
+              iconClassName={
+                visit.isSearchEvent
+                  ? 'session-visit-row__search-icon'
+                  : 'session-visit-row__page-icon'
+              }
+              meta={new Date(visit.visitTimeMs).toLocaleTimeString(
+                language === 'en'
+                  ? 'en-US'
+                  : language === 'zh-CN'
+                    ? 'zh-CN'
+                    : 'zh-TW',
+                { hour: '2-digit', minute: '2-digit' },
+              )}
+              metaClassName="session-visit-row__time"
+              onSelect={() => onSelectVisit?.(toSelection(visit, profileId))}
             />
-          ) : detail ? (
-            <div className="session-card__visits">
-              {detail.map((visit) => (
-                <div
-                  key={visit.visitId}
-                  className={`session-visit-row${visit.isSearchEvent ? ' session-visit-row--search' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onSelectVisit?.(toSelection(visit, profileId))}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onSelectVisit?.(toSelection(visit, profileId))
-                    }
-                  }}
-                >
-                  {visit.isSearchEvent ? (
-                    <span className="session-visit-row__search-icon">🔍</span>
-                  ) : (
-                    <span className="session-visit-row__page-icon">📄</span>
-                  )}
-                  <span className="session-visit-row__content">
-                    {visit.isSearchEvent && visit.searchQuery ? (
-                      <span className="session-visit-row__query">
-                        {visit.searchEngine ?? 'Search'}: "
-                        {sanitizeExplorerDisplayText(visit.searchQuery, 72)}"
-                      </span>
-                    ) : (
-                      <span className="session-visit-row__title">
-                        {sanitizeExplorerDisplayText(visit.title || visit.url)}
-                      </span>
-                    )}
-                  </span>
-                  <span className="session-visit-row__time">
-                    {new Date(visit.visitTimeMs).toLocaleTimeString(
-                      language === 'en'
-                        ? 'en-US'
-                        : language === 'zh-CN'
-                          ? 'zh-CN'
-                          : 'zh-TW',
-                      { hour: '2-digit', minute: '2-digit' },
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="intelligence-empty">
-              <p className="intelligence-empty__text">
-                {intelligenceT('sessionDetailError')}
-              </p>
-            </div>
-          )}
-          <ExplainabilityPanel
-            entityType="session"
-            entityId={session.sessionId}
-            t={intelligenceT}
-          />
+          ))}
+        </div>
+      ) : (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">
+            {intelligenceT('sessionDetailError')}
+          </p>
         </div>
       )}
-    </div>
+      <ExplainabilityPanel
+        entityType="session"
+        entityId={session.sessionId}
+        t={intelligenceT}
+      />
+    </WorkbenchExpandableGroupCard>
   )
 }
 

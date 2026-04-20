@@ -15,6 +15,7 @@ import { InsightEntityHero } from '../../components/intelligence/entity-hero'
 import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { QueryFamilyCard } from '../../components/intelligence/query-family-card'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
+import { RefindSummaryCard } from '../../components/intelligence/workbench'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
   singleDayDateRange,
@@ -378,54 +379,42 @@ export function DayInsightsPage({
             </div>
           ) : (
             <IntelligenceSectionBody className="refind-list">
-              {/* TODO: M10 - share the refind summary card between overview/day views and the dedicated refind route while keeping entity-first CTAs centralized. */}
               {detail.refindPages.map((page) => (
-                <div key={page.canonicalUrl} className="refind-card">
-                  <div className="refind-card__header">
-                    <span className="refind-card__icon">📄</span>
-                    <Link
-                      className="refind-card__title"
-                      to={refindInsightsHref({
-                        canonicalUrl: page.canonicalUrl,
-                        dateRange: detail.drilldown.explorerDateRange,
-                        preset: 'custom',
+                <RefindSummaryCard
+                  key={page.canonicalUrl}
+                  actionItems={[
+                    {
+                      href: domainDayInsightsHref(
+                        page.registrableDomain,
+                        detail.date,
                         profileId,
-                      })}
-                    >
-                      {page.title ?? page.url}
-                    </Link>
-                  </div>
-                  <p className="refind-card__description">
-                    {t('refindDescription', {
-                      days: page.crossDayCount,
-                      searches: page.searchArrivalCount,
-                    })}
-                  </p>
-                  <InsightEntityActions
-                    className="intelligence-actions"
-                    items={[
-                      {
-                        href: domainDayInsightsHref(
-                          page.registrableDomain,
-                          detail.date,
-                          profileId,
-                        ),
-                        label: page.registrableDomain,
-                        style: 'text',
-                      },
-                      {
-                        href: evidenceHref({
-                          profileId,
-                          domain: page.registrableDomain,
-                          url: page.canonicalUrl,
-                          dateRange: detail.drilldown.explorerDateRange,
-                        }),
-                        label: t('entityOpenExplorer'),
-                        style: 'text',
-                      },
-                    ]}
-                  />
-                </div>
+                      ),
+                      label: page.registrableDomain,
+                      style: 'text',
+                    },
+                    {
+                      href: evidenceHref({
+                        profileId,
+                        domain: page.registrableDomain,
+                        url: page.canonicalUrl,
+                        dateRange: detail.drilldown.explorerDateRange,
+                      }),
+                      label: t('entityOpenExplorer'),
+                      style: 'text',
+                    },
+                  ]}
+                  description={t('refindDescription', {
+                    days: page.crossDayCount,
+                    searches: page.searchArrivalCount,
+                  })}
+                  title={page.title ?? page.url}
+                  titleHref={refindInsightsHref({
+                    canonicalUrl: page.canonicalUrl,
+                    dateRange: detail.drilldown.explorerDateRange,
+                    preset: 'custom',
+                    profileId,
+                  })}
+                />
               ))}
             </IntelligenceSectionBody>
           )}

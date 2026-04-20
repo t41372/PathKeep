@@ -23,6 +23,10 @@ import { InsightEntityActions } from '../../components/intelligence/entity-actio
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import {
+  RefindSummaryCard,
+  type RefindWorkbenchFactor,
+} from '../../components/intelligence/workbench'
+import {
   useAsyncData,
   type DateRange,
   type RefindPage,
@@ -522,8 +526,43 @@ function RefindCard({
   refindHref: (canonicalUrl: string) => string
   t: T
 }) {
-  const [showFactors, setShowFactors] = useState(false)
-  const factors = [
+  const factors = buildRefindSummaryFactors(page, t)
+
+  return (
+    <RefindSummaryCard
+      actionItems={[
+        {
+          href: evidenceHref({
+            domain: page.registrableDomain,
+            profileId,
+            url: page.canonicalUrl,
+          }),
+          label: t('entityOpenExplorer'),
+          style: 'text',
+        },
+      ]}
+      description={t('refindDescription', {
+        days: page.crossDayCount,
+        searches: page.searchArrivalCount,
+      })}
+      expandLabel={t('refindShowFactors')}
+      explainability={
+        <ExplainabilityPanel
+          entityType="refind_page"
+          entityId={page.canonicalUrl}
+          t={t}
+        />
+      }
+      factorRows={factors}
+      scoreLabel={`${t('refindScore')}: ${page.refindScore.toFixed(1)}`}
+      title={page.title ?? page.url}
+      titleHref={refindHref(page.canonicalUrl)}
+    />
+  )
+}
+
+function buildRefindSummaryFactors(page: RefindPage, t: T) {
+  const rawFactors = [
     { label: t('refindFactorDays'), value: page.crossDayCount, weight: 3 },
     { label: t('refindFactorTrails'), value: page.trailCount, weight: 3 },
     {
@@ -533,74 +572,10 @@ function RefindCard({
     },
     { label: t('refindFactorTyped'), value: page.typedRevisitCount, weight: 1 },
   ]
-  const maxContribution = Math.max(
-    ...factors.map((factor) => factor.value * factor.weight),
-    1,
-  )
 
-  return (
-    <div className="refind-card">
-      {/* TODO: M10 - unify refind summary/detail chrome across overview, day insights, and the dedicated refind route without reintroducing route-local CTA drift. */}
-      <div className="refind-card__header">
-        <span className="refind-card__icon">📄</span>
-        <Link className="refind-card__title" to={refindHref(page.canonicalUrl)}>
-          {page.title ?? page.url}
-        </Link>
-      </div>
-      <p className="refind-card__description">
-        {t('refindDescription', {
-          days: page.crossDayCount,
-          searches: page.searchArrivalCount,
-        })}
-      </p>
-      <button
-        className="refind-card__expand-toggle"
-        type="button"
-        onClick={() => setShowFactors((value) => !value)}
-      >
-        <span>{showFactors ? '▾' : '▸'}</span>
-        <span>{t('refindShowFactors')}</span>
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-code)' }}>
-          {t('refindScore')}: {page.refindScore.toFixed(1)}
-        </span>
-      </button>
-      <InsightEntityActions
-        className="intelligence-actions"
-        items={[
-          {
-            href: evidenceHref({
-              domain: page.registrableDomain,
-              profileId,
-              url: page.canonicalUrl,
-            }),
-            label: t('entityOpenExplorer'),
-            style: 'text',
-          },
-        ]}
-      />
-      {showFactors ? (
-        <div className="refind-card__factors">
-          {factors.map((factor) => (
-            <div key={factor.label} className="refind-card__factor">
-              <span className="refind-card__factor-label">{factor.label}</span>
-              <span
-                className="refind-card__factor-bar"
-                style={{
-                  width: `${Math.round(((factor.value * factor.weight) / maxContribution) * 80)}px`,
-                }}
-              />
-              <span className="refind-card__factor-value">
-                {factor.value} ×{factor.weight}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <ExplainabilityPanel
-        entityType="refind_page"
-        entityId={page.canonicalUrl}
-        t={t}
-      />
-    </div>
-  )
+  return rawFactors.map<RefindWorkbenchFactor>((factor) => ({
+    label: factor.label,
+    emphasis: factor.value * factor.weight,
+    valueLabel: `${factor.value} ×${factor.weight}`,
+  }))
 }

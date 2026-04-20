@@ -4054,6 +4054,17 @@ describe('intelligence surfaces', () => {
       'href',
       '/explorer?profileId=chrome%3ADefault&start=2026-04-18&end=2026-04-18',
     )
+    expect(screen.getByRole('link', { name: 'SQLite docs' })).toHaveAttribute(
+      'href',
+      '/intelligence/refind/https%3A%2F%2Fsqlite.org%2Flang.html?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
+    )
+    expect(screen.getByRole('link', { name: 'sqlite.org' })).toHaveAttribute(
+      'href',
+      '/intelligence/domain/sqlite.org?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
+    )
+    expect(
+      screen.queryByRole('button', { name: /Show score factors/i }),
+    ).not.toBeInTheDocument()
     const topSitesSection = screen
       .getByRole('heading', { name: 'Standout Sites' })
       .closest('section')
@@ -4231,6 +4242,12 @@ describe('intelligence surfaces', () => {
     expect(screen.getByRole('link', { name: '2026-04-18' })).toHaveAttribute(
       'href',
       '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
+    )
+    expect(screen.getByText('cross_day_count')).toBeVisible()
+    expect(screen.getByText('3 ×3')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Open domain insights' })).toHaveAttribute(
+      'href',
+      '/intelligence/domain/sqlite.org?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
     )
     expect(screen.getByRole('link', { name: /sqlite wal/i })).toHaveAttribute(
       'href',
@@ -4663,6 +4680,25 @@ describe('intelligence surfaces', () => {
     if (!(refindSection instanceof HTMLElement)) {
       throw new Error('expected refind section')
     }
+
+    expect(
+      within(refindSection).getByRole('link', { name: 'Reference page' }),
+    ).toHaveAttribute(
+      'href',
+      '/intelligence/refind/https%3A%2F%2Fexample.com%2Freference?range=month&profileId=chrome%3ADefault',
+    )
+    expect(
+      within(refindSection).getByRole('button', {
+        name: /Show score factors/i,
+      }),
+    ).toBeVisible()
+
+    await user.click(
+      within(refindSection).getByRole('button', {
+        name: /Show score factors/i,
+      }),
+    )
+    expect(within(refindSection).getByText('Cross-day revisits')).toBeVisible()
 
     await user.click(
       within(refindSection).getByRole('button', {

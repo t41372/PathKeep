@@ -17,6 +17,11 @@ import { IntelligenceMetricGrid } from '../../components/intelligence/metric-gri
 import { QueryFamilyCard } from '../../components/intelligence/query-family-card'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
+import {
+  RefindFactorList,
+  WorkbenchEntityRow,
+  type RefindWorkbenchFactor,
+} from '../../components/intelligence/workbench'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
   localDateKeyFromIso,
@@ -158,6 +163,16 @@ function normalizeRefindFactors(value: unknown): RefindScoreFactor[] {
       },
     ]
   })
+}
+
+function toRefindWorkbenchFactors(
+  value: RefindScoreFactor[],
+): RefindWorkbenchFactor[] {
+  return value.map((factor) => ({
+    label: factor.signal,
+    emphasis: factor.contribution,
+    valueLabel: `${factor.rawValue} ×${factor.weight}`,
+  }))
 }
 
 function useFocusedCompareSet(
@@ -437,20 +452,10 @@ export function RefindPageInsightsRoutePage() {
               <h2 className="intelligence-section__title">
                 {t('refindFactorsTitle')}
               </h2>
-              <IntelligenceSectionBody className="refind-card__factors">
-                {refindFactors.map((factor, index) => (
-                  <div
-                    key={`${factor.signal}:${index}`}
-                    className="refind-card__factor"
-                  >
-                    <span className="refind-card__factor-label">
-                      {factor.signal}
-                    </span>
-                    <span className="refind-card__factor-value">
-                      {factor.rawValue} ×{factor.weight}
-                    </span>
-                  </div>
-                ))}
+              <IntelligenceSectionBody>
+                <RefindFactorList
+                  factors={toRefindWorkbenchFactors(refindFactors)}
+                />
               </IntelligenceSectionBody>
             </section>
             <section className="intelligence-section">
@@ -622,36 +627,40 @@ export function SessionInsightsRoutePage() {
                     new Date(visit.visitTimeMs).toISOString(),
                   )
                   return (
-                    <div key={visit.visitId} className="session-visit-row">
-                      <span className="session-visit-row__content">
-                        {visit.title ?? visit.url}
-                        <div className="session-card__meta">
-                          {formatDateTime(
-                            new Date(visit.visitTimeMs).toISOString(),
-                            language,
-                          ) ?? new Date(visit.visitTimeMs).toISOString()}
-                        </div>
-                      </span>
-                      <InsightEntityActions
-                        items={[
-                          {
-                            href: dayInsightsHref(dateKey, effectiveProfileId),
-                            label: dateKey,
-                            style: 'text',
-                          },
-                          {
-                            href: domainInsightsHref({
-                              domain: visit.registrableDomain,
-                              dateRange: singleDayDateRange(dateKey),
-                              preset: 'custom',
-                              profileId: effectiveProfileId,
-                            }),
-                            label: visit.registrableDomain,
-                            style: 'text',
-                          },
-                        ]}
-                      />
-                    </div>
+                    <WorkbenchEntityRow
+                      key={visit.visitId}
+                      actions={
+                        <InsightEntityActions
+                          items={[
+                            {
+                              href: dayInsightsHref(dateKey, effectiveProfileId),
+                              label: dateKey,
+                              style: 'text',
+                            },
+                            {
+                              href: domainInsightsHref({
+                                domain: visit.registrableDomain,
+                                dateRange: singleDayDateRange(dateKey),
+                                preset: 'custom',
+                                profileId: effectiveProfileId,
+                              }),
+                              label: visit.registrableDomain,
+                              style: 'text',
+                            },
+                          ]}
+                        />
+                      }
+                      className="session-visit-row"
+                      content={visit.title ?? visit.url}
+                      contentClassName="session-visit-row__content"
+                      meta={
+                        formatDateTime(
+                          new Date(visit.visitTimeMs).toISOString(),
+                          language,
+                        ) ?? new Date(visit.visitTimeMs).toISOString()
+                      }
+                      metaClassName="session-card__meta"
+                    />
                   )
                 })}
               </IntelligenceSectionBody>
@@ -869,44 +878,46 @@ export function TrailInsightsRoutePage() {
                     focusedCompareSetPages.has(member.canonicalUrl),
                   )
                   return (
-                    <div
+                    <WorkbenchEntityRow
                       key={member.visitId}
+                      actions={
+                        member.registrableDomain ? (
+                          <InsightEntityActions
+                            items={[
+                              {
+                                href: dayInsightsHref(
+                                  dateKey,
+                                  effectiveProfileId,
+                                  focusedMember ? focus : null,
+                                ),
+                                label: dateKey,
+                                style: 'text',
+                              },
+                              {
+                                href: domainInsightsHref({
+                                  domain: member.registrableDomain,
+                                  dateRange: singleDayDateRange(dateKey),
+                                  preset: 'custom',
+                                  profileId: effectiveProfileId,
+                                  focus: focusedMember ? focus : null,
+                                }),
+                                label: member.registrableDomain,
+                                style: 'text',
+                              },
+                            ]}
+                          />
+                        ) : null
+                      }
                       className={`trail-member-row${
                         focusedMember ? ' trail-member-row--focused' : ''
                       }`}
-                    >
-                      <span className="trail-member-row__content">
-                        {member.role === 'search_event' && member.searchQuery
+                      content={
+                        member.role === 'search_event' && member.searchQuery
                           ? `"${member.searchQuery}"`
-                          : (member.title ?? member.url)}
-                      </span>
-                      {member.registrableDomain ? (
-                        <InsightEntityActions
-                          items={[
-                            {
-                              href: dayInsightsHref(
-                                dateKey,
-                                effectiveProfileId,
-                                focusedMember ? focus : null,
-                              ),
-                              label: dateKey,
-                              style: 'text',
-                            },
-                            {
-                              href: domainInsightsHref({
-                                domain: member.registrableDomain,
-                                dateRange: singleDayDateRange(dateKey),
-                                preset: 'custom',
-                                profileId: effectiveProfileId,
-                                focus: focusedMember ? focus : null,
-                              }),
-                              label: member.registrableDomain,
-                              style: 'text',
-                            },
-                          ]}
-                        />
-                      ) : null}
-                    </div>
+                          : (member.title ?? member.url)
+                      }
+                      contentClassName="trail-member-row__content"
+                    />
                   )
                 })}
               </IntelligenceSectionBody>
