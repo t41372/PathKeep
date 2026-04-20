@@ -628,3 +628,35 @@
   - 新增 `TODO: M10` 追蹤：[`src/pages/intelligence/sections.tsx`](../../src/pages/intelligence/sections.tsx) 與 [`src/pages/intelligence/day-insights.tsx`](../../src/pages/intelligence/day-insights.tsx) 現在都明確標記 `refind` summary/detail chrome 留待下一輪 workbench reuse 收斂。
   - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/README.md`](README.md)，把 M9 closeout 與 M10 active current-focus 寫回 planning tracking。
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M10-A** — Shared Review Rows And Workbench Surface Reuse
+  - 讀先：
+    `docs/plan/m10-workbench-reuse/README.md`
+    `docs/plan/m9-cross-app-reuse/README.md`
+    `docs/design/intelligence-shared-route-composition-tradeoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：收斂仍然 consumer-local 的 workbench / review row composition，優先處理 `refind` summary/detail、Explorer detail/session/trail row，以及 richer Settings review chrome 的重複造輪子。
+  - 契約：不得推翻 M6–M9 已接受的 entity-first / focus / trusted-output / shared-composition 邊界；本輪重點是 reusable workbench surface，不是新的 route grammar 或大型視覺重設。凡是新的 deferred gap，都要改記後續 milestone，且在 docs / status / code TODO 間保持可追蹤。
+  - 2026-04-19：新增 [`src/components/intelligence/workbench/`](../../src/components/intelligence/workbench) shared layer，正式收斂 `refind` summary/factor shell、Explorer grouped group-card / member-row primitive，以及 Settings external-output / local-host 的 review row / code preview / target-link building blocks。
+  - 更新 [`src/pages/intelligence/{sections.tsx,day-insights.tsx,promoted-entity-routes.tsx}`](../../src/pages/intelligence/sections.tsx)、[`src/pages/explorer/panels/{session-group.tsx,trail-group.tsx}`](../../src/pages/explorer/panels/session-group.tsx)、[`src/pages/settings/{external-outputs-panel.tsx,external-output-local-host-panel.tsx}`](../../src/pages/settings/external-outputs-panel.tsx) 與 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)，讓 overview / promoted route / Explorer / Settings 都改吃 shared workbench contract，並清掉 M9 留下的 `TODO: M10`。
+  - 新增 [`src/components/intelligence/workbench/workbench.test.tsx`](../../src/components/intelligence/workbench/workbench.test.tsx) 與對應 route regression，覆蓋 shared refind card、expandable group-card、selectable workbench row、以及 target-link row 的核心互動。
+  - 驗收：targeted Vitest intelligence surface / workbench / API regression 已通過；全量驗收見本輪 closeout commit。
+
+- [x] **WORK-M10-B** — Intelligence Route And Desktop Glue Decomposition
+  - 讀先：
+    `docs/plan/m10-workbench-reuse/README.md`
+    `docs/design/intelligence-shared-route-composition-tradeoff.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：盤點 intelligence route files、Tauri command / worker bridge / TS invoke wrapper 仍存在的重複 glue，決定哪些值得正式拆分與去重，哪些只留 inventory。
+  - 契約：不得把 M10-B 擴成大規模 desktop contract rewrite；只處理 ownership 清晰、能降低 drift 或 mega-file 壓力的 split。route grammar、payload shape 與 accepted transport boundary 不得因為「想簡化」就被改寫。
+  - 2026-04-19：新增 [`docs/design/intelligence-workbench-transport-hygiene-tradeoff.md`](../design/intelligence-workbench-transport-hygiene-tradeoff.md)，正式接受「shared workbench + ownership-based split、但 public contract 不變」的 M10 邊界；並新增 [`docs/plan/m11-app-wide-reuse/README.md`](m11-app-wide-reuse/README.md) 作為下一輪 inventory / extraction seed。
+  - 更新 [`src/pages/intelligence/promoted-entity-routes.tsx`](../../src/pages/intelligence/promoted-entity-routes.tsx) 與新拆出的 [`src/pages/intelligence/promoted-entity-routes/`](../../src/pages/intelligence/promoted-entity-routes)，把 query-family / refind / session / trail / compare-set route page 拆回 per-route ownership。
+  - 更新 [`src/lib/core-intelligence/api.ts`](../../src/lib/core-intelligence/api.ts) 與新拆出的 [`src/lib/core-intelligence/api/`](../../src/lib/core-intelligence/api)，把 invoke/normalize/cache helpers、overview read models、entity read models 與 runtime/output payload provider 正式分桶，同時保留既有 `./api` import path。
+  - 更新 [`src-tauri/src/{commands,worker_bridge}/intelligence.rs`](../../src-tauri/src/commands/intelligence.rs) 與新拆出的 `ai` / `core` / `runtime` submodules，降低 command facade / worker bridge mega-file 壓力，但維持 command name 與 transport payload 完全不變；同時把 `src/lib/intelligence.ts`、`src-tauri/src/dev_ipc_bridge.rs`、與剩餘 `vault-worker` pass-through debt 明確改記 `TODO: M11`。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md}`](STATUS.md)、[`docs/plan/m10-workbench-reuse/README.md`](m10-workbench-reuse/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md) 與 [`docs/milestones.md`](../milestones.md)，把 M10 closeout 與 M11 active current-focus 寫回 source-of-truth。
+  - 驗收：`bun run check`、`bun run build`

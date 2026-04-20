@@ -37,6 +37,8 @@
 > **2026-04-19 M8 closeout note**：`WORK-M8-A` 已完成。repo 現在正式有 `compare set` first-class insights route、受限的 shared `focusType` / `focusId` query grammar、typed `path flow` identity，以及 trusted external-output payload 的 structured entity targets；`public snapshot` 仍維持 redacted。下一輪 active 規劃改成 `M9 — Cross-App Reuse Audit And Shared Composition`，用來全面盤點剩餘 consumer-local composition 與 shared extraction 機會。
 >
 > **2026-04-19 M9 closeout note**：`WORK-M9-A` 與 `WORK-M9-B` 已完成。repo 現在正式有 shared route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 inline-end section-meta header chrome；`證據與新鮮度` badge 不再獨占一整行，也不再把 hover hitbox 擴成整張卡 header。下一輪 active 規劃改成 `M10 — Workbench Reuse And Transport Hygiene`，專門處理仍未抽出的 review rows 與 route / desktop glue decomposition。
+>
+> **2026-04-19 M10 closeout note**：`WORK-M10-A` 與 `WORK-M10-B` 已完成。repo 現在正式有 shared `refind` workbench shell、Explorer session/trail shared group-card/member-row primitive、Settings external-output/local-host shared review chrome，以及 split 的 promoted routes / Core Intelligence API / Tauri command + worker-bridge intelligence facade；對外 route / payload contract 維持不變。下一輪 active 規劃改成 `M11 — App-Wide Reuse And Shared Review Grammar`，用來全面盤點剩餘 mixed helper、dev mirror、與跨 route review / PME / diagnostics drift。
 
 ---
 
@@ -63,6 +65,7 @@
 | M8 Aggregate Entity Identity                      | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md)   |
 | M9 Cross-App Reuse / Shared Composition           | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                       |
 | M10 Workbench Reuse / Transport Hygiene           | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                     |
+| M11 App-Wide Reuse / Shared Review Grammar        | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                       |
 | 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
 
 ---
@@ -158,6 +161,7 @@ M7  Cross-App Reuse Audit And Insight Entity Consolidation
 M8  Aggregate Entity Identity And Context Reuse
 M9  Cross-App Reuse Audit And Shared Composition
 M10 Workbench Reuse And Transport Hygiene
+M11 App-Wide Reuse And Shared Review Grammar
 ```
 
 每個里程碑目錄都有：
@@ -170,20 +174,21 @@ M10 Workbench Reuse And Transport Hygiene
 
 ## 里程碑入口
 
-| 里程碑 | 目標                                                                       | 狀態  | 入口                                                                             |
-| ------ | -------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
-| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                   | `[/]` | [program/README.md](program/README.md)                                           |
-| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                   | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                               |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎          | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                         |
-| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                   | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                   |
-| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights   | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                           |
-| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證      | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                             |
-| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime     | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)       |
-| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface      | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)     |
-| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation           | `[x]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                             |
-| `M8`   | 補齊 aggregate entity identity、context focus 與 reusable entity IDs       | `[x]` | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md) |
-| `M9`   | 全面盤點剩餘重複造輪子處，並收斂 shared composition / extraction strategy  | `[x]` | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                     |
-| `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition | `[/]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                   |
+| 里程碑 | 目標                                                                                                | 狀態  | 入口                                                                             |
+| ------ | --------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
+| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                                            | `[/]` | [program/README.md](program/README.md)                                           |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                                            | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                               |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎                                   | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                         |
+| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                                            | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                   |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights                            | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                           |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證                               | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                             |
+| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime                              | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)       |
+| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface                               | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)     |
+| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation                                    | `[x]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                             |
+| `M8`   | 補齊 aggregate entity identity、context focus 與 reusable entity IDs                                | `[x]` | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md) |
+| `M9`   | 全面盤點剩餘重複造輪子處，並收斂 shared composition / extraction strategy                           | `[x]` | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                     |
+| `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition                          | `[x]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                   |
+| `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift | `[/]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                     |
 
 ---
 
@@ -210,5 +215,6 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m7-reuse-audit/
        ├── m8-aggregate-entity-identity/
        ├── m9-cross-app-reuse/
-       └── m10-workbench-reuse/
+       ├── m10-workbench-reuse/
+       └── m11-app-wide-reuse/
 ```

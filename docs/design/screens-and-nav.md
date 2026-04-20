@@ -55,6 +55,9 @@
 - `/intelligence`、`/intelligence/day/:date` 與 `/intelligence/domain/:domain` 的 deterministic section 現在都會共用 compact evidence / freshness badge + floating review panel：顯示 generated-at、active scope / window、owning modules、source tables、是否包含 enrichment，以及 stale / disabled / degraded reason；這是 review chrome，不是 mutation surface。
 - section title 與 compact evidence / freshness badge 必須共用同一個 header row。badge 是 inline-end review chrome，不得獨占一整行、也不得把 hover / focus 命中區擴成整張卡的空白 header。
 - Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 queue、freshness、derived tables、storage impact，以及 rebuild / clear controls；plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
+- `refind` overview/day/detail route 現在也共用同一套 workbench shell：title / description / factor presentation / entity-first CTA grammar 不得再由各頁各自手寫。
+- Explorer `session` / `trail` grouped view 與 promoted route member list 現在共用同一套 workbench row primitive；expand header 仍維持 browse-first canonical surface，不可偷渡成直接導頁。
+- Settings external outputs 與 trusted local host review 現在共用同一套 review row / code preview / target-link grammar；後續若要再擴到 Jobs / Import / Audit，必須沿用這批 primitive，而不是再長一套新 shell。
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
 - Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
@@ -110,6 +113,7 @@
 - `refind` route 的 path identity 直接使用 encoded canonical URL；shared focus contract 只能走 additive `focusType` / `focusId`，不得讓 consumer-local state 再次分裂 route grammar。
 - Explorer 的 detail rail 與 grouped views 如果已經握有 visit 的本地日曆日 / registrable domain，就必須優先提供 `Open day insights` / `Open domain insights`；原始 evidence / visit record 仍可保留，但不再是唯一入口。
 - Explorer 的 `session` / `trail` grouped view 仍是 browse-first canonical surface，但現在必須額外提供明確的 `Open session insights` / `Open trail insights` CTA；expand header 本身不應直接變成導頁。
+- promoted route files、front-end Core Intelligence API，以及 Tauri command / worker bridge intelligence facade 現在都已按 ownership split；後續若要繼續拆 mixed helper / dev mirror / worker pass-through，必須走 M11 inventory，而不是回頭改 public contract。
 - `reopened investigation`、`habit`、`stable source`、`friction`、`multi-browser diff` 這類 active entity 不再允許各自決定 destination：domain-based surface 一律走 `domain insights`；`compare set` 改為自己的 first-class insights route；path-flow 只有在 step 可穩定解析為 registrable domain 時才提供 shared CTA，且要帶上 `focusType=path-flow` / `focusId=<flowId>`。
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Intelligence；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
 - shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。

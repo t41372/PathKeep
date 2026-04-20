@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M10 — Workbench Reuse And Transport Hygiene**
+**當前 Milestone：M11 — App-Wide Reuse And Shared Review Grammar**
 
 ---
 
@@ -21,29 +21,28 @@
 > 2026-04-19 M7 closeout：`WORK-M7-A` 已完成。repo 現在正式有 generic `InsightEntityTarget` / href contract、shared entity CTA chrome、以及 `/intelligence/query-family/:familyId`、`/intelligence/refind/:canonicalUrl`、`/intelligence/session/:sessionId`、`/intelligence/trail/:trailId` 四條 first-class shared insights route；`reopened investigation`、`habit/stable source/friction/multi-browser diff`、`compare set` 與 Settings external-output chips 也已收斂到 shared destination。下一輪 active current-focus 改成 `WORK-M8-A`，專門處理 path-flow stable identity、compare-set full detail、context focus 與更多 reusable entity IDs。
 > 2026-04-19 M8 closeout：`WORK-M8-A` 已完成。repo 現在正式有 `/intelligence/compare-set/:compareSetId`、shared `focusType` / `focusId` query grammar、typed `path flow` identity、以及 trusted external-output payload 的 structured entity targets；`public snapshot` 仍維持 redacted。下一輪 active current-focus 改成 `WORK-M9-A` / `WORK-M9-B`，全面盤點剩餘 consumer-local composition 與 shared extraction 機會。
 > 2026-04-19 M9 closeout：`WORK-M9-A` 與 `WORK-M9-B` 已完成。repo 現在正式有 shared route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 inline-end section-meta header chrome；`證據與新鮮度` badge 不再佔整行或吃滿整個 card header。下一輪 active current-focus 改成 `WORK-M10-A` / `WORK-M10-B`，專門處理仍未抽出的 workbench/review rows 與 route / desktop glue decomposition。
+> 2026-04-19 M10 closeout：`WORK-M10-A` 與 `WORK-M10-B` 已完成。repo 現在正式有 shared `refind` workbench shell、Explorer session/trail shared group-card/member-row primitive、Settings external-output/local-host shared review chrome，以及 split 的 promoted routes / Core Intelligence API / Tauri command + worker-bridge intelligence facade；public route / payload contract 維持不變。下一輪 active current-focus 改成 `WORK-M11-A` / `WORK-M11-B`，從 app-wide reuse / review grammar 角度盤點剩餘 mixed helper、dev mirror 與 diagnostics surface。
 
-- [ ] **WORK-M10-A** — Shared Review Rows And Workbench Surface Reuse
+- [ ] **WORK-M11-A** — App-Wide Reuse Inventory And Single-Source Map
   - 讀先：
+    `docs/plan/m11-app-wide-reuse/README.md`
     `docs/plan/m10-workbench-reuse/README.md`
-    `docs/plan/m9-cross-app-reuse/README.md`
-    `docs/design/intelligence-shared-route-composition-tradeoff.md`
-    `docs/features/intelligence-current-state.md`
-    `docs/features/core-intelligence-ultimate-design.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：收斂仍然 consumer-local 的 workbench / review row composition，優先處理 `refind` summary/detail、Explorer detail/session/trail row，以及 richer Settings review chrome 的重複造輪子。
-  - 契約：不得推翻 M6–M9 已接受的 entity-first / focus / trusted-output / shared-composition 邊界；本輪重點是 reusable workbench surface，不是新的 route grammar 或大型視覺重設。凡是新的 deferred gap，都要改記後續 milestone，且在 docs / status / code TODO 間保持可追蹤。
-  - 驗收：`bun run check && bun run build`
-
-- [ ] **WORK-M10-B** — Intelligence Route And Desktop Glue Decomposition
-  - 讀先：
-    `docs/plan/m10-workbench-reuse/README.md`
-    `docs/design/intelligence-shared-route-composition-tradeoff.md`
+    `docs/design/intelligence-workbench-transport-hygiene-tradeoff.md`
     `docs/design/screens-and-nav.md`
     `docs/features/intelligence-current-state.md`
-    `docs/features/core-intelligence-ultimate-design.md`
-    `docs/architecture/desktop-command-surface.md`
-  - 目標：盤點 intelligence route files、Tauri command / worker bridge / TS invoke wrapper 仍存在的重複 glue，決定哪些值得正式拆分與去重，哪些只留 inventory。
-  - 契約：不得把 M10-B 擴成大規模 desktop contract rewrite；只處理 ownership 清晰、能降低 drift 或 mega-file 壓力的 split。route grammar、payload shape 與 accepted transport boundary 不得因為「想簡化」就被改寫。
+  - 目標：盤點全 app 仍然重複造輪子的 review / PME / diagnostics surface，以及 `src/lib/intelligence.ts`、dev IPC mirror、`vault-worker` pass-through 等 mixed helper / transport glue，建立 single-source map。
+  - 契約：不得重開 M6–M10 已接受的 route grammar、payload shape、trusted-output boundary；這一輪先做 inventory、boundary 與 source-of-truth 收斂，不把 M11 又擴成新的 feature milestone。
+  - 驗收：source docs、inventory map、`TODO: M11` 對應與後續抽取策略存在
+
+- [ ] **WORK-M11-B** — Shared Review / PME / Diagnostics Surface Extraction
+  - 讀先：
+    `docs/plan/m11-app-wide-reuse/README.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/plan/e2e-workflow-tests.md`
+  - 目標：根據 `WORK-M11-A` 的 inventory，把至少一輪跨 route 的 shared review / PME / diagnostics primitive 抽離，優先處理 Settings / Jobs / Import / Audit 之間仍漂移的 review row、code preview、target-link、verify/result grammar。
+  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而引入新的 global state、也不得回退成 page-local trust / PME copy。
   - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup

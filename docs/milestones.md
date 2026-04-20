@@ -125,3 +125,12 @@
 - 延續 M9 的 route-level shared composition baseline，不回退成各頁各自拼 CTA / review chrome
 
 📋 詳細待辦 → [plan/m10-workbench-reuse/README.md](plan/m10-workbench-reuse/README.md)
+
+## M11 — App-Wide Reuse And Shared Review Grammar
+
+- 盤點全 app 仍然重複造輪子的 review / PME / diagnostics surface，建立 single-source map
+- 決定 `src/lib/intelligence.ts`、dev IPC mirror、以及剩餘 `vault-worker` pass-through 是否值得繼續正式拆分
+- 抽出一輪跨 route 的 shared review / code-preview / target-link / verify-result grammar
+- 延續 M10 的 workbench reuse / transport hygiene baseline，不回退成各頁再手搓 trust / review chrome
+
+📋 詳細待辦 → [plan/m11-app-wide-reuse/README.md](plan/m11-app-wide-reuse/README.md)
