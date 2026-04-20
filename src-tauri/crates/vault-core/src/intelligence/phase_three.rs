@@ -16,7 +16,7 @@ use crate::{
     intelligence::site_dictionary::display_name_for_domain,
     models::{
         AppConfig, BreadthIndex, HabitPattern, InterruptedHabit, ObservedInteraction, PathFlow,
-        PathFlowRequest, ProfileScopedRequest, ScopedDateRangeRequest,
+        PathFlowRequest, PathFlowStep, ProfileScopedRequest, ScopedDateRangeRequest,
     },
 };
 use anyhow::Result;
@@ -215,11 +215,20 @@ pub fn get_path_flows(
 
     let mut results = flows
         .into_iter()
-        .map(|((flow_pattern, step_count), aggregate)| PathFlow {
-            flow_pattern,
-            step_count: step_count as i64,
-            occurrence_count: aggregate.occurrence_count,
-            last_seen_at: rfc3339_from_millis(aggregate.last_seen_ms),
+        .map(|((flow_pattern, step_count), aggregate)| {
+            let steps = build_path_flow_steps(&flow_pattern);
+            PathFlow {
+                flow_id: build_path_flow_id(
+                    request.profile_id.as_deref(),
+                    step_count,
+                    &flow_pattern,
+                ),
+                flow_pattern,
+                step_count: step_count as i64,
+                occurrence_count: aggregate.occurrence_count,
+                last_seen_at: rfc3339_from_millis(aggregate.last_seen_ms),
+                steps,
+            }
         })
         .collect::<Vec<_>>();
     results.sort_by(|left, right| {
@@ -279,6 +288,35 @@ pub fn get_observed_interactions(
         .collect::<Vec<_>>();
     interactions.sort_by(|left, right| right.visit_id.cmp(&left.visit_id));
     Ok(interactions)
+}
+
+fn build_path_flow_id(profile_id: Option<&str>, step_count: usize, flow_pattern: &str) -> String {
+    let scope = profile_id.unwrap_or("all-profiles");
+    format!("flow:{scope}:{step_count}:{flow_pattern}")
+}
+
+fn build_path_flow_steps(flow_pattern: &str) -> Vec<PathFlowStep> {
+    flow_pattern
+        .split(" → ")
+        .enumerate()
+        .map(|(index, label)| PathFlowStep {
+            index: index as i64,
+            label: label.to_string(),
+            registrable_domain: is_registrable_domain(label).then(|| label.to_string()),
+        })
+        .collect()
+}
+
+fn is_registrable_domain(value: &str) -> bool {
+    let mut count = 0_usize;
+    for part in value.split('.') {
+        count += 1;
+        if part.is_empty() || !part.chars().all(|char| char.is_ascii_alphanumeric() || char == '-')
+        {
+            return false;
+        }
+    }
+    count >= 2
 }
 
 #[derive(Debug, Default)]

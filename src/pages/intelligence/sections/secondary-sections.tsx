@@ -715,13 +715,16 @@ function BreadthIndexBody({ data, t }: { data: BreadthIndex; t: T }) {
 
 export function PathFlowsSection({
   dateRange,
-  domainHref,
+  focusedDomainHref,
   profileId,
   scopeLabel,
   t,
 }: {
   dateRange: DateRange
-  domainHref: (domain: string) => string
+  focusedDomainHref: (
+    domain: string,
+    focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
+  ) => string
   profileId: string | null
   scopeLabel: string
   t: T
@@ -763,10 +766,10 @@ export function PathFlowsSection({
       ) : (
         <IntelligenceSectionBody>
           <ul className="path-flows">
-            {flows.map((flow, index) => (
+            {flows.map((flow) => (
               <PathFlowRow
-                key={`${flow.flowPattern}:${flow.stepCount}:${index}`}
-                domainHref={domainHref}
+                key={flow.flowId}
+                focusedDomainHref={focusedDomainHref}
                 flow={flow}
                 profileId={profileId}
                 t={t}
@@ -780,40 +783,45 @@ export function PathFlowsSection({
 }
 
 function PathFlowRow({
-  domainHref,
+  focusedDomainHref,
   flow,
   profileId,
   t,
 }: {
-  domainHref: (domain: string) => string
+  focusedDomainHref: (
+    domain: string,
+    focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
+  ) => string
   flow: PathFlow
   profileId: string | null
   t: T
 }) {
-  const steps = flow.flowPattern.split(/\s*(?:->|→)\s*/).filter(Boolean)
   const explainEntityId = profileId
     ? `${profileId}::${flow.stepCount}::${flow.flowPattern}`
     : null
 
-  // TODO: M8 — current flow steps only resolve stable domain entities. If M8
-  // promotes page/category/path anchors, extend this resolver instead of
-  // falling back to consumer-local route building again.
   return (
     <li className="path-flow-row">
       <div className="path-flow-row__chips">
-        {steps.map((step, index) => (
-          <span key={index} className="path-flow-row__group">
-            {isRegistrableDomain(step) ? (
+        {flow.steps.map((step) => (
+          <span
+            key={`${flow.flowId}:${step.index}`}
+            className="path-flow-row__group"
+          >
+            {step.registrableDomain ? (
               <Link
                 className="path-flow-row__chip intelligence-link"
-                to={domainHref(step)}
+                to={focusedDomainHref(step.registrableDomain, {
+                  focusType: 'path-flow',
+                  focusId: flow.flowId,
+                })}
               >
-                {step}
+                {step.label}
               </Link>
             ) : (
-              <span className="path-flow-row__chip">{step}</span>
+              <span className="path-flow-row__chip">{step.label}</span>
             )}
-            {index < steps.length - 1 ? (
+            {step.index < flow.steps.length - 1 ? (
               <span className="path-flow-row__arrow" aria-hidden="true">
                 →
               </span>
@@ -1028,15 +1036,20 @@ function InterruptedHabitRow({
 }
 
 export function CompareSetsSection({
+  compareSetHref,
   dateRange,
-  domainHref,
+  focusedDomainHref,
   profileId,
   scopeLabel,
   trailHref,
   t,
 }: {
+  compareSetHref: (compareSetId: string) => string
   dateRange: DateRange
-  domainHref: (domain: string) => string
+  focusedDomainHref: (
+    domain: string,
+    focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
+  ) => string
   profileId: string | null
   scopeLabel: string
   trailHref: (trailId: string) => string
@@ -1065,8 +1078,9 @@ export function CompareSetsSection({
           <ul className="compare-sets">
             {compareSets.slice(0, 6).map((set) => (
               <CompareSetCard
+                compareSetHref={compareSetHref}
                 key={set.compareSetId}
-                domainHref={domainHref}
+                focusedDomainHref={focusedDomainHref}
                 set={set}
                 trailHref={trailHref}
                 t={t}
@@ -1080,12 +1094,17 @@ export function CompareSetsSection({
 }
 
 function CompareSetCard({
-  domainHref,
+  compareSetHref,
+  focusedDomainHref,
   set,
   trailHref,
   t,
 }: {
-  domainHref: (domain: string) => string
+  compareSetHref: (compareSetId: string) => string
+  focusedDomainHref: (
+    domain: string,
+    focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
+  ) => string
   set: CompareSet
   trailHref: (trailId: string) => string
   t: T
@@ -1095,13 +1114,18 @@ function CompareSetCard({
       <div className="compare-set__header">
         <Link
           className="compare-set__query intelligence-link"
-          to={trailHref(set.trailId)}
+          to={compareSetHref(set.compareSetId)}
         >
           {set.searchQuery}
         </Link>
         <span className="compare-set__count">
           {t('compareSetsPages', { count: set.pages.length })}
         </span>
+      </div>
+      <div className="intelligence-actions">
+        <Link className="intelligence-link" to={trailHref(set.trailId)}>
+          {t('trailRouteTitle')}
+        </Link>
       </div>
       <ul className="compare-set__pages">
         {set.pages.slice(0, 4).map((page: CompareSetPage, index) => (
@@ -1111,7 +1135,10 @@ function CompareSetCard({
           >
             <Link
               className="compare-set__page-domain intelligence-link"
-              to={domainHref(page.registrableDomain)}
+              to={focusedDomainHref(page.registrableDomain, {
+                focusType: 'compare-set',
+                focusId: set.compareSetId,
+              })}
             >
               {page.registrableDomain}
             </Link>
@@ -1128,10 +1155,6 @@ function CompareSetCard({
       </ul>
     </li>
   )
-}
-
-function isRegistrableDomain(value: string) {
-  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)
 }
 
 export function MultiBrowserDiffSection({

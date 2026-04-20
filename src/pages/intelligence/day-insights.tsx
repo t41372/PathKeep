@@ -32,6 +32,7 @@ import {
   useProfileScope,
 } from '../../lib/profile-scope-context'
 import {
+  parseInsightRouteFocus,
   buildIntelligenceSearchParams,
   isLocalDateKey,
 } from '../../lib/core-intelligence/routes'
@@ -42,6 +43,7 @@ import { formatHourRange, formatNumber } from './sections/shared'
 interface DayInsightsPageProps {
   backHref: string
   date: string
+  focus: ReturnType<typeof parseInsightRouteFocus>
   profileId: string | null
   scopeLabel: string
 }
@@ -52,6 +54,7 @@ export function DayInsightsRoutePage() {
   const { activeProfileId } = useProfileScope()
   const { language, t } = useI18n('intelligence')
   const effectiveProfileId = searchParams.get('profileId') ?? activeProfileId
+  const focus = parseInsightRouteFocus(searchParams)
 
   if (!date || !isLocalDateKey(date)) {
     return (
@@ -98,6 +101,7 @@ export function DayInsightsRoutePage() {
       <DayInsightsPage
         backHref={backHref}
         date={date}
+        focus={focus}
         profileId={effectiveProfileId}
         scopeLabel={scopeLabel}
       />
@@ -108,6 +112,7 @@ export function DayInsightsRoutePage() {
 export function DayInsightsPage({
   backHref,
   date,
+  focus,
   profileId,
   scopeLabel,
 }: DayInsightsPageProps) {
@@ -116,7 +121,28 @@ export function DayInsightsPage({
     () => api.getDayInsights(date, profileId),
     [date, profileId],
   )
+  const focusedCompareSetId =
+    focus?.focusType === 'compare-set' ? focus.focusId : null
+  const focusedCompareSetResult = useAsyncData<Awaited<
+    ReturnType<typeof api.getCompareSetDetail>
+  > | null>(
+    () =>
+      focusedCompareSetId
+        ? api.getCompareSetDetail(
+            focusedCompareSetId,
+            singleDayDateRange(date),
+            profileId,
+          )
+        : Promise.resolve(null),
+    [date, focusedCompareSetId, profileId],
+  )
   const detail = data?.data ?? null
+  const focusedCompareSetCandidate = focusedCompareSetResult.data?.data ?? null
+  const focusedCompareSet = focusedCompareSetCandidate?.recentDays.includes(
+    date,
+  )
+    ? focusedCompareSetCandidate
+    : null
   const explorerHref = detail
     ? evidenceHref({
         profileId,
@@ -168,6 +194,16 @@ export function DayInsightsPage({
       />
 
       <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+      {focusedCompareSet ? (
+        <StatusCallout
+          tone="info"
+          title={t('compareSetFocusTitle')}
+          body={t('compareSetDayFocusBody', {
+            query: focusedCompareSet.compareSet.searchQuery,
+            count: focusedCompareSet.compareSet.pages.length,
+          })}
+        />
+      ) : null}
 
       <div className="day-insights__stats">
         <div className="digest-card">

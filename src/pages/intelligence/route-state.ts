@@ -19,7 +19,9 @@ import { useSearchParams } from 'react-router-dom'
 import {
   buildIntelligenceSearchParams,
   dateRangeFromPreset,
+  parseInsightRouteFocus,
   type DateRange,
+  type InsightRouteFocus,
   type TimeRangePreset,
 } from '../../lib/core-intelligence'
 import {
@@ -45,6 +47,7 @@ export function useIntelligenceRouteState() {
   const requestedPreset = searchParams.get('range')
   const explicitProfileId = searchParams.get('profileId')
   const effectiveProfileId = explicitProfileId ?? activeProfileId
+  const focus = parseInsightRouteFocus(searchParams)
   const preset: TimeRangePreset = validPresets.includes(
     requestedPreset as TimeRangePreset,
   )
@@ -105,6 +108,7 @@ export function useIntelligenceRouteState() {
         dateRange: DateRange
         preset: TimeRangePreset
         profileId: string | null
+        focus: InsightRouteFocus | null
       }> = {},
     ) => {
       const nextParams = buildIntelligenceSearchParams({
@@ -114,17 +118,19 @@ export function useIntelligenceRouteState() {
           overrides.profileId === undefined
             ? effectiveProfileId
             : overrides.profileId,
+        focus: overrides.focus === undefined ? focus : overrides.focus,
       })
       const query = nextParams.toString()
       return query ? `?${query}` : ''
     },
-    [dateRange, effectiveProfileId, preset],
+    [dateRange, effectiveProfileId, focus, preset],
   )
 
   return {
     dateRange,
     effectiveProfileId,
     explicitProfileId,
+    focus,
     preset,
     profileScopeLabel,
     setCustomRange,

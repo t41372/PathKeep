@@ -193,6 +193,7 @@ fn run_app() -> Result<()> {
             get_path_flows,
             get_observed_interactions,
             get_compare_sets,
+            get_compare_set_detail,
             get_multi_browser_diff,
             load_intelligence_runtime,
             retry_intelligence_job,

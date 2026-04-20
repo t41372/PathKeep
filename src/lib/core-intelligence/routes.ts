@@ -10,16 +10,25 @@
 
 import type { DateRange, TimeRangePreset } from './types'
 
+export type InsightRouteFocusType = 'compare-set' | 'path-flow'
+
+export interface InsightRouteFocus {
+  focusType: InsightRouteFocusType
+  focusId: string
+}
+
 export interface BuildIntelligenceSearchParamsOptions {
   dateRange: DateRange
   preset: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }
 
 export function buildIntelligenceSearchParams({
   dateRange,
   preset,
   profileId,
+  focus,
 }: BuildIntelligenceSearchParamsOptions) {
   const params = new URLSearchParams()
   params.set('range', preset)
@@ -30,15 +39,37 @@ export function buildIntelligenceSearchParams({
   if (profileId) {
     params.set('profileId', profileId)
   }
+  if (focus?.focusId) {
+    params.set('focusType', focus.focusType)
+    params.set('focusId', focus.focusId)
+  }
   return params
 }
 
-export function buildDayInsightsSearchParams(profileId?: string | null) {
+export function buildDayInsightsSearchParams(
+  profileId?: string | null,
+  focus?: InsightRouteFocus | null,
+) {
   const params = new URLSearchParams()
   if (profileId) {
     params.set('profileId', profileId)
   }
+  if (focus?.focusId) {
+    params.set('focusType', focus.focusType)
+    params.set('focusId', focus.focusId)
+  }
   return params
+}
+
+export function parseInsightRouteFocus(
+  searchParams: URLSearchParams,
+): InsightRouteFocus | null {
+  const focusType = searchParams.get('focusType')
+  const focusId = searchParams.get('focusId')
+  if (!focusId || (focusType !== 'compare-set' && focusType !== 'path-flow')) {
+    return null
+  }
+  return { focusType, focusId }
 }
 
 export function isLocalDateKey(value: string) {

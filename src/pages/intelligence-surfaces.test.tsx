@@ -61,6 +61,7 @@ import { AssistantPage } from './assistant'
 import { DashboardPage } from './dashboard'
 import { ExplorerPage } from './explorer'
 import {
+  CompareSetInsightsRoutePage,
   DayInsightsRoutePage,
   DomainDeepDiveRoutePage,
   IntelligencePage,
@@ -930,6 +931,7 @@ describe('intelligence surfaces', () => {
   })
 
   test('renders section-level metadata for stale, disabled, and degraded intelligence sections', async () => {
+    const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
     const settingsT = createNamespaceTranslator('en', 'settings')
@@ -985,9 +987,15 @@ describe('intelligence surfaces', () => {
     const topSitesMeta = within(topSitesSection).getByTestId(
       'intelligence-section-meta-top-sites',
     )
+    await user.click(
+      within(topSitesMeta).getByRole('button', {
+        name: intelligenceT('sectionMetaOpenPanelAria'),
+      }),
+    )
     expect(
-      within(topSitesMeta).getByText(settingsT('deterministicModuleStale')),
-    ).toBeVisible()
+      within(topSitesMeta).getAllByText(settingsT('deterministicModuleStale'))
+        .length,
+    ).toBeGreaterThan(0)
     expect(within(topSitesMeta).getByText('domain_daily_rollups')).toBeVisible()
     expect(
       within(topSitesMeta).getByText(
@@ -1004,11 +1012,16 @@ describe('intelligence surfaces', () => {
     const stableSourcesMeta = within(stableSourcesSection).getByTestId(
       'intelligence-section-meta-stable-sources',
     )
+    await user.click(
+      within(stableSourcesMeta).getByRole('button', {
+        name: intelligenceT('sectionMetaOpenPanelAria'),
+      }),
+    )
     expect(
-      within(stableSourcesMeta).getByText(
+      within(stableSourcesMeta).getAllByText(
         settingsT('deterministicModuleDisabled'),
-      ),
-    ).toBeVisible()
+      ).length,
+    ).toBeGreaterThan(0)
 
     const observedSection = screen
       .getByRole('heading', { name: intelligenceT('observedTitle') })
@@ -1019,9 +1032,16 @@ describe('intelligence surfaces', () => {
     const observedMeta = within(observedSection).getByTestId(
       'intelligence-section-meta-observed-interactions',
     )
+    await user.click(
+      within(observedMeta).getByRole('button', {
+        name: intelligenceT('sectionMetaOpenPanelAria'),
+      }),
+    )
     expect(
-      within(observedMeta).getByText(intelligenceT('sectionMetaStateDegraded')),
-    ).toBeVisible()
+      within(observedMeta).getAllByText(
+        intelligenceT('sectionMetaStateDegraded'),
+      ).length,
+    ).toBeGreaterThan(0)
     expect(
       within(observedMeta).getByText(
         'No supported browser-reported interaction evidence is available for this scope yet.',
@@ -1206,6 +1226,11 @@ describe('intelligence surfaces', () => {
     const topSitesMeta = await screen.findByTestId(
       'intelligence-section-meta-top-sites',
     )
+    await user.click(
+      within(topSitesMeta).getByRole('button', {
+        name: intelligenceT('sectionMetaOpenPanelAria'),
+      }),
+    )
     expect(
       within(topSitesMeta).getByText('2026-04-01 → 2026-04-07'),
     ).toBeVisible()
@@ -1222,7 +1247,9 @@ describe('intelligence surfaces', () => {
         ),
       ).toBe(true)
     })
-    expect(await screen.findByText('firefox:Research')).toBeVisible()
+    expect(
+      await screen.findByText(/Core Intelligence is only reading Research/i),
+    ).toBeVisible()
 
     const previousTopSitesCallCount = topSitesSpy.mock.calls.length
 
@@ -4195,6 +4222,112 @@ describe('intelligence surfaces', () => {
     )
   })
 
+  test('renders compare-set insights as a first-class route with focused trail and day links', async () => {
+    const { snapshot } = await seedArchiveState()
+    const detailSpy = vi
+      .spyOn(coreIntelligenceApi, 'getCompareSetDetail')
+      .mockResolvedValue(
+        wrapSection('compare-set-detail', {
+          compareSet: {
+            compareSetId: 'compare:trail-1:docs_page',
+            trailId: 'trail-1',
+            searchQuery: 'sqlite wal',
+            pageCategory: 'docs_page',
+            pages: [
+              {
+                canonicalUrl: 'https://sqlite.org/wal.html',
+                url: 'https://sqlite.org/wal.html',
+                title: 'WAL mode',
+                registrableDomain: 'sqlite.org',
+                visitCount: 2,
+                isLanding: true,
+              },
+              {
+                canonicalUrl: 'https://sqlite.org/checkpoint.html',
+                url: 'https://sqlite.org/checkpoint.html',
+                title: 'Checkpoint',
+                registrableDomain: 'sqlite.org',
+                visitCount: 2,
+                isLanding: false,
+              },
+            ],
+          },
+          trail: {
+            trailId: 'trail-1',
+            sessionId: 'session-1',
+            initialQuery: 'sqlite wal',
+            searchEngine: 'google',
+            reformulationCount: 2,
+            visitCount: 4,
+            landingUrl: 'https://sqlite.org/wal.html',
+            landingDomain: 'sqlite.org',
+            firstVisitMs: Date.parse('2026-04-18T00:00:00Z'),
+            lastVisitMs: Date.parse('2026-04-18T00:10:00Z'),
+            maxDepth: 2,
+            queries: ['sqlite wal', 'sqlite checkpoint'],
+          },
+          session: {
+            sessionId: 'session-1',
+            firstVisitMs: Date.parse('2026-04-18T00:00:00Z'),
+            lastVisitMs: Date.parse('2026-04-18T00:10:00Z'),
+            visitCount: 5,
+            searchCount: 2,
+            domainCount: 1,
+            isDeepDive: false,
+            autoTitle: 'SQLite compare',
+          },
+          recentDays: ['2026-04-18', '2026-04-12'],
+        }),
+      )
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/compare-set/:compareSetId"
+          element={<CompareSetInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/compare-set/compare%3Atrail-1%3Adocs_page?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome:Default',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /sqlite wal/i }),
+    ).toBeVisible()
+    expect(detailSpy).toHaveBeenCalledWith(
+      'compare:trail-1:docs_page',
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+    )
+    expect(
+      screen.getByRole('link', { name: 'Open trail insights' }),
+    ).toHaveAttribute(
+      'href',
+      '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault&focusType=compare-set&focusId=compare%3Atrail-1%3Adocs_page',
+    )
+    expect(
+      screen
+        .getAllByRole('link', { name: 'sqlite.org' })
+        .every(
+          (link) =>
+            link.getAttribute('href') ===
+            '/intelligence/domain/sqlite.org?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault&focusType=compare-set&focusId=compare%3Atrail-1%3Adocs_page',
+        ),
+    ).toBe(true)
+    expect(
+      screen
+        .getAllByRole('link', { name: '2026-04-18' })
+        .some(
+          (link) =>
+            link.getAttribute('href') ===
+            '/intelligence/day/2026-04-18?profileId=chrome%3ADefault&focusType=compare-set&focusId=compare%3Atrail-1%3Adocs_page',
+        ),
+    ).toBe(true)
+  })
+
   test('renders session insights as a route-first destination while keeping Explorer inline sessions', async () => {
     const { snapshot } = await seedArchiveState()
     vi.spyOn(coreIntelligenceApi, 'getSessionDetail').mockResolvedValue({
@@ -4328,6 +4461,116 @@ describe('intelligence surfaces', () => {
       'href',
       '/intelligence/domain/sqlite.org?range=custom&start=2026-04-05&end=2026-04-05&profileId=chrome%3ADefault',
     )
+  })
+
+  test('shows compare-set focus context inside trail insights and highlights matching members', async () => {
+    const { snapshot } = await seedArchiveState()
+    vi.spyOn(coreIntelligenceApi, 'getTrailDetail').mockResolvedValue({
+      trail: {
+        trailId: 'trail-1',
+        sessionId: 'session-1',
+        initialQuery: 'sqlite wal checkpoint',
+        searchEngine: 'Google',
+        reformulationCount: 1,
+        visitCount: 2,
+        landingUrl: 'https://www.sqlite.org/pragma.html',
+        landingDomain: 'sqlite.org',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+        maxDepth: 2,
+        queries: ['sqlite wal checkpoint', 'sqlite wal checkpoint passive'],
+      },
+      members: [
+        {
+          trailId: 'trail-1',
+          visitId: 202,
+          ordinal: 1,
+          role: 'landing',
+          url: 'https://www.sqlite.org/pragma.html',
+          canonicalUrl: 'https://www.sqlite.org/pragma.html',
+          title: 'PRAGMA wal_checkpoint',
+          registrableDomain: 'sqlite.org',
+          visitTimeMs: Date.parse('2026-04-05T14:03:00Z'),
+          searchQuery: null,
+        },
+        {
+          trailId: 'trail-1',
+          visitId: 203,
+          ordinal: 2,
+          role: 'click',
+          url: 'https://www.sqlite.org/wal.html',
+          canonicalUrl: 'https://www.sqlite.org/wal.html',
+          title: 'WAL docs',
+          registrableDomain: 'sqlite.org',
+          visitTimeMs: Date.parse('2026-04-05T14:06:00Z'),
+          searchQuery: null,
+        },
+      ],
+    })
+    vi.spyOn(coreIntelligenceApi, 'getCompareSetDetail').mockResolvedValue(
+      wrapSection('compare-set-detail', {
+        compareSet: {
+          compareSetId: 'compare:trail-1:docs_page',
+          trailId: 'trail-1',
+          searchQuery: 'sqlite wal',
+          pageCategory: 'docs_page',
+          pages: [
+            {
+              canonicalUrl: 'https://www.sqlite.org/pragma.html',
+              url: 'https://www.sqlite.org/pragma.html',
+              title: 'PRAGMA wal_checkpoint',
+              registrableDomain: 'sqlite.org',
+              visitCount: 2,
+              isLanding: true,
+            },
+          ],
+        },
+        trail: {
+          trailId: 'trail-1',
+          sessionId: 'session-1',
+          initialQuery: 'sqlite wal checkpoint',
+          searchEngine: 'Google',
+          reformulationCount: 1,
+          visitCount: 2,
+          landingUrl: 'https://www.sqlite.org/pragma.html',
+          landingDomain: 'sqlite.org',
+          firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+          lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+          maxDepth: 2,
+          queries: ['sqlite wal checkpoint', 'sqlite wal checkpoint passive'],
+        },
+        session: null,
+        recentDays: ['2026-04-05'],
+      }),
+    )
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/trail/:trailId"
+          element={<TrailInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-07&profileId=chrome:Default&focusType=compare-set&focusId=compare%3Atrail-1%3Adocs_page',
+        snapshot,
+      },
+    )
+
+    expect(await screen.findByText('Focused compare set')).toBeVisible()
+    expect(
+      screen
+        .getAllByRole('link', { name: '2026-04-05' })
+        .some(
+          (link) =>
+            link.getAttribute('href') ===
+            '/intelligence/day/2026-04-05?profileId=chrome%3ADefault&focusType=compare-set&focusId=compare%3Atrail-1%3Adocs_page',
+        ),
+    ).toBe(true)
+    expect(
+      screen.getByText('PRAGMA wal_checkpoint').closest('.trail-member-row'),
+    ).toHaveClass('trail-member-row--focused')
   })
 
   test('limits path-flow steps to supported values and wires explainability to supported intelligence entities', async () => {

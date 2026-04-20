@@ -206,6 +206,24 @@ const zhCnM3Namespaces = {
     trailRouteOpenSession: '打开会话洞察',
     trailRouteVisitCount: '{count} 次访问',
     trailRouteDepthLabel: '深度',
+    compareSetRouteTitle: '比较页面组',
+    compareSetRouteSubtitle:
+      '把这组并排比较页面当成共享实体来审阅，并保留可复用的旅程、日期与域名上下文。',
+    compareSetRoutePagesTitle: '比较中的页面',
+    compareSetRouteRecentDaysTitle: '最近比较日期',
+    compareSetRouteOpenTrail: '打开旅程洞察',
+    compareSetRouteOpenSession: '打开会话洞察',
+    compareSetRouteDomainsLabel: '域名数',
+    compareSetFocusTitle: '当前聚焦比较页面组',
+    compareSetFocusBody:
+      '这条旅程正在按 “{query}” 的比较页面组上下文查看，共涉及 {count} 个页面。',
+    compareSetDayFocusBody:
+      '这一天属于 “{query}” 的比较页面组上下文，共涉及 {count} 个页面。',
+    compareSetDomainFocusBody:
+      '这个域名属于 “{query}” 的比较页面组上下文，共涉及 {count} 个页面。',
+    compareSetFocusBadge: '聚焦中',
+    pathFlowFocusTitle: '当前聚焦常见路径',
+    pathFlowFocusBody: '这个域名正在按重复路径查看：{flow}',
     dayInsightsHourlyTitle: '小时活动',
     dayInsightsTopSitesTitle: '当天重点网站',
     dayInsightsActivityMixTitle: '当天活动构成',
@@ -365,6 +383,11 @@ const zhCnM3Namespaces = {
     explainRuleHabitPatternInterrupted:
       '检测到 {habit} 节奏，但之后跨过了中断阈值。',
     explainRulePathFlow: '这条路径模式会在会话内的域名 n-gram 中重复出现。',
+    explainRuleCompareSet:
+      '这个比较页面组来自同一条搜索旅程里多次来回切换的可比较页面。',
+    explainFactorPageCount: '可比较页面数',
+    explainFactorDomainCount: '域名数',
+    explainFactorAlternationCount: '切换次数',
     explainFactorVisitCount: '访问次数',
     explainFactorSearchCount: '搜索次数',
     explainFactorUniqueDomainCount: '不同网站数',
@@ -1199,6 +1222,24 @@ const zhTwM3Namespaces = {
     trailRouteOpenSession: '打開會話洞察',
     trailRouteVisitCount: '{count} 次造訪',
     trailRouteDepthLabel: '深度',
+    compareSetRouteTitle: '比較頁面組',
+    compareSetRouteSubtitle:
+      '把這組並排比較頁面當成共享實體來審閱，並保留可重用的旅程、日期與網域上下文。',
+    compareSetRoutePagesTitle: '比較中的頁面',
+    compareSetRouteRecentDaysTitle: '最近比較日期',
+    compareSetRouteOpenTrail: '打開旅程洞察',
+    compareSetRouteOpenSession: '打開會話洞察',
+    compareSetRouteDomainsLabel: '網域數',
+    compareSetFocusTitle: '目前聚焦比較頁面組',
+    compareSetFocusBody:
+      '這條旅程正在按「{query}」的比較頁面組上下文查看，共涉及 {count} 個頁面。',
+    compareSetDayFocusBody:
+      '這一天屬於「{query}」的比較頁面組上下文，共涉及 {count} 個頁面。',
+    compareSetDomainFocusBody:
+      '這個網域屬於「{query}」的比較頁面組上下文，共涉及 {count} 個頁面。',
+    compareSetFocusBadge: '聚焦中',
+    pathFlowFocusTitle: '目前聚焦常見路徑',
+    pathFlowFocusBody: '這個網域正在按重複路徑查看：{flow}',
     dayInsightsHourlyTitle: '小時活動',
     dayInsightsTopSitesTitle: '當天重點網站',
     dayInsightsActivityMixTitle: '當天活動構成',
@@ -1359,6 +1400,11 @@ const zhTwM3Namespaces = {
     explainRuleHabitPatternInterrupted:
       '偵測到 {habit} 節奏，但之後跨過了中斷門檻。',
     explainRulePathFlow: '這條路徑模式會在工作階段內的網域 n-gram 中重複出現。',
+    explainRuleCompareSet:
+      '這個比較頁面組來自同一條搜尋旅程裡多次來回切換的可比較頁面。',
+    explainFactorPageCount: '可比較頁面數',
+    explainFactorDomainCount: '網域數',
+    explainFactorAlternationCount: '切換次數',
     explainFactorVisitCount: '造訪次數',
     explainFactorSearchCount: '搜尋次數',
     explainFactorUniqueDomainCount: '不同網站數',
@@ -2977,6 +3023,7 @@ const catalog: Record<
       externalOutputsEmbedPreviewTitle: 'Embed card preview',
       externalOutputsTrustedOnlyBadge: 'TRUSTED ONLY',
       externalOutputsHref: 'Payload href',
+      externalOutputsOpenInsights: 'Open insights',
       externalOutputsEmbedEmpty:
         'No embed cards are available for this scope yet.',
       externalOutputsJsonTitle: 'Raw JSON payload',
@@ -3523,6 +3570,25 @@ const catalog: Record<
       trailRouteOpenSession: 'Open session insights',
       trailRouteVisitCount: '{count} visits',
       trailRouteDepthLabel: 'Depth',
+      compareSetRouteTitle: 'Compare Set',
+      compareSetRouteSubtitle:
+        'Review this side-by-side comparison as a shared entity with reusable trail, day, and domain context.',
+      compareSetRoutePagesTitle: 'Compared pages',
+      compareSetRouteRecentDaysTitle: 'Recent compare days',
+      compareSetRouteOpenTrail: 'Open trail insights',
+      compareSetRouteOpenSession: 'Open session insights',
+      compareSetRouteDomainsLabel: 'Domains',
+      compareSetFocusTitle: 'Focused compare set',
+      compareSetFocusBody:
+        'This trail is being viewed through the compare set for "{query}" across {count} pages.',
+      compareSetDayFocusBody:
+        'This day is part of the compare set for "{query}" across {count} pages.',
+      compareSetDomainFocusBody:
+        'This domain participates in the compare set for "{query}" across {count} pages.',
+      compareSetFocusBadge: 'Focused',
+      pathFlowFocusTitle: 'Focused path flow',
+      pathFlowFocusBody:
+        'This domain is being viewed through the repeating path flow: {flow}',
       dayInsightsHourlyTitle: 'Hourly Activity',
       dayInsightsTopSitesTitle: 'Standout Sites',
       dayInsightsActivityMixTitle: 'Activity Mix',
@@ -3694,6 +3760,11 @@ const catalog: Record<
         '{habit} cadence was detected, then later crossed its interruption threshold.',
       explainRulePathFlow:
         'This path pattern recurs across session-local domain n-grams.',
+      explainRuleCompareSet:
+        'This compare set alternated between multiple comparable pages within one search trail.',
+      explainFactorPageCount: 'Comparable pages',
+      explainFactorDomainCount: 'Domains',
+      explainFactorAlternationCount: 'Alternations',
       explainFactorVisitCount: 'Visit count',
       explainFactorSearchCount: 'Search count',
       explainFactorUniqueDomainCount: 'Unique domains',
@@ -5276,6 +5347,7 @@ const catalog: Record<
       externalOutputsEmbedPreviewTitle: 'Embed card 预览',
       externalOutputsTrustedOnlyBadge: '仅限受信任宿主',
       externalOutputsHref: 'Payload href',
+      externalOutputsOpenInsights: '打开洞察',
       externalOutputsEmbedEmpty: '这个范围里暂时没有可用的 embed cards。',
       externalOutputsJsonTitle: '原始 JSON payload',
       externalOutputsWidgetPreviewTitle: 'Widget snapshot 预览',
@@ -6511,6 +6583,7 @@ const catalog: Record<
       externalOutputsEmbedPreviewTitle: 'Embed card 預覽',
       externalOutputsTrustedOnlyBadge: '僅限受信任宿主',
       externalOutputsHref: 'Payload href',
+      externalOutputsOpenInsights: '打開洞察',
       externalOutputsEmbedEmpty: '這個範圍裡暫時沒有可用的 embed cards。',
       externalOutputsJsonTitle: '原始 JSON payload',
       externalOutputsWidgetPreviewTitle: 'Widget snapshot 預覽',

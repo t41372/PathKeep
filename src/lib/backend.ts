@@ -3398,6 +3398,48 @@ async function call<T>(
           notes: [],
         },
       } as T
+    case 'get_compare_set_detail':
+      return {
+        data: {
+          compareSet: {
+            compareSetId: '',
+            trailId: '',
+            searchQuery: '',
+            pageCategory: '',
+            pages: [],
+          },
+          trail: {
+            trailId: '',
+            sessionId: null,
+            initialQuery: '',
+            searchEngine: '',
+            reformulationCount: 0,
+            visitCount: 0,
+            landingUrl: null,
+            landingDomain: null,
+            firstVisitMs: 0,
+            lastVisitMs: 0,
+            maxDepth: 0,
+            queries: [],
+          },
+          session: null,
+          recentDays: [],
+        },
+        meta: {
+          sectionId: 'compare-set-detail',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '', end: '' },
+          },
+          moduleIds: [],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'degraded',
+          stateReason: null,
+          notes: [],
+        },
+      } as T
     case 'get_session_detail':
       return { session: null, visits: [], trails: [] } as T
     case 'get_trail_detail':

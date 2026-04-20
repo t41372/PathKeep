@@ -28,6 +28,7 @@ import {
   getIntelligenceWidgetSnapshot,
   useAsyncData,
   useTimeRange,
+  type DateRange,
   type IntelligenceEmbedCardPayload,
   type IntelligencePublicSnapshot,
   type IntelligenceWidgetSnapshot,
@@ -38,7 +39,11 @@ import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
-import { dayInsightsHref, domainInsightsHref } from '../../lib/intelligence'
+import {
+  dayInsightsHref,
+  domainInsightsHref,
+  insightEntityReferenceHref,
+} from '../../lib/intelligence'
 import { SettingsExternalOutputLocalHostPanel } from './external-output-local-host-panel'
 
 type OutputTab = 'embed' | 'widget' | 'public'
@@ -260,10 +265,12 @@ export function SettingsExternalOutputsPanel({
               <div className="settings-result-list">
                 {activeTab === 'embed' ? (
                   <EmbedCardsTab
+                    activeProfileId={activeProfileId}
                     cards={outputs.data.embedCards}
                     copyFeedback={copyFeedback}
                     copyLabel={commonT('copyAction')}
                     commonT={commonT}
+                    dateRange={dateRange}
                     json={embedCardsJson}
                     onCopy={handleCopyPayload}
                     t={t}
@@ -272,6 +279,7 @@ export function SettingsExternalOutputsPanel({
 
                 {activeTab === 'widget' ? (
                   <WidgetSnapshotTab
+                    activeProfileId={activeProfileId}
                     copyFeedback={copyFeedback}
                     copyLabel={commonT('copyAction')}
                     commonT={commonT}
@@ -315,18 +323,22 @@ export function SettingsExternalOutputsPanel({
 }
 
 function EmbedCardsTab({
+  activeProfileId,
   cards,
   copyFeedback,
   copyLabel,
   commonT,
+  dateRange,
   json,
   onCopy,
   t,
 }: {
+  activeProfileId: string | null
   cards: IntelligenceEmbedCardPayload[]
   copyFeedback: CopyFeedback | null
   copyLabel: string
   commonT: Translate
+  dateRange: DateRange
   json: string
   onCopy: (key: string, payload: string) => void
   t: Translate
@@ -365,14 +377,12 @@ function EmbedCardsTab({
                     </span>
                   </div>
                 ) : null}
-                {card.href ? (
-                  <div className="config-row">
-                    <span className="config-label">
-                      {t('externalOutputsHref')}
-                    </span>
-                    <span className="config-value mono">{card.href}</span>
-                  </div>
-                ) : null}
+                <OutputTargetLinks
+                  activeProfileId={activeProfileId}
+                  card={card}
+                  dateRange={dateRange}
+                  t={t}
+                />
               </article>
             ))}
           </div>
@@ -396,6 +406,7 @@ function EmbedCardsTab({
 }
 
 function WidgetSnapshotTab({
+  activeProfileId,
   copyFeedback,
   copyLabel,
   commonT,
@@ -407,6 +418,7 @@ function WidgetSnapshotTab({
   trustedCards,
   intelligenceT,
 }: {
+  activeProfileId: string | null
   copyFeedback: CopyFeedback | null
   copyLabel: string
   commonT: Translate
@@ -467,6 +479,12 @@ function WidgetSnapshotTab({
                 ) : null}
               </div>
               <p>{card.body}</p>
+              <OutputTargetLinks
+                activeProfileId={activeProfileId}
+                card={card}
+                dateRange={snapshot.dateRange}
+                t={t}
+              />
             </article>
           ))}
         </div>
@@ -740,6 +758,63 @@ function JsonPreviewPanel({
             : t('externalOutputsCopyFailed')}
         </p>
       ) : null}
+    </div>
+  )
+}
+
+function OutputTargetLinks({
+  activeProfileId,
+  card,
+  dateRange,
+  t,
+}: {
+  activeProfileId: string | null
+  card: IntelligenceEmbedCardPayload
+  dateRange: DateRange
+  t: Translate
+}) {
+  const primaryHref = card.primaryTarget
+    ? insightEntityReferenceHref(card.primaryTarget, {
+        dateRange,
+        preset: 'custom',
+        profileId: activeProfileId,
+      })
+    : null
+  const secondaryTargets = card.secondaryTargets ?? []
+
+  if (!primaryHref && secondaryTargets.length === 0 && !card.href) {
+    return null
+  }
+
+  return (
+    <div className="config-row">
+      <span className="config-label">{t('externalOutputsHref')}</span>
+      <span className="config-value">
+        {primaryHref ? (
+          <Link className="intelligence-link" to={primaryHref}>
+            {t('externalOutputsOpenInsights')}
+          </Link>
+        ) : card.href ? (
+          <span className="mono">{card.href}</span>
+        ) : null}
+        {secondaryTargets.length > 0 ? (
+          <span className="settings-output-chip-list">
+            {secondaryTargets.map((target, index) => (
+              <Link
+                key={`${card.cardId}:${target.kind}:${index}`}
+                className="chip-button"
+                to={insightEntityReferenceHref(target, {
+                  dateRange,
+                  preset: 'custom',
+                  profileId: activeProfileId,
+                })}
+              >
+                {target.kind}
+              </Link>
+            ))}
+          </span>
+        ) : null}
+      </span>
     </div>
   )
 }

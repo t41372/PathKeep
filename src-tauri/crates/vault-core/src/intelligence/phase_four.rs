@@ -4,18 +4,19 @@
 //! - compare sets detected from search trails
 //! - multi-browser/profile behavioral diffs
 
-use super::{date_range_bounds, ensure_core_intelligence_schema};
+use super::{date_range_bounds, ensure_core_intelligence_schema, local_date_key};
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
     models::{
         AppConfig, BrowserCategoryDistribution, BrowserDiff, BrowserProfileSummary,
-        CategoryMixEntry, CompareSet, CompareSetPage, ExclusiveDomainEntry, ScopedDateRangeRequest,
+        CategoryMixEntry, CompareSet, CompareSetDetail, CompareSetDetailRequest, CompareSetPage,
+        ExclusiveDomainEntry, ScopedDateRangeRequest, SessionSummary, TrailSummary,
     },
 };
-use anyhow::Result;
-use rusqlite::{Connection, params};
-use std::collections::HashMap;
+use anyhow::{Context, Result};
+use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::{BTreeSet, HashMap};
 
 pub fn get_compare_sets(
     paths: &ProjectPaths,
@@ -25,42 +26,7 @@ pub fn get_compare_sets(
 ) -> Result<Vec<CompareSet>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let mut statement = connection.prepare(
-        "SELECT search_trails.trail_id,
-                search_trails.initial_query,
-                search_trails.landing_url,
-                visit_derived_facts.canonical_url,
-                urls.url,
-                urls.title,
-                visit_derived_facts.registrable_domain,
-                visit_derived_facts.page_category,
-                visits.visit_time_ms
-         FROM search_trails
-         JOIN search_trail_members ON search_trail_members.trail_id = search_trails.trail_id
-         JOIN visit_derived_facts ON visit_derived_facts.visit_id = search_trail_members.visit_id
-         JOIN archive.visits AS visits ON visits.id = search_trail_members.visit_id
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         WHERE (?1 IS NULL OR search_trails.profile_id = ?1)
-           AND search_trails.last_visit_ms >= ?2
-           AND search_trails.first_visit_ms < ?3
-         ORDER BY search_trails.trail_id ASC, visits.visit_time_ms ASC, search_trail_members.ordinal ASC",
-    )?;
-    let rows = statement
-        .query_map(params![request.profile_id.as_deref(), start_ms, end_ms], |row| {
-            Ok(CompareTrailMember {
-                trail_id: row.get(0)?,
-                initial_query: row.get(1)?,
-                landing_url: row.get(2)?,
-                canonical_url: row.get(3)?,
-                url: row.get(4)?,
-                title: row.get(5)?,
-                registrable_domain: row.get(6)?,
-                page_category: row.get(7)?,
-                visit_time_ms: row.get(8)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let rows = load_compare_trail_members(&connection, request, None)?;
 
     let mut members_by_trail = HashMap::<String, Vec<CompareTrailMember>>::new();
     for member in rows {
@@ -73,6 +39,42 @@ pub fn get_compare_sets(
     }
     compare_sets.sort_by(|left, right| left.compare_set_id.cmp(&right.compare_set_id));
     Ok(compare_sets)
+}
+
+pub fn get_compare_set_detail(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &CompareSetDetailRequest,
+) -> Result<CompareSetDetail> {
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let (trail_id, page_category) = parse_compare_set_id(&request.compare_set_id)?;
+    let scoped = ScopedDateRangeRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+    };
+    let trail_members = load_compare_trail_members(&connection, &scoped, Some(trail_id))?;
+    let compare_set = build_compare_sets_for_trail(&trail_members)
+        .into_iter()
+        .find(|entry| entry.compare_set_id == request.compare_set_id)
+        .with_context(|| format!("compare set {} was not found", request.compare_set_id))?;
+    let trail = load_trail_summary(&connection, trail_id)?;
+    let session = trail
+        .session_id
+        .as_deref()
+        .map(|session_id| load_session_summary(&connection, session_id))
+        .transpose()?;
+    let recent_days = trail_members
+        .iter()
+        .filter(|member| member.page_category == page_category)
+        .map(|member| local_date_key(member.visit_time_ms))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>();
+
+    Ok(CompareSetDetail { compare_set, trail, session, recent_days })
 }
 
 pub fn get_multi_browser_diff(
@@ -130,6 +132,7 @@ struct CompareTrailMember {
 
 #[derive(Debug, Default, Clone)]
 struct ComparePageAggregate {
+    canonical_url: String,
     url: String,
     title: Option<String>,
     registrable_domain: String,
@@ -155,6 +158,7 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
         for member in &members {
             let page = by_page.entry(member.canonical_url.clone()).or_insert_with(|| {
                 ComparePageAggregate {
+                    canonical_url: member.canonical_url.clone(),
                     url: member.url.clone(),
                     title: member.title.clone(),
                     registrable_domain: member.registrable_domain.clone(),
@@ -212,9 +216,11 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
             compare_set_id: format!("compare:{trail_id}:{page_category}"),
             trail_id,
             search_query: members[0].initial_query.clone(),
+            page_category,
             pages: pages
                 .into_iter()
                 .map(|page| CompareSetPage {
+                    canonical_url: page.canonical_url,
                     url: page.url,
                     title: page.title,
                     registrable_domain: page.registrable_domain,
@@ -260,6 +266,116 @@ fn path_prefix(url: &str) -> String {
             segments.next().unwrap_or("/").to_string()
         })
         .unwrap_or_else(|| "/".to_string())
+}
+
+fn load_compare_trail_members(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+    trail_id: Option<&str>,
+) -> Result<Vec<CompareTrailMember>> {
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let mut statement = connection.prepare(
+        "SELECT search_trails.trail_id,
+                search_trails.initial_query,
+                search_trails.landing_url,
+                visit_derived_facts.canonical_url,
+                urls.url,
+                urls.title,
+                visit_derived_facts.registrable_domain,
+                visit_derived_facts.page_category,
+                visits.visit_time_ms
+         FROM search_trails
+         JOIN search_trail_members ON search_trail_members.trail_id = search_trails.trail_id
+         JOIN visit_derived_facts ON visit_derived_facts.visit_id = search_trail_members.visit_id
+         JOIN archive.visits AS visits ON visits.id = search_trail_members.visit_id
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         WHERE (?1 IS NULL OR search_trails.profile_id = ?1)
+           AND (?2 IS NULL OR search_trails.trail_id = ?2)
+           AND search_trails.last_visit_ms >= ?3
+           AND search_trails.first_visit_ms < ?4
+         ORDER BY search_trails.trail_id ASC, visits.visit_time_ms ASC, search_trail_members.ordinal ASC",
+    )?;
+    statement
+        .query_map(params![request.profile_id.as_deref(), trail_id, start_ms, end_ms], |row| {
+            Ok(CompareTrailMember {
+                trail_id: row.get(0)?,
+                initial_query: row.get(1)?,
+                landing_url: row.get(2)?,
+                canonical_url: row.get(3)?,
+                url: row.get(4)?,
+                title: row.get(5)?,
+                registrable_domain: row.get(6)?,
+                page_category: row.get(7)?,
+                visit_time_ms: row.get(8)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn parse_compare_set_id(compare_set_id: &str) -> Result<(&str, &str)> {
+    let payload = compare_set_id.strip_prefix("compare:").with_context(|| {
+        format!(
+            "compare_set detail expects ids shaped like 'compare:<trail_id>:<page_category>', got {compare_set_id}",
+        )
+    })?;
+    payload
+        .rsplit_once(':')
+        .with_context(|| format!("compare set {compare_set_id} is missing page category"))
+}
+
+fn load_trail_summary(connection: &Connection, trail_id: &str) -> Result<TrailSummary> {
+    connection
+        .query_row(
+            "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
+                    landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
+             FROM search_trails
+             WHERE trail_id = ?1",
+            [trail_id],
+            trail_summary_from_row,
+        )
+        .with_context(|| format!("trail {trail_id} was not found"))
+}
+
+fn load_session_summary(connection: &Connection, session_id: &str) -> Result<SessionSummary> {
+    connection
+        .query_row(
+            "SELECT session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
+             FROM sessions
+             WHERE session_id = ?1",
+            [session_id],
+            |row| {
+                Ok(SessionSummary {
+                    session_id: row.get(0)?,
+                    first_visit_ms: row.get(1)?,
+                    last_visit_ms: row.get(2)?,
+                    visit_count: row.get(3)?,
+                    search_count: row.get(4)?,
+                    domain_count: row.get(5)?,
+                    is_deep_dive: row.get::<_, i64>(6)? != 0,
+                    auto_title: row.get(7)?,
+                })
+            },
+        )
+        .optional()?
+        .with_context(|| format!("session {session_id} was not found"))
+}
+
+fn trail_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrailSummary> {
+    Ok(TrailSummary {
+        trail_id: row.get(0)?,
+        session_id: row.get(1)?,
+        initial_query: row.get(2)?,
+        search_engine: row.get(3)?,
+        reformulation_count: row.get(4)?,
+        visit_count: row.get(5)?,
+        landing_url: row.get(6)?,
+        landing_domain: row.get(7)?,
+        first_visit_ms: row.get(8)?,
+        last_visit_ms: row.get(9)?,
+        max_depth: row.get(10)?,
+        queries: serde_json::from_str(&row.get::<_, String>(11)?).unwrap_or_default(),
+    })
 }
 
 fn load_browser_profile_summaries(
@@ -452,6 +568,8 @@ mod tests {
         ];
         let compare_sets = build_compare_sets_for_trail(&members);
         assert_eq!(compare_sets.len(), 1);
+        assert_eq!(compare_sets[0].page_category, "docs_page");
         assert_eq!(compare_sets[0].pages.len(), 2);
+        assert_eq!(compare_sets[0].pages[0].canonical_url, "https://sqlite.org/checkpoint.html");
     }
 }

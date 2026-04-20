@@ -50,10 +50,13 @@ function localizeExplainabilityFactorLabel(
     distinct_query_count: 'explainFactorDistinctQueryCount',
     occurrence_count: 'explainFactorOccurrenceCount',
     distinct_days: 'explainFactorDistinctDays',
+    domain_count: 'explainFactorDomainCount',
     mean_interval_days: 'explainFactorMeanIntervalDays',
+    page_count: 'explainFactorPageCount',
     coefficient_of_variation: 'explainFactorCoefficientOfVariation',
     interrupted: 'explainFactorInterrupted',
     step_count: 'explainFactorStepCount',
+    alternation_count: 'explainFactorAlternationCount',
   }
 
   return keyMap[label] ? t(keyMap[label]) : label.replaceAll('_', ' ')
@@ -148,6 +151,13 @@ function localizeTriggerRule(
     rule === 'This flow pattern recurs across session-local domain n-grams.'
   ) {
     return t('explainRulePathFlow')
+  }
+
+  if (
+    rule ===
+    'This compare set alternated between multiple comparable pages within one search trail.'
+  ) {
+    return t('explainRuleCompareSet')
   }
 
   return rule

@@ -27,6 +27,7 @@ import * as api from '../../lib/core-intelligence/api'
 import { formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
+  compareSetInsightsHref,
   dayInsightsHref,
   domainInsightsHref,
   evidenceHref,
@@ -156,6 +157,22 @@ function normalizeRefindFactors(value: unknown): RefindScoreFactor[] {
   })
 }
 
+function useFocusedCompareSet(
+  compareSetId: string | null,
+  dateRange: DateRange,
+  profileId: string | null,
+) {
+  return useAsyncData<Awaited<
+    ReturnType<typeof api.getCompareSetDetail>
+  > | null>(
+    () =>
+      compareSetId
+        ? api.getCompareSetDetail(compareSetId, dateRange, profileId)
+        : Promise.resolve(null),
+    [compareSetId, dateRange, profileId],
+  )
+}
+
 export function QueryFamilyInsightsRoutePage() {
   const { familyId } = useParams<{ familyId: string }>()
   const { t } = useI18n('intelligence')
@@ -234,7 +251,7 @@ export function QueryFamilyInsightsRoutePage() {
                 ]}
               />
             }
-            backHref={`/intelligence${withCurrentRouteSearch()}`}
+            backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
             backLabel={t('entityBackToOverview')}
             eyebrow={t('queryFamilyRouteTitle')}
             subtitle={t('queryFamilyRouteSubtitle')}
@@ -402,7 +419,7 @@ export function RefindPageInsightsRoutePage() {
                 ]}
               />
             }
-            backHref={`/intelligence${withCurrentRouteSearch()}`}
+            backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
             backLabel={t('entityBackToOverview')}
             eyebrow={t('refindRouteTitle')}
             subtitle={t('refindRouteSubtitle')}
@@ -591,7 +608,7 @@ export function SessionInsightsRoutePage() {
                 ]}
               />
             }
-            backHref={`/intelligence${withCurrentRouteSearch()}`}
+            backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
             backLabel={t('entityBackToOverview')}
             eyebrow={t('sessionRouteTitle')}
             subtitle={t('sessionRouteSubtitle')}
@@ -708,8 +725,13 @@ export function SessionInsightsRoutePage() {
 export function TrailInsightsRoutePage() {
   const { trailId } = useParams<{ trailId: string }>()
   const { t } = useI18n('intelligence')
-  const { effectiveProfileId, withCurrentRouteSearch, dateRange, preset } =
-    useIntelligenceRouteState()
+  const {
+    effectiveProfileId,
+    focus,
+    withCurrentRouteSearch,
+    dateRange,
+    preset,
+  } = useIntelligenceRouteState()
   const { renderScopeCallout } = useScopeCallout()
   const decodedTrailId = trailId ? decodeURIComponent(trailId) : null
   const { data, error, loading } = useAsyncData<Awaited<
@@ -732,6 +754,21 @@ export function TrailInsightsRoutePage() {
         ),
       }
     : dateRange
+  const focusedCompareSetId =
+    focus?.focusType === 'compare-set' ? focus.focusId : null
+  const focusedCompareSetResult = useFocusedCompareSet(
+    focusedCompareSetId,
+    dateRange,
+    effectiveProfileId,
+  )
+  const focusedCompareSetCandidate = focusedCompareSetResult.data?.data ?? null
+  const focusedCompareSet =
+    focusedCompareSetCandidate?.compareSet.trailId === detail?.trail?.trailId
+      ? focusedCompareSetCandidate
+      : null
+  const focusedCompareSetPages = new Set(
+    focusedCompareSet?.compareSet.pages.map((page) => page.canonicalUrl) ?? [],
+  )
 
   return (
     <div className="intelligence-page">
@@ -778,12 +815,35 @@ export function TrailInsightsRoutePage() {
                 ]}
               />
             }
-            backHref={`/intelligence${withCurrentRouteSearch()}`}
+            backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
             backLabel={t('entityBackToOverview')}
             eyebrow={t('trailRouteTitle')}
             subtitle={t('trailRouteSubtitle')}
             title={`"${detail.trail.initialQuery}"`}
           />
+          {focusedCompareSet ? (
+            <StatusCallout
+              tone="info"
+              title={t('compareSetFocusTitle')}
+              body={t('compareSetFocusBody', {
+                query: focusedCompareSet.compareSet.searchQuery,
+                count: focusedCompareSet.compareSet.pages.length,
+              })}
+              actions={
+                <Link
+                  className="btn-secondary"
+                  to={compareSetInsightsHref({
+                    compareSetId: focusedCompareSet.compareSet.compareSetId,
+                    dateRange,
+                    preset,
+                    profileId: effectiveProfileId,
+                  })}
+                >
+                  {t('compareSetRouteTitle')}
+                </Link>
+              }
+            />
+          ) : null}
           <div className="day-insights__stats">
             <div className="digest-card">
               <span className="digest-card__icon">🔍</span>
@@ -843,8 +903,17 @@ export function TrailInsightsRoutePage() {
                   const dateKey = localDateKeyFromIso(
                     new Date(member.visitTimeMs).toISOString(),
                   )
+                  const focusedMember = Boolean(
+                    member.canonicalUrl &&
+                    focusedCompareSetPages.has(member.canonicalUrl),
+                  )
                   return (
-                    <div key={member.visitId} className="trail-member-row">
+                    <div
+                      key={member.visitId}
+                      className={`trail-member-row${
+                        focusedMember ? ' trail-member-row--focused' : ''
+                      }`}
+                    >
                       <span className="trail-member-row__content">
                         {member.role === 'search_event' && member.searchQuery
                           ? `"${member.searchQuery}"`
@@ -857,6 +926,7 @@ export function TrailInsightsRoutePage() {
                               href: dayInsightsHref(
                                 dateKey,
                                 effectiveProfileId,
+                                focusedMember ? focus : null,
                               ),
                               label: dateKey,
                               style: 'text',
@@ -867,6 +937,7 @@ export function TrailInsightsRoutePage() {
                                 dateRange: singleDayDateRange(dateKey),
                                 preset: 'custom',
                                 profileId: effectiveProfileId,
+                                focus: focusedMember ? focus : null,
                               }),
                               label: member.registrableDomain,
                               style: 'text',
@@ -883,6 +954,226 @@ export function TrailInsightsRoutePage() {
           <ExplainabilityPanel
             entityType="search_trail"
             entityId={detail.trail.trailId}
+            t={t}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+export function CompareSetInsightsRoutePage() {
+  const { compareSetId } = useParams<{ compareSetId: string }>()
+  const { t } = useI18n('intelligence')
+  const {
+    dateRange,
+    effectiveProfileId,
+    preset,
+    setCustomRange,
+    setPreset,
+    withCurrentRouteSearch,
+  } = useIntelligenceRouteState()
+  const { renderScopeCallout, scopeLabel } = useScopeCallout()
+  const decodedCompareSetId = compareSetId
+    ? decodeURIComponent(compareSetId)
+    : null
+  const { data, error, loading } = useAsyncData<Awaited<
+    ReturnType<typeof api.getCompareSetDetail>
+  > | null>(
+    () =>
+      decodedCompareSetId
+        ? api.getCompareSetDetail(
+            decodedCompareSetId,
+            dateRange,
+            effectiveProfileId,
+          )
+        : Promise.resolve(null),
+    [dateRange, decodedCompareSetId, effectiveProfileId],
+  )
+  const detail = data?.data ?? null
+  const totalVisits =
+    detail?.compareSet.pages.reduce((sum, page) => sum + page.visitCount, 0) ??
+    0
+  const distinctDomains = new Set(
+    detail?.compareSet.pages.map((page) => page.registrableDomain) ?? [],
+  ).size
+
+  return (
+    <div className="intelligence-page">
+      <TimeRangeSelector
+        key={`${preset}:${dateRange.start}:${dateRange.end}`}
+        dateRange={dateRange}
+        preset={preset}
+        onPresetChange={setPreset}
+        onCustomRange={setCustomRange}
+        t={t}
+      />
+      {renderScopeCallout()}
+      {!decodedCompareSetId ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">{t('compareSetsEmpty')}</p>
+        </div>
+      ) : loading ? (
+        <div className="intelligence-skeleton intelligence-skeleton--card" />
+      ) : error || !detail ? (
+        <div className="intelligence-empty">
+          <p className="intelligence-empty__text">
+            {error || t('compareSetsEmpty')}
+          </p>
+        </div>
+      ) : (
+        <>
+          <InsightEntityHero
+            actions={
+              <InsightEntityActions
+                items={[
+                  {
+                    href: trailInsightsHref({
+                      trailId: detail.trail.trailId,
+                      dateRange,
+                      preset,
+                      profileId: effectiveProfileId,
+                      focus: {
+                        focusType: 'compare-set',
+                        focusId: detail.compareSet.compareSetId,
+                      },
+                    }),
+                    label: t('compareSetRouteOpenTrail'),
+                  },
+                  ...(detail.session
+                    ? [
+                        {
+                          href: sessionInsightsHref({
+                            sessionId: detail.session.sessionId,
+                            dateRange,
+                            preset,
+                            profileId: effectiveProfileId,
+                          }),
+                          label: t('compareSetRouteOpenSession'),
+                        },
+                      ]
+                    : []),
+                  {
+                    href: evidenceHref({
+                      profileId: effectiveProfileId,
+                      title: detail.compareSet.searchQuery,
+                      dateRange,
+                    }),
+                    label: t('entityOpenExplorer'),
+                  },
+                ]}
+              />
+            }
+            backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
+            backLabel={t('entityBackToOverview')}
+            eyebrow={t('compareSetRouteTitle')}
+            subtitle={t('compareSetRouteSubtitle')}
+            title={`"${detail.compareSet.searchQuery}"`}
+          />
+          {data ? (
+            <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+          ) : null}
+          <div className="day-insights__stats">
+            <div className="digest-card">
+              <span className="digest-card__icon">↔</span>
+              <span className="digest-card__value">
+                {detail.compareSet.pages.length}
+              </span>
+              <span className="digest-card__label">
+                {t('compareSetsTitle')}
+              </span>
+            </div>
+            <div className="digest-card">
+              <span className="digest-card__icon">📄</span>
+              <span className="digest-card__value">
+                {formatNumber(totalVisits)}
+              </span>
+              <span className="digest-card__label">
+                {t('sessionVisitLabel')}
+              </span>
+            </div>
+            <div className="digest-card">
+              <span className="digest-card__icon">🌐</span>
+              <span className="digest-card__value">{distinctDomains}</span>
+              <span className="digest-card__label">
+                {t('compareSetRouteDomainsLabel')}
+              </span>
+            </div>
+          </div>
+          <div className="intelligence-row intelligence-row--two-col">
+            <section className="intelligence-section">
+              <h2 className="intelligence-section__title">
+                {t('compareSetRoutePagesTitle')}
+              </h2>
+              <IntelligenceSectionBody className="compare-set__pages">
+                {detail.compareSet.pages.map((page, index) => (
+                  <div
+                    key={`${detail.compareSet.compareSetId}:${page.canonicalUrl}:${index}`}
+                    className={`compare-set__page${
+                      page.isLanding ? ' compare-set__page--landing' : ''
+                    }`}
+                  >
+                    <Link
+                      className="compare-set__page-domain intelligence-link"
+                      to={domainInsightsHref({
+                        domain: page.registrableDomain,
+                        dateRange,
+                        preset,
+                        profileId: effectiveProfileId,
+                        focus: {
+                          focusType: 'compare-set',
+                          focusId: detail.compareSet.compareSetId,
+                        },
+                      })}
+                    >
+                      {page.registrableDomain}
+                    </Link>
+                    <span
+                      className="compare-set__page-title"
+                      title={page.title ?? page.url}
+                    >
+                      {page.title ?? page.url}
+                    </span>
+                    {page.isLanding ? (
+                      <span className="compare-set__landing-badge">
+                        {t('compareSetsLanding')}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </IntelligenceSectionBody>
+            </section>
+            <section className="intelligence-section">
+              <h2 className="intelligence-section__title">
+                {t('compareSetRouteRecentDaysTitle')}
+              </h2>
+              {detail.recentDays.length === 0 ? (
+                <div className="intelligence-empty">
+                  <p className="intelligence-empty__text">
+                    {t('dayInsightsEmpty')}
+                  </p>
+                </div>
+              ) : (
+                <IntelligenceSectionBody className="settings-output-chip-list">
+                  <InsightEntityActions
+                    className="settings-output-chip-list"
+                    items={detail.recentDays.map((dateKey) => ({
+                      href: dayInsightsHref(dateKey, effectiveProfileId, {
+                        focusType: 'compare-set',
+                        focusId: detail.compareSet.compareSetId,
+                      }),
+                      key: dateKey,
+                      label: dateKey,
+                      style: 'chip',
+                    }))}
+                  />
+                </IntelligenceSectionBody>
+              )}
+            </section>
+          </div>
+          <ExplainabilityPanel
+            entityType="compare_set"
+            entityId={detail.compareSet.compareSetId}
             t={t}
           />
         </>

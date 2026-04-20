@@ -95,6 +95,37 @@ export interface CoreIntelligenceSectionTiming {
   durationMs: number
 }
 
+/** Reusable shared-entity reference carried by trusted output payloads. */
+export type InsightEntityReference =
+  | {
+      kind: 'day'
+      date: string
+    }
+  | {
+      kind: 'domain'
+      domain: string
+    }
+  | {
+      kind: 'queryFamily'
+      familyId: string
+    }
+  | {
+      kind: 'refindPage'
+      canonicalUrl: string
+    }
+  | {
+      kind: 'session'
+      sessionId: string
+    }
+  | {
+      kind: 'trail'
+      trailId: string
+    }
+  | {
+      kind: 'compareSet'
+      compareSetId: string
+    }
+
 /** Stage-by-stage timing summary emitted for full Core Intelligence rebuilds. */
 export interface CoreIntelligenceStageTimings {
   visitDeriveMs: number
@@ -113,6 +144,8 @@ export interface IntelligenceEmbedCardPayload {
   metricLabel?: string | null
   metricValue?: string | null
   href?: string | null
+  primaryTarget?: InsightEntityReference | null
+  secondaryTargets?: InsightEntityReference[]
   internalOnly: boolean
 }
 
@@ -559,6 +592,7 @@ export interface TrailMember {
   ordinal: number
   role: 'search_event' | 'click' | 'landing'
   url: string
+  canonicalUrl?: string | null
   title?: string | null
   registrableDomain?: string | null
   visitTimeMs: number
@@ -783,10 +817,18 @@ export interface BreadthIndex {
 // ---------------------------------------------------------------------------
 
 export interface PathFlow {
+  flowId: string
   flowPattern: string
   stepCount: number
   occurrenceCount: number
   lastSeenAt: string
+  steps: PathFlowStep[]
+}
+
+export interface PathFlowStep {
+  index: number
+  label: string
+  registrableDomain?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -797,15 +839,24 @@ export interface CompareSet {
   compareSetId: string
   trailId: string
   searchQuery: string
+  pageCategory: string
   pages: CompareSetPage[]
 }
 
 export interface CompareSetPage {
+  canonicalUrl: string
   url: string
   title?: string | null
   registrableDomain: string
   visitCount: number
   isLanding: boolean
+}
+
+export interface CompareSetDetail {
+  compareSet: CompareSet
+  trail: TrailSummary
+  session?: SessionSummary | null
+  recentDays: string[]
 }
 
 // ---------------------------------------------------------------------------

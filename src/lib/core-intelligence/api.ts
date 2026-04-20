@@ -59,6 +59,7 @@ import type {
   BreadthIndex,
   PathFlow,
   CompareSet,
+  CompareSetDetail,
   BrowserDiff,
   ObservedInteraction,
   Explanation,
@@ -1501,6 +1502,33 @@ export function getCompareSets(
       profileId,
     },
     'compare-sets',
+    {
+      kind: 'date-range',
+      dateRange,
+    },
+  )
+}
+
+export function getCompareSetDetail(
+  compareSetId: string,
+  dateRange: DateRange,
+  profileId?: string | null,
+) {
+  return invokeSectionRequest<
+    CompareSetDetail,
+    {
+      compareSetId: string
+      dateRange: DateRange
+      profileId?: string | null
+    }
+  >(
+    'get_compare_set_detail',
+    {
+      compareSetId,
+      dateRange,
+      profileId,
+    },
+    'compare-set-detail',
     {
       kind: 'date-range',
       dateRange,

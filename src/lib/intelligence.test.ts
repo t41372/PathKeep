@@ -21,12 +21,14 @@ import {
   aiStatusMeta,
   assistantHref,
   assistantResponseMeta,
+  compareSetInsightsHref,
   dedupeEvidence,
   dayInsightsHref,
   domainDayInsightsHref,
   domainInsightsHref,
   evidenceHref,
   insightEntityHref,
+  insightEntityReferenceHref,
   queryFamilyInsightsHref,
   reopenedInvestigationHref,
   refindInsightsHref,
@@ -322,6 +324,14 @@ describe('intelligence helpers', () => {
     expect(dayInsightsHref('2026-04-18', 'chrome:Default')).toBe(
       '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
     )
+    expect(
+      dayInsightsHref('2026-04-18', 'chrome:Default', {
+        focusType: 'compare-set',
+        focusId: 'compare:trail-1:docs_page',
+      }),
+    ).toBe(
+      '/intelligence/day/2026-04-18?profileId=chrome%3ADefault&focusType=compare-set&focusId=compare%3Atrail-1%3Adocs_page',
+    )
     expect(visitDayInsightsHref('2026-04-18T12:00:00Z', 'chrome:Default')).toBe(
       '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
     )
@@ -389,6 +399,31 @@ describe('intelligence helpers', () => {
       }),
     ).toBe(
       '/intelligence/trail/trail-42?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+    expect(
+      compareSetInsightsHref({
+        compareSetId: 'compare:trail-42:docs_page',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        preset: 'custom',
+        profileId: 'chrome:Default',
+      }),
+    ).toBe(
+      '/intelligence/compare-set/compare%3Atrail-42%3Adocs_page?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+    )
+    expect(
+      insightEntityReferenceHref(
+        {
+          kind: 'compareSet',
+          compareSetId: 'compare:trail-42:docs_page',
+        },
+        {
+          dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          preset: 'custom',
+          profileId: 'chrome:Default',
+        },
+      ),
+    ).toBe(
+      '/intelligence/compare-set/compare%3Atrail-42%3Adocs_page?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
     )
     expect(
       reopenedInvestigationHref({

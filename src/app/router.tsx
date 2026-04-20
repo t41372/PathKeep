@@ -301,6 +301,14 @@ const appRouteChildren: RouteObject[] = [
         },
       },
       {
+        path: 'compare-set/:compareSetId',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.CompareSetInsightsRoutePage }
+        },
+      },
+      {
         path: 'day/:date',
         ErrorBoundary: ShellRouteErrorBoundary,
         lazy: async () => {

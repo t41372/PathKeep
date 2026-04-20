@@ -309,4 +309,22 @@ describe('core intelligence api', () => {
       },
     })
   })
+
+  test('requests compare-set detail through the dedicated entity command', async () => {
+    const { getCompareSetDetail } = await import('./api')
+
+    await getCompareSetDetail(
+      'compare:trail-1:docs_page',
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('get_compare_set_detail', {
+      request: {
+        compareSetId: 'compare:trail-1:docs_page',
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+      },
+    })
+  })
 })

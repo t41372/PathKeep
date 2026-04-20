@@ -14,6 +14,8 @@
 > **2026-04-19 accepted generic-entity note:** M7 已把 generic insight-entity navigation 收斂成正式 contract：`query family`、`refind page`、`session`、`trail` 也已升格成 first-class shared insights route，其餘 active entity 則必須解析到既有 shared destination，而不是各 surface 各自決定 deep-link。Explorer 的 `session` / `trail` grouped view 仍是 browse-first canonical surface；route promotion 只承接 reusable detail / explainability / evidence CTA。完整 trade-off 見 [`../design/intelligence-generic-entity-navigation-tradeoff.md`](../design/intelligence-generic-entity-navigation-tradeoff.md)。
 >
 > **2026-04-19 accepted salvage note:** `Search Activity` 現在在既有 `engines / concepts / families` 之外，多了一個 additive 的 `Recent Queries` tab。這個 tab 讀 `get_search_queries`，每列都保留 reusable `familyId` / `trailId` / `profileId`，primary CTA 直接走 shared query-family insights route；這不是 Explorer `queries` view，也不代表 route grammar 改回 consumer-local workflow。search-engine rule editing 也正式收斂到 Settings derived-state panel，作為 deterministic rebuild 的一部分。
+>
+> **2026-04-19 accepted M8 note:** M8 已把 aggregate entity identity / context reuse 收口成正式 contract：`compare set` 升格成 `/intelligence/compare-set/:compareSetId` first-class route；shared non-overview insights routes additive 支援受限的 `focusType` / `focusId`；`path flow` 改成 stable `flowId` + typed `steps`；trusted external outputs 也改帶 structured entity targets，而 `public snapshot` 維持 redacted。完整 trade-off 見 [`../design/intelligence-aggregate-entity-focus-tradeoff.md`](../design/intelligence-aggregate-entity-focus-tradeoff.md)。
 
 ---
 
@@ -903,6 +905,7 @@ is_deep_dive =
 ### 4.C 外部服務（低優先級）
 
 - 第一個 shipping external-output surfaces 已落在 Settings：manual review / copy-export panel 仍是 canonical baseline，而第一個可重用宿主則是 `browser-snippet-v1` trusted local artifact。使用者現在可 preview `embed cards`、`widget snapshot`、`public snapshot`，也可 review `index.html` / `bundle.json` 並建立 `app_root/integrations/core-intelligence/browser-snippet-v1/`；但這仍只限受信任本地宿主，不等於 OS widget、localhost API 或 public API 已完成
+- trusted external-output payload 現在可帶 structured `primaryTarget` / `secondaryTargets`，供 Settings 與 trusted local host 產生 reusable app links；`public snapshot` 仍維持 redacted，不下放 internal reusable IDs
 - Intelligence 卡片做成 web snippet，允許嵌入
 - Mac 小工具
 - 不敏感 intelligence 結果的 API

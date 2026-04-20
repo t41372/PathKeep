@@ -33,8 +33,8 @@ use vault_core::{
     AiIndexRequest, AiIntegrationPreview, AiProviderConnectionTestReport,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest,
     AiSearchResponse, AppConfig, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
-    CompareSet, CoreIntelligencePrimaryOverview, CoreIntelligenceQueueReport,
-    CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
+    CompareSet, CompareSetDetail, CompareSetDetailRequest, CoreIntelligencePrimaryOverview,
+    CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
     CoreIntelligenceSecondaryOverview, CoreIntelligenceSectionResult,
     CoreIntelligenceSectionTiming, CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest,
     DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
@@ -1752,6 +1752,21 @@ pub fn get_compare_sets(
             intelligence::get_compare_sets(paths, config, session_database_key, request)
         },
         |data| data.is_empty(),
+    )
+}
+
+pub fn get_compare_set_detail(
+    session_database_key: Option<&str>,
+    request: &CompareSetDetailRequest,
+) -> Result<CoreIntelligenceSectionResult<CompareSetDetail>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "compare-set-detail",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_compare_set_detail(paths, config, session_database_key, request)
+        },
+        |data| data.compare_set.pages.is_empty() && data.recent_days.is_empty(),
     )
 }
 

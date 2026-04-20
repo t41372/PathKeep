@@ -22,6 +22,7 @@ import { TimeRangeSelector } from '../../components/intelligence/time-range-sele
 import { peekIntelligencePrimaryOverview } from '../../lib/core-intelligence'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
+  compareSetInsightsHref,
   dayInsightsHref,
   domainInsightsHref,
   queryFamilyInsightsHref,
@@ -66,6 +67,17 @@ export function IntelligencePage() {
       preset,
       profileId: effectiveProfileId,
     })
+  const focusedDomainHref = (
+    domain: string,
+    focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
+  ) =>
+    domainInsightsHref({
+      domain,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
+      focus,
+    })
   const queryFamilyHref = (
     familyId: string,
     profileIdOverride?: string | null,
@@ -89,6 +101,13 @@ export function IntelligencePage() {
       dateRange,
       preset,
       profileId: profileIdOverride ?? effectiveProfileId,
+    })
+  const compareSetHref = (compareSetId: string) =>
+    compareSetInsightsHref({
+      compareSetId,
+      dateRange,
+      preset,
+      profileId: effectiveProfileId,
     })
   const dayHref = (date: string) => dayInsightsHref(date, effectiveProfileId)
 
@@ -130,9 +149,11 @@ export function IntelligencePage() {
 
       {stagedOverview.primaryReady ? (
         <IntelligenceSections
+          compareSetHref={compareSetHref}
           dateRange={dateRange}
           dayHref={dayHref}
           domainHref={domainHref}
+          focusedDomainHref={focusedDomainHref}
           language={language}
           profileId={effectiveProfileId}
           queryFamilyHref={queryFamilyHref}
@@ -236,6 +257,7 @@ function InsightAccessStrip({
 export { DayInsightsRoutePage } from './day-insights'
 export { DomainDeepDiveRoutePage } from './domain-deep-dive'
 export {
+  CompareSetInsightsRoutePage,
   QueryFamilyInsightsRoutePage,
   RefindPageInsightsRoutePage,
   SessionInsightsRoutePage,

@@ -215,7 +215,7 @@ define_builtin_module!(
         "query_families",
     ],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
-    &["search_trail", "query_family"]
+    &["search_trail", "query_family", "compare_set"]
 );
 
 define_builtin_module!(

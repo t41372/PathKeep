@@ -2,13 +2,13 @@
 
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
-    AiSearchRequest, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
-    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
-    ExplainRefindRequest, GranularityDateRangeRequest, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
-    SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
+    AiSearchRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
+    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
+    EntityExplanationRequest, ExplainRefindRequest, GranularityDateRangeRequest,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
+    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
+    RefindPagesRequest, ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
+    SearchQueryListRequest, SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::worker_result;
@@ -500,6 +500,14 @@ pub(crate) fn get_compare_sets_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, String> {
     worker_result(vault_worker::get_compare_sets(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn get_compare_set_detail_impl(
+    request: CompareSetDetailRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, String> {
+    worker_result(vault_worker::get_compare_set_detail(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

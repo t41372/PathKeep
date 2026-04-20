@@ -29,15 +29,16 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest, AppConfig, AppUpdateInstallRequest, CategoryFilteredDateRangeRequest,
-    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
-    EntityExplanationRequest, ExplainRefindRequest, ExportRequest, FrontendErrorReportRequest,
-    GranularityDateRangeRequest, HistoryQuery, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
-    S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
-    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
-    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
-    TopSitesRequest, UnlockAppSessionRequest,
+    CompareSetDetailRequest, CoreIntelligenceRebuildRequest, DayInsightsRequest,
+    DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
+    ExportRequest, FrontendErrorReportRequest, GranularityDateRangeRequest, HistoryQuery,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
+    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
+    RefindPagesRequest, RetentionPruneRequest, S3CredentialInput, SchedulePlan,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
+    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
+    SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
+    UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -926,6 +927,13 @@ async fn dispatch_command(
         "get_compare_sets" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_compare_sets_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_compare_set_detail" => {
+            let payload = parse_payload::<WrappedRequest<CompareSetDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_compare_set_detail_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

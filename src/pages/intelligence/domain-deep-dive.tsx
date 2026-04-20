@@ -25,9 +25,11 @@ import {
   useAsyncData,
   type DateRange,
   type DomainTrendPoint,
+  type InsightRouteFocus,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import {
+  compareSetInsightsHref,
   dayInsightsHref,
   domainInsightsHref,
   evidenceHref,
@@ -45,6 +47,7 @@ interface DomainDeepDivePageProps {
   dayHref: (date: string) => string
   domainHref: (domain: string) => string
   domain: string
+  focus: InsightRouteFocus | null
   profileId: string | null
   scopeLabel: string
 }
@@ -58,6 +61,7 @@ export function DomainDeepDiveRoutePage() {
   const {
     dateRange,
     effectiveProfileId,
+    focus,
     preset,
     profileScopeLabel,
     setCustomRange,
@@ -77,13 +81,15 @@ export function DomainDeepDiveRoutePage() {
 
   const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
   const archiveWideBody = intelligenceText(language, t, 'archiveWideBody')
-  const dayHref = (date: string) => dayInsightsHref(date, effectiveProfileId)
+  const dayHref = (date: string) =>
+    dayInsightsHref(date, effectiveProfileId, focus)
   const domainHref = (nextDomain: string) =>
     domainInsightsHref({
       domain: nextDomain,
       dateRange,
       preset,
       profileId: effectiveProfileId,
+      focus,
     })
 
   return (
@@ -113,11 +119,12 @@ export function DomainDeepDiveRoutePage() {
       />
 
       <DomainDeepDivePage
-        backHref={`/intelligence${withCurrentRouteSearch()}`}
+        backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
         dateRange={dateRange}
         dayHref={dayHref}
         domainHref={domainHref}
         domain={decodeURIComponent(domain)}
+        focus={focus}
         profileId={effectiveProfileId}
         scopeLabel={
           effectiveProfileId
@@ -138,6 +145,7 @@ export function DomainDeepDivePage({
   dayHref,
   domainHref,
   domain,
+  focus,
   profileId,
   scopeLabel,
 }: DomainDeepDivePageProps) {
@@ -147,6 +155,55 @@ export function DomainDeepDivePage({
     [dateRange, domain, profileId],
   )
   const detail = data?.data ?? null
+  const focusedCompareSetId =
+    focus?.focusType === 'compare-set' ? focus.focusId : null
+  const focusedCompareSetResult = useAsyncData<Awaited<
+    ReturnType<typeof api.getCompareSetDetail>
+  > | null>(
+    () =>
+      focusedCompareSetId
+        ? api.getCompareSetDetail(focusedCompareSetId, dateRange, profileId)
+        : Promise.resolve(null),
+    [dateRange, focusedCompareSetId, profileId],
+  )
+  const focusedCompareSetCandidate = focusedCompareSetResult.data?.data ?? null
+  const focusedCompareSet = focusedCompareSetCandidate?.compareSet.pages.some(
+    (page) => page.registrableDomain === detail?.registrableDomain,
+  )
+    ? focusedCompareSetCandidate
+    : null
+  const focusedComparePaths = new Set(
+    focusedCompareSet?.compareSet.pages
+      .filter((page) => page.registrableDomain === detail?.registrableDomain)
+      .map((page) => canonicalPath(page.canonicalUrl))
+      .filter((path): path is string => Boolean(path)) ?? [],
+  )
+  const focusedPathFlowId =
+    focus?.focusType === 'path-flow' ? focus.focusId : null
+  const focusedPathFlowStepCount = parsePathFlowStepCount(focusedPathFlowId)
+  const focusedPathFlowResult = useAsyncData<Awaited<
+    ReturnType<typeof api.getPathFlows>
+  > | null>(
+    () =>
+      focusedPathFlowId
+        ? api.getPathFlows(
+            dateRange,
+            profileId,
+            focusedPathFlowStepCount ?? 3,
+            50,
+          )
+        : Promise.resolve(null),
+    [dateRange, focusedPathFlowId, focusedPathFlowStepCount, profileId],
+  )
+  const focusedPathFlow =
+    focusedPathFlowResult.data?.data.find(
+      (flow) => flow.flowId === focusedPathFlowId,
+    ) ?? null
+  const pathFlowMatchesCurrentDomain = Boolean(
+    focusedPathFlow?.steps.some(
+      (step) => step.registrableDomain === detail?.registrableDomain,
+    ),
+  )
 
   if (loading) {
     return (
@@ -198,6 +255,38 @@ export function DomainDeepDivePage({
         title={detail.displayName ?? detail.registrableDomain}
       />
       <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
+      {focusedCompareSet ? (
+        <StatusCallout
+          tone="info"
+          title={t('compareSetFocusTitle')}
+          body={t('compareSetDomainFocusBody', {
+            query: focusedCompareSet.compareSet.searchQuery,
+            count: focusedCompareSet.compareSet.pages.length,
+          })}
+          actions={
+            <Link
+              className="btn-secondary"
+              to={compareSetInsightsHref({
+                compareSetId: focusedCompareSet.compareSet.compareSetId,
+                dateRange,
+                preset: 'custom',
+                profileId,
+              })}
+            >
+              {t('compareSetRouteTitle')}
+            </Link>
+          }
+        />
+      ) : null}
+      {!focusedCompareSet && pathFlowMatchesCurrentDomain && focusedPathFlow ? (
+        <StatusCallout
+          tone="info"
+          title={t('pathFlowFocusTitle')}
+          body={t('pathFlowFocusBody', {
+            flow: focusedPathFlow.flowPattern,
+          })}
+        />
+      ) : null}
 
       <div className="domain-deep-dive__header">
         <span className="domain-deep-dive__category-badge">
@@ -287,10 +376,22 @@ export function DomainDeepDivePage({
               {t('domainDeepDiveTopPages')}
             </h3>
             {detail.topPages.slice(0, 10).map((page) => (
-              <div key={page.path} className="domain-deep-dive__page-row">
+              <div
+                key={page.path}
+                className={`domain-deep-dive__page-row${
+                  focusedComparePaths.has(page.path)
+                    ? ' domain-deep-dive__page-row--focused'
+                    : ''
+                }`}
+              >
                 <span className="domain-deep-dive__page-path">
                   {formatDomainPagePath(page.path)}
                 </span>
+                {focusedComparePaths.has(page.path) ? (
+                  <span className="compare-set__landing-badge">
+                    {t('compareSetFocusBadge')}
+                  </span>
+                ) : null}
                 <span className="domain-deep-dive__page-count">
                   {formatNumber(page.visitCount)}
                 </span>
@@ -387,4 +488,20 @@ function formatNumber(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
   return String(value)
+}
+
+function canonicalPath(value: string | null | undefined) {
+  if (!value) return null
+  try {
+    return new URL(value).pathname || '/'
+  } catch {
+    return null
+  }
+}
+
+function parsePathFlowStepCount(flowId: string | null) {
+  if (!flowId) return null
+  const parts = flowId.split(':')
+  const candidate = Number(parts.at(-2))
+  return Number.isFinite(candidate) ? candidate : null
 }

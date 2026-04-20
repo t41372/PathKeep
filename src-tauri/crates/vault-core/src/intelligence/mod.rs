@@ -43,17 +43,17 @@ use crate::{
         DomainPageStat, DomainTrend, DomainTrendPoint, DomainTrendRequest, EngineEffectiveness,
         EngineRanking, EntityExplanationRequest, ExplainRefindRequest, ExplainabilityFactor,
         Explanation, FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage,
-        IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
-        IntelligenceStatus, IntelligenceWidgetSnapshot, KpiMetric, NavigationPath,
-        NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily, QueryFamilyDetail,
-        QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation, RefindPage,
-        RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest, RefindScoreFactor,
-        ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell, ScopedDateRangeRequest,
-        SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchEngineRule,
-        SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult, SearchQueryRow,
-        SearchTrailQueryRequest, SessionDetail, SessionListResult, SessionSummary, SessionVisit,
-        StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail,
-        TrailListResult, TrailMember, TrailSummary,
+        InsightEntityReference, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
+        IntelligencePublicSnapshot, IntelligenceStatus, IntelligenceWidgetSnapshot, KpiMetric,
+        NavigationPath, NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily,
+        QueryFamilyDetail, QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation,
+        RefindPage, RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest,
+        RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell,
+        ScopedDateRangeRequest, SearchConcept, SearchEffectiveness, SearchEffectivenessRequest,
+        SearchEngineRule, SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult,
+        SearchQueryRow, SearchTrailQueryRequest, SessionDetail, SessionListResult, SessionSummary,
+        SessionVisit, StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest,
+        TrailDetail, TrailListResult, TrailMember, TrailSummary,
     },
     utils::now_rfc3339,
 };
@@ -68,7 +68,7 @@ use std::{
 
 pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
-pub use self::phase_four::{get_compare_sets, get_multi_browser_diff};
+pub use self::phase_four::{get_compare_set_detail, get_compare_sets, get_multi_browser_diff};
 pub use self::phase_three::{
     get_breadth_index, get_habit_patterns, get_interrupted_habits, get_observed_interactions,
     get_path_flows,
@@ -5580,8 +5580,8 @@ pub fn get_trail_detail(
         .with_context(|| format!("trail {trail_id} was not found"))?;
     let mut statement = connection.prepare(
         "SELECT search_trail_members.trail_id, search_trail_members.visit_id, search_trail_members.ordinal,
-                search_trail_members.role, urls.url, urls.title, visit_derived_facts.registrable_domain,
-                visits.visit_time_ms, visit_derived_facts.search_query
+                search_trail_members.role, urls.url, visit_derived_facts.canonical_url, urls.title,
+                visit_derived_facts.registrable_domain, visits.visit_time_ms, visit_derived_facts.search_query
          FROM search_trail_members
          JOIN archive.visits AS visits ON visits.id = search_trail_members.visit_id
          JOIN archive.urls AS urls ON urls.id = visits.url_id
@@ -5597,10 +5597,11 @@ pub fn get_trail_detail(
                 ordinal: row.get(2)?,
                 role: row.get(3)?,
                 url: row.get(4)?,
-                title: row.get(5)?,
-                registrable_domain: row.get(6)?,
-                visit_time_ms: row.get(7)?,
-                search_query: row.get(8)?,
+                canonical_url: row.get(5)?,
+                title: row.get(6)?,
+                registrable_domain: row.get(7)?,
+                visit_time_ms: row.get(8)?,
+                search_query: row.get(9)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -6296,6 +6297,7 @@ pub fn explain_entity(
         "reopened_investigation" => explain_reopened_investigation(&connection, &request.entity_id),
         "habit_pattern" => explain_habit_pattern(&connection, &request.entity_id),
         "path_flow" => explain_path_flow(&connection, &request.entity_id),
+        "compare_set" => explain_compare_set(&connection, &request.entity_id),
         _ => unreachable!("unsupported entity types were rejected by the registry"),
     }
 }
@@ -6672,6 +6674,74 @@ fn explain_path_flow(connection: &Connection, entity_id: &str) -> Result<Explana
     })
 }
 
+fn explain_compare_set(connection: &Connection, entity_id: &str) -> Result<Explanation> {
+    let (trail_id, page_category) = parse_compare_set_entity_id(entity_id)?;
+    let mut statement = connection.prepare(
+        "SELECT search_trail_members.visit_id,
+                visit_derived_facts.canonical_url,
+                visit_derived_facts.registrable_domain
+         FROM search_trail_members
+         JOIN visit_derived_facts ON visit_derived_facts.visit_id = search_trail_members.visit_id
+         WHERE search_trail_members.trail_id = ?1
+           AND visit_derived_facts.page_category = ?2
+         ORDER BY search_trail_members.ordinal ASC, search_trail_members.visit_id ASC",
+    )?;
+    let members = statement
+        .query_map(params![trail_id, page_category], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if members.is_empty() {
+        anyhow::bail!("compare set {entity_id} was not found");
+    }
+
+    let mut canonical_urls = BTreeSet::new();
+    let mut domains = BTreeSet::new();
+    let mut alternations = 0_i64;
+    let mut previous_url = None::<String>;
+    let participating_visit_ids = members
+        .iter()
+        .map(|(visit_id, canonical_url, registrable_domain)| {
+            canonical_urls.insert(canonical_url.clone());
+            domains.insert(registrable_domain.clone());
+            if previous_url.as_ref().is_some_and(|previous| previous != canonical_url) {
+                alternations += 1;
+            }
+            previous_url = Some(canonical_url.clone());
+            *visit_id
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Explanation {
+        entity_type: "compare_set".to_string(),
+        entity_id: entity_id.to_string(),
+        trigger_rule:
+            "This compare set alternated between multiple comparable pages within one search trail."
+                .to_string(),
+        factors: vec![
+            explainability_factor(
+                "page_count",
+                canonical_urls.len() as f32,
+                0.8,
+                canonical_urls.len() as f32 * 0.8,
+            ),
+            explainability_factor(
+                "domain_count",
+                domains.len() as f32,
+                0.7,
+                domains.len() as f32 * 0.7,
+            ),
+            explainability_factor(
+                "alternation_count",
+                alternations as f32,
+                1.0,
+                alternations as f32,
+            ),
+        ],
+        participating_visit_ids,
+    })
+}
+
 fn explainability_factor(
     label: &str,
     raw_value: f32,
@@ -6679,6 +6749,13 @@ fn explainability_factor(
     contribution: f32,
 ) -> ExplainabilityFactor {
     ExplainabilityFactor { label: label.to_string(), raw_value, weight, contribution }
+}
+
+fn parse_compare_set_entity_id(entity_id: &str) -> Result<(&str, &str)> {
+    let payload = entity_id.split_once("compare:").map(|(_, value)| value).unwrap_or(entity_id);
+    payload
+        .rsplit_once(':')
+        .with_context(|| format!("compare_set explanations expect ids shaped like 'compare:<trail_id>:<page_category>', got {entity_id}"))
 }
 
 fn extract_visit_ids_from_evidence_json(evidence_json: &str) -> Vec<i64> {
@@ -7576,6 +7653,8 @@ pub fn get_intelligence_embed_cards(
             metric_label: Some("visit_count".to_string()),
             metric_value: Some(digest.total_visits.value.to_string()),
             href: None,
+            primary_target: None,
+            secondary_targets: Vec::new(),
             internal_only: false,
         },
         IntelligenceEmbedCardPayload {
@@ -7587,6 +7666,8 @@ pub fn get_intelligence_embed_cards(
             metric_label: Some("search_count".to_string()),
             metric_value: Some(digest.total_searches.value.to_string()),
             href: None,
+            primary_target: None,
+            secondary_targets: Vec::new(),
             internal_only: false,
         },
     ];
@@ -7603,6 +7684,10 @@ pub fn get_intelligence_embed_cards(
             metric_label: Some("visit_count".to_string()),
             metric_value: Some(site.visit_count.to_string()),
             href: Some(site.registrable_domain.clone()),
+            primary_target: Some(InsightEntityReference::Domain {
+                domain: site.registrable_domain.clone(),
+            }),
+            secondary_targets: Vec::new(),
             internal_only: false,
         });
     }
@@ -7619,6 +7704,12 @@ pub fn get_intelligence_embed_cards(
             metric_label: Some("refind_score".to_string()),
             metric_value: Some(format!("{:.2}", page.refind_score)),
             href: Some(page.canonical_url.clone()),
+            primary_target: Some(InsightEntityReference::RefindPage {
+                canonical_url: page.canonical_url.clone(),
+            }),
+            secondary_targets: vec![InsightEntityReference::Domain {
+                domain: page.registrable_domain.clone(),
+            }],
             internal_only: true,
         });
     }
@@ -7635,6 +7726,10 @@ pub fn get_intelligence_embed_cards(
             metric_label: Some("effectiveness_score".to_string()),
             metric_value: Some(format!("{:.2}", source.effectiveness_score)),
             href: None,
+            primary_target: Some(InsightEntityReference::Domain {
+                domain: source.registrable_domain.clone(),
+            }),
+            secondary_targets: Vec::new(),
             internal_only: false,
         });
     }
@@ -7653,6 +7748,14 @@ pub fn get_intelligence_embed_cards(
             metric_label: Some("visit_count".to_string()),
             metric_value: Some(entry.total_visits.to_string()),
             href: None,
+            primary_target: Some(InsightEntityReference::Day { date: entry.date.clone() }),
+            secondary_targets: entry
+                .top_domains
+                .iter()
+                .take(2)
+                .cloned()
+                .map(|domain| InsightEntityReference::Domain { domain })
+                .collect(),
             internal_only: false,
         });
     }

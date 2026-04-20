@@ -122,6 +122,19 @@ pub struct CoreIntelligenceSectionTiming {
     pub duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+/// Reusable shared-entity reference carried by trusted output payloads.
+pub enum InsightEntityReference {
+    Day { date: String },
+    Domain { domain: String },
+    QueryFamily { family_id: String },
+    RefindPage { canonical_url: String },
+    Session { session_id: String },
+    Trail { trail_id: String },
+    CompareSet { compare_set_id: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Common request shape for paginated Core Intelligence list queries.
@@ -302,6 +315,15 @@ pub struct PathFlowRequest {
     pub profile_id: Option<String>,
     pub step_count: u32,
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request shape for one compare-set detail read.
+pub struct CompareSetDetailRequest {
+    pub compare_set_id: String,
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -669,6 +691,7 @@ pub struct TrailMember {
     pub ordinal: i64,
     pub role: String,
     pub url: String,
+    pub canonical_url: Option<String>,
     pub title: Option<String>,
     pub registrable_domain: Option<String>,
     pub visit_time_ms: i64,
@@ -889,15 +912,26 @@ pub struct BreadthIndex {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PathFlow {
+    pub flow_id: String,
     pub flow_pattern: String,
     pub step_count: i64,
     pub occurrence_count: i64,
     pub last_seen_at: String,
+    pub steps: Vec<PathFlowStep>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PathFlowStep {
+    pub index: i64,
+    pub label: String,
+    pub registrable_domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CompareSetPage {
+    pub canonical_url: String,
     pub url: String,
     pub title: Option<String>,
     pub registrable_domain: String,
@@ -911,7 +945,17 @@ pub struct CompareSet {
     pub compare_set_id: String,
     pub trail_id: String,
     pub search_query: String,
+    pub page_category: String,
     pub pages: Vec<CompareSetPage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CompareSetDetail {
+    pub compare_set: CompareSet,
+    pub trail: TrailSummary,
+    pub session: Option<SessionSummary>,
+    pub recent_days: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -995,6 +1039,9 @@ pub struct IntelligenceEmbedCardPayload {
     pub metric_label: Option<String>,
     pub metric_value: Option<String>,
     pub href: Option<String>,
+    pub primary_target: Option<InsightEntityReference>,
+    #[serde(default)]
+    pub secondary_targets: Vec<InsightEntityReference>,
     pub internal_only: bool,
 }
 

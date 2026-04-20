@@ -33,6 +33,8 @@ import {
   localDateKeyFromIso,
   singleDayDateRange,
   type DateRange,
+  type InsightEntityReference,
+  type InsightRouteFocus,
   type TimeRangePreset,
 } from './core-intelligence'
 
@@ -48,6 +50,7 @@ export type InsightEntityKind =
   | 'queryFamily'
   | 'refindPage'
   | 'session'
+  | 'compareSet'
   | 'trail'
 /**
  * Defines the type-level contract for translate.
@@ -60,6 +63,7 @@ type RoutedInsightEntityTarget = {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }
 
 export type InsightEntityTarget =
@@ -67,6 +71,7 @@ export type InsightEntityTarget =
       kind: 'day'
       date: string
       profileId?: string | null
+      focus?: InsightRouteFocus | null
     }
   | ({
       kind: 'domain'
@@ -83,6 +88,10 @@ export type InsightEntityTarget =
   | ({
       kind: 'session'
       sessionId: string
+    } & RoutedInsightEntityTarget)
+  | ({
+      kind: 'compareSet'
+      compareSetId: string
     } & RoutedInsightEntityTarget)
   | ({
       kind: 'trail'
@@ -239,6 +248,8 @@ function buildInsightEntityRoutePath(
       return `/intelligence/refind/${encodeURIComponent(target.canonicalUrl)}`
     case 'session':
       return `/intelligence/session/${encodeURIComponent(target.sessionId)}`
+    case 'compareSet':
+      return `/intelligence/compare-set/${encodeURIComponent(target.compareSetId)}`
     case 'trail':
       return `/intelligence/trail/${encodeURIComponent(target.trailId)}`
   }
@@ -246,7 +257,7 @@ function buildInsightEntityRoutePath(
 
 export function insightEntityHref(target: InsightEntityTarget) {
   if (target.kind === 'day') {
-    const params = buildDayInsightsSearchParams(target.profileId)
+    const params = buildDayInsightsSearchParams(target.profileId, target.focus)
     const query = params.toString()
     return `/intelligence/day/${encodeURIComponent(target.date)}${query ? `?${query}` : ''}`
   }
@@ -255,24 +266,31 @@ export function insightEntityHref(target: InsightEntityTarget) {
     dateRange: target.dateRange,
     preset: target.preset ?? 'custom',
     profileId: target.profileId,
+    focus: target.focus,
   })
   const query = params.toString()
   return `${buildInsightEntityRoutePath(target)}${query ? `?${query}` : ''}`
 }
 
-export function dayInsightsHref(date: string, profileId?: string | null) {
+export function dayInsightsHref(
+  date: string,
+  profileId?: string | null,
+  focus?: InsightRouteFocus | null,
+) {
   return insightEntityHref({
     kind: 'day',
     date,
     profileId,
+    focus,
   })
 }
 
 export function visitDayInsightsHref(
   visitedAt: string,
   profileId?: string | null,
+  focus?: InsightRouteFocus | null,
 ) {
-  return dayInsightsHref(localDateKeyFromIso(visitedAt), profileId)
+  return dayInsightsHref(localDateKeyFromIso(visitedAt), profileId, focus)
 }
 
 export function domainInsightsHref(options: {
@@ -280,6 +298,7 @@ export function domainInsightsHref(options: {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }) {
   return insightEntityHref({
     kind: 'domain',
@@ -287,6 +306,7 @@ export function domainInsightsHref(options: {
     dateRange: options.dateRange,
     preset: options.preset,
     profileId: options.profileId,
+    focus: options.focus,
   })
 }
 
@@ -294,12 +314,14 @@ export function domainDayInsightsHref(
   domain: string,
   date: string,
   profileId?: string | null,
+  focus?: InsightRouteFocus | null,
 ) {
   return domainInsightsHref({
     domain,
     dateRange: singleDayDateRange(date),
     preset: 'custom',
     profileId,
+    focus,
   })
 }
 
@@ -308,6 +330,7 @@ export function queryFamilyInsightsHref(options: {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }) {
   return insightEntityHref({
     kind: 'queryFamily',
@@ -315,6 +338,7 @@ export function queryFamilyInsightsHref(options: {
     dateRange: options.dateRange,
     preset: options.preset,
     profileId: options.profileId,
+    focus: options.focus,
   })
 }
 
@@ -323,6 +347,7 @@ export function refindInsightsHref(options: {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }) {
   return insightEntityHref({
     kind: 'refindPage',
@@ -330,6 +355,7 @@ export function refindInsightsHref(options: {
     dateRange: options.dateRange,
     preset: options.preset,
     profileId: options.profileId,
+    focus: options.focus,
   })
 }
 
@@ -338,6 +364,7 @@ export function sessionInsightsHref(options: {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }) {
   return insightEntityHref({
     kind: 'session',
@@ -345,6 +372,7 @@ export function sessionInsightsHref(options: {
     dateRange: options.dateRange,
     preset: options.preset,
     profileId: options.profileId,
+    focus: options.focus,
   })
 }
 
@@ -353,6 +381,7 @@ export function trailInsightsHref(options: {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }) {
   return insightEntityHref({
     kind: 'trail',
@@ -360,6 +389,24 @@ export function trailInsightsHref(options: {
     dateRange: options.dateRange,
     preset: options.preset,
     profileId: options.profileId,
+    focus: options.focus,
+  })
+}
+
+export function compareSetInsightsHref(options: {
+  compareSetId: string
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+  focus?: InsightRouteFocus | null
+}) {
+  return insightEntityHref({
+    kind: 'compareSet',
+    compareSetId: options.compareSetId,
+    dateRange: options.dateRange,
+    preset: options.preset,
+    profileId: options.profileId,
+    focus: options.focus,
   })
 }
 
@@ -369,6 +416,7 @@ export function reopenedInvestigationHref(options: {
   dateRange: DateRange
   preset?: TimeRangePreset
   profileId?: string | null
+  focus?: InsightRouteFocus | null
 }) {
   return options.anchorType === 'query_family'
     ? queryFamilyInsightsHref({
@@ -376,13 +424,80 @@ export function reopenedInvestigationHref(options: {
         dateRange: options.dateRange,
         preset: options.preset,
         profileId: options.profileId,
+        focus: options.focus,
       })
     : refindInsightsHref({
         canonicalUrl: options.anchorId,
         dateRange: options.dateRange,
         preset: options.preset,
         profileId: options.profileId,
+        focus: options.focus,
       })
+}
+
+export interface InsightEntityReferenceHrefContext {
+  dateRange: DateRange
+  preset?: TimeRangePreset
+  profileId?: string | null
+  focus?: InsightRouteFocus | null
+}
+
+export function insightEntityReferenceHref(
+  target: InsightEntityReference,
+  context: InsightEntityReferenceHrefContext,
+) {
+  switch (target.kind) {
+    case 'day':
+      return dayInsightsHref(target.date, context.profileId, context.focus)
+    case 'domain':
+      return domainInsightsHref({
+        domain: target.domain,
+        dateRange: context.dateRange,
+        preset: context.preset,
+        profileId: context.profileId,
+        focus: context.focus,
+      })
+    case 'queryFamily':
+      return queryFamilyInsightsHref({
+        familyId: target.familyId,
+        dateRange: context.dateRange,
+        preset: context.preset,
+        profileId: context.profileId,
+        focus: context.focus,
+      })
+    case 'refindPage':
+      return refindInsightsHref({
+        canonicalUrl: target.canonicalUrl,
+        dateRange: context.dateRange,
+        preset: context.preset,
+        profileId: context.profileId,
+        focus: context.focus,
+      })
+    case 'session':
+      return sessionInsightsHref({
+        sessionId: target.sessionId,
+        dateRange: context.dateRange,
+        preset: context.preset,
+        profileId: context.profileId,
+        focus: context.focus,
+      })
+    case 'trail':
+      return trailInsightsHref({
+        trailId: target.trailId,
+        dateRange: context.dateRange,
+        preset: context.preset,
+        profileId: context.profileId,
+        focus: context.focus,
+      })
+    case 'compareSet':
+      return compareSetInsightsHref({
+        compareSetId: target.compareSetId,
+        dateRange: context.dateRange,
+        preset: context.preset,
+        profileId: context.profileId,
+        focus: context.focus,
+      })
+  }
 }
 
 /**

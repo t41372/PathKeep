@@ -546,6 +546,15 @@ pub(crate) fn get_compare_sets(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) fn get_compare_set_detail(
+    request: vault_core::CompareSetDetailRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, String> {
+    worker_bridge::get_compare_set_detail_impl(request, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 pub(crate) fn get_multi_browser_diff(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,

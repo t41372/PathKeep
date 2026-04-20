@@ -53,9 +53,14 @@ import {
 import { formatNumber, type T } from './sections/shared'
 
 interface IntelligenceSectionsProps {
+  compareSetHref: (compareSetId: string) => string
   dateRange: DateRange
   dayHref: (date: string) => string
   domainHref: (domain: string) => string
+  focusedDomainHref: (
+    domain: string,
+    focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
+  ) => string
   language: ResolvedLanguage
   profileId: string | null
   queryFamilyHref: (familyId: string, profileId?: string | null) => string
@@ -70,9 +75,11 @@ interface IntelligenceSectionsProps {
  * Renders the complete set of Core Intelligence overview sections.
  */
 export function IntelligenceSections({
+  compareSetHref,
   dateRange,
   dayHref,
   domainHref,
+  focusedDomainHref,
   language,
   profileId,
   queryFamilyHref,
@@ -186,14 +193,15 @@ export function IntelligenceSections({
           />
           <PathFlowsSection
             dateRange={dateRange}
-            domainHref={domainHref}
+            focusedDomainHref={focusedDomainHref}
             profileId={profileId}
             scopeLabel={scopeLabel}
             t={t}
           />
           <CompareSetsSection
+            compareSetHref={compareSetHref}
             dateRange={dateRange}
-            domainHref={domainHref}
+            focusedDomainHref={focusedDomainHref}
             profileId={profileId}
             scopeLabel={scopeLabel}
             trailHref={trailHref}

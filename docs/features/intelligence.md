@@ -231,7 +231,8 @@
 - `/intelligence` 頂部固定提供 `Insight Access` strip：使用者可直接輸入本地日曆日或 domain，打開完整 day/domain insights route。這條 strip 必須吃 shared href grammar，而不是再長出另一套局部 state / fetch story。
 - M7 起，active intelligence entity 也必須統一吃 shared entity contract：`query family`、`refind page`、`session`、`trail` 正式有 first-class shared insights route；`reopened investigation`、`habit`、`stable source`、`friction`、`multi-browser diff`、`compare set` 等 surface 也都必須解析到單一 shared destination，而不是各自拼 `/explorer` deep-link。
 - `session` / `trail` 在 Explorer 仍維持 browse-first canonical grouped view；shared insights route 只承接 reusable detail / explainability / evidence CTA，不得把 grouped Explorer 改成 route-only workflow。
-- `refind` route 直接使用 encoded canonical URL 作 path identity；`domain insights` route 暫不增加 `focus` / context-highlight query param。若未來需要更細的 entity-context reuse，必須交由後續 milestone 處理，而不是讓 consumer-local state 再次分裂 route grammar。
+- M8 起，`compare set` 也正式升格成 first-class shared insights route，`path flow` 則改成 stable `flowId` + typed `steps`；compare-set / path-flow 相關的 aggregate context 必須透過 additive `focusType` / `focusId` query grammar 在 shared non-overview routes 間流動，而不是回退成 consumer-local state。
+- `refind` route 直接使用 encoded canonical URL 作 path identity；shared focus contract 只允許受限的 `focusType` / `focusId`，且 overview 不承接 focus。trusted external-output payload 可帶 structured entity targets 供 app-link reuse，而 `public snapshot` 仍維持 redacted。
 - route 切換時必須丟棄過期 request；離開 `/intelligence` 後，上一個 scope / date range 的 section response 不得再 commit 回 UI，也不得偷偷繼續觸發後續 detail fetch。
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
