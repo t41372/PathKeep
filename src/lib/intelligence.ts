@@ -442,6 +442,28 @@ export interface InsightEntityReferenceHrefContext {
   focus?: InsightRouteFocus | null
 }
 
+export function insightEntityReferenceLabel(
+  target: InsightEntityReference,
+  t: Translate,
+) {
+  switch (target.kind) {
+    case 'day':
+      return target.date
+    case 'domain':
+      return target.domain
+    case 'queryFamily':
+      return t('queryFamilyRouteTitle')
+    case 'refindPage':
+      return t('refindRouteTitle')
+    case 'session':
+      return t('sessionRouteTitle')
+    case 'trail':
+      return t('trailRouteTitle')
+    case 'compareSet':
+      return t('compareSetRouteTitle')
+  }
+}
+
 export function insightEntityReferenceHref(
   target: InsightEntityReference,
   context: InsightEntityReferenceHrefContext,

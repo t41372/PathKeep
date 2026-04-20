@@ -18,13 +18,13 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import {
   useAsyncData,
   type DateRange,
-  type KpiMetric,
   type RefindPage,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
@@ -316,7 +316,7 @@ function DigestSection({
     )
   }
 
-  const cards: { icon: string; label: string; metric: KpiMetric }[] = [
+  const cards = [
     { icon: '📊', label: t('digestVisits'), metric: digest.totalVisits },
     { icon: '🔍', label: t('digestSearches'), metric: digest.totalSearches },
     { icon: '🌐', label: t('digestNewSites'), metric: digest.newDomains },
@@ -326,40 +326,20 @@ function DigestSection({
 
   return (
     <section className="intelligence-section digest-section">
-      <h2 className="intelligence-section__title">{t('digestTitle')}</h2>
-      <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
-      <div className="digest-cards">
-        {cards.map(({ icon, label, metric }) => (
-          <div key={label} className="digest-card">
-            <span className="digest-card__icon">{icon}</span>
-            <span className="digest-card__value">
-              {formatNumber(metric.value)}
-            </span>
-            <span className="digest-card__label">{label}</span>
-            <TrendBadge metric={metric} t={t} />
-          </div>
-        ))}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('digestTitle')}</h2>
+        <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
       </div>
+      <IntelligenceMetricGrid
+        items={cards.map(({ icon, label, metric }) => ({
+          icon,
+          label,
+          trend: metric,
+          value: formatNumber(metric.value),
+        }))}
+        t={t}
+      />
     </section>
-  )
-}
-
-function TrendBadge({ metric, t }: { metric: KpiMetric; t: T }) {
-  if (metric.changePercent == null) return null
-  const arrow =
-    metric.trend === 'up' ? '↑' : metric.trend === 'down' ? '↓' : '='
-  const sign = metric.changePercent > 0 ? '+' : ''
-  return (
-    <span
-      className={`trend-badge trend-badge--${metric.trend}`}
-      aria-label={t('trendLabel', {
-        direction: metric.trend,
-        percent: Math.abs(metric.changePercent),
-      })}
-    >
-      {sign}
-      {Math.round(metric.changePercent)}% {arrow}
-    </span>
   )
 }
 
@@ -395,10 +375,12 @@ function TopSitesSection({
 
   return (
     <section className="intelligence-section top-sites-section">
-      <h2 className="intelligence-section__title">{t('topSitesTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('topSitesTitle')}</h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       <div className="top-sites-controls">
         <input
           className="top-sites-controls__search"
@@ -500,10 +482,12 @@ function RefindPagesSection({
 
   return (
     <section className="intelligence-section refind-section">
-      <h2 className="intelligence-section__title">{t('refindTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('refindTitle')}</h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
       ) : pages.length === 0 ? (
@@ -556,6 +540,7 @@ function RefindCard({
 
   return (
     <div className="refind-card">
+      {/* TODO: M10 - unify refind summary/detail chrome across overview, day insights, and the dedicated refind route without reintroducing route-local CTA drift. */}
       <div className="refind-card__header">
         <span className="refind-card__icon">📄</span>
         <Link className="refind-card__title" to={refindHref(page.canonicalUrl)}>

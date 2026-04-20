@@ -34,6 +34,7 @@ import {
   type IntelligenceWidgetSnapshot,
 } from '../../lib/core-intelligence'
 import { formatDateTime } from '../../lib/format'
+import { createNamespaceTranslator } from '../../lib/i18n/catalog'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
   profileIdLabel,
@@ -42,6 +43,7 @@ import {
 import {
   dayInsightsHref,
   domainInsightsHref,
+  insightEntityReferenceLabel,
   insightEntityReferenceHref,
 } from '../../lib/intelligence'
 import { SettingsExternalOutputLocalHostPanel } from './external-output-local-host-panel'
@@ -773,6 +775,11 @@ function OutputTargetLinks({
   dateRange: DateRange
   t: Translate
 }) {
+  const { language } = useI18n()
+  const intelligenceT = createNamespaceTranslator(
+    language === 'zh-CN' || language === 'zh-TW' ? language : 'en',
+    'intelligence',
+  )
   const primaryHref = card.primaryTarget
     ? insightEntityReferenceHref(card.primaryTarget, {
         dateRange,
@@ -809,7 +816,7 @@ function OutputTargetLinks({
                   profileId: activeProfileId,
                 })}
               >
-                {target.kind}
+                {insightEntityReferenceLabel(target, intelligenceT)}
               </Link>
             ))}
           </span>

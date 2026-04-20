@@ -9,9 +9,12 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
+import { CompareSetPageList } from '../../components/intelligence/compare-set-page-list'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
+import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
+import { QueryFamilyCard } from '../../components/intelligence/query-family-card'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -260,52 +263,33 @@ export function QueryFamilyInsightsRoutePage() {
           {data ? (
             <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
           ) : null}
-          <div className="day-insights__stats">
-            <div className="digest-card">
-              <span className="digest-card__icon">🔍</span>
-              <span className="digest-card__value">
-                {formatNumber(detail.family.memberCount)}
-              </span>
-              <span className="digest-card__label">
-                {t('queryFamilyMemberCount')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🧭</span>
-              <span className="digest-card__value">
-                {formatNumber(detail.relatedTrails.length)}
-              </span>
-              <span className="digest-card__label">
-                {t('queryFamilyRelatedTrails')}
-              </span>
-            </div>
-          </div>
+          <IntelligenceMetricGrid
+            className="day-insights__stats"
+            items={[
+              {
+                icon: '🔍',
+                label: t('queryFamilyMemberCount'),
+                value: formatNumber(detail.family.memberCount),
+              },
+              {
+                icon: '🧭',
+                label: t('queryFamilyRelatedTrails'),
+                value: formatNumber(detail.relatedTrails.length),
+              },
+            ]}
+          />
           <div className="intelligence-row intelligence-row--two-col">
             <section className="intelligence-section">
               <h2 className="intelligence-section__title">
                 {t('queryFamilyQueriesTitle')}
               </h2>
               <IntelligenceSectionBody className="query-families">
-                <div className="query-family-card">
-                  <div className="query-family-card__header">
-                    <span className="query-family-card__engine">
-                      {detail.family.searchEngine}
-                    </span>
-                    <span className="query-family-card__dates">
-                      {detail.family.firstSeenAt} - {detail.family.lastSeenAt}
-                    </span>
-                  </div>
-                  <div className="query-family-card__members">
-                    {detail.family.queries.map((query, index) => (
-                      <span
-                        key={`${detail.family.familyId}:${query}:${index}`}
-                        className="query-family-card__member"
-                      >
-                        "{query}"
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                <QueryFamilyCard
+                  family={detail.family}
+                  linkMode="none"
+                  memberCountLabel={t('queryFamilyMemberCount')}
+                  showAnchor={false}
+                />
               </IntelligenceSectionBody>
             </section>
             <section className="intelligence-section">
@@ -428,33 +412,26 @@ export function RefindPageInsightsRoutePage() {
           {data ? (
             <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
           ) : null}
-          <div className="day-insights__stats">
-            <div className="digest-card">
-              <span className="digest-card__icon">🔄</span>
-              <span className="digest-card__value">
-                {detail.page.crossDayCount}
-              </span>
-              <span className="digest-card__label">
-                {t('refindFactorDays')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🧭</span>
-              <span className="digest-card__value">
-                {detail.page.trailCount}
-              </span>
-              <span className="digest-card__label">
-                {t('refindFactorTrails')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">⭐</span>
-              <span className="digest-card__value">
-                {detail.page.refindScore.toFixed(1)}
-              </span>
-              <span className="digest-card__label">{t('refindScore')}</span>
-            </div>
-          </div>
+          <IntelligenceMetricGrid
+            className="day-insights__stats"
+            items={[
+              {
+                icon: '🔄',
+                label: t('refindFactorDays'),
+                value: detail.page.crossDayCount,
+              },
+              {
+                icon: '🧭',
+                label: t('refindFactorTrails'),
+                value: detail.page.trailCount,
+              },
+              {
+                icon: '⭐',
+                label: t('refindScore'),
+                value: detail.page.refindScore.toFixed(1),
+              },
+            ]}
+          />
           <div className="intelligence-row intelligence-row--two-col">
             <section className="intelligence-section">
               <h2 className="intelligence-section__title">
@@ -614,33 +591,26 @@ export function SessionInsightsRoutePage() {
             subtitle={t('sessionRouteSubtitle')}
             title={detail.session.autoTitle ?? t('sessionUntitled')}
           />
-          <div className="day-insights__stats">
-            <div className="digest-card">
-              <span className="digest-card__icon">📄</span>
-              <span className="digest-card__value">
-                {detail.session.visitCount}
-              </span>
-              <span className="digest-card__label">
-                {t('sessionVisitLabel')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🔍</span>
-              <span className="digest-card__value">
-                {detail.session.searchCount}
-              </span>
-              <span className="digest-card__label">
-                {t('sessionSearchLabel')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🌐</span>
-              <span className="digest-card__value">
-                {detail.session.domainCount}
-              </span>
-              <span className="digest-card__label">{t('digestNewSites')}</span>
-            </div>
-          </div>
+          <IntelligenceMetricGrid
+            className="day-insights__stats"
+            items={[
+              {
+                icon: '📄',
+                label: t('sessionVisitLabel'),
+                value: detail.session.visitCount,
+              },
+              {
+                icon: '🔍',
+                label: t('sessionSearchLabel'),
+                value: detail.session.searchCount,
+              },
+              {
+                icon: '🌐',
+                label: t('digestNewSites'),
+                value: detail.session.domainCount,
+              },
+            ]}
+          />
           <div className="intelligence-row intelligence-row--two-col">
             <section className="intelligence-section">
               <h2 className="intelligence-section__title">
@@ -844,35 +814,26 @@ export function TrailInsightsRoutePage() {
               }
             />
           ) : null}
-          <div className="day-insights__stats">
-            <div className="digest-card">
-              <span className="digest-card__icon">🔍</span>
-              <span className="digest-card__value">
-                {detail.trail.visitCount}
-              </span>
-              <span className="digest-card__label">
-                {t('sessionVisitLabel')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🪜</span>
-              <span className="digest-card__value">
-                {detail.trail.reformulationCount}
-              </span>
-              <span className="digest-card__label">
-                {t('trailReformulation')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🌐</span>
-              <span className="digest-card__value">
-                {detail.trail.maxDepth}
-              </span>
-              <span className="digest-card__label">
-                {t('trailRouteDepthLabel')}
-              </span>
-            </div>
-          </div>
+          <IntelligenceMetricGrid
+            className="day-insights__stats"
+            items={[
+              {
+                icon: '🔍',
+                label: t('sessionVisitLabel'),
+                value: detail.trail.visitCount,
+              },
+              {
+                icon: '🪜',
+                label: t('trailReformulation'),
+                value: detail.trail.reformulationCount,
+              },
+              {
+                icon: '🌐',
+                label: t('trailRouteDepthLabel'),
+                value: detail.trail.maxDepth,
+              },
+            ]}
+          />
           <div className="intelligence-row intelligence-row--two-col">
             <section className="intelligence-section">
               <h2 className="intelligence-section__title">
@@ -1073,74 +1034,49 @@ export function CompareSetInsightsRoutePage() {
           {data ? (
             <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
           ) : null}
-          <div className="day-insights__stats">
-            <div className="digest-card">
-              <span className="digest-card__icon">↔</span>
-              <span className="digest-card__value">
-                {detail.compareSet.pages.length}
-              </span>
-              <span className="digest-card__label">
-                {t('compareSetsTitle')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">📄</span>
-              <span className="digest-card__value">
-                {formatNumber(totalVisits)}
-              </span>
-              <span className="digest-card__label">
-                {t('sessionVisitLabel')}
-              </span>
-            </div>
-            <div className="digest-card">
-              <span className="digest-card__icon">🌐</span>
-              <span className="digest-card__value">{distinctDomains}</span>
-              <span className="digest-card__label">
-                {t('compareSetRouteDomainsLabel')}
-              </span>
-            </div>
-          </div>
+          <IntelligenceMetricGrid
+            className="day-insights__stats"
+            items={[
+              {
+                icon: '↔',
+                label: t('compareSetsTitle'),
+                value: detail.compareSet.pages.length,
+              },
+              {
+                icon: '📄',
+                label: t('sessionVisitLabel'),
+                value: formatNumber(totalVisits),
+              },
+              {
+                icon: '🌐',
+                label: t('compareSetRouteDomainsLabel'),
+                value: distinctDomains,
+              },
+            ]}
+          />
           <div className="intelligence-row intelligence-row--two-col">
             <section className="intelligence-section">
               <h2 className="intelligence-section__title">
                 {t('compareSetRoutePagesTitle')}
               </h2>
-              <IntelligenceSectionBody className="compare-set__pages">
-                {detail.compareSet.pages.map((page, index) => (
-                  <div
-                    key={`${detail.compareSet.compareSetId}:${page.canonicalUrl}:${index}`}
-                    className={`compare-set__page${
-                      page.isLanding ? ' compare-set__page--landing' : ''
-                    }`}
-                  >
-                    <Link
-                      className="compare-set__page-domain intelligence-link"
-                      to={domainInsightsHref({
-                        domain: page.registrableDomain,
-                        dateRange,
-                        preset,
-                        profileId: effectiveProfileId,
-                        focus: {
-                          focusType: 'compare-set',
-                          focusId: detail.compareSet.compareSetId,
-                        },
-                      })}
-                    >
-                      {page.registrableDomain}
-                    </Link>
-                    <span
-                      className="compare-set__page-title"
-                      title={page.title ?? page.url}
-                    >
-                      {page.title ?? page.url}
-                    </span>
-                    {page.isLanding ? (
-                      <span className="compare-set__landing-badge">
-                        {t('compareSetsLanding')}
-                      </span>
-                    ) : null}
-                  </div>
-                ))}
+              <IntelligenceSectionBody>
+                <CompareSetPageList
+                  getHref={(page) =>
+                    domainInsightsHref({
+                      domain: page.registrableDomain,
+                      dateRange,
+                      preset,
+                      profileId: effectiveProfileId,
+                      focus: {
+                        focusType: 'compare-set',
+                        focusId: detail.compareSet.compareSetId,
+                      },
+                    })
+                  }
+                  keyPrefix={detail.compareSet.compareSetId}
+                  landingLabel={t('compareSetsLanding')}
+                  pages={detail.compareSet.pages}
+                />
               </IntelligenceSectionBody>
             </section>
             <section className="intelligence-section">

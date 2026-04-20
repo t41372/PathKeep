@@ -24,6 +24,7 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CompareSetPageList } from '../../../components/intelligence/compare-set-page-list'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { IntelligenceSectionMeta } from '../../../components/intelligence/section-meta'
 import {
@@ -33,7 +34,6 @@ import {
   type BrowserProfileSummary,
   type CategoryMixEntry,
   type CompareSet,
-  type CompareSetPage,
   type DateRange,
   type FrictionSignal,
   type HabitPattern,
@@ -88,10 +88,14 @@ export function StableSourcesSection({
 
   return (
     <section className="intelligence-section stable-sources-section">
-      <h2 className="intelligence-section__title">{t('stableSourcesTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">
+          {t('stableSourcesTitle')}
+        </h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       <p className="intelligence-section__help">{t('stableSourcesHelp')}</p>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
@@ -211,12 +215,14 @@ export function SearchEffectivenessSection({
 
   return (
     <section className="intelligence-section search-effectiveness-section">
-      <h2 className="intelligence-section__title">
-        {t('searchEffectivenessTitle')}
-      </h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">
+          {t('searchEffectivenessTitle')}
+        </h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       <p className="intelligence-section__help">
         {t('searchEffectivenessHelp')}
       </p>
@@ -386,10 +392,12 @@ export function FrictionDetectionSection({
 
   return (
     <section className="intelligence-section friction-section">
-      <h2 className="intelligence-section__title">{t('frictionTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('frictionTitle')}</h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
       ) : signals.length === 0 ? (
@@ -475,10 +483,12 @@ export function ReopenedInvestigationsSection({
 
   return (
     <section className="intelligence-section reopened-section">
-      <h2 className="intelligence-section__title">{t('reopenedTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('reopenedTitle')}</h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
       ) : reopened.length === 0 ? (
@@ -564,12 +574,14 @@ export function DiscoveryTrendSection({
 
   return (
     <section className="intelligence-section discovery-trend-section">
-      <h2 className="intelligence-section__title">
-        {t('discoveryTrendTitle')}
-      </h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">
+          {t('discoveryTrendTitle')}
+        </h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       <p className="intelligence-section__help">{t('discoveryTrendHelp')}</p>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />
@@ -642,10 +654,12 @@ export function BreadthIndexSection({
 
   return (
     <section className="intelligence-section breadth-section">
-      <h2 className="intelligence-section__title">{t('breadthTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('breadthTitle')}</h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--card" />
       ) : !breadth ? (
@@ -1063,10 +1077,12 @@ export function CompareSetsSection({
 
   return (
     <section className="intelligence-section compare-sets-section">
-      <h2 className="intelligence-section__title">{t('compareSetsTitle')}</h2>
-      {data ? (
-        <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('compareSetsTitle')}</h2>
+        {data ? (
+          <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       {loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--list" />
       ) : compareSets.length === 0 ? (
@@ -1127,32 +1143,19 @@ function CompareSetCard({
           {t('trailRouteTitle')}
         </Link>
       </div>
-      <ul className="compare-set__pages">
-        {set.pages.slice(0, 4).map((page: CompareSetPage, index) => (
-          <li
-            key={index}
-            className={`compare-set__page${page.isLanding ? ' compare-set__page--landing' : ''}`}
-          >
-            <Link
-              className="compare-set__page-domain intelligence-link"
-              to={focusedDomainHref(page.registrableDomain, {
-                focusType: 'compare-set',
-                focusId: set.compareSetId,
-              })}
-            >
-              {page.registrableDomain}
-            </Link>
-            <span className="compare-set__page-title" title={page.title ?? ''}>
-              {page.title ?? page.url}
-            </span>
-            {page.isLanding ? (
-              <span className="compare-set__landing-badge">
-                {t('compareSetsLanding')}
-              </span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+      <CompareSetPageList
+        as="ul"
+        getHref={(page) =>
+          focusedDomainHref(page.registrableDomain, {
+            focusType: 'compare-set',
+            focusId: set.compareSetId,
+          })
+        }
+        keyPrefix={set.compareSetId}
+        landingLabel={t('compareSetsLanding')}
+        maxItems={4}
+        pages={set.pages}
+      />
     </li>
   )
 }

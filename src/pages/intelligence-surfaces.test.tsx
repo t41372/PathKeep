@@ -1501,6 +1501,20 @@ describe('intelligence surfaces', () => {
           metricLabel: 'refind_score',
           metricValue: '0.82',
           href: 'https://sqlite.org/wal.html',
+          primaryTarget: {
+            kind: 'refindPage',
+            canonicalUrl: 'https://sqlite.org/wal.html',
+          },
+          secondaryTargets: [
+            {
+              kind: 'domain',
+              domain: 'sqlite.org',
+            },
+            {
+              kind: 'day',
+              date: '2026-04-14',
+            },
+          ],
           internalOnly: true,
         },
       ])
@@ -1651,6 +1665,8 @@ describe('intelligence surfaces', () => {
     expect(
       within(panel).getByText(settingsT('externalOutputsTrustedOnlyBadge')),
     ).toBeVisible()
+    expect(within(panel).getByText('sqlite.org')).toBeVisible()
+    expect(within(panel).getByText('2026-04-14')).toBeVisible()
 
     await user.click(
       within(panel).getByRole('tab', {

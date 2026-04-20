@@ -16,6 +16,8 @@
 > **2026-04-19 accepted salvage note:** `Search Activity` 現在在既有 `engines / concepts / families` 之外，多了一個 additive 的 `Recent Queries` tab。這個 tab 讀 `get_search_queries`，每列都保留 reusable `familyId` / `trailId` / `profileId`，primary CTA 直接走 shared query-family insights route；這不是 Explorer `queries` view，也不代表 route grammar 改回 consumer-local workflow。search-engine rule editing 也正式收斂到 Settings derived-state panel，作為 deterministic rebuild 的一部分。
 >
 > **2026-04-19 accepted M8 note:** M8 已把 aggregate entity identity / context reuse 收口成正式 contract：`compare set` 升格成 `/intelligence/compare-set/:compareSetId` first-class route；shared non-overview insights routes additive 支援受限的 `focusType` / `focusId`；`path flow` 改成 stable `flowId` + typed `steps`；trusted external outputs 也改帶 structured entity targets，而 `public snapshot` 維持 redacted。完整 trade-off 見 [`../design/intelligence-aggregate-entity-focus-tradeoff.md`](../design/intelligence-aggregate-entity-focus-tradeoff.md)。
+>
+> **2026-04-19 accepted M9 note:** M9 已正式把 shared route composition 收斂成 accepted contract：route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 section heading + evidence/freshness badge 現在都屬 single-source front-end primitive；這一輪刻意不把 scope 擴成 backend transport refactor。完整 trade-off 見 [`../design/intelligence-shared-route-composition-tradeoff.md`](../design/intelligence-shared-route-composition-tradeoff.md)。
 
 ---
 

@@ -15,12 +15,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
+import { QueryFamilyCard } from '../../../components/intelligence/query-family-card'
 import { IntelligenceSectionMeta } from '../../../components/intelligence/section-meta'
 import {
   useAsyncData,
   type DateRange,
   type EngineRanking,
-  type QueryFamily,
   type SearchQueryRow,
   type SearchQuerySort,
   type SearchConcept,
@@ -65,12 +65,14 @@ export function SearchActivitySection({
 
   return (
     <section className="intelligence-section search-activity-section">
-      <h2 className="intelligence-section__title">
-        {t('searchActivityTitle')}
-      </h2>
-      {meta ? (
-        <IntelligenceSectionMeta meta={meta} scopeLabel={scopeLabel} />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">
+          {t('searchActivityTitle')}
+        </h2>
+        {meta ? (
+          <IntelligenceSectionMeta meta={meta} scopeLabel={scopeLabel} />
+        ) : null}
+      </div>
       <div className="intelligence-tabs" role="tablist">
         {(['engines', 'concepts', 'queries', 'families'] as const).map(
           (key) => (
@@ -473,68 +475,21 @@ function QueryFamiliesPanel({
         <QueryFamilyCard
           key={family.familyId}
           family={family}
-          queryFamilyHref={queryFamilyHref}
-          t={t}
+          footer={
+            <ExplainabilityPanel
+              entityType="query_family"
+              entityId={family.familyId}
+              t={t}
+            />
+          }
+          href={queryFamilyHref(family.familyId)}
+          linkMode="anchor"
+          memberCountLabel={t('queryFamilyMemberCount')}
+          moreLabel={(hiddenCount) => `+${hiddenCount} ${t('queryFamilyMore')}`}
+          showDates
+          showMembers
         />
       ))}
-    </div>
-  )
-}
-
-function QueryFamilyCard({
-  family,
-  queryFamilyHref,
-  t,
-}: {
-  family: QueryFamily
-  queryFamilyHref: (familyId: string, profileId?: string | null) => string
-  t: T
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const visibleQueries = expanded ? family.queries : family.queries.slice(0, 3)
-
-  return (
-    <div className="query-family-card">
-      <div className="query-family-card__header">
-        <Link
-          className="query-family-card__anchor intelligence-link"
-          to={queryFamilyHref(family.familyId)}
-        >
-          "{family.anchorQuery}"
-        </Link>
-        <span className="query-family-card__engine">{family.searchEngine}</span>
-        <span className="query-family-card__count">
-          {family.memberCount} {t('queryFamilyMemberCount')}
-        </span>
-      </div>
-      <div className="query-family-card__members">
-        {visibleQueries.map((query, index) => (
-          <span key={index} className="query-family-card__member">
-            "{query}"
-          </span>
-        ))}
-        {family.queries.length > 3 && !expanded ? (
-          <button
-            className="intelligence-link"
-            type="button"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              setExpanded(true)
-            }}
-          >
-            +{family.queries.length - 3} {t('queryFamilyMore')}
-          </button>
-        ) : null}
-      </div>
-      <span className="query-family-card__dates">
-        {family.firstSeenAt} - {family.lastSeenAt}
-      </span>
-      <ExplainabilityPanel
-        entityType="query_family"
-        entityId={family.familyId}
-        t={t}
-      />
     </div>
   )
 }
@@ -580,13 +535,15 @@ export function ActivityMixSection({
 
   return (
     <section className="intelligence-section activity-mix-section">
-      <h2 className="intelligence-section__title">{t('activityMixTitle')}</h2>
-      {mixResult.data ? (
-        <IntelligenceSectionMeta
-          meta={mixResult.data.meta}
-          scopeLabel={scopeLabel}
-        />
-      ) : null}
+      <div className="intelligence-section__title-row">
+        <h2 className="intelligence-section__title">{t('activityMixTitle')}</h2>
+        {mixResult.data ? (
+          <IntelligenceSectionMeta
+            meta={mixResult.data.meta}
+            scopeLabel={scopeLabel}
+          />
+        ) : null}
+      </div>
       <p className="intelligence-section__help">{t('activityMixHelp')}</p>
       {mixResult.loading ? (
         <div className="intelligence-skeleton intelligence-skeleton--chart" />

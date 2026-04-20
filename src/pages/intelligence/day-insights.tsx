@@ -12,6 +12,8 @@ import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
+import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
+import { QueryFamilyCard } from '../../components/intelligence/query-family-card'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
@@ -205,36 +207,31 @@ export function DayInsightsPage({
         />
       ) : null}
 
-      <div className="day-insights__stats">
-        <div className="digest-card">
-          <span className="digest-card__icon">📊</span>
-          <span className="digest-card__value">
-            {formatNumber(detail.digestSummary.totalVisits.value)}
-          </span>
-          <span className="digest-card__label">{t('digestVisits')}</span>
-        </div>
-        <div className="digest-card">
-          <span className="digest-card__icon">🔍</span>
-          <span className="digest-card__value">
-            {formatNumber(detail.digestSummary.totalSearches.value)}
-          </span>
-          <span className="digest-card__label">{t('digestSearches')}</span>
-        </div>
-        <div className="digest-card">
-          <span className="digest-card__icon">🌐</span>
-          <span className="digest-card__value">
-            {formatNumber(detail.digestSummary.newDomains.value)}
-          </span>
-          <span className="digest-card__label">{t('digestNewSites')}</span>
-        </div>
-        <div className="digest-card">
-          <span className="digest-card__icon">📖</span>
-          <span className="digest-card__value">
-            {formatNumber(detail.digestSummary.deepReadPages.value)}
-          </span>
-          <span className="digest-card__label">{t('digestDeepRead')}</span>
-        </div>
-      </div>
+      <IntelligenceMetricGrid
+        className="day-insights__stats"
+        items={[
+          {
+            icon: '📊',
+            label: t('digestVisits'),
+            value: formatNumber(detail.digestSummary.totalVisits.value),
+          },
+          {
+            icon: '🔍',
+            label: t('digestSearches'),
+            value: formatNumber(detail.digestSummary.totalSearches.value),
+          },
+          {
+            icon: '🌐',
+            label: t('digestNewSites'),
+            value: formatNumber(detail.digestSummary.newDomains.value),
+          },
+          {
+            icon: '📖',
+            label: t('digestDeepRead'),
+            value: formatNumber(detail.digestSummary.deepReadPages.value),
+          },
+        ]}
+      />
 
       <div className="intelligence-row intelligence-row--two-col">
         <section className="intelligence-section">
@@ -352,28 +349,20 @@ export function DayInsightsPage({
           ) : (
             <IntelligenceSectionBody className="query-families">
               {detail.queryFamilies.families.map((family) => (
-                <Link
+                <QueryFamilyCard
                   key={family.familyId}
-                  className="query-family-card"
-                  to={queryFamilyInsightsHref({
+                  family={family}
+                  href={queryFamilyInsightsHref({
                     familyId: family.familyId,
                     dateRange: detail.drilldown.explorerDateRange,
                     preset: 'custom',
                     profileId,
                   })}
-                >
-                  <div className="query-family-card__header">
-                    <span className="query-family-card__anchor">
-                      "{family.anchorQuery}"
-                    </span>
-                    <span className="query-family-card__engine">
-                      {family.searchEngine}
-                    </span>
-                    <span className="query-family-card__count">
-                      {family.memberCount} {t('queryFamilyMemberCount')}
-                    </span>
-                  </div>
-                </Link>
+                  linkMode="card"
+                  memberCountLabel={t('queryFamilyMemberCount')}
+                  showDates={false}
+                  showMembers={false}
+                />
               ))}
             </IntelligenceSectionBody>
           )}
@@ -389,6 +378,7 @@ export function DayInsightsPage({
             </div>
           ) : (
             <IntelligenceSectionBody className="refind-list">
+              {/* TODO: M10 - share the refind summary card between overview/day views and the dedicated refind route while keeping entity-first CTAs centralized. */}
               {detail.refindPages.map((page) => (
                 <div key={page.canonicalUrl} className="refind-card">
                   <div className="refind-card__header">

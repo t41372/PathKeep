@@ -28,6 +28,7 @@ import {
   domainInsightsHref,
   evidenceHref,
   insightEntityHref,
+  insightEntityReferenceLabel,
   insightEntityReferenceHref,
   queryFamilyInsightsHref,
   reopenedInvestigationHref,
@@ -445,6 +446,27 @@ describe('intelligence helpers', () => {
     ).toBe(
       '/intelligence/refind/https%3A%2F%2Fexample.com%2Fdocs?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
     )
+  })
+
+  test('renders structured target labels with human-facing values when available', () => {
+    expect(
+      insightEntityReferenceLabel({ kind: 'day', date: '2026-04-18' }, t),
+    ).toBe('2026-04-18')
+    expect(
+      insightEntityReferenceLabel({ kind: 'domain', domain: 'sqlite.org' }, t),
+    ).toBe('sqlite.org')
+    expect(
+      insightEntityReferenceLabel(
+        { kind: 'queryFamily', familyId: 'family-1' },
+        t,
+      ),
+    ).toBe(t('queryFamilyRouteTitle'))
+    expect(
+      insightEntityReferenceLabel(
+        { kind: 'compareSet', compareSetId: 'compare:1' },
+        t,
+      ),
+    ).toBe(t('compareSetRouteTitle'))
   })
 
   test('dedupes evidence by history id and url', () => {
