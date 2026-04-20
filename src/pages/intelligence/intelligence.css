@@ -481,7 +481,9 @@
 }
 
 .digest-card__icon {
-  font-size: 1rem;
+  color: var(--accent);
+  font-size: 20px;
+  line-height: 1;
 }
 
 .digest-card__value {
@@ -590,9 +592,10 @@
 }
 
 .top-site-row__bar {
-  height: 6px;
+  height: 10px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+  border-radius: 2px;
   overflow: hidden;
 }
 
@@ -600,6 +603,7 @@
   display: block;
   height: 100%;
   background: var(--accent);
+  border-radius: 1px;
   transition: width var(--transition);
 }
 
@@ -634,9 +638,10 @@
 }
 
 .engine-ranking__bar {
-  height: 8px;
+  height: 12px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+  border-radius: 2px;
   overflow: hidden;
 }
 
@@ -644,6 +649,7 @@
   display: block;
   height: 100%;
   background: var(--accent);
+  border-radius: 1px;
   transition: width var(--transition);
 }
 
@@ -779,34 +785,52 @@
 }
 
 .activity-mix__bar-fill[data-category='developer'] {
-  background: #60a5fa;
+  background: var(
+    --activity-developer,
+    color-mix(in srgb, var(--accent) 70%, var(--info))
+  );
 }
 .activity-mix__bar-fill[data-category='video'] {
-  background: #f87171;
+  background: var(--activity-video, var(--danger));
 }
 .activity-mix__bar-fill[data-category='social'] {
-  background: #34d399;
+  background: var(--activity-social, var(--success));
 }
 .activity-mix__bar-fill[data-category='shopping'] {
-  background: #fbbf24;
+  background: var(--activity-shopping, var(--warning));
 }
 .activity-mix__bar-fill[data-category='search'] {
-  background: #a78bfa;
+  background: var(
+    --activity-search,
+    color-mix(in srgb, var(--accent) 60%, var(--info))
+  );
 }
 .activity-mix__bar-fill[data-category='docs'] {
-  background: #67e8f9;
+  background: var(
+    --activity-docs,
+    color-mix(in srgb, var(--info) 60%, var(--accent))
+  );
 }
 .activity-mix__bar-fill[data-category='ai'] {
-  background: #f472b6;
+  background: var(
+    --activity-ai,
+    color-mix(in srgb, var(--danger) 50%, var(--accent))
+  );
 }
 .activity-mix__bar-fill[data-category='news'] {
-  background: #fb923c;
+  background: var(
+    --activity-news,
+    color-mix(in srgb, var(--warning) 70%, var(--danger))
+  );
 }
 .activity-mix__bar-fill[data-category='finance'] {
-  background: #4ade80;
+  background: var(--activity-finance, var(--success));
 }
 .activity-mix__bar-fill[data-category='entertainment'] {
-  background: #c084fc;
+  background: var(
+    --activity-entertainment,
+    color-mix(in srgb, var(--accent) 50%, var(--info))
+  );
 }
 .activity-mix__bar-fill {
   background: var(--text-faint);

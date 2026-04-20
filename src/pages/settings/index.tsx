@@ -26,6 +26,8 @@ import {
   VerifyCheckList,
 } from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
+import { Glyph } from '../../components/ui'
+import { BrowserIcon } from '../../lib/browser-icons'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
   CONFIGURED_ANALYTICS_ENDPOINT,
@@ -100,8 +102,6 @@ import type {
 import { SettingsExternalOutputsPanel } from './external-outputs-panel'
 import {
   appendAiProviderDraft,
-  browserIcon,
-  browserIconClass,
   buildRetentionSelection,
   cloneAiSettings,
   localizeAiIntegrationPreview,
@@ -1691,2355 +1691,2473 @@ export function SettingsPage() {
 
   return (
     <section className="page-shell settings-page" data-testid="settings-page">
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.general')}</span>
-        </div>
-        <div className="panel-body">
-          <p className="dashboard-next-action">
-            {t('settings.generalDescription')}
-          </p>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.interfaceLanguage')}
-            </span>
-            <select
-              aria-label={t('settings.interfaceLanguage')}
-              className="settings-select"
-              disabled={saving}
-              value={snapshot.config.preferredLanguage}
-              onChange={(event) => {
-                void handleLanguageChange(event.target.value)
-              }}
-            >
-              <option value="system">{t('common.followSystem')}</option>
-              {supportedLanguages.map((entry) => (
-                <option key={entry} value={entry}>
-                  {languageLabel(entry, language)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.currentLanguage')}
-            </span>
-            <span className="config-value">
-              {languageLabel(language, language)}
+      <div className="settings-group">
+        <div className="settings-group__label">Core</div>
+
+        <div className="panel" id="settings-general">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="settings" filled />{' '}
+              <span>{t('settings.general')}</span>
             </span>
           </div>
-          <ReviewPathActionRow
-            copyFeedback={supportCopyFeedback}
-            copyKey="settings:app-root"
-            copyLabel={t('common.copyAction')}
-            errorMessage={t('audit.copyFailed')}
-            label={t('settings.dataDirectory')}
-            onCopy={(key, value) => {
-              void copyReviewValue(value, {
-                key,
-                onFeedback: setSupportCopyFeedback,
-              })
-            }}
-            onOpenPath={(path) => {
-              void backend.openPathInFileManager(path)
-            }}
-            openPathLabel={t('settings.openDirectory')}
-            successMessage={t('common.copiedNotice')}
-            value={snapshot.directories.appRoot}
-          />
-          <ReviewPathActionRow
-            copyFeedback={supportCopyFeedback}
-            copyKey="settings:archive-database"
-            copyLabel={t('common.copyAction')}
-            errorMessage={t('audit.copyFailed')}
-            label={t('settings.archiveDatabase')}
-            onCopy={(key, value) => {
-              void copyReviewValue(value, {
-                key,
-                onFeedback: setSupportCopyFeedback,
-              })
-            }}
-            onOpenPath={(path) => {
-              void backend.openPathInFileManager(path)
-            }}
-            openPathLabel={t('settings.openDirectory')}
-            successMessage={t('common.copiedNotice')}
-            value={snapshot.directories.archiveDatabasePath}
-          />
-          <ReviewPathActionRow
-            copyFeedback={supportCopyFeedback}
-            copyKey="settings:audit-repo"
-            copyLabel={t('common.copyAction')}
-            errorMessage={t('audit.copyFailed')}
-            label={t('settings.auditRepository')}
-            onCopy={(key, value) => {
-              void copyReviewValue(value, {
-                key,
-                onFeedback: setSupportCopyFeedback,
-              })
-            }}
-            onOpenPath={(path) => {
-              void backend.openPathInFileManager(path)
-            }}
-            openPathLabel={t('settings.openDirectory')}
-            successMessage={t('common.copiedNotice')}
-            value={snapshot.directories.auditRepoPath}
-          />
-          <ReviewPathActionRow
-            copyFeedback={supportCopyFeedback}
-            copyKey="settings:logs-dir"
-            copyLabel={t('common.copyAction')}
-            errorMessage={t('audit.copyFailed')}
-            label={t('settings.logsDirectory')}
-            onCopy={(key, value) => {
-              void copyReviewValue(value, {
-                key,
-                onFeedback: setSupportCopyFeedback,
-              })
-            }}
-            onOpenPath={(path) => {
-              void backend.openPathInFileManager(path)
-            }}
-            openPathLabel={t('settings.openDirectory')}
-            successMessage={t('common.copiedNotice')}
-            value={snapshot.directories.logsDir}
-          />
-          <ReviewPathActionRow
-            copyFeedback={supportCopyFeedback}
-            copyKey="settings:crash-reports"
-            copyLabel={t('common.copyAction')}
-            errorMessage={t('audit.copyFailed')}
-            label={t('settings.crashReports')}
-            onCopy={(key, value) => {
-              void copyReviewValue(value, {
-                key,
-                onFeedback: setSupportCopyFeedback,
-              })
-            }}
-            onOpenPath={(path) => {
-              void backend.openPathInFileManager(path)
-            }}
-            openPathLabel={t('settings.openDirectory')}
-            successMessage={t('common.copiedNotice')}
-            value={snapshot.directories.crashReportsDir}
-          />
-          {snapshot.runtimeDiagnostics.latestCrashReport ? (
-            <StatusCallout
-              tone="warning"
-              title={t('settings.latestCrashTitle')}
-              body={t('settings.latestCrashBody', {
-                source:
-                  snapshot.runtimeDiagnostics.latestCrashReport.source ===
-                  'rust-panic'
-                    ? t('settings.latestCrashSourceRust')
-                    : t('settings.latestCrashSourceFrontend'),
-                time:
-                  formatDateTime(
-                    snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
-                    language,
-                  ) ?? snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
-                message: snapshot.runtimeDiagnostics.latestCrashReport.message,
-              })}
-              actions={
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => {
-                    void backend.openPathInFileManager(
-                      snapshot.runtimeDiagnostics.latestCrashReport?.path ??
-                        snapshot.directories.crashReportsDir,
-                    )
-                  }}
-                >
-                  {t('settings.openCrashReport')}
-                </button>
-              }
-            />
-          ) : (
-            <StatusCallout
-              tone="info"
-              title={t('settings.latestCrashClearTitle')}
-              body={t('settings.latestCrashClearBody')}
-            />
-          )}
-          <div className="config-row">
-            <span className="config-label">{t('settings.mcpServer')}</span>
-            <span className="config-value">
-              {snapshot.config.ai.mcpEnabled
-                ? t('settings.enabled')
-                : t('settings.disabled')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.version')}</span>
-            <span className="config-value mono">
-              {buildInfo?.version ?? t('common.notAvailable')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.gitCommit')}</span>
-            <span className="config-value mono" title={buildTitle ?? undefined}>
-              {buildRevision ?? t('common.notAvailable')}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.analyticsTitle')}</span>
-          <span className="panel-badge">{t('settings.optional')}</span>
-        </div>
-        <div className="panel-body settings-remote-grid">
-          <StatusCallout
-            tone={currentAnalyticsSettings.enabled ? 'warning' : 'info'}
-            title={t('settings.analyticsBoundaryTitle')}
-            body={t('settings.analyticsBoundaryBody')}
-          />
-
-          {!analyticsEndpointConfigured ? (
-            <StatusCallout
-              tone="warning"
-              title={t('settings.analyticsEndpointMissingTitle')}
-              body={t('settings.analyticsEndpointMissingBody')}
-            />
-          ) : null}
-
-          <div className="settings-field-grid">
-            <label className="checkbox-row">
-              <input
-                aria-label={t('settings.analyticsEnabled')}
-                checked={currentAnalyticsSettings.enabled}
-                type="checkbox"
-                onChange={(event) => {
-                  setAnalyticsDraft((current) => ({
-                    enabled: event.target.checked,
-                    consentGrantedAt: current?.consentGrantedAt ?? null,
-                  }))
-                }}
-              />
-              <span>{t('settings.analyticsEnabled')}</span>
-            </label>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.analyticsEndpoint')}
-              </span>
-              <span className="config-value mono">
-                {analyticsEndpointConfigured
-                  ? import.meta.env.VITE_ANALYTICS_ENDPOINT
-                  : t('common.notAvailable')}
-              </span>
-            </div>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.analyticsConsentGrantedAt')}
-              </span>
-              <span className="config-value mono">
-                {currentAnalyticsSettings.consentGrantedAt ??
-                  t('common.notAvailable')}
-              </span>
-            </div>
-
+          <div className="panel-body panel-body--compact">
             <p className="dashboard-next-action">
-              {t('settings.analyticsStatusBody')}
+              {t('settings.generalDescription')}
             </p>
-
-            <div className="settings-action-row">
-              <button
-                className="btn-primary"
-                type="button"
-                disabled={Boolean(analyticsAction) || !analyticsConfigDirty}
-                onClick={() => {
-                  void handleSaveAnalyticsConsent()
-                }}
-              >
-                {analyticsAction ?? t('settings.analyticsSave')}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.updateTitle')}</span>
-          <span className="panel-action mono">
-            {buildInfo?.version ?? t('common.notAvailable')}
-          </span>
-        </div>
-        <div className="panel-body settings-remote-grid">
-          <StatusCallout
-            tone={
-              updateInstallState.phase === 'error'
-                ? 'danger'
-                : updateInstallState.phase === 'available' ||
-                    updateInstallState.phase === 'installed'
-                  ? 'warning'
-                  : 'info'
-            }
-            title={t('settings.updateBoundaryTitle')}
-            body={
-              updateInstallState.message ?? t('settings.updateBoundaryBody')
-            }
-          />
-
-          <div className="settings-field-grid">
             <div className="config-row">
               <span className="config-label">
-                {t('settings.updateCurrentVersion')}
-              </span>
-              <span className="config-value mono">
-                {buildInfo?.version ?? t('common.notAvailable')}
-              </span>
-            </div>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.updateLatestVersion')}
-              </span>
-              <span className="config-value mono">
-                {updateAvailability?.version ?? t('common.notAvailable')}
-              </span>
-            </div>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.updatePublishedAt')}
-              </span>
-              <span className="config-value mono">
-                {updateAvailability?.publishedAt ?? t('common.notAvailable')}
-              </span>
-            </div>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.updateCheckedAt')}
-              </span>
-              <span className="config-value mono">
-                {updateAvailability?.checkedAt ?? t('common.notAvailable')}
-              </span>
-            </div>
-
-            {updateInstallState.contentLength ? (
-              <p className="dashboard-next-action">
-                {t('settings.updateProgress', {
-                  downloaded: formatBytes(
-                    updateInstallState.downloadedBytes ?? 0,
-                    language,
-                  ),
-                  total: formatBytes(
-                    updateInstallState.contentLength,
-                    language,
-                  ),
-                })}
-              </p>
-            ) : null}
-
-            {updateAvailability?.notes ? (
-              <div className="fieldBlock">
-                <span className="config-label">
-                  {t('settings.updateReleaseNotes')}
-                </span>
-                <pre className="code-block">{updateAvailability.notes}</pre>
-              </div>
-            ) : null}
-
-            <div className="settings-action-row">
-              <button
-                className="btn-primary"
-                type="button"
-                disabled={updateInstallState.phase === 'checking'}
-                onClick={() => {
-                  void handleCheckForUpdates()
-                }}
-              >
-                {t('settings.updateCheckNow')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={
-                  !pendingUpdate ||
-                  updateInstallState.phase === 'downloading' ||
-                  updateInstallState.phase === 'installing'
-                }
-                onClick={() => {
-                  void handleDownloadAndInstallUpdate()
-                }}
-              >
-                {t('settings.updateDownloadAndInstall')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={updateInstallState.phase !== 'installed'}
-                onClick={() => {
-                  void handleRelaunchForUpdate()
-                }}
-              >
-                {t('settings.updateRestartNow')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => {
-                  void handleOpenReleasePage()
-                }}
-              >
-                {t('settings.updateOpenReleasePage')}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.retentionTitle')}</span>
-          <span className="panel-action">
-            {t('settings.retentionSelected', {
-              size: formatBytes(selectedRetentionBytes, language),
-            })}
-          </span>
-        </div>
-        <div className="panel-body">
-          <p className="dashboard-next-action">
-            {t('settings.retentionDescription')}
-          </p>
-
-          {retentionNeedsUnlock ? (
-            <StatusCallout
-              tone="warning"
-              title={t('settings.retentionUnlockTitle')}
-              body={t('settings.retentionUnlockBody')}
-              actions={
-                <Link className="btn-secondary" to="/security">
-                  {t('navigation.securityLabel')}
-                </Link>
-              }
-            />
-          ) : null}
-
-          {retentionPreview ? (
-            <div className="settings-field-grid">
-              {retentionPreview.buckets.map((bucket) => (
-                <label key={bucket.id} className="checkbox-row">
-                  <input
-                    checked={Boolean(retentionSelection[bucket.id])}
-                    type="checkbox"
-                    onChange={(event) => {
-                      setRetentionSelection((current) => ({
-                        ...current,
-                        [bucket.id]: event.target.checked,
-                      }))
-                    }}
-                  />
-                  <span>
-                    {bucket.id === 'snapshots'
-                      ? t('settings.retentionSnapshots')
-                      : bucket.id === 'exports'
-                        ? t('settings.retentionExports')
-                        : bucket.id === 'staging'
-                          ? t('settings.retentionStaging')
-                          : t('settings.retentionQuarantine')}
-                    {` · ${formatBytes(bucket.bytes, language)} · ${bucket.itemCount.toLocaleString(language)} ${t('settings.retentionItems')}`}
-                  </span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <StatusCallout
-              tone="info"
-              title={t('settings.retentionLoadingTitle')}
-              body={t('common.loading')}
-            />
-          )}
-
-          {retentionPreview?.warnings.map((warning) => (
-            <div key={warning} className="warning-box">
-              <div className="warning-icon">⚠</div>
-              <div className="warning-text">{warning}</div>
-            </div>
-          ))}
-
-          <div className="wizard-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => {
-                void refreshRetentionPreview()
-              }}
-            >
-              {t('settings.retentionRefresh')}
-            </button>
-            <button
-              className="btn-danger"
-              type="button"
-              disabled={
-                retentionNeedsUnlock ||
-                retentionAction !== null ||
-                selectedRetentionBuckets.length === 0
-              }
-              onClick={() => {
-                void handleRetentionPrune()
-              }}
-            >
-              {retentionAction ?? t('settings.retentionExecute')}
-            </button>
-          </div>
-
-          {retentionResult ? (
-            <div
-              className="inline-note-list"
-              style={{ marginTop: 'var(--space-3)' }}
-            >
-              <div className="result-row">
-                <p>
-                  {t('settings.retentionDeletedBytes', {
-                    size: formatBytes(retentionResult.deletedBytes, language),
-                  })}
-                </p>
-              </div>
-              <div className="result-row">
-                <p>
-                  {t('settings.retentionDeletedFiles', {
-                    count: retentionResult.deletedFiles,
-                  })}
-                </p>
-              </div>
-              {retentionResult.runId ? (
-                <div className="result-row">
-                  <Link
-                    className="btn-secondary"
-                    to={`/audit?run=${retentionResult.runId}`}
-                  >
-                    {t('settings.retentionOpenAudit')}
-                  </Link>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {retentionError ? (
-            <p className="inline-error" role="alert">
-              {retentionError}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.appLock')}</span>
-          <span className="panel-badge">{t('settings.optional')}</span>
-        </div>
-        <div className="panel-body settings-remote-grid">
-          <StatusCallout
-            tone={currentAppLockSettings.enabled ? 'warning' : 'info'}
-            title={t('settings.appLockBoundaryTitle')}
-            body={t('settings.appLockBoundaryBody')}
-          />
-
-          <div className="settings-field-grid">
-            <label className="checkbox-row">
-              <input
-                aria-label={t('settings.appLockEnabled')}
-                checked={currentAppLockSettings.enabled}
-                type="checkbox"
-                onChange={(event) => {
-                  setAppLockDraft((current) =>
-                    current
-                      ? { ...current, enabled: event.target.checked }
-                      : current,
-                  )
-                }}
-              />
-              <span>{t('settings.appLockEnabled')}</span>
-            </label>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.appLockStatus')}
-              </span>
-              <span className="config-value mono">
-                {appLockStatus?.locked
-                  ? t('settings.appLockStatusLocked')
-                  : t('settings.appLockStatusUnlocked')}
-              </span>
-            </div>
-
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.appLockIdleTimeout')}
+                {t('settings.interfaceLanguage')}
               </span>
               <select
-                aria-label={t('settings.appLockIdleTimeout')}
+                aria-label={t('settings.interfaceLanguage')}
                 className="settings-select"
-                value={currentAppLockSettings.idleTimeoutMinutes}
+                disabled={saving}
+                value={snapshot.config.preferredLanguage}
                 onChange={(event) => {
-                  const idleTimeoutMinutes = Number(event.target.value)
-                  setAppLockDraft((current) =>
-                    current ? { ...current, idleTimeoutMinutes } : current,
-                  )
+                  void handleLanguageChange(event.target.value)
                 }}
               >
-                {[1, 5, 10, 15, 30, 60].map((minutes) => (
-                  <option key={minutes} value={minutes}>
-                    {t('settings.appLockMinutes', { count: minutes })}
+                <option value="system">{t('common.followSystem')}</option>
+                {supportedLanguages.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {languageLabel(entry, language)}
                   </option>
                 ))}
               </select>
             </div>
-
-            <label className="checkbox-row">
-              <input
-                aria-label={
-                  biometricUsesTouchId
-                    ? t('settings.appLockTouchId')
-                    : t('settings.appLockBiometric')
-                }
-                checked={currentAppLockSettings.biometricEnabled}
-                disabled={!appLockStatus?.biometricAvailable}
-                type="checkbox"
-                onChange={(event) => {
-                  setAppLockDraft((current) =>
-                    current
-                      ? { ...current, biometricEnabled: event.target.checked }
-                      : current,
-                  )
-                }}
-              />
-              <span>
-                {biometricUsesTouchId
-                  ? t('settings.appLockTouchId')
-                  : t('settings.appLockBiometric')}
-              </span>
-            </label>
-
-            {!appLockStatus?.biometricAvailable ? (
-              <p className="dashboard-next-action">
-                {biometricUsesTouchId
-                  ? t('settings.appLockTouchIdUnavailable')
-                  : t('settings.appLockBiometricUnavailable')}
-              </p>
-            ) : null}
-
-            <label className="fieldBlock">
-              <span className="config-label">
-                {t('settings.appLockRecoveryHint')}
-              </span>
-              <input
-                aria-label={t('settings.appLockRecoveryHint')}
-                className="settings-input"
-                placeholder={t('settings.appLockRecoveryHintPlaceholder')}
-                type="text"
-                value={appLockRecoveryHint}
-                onChange={(event) => {
-                  const recoveryHint = event.target.value
-                  setAppLockRecoveryHint(recoveryHint)
-                  setAppLockDraft((current) =>
-                    current ? { ...current, recoveryHint } : current,
-                  )
-                }}
-              />
-            </label>
-
-            <label className="fieldBlock">
-              <span className="config-label">
-                {t('settings.appLockPasscode')}
-              </span>
-              <input
-                aria-label={t('settings.appLockPasscode')}
-                className="settings-input"
-                placeholder={t('settings.appLockPasscodePlaceholder')}
-                type="password"
-                value={appLockPasscode}
-                onChange={(event) =>
-                  setAppLockPasscodeDraft(event.target.value)
-                }
-              />
-            </label>
-
-            <div className="settings-action-row">
-              <button
-                className="btn-primary"
-                type="button"
-                disabled={
-                  Boolean(appLockAction) ||
-                  !appLockConfigDirty ||
-                  (currentAppLockSettings.enabled && !appLockCanEnable)
-                }
-                onClick={() => {
-                  void handleSaveAppLockConfig()
-                }}
-              >
-                {appLockAction ?? t('settings.appLockSave')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={
-                  Boolean(appLockAction) || appLockPasscode.trim().length < 4
-                }
-                onClick={() => {
-                  void handleSetAppLockPasscode()
-                }}
-              >
-                {appLockStatus?.passcodeConfigured
-                  ? t('settings.appLockUpdatePasscode')
-                  : t('settings.appLockSetPasscode')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={
-                  Boolean(appLockAction) || !appLockStatus?.passcodeConfigured
-                }
-                onClick={() => {
-                  void handleClearAppLockPasscode()
-                }}
-              >
-                {t('settings.appLockClearPasscode')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={Boolean(appLockAction) || !appLockStatus?.enabled}
-                onClick={() => {
-                  void handleLockNow()
-                }}
-              >
-                {t('settings.appLockLockNow')}
-              </button>
-            </div>
-
-            {!appLockCanEnable ? (
-              <StatusCallout
-                tone="warning"
-                title={t('settings.appLockNeedsPasscodeTitle')}
-                body={t('settings.appLockNeedsPasscodeBody')}
-              />
-            ) : null}
-
-            {appLockStatus?.degradationNotes.map((note) => (
-              <p key={note} className="dashboard-next-action">
-                {note}
-              </p>
-            ))}
-
-            {appLockStatus?.configPath ? (
-              <ReviewPathActionRow
-                copyFeedback={supportCopyFeedback}
-                copyKey="settings:app-lock-config"
-                copyLabel={t('common.copyAction')}
-                errorMessage={t('audit.copyFailed')}
-                label={t('settings.appLockConfigPath')}
-                onCopy={(key, value) => {
-                  void copyReviewValue(value, {
-                    key,
-                    onFeedback: setSupportCopyFeedback,
-                  })
-                }}
-                onOpenPath={(path) => {
-                  void backend.openPathInFileManager(path)
-                }}
-                openPathLabel={t('settings.openDirectory')}
-                successMessage={t('common.copiedNotice')}
-                value={appLockStatus.configPath}
-              />
-            ) : (
-              <div className="config-row">
-                <span className="config-label">
-                  {t('settings.appLockConfigPath')}
-                </span>
-                <span className="config-value mono">
-                  {t('common.notAvailable')}
-                </span>
-              </div>
-            )}
             <div className="config-row">
               <span className="config-label">
-                {t('settings.appLockLastUnlocked')}
+                {t('settings.currentLanguage')}
               </span>
+              <span className="config-value">
+                {languageLabel(language, language)}
+              </span>
+            </div>
+            <ReviewPathActionRow
+              copyFeedback={supportCopyFeedback}
+              copyKey="settings:app-root"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('settings.dataDirectory')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setSupportCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('settings.openDirectory')}
+              successMessage={t('common.copiedNotice')}
+              value={snapshot.directories.appRoot}
+            />
+            <ReviewPathActionRow
+              copyFeedback={supportCopyFeedback}
+              copyKey="settings:archive-database"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('settings.archiveDatabase')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setSupportCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('settings.openDirectory')}
+              successMessage={t('common.copiedNotice')}
+              value={snapshot.directories.archiveDatabasePath}
+            />
+            <ReviewPathActionRow
+              copyFeedback={supportCopyFeedback}
+              copyKey="settings:audit-repo"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('settings.auditRepository')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setSupportCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('settings.openDirectory')}
+              successMessage={t('common.copiedNotice')}
+              value={snapshot.directories.auditRepoPath}
+            />
+            <ReviewPathActionRow
+              copyFeedback={supportCopyFeedback}
+              copyKey="settings:logs-dir"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('settings.logsDirectory')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setSupportCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('settings.openDirectory')}
+              successMessage={t('common.copiedNotice')}
+              value={snapshot.directories.logsDir}
+            />
+            <ReviewPathActionRow
+              copyFeedback={supportCopyFeedback}
+              copyKey="settings:crash-reports"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('settings.crashReports')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setSupportCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('settings.openDirectory')}
+              successMessage={t('common.copiedNotice')}
+              value={snapshot.directories.crashReportsDir}
+            />
+            {snapshot.runtimeDiagnostics.latestCrashReport ? (
+              <StatusCallout
+                tone="warning"
+                title={t('settings.latestCrashTitle')}
+                body={t('settings.latestCrashBody', {
+                  source:
+                    snapshot.runtimeDiagnostics.latestCrashReport.source ===
+                    'rust-panic'
+                      ? t('settings.latestCrashSourceRust')
+                      : t('settings.latestCrashSourceFrontend'),
+                  time:
+                    formatDateTime(
+                      snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
+                      language,
+                    ) ??
+                    snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
+                  message:
+                    snapshot.runtimeDiagnostics.latestCrashReport.message,
+                })}
+                actions={
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void backend.openPathInFileManager(
+                        snapshot.runtimeDiagnostics.latestCrashReport?.path ??
+                          snapshot.directories.crashReportsDir,
+                      )
+                    }}
+                  >
+                    {t('settings.openCrashReport')}
+                  </button>
+                }
+              />
+            ) : (
+              <StatusCallout
+                tone="info"
+                title={t('settings.latestCrashClearTitle')}
+                body={t('settings.latestCrashClearBody')}
+              />
+            )}
+            <div className="config-row">
+              <span className="config-label">{t('settings.mcpServer')}</span>
+              <span className="config-value">
+                {snapshot.config.ai.mcpEnabled
+                  ? t('settings.enabled')
+                  : t('settings.disabled')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">{t('settings.version')}</span>
               <span className="config-value mono">
-                {appLockStatus?.lastUnlockedAt ?? t('common.notAvailable')}
+                {buildInfo?.version ?? t('common.notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">{t('settings.gitCommit')}</span>
+              <span
+                className="config-value mono"
+                title={buildTitle ?? undefined}
+              >
+                {buildRevision ?? t('common.notAvailable')}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.browserProfiles')}</span>
-          <span className="panel-action">{t('common.rescanAction')}</span>
-        </div>
-        <div className="panel-body">
-          <p className="dashboard-next-action">
-            {t('settings.browserProfilesBody')}
-          </p>
-          <div className="profile-list">
-            {profiles.map((profile) => {
-              const checked = selectedIds.has(profile.profileId)
-              return (
-                <button
-                  key={profile.profileId}
-                  className={`profile-item ${checked ? 'checked' : ''}`}
-                  type="button"
-                  onClick={() => {
-                    void toggleProfile(profile.profileId)
-                  }}
-                >
-                  <div className="profile-check">
-                    <div className={`checkbox ${checked ? 'active' : ''}`}>
-                      {checked ? '✓' : ''}
-                    </div>
-                  </div>
-                  <div className="profile-icon">
-                    <div className={browserIconClass(profile.profileId)}>
-                      {browserIcon(profile.profileId)}
-                    </div>
-                  </div>
-                  <div className="profile-info">
-                    <div className="profile-name">
-                      {profile.browserName} / {profile.profileName}
-                    </div>
-                    <div className="profile-path dim mono">
-                      {profile.profilePath}
-                    </div>
-                  </div>
-                  <div className="profile-stats mono dim">
-                    {profile.historyExists
-                      ? `${t('settings.historyFound')} · ${profile.browserVersion ?? t('common.notAvailable')}`
-                      : t('settings.noHistoryDetected')}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
+      <div className="settings-group">
+        <div className="settings-group__label">Data & Updates</div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.aiProvider')}</span>
-          <span className="panel-badge">{t('settings.optional')}</span>
-        </div>
-        <div className="panel-body">
-          <p className="dashboard-next-action">
-            {t('settings.aiProviderBody')}
-          </p>
-          {noAiProviders ? (
+        <div className="panel panel--optional" id="settings-analytics">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="analytics" filled />{' '}
+              <span>{t('settings.analyticsTitle')}</span>
+            </span>
+            <span className="panel-badge">{t('settings.optional')}</span>
+          </div>
+          <div className="panel-body settings-remote-grid">
             <StatusCallout
-              tone="info"
-              title={t('settings.aiGettingStartedTitle')}
-              body={t('settings.aiGettingStartedBody')}
+              tone={currentAnalyticsSettings.enabled ? 'warning' : 'info'}
+              title={t('settings.analyticsBoundaryTitle')}
+              body={t('settings.analyticsBoundaryBody')}
             />
-          ) : null}
-          <StatusCallout
-            tone={aiConfigDirty ? 'warning' : 'info'}
-            title={
-              aiConfigDirty
-                ? t('settings.aiUnsavedChanges')
-                : t('settings.aiDraftSaved')
-            }
-            body={t('settings.aiDraftBoundaryBody')}
-            actions={
+
+            {!analyticsEndpointConfigured ? (
+              <StatusCallout
+                tone="warning"
+                title={t('settings.analyticsEndpointMissingTitle')}
+                body={t('settings.analyticsEndpointMissingBody')}
+              />
+            ) : null}
+
+            <div className="settings-field-grid">
+              <label className="checkbox-row">
+                <input
+                  aria-label={t('settings.analyticsEnabled')}
+                  checked={currentAnalyticsSettings.enabled}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setAnalyticsDraft((current) => ({
+                      enabled: event.target.checked,
+                      consentGrantedAt: current?.consentGrantedAt ?? null,
+                    }))
+                  }}
+                />
+                <span>{t('settings.analyticsEnabled')}</span>
+              </label>
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.analyticsEndpoint')}
+                </span>
+                <span className="config-value mono">
+                  {analyticsEndpointConfigured
+                    ? import.meta.env.VITE_ANALYTICS_ENDPOINT
+                    : t('common.notAvailable')}
+                </span>
+              </div>
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.analyticsConsentGrantedAt')}
+                </span>
+                <span className="config-value mono">
+                  {currentAnalyticsSettings.consentGrantedAt ??
+                    t('common.notAvailable')}
+                </span>
+              </div>
+
+              <p className="dashboard-next-action">
+                {t('settings.analyticsStatusBody')}
+              </p>
+
               <div className="settings-action-row">
                 <button
                   className="btn-primary"
                   type="button"
-                  disabled={saving || !aiConfigDirty}
+                  disabled={Boolean(analyticsAction) || !analyticsConfigDirty}
                   onClick={() => {
-                    void handleSaveAiConfig()
+                    void handleSaveAnalyticsConsent()
                   }}
                 >
-                  {saving
-                    ? t('settings.aiSavingConfig')
-                    : t('settings.aiSaveConfig')}
+                  {analyticsAction ?? t('settings.analyticsSave')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel panel--critical" id="settings-updater">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="system_update" filled />{' '}
+              <span>{t('settings.updateTitle')}</span>
+            </span>
+            <span className="panel-action mono">
+              {buildInfo?.version ?? t('common.notAvailable')}
+            </span>
+          </div>
+          <div className="panel-body settings-remote-grid">
+            <StatusCallout
+              tone={
+                updateInstallState.phase === 'error'
+                  ? 'danger'
+                  : updateInstallState.phase === 'available' ||
+                      updateInstallState.phase === 'installed'
+                    ? 'warning'
+                    : 'info'
+              }
+              title={t('settings.updateBoundaryTitle')}
+              body={
+                updateInstallState.message ?? t('settings.updateBoundaryBody')
+              }
+            />
+
+            <div className="settings-field-grid">
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.updateCurrentVersion')}
+                </span>
+                <span className="config-value mono">
+                  {buildInfo?.version ?? t('common.notAvailable')}
+                </span>
+              </div>
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.updateLatestVersion')}
+                </span>
+                <span className="config-value mono">
+                  {updateAvailability?.version ?? t('common.notAvailable')}
+                </span>
+              </div>
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.updatePublishedAt')}
+                </span>
+                <span className="config-value mono">
+                  {updateAvailability?.publishedAt ?? t('common.notAvailable')}
+                </span>
+              </div>
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.updateCheckedAt')}
+                </span>
+                <span className="config-value mono">
+                  {updateAvailability?.checkedAt ?? t('common.notAvailable')}
+                </span>
+              </div>
+
+              {updateInstallState.contentLength ? (
+                <>
+                  <div className="update-progress-bar">
+                    <div
+                      className="update-progress-bar__fill"
+                      style={{
+                        width: `${Math.min(
+                          ((updateInstallState.downloadedBytes ?? 0) /
+                            updateInstallState.contentLength) *
+                            100,
+                          100,
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="dashboard-next-action">
+                    {t('settings.updateProgress', {
+                      downloaded: formatBytes(
+                        updateInstallState.downloadedBytes ?? 0,
+                        language,
+                      ),
+                      total: formatBytes(
+                        updateInstallState.contentLength,
+                        language,
+                      ),
+                    })}
+                  </p>
+                </>
+              ) : null}
+
+              {updateAvailability?.notes ? (
+                <div className="fieldBlock">
+                  <span className="config-label">
+                    {t('settings.updateReleaseNotes')}
+                  </span>
+                  <pre className="code-block">{updateAvailability.notes}</pre>
+                </div>
+              ) : null}
+
+              <div className="settings-action-row">
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={updateInstallState.phase === 'checking'}
+                  onClick={() => {
+                    void handleCheckForUpdates()
+                  }}
+                >
+                  {t('settings.updateCheckNow')}
+                </button>
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={
+                    !pendingUpdate ||
+                    updateInstallState.phase === 'downloading' ||
+                    updateInstallState.phase === 'installing'
+                  }
+                  onClick={() => {
+                    void handleDownloadAndInstallUpdate()
+                  }}
+                >
+                  {t('settings.updateDownloadAndInstall')}
+                </button>
+              </div>
+              <div className="settings-action-row">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={updateInstallState.phase !== 'installed'}
+                  onClick={() => {
+                    void handleRelaunchForUpdate()
+                  }}
+                >
+                  {t('settings.updateRestartNow')}
                 </button>
                 <button
                   className="btn-secondary"
                   type="button"
-                  disabled={saving || !aiConfigDirty}
-                  onClick={handleResetAiConfig}
+                  onClick={() => {
+                    void handleOpenReleasePage()
+                  }}
                 >
-                  {t('settings.aiResetDraft')}
+                  {t('settings.updateOpenReleasePage')}
                 </button>
               </div>
-            }
-          />
-
-          <label className="checkbox-row">
-            <input
-              aria-label={t('settings.aiMasterToggle')}
-              checked={currentAiSettings.enabled}
-              type="checkbox"
-              disabled={saving}
-              onChange={() => {
-                void handleAiToggle()
-              }}
-            />
-            <span>{t('settings.aiMasterToggle')}</span>
-          </label>
-
-          <AiProviderEditorList
-            addLabel={t('settings.aiAddLlmProvider')}
-            apiKeys={aiApiKeys}
-            disabled={saving}
-            onAdd={() => handleAddProvider('llm')}
-            onApiKeyChange={(id, value) =>
-              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
-            }
-            onClearKey={(id) => {
-              void handleClearAiApiKey(id)
-            }}
-            onClearKeyDisabled={(providerId) =>
-              saving || !persistedProviderIds.has(providerId)
-            }
-            onRemove={(id) => handleRemoveProvider('llm', id)}
-            onSaveKey={(id) => {
-              void handleSaveAiApiKey(id)
-            }}
-            onSaveKeyDisabled={(providerId) =>
-              saving ||
-              !persistedProviderIds.has(providerId) ||
-              !aiApiKeys[providerId]?.trim()
-            }
-            onSelect={(id) => handleSelectProvider('llm', id)}
-            onUpdate={(id, patch) => handleUpdateProvider('llm', id, patch)}
-            providers={currentAiSettings.llmProviders}
-            purpose="llm"
-            selectedProviderId={currentAiSettings.llmProviderId ?? null}
-            title={t('settings.aiLlmProviders')}
-            translations={aiProviderTranslations}
-          />
-
-          <AiProviderEditorList
-            addLabel={t('settings.aiAddEmbeddingProvider')}
-            apiKeys={aiApiKeys}
-            disabled={saving}
-            onAdd={() => handleAddProvider('embedding')}
-            onApiKeyChange={(id, value) =>
-              setAiApiKeys((prev) => ({ ...prev, [id]: value }))
-            }
-            onClearKey={(id) => {
-              void handleClearAiApiKey(id)
-            }}
-            onClearKeyDisabled={(providerId) =>
-              saving || !persistedProviderIds.has(providerId)
-            }
-            onRemove={(id) => handleRemoveProvider('embedding', id)}
-            onSaveKey={(id) => {
-              void handleSaveAiApiKey(id)
-            }}
-            onSaveKeyDisabled={(providerId) =>
-              saving ||
-              !persistedProviderIds.has(providerId) ||
-              !aiApiKeys[providerId]?.trim()
-            }
-            onSelect={(id) => handleSelectProvider('embedding', id)}
-            onUpdate={(id, patch) =>
-              handleUpdateProvider('embedding', id, patch)
-            }
-            providers={currentAiSettings.embeddingProviders}
-            purpose="embedding"
-            selectedProviderId={currentAiSettings.embeddingProviderId ?? null}
-            title={t('settings.aiEmbeddingProviders')}
-            translations={aiProviderTranslations}
-          />
-
-          <div className="config-row" style={{ marginTop: 'var(--space-4)' }}>
-            <span className="config-label">
-              {t('settings.aiActiveLlmProvider')}
-            </span>
-            <span className="config-value mono">
-              {currentAiSettings.llmProviders.find(
-                (p) => p.id === currentAiSettings.llmProviderId,
-              )?.name ?? t('settings.aiNoneSelected')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.aiActiveEmbeddingProvider')}
-            </span>
-            <span className="config-value mono">
-              {currentAiSettings.embeddingProviders.find(
-                (p) => p.id === currentAiSettings.embeddingProviderId,
-              )?.name ?? t('settings.aiNoneSelected')}
-            </span>
-          </div>
-
-          <StatusCallout
-            tone={
-              aiIndexMeta.tone === 'success'
-                ? 'success'
-                : aiIndexMeta.tone === 'warning'
-                  ? 'warning'
-                  : aiIndexMeta.tone === 'blocked'
-                    ? 'blocked'
-                    : 'info'
-            }
-            title={t('settings.aiIndexHealthTitle', {
-              status: aiIndexMeta.label,
-            })}
-            body={aiIndexMeta.description}
-          />
-
-          <div className="settings-field-grid">
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.aiIndexedRows')}
-              </span>
-              <span className="config-value mono">
-                {snapshot.aiStatus.indexedItems.toLocaleString(language)}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.aiSemanticSidecar')}
-              </span>
-              <span className="config-value mono">
-                {formatBytes(snapshot.aiStatus.semanticSidecarBytes, language)}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.aiSemanticMetadata')}
-              </span>
-              <span className="config-value mono">
-                {formatBytes(snapshot.aiStatus.semanticMetadataBytes, language)}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.aiEstimatedTokens')}
-              </span>
-              <span className="config-value mono">
-                {snapshot.aiStatus.estimatedEmbeddingTokens.toLocaleString(
-                  language,
-                )}
-              </span>
             </div>
           </div>
+        </div>
 
-          {snapshot.aiStatus.warning ? (
-            <div className="result-row">
-              <div className="result-row__header">
-                <strong>{t('settings.aiIndexWarning')}</strong>
-              </div>
-              <p>{snapshot.aiStatus.warning}</p>
-            </div>
-          ) : null}
+        <div className="panel panel--critical" id="settings-retention">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="delete_sweep" filled />{' '}
+              <span>{t('settings.retentionTitle')}</span>
+            </span>
+            <span className="panel-action">
+              {t('settings.retentionSelected', {
+                size: formatBytes(selectedRetentionBytes, language),
+              })}
+            </span>
+          </div>
+          <div className="panel-body">
+            <p className="dashboard-next-action">
+              {t('settings.retentionDescription')}
+            </p>
 
-          <div className="settings-result-list">
-            {aiIntegrationError ? (
+            {retentionNeedsUnlock ? (
               <StatusCallout
                 tone="warning"
-                title={t('settings.aiIntegrationUnavailable')}
-                body={aiIntegrationError}
+                title={t('settings.retentionUnlockTitle')}
+                body={t('settings.retentionUnlockBody')}
+                actions={
+                  <Link className="btn-secondary" to="/security">
+                    {t('navigation.securityLabel')}
+                  </Link>
+                }
               />
-            ) : localizedAiIntegrationPreview ? (
+            ) : null}
+
+            {retentionPreview ? (
               <>
-                <StatusCallout
-                  tone={
-                    localizedAiIntegrationPreview.warnings.length > 0
-                      ? 'warning'
-                      : 'info'
-                  }
-                  title={t('settings.aiIntegrationReview')}
-                  body={localizedAiIntegrationPreview.consentSummary}
-                />
-                <ReviewSection title={t('settings.aiMcpCommand')}>
-                  <div className="code-panel">
-                    <pre>{localizedAiIntegrationPreview.mcpCommand}</pre>
-                  </div>
-                </ReviewSection>
-                <ReviewSection title={t('settings.aiCapabilityNotes')}>
-                  {localizedAiIntegrationPreview.capabilityNotes.map((note) => (
-                    <p key={note}>{note}</p>
+                {/* Proportional stacked bar showing bucket sizes */}
+                <div className="retention-bar">
+                  {retentionPreview.buckets.map((bucket) => {
+                    const totalBytes = retentionPreview.buckets.reduce(
+                      (s, b) => s + b.bytes,
+                      0,
+                    )
+                    const pct =
+                      totalBytes > 0 ? (bucket.bytes / totalBytes) * 100 : 0
+                    return (
+                      <div
+                        key={bucket.id}
+                        className={`retention-bar__segment ${retentionSelection[bucket.id] ? 'retention-bar__segment--selected' : ''}`}
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                        title={`${bucket.id}: ${formatBytes(bucket.bytes, language)}`}
+                      />
+                    )
+                  })}
+                </div>
+                <div className="settings-field-grid">
+                  {retentionPreview.buckets.map((bucket) => (
+                    <label key={bucket.id} className="checkbox-row">
+                      <input
+                        checked={Boolean(retentionSelection[bucket.id])}
+                        type="checkbox"
+                        onChange={(event) => {
+                          setRetentionSelection((current) => ({
+                            ...current,
+                            [bucket.id]: event.target.checked,
+                          }))
+                        }}
+                      />
+                      <span>
+                        {bucket.id === 'snapshots'
+                          ? t('settings.retentionSnapshots')
+                          : bucket.id === 'exports'
+                            ? t('settings.retentionExports')
+                            : bucket.id === 'staging'
+                              ? t('settings.retentionStaging')
+                              : t('settings.retentionQuarantine')}
+                        {` · ${formatBytes(bucket.bytes, language)} · ${bucket.itemCount.toLocaleString(language)} ${t('settings.retentionItems')}`}
+                      </span>
+                    </label>
                   ))}
-                </ReviewSection>
-                <ReviewSection title={t('settings.aiScopeBoundary')}>
-                  {localizedAiIntegrationPreview.scopeBoundary.map((note) => (
-                    <p key={note}>{note}</p>
-                  ))}
-                </ReviewSection>
-                <ReviewSection title={t('settings.aiAuditTrace')}>
-                  {localizedAiIntegrationPreview.auditTrace.map((note) => (
-                    <p key={note}>{note}</p>
-                  ))}
-                </ReviewSection>
-                <ReviewSection title={t('settings.aiGeneratedFiles')}>
-                  {localizedAiIntegrationPreview.generatedFiles.length > 0 ? (
-                    <GeneratedArtifactViewer
-                      copyFeedback={aiIntegrationCopyFeedback}
-                      copyLabel={t('common.copyAction')}
-                      copyPathLabel={t('common.copyAction')}
-                      errorMessage={t('audit.copyFailed')}
-                      files={localizedAiIntegrationPreview.generatedFiles}
-                      onCopy={handleAiIntegrationCopy}
-                      onOpenPath={(path) => {
-                        void backend.openPathInFileManager(path)
-                      }}
-                      openPathLabel={t('common.openPath')}
-                      successMessage={t('common.copiedNotice')}
-                    />
-                  ) : null}
-                </ReviewSection>
-                <ReviewSection title={t('settings.aiManualSteps')}>
-                  {localizedAiIntegrationPreview.manualSteps.map((step) => (
-                    <p key={step}>{step}</p>
-                  ))}
-                  {localizedAiIntegrationPreview.warnings.map((warning) => (
-                    <p key={warning}>{warning}</p>
-                  ))}
-                </ReviewSection>
+                </div>
               </>
+            ) : (
+              <StatusCallout
+                tone="info"
+                title={t('settings.retentionLoadingTitle')}
+                body={t('common.loading')}
+              />
+            )}
+
+            {retentionPreview?.warnings.map((warning) => (
+              <div key={warning} className="warning-box">
+                <div className="warning-icon">
+                  <Glyph icon="warning" filled />
+                </div>
+                <div className="warning-text">{warning}</div>
+              </div>
+            ))}
+
+            <div className="wizard-actions">
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => {
+                  void refreshRetentionPreview()
+                }}
+              >
+                {t('settings.retentionRefresh')}
+              </button>
+              <button
+                className="btn-danger"
+                type="button"
+                disabled={
+                  retentionNeedsUnlock ||
+                  retentionAction !== null ||
+                  selectedRetentionBuckets.length === 0
+                }
+                onClick={() => {
+                  void handleRetentionPrune()
+                }}
+              >
+                {retentionAction ?? t('settings.retentionExecute')}
+              </button>
+            </div>
+
+            {retentionResult ? (
+              <div
+                className="inline-note-list"
+                style={{ marginTop: 'var(--space-3)' }}
+              >
+                <div className="result-row">
+                  <p>
+                    {t('settings.retentionDeletedBytes', {
+                      size: formatBytes(retentionResult.deletedBytes, language),
+                    })}
+                  </p>
+                </div>
+                <div className="result-row">
+                  <p>
+                    {t('settings.retentionDeletedFiles', {
+                      count: retentionResult.deletedFiles,
+                    })}
+                  </p>
+                </div>
+                {retentionResult.runId ? (
+                  <div className="result-row">
+                    <Link
+                      className="btn-secondary"
+                      to={`/audit?run=${retentionResult.runId}`}
+                    >
+                      {t('settings.retentionOpenAudit')}
+                    </Link>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {retentionError ? (
+              <p className="inline-error" role="alert">
+                {retentionError}
+              </p>
             ) : null}
           </div>
         </div>
       </div>
 
-      <SettingsExternalOutputsPanel
-        initialized={snapshot.config.initialized}
-        unlocked={snapshot.archiveStatus.unlocked}
-      />
+      <div className="settings-group">
+        <div className="settings-group__label">Security & Access</div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">
-            {t('settings.enrichmentDerivedState')}
-          </span>
-          <span className="panel-badge">{t('settings.derivedOnly')}</span>
-        </div>
-        <div className="panel-body settings-remote-grid">
-          <StatusCallout
-            tone="info"
-            title={t('settings.derivedStateBoundaryTitle')}
-            body={t('settings.derivedStateBoundaryBody')}
-            actions={
-              <div className="settings-action-row">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={Boolean(derivedAction)}
-                  onClick={() => {
-                    void handleRebuildDerivedState()
+        <div className="panel panel--security" id="settings-applock">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="shield" filled />{' '}
+              <span>{t('settings.appLock')}</span>
+            </span>
+            <span className="panel-badge">{t('settings.optional')}</span>
+          </div>
+          <div className="panel-body settings-remote-grid">
+            <StatusCallout
+              tone={currentAppLockSettings.enabled ? 'warning' : 'info'}
+              title={t('settings.appLockBoundaryTitle')}
+              body={t('settings.appLockBoundaryBody')}
+            />
+
+            <div className="settings-field-grid">
+              <label className="checkbox-row">
+                <input
+                  aria-label={t('settings.appLockEnabled')}
+                  checked={currentAppLockSettings.enabled}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setAppLockDraft((current) =>
+                      current
+                        ? { ...current, enabled: event.target.checked }
+                        : current,
+                    )
                   }}
-                >
-                  {t('settings.rebuildDerivedState')}
-                </button>
-                <button
-                  className="btn-danger"
-                  type="button"
-                  disabled={Boolean(derivedAction)}
-                  onClick={() => {
-                    void handleClearDerivedState()
-                  }}
-                >
-                  {t('settings.clearDerivedState')}
-                </button>
+                />
+                <span>{t('settings.appLockEnabled')}</span>
+              </label>
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.appLockStatus')}
+                </span>
+                <span className="config-value mono">
+                  {appLockStatus?.locked
+                    ? t('settings.appLockStatusLocked')
+                    : t('settings.appLockStatusUnlocked')}
+                </span>
               </div>
-            }
-          />
-          <StatusCallout
-            tone="info"
-            title={settingsNs('firstPartyRuntimeTitle')}
-            body={settingsNs('firstPartyRuntimeBody')}
-          />
-          <StatusCallout
-            tone={searchEngineRuleError ? 'warning' : 'info'}
-            title={settingsNs('searchRulesTitle')}
-            body={
-              searchEngineRuleError ??
-              (searchEngineRulesLoading
-                ? commonNs('loading')
-                : settingsNs('searchRulesBody'))
-            }
-            actions={
-              <div className="settings-action-row">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={Boolean(derivedAction) || searchEngineRulesLoading}
-                  onClick={() =>
-                    setSearchEngineRuleDraft(buildSearchEngineRuleDraft())
+
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.appLockIdleTimeout')}
+                </span>
+                <select
+                  aria-label={t('settings.appLockIdleTimeout')}
+                  className="settings-select"
+                  value={currentAppLockSettings.idleTimeoutMinutes}
+                  onChange={(event) => {
+                    const idleTimeoutMinutes = Number(event.target.value)
+                    setAppLockDraft((current) =>
+                      current ? { ...current, idleTimeoutMinutes } : current,
+                    )
+                  }}
+                >
+                  {[1, 5, 10, 15, 30, 60].map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {t('settings.appLockMinutes', { count: minutes })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="checkbox-row">
+                <input
+                  aria-label={
+                    biometricUsesTouchId
+                      ? t('settings.appLockTouchId')
+                      : t('settings.appLockBiometric')
                   }
+                  checked={currentAppLockSettings.biometricEnabled}
+                  disabled={!appLockStatus?.biometricAvailable}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setAppLockDraft((current) =>
+                      current
+                        ? { ...current, biometricEnabled: event.target.checked }
+                        : current,
+                    )
+                  }}
+                />
+                <span>
+                  {biometricUsesTouchId
+                    ? t('settings.appLockTouchId')
+                    : t('settings.appLockBiometric')}
+                </span>
+              </label>
+
+              {!appLockStatus?.biometricAvailable ? (
+                <p className="dashboard-next-action">
+                  {biometricUsesTouchId
+                    ? t('settings.appLockTouchIdUnavailable')
+                    : t('settings.appLockBiometricUnavailable')}
+                </p>
+              ) : null}
+
+              <label className="fieldBlock">
+                <span className="config-label">
+                  {t('settings.appLockRecoveryHint')}
+                </span>
+                <input
+                  aria-label={t('settings.appLockRecoveryHint')}
+                  className="settings-input"
+                  placeholder={t('settings.appLockRecoveryHintPlaceholder')}
+                  type="text"
+                  value={appLockRecoveryHint}
+                  onChange={(event) => {
+                    const recoveryHint = event.target.value
+                    setAppLockRecoveryHint(recoveryHint)
+                    setAppLockDraft((current) =>
+                      current ? { ...current, recoveryHint } : current,
+                    )
+                  }}
+                />
+              </label>
+
+              <label className="fieldBlock">
+                <span className="config-label">
+                  {t('settings.appLockPasscode')}
+                </span>
+                <input
+                  aria-label={t('settings.appLockPasscode')}
+                  className="settings-input"
+                  placeholder={t('settings.appLockPasscodePlaceholder')}
+                  type="password"
+                  value={appLockPasscode}
+                  onChange={(event) =>
+                    setAppLockPasscodeDraft(event.target.value)
+                  }
+                />
+              </label>
+
+              <div className="settings-action-row">
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={
+                    Boolean(appLockAction) ||
+                    !appLockConfigDirty ||
+                    (currentAppLockSettings.enabled && !appLockCanEnable)
+                  }
+                  onClick={() => {
+                    void handleSaveAppLockConfig()
+                  }}
                 >
-                  {settingsNs('searchRulesAdd')}
+                  {appLockAction ?? t('settings.appLockSave')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={
+                    Boolean(appLockAction) || appLockPasscode.trim().length < 4
+                  }
+                  onClick={() => {
+                    void handleSetAppLockPasscode()
+                  }}
+                >
+                  {appLockStatus?.passcodeConfigured
+                    ? t('settings.appLockUpdatePasscode')
+                    : t('settings.appLockSetPasscode')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={
+                    Boolean(appLockAction) || !appLockStatus?.passcodeConfigured
+                  }
+                  onClick={() => {
+                    void handleClearAppLockPasscode()
+                  }}
+                >
+                  {t('settings.appLockClearPasscode')}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={Boolean(appLockAction) || !appLockStatus?.enabled}
+                  onClick={() => {
+                    void handleLockNow()
+                  }}
+                >
+                  {t('settings.appLockLockNow')}
                 </button>
               </div>
-            }
-          />
-          <div className="settings-result-list">
-            <div className="result-row">
-              <div className="result-row__header">
-                <strong>{settingsNs('searchRulesBuiltin')}</strong>
-                <span className="mono">
-                  {settingsNs('searchRulesReadOnly')}
-                </span>
-              </div>
-              <p>{settingsNs('searchRulesBuiltinBody')}</p>
-              {builtinSearchEngineRules.map((rule) => (
-                <div key={rule.ruleId} className="config-row">
-                  <span className="config-label">{rule.displayName}</span>
-                  <span className="config-value mono">
-                    {rule.hostPattern}
-                    {rule.pathPrefix ? rule.pathPrefix : ''}
-                    {' ?'}
-                    {rule.queryParamKey}
-                  </span>
-                </div>
+
+              {!appLockCanEnable ? (
+                <StatusCallout
+                  tone="warning"
+                  title={t('settings.appLockNeedsPasscodeTitle')}
+                  body={t('settings.appLockNeedsPasscodeBody')}
+                />
+              ) : null}
+
+              {appLockStatus?.degradationNotes.map((note) => (
+                <p key={note} className="dashboard-next-action">
+                  {note}
+                </p>
               ))}
-            </div>
-            <div className="result-row">
-              <div className="result-row__header">
-                <strong>{settingsNs('searchRulesCustom')}</strong>
-                <span className="mono">
-                  {settingsNs('searchRulesCustomCount', {
-                    count: customSearchEngineRules.length,
-                  })}
-                </span>
-              </div>
-              <p>{settingsNs('searchRulesCustomBody')}</p>
-              {customSearchEngineRules.length ? (
-                customSearchEngineRules.map((rule) => (
-                  <div
-                    key={rule.ruleId}
-                    className="result-row result-row--active"
-                  >
-                    <div className="result-row__header">
-                      <strong>{rule.displayName}</strong>
-                      <span className="mono">
-                        {rule.engineId} ·{' '}
-                        {rule.enabled
-                          ? t('settings.enabled')
-                          : t('settings.disabled')}
-                      </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {settingsNs('searchRulesHostPattern')}
-                      </span>
-                      <span className="config-value mono">
-                        {rule.hostPattern}
-                      </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {settingsNs('searchRulesPathPrefix')}
-                      </span>
-                      <span className="config-value mono">
-                        {rule.pathPrefix || commonNs('notAvailable')}
-                      </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {settingsNs('searchRulesQueryParam')}
-                      </span>
-                      <span className="config-value mono">
-                        {rule.queryParamKey}
-                      </span>
-                    </div>
-                    {rule.note ? (
-                      <p className="mono-support">{rule.note}</p>
-                    ) : null}
-                    <div className="settings-action-row">
-                      <button
-                        className="btn-secondary"
-                        type="button"
-                        disabled={Boolean(derivedAction)}
-                        onClick={() =>
-                          setSearchEngineRuleDraft(
-                            buildSearchEngineRuleDraft(rule),
-                          )
-                        }
-                      >
-                        {settingsNs('searchRulesEdit')}
-                      </button>
-                      <button
-                        className="btn-danger"
-                        type="button"
-                        disabled={Boolean(derivedAction)}
-                        onClick={() => {
-                          void handleDeleteSearchEngineRule(rule.ruleId)
-                        }}
-                      >
-                        {settingsNs('searchRulesDelete')}
-                      </button>
-                    </div>
-                  </div>
-                ))
+
+              {appLockStatus?.configPath ? (
+                <ReviewPathActionRow
+                  copyFeedback={supportCopyFeedback}
+                  copyKey="settings:app-lock-config"
+                  copyLabel={t('common.copyAction')}
+                  errorMessage={t('audit.copyFailed')}
+                  label={t('settings.appLockConfigPath')}
+                  onCopy={(key, value) => {
+                    void copyReviewValue(value, {
+                      key,
+                      onFeedback: setSupportCopyFeedback,
+                    })
+                  }}
+                  onOpenPath={(path) => {
+                    void backend.openPathInFileManager(path)
+                  }}
+                  openPathLabel={t('settings.openDirectory')}
+                  successMessage={t('common.copiedNotice')}
+                  value={appLockStatus.configPath}
+                />
               ) : (
-                <p>{settingsNs('searchRulesCustomEmpty')}</p>
-              )}
-            </div>
-            {searchEngineRuleDraft ? (
-              <section
-                aria-label={settingsNs('searchRulesEditorTitle')}
-                className="result-row result-row--active"
-                data-testid="settings-search-rule-editor"
-              >
-                <div className="result-row__header">
-                  <strong>{settingsNs('searchRulesEditorTitle')}</strong>
-                  <span className="mono">
-                    {searchEngineRuleDraft.ruleId
-                      ? settingsNs('searchRulesEditing')
-                      : settingsNs('searchRulesNew')}
+                <div className="config-row">
+                  <span className="config-label">
+                    {t('settings.appLockConfigPath')}
+                  </span>
+                  <span className="config-value mono">
+                    {t('common.notAvailable')}
                   </span>
                 </div>
-                <div className="settings-remote-grid">
-                  <label className="field-stack">
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesDisplayName')}
-                    </span>
-                    <input
-                      type="text"
-                      value={searchEngineRuleDraft.displayName}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                displayName: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="field-stack">
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesEngineId')}
-                    </span>
-                    <input
-                      type="text"
-                      value={searchEngineRuleDraft.engineId}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                engineId: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="field-stack">
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesHostPattern')}
-                    </span>
-                    <input
-                      type="text"
-                      value={searchEngineRuleDraft.hostPattern}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                hostPattern: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="field-stack">
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesPathPrefix')}
-                    </span>
-                    <input
-                      type="text"
-                      value={searchEngineRuleDraft.pathPrefix ?? ''}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                pathPrefix: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="field-stack">
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesQueryParam')}
-                    </span>
-                    <input
-                      type="text"
-                      value={searchEngineRuleDraft.queryParamKey}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                queryParamKey: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="field-stack">
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesExampleUrl')}
-                    </span>
-                    <input
-                      type="text"
-                      value={searchEngineRuleDraft.exampleUrl ?? ''}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                exampleUrl: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={searchEngineRuleDraft.enabled}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                enabled: event.target.checked,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                    <span>{settingsNs('searchRulesEnabled')}</span>
-                  </label>
-                  <label
-                    className="field-stack"
-                    style={{ gridColumn: '1 / -1' }}
+              )}
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.appLockLastUnlocked')}
+                </span>
+                <span className="config-value mono">
+                  {appLockStatus?.lastUnlockedAt ?? t('common.notAvailable')}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel" id="settings-profiles">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="language" filled />{' '}
+              <span>{t('settings.browserProfiles')}</span>
+            </span>
+            <span className="panel-action">{t('common.rescanAction')}</span>
+          </div>
+          <div className="panel-body">
+            <p className="dashboard-next-action">
+              {t('settings.browserProfilesBody')}
+            </p>
+            <div className="profile-list">
+              {profiles.map((profile) => {
+                const checked = selectedIds.has(profile.profileId)
+                return (
+                  <button
+                    key={profile.profileId}
+                    className={`profile-item ${checked ? 'checked' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      void toggleProfile(profile.profileId)
+                    }}
                   >
-                    <span className="mono-kicker">
-                      {settingsNs('searchRulesNote')}
-                    </span>
-                    <textarea
-                      value={searchEngineRuleDraft.note ?? ''}
-                      onChange={(event) =>
-                        setSearchEngineRuleDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                note: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                    />
-                  </label>
+                    <div className="profile-check">
+                      <div className={`checkbox ${checked ? 'active' : ''}`}>
+                        {checked ? <Glyph icon="check" filled /> : ''}
+                      </div>
+                    </div>
+                    <div className="profile-icon">
+                      <BrowserIcon browserName={profile.browserName} />
+                    </div>
+                    <div className="profile-info">
+                      <div className="profile-name">
+                        {profile.browserName} / {profile.profileName}
+                      </div>
+                      <div className="profile-path dim mono">
+                        {profile.profilePath}
+                      </div>
+                    </div>
+                    <div className="profile-stats mono dim">
+                      {profile.historyExists
+                        ? `${t('settings.historyFound')} · ${profile.browserVersion ?? t('common.notAvailable')}`
+                        : t('settings.noHistoryDetected')}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group__label">Intelligence</div>
+
+        <div className="panel panel--optional" id="settings-ai">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="smart_toy" filled />{' '}
+              <span>{t('settings.aiProvider')}</span>
+            </span>
+            <span className="panel-badge">{t('settings.optional')}</span>
+          </div>
+          <div className="panel-body">
+            <p className="dashboard-next-action">
+              {t('settings.aiProviderBody')}
+            </p>
+            {noAiProviders ? (
+              <StatusCallout
+                tone="info"
+                title={t('settings.aiGettingStartedTitle')}
+                body={t('settings.aiGettingStartedBody')}
+              />
+            ) : null}
+            <StatusCallout
+              tone={aiConfigDirty ? 'warning' : 'info'}
+              title={
+                aiConfigDirty
+                  ? t('settings.aiUnsavedChanges')
+                  : t('settings.aiDraftSaved')
+              }
+              body={t('settings.aiDraftBoundaryBody')}
+              actions={
+                <div className="settings-action-row">
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    disabled={saving || !aiConfigDirty}
+                    onClick={() => {
+                      void handleSaveAiConfig()
+                    }}
+                  >
+                    {saving
+                      ? t('settings.aiSavingConfig')
+                      : t('settings.aiSaveConfig')}
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={saving || !aiConfigDirty}
+                    onClick={handleResetAiConfig}
+                  >
+                    {t('settings.aiResetDraft')}
+                  </button>
                 </div>
+              }
+            />
+
+            <label className="checkbox-row">
+              <input
+                aria-label={t('settings.aiMasterToggle')}
+                checked={currentAiSettings.enabled}
+                type="checkbox"
+                disabled={saving}
+                onChange={() => {
+                  void handleAiToggle()
+                }}
+              />
+              <span>{t('settings.aiMasterToggle')}</span>
+            </label>
+
+            <AiProviderEditorList
+              addLabel={t('settings.aiAddLlmProvider')}
+              apiKeys={aiApiKeys}
+              disabled={saving}
+              onAdd={() => handleAddProvider('llm')}
+              onApiKeyChange={(id, value) =>
+                setAiApiKeys((prev) => ({ ...prev, [id]: value }))
+              }
+              onClearKey={(id) => {
+                void handleClearAiApiKey(id)
+              }}
+              onClearKeyDisabled={(providerId) =>
+                saving || !persistedProviderIds.has(providerId)
+              }
+              onRemove={(id) => handleRemoveProvider('llm', id)}
+              onSaveKey={(id) => {
+                void handleSaveAiApiKey(id)
+              }}
+              onSaveKeyDisabled={(providerId) =>
+                saving ||
+                !persistedProviderIds.has(providerId) ||
+                !aiApiKeys[providerId]?.trim()
+              }
+              onSelect={(id) => handleSelectProvider('llm', id)}
+              onUpdate={(id, patch) => handleUpdateProvider('llm', id, patch)}
+              providers={currentAiSettings.llmProviders}
+              purpose="llm"
+              selectedProviderId={currentAiSettings.llmProviderId ?? null}
+              title={t('settings.aiLlmProviders')}
+              translations={aiProviderTranslations}
+            />
+
+            <AiProviderEditorList
+              addLabel={t('settings.aiAddEmbeddingProvider')}
+              apiKeys={aiApiKeys}
+              disabled={saving}
+              onAdd={() => handleAddProvider('embedding')}
+              onApiKeyChange={(id, value) =>
+                setAiApiKeys((prev) => ({ ...prev, [id]: value }))
+              }
+              onClearKey={(id) => {
+                void handleClearAiApiKey(id)
+              }}
+              onClearKeyDisabled={(providerId) =>
+                saving || !persistedProviderIds.has(providerId)
+              }
+              onRemove={(id) => handleRemoveProvider('embedding', id)}
+              onSaveKey={(id) => {
+                void handleSaveAiApiKey(id)
+              }}
+              onSaveKeyDisabled={(providerId) =>
+                saving ||
+                !persistedProviderIds.has(providerId) ||
+                !aiApiKeys[providerId]?.trim()
+              }
+              onSelect={(id) => handleSelectProvider('embedding', id)}
+              onUpdate={(id, patch) =>
+                handleUpdateProvider('embedding', id, patch)
+              }
+              providers={currentAiSettings.embeddingProviders}
+              purpose="embedding"
+              selectedProviderId={currentAiSettings.embeddingProviderId ?? null}
+              title={t('settings.aiEmbeddingProviders')}
+              translations={aiProviderTranslations}
+            />
+
+            <div className="config-row" style={{ marginTop: 'var(--space-4)' }}>
+              <span className="config-label">
+                {t('settings.aiActiveLlmProvider')}
+              </span>
+              <span className="config-value mono">
+                {currentAiSettings.llmProviders.find(
+                  (p) => p.id === currentAiSettings.llmProviderId,
+                )?.name ?? t('settings.aiNoneSelected')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.aiActiveEmbeddingProvider')}
+              </span>
+              <span className="config-value mono">
+                {currentAiSettings.embeddingProviders.find(
+                  (p) => p.id === currentAiSettings.embeddingProviderId,
+                )?.name ?? t('settings.aiNoneSelected')}
+              </span>
+            </div>
+
+            <div className="ai-health-indicator">
+              <span
+                className={`ai-health-dot ai-health-dot--${aiIndexMeta.tone}`}
+              />
+              <StatusCallout
+                tone={
+                  aiIndexMeta.tone === 'success'
+                    ? 'success'
+                    : aiIndexMeta.tone === 'warning'
+                      ? 'warning'
+                      : aiIndexMeta.tone === 'blocked'
+                        ? 'blocked'
+                        : 'info'
+                }
+                title={t('settings.aiIndexHealthTitle', {
+                  status: aiIndexMeta.label,
+                })}
+                body={aiIndexMeta.description}
+              />
+            </div>
+
+            <div className="settings-field-grid">
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.aiIndexedRows')}
+                </span>
+                <span className="config-value mono">
+                  {snapshot.aiStatus.indexedItems.toLocaleString(language)}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.aiSemanticSidecar')}
+                </span>
+                <span className="config-value mono">
+                  {formatBytes(
+                    snapshot.aiStatus.semanticSidecarBytes,
+                    language,
+                  )}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.aiSemanticMetadata')}
+                </span>
+                <span className="config-value mono">
+                  {formatBytes(
+                    snapshot.aiStatus.semanticMetadataBytes,
+                    language,
+                  )}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.aiEstimatedTokens')}
+                </span>
+                <span className="config-value mono">
+                  {snapshot.aiStatus.estimatedEmbeddingTokens.toLocaleString(
+                    language,
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {snapshot.aiStatus.warning ? (
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{t('settings.aiIndexWarning')}</strong>
+                </div>
+                <p>{snapshot.aiStatus.warning}</p>
+              </div>
+            ) : null}
+
+            <div className="settings-result-list">
+              {aiIntegrationError ? (
+                <StatusCallout
+                  tone="warning"
+                  title={t('settings.aiIntegrationUnavailable')}
+                  body={aiIntegrationError}
+                />
+              ) : localizedAiIntegrationPreview ? (
+                <>
+                  <StatusCallout
+                    tone={
+                      localizedAiIntegrationPreview.warnings.length > 0
+                        ? 'warning'
+                        : 'info'
+                    }
+                    title={t('settings.aiIntegrationReview')}
+                    body={localizedAiIntegrationPreview.consentSummary}
+                  />
+                  <ReviewSection title={t('settings.aiMcpCommand')}>
+                    <div className="code-panel">
+                      <pre>{localizedAiIntegrationPreview.mcpCommand}</pre>
+                    </div>
+                  </ReviewSection>
+                  <ReviewSection title={t('settings.aiCapabilityNotes')}>
+                    {localizedAiIntegrationPreview.capabilityNotes.map(
+                      (note) => (
+                        <p key={note}>{note}</p>
+                      ),
+                    )}
+                  </ReviewSection>
+                  <ReviewSection title={t('settings.aiScopeBoundary')}>
+                    {localizedAiIntegrationPreview.scopeBoundary.map((note) => (
+                      <p key={note}>{note}</p>
+                    ))}
+                  </ReviewSection>
+                  <ReviewSection title={t('settings.aiAuditTrace')}>
+                    {localizedAiIntegrationPreview.auditTrace.map((note) => (
+                      <p key={note}>{note}</p>
+                    ))}
+                  </ReviewSection>
+                  <ReviewSection title={t('settings.aiGeneratedFiles')}>
+                    {localizedAiIntegrationPreview.generatedFiles.length > 0 ? (
+                      <GeneratedArtifactViewer
+                        copyFeedback={aiIntegrationCopyFeedback}
+                        copyLabel={t('common.copyAction')}
+                        copyPathLabel={t('common.copyAction')}
+                        errorMessage={t('audit.copyFailed')}
+                        files={localizedAiIntegrationPreview.generatedFiles}
+                        onCopy={handleAiIntegrationCopy}
+                        onOpenPath={(path) => {
+                          void backend.openPathInFileManager(path)
+                        }}
+                        openPathLabel={t('common.openPath')}
+                        successMessage={t('common.copiedNotice')}
+                      />
+                    ) : null}
+                  </ReviewSection>
+                  <ReviewSection title={t('settings.aiManualSteps')}>
+                    {localizedAiIntegrationPreview.manualSteps.map((step) => (
+                      <p key={step}>{step}</p>
+                    ))}
+                    {localizedAiIntegrationPreview.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </ReviewSection>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <SettingsExternalOutputsPanel
+          initialized={snapshot.config.initialized}
+          unlocked={snapshot.archiveStatus.unlocked}
+        />
+
+        <div className="panel panel--optional" id="settings-derived">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="memory" filled />{' '}
+              <span>{t('settings.enrichmentDerivedState')}</span>
+            </span>
+            <span className="panel-badge">{t('settings.derivedOnly')}</span>
+          </div>
+          <div className="panel-body settings-remote-grid">
+            <StatusCallout
+              tone="info"
+              title={t('settings.derivedStateBoundaryTitle')}
+              body={t('settings.derivedStateBoundaryBody')}
+              actions={
+                <div className="settings-action-row">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={Boolean(derivedAction)}
+                    onClick={() => {
+                      void handleRebuildDerivedState()
+                    }}
+                  >
+                    {t('settings.rebuildDerivedState')}
+                  </button>
+                  <button
+                    className="btn-danger"
+                    type="button"
+                    disabled={Boolean(derivedAction)}
+                    onClick={() => {
+                      void handleClearDerivedState()
+                    }}
+                  >
+                    {t('settings.clearDerivedState')}
+                  </button>
+                </div>
+              }
+            />
+            <StatusCallout
+              tone="info"
+              title={settingsNs('firstPartyRuntimeTitle')}
+              body={settingsNs('firstPartyRuntimeBody')}
+            />
+            <StatusCallout
+              tone={searchEngineRuleError ? 'warning' : 'info'}
+              title={settingsNs('searchRulesTitle')}
+              body={
+                searchEngineRuleError ??
+                (searchEngineRulesLoading
+                  ? commonNs('loading')
+                  : settingsNs('searchRulesBody'))
+              }
+              actions={
                 <div className="settings-action-row">
                   <button
                     className="btn-secondary"
                     type="button"
                     disabled={
-                      Boolean(derivedAction) || !searchEngineRuleDraftValid
+                      Boolean(derivedAction) || searchEngineRulesLoading
                     }
-                    onClick={() => {
-                      void handleSaveSearchEngineRule()
-                    }}
+                    onClick={() =>
+                      setSearchEngineRuleDraft(buildSearchEngineRuleDraft())
+                    }
                   >
-                    {settingsNs('searchRulesSave')}
-                  </button>
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    disabled={Boolean(derivedAction)}
-                    onClick={() => setSearchEngineRuleDraft(null)}
-                  >
-                    {commonNs('cancel')}
+                    {settingsNs('searchRulesAdd')}
                   </button>
                 </div>
-              </section>
-            ) : null}
-          </div>
-          <StatusCallout
-            tone={
-              intelligenceRuntimeError || intelligenceRuntime?.queue.failed
-                ? 'warning'
-                : 'info'
-            }
-            title={
-              intelligenceRuntimeError
-                ? settingsNs('runtimeUnavailableTitle')
-                : settingsNs('runtimeQueueTitle')
-            }
-            body={intelligenceRuntimeError ?? settingsNs('runtimeQueueBody')}
-            actions={
-              intelligenceRuntimeError ? undefined : (
-                <div className="settings-action-row">
+              }
+            />
+            <div className="settings-result-list">
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{settingsNs('searchRulesBuiltin')}</strong>
                   <span className="mono">
-                    {settingsNs('runtimeQueueSummary', {
-                      queued: intelligenceRuntime?.queue.queued ?? 0,
-                      running: intelligenceRuntime?.queue.running ?? 0,
-                      failed: intelligenceRuntime?.queue.failed ?? 0,
+                    {settingsNs('searchRulesReadOnly')}
+                  </span>
+                </div>
+                <p>{settingsNs('searchRulesBuiltinBody')}</p>
+                {builtinSearchEngineRules.map((rule) => (
+                  <div key={rule.ruleId} className="config-row">
+                    <span className="config-label">{rule.displayName}</span>
+                    <span className="config-value mono">
+                      {rule.hostPattern}
+                      {rule.pathPrefix ? rule.pathPrefix : ''}
+                      {' ?'}
+                      {rule.queryParamKey}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="result-row">
+                <div className="result-row__header">
+                  <strong>{settingsNs('searchRulesCustom')}</strong>
+                  <span className="mono">
+                    {settingsNs('searchRulesCustomCount', {
+                      count: customSearchEngineRules.length,
                     })}
                   </span>
                 </div>
-              )
-            }
-          />
-
-          {reviewableDeterministicModules.map((module) => (
-            <div
-              key={module.state.id}
-              className="result-row result-row--active"
-            >
-              <div className="result-row__header">
-                <strong>
-                  {deterministicModuleLabel(module.state.id, settingsNs)}
-                </strong>
-                <span className="mono">
-                  {module.runtime
-                    ? deterministicModuleStatusLabel(
-                        module.runtime.status,
-                        settingsNs,
-                      )
-                    : module.state.enabled
-                      ? settingsNs('deterministicModuleIdle')
-                      : settingsNs('deterministicModuleDisabled')}
-                </span>
-              </div>
-              <p>
-                {deterministicModuleDescription(module.state.id, settingsNs)}
-              </p>
-              <div className="config-row">
-                <span className="config-label">
-                  {settingsNs('deterministicModuleDependsOn')}
-                </span>
-                <span className="config-value mono">
-                  {module.runtime?.dependsOn.length
-                    ? module.runtime.dependsOn
-                        .map((moduleId) =>
-                          deterministicModuleLabel(moduleId, settingsNs),
-                        )
-                        .join(', ')
-                    : commonNs('notAvailable')}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">
-                  {settingsNs('deterministicModuleTables')}
-                </span>
-                <span className="config-value mono">
-                  {module.runtime?.derivedTables.join(', ') ??
-                    commonNs('notAvailable')}
-                </span>
-              </div>
-              <div className="config-row">
-                <span className="config-label">
-                  {settingsNs('deterministicModuleLastBuilt')}
-                </span>
-                <span className="config-value mono">
-                  {module.runtime?.lastBuiltAt
-                    ? (formatDateTime(module.runtime.lastBuiltAt, language) ??
-                      module.runtime.lastBuiltAt)
-                    : commonNs('notAvailable')}
-                </span>
-              </div>
-              {module.runtime?.staleReason ? (
-                <div className="config-row">
-                  <span className="config-label">
-                    {settingsNs('deterministicModuleStaleReason')}
-                  </span>
-                  <span className="config-value">
-                    {module.runtime.staleReason}
-                  </span>
-                </div>
-              ) : null}
-              {module.runtime?.notes.length ? (
-                <div className="intelligence-note-list">
-                  {module.runtime.notes.map((note) => (
-                    <p
-                      key={`${module.state.id}-${note}`}
-                      className="mono-support"
+                <p>{settingsNs('searchRulesCustomBody')}</p>
+                {customSearchEngineRules.length ? (
+                  customSearchEngineRules.map((rule) => (
+                    <div
+                      key={rule.ruleId}
+                      className="result-row result-row--active"
                     >
-                      {note}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-              <div className="settings-action-row">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={Boolean(derivedAction)}
-                  onClick={() => {
-                    void handleDeterministicModuleToggle(module.state.id)
-                  }}
-                >
-                  {module.state.enabled
-                    ? t('settings.disablePlugin')
-                    : t('settings.enablePlugin')}
-                </button>
+                      <div className="result-row__header">
+                        <strong>{rule.displayName}</strong>
+                        <span className="mono">
+                          {rule.engineId} ·{' '}
+                          {rule.enabled
+                            ? t('settings.enabled')
+                            : t('settings.disabled')}
+                        </span>
+                      </div>
+                      <div className="config-row">
+                        <span className="config-label">
+                          {settingsNs('searchRulesHostPattern')}
+                        </span>
+                        <span className="config-value mono">
+                          {rule.hostPattern}
+                        </span>
+                      </div>
+                      <div className="config-row">
+                        <span className="config-label">
+                          {settingsNs('searchRulesPathPrefix')}
+                        </span>
+                        <span className="config-value mono">
+                          {rule.pathPrefix || commonNs('notAvailable')}
+                        </span>
+                      </div>
+                      <div className="config-row">
+                        <span className="config-label">
+                          {settingsNs('searchRulesQueryParam')}
+                        </span>
+                        <span className="config-value mono">
+                          {rule.queryParamKey}
+                        </span>
+                      </div>
+                      {rule.note ? (
+                        <p className="mono-support">{rule.note}</p>
+                      ) : null}
+                      <div className="settings-action-row">
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          disabled={Boolean(derivedAction)}
+                          onClick={() =>
+                            setSearchEngineRuleDraft(
+                              buildSearchEngineRuleDraft(rule),
+                            )
+                          }
+                        >
+                          {settingsNs('searchRulesEdit')}
+                        </button>
+                        <button
+                          className="btn-danger"
+                          type="button"
+                          disabled={Boolean(derivedAction)}
+                          onClick={() => {
+                            void handleDeleteSearchEngineRule(rule.ruleId)
+                          }}
+                        >
+                          {settingsNs('searchRulesDelete')}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p>{settingsNs('searchRulesCustomEmpty')}</p>
+                )}
               </div>
+              {searchEngineRuleDraft ? (
+                <section
+                  aria-label={settingsNs('searchRulesEditorTitle')}
+                  className="result-row result-row--active"
+                  data-testid="settings-search-rule-editor"
+                >
+                  <div className="result-row__header">
+                    <strong>{settingsNs('searchRulesEditorTitle')}</strong>
+                    <span className="mono">
+                      {searchEngineRuleDraft.ruleId
+                        ? settingsNs('searchRulesEditing')
+                        : settingsNs('searchRulesNew')}
+                    </span>
+                  </div>
+                  <div className="settings-remote-grid">
+                    <label className="field-stack">
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesDisplayName')}
+                      </span>
+                      <input
+                        type="text"
+                        value={searchEngineRuleDraft.displayName}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  displayName: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-stack">
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesEngineId')}
+                      </span>
+                      <input
+                        type="text"
+                        value={searchEngineRuleDraft.engineId}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  engineId: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-stack">
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesHostPattern')}
+                      </span>
+                      <input
+                        type="text"
+                        value={searchEngineRuleDraft.hostPattern}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  hostPattern: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-stack">
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesPathPrefix')}
+                      </span>
+                      <input
+                        type="text"
+                        value={searchEngineRuleDraft.pathPrefix ?? ''}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  pathPrefix: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-stack">
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesQueryParam')}
+                      </span>
+                      <input
+                        type="text"
+                        value={searchEngineRuleDraft.queryParamKey}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  queryParamKey: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field-stack">
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesExampleUrl')}
+                      </span>
+                      <input
+                        type="text"
+                        value={searchEngineRuleDraft.exampleUrl ?? ''}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  exampleUrl: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={searchEngineRuleDraft.enabled}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  enabled: event.target.checked,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                      <span>{settingsNs('searchRulesEnabled')}</span>
+                    </label>
+                    <label
+                      className="field-stack"
+                      style={{ gridColumn: '1 / -1' }}
+                    >
+                      <span className="mono-kicker">
+                        {settingsNs('searchRulesNote')}
+                      </span>
+                      <textarea
+                        value={searchEngineRuleDraft.note ?? ''}
+                        onChange={(event) =>
+                          setSearchEngineRuleDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  note: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="settings-action-row">
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      disabled={
+                        Boolean(derivedAction) || !searchEngineRuleDraftValid
+                      }
+                      onClick={() => {
+                        void handleSaveSearchEngineRule()
+                      }}
+                    >
+                      {settingsNs('searchRulesSave')}
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      disabled={Boolean(derivedAction)}
+                      onClick={() => setSearchEngineRuleDraft(null)}
+                    >
+                      {commonNs('cancel')}
+                    </button>
+                  </div>
+                </section>
+              ) : null}
             </div>
-          ))}
+            <StatusCallout
+              tone={
+                intelligenceRuntimeError || intelligenceRuntime?.queue.failed
+                  ? 'warning'
+                  : 'info'
+              }
+              title={
+                intelligenceRuntimeError
+                  ? settingsNs('runtimeUnavailableTitle')
+                  : settingsNs('runtimeQueueTitle')
+              }
+              body={intelligenceRuntimeError ?? settingsNs('runtimeQueueBody')}
+              actions={
+                intelligenceRuntimeError ? undefined : (
+                  <div className="settings-action-row">
+                    <span className="mono">
+                      {settingsNs('runtimeQueueSummary', {
+                        queued: intelligenceRuntime?.queue.queued ?? 0,
+                        running: intelligenceRuntime?.queue.running ?? 0,
+                        failed: intelligenceRuntime?.queue.failed ?? 0,
+                      })}
+                    </span>
+                  </div>
+                )
+              }
+            />
 
-          {reviewableEnrichmentPlugins.map((plugin) => {
-            const sourceKind =
-              plugin.runtime?.sourceKind ??
-              (plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
-                ? 'network'
-                : 'local')
-
-            return (
+            {reviewableDeterministicModules.map((module) => (
               <div
-                key={plugin.state.id}
+                key={module.state.id}
                 className="result-row result-row--active"
               >
                 <div className="result-row__header">
                   <strong>
-                    {enrichmentPluginLabel(plugin.state.id, settingsNs)}
+                    {deterministicModuleLabel(module.state.id, settingsNs)}
                   </strong>
                   <span className="mono">
-                    {plugin.state.enabled
-                      ? t('settings.enabled')
-                      : t('settings.disabled')}
+                    {module.runtime
+                      ? deterministicModuleStatusLabel(
+                          module.runtime.status,
+                          settingsNs,
+                        )
+                      : module.state.enabled
+                        ? settingsNs('deterministicModuleIdle')
+                        : settingsNs('deterministicModuleDisabled')}
                   </span>
                 </div>
                 <p>
-                  {enrichmentPluginDescription(plugin.state.id, settingsNs)}
+                  {deterministicModuleDescription(module.state.id, settingsNs)}
                 </p>
                 <div className="config-row">
                   <span className="config-label">
-                    {settingsNs('pluginBoundary')}
+                    {settingsNs('deterministicModuleDependsOn')}
                   </span>
                   <span className="config-value mono">
-                    {enrichmentPluginBoundaryLabel(sourceKind, settingsNs)}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.pluginQueue')}
-                  </span>
-                  <span className="config-value mono">
-                    {plugin.runtime
-                      ? settingsNs('pluginQueueCounts', {
-                          queued: plugin.runtime.queuedJobs,
-                          running: plugin.runtime.runningJobs,
-                          failed: plugin.runtime.failedJobs,
-                        })
+                    {module.runtime?.dependsOn.length
+                      ? module.runtime.dependsOn
+                          .map((moduleId) =>
+                            deterministicModuleLabel(moduleId, settingsNs),
+                          )
+                          .join(', ')
                       : commonNs('notAvailable')}
                   </span>
                 </div>
                 <div className="config-row">
                   <span className="config-label">
-                    {t('settings.pluginFreshness')}
+                    {settingsNs('deterministicModuleTables')}
                   </span>
                   <span className="config-value mono">
-                    {plugin.definition?.freshnessDays
-                      ? t('settings.daysFreshness', {
-                          days: plugin.definition.freshnessDays,
-                        })
-                      : commonNs('notAvailable')}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {t('settings.pluginDerivedTables')}
-                  </span>
-                  <span className="config-value mono">
-                    {plugin.definition?.derivedTables.join(', ') ??
+                    {module.runtime?.derivedTables.join(', ') ??
                       commonNs('notAvailable')}
                   </span>
                 </div>
                 <div className="config-row">
                   <span className="config-label">
-                    {settingsNs('pluginStoredRecords')}
+                    {settingsNs('deterministicModuleLastBuilt')}
                   </span>
                   <span className="config-value mono">
-                    {plugin.runtime?.storedRecords ?? 0}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {settingsNs('pluginLastCompleted')}
-                  </span>
-                  <span className="config-value mono">
-                    {plugin.runtime?.lastCompletedAt
-                      ? formatDateTime(plugin.runtime.lastCompletedAt, language)
+                    {module.runtime?.lastBuiltAt
+                      ? (formatDateTime(module.runtime.lastBuiltAt, language) ??
+                        module.runtime.lastBuiltAt)
                       : commonNs('notAvailable')}
                   </span>
                 </div>
-                <div className="config-row">
-                  <span className="config-label">
-                    {settingsNs('pluginLastError')}
-                  </span>
-                  <span className="config-value">
-                    {plugin.runtime?.lastError ?? commonNs('notAvailable')}
-                  </span>
-                </div>
+                {module.runtime?.staleReason ? (
+                  <div className="config-row">
+                    <span className="config-label">
+                      {settingsNs('deterministicModuleStaleReason')}
+                    </span>
+                    <span className="config-value">
+                      {module.runtime.staleReason}
+                    </span>
+                  </div>
+                ) : null}
+                {module.runtime?.notes.length ? (
+                  <div className="intelligence-note-list">
+                    {module.runtime.notes.map((note) => (
+                      <p
+                        key={`${module.state.id}-${note}`}
+                        className="mono-support"
+                      >
+                        {note}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="settings-action-row">
                   <button
                     className="btn-secondary"
                     type="button"
                     disabled={Boolean(derivedAction)}
                     onClick={() => {
-                      void handleEnrichmentPluginToggle(plugin.state.id)
+                      void handleDeterministicModuleToggle(module.state.id)
                     }}
                   >
-                    {plugin.state.enabled
+                    {module.state.enabled
                       ? t('settings.disablePlugin')
                       : t('settings.enablePlugin')}
                   </button>
                 </div>
               </div>
-            )
-          })}
+            ))}
 
-          <div className="settings-result-list">
-            <div className="result-row">
-              <div className="result-row__header">
-                <strong>{settingsNs('runtimeRecentJobs')}</strong>
-              </div>
-              {intelligenceRuntime?.recentJobs.length ? (
-                intelligenceRuntime.recentJobs.map((job) => (
-                  <div key={job.id} className="result-row">
-                    <div className="result-row__header">
-                      <strong>
-                        {enrichmentPluginLabel(
-                          job.pluginId ?? job.jobType,
-                          settingsNs,
-                        )}
-                      </strong>
-                      <span className="mono">
-                        {intelligenceRuntimeJobStateLabel(
-                          job.state,
-                          settingsNs,
-                        )}
-                      </span>
-                    </div>
-                    <p>
-                      {job.title ?? job.url ?? job.jobType} ·{' '}
-                      {settingsNs('runtimeJobAttempt', {
-                        attempt: job.attempt,
-                      })}
-                    </p>
-                    {job.lastError ? <p>{job.lastError}</p> : null}
-                    <div className="settings-action-row">
-                      {job.retryable ? (
-                        <button
-                          className="btn-secondary"
-                          type="button"
-                          disabled={Boolean(derivedAction)}
-                          onClick={() => {
-                            void handleRetryIntelligenceRuntimeJob(job.id)
-                          }}
-                        >
-                          {settingsNs('retryRuntimeJob')}
-                        </button>
-                      ) : null}
-                      {job.cancellable ? (
-                        <button
-                          className="btn-secondary"
-                          type="button"
-                          disabled={Boolean(derivedAction)}
-                          onClick={() => {
-                            void handleCancelIntelligenceRuntimeJob(job.id)
-                          }}
-                        >
-                          {settingsNs('cancelRuntimeJob')}
-                        </button>
-                      ) : null}
-                    </div>
+            {reviewableEnrichmentPlugins.map((plugin) => {
+              const sourceKind =
+                plugin.runtime?.sourceKind ??
+                (plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
+                  ? 'network'
+                  : 'local')
+
+              return (
+                <div
+                  key={plugin.state.id}
+                  className="result-row result-row--active"
+                >
+                  <div className="result-row__header">
+                    <strong>
+                      {enrichmentPluginLabel(plugin.state.id, settingsNs)}
+                    </strong>
+                    <span className="mono">
+                      {plugin.state.enabled
+                        ? t('settings.enabled')
+                        : t('settings.disabled')}
+                    </span>
                   </div>
-                ))
-              ) : (
-                <p>{settingsNs('runtimeNoJobs')}</p>
-              )}
-            </div>
-          </div>
+                  <p>
+                    {enrichmentPluginDescription(plugin.state.id, settingsNs)}
+                  </p>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {settingsNs('pluginBoundary')}
+                    </span>
+                    <span className="config-value mono">
+                      {enrichmentPluginBoundaryLabel(sourceKind, settingsNs)}
+                    </span>
+                  </div>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {t('settings.pluginQueue')}
+                    </span>
+                    <span className="config-value mono">
+                      {plugin.runtime
+                        ? settingsNs('pluginQueueCounts', {
+                            queued: plugin.runtime.queuedJobs,
+                            running: plugin.runtime.runningJobs,
+                            failed: plugin.runtime.failedJobs,
+                          })
+                        : commonNs('notAvailable')}
+                    </span>
+                  </div>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {t('settings.pluginFreshness')}
+                    </span>
+                    <span className="config-value mono">
+                      {plugin.definition?.freshnessDays
+                        ? t('settings.daysFreshness', {
+                            days: plugin.definition.freshnessDays,
+                          })
+                        : commonNs('notAvailable')}
+                    </span>
+                  </div>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {t('settings.pluginDerivedTables')}
+                    </span>
+                    <span className="config-value mono">
+                      {plugin.definition?.derivedTables.join(', ') ??
+                        commonNs('notAvailable')}
+                    </span>
+                  </div>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {settingsNs('pluginStoredRecords')}
+                    </span>
+                    <span className="config-value mono">
+                      {plugin.runtime?.storedRecords ?? 0}
+                    </span>
+                  </div>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {settingsNs('pluginLastCompleted')}
+                    </span>
+                    <span className="config-value mono">
+                      {plugin.runtime?.lastCompletedAt
+                        ? formatDateTime(
+                            plugin.runtime.lastCompletedAt,
+                            language,
+                          )
+                        : commonNs('notAvailable')}
+                    </span>
+                  </div>
+                  <div className="config-row">
+                    <span className="config-label">
+                      {settingsNs('pluginLastError')}
+                    </span>
+                    <span className="config-value">
+                      {plugin.runtime?.lastError ?? commonNs('notAvailable')}
+                    </span>
+                  </div>
+                  <div className="settings-action-row">
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      disabled={Boolean(derivedAction)}
+                      onClick={() => {
+                        void handleEnrichmentPluginToggle(plugin.state.id)
+                      }}
+                    >
+                      {plugin.state.enabled
+                        ? t('settings.disablePlugin')
+                        : t('settings.enablePlugin')}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
 
-          <div className="settings-result-list">
-            {dashboard?.recentRuns[0] ? (
+            <div className="settings-result-list">
               <div className="result-row">
                 <div className="result-row__header">
-                  <strong>{t('settings.latestGrowthSignal')}</strong>
-                  <Link
-                    className="btn-tiny"
-                    to={`/audit?run=${dashboard.recentRuns[0].id}`}
-                  >
-                    {t('settings.openAuditRun')}
-                  </Link>
+                  <strong>{settingsNs('runtimeRecentJobs')}</strong>
                 </div>
-                <p>
-                  {t('settings.latestGrowthSignalBody', {
-                    runId: dashboard.recentRuns[0].id,
-                    visits: dashboard.recentRuns[0].newVisits,
-                    urls: dashboard.recentRuns[0].newUrls,
-                    downloads: dashboard.recentRuns[0].newDownloads,
-                  })}
-                </p>
+                {intelligenceRuntime?.recentJobs.length ? (
+                  intelligenceRuntime.recentJobs.map((job) => (
+                    <div key={job.id} className="result-row">
+                      <div className="result-row__header">
+                        <strong>
+                          {enrichmentPluginLabel(
+                            job.pluginId ?? job.jobType,
+                            settingsNs,
+                          )}
+                        </strong>
+                        <span className="mono">
+                          {intelligenceRuntimeJobStateLabel(
+                            job.state,
+                            settingsNs,
+                          )}
+                        </span>
+                      </div>
+                      <p>
+                        {job.title ?? job.url ?? job.jobType} ·{' '}
+                        {settingsNs('runtimeJobAttempt', {
+                          attempt: job.attempt,
+                        })}
+                      </p>
+                      {job.lastError ? <p>{job.lastError}</p> : null}
+                      <div className="settings-action-row">
+                        {job.retryable ? (
+                          <button
+                            className="btn-secondary"
+                            type="button"
+                            disabled={Boolean(derivedAction)}
+                            onClick={() => {
+                              void handleRetryIntelligenceRuntimeJob(job.id)
+                            }}
+                          >
+                            {settingsNs('retryRuntimeJob')}
+                          </button>
+                        ) : null}
+                        {job.cancellable ? (
+                          <button
+                            className="btn-secondary"
+                            type="button"
+                            disabled={Boolean(derivedAction)}
+                            onClick={() => {
+                              void handleCancelIntelligenceRuntimeJob(job.id)
+                            }}
+                          >
+                            {settingsNs('cancelRuntimeJob')}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p>{settingsNs('runtimeNoJobs')}</p>
+                )}
               </div>
-            ) : null}
-            {rebuildQueueReport ? (
-              <div className="result-row">
-                <div className="result-row__header">
-                  <strong>{t('settings.rebuildQueuedTitle')}</strong>
-                  <span className="mono">#{rebuildQueueReport.jobId}</span>
+            </div>
+
+            <div className="settings-result-list">
+              {dashboard?.recentRuns[0] ? (
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.latestGrowthSignal')}</strong>
+                    <Link
+                      className="btn-tiny"
+                      to={`/audit?run=${dashboard.recentRuns[0].id}`}
+                    >
+                      {t('settings.openAuditRun')}
+                    </Link>
+                  </div>
+                  <p>
+                    {t('settings.latestGrowthSignalBody', {
+                      runId: dashboard.recentRuns[0].id,
+                      visits: dashboard.recentRuns[0].newVisits,
+                      urls: dashboard.recentRuns[0].newUrls,
+                      downloads: dashboard.recentRuns[0].newDownloads,
+                    })}
+                  </p>
                 </div>
-                <p>
-                  {t('settings.rebuildQueuedBody', {
-                    jobId: rebuildQueueReport.jobId,
-                  })}
-                </p>
-                <div className="settings-action-row">
-                  <Link className="btn-secondary" to="/jobs">
-                    {t('settings.runtimeQueueTitle')}
-                  </Link>
+              ) : null}
+              {rebuildQueueReport ? (
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.rebuildQueuedTitle')}</strong>
+                    <span className="mono">#{rebuildQueueReport.jobId}</span>
+                  </div>
+                  <p>
+                    {t('settings.rebuildQueuedBody', {
+                      jobId: rebuildQueueReport.jobId,
+                    })}
+                  </p>
+                  <div className="settings-action-row">
+                    <Link className="btn-secondary" to="/jobs">
+                      {t('settings.runtimeQueueTitle')}
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            ) : null}
-            {clearReport ? (
-              <div className="result-row">
-                <div className="result-row__header">
-                  <strong>{t('settings.clearCompletedTitle')}</strong>
-                  <span className="mono">
-                    {clearReport.clearedVisitDerivedFactRows +
-                      clearReport.clearedDailyRollupRows +
-                      clearReport.clearedStructuralRows +
-                      clearReport.clearedRuntimeRows}
-                  </span>
+              ) : null}
+              {clearReport ? (
+                <div className="result-row">
+                  <div className="result-row__header">
+                    <strong>{t('settings.clearCompletedTitle')}</strong>
+                    <span className="mono">
+                      {clearReport.clearedVisitDerivedFactRows +
+                        clearReport.clearedDailyRollupRows +
+                        clearReport.clearedStructuralRows +
+                        clearReport.clearedRuntimeRows}
+                    </span>
+                  </div>
+                  <p>
+                    {t('settings.clearCompletedBody', {
+                      visitDerivedFacts:
+                        clearReport.clearedVisitDerivedFactRows,
+                      dailyRollups: clearReport.clearedDailyRollupRows,
+                      structural: clearReport.clearedStructuralRows,
+                      runtime: clearReport.clearedRuntimeRows,
+                    })}
+                  </p>
                 </div>
-                <p>
-                  {t('settings.clearCompletedBody', {
-                    visitDerivedFacts: clearReport.clearedVisitDerivedFactRows,
-                    dailyRollups: clearReport.clearedDailyRollupRows,
-                    structural: clearReport.clearedStructuralRows,
-                    runtime: clearReport.clearedRuntimeRows,
-                  })}
-                </p>
-              </div>
-            ) : null}
-            {derivedAction ? (
-              <StatusCallout tone="info" title={derivedAction} body="" />
-            ) : null}
+              ) : null}
+              {derivedAction ? (
+                <StatusCallout tone="info" title={derivedAction} body="" />
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('settings.remoteBackup')}</span>
-          <span className="panel-badge">{t('settings.s3Compatible')}</span>
-        </div>
-        <div className="panel-body settings-remote-grid">
-          <StatusCallout
-            tone={remoteConfigured ? 'info' : 'warning'}
-            title={t('settings.remoteBackupSummary')}
-            body={t('settings.remoteBackupBody')}
-          />
+      <div className="settings-group">
+        <div className="settings-group__label">Backup & Sync</div>
 
-          <div className="settings-field-grid">
-            <label className="checkbox-row">
-              <input
-                aria-label={t('settings.remoteEnabled')}
-                checked={remoteDraft?.enabled ?? false}
-                type="checkbox"
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? { ...current, enabled: event.target.checked }
-                      : current,
-                  )
-                }}
-              />
-              <span>{t('settings.remoteEnabled')}</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                aria-label={t('settings.pathStyleLabel')}
-                checked={remoteDraft?.pathStyle ?? true}
-                type="checkbox"
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? { ...current, pathStyle: event.target.checked }
-                      : current,
-                  )
-                }}
-              />
-              <span>{t('settings.pathStyleLabel')}</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                aria-label={t('settings.uploadAfterBackup')}
-                checked={remoteDraft?.uploadAfterBackup ?? false}
-                type="checkbox"
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? { ...current, uploadAfterBackup: event.target.checked }
-                      : current,
-                  )
-                }}
-              />
-              <span>{t('settings.uploadAfterBackup')}</span>
-            </label>
-            <label className="field-stack">
-              <span>{t('settings.bucketLabel')}</span>
-              <input
-                aria-label={t('settings.bucketLabel')}
-                value={remoteDraft?.bucket ?? ''}
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? { ...current, bucket: event.target.value }
-                      : current,
-                  )
-                }}
-              />
-            </label>
-            <label className="field-stack">
-              <span>{t('settings.regionLabel')}</span>
-              <input
-                aria-label={t('settings.regionLabel')}
-                value={remoteDraft?.region ?? ''}
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? { ...current, region: event.target.value }
-                      : current,
-                  )
-                }}
-              />
-            </label>
-            <label className="field-stack">
-              <span>{t('settings.endpointLabel')}</span>
-              <input
-                aria-label={t('settings.endpointLabel')}
-                placeholder={t('settings.endpointPlaceholder')}
-                value={remoteDraft?.endpoint ?? ''}
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          endpoint: event.target.value || null,
-                        }
-                      : current,
-                  )
-                }}
-              />
-            </label>
-            <label className="field-stack">
-              <span>{t('settings.prefixLabel')}</span>
-              <input
-                aria-label={t('settings.prefixLabel')}
-                value={remoteDraft?.prefix ?? ''}
-                onChange={(event) => {
-                  setRemoteDraft((current) =>
-                    current
-                      ? { ...current, prefix: event.target.value }
-                      : current,
-                  )
-                }}
-              />
-            </label>
+        <div className="panel panel--optional" id="settings-remote">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="cloud_upload" filled />{' '}
+              <span>{t('settings.remoteBackup')}</span>
+            </span>
+            <span className="panel-badge">{t('settings.s3Compatible')}</span>
           </div>
-
-          <div className="settings-action-row">
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={Boolean(remoteAction)}
-              onClick={() => {
-                void handleSaveRemoteConfig()
-              }}
-            >
-              {t('settings.saveRemoteSettings')}
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={Boolean(remoteAction) || !remoteConfigured}
-              onClick={() => {
-                void handlePreviewRemote()
-              }}
-            >
-              {t('settings.previewRemoteBackup')}
-            </button>
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={
-                Boolean(remoteAction) ||
-                !remoteConfigured ||
-                !snapshot.config.remoteBackup.credentialsSaved
-              }
-              onClick={() => {
-                void handleExecuteRemote()
-              }}
-            >
-              {t('settings.executeRemoteBackup')}
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={Boolean(remoteAction) || !latestRemoteBundlePath}
-              onClick={() => {
-                void handleVerifyRemote()
-              }}
-            >
-              {t('settings.verifyRemoteBackup')}
-            </button>
-          </div>
-
-          <div className="settings-remote-columns">
-            <div className="field-stack">
-              <span>{t('settings.credentialsStatus')}</span>
-              <strong>
-                {snapshot.config.remoteBackup.credentialsSaved
-                  ? t('settings.credentialsSaved')
-                  : t('settings.credentialsMissing')}
-              </strong>
-              <span className="dim">
-                {snapshot.config.remoteBackup.lastUploadedAt
-                  ? `${t('settings.lastUploadedAt')}: ${snapshot.config.remoteBackup.lastUploadedAt}`
-                  : t('settings.remoteNoUploadYet')}
-              </span>
-              {snapshot.config.remoteBackup.lastUploadedObjectKey ? (
-                <span className="dim mono">
-                  {snapshot.config.remoteBackup.lastUploadedObjectKey}
-                </span>
-              ) : null}
-              {snapshot.config.remoteBackup.lastError ? (
-                <span className="dim">
-                  {snapshot.config.remoteBackup.lastError}
-                </span>
-              ) : null}
-            </div>
+          <div className="panel-body settings-remote-grid">
+            <StatusCallout
+              tone={remoteConfigured ? 'info' : 'warning'}
+              title={t('settings.remoteBackupSummary')}
+              body={t('settings.remoteBackupBody')}
+            />
 
             <div className="settings-field-grid">
-              <label className="field-stack">
-                <span>{t('settings.accessKeyId')}</span>
+              <label className="checkbox-row">
                 <input
-                  aria-label={t('settings.accessKeyId')}
-                  value={accessKeyId}
+                  aria-label={t('settings.remoteEnabled')}
+                  checked={remoteDraft?.enabled ?? false}
+                  type="checkbox"
                   onChange={(event) => {
-                    setAccessKeyId(event.target.value)
+                    setRemoteDraft((current) =>
+                      current
+                        ? { ...current, enabled: event.target.checked }
+                        : current,
+                    )
+                  }}
+                />
+                <span>{t('settings.remoteEnabled')}</span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  aria-label={t('settings.pathStyleLabel')}
+                  checked={remoteDraft?.pathStyle ?? true}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setRemoteDraft((current) =>
+                      current
+                        ? { ...current, pathStyle: event.target.checked }
+                        : current,
+                    )
+                  }}
+                />
+                <span>{t('settings.pathStyleLabel')}</span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  aria-label={t('settings.uploadAfterBackup')}
+                  checked={remoteDraft?.uploadAfterBackup ?? false}
+                  type="checkbox"
+                  onChange={(event) => {
+                    setRemoteDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            uploadAfterBackup: event.target.checked,
+                          }
+                        : current,
+                    )
+                  }}
+                />
+                <span>{t('settings.uploadAfterBackup')}</span>
+              </label>
+              <label className="field-stack">
+                <span>{t('settings.bucketLabel')}</span>
+                <input
+                  aria-label={t('settings.bucketLabel')}
+                  value={remoteDraft?.bucket ?? ''}
+                  onChange={(event) => {
+                    setRemoteDraft((current) =>
+                      current
+                        ? { ...current, bucket: event.target.value }
+                        : current,
+                    )
                   }}
                 />
               </label>
               <label className="field-stack">
-                <span>{t('settings.secretAccessKey')}</span>
+                <span>{t('settings.regionLabel')}</span>
                 <input
-                  aria-label={t('settings.secretAccessKey')}
-                  type="password"
-                  value={secretAccessKey}
+                  aria-label={t('settings.regionLabel')}
+                  value={remoteDraft?.region ?? ''}
                   onChange={(event) => {
-                    setSecretAccessKey(event.target.value)
+                    setRemoteDraft((current) =>
+                      current
+                        ? { ...current, region: event.target.value }
+                        : current,
+                    )
                   }}
                 />
               </label>
-              <div className="settings-action-row">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={
-                    Boolean(remoteAction) ||
-                    !accessKeyId.trim() ||
-                    !secretAccessKey.trim()
-                  }
-                  onClick={() => {
-                    void handleStoreCredentials()
+              <label className="field-stack">
+                <span>{t('settings.endpointLabel')}</span>
+                <input
+                  aria-label={t('settings.endpointLabel')}
+                  placeholder={t('settings.endpointPlaceholder')}
+                  value={remoteDraft?.endpoint ?? ''}
+                  onChange={(event) => {
+                    setRemoteDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            endpoint: event.target.value || null,
+                          }
+                        : current,
+                    )
                   }}
-                >
-                  {t('settings.storeRemoteCredentials')}
-                </button>
-                <button
-                  className="btn-danger"
-                  type="button"
-                  disabled={
-                    Boolean(remoteAction) ||
-                    !snapshot.config.remoteBackup.credentialsSaved
-                  }
-                  onClick={() => {
-                    void handleClearCredentials()
+                />
+              </label>
+              <label className="field-stack">
+                <span>{t('settings.prefixLabel')}</span>
+                <input
+                  aria-label={t('settings.prefixLabel')}
+                  value={remoteDraft?.prefix ?? ''}
+                  onChange={(event) => {
+                    setRemoteDraft((current) =>
+                      current
+                        ? { ...current, prefix: event.target.value }
+                        : current,
+                    )
                   }}
-                >
-                  {t('settings.clearRemoteCredentials')}
-                </button>
+                />
+              </label>
+            </div>
+
+            <div className="settings-action-row">
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={Boolean(remoteAction)}
+                onClick={() => {
+                  void handleSaveRemoteConfig()
+                }}
+              >
+                {t('settings.saveRemoteSettings')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={Boolean(remoteAction) || !remoteConfigured}
+                onClick={() => {
+                  void handlePreviewRemote()
+                }}
+              >
+                {t('settings.previewRemoteBackup')}
+              </button>
+              <button
+                className="btn-primary"
+                type="button"
+                disabled={
+                  Boolean(remoteAction) ||
+                  !remoteConfigured ||
+                  !snapshot.config.remoteBackup.credentialsSaved
+                }
+                onClick={() => {
+                  void handleExecuteRemote()
+                }}
+              >
+                {t('settings.executeRemoteBackup')}
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={Boolean(remoteAction) || !latestRemoteBundlePath}
+                onClick={() => {
+                  void handleVerifyRemote()
+                }}
+              >
+                {t('settings.verifyRemoteBackup')}
+              </button>
+            </div>
+
+            <div className="settings-remote-columns">
+              <div className="field-stack">
+                <span>{t('settings.credentialsStatus')}</span>
+                <strong>
+                  {snapshot.config.remoteBackup.credentialsSaved
+                    ? t('settings.credentialsSaved')
+                    : t('settings.credentialsMissing')}
+                </strong>
+                <span className="dim">
+                  {snapshot.config.remoteBackup.lastUploadedAt
+                    ? `${t('settings.lastUploadedAt')}: ${snapshot.config.remoteBackup.lastUploadedAt}`
+                    : t('settings.remoteNoUploadYet')}
+                </span>
+                {snapshot.config.remoteBackup.lastUploadedObjectKey ? (
+                  <span className="dim mono">
+                    {snapshot.config.remoteBackup.lastUploadedObjectKey}
+                  </span>
+                ) : null}
+                {snapshot.config.remoteBackup.lastError ? (
+                  <span className="dim">
+                    {snapshot.config.remoteBackup.lastError}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="settings-field-grid">
+                <label className="field-stack">
+                  <span>{t('settings.accessKeyId')}</span>
+                  <input
+                    aria-label={t('settings.accessKeyId')}
+                    value={accessKeyId}
+                    onChange={(event) => {
+                      setAccessKeyId(event.target.value)
+                    }}
+                  />
+                </label>
+                <label className="field-stack">
+                  <span>{t('settings.secretAccessKey')}</span>
+                  <input
+                    aria-label={t('settings.secretAccessKey')}
+                    type="password"
+                    value={secretAccessKey}
+                    onChange={(event) => {
+                      setSecretAccessKey(event.target.value)
+                    }}
+                  />
+                </label>
+                <div className="settings-action-row">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={
+                      Boolean(remoteAction) ||
+                      !accessKeyId.trim() ||
+                      !secretAccessKey.trim()
+                    }
+                    onClick={() => {
+                      void handleStoreCredentials()
+                    }}
+                  >
+                    {t('settings.storeRemoteCredentials')}
+                  </button>
+                  <button
+                    className="btn-danger"
+                    type="button"
+                    disabled={
+                      Boolean(remoteAction) ||
+                      !snapshot.config.remoteBackup.credentialsSaved
+                    }
+                    onClick={() => {
+                      void handleClearCredentials()
+                    }}
+                  >
+                    {t('settings.clearRemoteCredentials')}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{t('settings.remotePme')}</span>
-            </div>
-            <div className="panel-body">
-              <PmeTabBar
-                activeTab={remoteTab}
-                onChange={setRemoteTab}
-                tabs={[
-                  { key: 'preview', label: t('common.previewTab') },
-                  { key: 'manual', label: t('common.manualTab') },
-                  { key: 'execute', label: t('common.executeTab') },
-                  { key: 'verify', label: t('common.verifyTab') },
-                ]}
-              />
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">
+                  <Glyph icon="preview" filled />{' '}
+                  <span>{t('settings.remotePme')}</span>
+                </span>
+              </div>
+              <div className="panel-body">
+                <PmeTabBar
+                  activeTab={remoteTab}
+                  onChange={setRemoteTab}
+                  tabs={[
+                    { key: 'preview', label: t('common.previewTab') },
+                    { key: 'manual', label: t('common.manualTab') },
+                    { key: 'execute', label: t('common.executeTab') },
+                    { key: 'verify', label: t('common.verifyTab') },
+                  ]}
+                />
 
-              {remoteAction ? (
-                <StatusCallout tone="info" title={remoteAction} body="" />
-              ) : null}
+                {remoteAction ? (
+                  <StatusCallout tone="info" title={remoteAction} body="" />
+                ) : null}
 
-              {remoteTab === 'preview' ? (
-                <div className="settings-result-list">
-                  <StatusCallout
-                    tone={remotePreview ? 'info' : 'warning'}
-                    title={t('settings.previewBoundaryTitle')}
-                    body={
-                      remotePreview
-                        ? t('settings.previewBoundaryReady')
-                        : t('settings.previewBoundaryBody')
-                    }
-                  />
-                  {remotePreview ? (
-                    <>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.bundlePath')}
-                        </span>
-                        <span className="config-value mono">
-                          {remotePreview.bundlePath}
-                        </span>
-                      </div>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.objectKey')}
-                        </span>
-                        <span className="config-value mono">
-                          {remotePreview.objectKey}
-                        </span>
-                      </div>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.uploadUrl')}
-                        </span>
-                        <span className="config-value mono">
-                          {remotePreview.uploadUrl}
-                        </span>
-                      </div>
-                      <div className="inline-note-list">
-                        {remotePreview.warnings.map((warning) => (
-                          <div key={warning} className="result-row">
-                            <p>{warning}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {remoteTab === 'manual' ? (
-                <div className="settings-result-list">
-                  <StatusCallout
-                    tone="info"
-                    title={t('settings.manualBoundaryTitle')}
-                    body={t('settings.manualBoundaryBody')}
-                  />
-                  {remotePreview ? (
-                    <>
-                      <div className="code-panel">
-                        <span>{t('settings.previewCommand')}</span>
-                        <pre>{remotePreview.previewCommand}</pre>
-                      </div>
-                      <div className="inline-note-list">
-                        {remotePreview.manualSteps.map((step) => (
-                          <div key={step} className="result-row">
-                            <p>{step}</p>
-                          </div>
-                        ))}
-                        <div className="result-row">
-                          <p>{t('settings.retentionGuidance')}</p>
+                {remoteTab === 'preview' ? (
+                  <div className="settings-result-list">
+                    <StatusCallout
+                      tone={remotePreview ? 'info' : 'warning'}
+                      title={t('settings.previewBoundaryTitle')}
+                      body={
+                        remotePreview
+                          ? t('settings.previewBoundaryReady')
+                          : t('settings.previewBoundaryBody')
+                      }
+                    />
+                    {remotePreview ? (
+                      <>
+                        <div className="config-row">
+                          <span className="config-label">
+                            {t('settings.bundlePath')}
+                          </span>
+                          <span className="config-value mono">
+                            {remotePreview.bundlePath}
+                          </span>
                         </div>
-                      </div>
-                    </>
-                  ) : (
-                    <StatusCallout
-                      tone="warning"
-                      title={t('settings.previewFirstTitle')}
-                      body={t('settings.previewFirstBody')}
-                    />
-                  )}
-                </div>
-              ) : null}
-
-              {remoteTab === 'execute' ? (
-                <div className="settings-result-list">
-                  <StatusCallout
-                    tone={remoteResult?.uploaded ? 'success' : 'warning'}
-                    title={t('settings.executeBoundaryTitle')}
-                    body={t('settings.executeBoundaryBody')}
-                  />
-                  {remoteResult ? (
-                    <>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.bundlePath')}
-                        </span>
-                        <span className="config-value mono">
-                          {remoteResult.bundlePath}
-                        </span>
-                      </div>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.objectKey')}
-                        </span>
-                        <span className="config-value mono">
-                          {remoteResult.objectKey}
-                        </span>
-                      </div>
-                      <div className="config-row">
-                        <span className="config-label">
-                          {t('settings.executeMessage')}
-                        </span>
-                        <span className="config-value">
-                          {remoteResult.message}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <StatusCallout
-                      tone="info"
-                      title={t('settings.executeNotRunTitle')}
-                      body={t('settings.executeNotRunBody')}
-                    />
-                  )}
-                </div>
-              ) : null}
-
-              {remoteTab === 'verify' ? (
-                <div className="settings-result-list">
-                  <StatusCallout
-                    tone={
-                      remoteVerification?.restoreReady ? 'success' : 'warning'
-                    }
-                    title={t('settings.verifyBoundaryTitle')}
-                    body={t('settings.verifyBoundaryBody')}
-                  />
-                  {remoteVerification ? (
-                    <>
-                      <VerifyCheckList
-                        items={[
-                          {
-                            key: 'bundle-version',
-                            label: t('settings.bundleVersion'),
-                            status: remoteVerification.bundleVersion,
-                          },
-                          {
-                            key: 'restore-ready',
-                            label: t('settings.restoreReady'),
-                            status: remoteVerification.restoreReady
-                              ? t('common.statusClear')
-                              : t('common.statusNeedsAttention'),
-                          },
-                          ...remoteVerification.checks.map((check) => ({
-                            body: check.message,
-                            key: check.name,
-                            label: check.name,
-                            status: check.status,
-                          })),
-                        ]}
-                      />
-                      {remoteVerification.restoreSteps.length > 0 ? (
-                        <ReviewSection title={t('settings.restoreReady')}>
-                          {remoteVerification.restoreSteps.map((step) => (
-                            <p key={step}>{step}</p>
+                        <div className="config-row">
+                          <span className="config-label">
+                            {t('settings.objectKey')}
+                          </span>
+                          <span className="config-value mono">
+                            {remotePreview.objectKey}
+                          </span>
+                        </div>
+                        <div className="config-row">
+                          <span className="config-label">
+                            {t('settings.uploadUrl')}
+                          </span>
+                          <span className="config-value mono">
+                            {remotePreview.uploadUrl}
+                          </span>
+                        </div>
+                        <div className="inline-note-list">
+                          {remotePreview.warnings.map((warning) => (
+                            <div key={warning} className="result-row">
+                              <p>{warning}</p>
+                            </div>
                           ))}
-                        </ReviewSection>
-                      ) : null}
-                    </>
-                  ) : (
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {remoteTab === 'manual' ? (
+                  <div className="settings-result-list">
                     <StatusCallout
                       tone="info"
-                      title={t('settings.verifyNotRunTitle')}
-                      body={t('settings.verifyNotRunBody')}
+                      title={t('settings.manualBoundaryTitle')}
+                      body={t('settings.manualBoundaryBody')}
                     />
-                  )}
-                </div>
-              ) : null}
+                    {remotePreview ? (
+                      <>
+                        <div className="code-panel">
+                          <span>{t('settings.previewCommand')}</span>
+                          <pre>{remotePreview.previewCommand}</pre>
+                        </div>
+                        <div className="inline-note-list">
+                          {remotePreview.manualSteps.map((step) => (
+                            <div key={step} className="result-row">
+                              <p>{step}</p>
+                            </div>
+                          ))}
+                          <div className="result-row">
+                            <p>{t('settings.retentionGuidance')}</p>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <StatusCallout
+                        tone="warning"
+                        title={t('settings.previewFirstTitle')}
+                        body={t('settings.previewFirstBody')}
+                      />
+                    )}
+                  </div>
+                ) : null}
+
+                {remoteTab === 'execute' ? (
+                  <div className="settings-result-list">
+                    <StatusCallout
+                      tone={remoteResult?.uploaded ? 'success' : 'warning'}
+                      title={t('settings.executeBoundaryTitle')}
+                      body={t('settings.executeBoundaryBody')}
+                    />
+                    {remoteResult ? (
+                      <>
+                        <div className="config-row">
+                          <span className="config-label">
+                            {t('settings.bundlePath')}
+                          </span>
+                          <span className="config-value mono">
+                            {remoteResult.bundlePath}
+                          </span>
+                        </div>
+                        <div className="config-row">
+                          <span className="config-label">
+                            {t('settings.objectKey')}
+                          </span>
+                          <span className="config-value mono">
+                            {remoteResult.objectKey}
+                          </span>
+                        </div>
+                        <div className="config-row">
+                          <span className="config-label">
+                            {t('settings.executeMessage')}
+                          </span>
+                          <span className="config-value">
+                            {remoteResult.message}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <StatusCallout
+                        tone="info"
+                        title={t('settings.executeNotRunTitle')}
+                        body={t('settings.executeNotRunBody')}
+                      />
+                    )}
+                  </div>
+                ) : null}
+
+                {remoteTab === 'verify' ? (
+                  <div className="settings-result-list">
+                    <StatusCallout
+                      tone={
+                        remoteVerification?.restoreReady ? 'success' : 'warning'
+                      }
+                      title={t('settings.verifyBoundaryTitle')}
+                      body={t('settings.verifyBoundaryBody')}
+                    />
+                    {remoteVerification ? (
+                      <>
+                        <VerifyCheckList
+                          items={[
+                            {
+                              key: 'bundle-version',
+                              label: t('settings.bundleVersion'),
+                              status: remoteVerification.bundleVersion,
+                            },
+                            {
+                              key: 'restore-ready',
+                              label: t('settings.restoreReady'),
+                              status: remoteVerification.restoreReady
+                                ? t('common.statusClear')
+                                : t('common.statusNeedsAttention'),
+                            },
+                            ...remoteVerification.checks.map((check) => ({
+                              body: check.message,
+                              key: check.name,
+                              label: check.name,
+                              status: check.status,
+                            })),
+                          ]}
+                        />
+                        {remoteVerification.restoreSteps.length > 0 ? (
+                          <ReviewSection title={t('settings.restoreReady')}>
+                            {remoteVerification.restoreSteps.map((step) => (
+                              <p key={step}>{step}</p>
+                            ))}
+                          </ReviewSection>
+                        ) : null}
+                      </>
+                    ) : (
+                      <StatusCallout
+                        tone="info"
+                        title={t('settings.verifyNotRunTitle')}
+                        body={t('settings.verifyNotRunBody')}
+                      />
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">
-            {t('settings.platformTroubleshooting')}
-          </span>
-        </div>
-        <div className="panel-body settings-support-grid">
-          <p className="dashboard-next-action">
-            {t('settings.platformDescription')}
-          </p>
-          <StatusCallout
-            tone={scheduleNeedsHelp ? 'warning' : 'info'}
-            title={t(platformLabelKey(platform))}
-            body={t(platformSummaryKey(platform))}
-            actions={
-              <Link className="btn-secondary" to="/schedule">
-                {t('settings.reviewSchedule')}
-              </Link>
-            }
-          />
-          {safariNeedsAccess ? (
+      <div className="settings-group">
+        <div className="settings-group__label">Platform</div>
+
+        <div className="panel" id="settings-platform">
+          <div className="panel-header">
+            <span className="panel-title">
+              <Glyph icon="build" filled />{' '}
+              <span>{t('settings.platformTroubleshooting')}</span>
+            </span>
+          </div>
+          <div className="panel-body settings-support-grid">
+            <p className="dashboard-next-action">
+              {t('settings.platformDescription')}
+            </p>
             <StatusCallout
-              tone="blocked"
-              title={t('platform.safariAccessTitle')}
-              body={t('platform.safariAccessBody')}
-              actions={
-                <Link className="btn-secondary" to="/import">
-                  {t('settings.reviewImports')}
-                </Link>
-              }
-            />
-          ) : null}
-          {keyringWarning ? (
-            <StatusCallout
-              tone="warning"
-              title={t('platform.keyringTitle')}
-              body={t('platform.keyringBody')}
-              actions={
-                <Link className="btn-secondary" to="/security">
-                  {t('settings.reviewSecurity')}
-                </Link>
-              }
-            />
-          ) : null}
-          {scheduleNeedsHelp ? (
-            <StatusCallout
-              tone="blocked"
-              title={t('platform.schedulerMismatchTitle')}
-              body={t('platform.schedulerMismatchBody')}
+              tone={scheduleNeedsHelp ? 'warning' : 'info'}
+              title={t(platformLabelKey(platform))}
+              body={t(platformSummaryKey(platform))}
               actions={
                 <Link className="btn-secondary" to="/schedule">
                   {t('settings.reviewSchedule')}
                 </Link>
               }
             />
-          ) : null}
+            {safariNeedsAccess ? (
+              <StatusCallout
+                tone="blocked"
+                title={t('platform.safariAccessTitle')}
+                body={t('platform.safariAccessBody')}
+                actions={
+                  <Link className="btn-secondary" to="/import">
+                    {t('settings.reviewImports')}
+                  </Link>
+                }
+              />
+            ) : null}
+            {keyringWarning ? (
+              <StatusCallout
+                tone="warning"
+                title={t('platform.keyringTitle')}
+                body={t('platform.keyringBody')}
+                actions={
+                  <Link className="btn-secondary" to="/security">
+                    {t('settings.reviewSecurity')}
+                  </Link>
+                }
+              />
+            ) : null}
+            {scheduleNeedsHelp ? (
+              <StatusCallout
+                tone="blocked"
+                title={t('platform.schedulerMismatchTitle')}
+                body={t('platform.schedulerMismatchBody')}
+                actions={
+                  <Link className="btn-secondary" to="/schedule">
+                    {t('settings.reviewSchedule')}
+                  </Link>
+                }
+              />
+            ) : null}
+          </div>
         </div>
       </div>
     </section>

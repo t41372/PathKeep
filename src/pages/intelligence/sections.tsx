@@ -16,9 +16,10 @@
  * - Keep scope honesty and deep-link behavior aligned with `docs/design/screens-and-nav.md`.
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
+import { Glyph } from '../../components/ui'
 import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import {
@@ -322,12 +323,36 @@ function DigestSection({
     )
   }
 
-  const cards = [
-    { icon: '📊', label: t('digestVisits'), metric: digest.totalVisits },
-    { icon: '🔍', label: t('digestSearches'), metric: digest.totalSearches },
-    { icon: '🌐', label: t('digestNewSites'), metric: digest.newDomains },
-    { icon: '📖', label: t('digestDeepRead'), metric: digest.deepReadPages },
-    { icon: '🔄', label: t('digestRefind'), metric: digest.refindPages },
+  const cards: Array<{
+    icon: ReactNode
+    label: string
+    metric: typeof digest.totalVisits
+  }> = [
+    {
+      icon: <Glyph icon="bar_chart" />,
+      label: t('digestVisits'),
+      metric: digest.totalVisits,
+    },
+    {
+      icon: <Glyph icon="search" />,
+      label: t('digestSearches'),
+      metric: digest.totalSearches,
+    },
+    {
+      icon: <Glyph icon="public" />,
+      label: t('digestNewSites'),
+      metric: digest.newDomains,
+    },
+    {
+      icon: <Glyph icon="auto_stories" />,
+      label: t('digestDeepRead'),
+      metric: digest.deepReadPages,
+    },
+    {
+      icon: <Glyph icon="sync" />,
+      label: t('digestRefind'),
+      metric: digest.refindPages,
+    },
   ]
 
   return (

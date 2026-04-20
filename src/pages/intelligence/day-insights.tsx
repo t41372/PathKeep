@@ -11,6 +11,7 @@
 import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
+import { Glyph } from '../../components/ui'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
 import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { QueryFamilyCard } from '../../components/intelligence/query-family-card'
@@ -212,22 +213,22 @@ export function DayInsightsPage({
         className="day-insights__stats"
         items={[
           {
-            icon: '📊',
+            icon: <Glyph icon="bar_chart" />,
             label: t('digestVisits'),
             value: formatNumber(detail.digestSummary.totalVisits.value),
           },
           {
-            icon: '🔍',
+            icon: <Glyph icon="search" />,
             label: t('digestSearches'),
             value: formatNumber(detail.digestSummary.totalSearches.value),
           },
           {
-            icon: '🌐',
+            icon: <Glyph icon="public" />,
             label: t('digestNewSites'),
             value: formatNumber(detail.digestSummary.newDomains.value),
           },
           {
-            icon: '📖',
+            icon: <Glyph icon="auto_stories" />,
             label: t('digestDeepRead'),
             value: formatNumber(detail.digestSummary.deepReadPages.value),
           },
