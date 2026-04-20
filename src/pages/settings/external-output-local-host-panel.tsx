@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
+  copyReviewValue,
   GeneratedArtifactViewer,
   ReviewCopyStatus,
   ReviewSection,
@@ -96,15 +97,10 @@ export function SettingsExternalOutputLocalHostPanel({
     : t('externalOutputsArchiveWideTitle')
 
   async function handleCopy(key: string, value: string) {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('clipboard unavailable')
-      }
-      await navigator.clipboard.writeText(value)
-      setCopyFeedback({ key, tone: 'success' })
-    } catch {
-      setCopyFeedback({ key, tone: 'error' })
-    }
+    await copyReviewValue(value, {
+      key,
+      onFeedback: setCopyFeedback,
+    })
   }
 
   async function handleBuild() {

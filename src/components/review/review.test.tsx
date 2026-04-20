@@ -104,7 +104,7 @@ describe('shared review primitives', () => {
   })
 
   test('copies review values through the shared clipboard helper', async () => {
-    const writeText = vi.fn(async () => undefined)
+    const writeText = vi.fn(() => Promise.resolve(undefined))
     const originalClipboard = navigator.clipboard
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,

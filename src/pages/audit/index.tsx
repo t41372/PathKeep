@@ -74,7 +74,6 @@ export function AuditPage() {
   const labels = useMemo(
     () => ({
       commonUnavailable: t('common.unavailable'),
-      copyFailed: t('audit.copyFailed'),
       importPreviewUnavailable: t('audit.importPreviewUnavailable'),
       restoreConfirm: t('import.restoreConfirm'),
       restoreRecorded: t('audit.restoreRecorded'),

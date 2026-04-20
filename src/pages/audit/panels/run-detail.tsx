@@ -14,7 +14,11 @@
  */
 
 import { Link } from 'react-router-dom'
-import { ReviewSection } from '../../../components/review'
+import {
+  ReviewPathActionRow,
+  ReviewSection,
+  type ReviewCopyFeedback,
+} from '../../../components/review'
 import { PreviewEntryList } from '../../../components/ui'
 import { StatusCallout } from '../../../components/primitives/status-callout'
 import { backend } from '../../../lib/backend-client'
@@ -44,10 +48,7 @@ import type { AuditDetailTab, Translator } from '../types'
 interface AuditRunDetailPanelProps {
   batchActionError: string | null
   batchActionNotice: string | null
-  copyFeedback: {
-    path: string
-    tone: 'success' | 'error'
-  } | null
+  copyFeedback: ReviewCopyFeedback | null
   detail: AuditRunDetail
   detailSeverity: 'clear' | 'warning' | 'blocked' | null
   detailTab: AuditDetailTab
@@ -387,57 +388,42 @@ export function AuditRunDetailPanel({
                   }
                   title={
                     <span className="mono" style={{ fontSize: '11px' }}>
-                      {artifact.kind} — {artifact.path}
+                      {artifact.kind}
                     </span>
                   }
                 >
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 'var(--space-2)',
-                      marginTop: 'var(--space-1)',
+                  <ReviewPathActionRow
+                    copyFeedback={copyFeedback}
+                    copyKey={artifact.path}
+                    copyLabel={t('common.copyAction')}
+                    errorMessage={t('audit.copyFailed')}
+                    label={t('common.filesLabel')}
+                    onCopy={(_, value) => {
+                      void handleCopyPath(value)
                     }}
-                  >
-                    <button
-                      className="btn-tiny"
-                      type="button"
-                      onClick={() => {
-                        void backend.openPathInFileManager(artifact.path)
-                      }}
-                    >
-                      {t('common.openAction')}
-                    </button>
-                    <button
-                      className="btn-tiny"
-                      type="button"
-                      onClick={() => {
-                        void handleCopyPath(artifact.path)
-                      }}
-                    >
-                      {t('common.copyAction')}
-                    </button>
-                    {artifact.kind === 'snapshot' ? (
-                      <button
-                        className="btn-tiny"
-                        type="button"
-                        onClick={() => {
-                          void handlePreviewRestore(artifact.path)
-                        }}
-                      >
-                        {restoreBusy &&
-                        restorePreview?.snapshotPath === artifact.path
-                          ? t('common.loading')
-                          : t('audit.previewRestore')}
-                      </button>
-                    ) : null}
-                  </div>
-                  {copyFeedback?.path === artifact.path ? (
-                    <span className="dim mono" style={{ fontSize: '10px' }}>
-                      {copyFeedback.tone === 'success'
-                        ? t('audit.copied')
-                        : t('audit.copyFailed')}
-                    </span>
-                  ) : null}
+                    onOpenPath={(path) => {
+                      void backend.openPathInFileManager(path)
+                    }}
+                    openPathLabel={t('common.openAction')}
+                    secondaryAction={
+                      artifact.kind === 'snapshot' ? (
+                        <button
+                          className="btn-tiny"
+                          type="button"
+                          onClick={() => {
+                            void handlePreviewRestore(artifact.path)
+                          }}
+                        >
+                          {restoreBusy &&
+                          restorePreview?.snapshotPath === artifact.path
+                            ? t('common.loading')
+                            : t('audit.previewRestore')}
+                        </button>
+                      ) : undefined
+                    }
+                    successMessage={t('audit.copied')}
+                    value={artifact.path}
+                  />
                 </ReviewSection>
               ))
             ) : (
@@ -604,37 +590,26 @@ export function AuditRunDetailPanel({
           )
         ) : null}
 
-        <div className="wizard-actions" style={{ marginTop: 'var(--space-4)' }}>
-          {detail.manifestPath && (
-            <>
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => {
-                  void backend.openPathInFileManager(detail.manifestPath!)
-                }}
-              >
-                {t('audit.viewManifest')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => {
-                  void handleCopyPath(detail.manifestPath!)
-                }}
-              >
-                {t('audit.copyPath')}
-              </button>
-            </>
-          )}
-        </div>
-        {detail.manifestPath && copyFeedback?.path === detail.manifestPath && (
-          <span className="dim mono" style={{ fontSize: '10px' }}>
-            {copyFeedback.tone === 'success'
-              ? t('audit.copied')
-              : t('audit.copyFailed')}
-          </span>
-        )}
+        {detail.manifestPath ? (
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <ReviewPathActionRow
+              copyFeedback={copyFeedback}
+              copyKey={detail.manifestPath}
+              copyLabel={t('audit.copyPath')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('audit.manifestPath')}
+              onCopy={(_, value) => {
+                void handleCopyPath(value)
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('audit.viewManifest')}
+              successMessage={t('audit.copied')}
+              value={detail.manifestPath}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )

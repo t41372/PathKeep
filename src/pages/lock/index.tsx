@@ -17,6 +17,11 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { BrandMark } from '../../components/brand-mark'
+import {
+  copyReviewValue,
+  ReviewPathActionRow,
+  type ReviewCopyFeedback,
+} from '../../components/review'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
@@ -59,6 +64,9 @@ export function LockPage() {
   const buildTitle = formatBuildVersionTitle(buildInfo)
   const [passcode, setPasscode] = useState('')
   const [unlocking, setUnlocking] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
 
   if (!appLockStatus) {
     return (
@@ -120,12 +128,25 @@ export function LockPage() {
               <span className="config-label">{t('shell.lockReason')}</span>
               <span className="config-value mono">{reason}</span>
             </div>
-            <div className="config-row">
-              <span className="config-label">{t('shell.lockConfigPath')}</span>
-              <span className="config-value mono">
-                {appLockStatus.configPath}
-              </span>
-            </div>
+            <ReviewPathActionRow
+              copyFeedback={copyFeedback}
+              copyKey="lock:config-path"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('shell.lockConfigPath')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('shell.lockRecoveryAction')}
+              successMessage={t('common.copiedNotice')}
+              value={appLockStatus.configPath}
+            />
             <div className="config-row">
               <span className="config-label">{t('shell.lastUnlockedAt')}</span>
               <span className="config-value mono">
@@ -216,19 +237,6 @@ export function LockPage() {
                     hint: appLockStatus.recoveryHint,
                   })
                 : t('shell.lockRecoveryBody')
-            }
-            actions={
-              <div className="settings-action-row">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => {
-                    void backend.openPathInFileManager(appLockStatus.configPath)
-                  }}
-                >
-                  {t('shell.lockRecoveryAction')}
-                </button>
-              </div>
             }
           />
 

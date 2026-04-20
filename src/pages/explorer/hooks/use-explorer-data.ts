@@ -20,6 +20,10 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react'
+import {
+  copyReviewValue,
+  type ReviewCopyFeedback,
+} from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
 import type {
   AiQueueStatus,
@@ -123,7 +127,9 @@ export function useExplorerData({
   })
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
-  const [copiedExportPath, setCopiedExportPath] = useState<string | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
   const [queueStatus, setQueueStatus] = useState<AiQueueStatus | null>(null)
   const [providerProbe, setProviderProbe] =
     useState<AiProviderConnectionTestReport | null>(null)
@@ -384,15 +390,10 @@ export function useExplorerData({
    * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   async function handleCopyExportPath(path: string) {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('Clipboard unavailable')
-      }
-      await navigator.clipboard.writeText(path)
-      setCopiedExportPath(path)
-    } catch {
-      setCopiedExportPath(`error:${path}`)
-    }
+    await copyReviewValue(path, {
+      key: `explorer:export:${path}`,
+      onFeedback: setCopyFeedback,
+    })
   }
 
   /**
@@ -413,7 +414,7 @@ export function useExplorerData({
 
   return {
     actionError,
-    copiedExportPath,
+    copyFeedback,
     exportResult,
     handleCopyExportPath,
     handleExport,

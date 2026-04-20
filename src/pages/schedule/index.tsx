@@ -19,8 +19,10 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
+  copyReviewValue,
   GeneratedArtifactViewer,
   PmeTabBar,
+  ReviewPathActionRow,
   type ReviewCopyFeedback,
   VerifyCheckList,
 } from '../../components/review'
@@ -112,15 +114,10 @@ async function copyGeneratedArtifact(
   value: string,
   onFeedback: (feedback: ReviewCopyFeedback) => void,
 ) {
-  try {
-    if (!navigator.clipboard?.writeText) {
-      throw new Error('clipboard unavailable')
-    }
-    await navigator.clipboard.writeText(value)
-    onFeedback({ key, tone: 'success' })
-  } catch {
-    onFeedback({ key, tone: 'error' })
-  }
+  await copyReviewValue(value, {
+    key,
+    onFeedback,
+  })
 }
 
 /**
@@ -455,25 +452,47 @@ export function SchedulePage() {
                 </div>
               ))}
               {status.detectedFiles.map((path) => (
-                <div key={path} className="manual-step">
-                  <span className="step-num-inline mono">
-                    {t('common.fileStepLabel')}
-                  </span>
-                  <span className="mono">{path}</span>
-                </div>
+                <ReviewPathActionRow
+                  key={path}
+                  copyFeedback={copyFeedback}
+                  copyKey={`schedule:detected:${path}`}
+                  copyLabel={t('common.copyAction')}
+                  errorMessage={t('audit.copyFailed')}
+                  label={t('common.fileStepLabel')}
+                  onCopy={(key, value) => {
+                    void copyReviewValue(value, {
+                      key,
+                      onFeedback: setCopyFeedback,
+                    })
+                  }}
+                  onOpenPath={(nextPath) => {
+                    void backend.openPathInFileManager(nextPath)
+                  }}
+                  openPathLabel={t('common.openPath')}
+                  successMessage={t('common.copiedNotice')}
+                  value={path}
+                />
               ))}
               {status.auditPath && (
-                <div className="code-actions">
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => {
-                      void backend.openPathInFileManager(status.auditPath ?? '')
-                    }}
-                  >
-                    {t('schedule.openLatestAudit')}
-                  </button>
-                </div>
+                <ReviewPathActionRow
+                  copyFeedback={copyFeedback}
+                  copyKey="schedule:audit-path"
+                  copyLabel={t('common.copyAction')}
+                  errorMessage={t('audit.copyFailed')}
+                  label={t('schedule.openLatestAudit')}
+                  onCopy={(key, value) => {
+                    void copyReviewValue(value, {
+                      key,
+                      onFeedback: setCopyFeedback,
+                    })
+                  }}
+                  onOpenPath={(path) => {
+                    void backend.openPathInFileManager(path)
+                  }}
+                  openPathLabel={t('common.openPath')}
+                  successMessage={t('common.copiedNotice')}
+                  value={status.auditPath}
+                />
               )}
             </div>
           )}
@@ -565,17 +584,25 @@ export function SchedulePage() {
                     : t('schedule.removeSchedule')}
                 </button>
                 {executionResult?.result.auditPath ? (
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void backend.openPathInFileManager(
-                        executionResult.result.auditPath ?? '',
-                      )
+                  <ReviewPathActionRow
+                    copyFeedback={copyFeedback}
+                    copyKey="schedule:execution-audit"
+                    copyLabel={t('common.copyAction')}
+                    errorMessage={t('audit.copyFailed')}
+                    label={t('schedule.openSchedulerAudit')}
+                    onCopy={(key, value) => {
+                      void copyReviewValue(value, {
+                        key,
+                        onFeedback: setCopyFeedback,
+                      })
                     }}
-                  >
-                    {t('schedule.openSchedulerAudit')}
-                  </button>
+                    onOpenPath={(path) => {
+                      void backend.openPathInFileManager(path)
+                    }}
+                    openPathLabel={t('common.openPath')}
+                    successMessage={t('common.copiedNotice')}
+                    value={executionResult.result.auditPath}
+                  />
                 ) : null}
               </div>
               {!snapshot?.config.initialized && (
@@ -622,12 +649,26 @@ export function SchedulePage() {
               {status.detectedFiles.length > 0 ? (
                 <div className="manual-steps">
                   {status.detectedFiles.map((path) => (
-                    <div key={path} className="manual-step">
-                      <span className="step-num-inline mono">
-                        {t('common.fileStepLabel')}
-                      </span>
-                      <span className="mono">{path}</span>
-                    </div>
+                    <ReviewPathActionRow
+                      key={path}
+                      copyFeedback={copyFeedback}
+                      copyKey={`schedule:verify-detected:${path}`}
+                      copyLabel={t('common.copyAction')}
+                      errorMessage={t('audit.copyFailed')}
+                      label={t('common.fileStepLabel')}
+                      onCopy={(key, value) => {
+                        void copyReviewValue(value, {
+                          key,
+                          onFeedback: setCopyFeedback,
+                        })
+                      }}
+                      onOpenPath={(nextPath) => {
+                        void backend.openPathInFileManager(nextPath)
+                      }}
+                      openPathLabel={t('common.openPath')}
+                      successMessage={t('common.copiedNotice')}
+                      value={path}
+                    />
                   ))}
                 </div>
               ) : null}
@@ -661,17 +702,25 @@ export function SchedulePage() {
                 </div>
               ) : null}
               {latestAuditPath ? (
-                <div className="code-actions">
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void backend.openPathInFileManager(latestAuditPath)
-                    }}
-                  >
-                    {t('schedule.openLatestAudit')}
-                  </button>
-                </div>
+                <ReviewPathActionRow
+                  copyFeedback={copyFeedback}
+                  copyKey="schedule:latest-audit"
+                  copyLabel={t('common.copyAction')}
+                  errorMessage={t('audit.copyFailed')}
+                  label={t('schedule.openLatestAudit')}
+                  onCopy={(key, value) => {
+                    void copyReviewValue(value, {
+                      key,
+                      onFeedback: setCopyFeedback,
+                    })
+                  }}
+                  onOpenPath={(path) => {
+                    void backend.openPathInFileManager(path)
+                  }}
+                  openPathLabel={t('common.openPath')}
+                  successMessage={t('common.copiedNotice')}
+                  value={latestAuditPath}
+                />
               ) : null}
             </div>
           )}

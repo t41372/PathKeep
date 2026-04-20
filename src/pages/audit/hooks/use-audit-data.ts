@@ -14,6 +14,10 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import {
+  copyReviewValue,
+  type ReviewCopyFeedback,
+} from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
 import { auditSeverity } from '../../../lib/trust-review'
 import type {
@@ -37,7 +41,6 @@ import {
 interface UseAuditDataOptions {
   labels: {
     commonUnavailable: string
-    copyFailed: string
     importPreviewUnavailable: string
     restoreConfirm: string
     restoreRecorded: string
@@ -72,10 +75,9 @@ export function useAuditData({
     detail: null,
     error: null,
   })
-  const [copyFeedback, setCopyFeedback] = useState<{
-    path: string
-    tone: 'success' | 'error'
-  } | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
   const [detailCache, setDetailCache] = useState<
     Record<number, AuditRunDetail>
   >({})
@@ -232,15 +234,10 @@ export function useAuditData({
    * Keeping this as a named declaration makes the Audit surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   async function handleCopyPath(path: string) {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error(labels.copyFailed)
-      }
-      await navigator.clipboard.writeText(path)
-      setCopyFeedback({ path, tone: 'success' })
-    } catch {
-      setCopyFeedback({ path, tone: 'error' })
-    }
+    await copyReviewValue(path, {
+      key: path,
+      onFeedback: setCopyFeedback,
+    })
   }
 
   /**

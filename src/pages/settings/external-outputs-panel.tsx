@@ -22,6 +22,7 @@ import { Link } from 'react-router-dom'
 import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import {
+  copyReviewValue,
   ReviewCodePreview,
   ReviewSection,
   ReviewTargetLinksRow,
@@ -127,15 +128,10 @@ export function SettingsExternalOutputsPanel({
   const embedCardsJson = outputs.data ? prettyJson(outputs.data.embedCards) : ''
 
   async function handleCopyPayload(key: string, payload: string) {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('clipboard unavailable')
-      }
-      await navigator.clipboard.writeText(payload)
-      setCopyFeedback({ key, tone: 'success' })
-    } catch {
-      setCopyFeedback({ key, tone: 'error' })
-    }
+    await copyReviewValue(payload, {
+      key,
+      onFeedback: setCopyFeedback,
+    })
   }
 
   const tabs: { key: OutputTab; label: string }[] = [

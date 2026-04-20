@@ -16,6 +16,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import {
+  copyReviewValue,
+  ReviewPathActionRow,
+  type ReviewCopyFeedback,
+} from '../../components/review'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
@@ -79,6 +84,9 @@ export function SecurityPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
+    null,
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -442,38 +450,64 @@ export function SecurityPage() {
                   : t('common.notAvailable')}
               </span>
             </div>
-            <div className="config-row">
-              <span className="config-label">{t('security.stronghold')}</span>
-              <span className="config-value mono dim">
-                {status.strongholdPath}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('security.archivePath')}</span>
-              <span className="config-value mono dim">
-                {status.databasePath}
-              </span>
-            </div>
+            <ReviewPathActionRow
+              copyFeedback={copyFeedback}
+              copyKey="security:stronghold"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('security.stronghold')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('common.openPath')}
+              successMessage={t('common.copiedNotice')}
+              value={status.strongholdPath}
+            />
+            <ReviewPathActionRow
+              copyFeedback={copyFeedback}
+              copyKey="security:archive"
+              copyLabel={t('common.copyAction')}
+              errorMessage={t('audit.copyFailed')}
+              label={t('security.archivePath')}
+              onCopy={(key, value) => {
+                void copyReviewValue(value, {
+                  key,
+                  onFeedback: setCopyFeedback,
+                })
+              }}
+              onOpenPath={(path) => {
+                void backend.openPathInFileManager(path)
+              }}
+              openPathLabel={t('common.openPath')}
+              successMessage={t('common.copiedNotice')}
+              value={status.databasePath}
+            />
             {status.lastRekeySnapshotPath ? (
-              <div className="config-row">
-                <span className="config-label">
-                  {t('security.lastRekeySnapshot')}
-                </span>
-                <span className="config-value mono dim">
-                  {status.lastRekeySnapshotPath}
-                </span>
-                <button
-                  className="btn-tiny"
-                  type="button"
-                  onClick={() => {
-                    void backend.openPathInFileManager(
-                      status.lastRekeySnapshotPath ?? '',
-                    )
-                  }}
-                >
-                  {t('common.openAction')}
-                </button>
-              </div>
+              <ReviewPathActionRow
+                copyFeedback={copyFeedback}
+                copyKey="security:last-rekey-snapshot"
+                copyLabel={t('common.copyAction')}
+                errorMessage={t('audit.copyFailed')}
+                label={t('security.lastRekeySnapshot')}
+                onCopy={(key, value) => {
+                  void copyReviewValue(value, {
+                    key,
+                    onFeedback: setCopyFeedback,
+                  })
+                }}
+                onOpenPath={(path) => {
+                  void backend.openPathInFileManager(path)
+                }}
+                openPathLabel={t('common.openAction')}
+                successMessage={t('common.copiedNotice')}
+                value={status.lastRekeySnapshotPath}
+              />
             ) : null}
           </div>
 

@@ -16,6 +16,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import {
+  copyReviewValue,
+  ReviewPathActionRow,
+  type ReviewCopyFeedback,
+} from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { backend } from '../../lib/backend-client'
@@ -107,6 +112,8 @@ export function ImportPage() {
   const [loadingBatch, setLoadingBatch] = useState(false)
   const [healthReport, setHealthReport] = useState<HealthReport | null>(null)
   const [repairNotice, setRepairNotice] = useState<string | null>(null)
+  const [supportCopyFeedback, setSupportCopyFeedback] =
+    useState<ReviewCopyFeedback | null>(null)
 
   const wizardSteps: { key: WizardStep; label: string }[] = [
     { key: 'select', label: t('import.stepUpload') },
@@ -605,7 +612,7 @@ export function ImportPage() {
                 command: (index) => t('common.commandStepLabel', { index }),
               }}
               onCopy={async (value) => {
-                await navigator.clipboard.writeText(value)
+                await copyReviewValue(value)
               }}
               steps={workflowSteps}
             />
@@ -1352,19 +1359,25 @@ export function ImportPage() {
                     <p className="dim">{t('import.noPreviewRows')}</p>
                   )}
                   {activeBatchDetail.batch.auditPath ? (
-                    <div className="code-actions">
-                      <button
-                        className="btn-tiny"
-                        type="button"
-                        onClick={() => {
-                          void backend.openPathInFileManager(
-                            activeBatchDetail.batch.auditPath ?? '',
-                          )
-                        }}
-                      >
-                        {t('common.openAction')}
-                      </button>
-                    </div>
+                    <ReviewPathActionRow
+                      copyFeedback={supportCopyFeedback}
+                      copyKey={`import:audit:${activeBatchDetail.batch.id}`}
+                      copyLabel={t('common.copyAction')}
+                      errorMessage={t('audit.copyFailed')}
+                      label={t('audit.manifestPath')}
+                      onCopy={(key, value) => {
+                        void copyReviewValue(value, {
+                          key,
+                          onFeedback: setSupportCopyFeedback,
+                        })
+                      }}
+                      onOpenPath={(path) => {
+                        void backend.openPathInFileManager(path)
+                      }}
+                      openPathLabel={t('common.openAction')}
+                      successMessage={t('common.copiedNotice')}
+                      value={activeBatchDetail.batch.auditPath}
+                    />
                   ) : null}
                   <div className="wizard-actions">
                     <button

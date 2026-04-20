@@ -145,7 +145,7 @@ export function ExplorerPage() {
   )
   const {
     actionError,
-    copiedExportPath,
+    copyFeedback,
     exportResult,
     handleCopyExportPath,
     handleExport,
@@ -704,7 +704,7 @@ export function ExplorerPage() {
         <ExplorerResultsPanel
           actionError={actionError}
           commonT={commonT}
-          copiedExportPath={copiedExportPath}
+          copyFeedback={copyFeedback}
           explorerT={explorerT}
           exportResult={exportResult}
           handleCopyExportPath={handleCopyExportPath}

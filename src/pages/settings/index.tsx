@@ -17,8 +17,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import {
+  copyReviewValue,
   GeneratedArtifactViewer,
   PmeTabBar,
+  ReviewPathActionRow,
   type ReviewCopyFeedback,
   ReviewSection,
   VerifyCheckList,
@@ -240,6 +242,8 @@ export function SettingsPage() {
     null,
   )
   const [aiIntegrationCopyFeedback, setAiIntegrationCopyFeedback] =
+    useState<ReviewCopyFeedback | null>(null)
+  const [supportCopyFeedback, setSupportCopyFeedback] =
     useState<ReviewCopyFeedback | null>(null)
   const lastSyncedAiSignatureRef = useRef<string | null>(null)
 
@@ -655,15 +659,10 @@ export function SettingsPage() {
     ].map((provider) => provider.id),
   )
   async function handleAiIntegrationCopy(key: string, value: string) {
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('clipboard unavailable')
-      }
-      await navigator.clipboard.writeText(value)
-      setAiIntegrationCopyFeedback({ key, tone: 'success' })
-    } catch {
-      setAiIntegrationCopyFeedback({ key, tone: 'error' })
-    }
+    await copyReviewValue(value, {
+      key,
+      onFeedback: setAiIntegrationCopyFeedback,
+    })
   }
   const appLockCanEnable =
     currentAppLockSettings.passcodeConfigured ||
@@ -1721,91 +1720,101 @@ export function SettingsPage() {
               {languageLabel(language, language)}
             </span>
           </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.dataDirectory')}</span>
-            <span className="config-value mono">
-              {snapshot.directories.appRoot}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(snapshot.directories.appRoot)
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.archiveDatabase')}
-            </span>
-            <span className="config-value mono">
-              {snapshot.directories.archiveDatabasePath}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(
-                  snapshot.directories.archiveDatabasePath,
-                )
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.auditRepository')}
-            </span>
-            <span className="config-value mono">
-              {snapshot.directories.auditRepoPath}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(
-                  snapshot.directories.auditRepoPath,
-                )
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.logsDirectory')}</span>
-            <span className="config-value mono">
-              {snapshot.directories.logsDir}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(snapshot.directories.logsDir)
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
-          <div className="config-row">
-            <span className="config-label">{t('settings.crashReports')}</span>
-            <span className="config-value mono">
-              {snapshot.directories.crashReportsDir}
-            </span>
-            <button
-              className="btn-tiny"
-              type="button"
-              onClick={() => {
-                void backend.openPathInFileManager(
-                  snapshot.directories.crashReportsDir,
-                )
-              }}
-            >
-              {t('settings.openDirectory')}
-            </button>
-          </div>
+          <ReviewPathActionRow
+            copyFeedback={supportCopyFeedback}
+            copyKey="settings:app-root"
+            copyLabel={t('common.copyAction')}
+            errorMessage={t('audit.copyFailed')}
+            label={t('settings.dataDirectory')}
+            onCopy={(key, value) => {
+              void copyReviewValue(value, {
+                key,
+                onFeedback: setSupportCopyFeedback,
+              })
+            }}
+            onOpenPath={(path) => {
+              void backend.openPathInFileManager(path)
+            }}
+            openPathLabel={t('settings.openDirectory')}
+            successMessage={t('common.copiedNotice')}
+            value={snapshot.directories.appRoot}
+          />
+          <ReviewPathActionRow
+            copyFeedback={supportCopyFeedback}
+            copyKey="settings:archive-database"
+            copyLabel={t('common.copyAction')}
+            errorMessage={t('audit.copyFailed')}
+            label={t('settings.archiveDatabase')}
+            onCopy={(key, value) => {
+              void copyReviewValue(value, {
+                key,
+                onFeedback: setSupportCopyFeedback,
+              })
+            }}
+            onOpenPath={(path) => {
+              void backend.openPathInFileManager(path)
+            }}
+            openPathLabel={t('settings.openDirectory')}
+            successMessage={t('common.copiedNotice')}
+            value={snapshot.directories.archiveDatabasePath}
+          />
+          <ReviewPathActionRow
+            copyFeedback={supportCopyFeedback}
+            copyKey="settings:audit-repo"
+            copyLabel={t('common.copyAction')}
+            errorMessage={t('audit.copyFailed')}
+            label={t('settings.auditRepository')}
+            onCopy={(key, value) => {
+              void copyReviewValue(value, {
+                key,
+                onFeedback: setSupportCopyFeedback,
+              })
+            }}
+            onOpenPath={(path) => {
+              void backend.openPathInFileManager(path)
+            }}
+            openPathLabel={t('settings.openDirectory')}
+            successMessage={t('common.copiedNotice')}
+            value={snapshot.directories.auditRepoPath}
+          />
+          <ReviewPathActionRow
+            copyFeedback={supportCopyFeedback}
+            copyKey="settings:logs-dir"
+            copyLabel={t('common.copyAction')}
+            errorMessage={t('audit.copyFailed')}
+            label={t('settings.logsDirectory')}
+            onCopy={(key, value) => {
+              void copyReviewValue(value, {
+                key,
+                onFeedback: setSupportCopyFeedback,
+              })
+            }}
+            onOpenPath={(path) => {
+              void backend.openPathInFileManager(path)
+            }}
+            openPathLabel={t('settings.openDirectory')}
+            successMessage={t('common.copiedNotice')}
+            value={snapshot.directories.logsDir}
+          />
+          <ReviewPathActionRow
+            copyFeedback={supportCopyFeedback}
+            copyKey="settings:crash-reports"
+            copyLabel={t('common.copyAction')}
+            errorMessage={t('audit.copyFailed')}
+            label={t('settings.crashReports')}
+            onCopy={(key, value) => {
+              void copyReviewValue(value, {
+                key,
+                onFeedback: setSupportCopyFeedback,
+              })
+            }}
+            onOpenPath={(path) => {
+              void backend.openPathInFileManager(path)
+            }}
+            openPathLabel={t('settings.openDirectory')}
+            successMessage={t('common.copiedNotice')}
+            value={snapshot.directories.crashReportsDir}
+          />
           {snapshot.runtimeDiagnostics.latestCrashReport ? (
             <StatusCallout
               tone="warning"
@@ -2412,25 +2421,36 @@ export function SettingsPage() {
               </p>
             ))}
 
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.appLockConfigPath')}
-              </span>
-              <span className="config-value mono">
-                {appLockStatus?.configPath ?? t('common.notAvailable')}
-              </span>
-              <button
-                className="btn-tiny"
-                type="button"
-                onClick={() => {
-                  if (appLockStatus?.configPath) {
-                    void backend.openPathInFileManager(appLockStatus.configPath)
-                  }
+            {appLockStatus?.configPath ? (
+              <ReviewPathActionRow
+                copyFeedback={supportCopyFeedback}
+                copyKey="settings:app-lock-config"
+                copyLabel={t('common.copyAction')}
+                errorMessage={t('audit.copyFailed')}
+                label={t('settings.appLockConfigPath')}
+                onCopy={(key, value) => {
+                  void copyReviewValue(value, {
+                    key,
+                    onFeedback: setSupportCopyFeedback,
+                  })
                 }}
-              >
-                {t('settings.openDirectory')}
-              </button>
-            </div>
+                onOpenPath={(path) => {
+                  void backend.openPathInFileManager(path)
+                }}
+                openPathLabel={t('settings.openDirectory')}
+                successMessage={t('common.copiedNotice')}
+                value={appLockStatus.configPath}
+              />
+            ) : (
+              <div className="config-row">
+                <span className="config-label">
+                  {t('settings.appLockConfigPath')}
+                </span>
+                <span className="config-value mono">
+                  {t('common.notAvailable')}
+                </span>
+              </div>
+            )}
             <div className="config-row">
               <span className="config-label">
                 {t('settings.appLockLastUnlocked')}

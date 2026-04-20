@@ -14,6 +14,10 @@
  */
 
 import { formatRelativeTime } from '../../../lib/format'
+import {
+  ReviewPathActionRow,
+  type ReviewCopyFeedback,
+} from '../../../components/review'
 import { HistoryFavicon } from '../../../components/primitives/history-favicon'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { ExportFormat, HistoryQueryResponse } from '../../../lib/types'
@@ -33,7 +37,7 @@ import type { Translator } from '../types'
 interface ExplorerResultsPanelProps {
   actionError: string | null
   commonT: Translator
-  copiedExportPath: string | null
+  copyFeedback: ReviewCopyFeedback | null
   explorerT: Translator
   exportResult: { path: string } | null
   handleCopyExportPath: (path: string) => Promise<void>
@@ -67,7 +71,7 @@ interface ExplorerResultsPanelProps {
 export function ExplorerResultsPanel({
   actionError,
   commonT,
-  copiedExportPath,
+  copyFeedback,
   explorerT,
   exportResult,
   handleCopyExportPath,
@@ -286,44 +290,23 @@ export function ExplorerResultsPanel({
               )}
             </div>
             {exportResult ? (
-              <div style={{ marginTop: 'var(--space-3)', fontSize: '11px' }}>
-                <span className="dim mono">{exportResult.path}</span>
-                <div
-                  style={{
-                    marginTop: 'var(--space-1)',
-                    display: 'flex',
-                    gap: 'var(--space-2)',
+              <div style={{ marginTop: 'var(--space-3)' }}>
+                <ReviewPathActionRow
+                  copyFeedback={copyFeedback}
+                  copyKey={`explorer:export:${exportResult.path}`}
+                  copyLabel={commonT('copyAction')}
+                  errorMessage={explorerT('copyFailed')}
+                  label={explorerT('exportVisibleQuery')}
+                  onCopy={(_, value) => {
+                    void handleCopyExportPath(value)
                   }}
-                >
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => {
-                      void handleOpenExportPath(exportResult.path)
-                    }}
-                  >
-                    {commonT('openAction')}
-                  </button>
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => {
-                      void handleCopyExportPath(exportResult.path)
-                    }}
-                  >
-                    {commonT('copyAction')}
-                  </button>
-                </div>
-                {copiedExportPath === exportResult.path ? (
-                  <span className="dim mono" style={{ fontSize: '10px' }}>
-                    {explorerT('copied')}
-                  </span>
-                ) : null}
-                {copiedExportPath === `error:${exportResult.path}` ? (
-                  <span className="dim mono" style={{ fontSize: '10px' }}>
-                    {explorerT('copyFailed')}
-                  </span>
-                ) : null}
+                  onOpenPath={(path) => {
+                    void handleOpenExportPath(path)
+                  }}
+                  openPathLabel={commonT('openAction')}
+                  successMessage={explorerT('copied')}
+                  value={exportResult.path}
+                />
               </div>
             ) : null}
           </>

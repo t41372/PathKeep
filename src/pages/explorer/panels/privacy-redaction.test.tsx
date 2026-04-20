@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
+import type { ReviewCopyFeedback } from '../../../components/review'
 import { createNamespaceTranslator } from '../../../lib/i18n'
 import type { HistoryQueryResponse } from '../../../lib/types'
 import * as api from '../../../lib/core-intelligence/api'
@@ -56,7 +57,7 @@ describe('Explorer privacy redaction', () => {
         <ExplorerResultsPanel
           actionError={null}
           commonT={commonT}
-          copiedExportPath={null}
+          copyFeedback={null as ReviewCopyFeedback | null}
           explorerT={explorerT}
           exportResult={null}
           handleCopyExportPath={vi.fn(async () => {})}
