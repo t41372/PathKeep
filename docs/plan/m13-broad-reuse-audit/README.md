@@ -3,6 +3,8 @@
 > 目標：延續 M12 的 support-action / diagnostics single-source 方法，把 reuse audit 從單一路由或單一 primitive 擴大到全 app 的 support、trust、workflow surface，而不是再讓 Settings mega-route 或 transport parity 單獨吃掉下一輪。
 >
 > **2026-04-20 pause note:** 使用者在 M13 開工後直接插單 `WORK-PERF-A`，要求先修 `/intelligence` large-archive 凍結與 route revisit 卡頓。M13 scope 沒被取消，但在 perf stop-ship block 收尾前不再往 reuse extraction 繼續推進。
+>
+> **2026-04-20 insert note:** 使用者另行插單 `WORK-CI-R`，要求先收斂 Search Activity keyword truth 與 search-engine domain deep-dive；該 block 已獨立完成並 append 到 `CHANGELOG.md`，不視為 M13 deliverable 的一部分。
 
 ---
 
