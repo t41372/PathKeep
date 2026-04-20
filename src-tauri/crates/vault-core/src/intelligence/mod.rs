@@ -32,28 +32,35 @@ use crate::{
     config::ProjectPaths,
     enrichment::ensure_visit_content_enrichment_schema,
     intelligence_catalog::{RebuildMode, module_descriptor_for_entity_type},
-    intelligence_runtime::DeterministicModuleRuntimeUpdate,
-    intelligence_runtime::persist_deterministic_module_runtime_updates,
+    intelligence_runtime::{
+        DeterministicModuleRuntimeUpdate, load_intelligence_runtime_from_connection,
+        persist_deterministic_module_runtime_updates,
+    },
+    intelligence_sections::build_core_intelligence_section_meta_with_runtime,
     models::{
         ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, AppConfig, ArrivalBreakdown,
         CategoryChangeEntry, CategoryFilteredDateRangeRequest, CategoryMixEntry,
-        ClearDerivedIntelligenceReport, CoreIntelligenceRebuildReport,
-        CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings, DateRange, DigestSummary,
-        DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat,
-        DomainPageStat, DomainTrend, DomainTrendPoint, DomainTrendRequest, EngineEffectiveness,
-        EngineRanking, EntityExplanationRequest, ExplainRefindRequest, ExplainabilityFactor,
-        Explanation, FrictionSignal, GranularityDateRangeRequest, HardTopic, HubPage,
-        InsightEntityReference, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
-        IntelligencePublicSnapshot, IntelligenceStatus, IntelligenceWidgetSnapshot, KpiMetric,
-        NavigationPath, NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, QueryFamily,
-        QueryFamilyDetail, QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation,
-        RefindPage, RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest,
-        RefindScoreFactor, ReopenedInvestigation, RhythmHeatmap, RhythmHeatmapCell,
-        ScopedDateRangeRequest, SearchConcept, SearchEffectiveness, SearchEffectivenessRequest,
-        SearchEngineRule, SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult,
-        SearchQueryRow, SearchTrailQueryRequest, SessionDetail, SessionListResult, SessionSummary,
-        SessionVisit, StableSource, TopSearchConceptsRequest, TopSite, TopSitesRequest,
-        TrailDetail, TrailListResult, TrailMember, TrailSummary,
+        ClearDerivedIntelligenceReport, CoreIntelligencePrimaryOverview,
+        CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
+        CoreIntelligenceSecondaryOverview, CoreIntelligenceSectionResult,
+        CoreIntelligenceSectionTiming, CoreIntelligenceSectionWindow, CoreIntelligenceStageTimings,
+        DateRange, DigestSummary, DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive,
+        DomainDeepDiveRequest, DomainFlowStat, DomainPageStat, DomainTrend, DomainTrendPoint,
+        DomainTrendRequest, EngineEffectiveness, EngineRanking, EntityExplanationRequest,
+        ExplainRefindRequest, ExplainabilityFactor, Explanation, FrictionSignal,
+        GranularityDateRangeRequest, HardTopic, HubPage, InsightEntityReference,
+        IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot,
+        IntelligenceStatus, IntelligenceWidgetSnapshot, KpiMetric, NavigationPath,
+        NavigationPathStep, OnThisDayEntry, PagedDateRangeRequest, PathFlowRequest,
+        ProfileScopedRequest, QueryFamily, QueryFamilyDetail, QueryFamilyDetailRequest,
+        QueryFamilyResult, RefindExplanation, RefindPage, RefindPageDetail,
+        RefindPageDetailRequest, RefindPagesRequest, RefindScoreFactor, ReopenedInvestigation,
+        RhythmHeatmap, RhythmHeatmapCell, ScopedDateRangeRequest, SearchConcept,
+        SearchEffectiveness, SearchEffectivenessRequest, SearchEngineRule, SearchEngineRuleInput,
+        SearchQueryListRequest, SearchQueryListResult, SearchQueryRow, SearchTrailQueryRequest,
+        SessionDetail, SessionListResult, SessionSummary, SessionVisit, StableSource,
+        TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
+        TrailMember, TrailSummary,
     },
     utils::now_rfc3339,
 };
@@ -5710,7 +5717,14 @@ pub fn get_search_engine_ranking(
 ) -> Result<Vec<EngineRanking>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
-    let display_names = load_search_engine_display_names(&connection)?;
+    get_search_engine_ranking_with_connection(&connection, request)
+}
+
+fn get_search_engine_ranking_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<EngineRanking>> {
+    let display_names = load_search_engine_display_names(connection)?;
     let mut statement = connection.prepare(
         "SELECT search_engine, SUM(search_count)
          FROM engine_daily_rollups
@@ -5780,6 +5794,13 @@ pub fn get_top_search_concepts(
 ) -> Result<Vec<SearchConcept>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_top_search_concepts_with_connection(&connection, request)
+}
+
+fn get_top_search_concepts_with_connection(
+    connection: &Connection,
+    request: &TopSearchConceptsRequest,
+) -> Result<Vec<SearchConcept>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT search_event_terms.term,
@@ -6039,6 +6060,13 @@ pub fn get_query_families(
 ) -> Result<QueryFamilyResult> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_query_families_with_connection(&connection, request)
+}
+
+fn get_query_families_with_connection(
+    connection: &Connection,
+    request: &PagedDateRangeRequest,
+) -> Result<QueryFamilyResult> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let total: i64 = connection.query_row(
         "SELECT COUNT(*)
@@ -6116,6 +6144,13 @@ pub fn get_top_sites(
 ) -> Result<Vec<TopSite>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_top_sites_with_connection(&connection, request)
+}
+
+fn get_top_sites_with_connection(
+    connection: &Connection,
+    request: &TopSitesRequest,
+) -> Result<Vec<TopSite>> {
     let order_clause = match request.sort_by.as_deref() {
         Some("unique_days") => {
             "unique_days DESC, average_daily_visits DESC, registrable_domain ASC"
@@ -6200,6 +6235,13 @@ pub fn get_refind_pages(
 ) -> Result<Vec<RefindPage>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_refind_pages_with_connection(&connection, request)
+}
+
+fn get_refind_pages_with_connection(
+    connection: &Connection,
+    request: &RefindPagesRequest,
+) -> Result<Vec<RefindPage>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
@@ -7038,6 +7080,351 @@ fn update_latest_path_flow_match(
     }
 }
 
+fn build_overview_timed_section_result<R>(
+    section_id: &str,
+    window: CoreIntelligenceSectionWindow,
+    runtime: &crate::models::IntelligenceRuntimeSnapshot,
+    fetch: impl FnOnce() -> Result<R>,
+    is_empty: impl FnOnce(&R) -> bool,
+) -> Result<(CoreIntelligenceSectionResult<R>, CoreIntelligenceSectionTiming)> {
+    let started_at = Instant::now();
+    let data = fetch()?;
+    let duration_ms = started_at.elapsed().as_millis() as u64;
+    let meta = build_core_intelligence_section_meta_with_runtime(
+        section_id,
+        window,
+        is_empty(&data),
+        runtime,
+    )?;
+    Ok((
+        CoreIntelligenceSectionResult { data, meta },
+        CoreIntelligenceSectionTiming { section_id: section_id.to_string(), duration_ms },
+    ))
+}
+
+/// Builds the first-band `/intelligence` overview with one intelligence-plane
+/// connection and one runtime snapshot.
+pub fn get_intelligence_primary_overview(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<CoreIntelligencePrimaryOverview> {
+    let mut connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let runtime = load_intelligence_runtime_from_connection(&mut connection, paths, config)?;
+    build_intelligence_primary_overview_with_connection(&connection, &runtime, request)
+}
+
+fn build_intelligence_primary_overview_with_connection(
+    connection: &Connection,
+    runtime: &crate::models::IntelligenceRuntimeSnapshot,
+    request: &ScopedDateRangeRequest,
+) -> Result<CoreIntelligencePrimaryOverview> {
+    let overview_started_at = Instant::now();
+    let top_sites_request = TopSitesRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        sort_by: Some("visit_count".to_string()),
+        limit: Some(40),
+    };
+    let query_family_request = PagedDateRangeRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        page: 0,
+        page_size: 10,
+    };
+    let top_search_concepts_request = TopSearchConceptsRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        limit: Some(50),
+    };
+    let refind_pages_request = RefindPagesRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        limit: Some(5),
+    };
+    let discovery_trend_day_request = GranularityDateRangeRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        granularity: "day".to_string(),
+    };
+    let interrupted_habits_request =
+        ProfileScopedRequest { profile_id: request.profile_id.clone() };
+
+    let mut timings = Vec::new();
+    let (digest_summary, timing) = build_overview_timed_section_result(
+        "digest-summary",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_digest_summary_with_connection(connection, request),
+        |data| {
+            data.total_visits.value == 0
+                && data.total_searches.value == 0
+                && data.new_domains.value == 0
+                && data.deep_read_pages.value == 0
+                && data.refind_pages.value == 0
+        },
+    )?;
+    timings.push(timing);
+    let (on_this_day, timing) = build_overview_timed_section_result(
+        "on-this-day",
+        CoreIntelligenceSectionWindow::CalendarDayHistory {
+            reference_date: Local::now().format("%Y-%m-%d").to_string(),
+        },
+        runtime,
+        || get_on_this_day_with_connection(connection, request.profile_id.as_deref()),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (top_sites, timing) = build_overview_timed_section_result(
+        "top-sites",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_top_sites_with_connection(connection, &top_sites_request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (refind_pages, timing) = build_overview_timed_section_result(
+        "refind-pages",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_refind_pages_with_connection(connection, &refind_pages_request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (search_engine_ranking, timing) = build_overview_timed_section_result(
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_search_engine_ranking_with_connection(connection, request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (top_search_concepts, timing) = build_overview_timed_section_result(
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_top_search_concepts_with_connection(connection, &top_search_concepts_request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (query_families, timing) = build_overview_timed_section_result(
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_query_families_with_connection(connection, &query_family_request),
+        |data| data.families.is_empty(),
+    )?;
+    timings.push(timing);
+    let (activity_mix, timing) = build_overview_timed_section_result(
+        "activity-mix",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_activity_mix_with_connection(connection, request),
+        |data| data.categories.is_empty(),
+    )?;
+    timings.push(timing);
+    let (discovery_trend_day, timing) = build_overview_timed_section_result(
+        "browsing-rhythm",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_discovery_trend_with_connection(connection, &discovery_trend_day_request),
+        |data| data.points.is_empty(),
+    )?;
+    timings.push(timing);
+    let (habit_patterns, timing) = build_overview_timed_section_result(
+        "habits",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || self::phase_three::get_habit_patterns_with_connection(connection, request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (interrupted_habits, timing) = build_overview_timed_section_result(
+        "habits",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || {
+            self::phase_three::get_interrupted_habits_with_connection(
+                connection,
+                &interrupted_habits_request,
+            )
+        },
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+
+    Ok(CoreIntelligencePrimaryOverview {
+        digest_summary,
+        on_this_day,
+        top_sites,
+        refind_pages,
+        search_engine_ranking,
+        top_search_concepts,
+        query_families,
+        activity_mix,
+        discovery_trend_day,
+        habit_patterns,
+        interrupted_habits,
+        timings,
+        total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
+    })
+}
+
+/// Builds the deferred `/intelligence` overview payload with one shared
+/// intelligence connection and one runtime snapshot.
+pub fn get_intelligence_secondary_overview(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &ScopedDateRangeRequest,
+) -> Result<CoreIntelligenceSecondaryOverview> {
+    let mut connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let runtime = load_intelligence_runtime_from_connection(&mut connection, paths, config)?;
+    build_intelligence_secondary_overview_with_connection(
+        paths,
+        config,
+        key,
+        &connection,
+        &runtime,
+        request,
+    )
+}
+
+fn build_intelligence_secondary_overview_with_connection(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    connection: &Connection,
+    runtime: &crate::models::IntelligenceRuntimeSnapshot,
+    request: &ScopedDateRangeRequest,
+) -> Result<CoreIntelligenceSecondaryOverview> {
+    let overview_started_at = Instant::now();
+    let search_effectiveness_request = SearchEffectivenessRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        engine: None,
+    };
+    let discovery_trend_week_request = GranularityDateRangeRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        granularity: "week".to_string(),
+    };
+    let path_flow_request = PathFlowRequest {
+        date_range: request.date_range.clone(),
+        profile_id: request.profile_id.clone(),
+        step_count: 3,
+        limit: Some(15),
+    };
+
+    let mut timings = Vec::new();
+    let (stable_sources, timing) = build_overview_timed_section_result(
+        "stable-sources",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_stable_sources_with_connection(connection, request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (search_effectiveness, timing) = build_overview_timed_section_result(
+        "search-effectiveness",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_search_effectiveness_with_connection(connection, &search_effectiveness_request),
+        |data| {
+            data.engine_stats.is_empty()
+                && data.top_resolving_sources.is_empty()
+                && data.hardest_topics.is_empty()
+        },
+    )?;
+    timings.push(timing);
+    let (friction_signals, timing) = build_overview_timed_section_result(
+        "friction-signals",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_friction_signals_with_connection(connection, request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (reopened_investigations, timing) = build_overview_timed_section_result(
+        "reopened-investigations",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_reopened_investigations_with_connection(connection, request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (discovery_trend_week, timing) = build_overview_timed_section_result(
+        "discovery-trend",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || get_discovery_trend_with_connection(connection, &discovery_trend_week_request),
+        |data| data.points.is_empty(),
+    )?;
+    timings.push(timing);
+    let (breadth_index, timing) = build_overview_timed_section_result(
+        "breadth-index",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || self::phase_three::get_breadth_index_with_connection(connection, request),
+        |_| false,
+    )?;
+    timings.push(timing);
+    let (path_flows, timing) = build_overview_timed_section_result(
+        "path-flows",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || self::phase_three::get_path_flows_with_connection(connection, &path_flow_request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (compare_sets, timing) = build_overview_timed_section_result(
+        "compare-sets",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || self::phase_four::get_compare_sets_with_connection(connection, request),
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+    let (multi_browser_diff, timing) = build_overview_timed_section_result(
+        "multi-browser-diff",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || self::phase_four::get_multi_browser_diff_with_connection(connection, request),
+        |data| data.profiles.is_empty() && data.category_distributions.is_empty(),
+    )?;
+    timings.push(timing);
+    let (observed_interactions, timing) = build_overview_timed_section_result(
+        "observed-interactions",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        runtime,
+        || {
+            self::phase_three::get_observed_interactions_with_connection(
+                paths, config, key, connection, request,
+            )
+        },
+        |data| data.is_empty(),
+    )?;
+    timings.push(timing);
+
+    Ok(CoreIntelligenceSecondaryOverview {
+        stable_sources,
+        search_effectiveness,
+        friction_signals,
+        reopened_investigations,
+        discovery_trend_week,
+        breadth_index,
+        path_flows,
+        compare_sets,
+        multi_browser_diff,
+        observed_interactions,
+        timings,
+        total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
+    })
+}
+
 pub fn get_activity_mix(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -7046,10 +7433,17 @@ pub fn get_activity_mix(
 ) -> Result<ActivityMix> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_activity_mix_with_connection(&connection, request)
+}
+
+fn get_activity_mix_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<ActivityMix> {
     let current =
-        load_category_shares(&connection, &request.date_range, request.profile_id.as_deref())?;
+        load_category_shares(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous = load_category_shares(
-        &connection,
+        connection,
         &previous_date_range(&request.date_range)?,
         request.profile_id.as_deref(),
     )?;
@@ -7146,22 +7540,28 @@ pub fn get_digest_summary(
 ) -> Result<DigestSummary> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_digest_summary_with_connection(&connection, request)
+}
+
+fn get_digest_summary_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<DigestSummary> {
     let current =
-        load_summary_totals(&connection, &request.date_range, request.profile_id.as_deref())?;
+        load_summary_totals(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_range = previous_date_range(&request.date_range)?;
-    let previous =
-        load_summary_totals(&connection, &previous_range, request.profile_id.as_deref())?;
+    let previous = load_summary_totals(connection, &previous_range, request.profile_id.as_deref())?;
     let current_deep =
-        count_deep_dive_sessions(&connection, &request.date_range, request.profile_id.as_deref())?;
+        count_deep_dive_sessions(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_deep =
-        count_deep_dive_sessions(&connection, &previous_range, request.profile_id.as_deref())?;
+        count_deep_dive_sessions(connection, &previous_range, request.profile_id.as_deref())?;
     let current_refind = count_refind_pages_in_range(
-        &connection,
+        connection,
         &request.date_range,
         request.profile_id.as_deref(),
     )?;
     let previous_refind =
-        count_refind_pages_in_range(&connection, &previous_range, request.profile_id.as_deref())?;
+        count_refind_pages_in_range(connection, &previous_range, request.profile_id.as_deref())?;
     Ok(DigestSummary {
         date_range: request.date_range.clone(),
         total_visits: build_kpi(current.total_visits, previous.total_visits),
@@ -7180,6 +7580,13 @@ pub fn get_stable_sources(
 ) -> Result<Vec<StableSource>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_stable_sources_with_connection(&connection, request)
+}
+
+fn get_stable_sources_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<StableSource>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT registrable_domain, source_role, trail_count, stable_landing_count, effectiveness_score
@@ -7214,6 +7621,13 @@ pub fn get_search_effectiveness(
 ) -> Result<SearchEffectiveness> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_search_effectiveness_with_connection(&connection, request)
+}
+
+fn get_search_effectiveness_with_connection(
+    connection: &Connection,
+    request: &SearchEffectivenessRequest,
+) -> Result<SearchEffectiveness> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT search_engine,
@@ -7243,10 +7657,8 @@ pub fn get_search_effectiveness(
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let top_resolving_sources = get_stable_sources(
-        paths,
-        config,
-        key,
+    let top_resolving_sources = get_stable_sources_with_connection(
+        connection,
         &ScopedDateRangeRequest {
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
@@ -7290,6 +7702,13 @@ pub fn get_friction_signals(
 ) -> Result<Vec<FrictionSignal>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_friction_signals_with_connection(&connection, request)
+}
+
+fn get_friction_signals_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<FrictionSignal>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT initial_query, landing_domain, reformulation_count, visit_count
@@ -7334,6 +7753,13 @@ pub fn get_reopened_investigations(
 ) -> Result<Vec<ReopenedInvestigation>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_reopened_investigations_with_connection(&connection, request)
+}
+
+fn get_reopened_investigations_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<ReopenedInvestigation>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT investigation_id, anchor_type, anchor_id, anchor_label, occurrence_count, distinct_days,
@@ -7486,6 +7912,13 @@ pub fn get_discovery_trend(
 ) -> Result<DiscoveryTrend> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_discovery_trend_with_connection(&connection, request)
+}
+
+fn get_discovery_trend_with_connection(
+    connection: &Connection,
+    request: &GranularityDateRangeRequest,
+) -> Result<DiscoveryTrend> {
     let mut statement = connection.prepare(
         "SELECT date_key, SUM(new_domains), SUM(total_visits)
          FROM daily_summary_rollups
@@ -7552,6 +7985,13 @@ pub fn get_on_this_day(
 ) -> Result<Vec<OnThisDayEntry>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_on_this_day_with_connection(&connection, profile_id)
+}
+
+fn get_on_this_day_with_connection(
+    connection: &Connection,
+    profile_id: Option<&str>,
+) -> Result<Vec<OnThisDayEntry>> {
     let today = Local::now();
     let month_day = today.format("%m-%d").to_string();
     let current_year = today.year();
@@ -8242,17 +8682,26 @@ mod tests {
         build_refind_pages, build_source_effectiveness, build_source_effectiveness_from_database,
         build_structural_profile_aggregates_from_batches, collapse_date_key,
         ensure_core_intelligence_schema, explain_entity, get_day_insights, get_discovery_trend,
-        get_domain_deep_dive, get_intelligence_embed_cards, get_intelligence_public_snapshot,
+        get_domain_deep_dive, get_intelligence_embed_cards, get_intelligence_primary_overview,
+        get_intelligence_public_snapshot, get_intelligence_secondary_overview,
         get_intelligence_widget_snapshot, get_path_flows, get_search_queries,
         load_profile_derived_visits, load_profile_search_events, load_profile_trails,
         local_date_key, merge_stage_run_result, normalize_query, run_core_intelligence,
         run_core_intelligence_job_type_with_progress,
     };
     use crate::{
-        archive::{open_archive_connection, open_intelligence_connection},
+        archive::{
+            open_archive_connection, open_intelligence_connection,
+            open_intelligence_connection_call_count, open_intelligence_connection_call_sites,
+            reset_open_intelligence_connection_call_count,
+        },
         config::project_paths_with_root,
         intelligence_catalog::RebuildMode,
-        intelligence_runtime::{FULL_REBUILD_JOB_TYPE, ensure_intelligence_runtime_schema},
+        intelligence_runtime::{
+            FULL_REBUILD_JOB_TYPE, ensure_intelligence_runtime_schema,
+            load_intelligence_runtime_from_connection_call_count,
+            reset_load_intelligence_runtime_from_connection_call_count,
+        },
         models::{
             AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, CoreIntelligenceStageTimings,
             DateRange, DayInsightsRequest, DomainDeepDiveRequest, EntityExplanationRequest,
@@ -8311,6 +8760,98 @@ mod tests {
         assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
         assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
         assert!(has_index(&connection, "idx_search_events_profile_visit"));
+    }
+
+    #[test]
+    fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        reset_open_intelligence_connection_call_count();
+        reset_load_intelligence_runtime_from_connection_call_count();
+
+        let overview = get_intelligence_primary_overview(
+            &paths,
+            &config,
+            None,
+            &ScopedDateRangeRequest {
+                date_range: DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("primary overview");
+
+        assert_eq!(
+            open_intelligence_connection_call_count(),
+            1,
+            "{:?}",
+            open_intelligence_connection_call_sites()
+        );
+        assert_eq!(load_intelligence_runtime_from_connection_call_count(), 1);
+        assert_eq!(overview.timings.len(), 11);
+        assert_eq!(overview.digest_summary.meta.section_id, "digest-summary");
+        assert_eq!(overview.search_engine_ranking.meta.section_id, "search-activity");
+        assert!(overview.total_duration_ms >= overview.timings[0].duration_ms);
+    }
+
+    #[test]
+    fn secondary_overview_reuses_single_connection_and_runtime_snapshot() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_core_intelligence_fixture(&archive);
+        drop(archive);
+
+        run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+            .expect("full rebuild");
+
+        reset_open_intelligence_connection_call_count();
+        reset_load_intelligence_runtime_from_connection_call_count();
+
+        let overview = get_intelligence_secondary_overview(
+            &paths,
+            &config,
+            None,
+            &ScopedDateRangeRequest {
+                date_range: DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("secondary overview");
+
+        assert_eq!(
+            open_intelligence_connection_call_count(),
+            1,
+            "{:?}",
+            open_intelligence_connection_call_sites()
+        );
+        assert_eq!(load_intelligence_runtime_from_connection_call_count(), 1);
+        assert_eq!(overview.timings.len(), 10);
+        assert_eq!(overview.stable_sources.meta.section_id, "stable-sources");
+        assert_eq!(overview.path_flows.meta.section_id, "path-flows");
+        assert!(overview.total_duration_ms >= overview.timings[0].duration_ms);
     }
 
     #[test]

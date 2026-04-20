@@ -86,6 +86,10 @@ interface AsyncState<T> {
   error: string | null
 }
 
+interface AsyncDataOptions<T> {
+  getCached?: () => T | null
+}
+
 /**
  * Generic hook that wraps an async IPC call with loading/error/data state.
  *
@@ -95,45 +99,75 @@ interface AsyncState<T> {
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,
   deps: unknown[],
+  options?: AsyncDataOptions<T>,
 ): AsyncState<T> & { refresh: () => void } {
+  const readCached = useCallback(
+    () => options?.getCached?.() ?? null,
+    [options],
+  )
   const [state, setState] = useState<AsyncState<T>>({
-    data: null,
-    loading: true,
+    data: readCached(),
+    loading: readCached() === null,
     error: null,
   })
 
-  const depsRef = useRef<string>('')
+  const depsRef = useRef<string | null>(null)
   const requestIdRef = useRef(0)
+  const fetcherRef = useRef(fetcher)
   const depsJson = JSON.stringify(deps)
 
-  const fetchData = useCallback(() => {
-    const requestId = requestIdRef.current + 1
-    requestIdRef.current = requestId
-    setState((prev) => ({ ...prev, loading: true, error: null }))
-    void fetcher().then(
-      (data) => {
-        if (requestIdRef.current !== requestId) {
-          return
-        }
-        setState({ data, loading: false, error: null })
-      },
-      (err: unknown) => {
-        if (requestIdRef.current !== requestId) {
-          return
-        }
-        const message = err instanceof Error ? err.message : String(err)
-        setState((prev) => ({ ...prev, loading: false, error: message }))
-      },
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depsJson])
+  useEffect(() => {
+    fetcherRef.current = fetcher
+  }, [fetcher])
+
+  const fetchData = useCallback(
+    (preferCached = false) => {
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
+      const cached = readCached()
+      setState((prev) => ({
+        data: cached ?? (preferCached ? prev.data : null),
+        loading: cached === null,
+        error: null,
+      }))
+      void fetcherRef.current().then(
+        (data) => {
+          if (requestIdRef.current !== requestId) {
+            return
+          }
+          setState({ data, loading: false, error: null })
+        },
+        (err: unknown) => {
+          if (requestIdRef.current !== requestId) {
+            return
+          }
+          const message = err instanceof Error ? err.message : String(err)
+          setState((prev) =>
+            prev.data === null
+              ? { ...prev, loading: false, error: message }
+              : { ...prev, loading: false, error: null },
+          )
+        },
+      )
+    },
+    [readCached],
+  )
 
   useEffect(() => {
     if (depsRef.current !== depsJson) {
-      depsRef.current = depsJson
-      fetchData()
+      const preferCached = readCached() !== null
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) {
+          depsRef.current = depsJson
+          fetchData(preferCached)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
     }
-  }, [depsJson, fetchData])
+  }, [depsJson, fetchData, readCached])
 
   return { ...state, refresh: fetchData }
 }

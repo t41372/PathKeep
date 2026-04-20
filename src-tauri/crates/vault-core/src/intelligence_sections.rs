@@ -8,7 +8,10 @@
 use crate::{
     ProjectPaths,
     intelligence_runtime::load_intelligence_runtime,
-    models::{AppConfig, CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow},
+    models::{
+        AppConfig, CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow,
+        IntelligenceRuntimeSnapshot,
+    },
     utils::now_rfc3339,
 };
 use anyhow::Result;
@@ -389,6 +392,23 @@ fn build_direct_meta(
     }
 }
 
+/// Builds one section metadata payload using a caller-provided runtime
+/// snapshot instead of reloading runtime state for every module-backed section.
+pub fn build_core_intelligence_section_meta_with_runtime(
+    section_id: &str,
+    window: CoreIntelligenceSectionWindow,
+    is_empty: bool,
+    runtime: &IntelligenceRuntimeSnapshot,
+) -> Result<CoreIntelligenceSectionMeta> {
+    let descriptor = section_descriptor(section_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown Core Intelligence section '{section_id}'"))?;
+    Ok(if descriptor.module_ids.is_empty() {
+        build_direct_meta(descriptor, window, is_empty)
+    } else {
+        build_module_backed_meta(descriptor, runtime, window)
+    })
+}
+
 /// Builds one `/intelligence` section metadata payload from the section
 /// registry plus the latest runtime snapshot.
 pub fn build_core_intelligence_section_meta(
@@ -399,20 +419,15 @@ pub fn build_core_intelligence_section_meta(
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
 ) -> Result<CoreIntelligenceSectionMeta> {
-    let descriptor = section_descriptor(section_id)
-        .ok_or_else(|| anyhow::anyhow!("unknown Core Intelligence section '{section_id}'"))?;
-    Ok(if descriptor.module_ids.is_empty() {
-        build_direct_meta(descriptor, window, is_empty)
-    } else {
-        let runtime = load_intelligence_runtime(paths, config, key)?;
-        build_module_backed_meta(descriptor, &runtime, window)
-    })
+    let runtime = load_intelligence_runtime(paths, config, key)?;
+    build_core_intelligence_section_meta_with_runtime(section_id, window, is_empty, &runtime)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        CoreIntelligenceSectionDescriptor, CoreIntelligenceSectionWindow, build_direct_meta,
+        CoreIntelligenceSectionDescriptor, CoreIntelligenceSectionWindow,
+        build_core_intelligence_section_meta_with_runtime, build_direct_meta,
         build_module_backed_meta, section_descriptor,
     };
     use crate::models::{
@@ -536,5 +551,35 @@ mod tests {
                 "No supported browser-reported interaction evidence is available for this scope yet."
             )
         );
+    }
+
+    #[test]
+    fn batch_meta_builder_reuses_the_provided_runtime_snapshot() {
+        let runtime = runtime_with_modules(vec![
+            DeterministicModuleRuntimeStatus {
+                module_id: "daily-rollups".to_string(),
+                status: "ready".to_string(),
+                last_built_at: Some("2026-04-18T11:00:00Z".to_string()),
+                ..DeterministicModuleRuntimeStatus::default()
+            },
+            DeterministicModuleRuntimeStatus {
+                module_id: "search-trails".to_string(),
+                status: "ready".to_string(),
+                last_built_at: Some("2026-04-18T10:00:00Z".to_string()),
+                ..DeterministicModuleRuntimeStatus::default()
+            },
+        ]);
+
+        let meta = build_core_intelligence_section_meta_with_runtime(
+            "search-activity",
+            sample_window(),
+            false,
+            &runtime,
+        )
+        .expect("section meta");
+
+        assert_eq!(meta.state, "ready");
+        assert_eq!(meta.generated_at.as_deref(), Some("2026-04-18T10:00:00Z"));
+        assert_eq!(meta.module_ids, vec!["daily-rollups", "search-trails"]);
     }
 }

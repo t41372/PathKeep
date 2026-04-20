@@ -66,6 +66,10 @@ export function BrowsingRhythmCard({
   const trendResult = useAsyncData(
     () => api.getDiscoveryTrend(effectiveDateRange, profileId, 'day'),
     [effectiveDateRange.start, effectiveDateRange.end, mode, profileId],
+    {
+      getCached: () =>
+        api.peekDiscoveryTrend(effectiveDateRange, profileId, 'day'),
+    },
   )
   const points = useMemo(
     () => trendResult.data?.data.points ?? [],

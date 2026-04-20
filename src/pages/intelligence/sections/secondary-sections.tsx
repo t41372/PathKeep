@@ -73,6 +73,9 @@ export function StableSourcesSection({
   const { data, loading } = useAsyncData(
     () => api.getStableSources(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekStableSources(dateRange, profileId),
+    },
   )
   const sources = data?.data ?? []
   const entries = sources.filter((source) => source.sourceRole === 'entry')
@@ -199,6 +202,9 @@ export function SearchEffectivenessSection({
   const { data, loading } = useAsyncData(
     () => api.getSearchEffectiveness(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekSearchEffectiveness(dateRange, profileId),
+    },
   )
   const effectiveness = data?.data ?? null
 
@@ -383,6 +389,9 @@ export function FrictionDetectionSection({
   const { data, loading } = useAsyncData(
     () => api.getFrictionSignals(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekFrictionSignals(dateRange, profileId),
+    },
   )
   const signals = (data?.data ?? []).filter(isMeaningfulFrictionSignal)
 
@@ -472,6 +481,9 @@ export function ReopenedInvestigationsSection({
   const { data, loading } = useAsyncData(
     () => api.getReopenedInvestigations(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekReopenedInvestigations(dateRange, profileId),
+    },
   )
   const reopened = (data?.data ?? []).filter(
     isSearchBackedReopenedInvestigation,
@@ -561,6 +573,9 @@ export function DiscoveryTrendSection({
   const { data, loading } = useAsyncData(
     () => api.getDiscoveryTrend(dateRange, profileId, 'week'),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekDiscoveryTrend(dateRange, profileId, 'week'),
+    },
   )
   const trend = data?.data ?? null
   if (
@@ -649,6 +664,9 @@ export function BreadthIndexSection({
   const { data, loading } = useAsyncData(
     () => api.getBreadthIndex(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekBreadthIndex(dateRange, profileId),
+    },
   )
   const breadth = data?.data ?? null
 
@@ -747,6 +765,9 @@ export function PathFlowsSection({
   const { data, loading } = useAsyncData(
     () => api.getPathFlows(dateRange, profileId, stepCount, 15),
     [dateRange, profileId, stepCount],
+    {
+      getCached: () => api.peekPathFlows(dateRange, profileId, stepCount, 15),
+    },
   )
   const flows = (data?.data ?? []).filter(isMeaningfulPathFlow)
 
@@ -873,10 +894,16 @@ export function HabitsSection({
   const patterns = useAsyncData(
     () => api.getHabitPatterns(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekHabitPatterns(dateRange, profileId),
+    },
   )
   const interrupted = useAsyncData(
     () => api.getInterruptedHabits(profileId),
     [profileId],
+    {
+      getCached: () => api.peekInterruptedHabits(profileId),
+    },
   )
   const patternsData = patterns.data?.data ?? []
   const interruptedData = interrupted.data?.data ?? []
@@ -1072,6 +1099,9 @@ export function CompareSetsSection({
   const { data, loading } = useAsyncData(
     () => api.getCompareSets(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekCompareSets(dateRange, profileId),
+    },
   )
   const compareSets = data?.data ?? []
 
@@ -1176,6 +1206,9 @@ export function MultiBrowserDiffSection({
   const { data, loading } = useAsyncData(
     () => api.getMultiBrowserDiff(dateRange),
     [dateRange],
+    {
+      getCached: () => api.peekMultiBrowserDiff(dateRange),
+    },
   )
   const diff = data?.data ?? null
 
@@ -1379,6 +1412,9 @@ export function ObservedInteractionsSection({
   const { data, loading } = useAsyncData(
     () => api.getObservedInteractions(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekObservedInteractions(dateRange, profileId),
+    },
   )
   const observations = data?.data ?? []
 

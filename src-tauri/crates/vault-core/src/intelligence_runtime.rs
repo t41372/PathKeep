@@ -29,6 +29,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(test)]
 use serde_json::json;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(test)]
+use std::thread::{self, ThreadId};
 use std::{
     collections::HashSet,
     path::Path,
@@ -112,6 +116,11 @@ pub(crate) const LOCAL_PLUGIN_SOURCE_KIND: &str = "local";
 pub(crate) const NETWORK_PLUGIN_SOURCE_KIND: &str = "network";
 
 static RECOVERED_RUNTIME_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+#[cfg(test)]
+static LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_CALLS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_MONITOR_THREAD: OnceLock<Mutex<Option<ThreadId>>> =
+    OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EnrichmentPluginDefinition {
@@ -1028,6 +1037,34 @@ pub fn load_intelligence_runtime(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<IntelligenceRuntimeSnapshot> {
+    let mut connection = open_intelligence_connection(paths, config, key)?;
+    load_intelligence_runtime_from_connection(&mut connection, paths, config)
+}
+
+/// Loads the deterministic intelligence runtime snapshot through an existing
+/// intelligence-plane connection.
+///
+/// This helper lets overview batches reuse one attached archive / SQLite
+/// handle for both runtime metadata and section reads instead of reopening the
+/// intelligence database for each step in the same foreground request.
+pub fn load_intelligence_runtime_from_connection(
+    connection: &mut Connection,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+) -> Result<IntelligenceRuntimeSnapshot> {
+    #[cfg(test)]
+    {
+        let current_thread = thread::current().id();
+        let should_record = LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_MONITOR_THREAD
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .expect("load intelligence runtime monitor thread lock")
+            .as_ref()
+            .is_some_and(|thread_id| *thread_id == current_thread);
+        if should_record {
+            LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_CALLS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
     let mut notes = Vec::new();
     if !config.ai.enrichment_enabled {
         notes.push(
@@ -1051,17 +1088,16 @@ pub fn load_intelligence_runtime(
         });
     }
 
-    let mut connection = open_intelligence_connection(paths, config, key)?;
-    ensure_intelligence_runtime_schema(&connection)?;
+    ensure_intelligence_runtime_schema(connection)?;
     if should_recover_runtime_jobs(&paths.archive_database_path) {
-        let recovered_deterministic_jobs = recover_interrupted_deterministic_jobs(&connection)?;
+        let recovered_deterministic_jobs = recover_interrupted_deterministic_jobs(connection)?;
         if recovered_deterministic_jobs > 0 {
             notes.push(format!(
                 "Recovered {} interrupted deterministic rebuild job(s) after the previous session ended unexpectedly.",
                 recovered_deterministic_jobs
             ));
         }
-        let recovered_enrichment_jobs = requeue_running_enrichment_jobs(&connection)?;
+        let recovered_enrichment_jobs = requeue_running_enrichment_jobs(connection)?;
         if recovered_enrichment_jobs > 0 {
             notes.push(format!(
                 "Recovered {} interrupted enrichment job(s) after the previous session ended unexpectedly.",
@@ -1070,7 +1106,7 @@ pub fn load_intelligence_runtime(
         }
     }
 
-    recover_expired_intelligence_jobs(&connection)?;
+    recover_expired_intelligence_jobs(connection)?;
     let snapshot = connection.transaction()?;
     let queue = load_queue_status(&snapshot)?;
     let plugins = load_plugin_statuses(&snapshot, config)?;
@@ -1078,6 +1114,20 @@ pub fn load_intelligence_runtime(
     let recent_jobs = load_recent_jobs(&snapshot)?;
     snapshot.commit()?;
     Ok(IntelligenceRuntimeSnapshot { queue, plugins, modules, recent_jobs, notes })
+}
+
+#[cfg(test)]
+pub(crate) fn reset_load_intelligence_runtime_from_connection_call_count() {
+    LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_CALLS.store(0, Ordering::Relaxed);
+    *LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_MONITOR_THREAD
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("load intelligence runtime monitor thread lock") = Some(thread::current().id());
+}
+
+#[cfg(test)]
+pub(crate) fn load_intelligence_runtime_from_connection_call_count() -> usize {
+    LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_CALLS.load(Ordering::Relaxed)
 }
 
 /// Retries one deterministic intelligence job if its current state allows it.

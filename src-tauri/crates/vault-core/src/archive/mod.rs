@@ -19,6 +19,11 @@ mod search_projection;
 mod source_evidence;
 
 pub use self::intelligence_projection::open_intelligence_connection;
+#[cfg(test)]
+pub(crate) use self::intelligence_projection::{
+    open_intelligence_connection_call_count, open_intelligence_connection_call_sites,
+    reset_open_intelligence_connection_call_count,
+};
 use self::read_models::{decode_profile_scope, directory_size, file_size};
 pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;

@@ -14,18 +14,53 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+#[cfg(test)]
+use std::panic::Location;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock};
+#[cfg(test)]
+use std::thread::{self, ThreadId};
 use std::time::Duration as StdDuration;
 
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
+#[cfg(test)]
+static OPEN_INTELLIGENCE_CONNECTION_CALLS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static OPEN_INTELLIGENCE_CONNECTION_CALL_SITES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+#[cfg(test)]
+static OPEN_INTELLIGENCE_CONNECTION_MONITOR_THREAD: OnceLock<Mutex<Option<ThreadId>>> =
+    OnceLock::new();
+
 /// Opens the rebuildable intelligence SQLite plane and attaches the canonical
 /// archive for direct read access.
+#[track_caller]
 pub fn open_intelligence_connection(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<Connection> {
+    #[cfg(test)]
+    {
+        let current_thread = thread::current().id();
+        let should_record = OPEN_INTELLIGENCE_CONNECTION_MONITOR_THREAD
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .expect("open intelligence connection monitor thread lock")
+            .as_ref()
+            .is_some_and(|thread_id| *thread_id == current_thread);
+        if should_record {
+            OPEN_INTELLIGENCE_CONNECTION_CALLS.fetch_add(1, Ordering::Relaxed);
+            OPEN_INTELLIGENCE_CONNECTION_CALL_SITES
+                .get_or_init(|| Mutex::new(Vec::new()))
+                .lock()
+                .expect("open intelligence connection call sites lock")
+                .push(Location::caller().to_string());
+        }
+    }
     ensure_paths(paths)?;
     let connection = Connection::open(&paths.intelligence_database_path)
         .with_context(|| format!("opening {}", paths.intelligence_database_path.display()))?;
@@ -44,6 +79,34 @@ pub fn open_intelligence_connection(
     ensure_core_intelligence_schema(&connection)?;
     ensure_intelligence_runtime_schema(&connection)?;
     Ok(connection)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_open_intelligence_connection_call_count() {
+    OPEN_INTELLIGENCE_CONNECTION_CALLS.store(0, Ordering::Relaxed);
+    *OPEN_INTELLIGENCE_CONNECTION_MONITOR_THREAD
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("open intelligence connection monitor thread lock") = Some(thread::current().id());
+    OPEN_INTELLIGENCE_CONNECTION_CALL_SITES
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .expect("open intelligence connection call sites lock")
+        .clear();
+}
+
+#[cfg(test)]
+pub(crate) fn open_intelligence_connection_call_count() -> usize {
+    OPEN_INTELLIGENCE_CONNECTION_CALLS.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+pub(crate) fn open_intelligence_connection_call_sites() -> Vec<String> {
+    OPEN_INTELLIGENCE_CONNECTION_CALL_SITES
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .expect("open intelligence connection call sites lock")
+        .clone()
 }
 
 fn attach_archive_database(

@@ -26,7 +26,7 @@ use chrono::Local;
 use serde_json::json;
 use std::{
     sync::{Arc, atomic::AtomicUsize},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use vault_core::{
     ActivityMix, ActivityMixTrend, AiAssistantRequest, AiAssistantResponse, AiIndexReport,
@@ -36,23 +36,22 @@ use vault_core::{
     CompareSet, CompareSetDetail, CompareSetDetailRequest, CoreIntelligencePrimaryOverview,
     CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
     CoreIntelligenceSecondaryOverview, CoreIntelligenceSectionResult,
-    CoreIntelligenceSectionTiming, CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest,
-    DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
-    DomainTrendRequest, EngineRanking, EntityExplanationRequest, Explanation, FrictionSignal,
-    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceEmbedCardPayload,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview,
-    IntelligenceLocalHostRequest, IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot,
-    IntelligenceWidgetSnapshot, InterruptedHabit, NavigationPath, ObservedInteraction,
-    OnThisDayEntry, PagedDateRangeRequest, PathFlow, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetail, QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation, RefindPage,
-    RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest, ReopenedInvestigation,
-    RhythmHeatmap, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
-    SearchEffectivenessRequest, SearchEngineRule, SearchEngineRuleInput, SearchQueryListRequest,
-    SearchQueryListResult, SearchTrailQueryRequest, SessionDetail, SessionListResult, StableSource,
-    TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult, ai_queue,
-    answer_history_question_with_control, build_ai_index_with_control,
-    build_core_intelligence_section_meta, cancel_intelligence_job, execute_enrichment_job_by_id,
-    intelligence, intelligence_job_stop_requested,
+    CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest, DigestSummary, DiscoveryTrend,
+    DomainDeepDive, DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
+    EntityExplanationRequest, Explanation, FrictionSignal, GranularityDateRangeRequest,
+    HabitPattern, HubPage, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
+    IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview, IntelligenceLocalHostRequest,
+    IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot, IntelligenceWidgetSnapshot,
+    InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
+    PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetail, QueryFamilyDetailRequest,
+    QueryFamilyResult, RefindExplanation, RefindPage, RefindPageDetail, RefindPageDetailRequest,
+    RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
+    SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchEngineRule,
+    SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult, SearchTrailQueryRequest,
+    SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
+    TopSitesRequest, TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
+    build_ai_index_with_control, build_core_intelligence_section_meta, cancel_intelligence_job,
+    execute_enrichment_job_by_id, intelligence, intelligence_job_stop_requested,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         claim_core_intelligence_job, enqueue_deterministic_rebuild_job,
@@ -752,32 +751,6 @@ fn with_core_intelligence_section<R>(
     })
 }
 
-fn build_timed_section_result<R>(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    section_id: &str,
-    window: CoreIntelligenceSectionWindow,
-    fetch: impl FnOnce() -> Result<R>,
-    is_empty: impl FnOnce(&R) -> bool,
-) -> Result<(CoreIntelligenceSectionResult<R>, CoreIntelligenceSectionTiming)> {
-    let started_at = Instant::now();
-    let data = fetch()?;
-    let duration_ms = started_at.elapsed().as_millis() as u64;
-    let meta = build_core_intelligence_section_meta(
-        paths,
-        config,
-        session_database_key,
-        section_id,
-        window,
-        is_empty(&data),
-    )?;
-    Ok((
-        CoreIntelligenceSectionResult { data, meta },
-        CoreIntelligenceSectionTiming { section_id: section_id.to_string(), duration_ms },
-    ))
-}
-
 /// Runs a Core Intelligence rebuild immediately.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn run_core_intelligence_now(
@@ -1060,221 +1033,12 @@ pub fn get_intelligence_primary_overview(
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligencePrimaryOverview> {
     with_core_intelligence(session_database_key, |paths, config| {
-        let overview_started_at = Instant::now();
-        let top_sites_request = TopSitesRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            sort_by: Some("visit_count".to_string()),
-            limit: Some(40),
-        };
-        let query_family_request = PagedDateRangeRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            page: 0,
-            page_size: 10,
-        };
-        let top_search_concepts_request = TopSearchConceptsRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            limit: Some(50),
-        };
-        let refind_pages_request = RefindPagesRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            limit: Some(5),
-        };
-        let discovery_trend_day_request = GranularityDateRangeRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            granularity: "day".to_string(),
-        };
-        let interrupted_habits_request =
-            ProfileScopedRequest { profile_id: request.profile_id.clone() };
-
-        let mut timings = Vec::new();
-        let (digest_summary, timing) = build_timed_section_result(
+        intelligence::get_intelligence_primary_overview(
             paths,
             config,
             session_database_key,
-            "digest-summary",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_digest_summary(paths, config, session_database_key, request),
-            |data| {
-                data.total_visits.value == 0
-                    && data.total_searches.value == 0
-                    && data.new_domains.value == 0
-                    && data.deep_read_pages.value == 0
-                    && data.refind_pages.value == 0
-            },
-        )?;
-        timings.push(timing);
-        let (on_this_day, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "on-this-day",
-            CoreIntelligenceSectionWindow::CalendarDayHistory {
-                reference_date: Local::now().format("%Y-%m-%d").to_string(),
-            },
-            || {
-                intelligence::get_on_this_day(
-                    paths,
-                    config,
-                    session_database_key,
-                    request.profile_id.as_deref(),
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (top_sites, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "top-sites",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_top_sites(paths, config, session_database_key, &top_sites_request),
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (refind_pages, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "refind-pages",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_refind_pages(
-                    paths,
-                    config,
-                    session_database_key,
-                    &refind_pages_request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (search_engine_ranking, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "search-activity",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_search_engine_ranking(
-                    paths,
-                    config,
-                    session_database_key,
-                    request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (top_search_concepts, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "search-activity",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_top_search_concepts(
-                    paths,
-                    config,
-                    session_database_key,
-                    &top_search_concepts_request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (query_families, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "search-activity",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_query_families(
-                    paths,
-                    config,
-                    session_database_key,
-                    &query_family_request,
-                )
-            },
-            |data| data.families.is_empty(),
-        )?;
-        timings.push(timing);
-        let (activity_mix, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "activity-mix",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_activity_mix(paths, config, session_database_key, request),
-            |data| data.categories.is_empty(),
-        )?;
-        timings.push(timing);
-        let (discovery_trend_day, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "browsing-rhythm",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_discovery_trend(
-                    paths,
-                    config,
-                    session_database_key,
-                    &discovery_trend_day_request,
-                )
-            },
-            |data| data.points.is_empty(),
-        )?;
-        timings.push(timing);
-        let (habit_patterns, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "habits",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_habit_patterns(paths, config, session_database_key, request),
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (interrupted_habits, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "habits",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_interrupted_habits(
-                    paths,
-                    config,
-                    session_database_key,
-                    &interrupted_habits_request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-
-        Ok(CoreIntelligencePrimaryOverview {
-            digest_summary,
-            on_this_day,
-            top_sites,
-            refind_pages,
-            search_engine_ranking,
-            top_search_concepts,
-            query_families,
-            activity_mix,
-            discovery_trend_day,
-            habit_patterns,
-            interrupted_habits,
-            total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
-            timings,
-        })
+            request,
+        )
     })
 }
 
@@ -1790,179 +1554,12 @@ pub fn get_intelligence_secondary_overview(
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligenceSecondaryOverview> {
     with_core_intelligence(session_database_key, |paths, config| {
-        let overview_started_at = Instant::now();
-        let search_effectiveness_request = SearchEffectivenessRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            engine: None,
-        };
-        let discovery_trend_week_request = GranularityDateRangeRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            granularity: "week".to_string(),
-        };
-        let path_flow_request = PathFlowRequest {
-            date_range: request.date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            step_count: 3,
-            limit: Some(15),
-        };
-
-        let mut timings = Vec::new();
-        let (stable_sources, timing) = build_timed_section_result(
+        intelligence::get_intelligence_secondary_overview(
             paths,
             config,
             session_database_key,
-            "stable-sources",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_stable_sources(paths, config, session_database_key, request),
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (search_effectiveness, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "search-effectiveness",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_search_effectiveness(
-                    paths,
-                    config,
-                    session_database_key,
-                    &search_effectiveness_request,
-                )
-            },
-            |data| {
-                data.engine_stats.is_empty()
-                    && data.top_resolving_sources.is_empty()
-                    && data.hardest_topics.is_empty()
-            },
-        )?;
-        timings.push(timing);
-        let (friction_signals, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "friction-signals",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_friction_signals(paths, config, session_database_key, request),
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (reopened_investigations, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "reopened-investigations",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_reopened_investigations(
-                    paths,
-                    config,
-                    session_database_key,
-                    request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (discovery_trend_week, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "discovery-trend",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_discovery_trend(
-                    paths,
-                    config,
-                    session_database_key,
-                    &discovery_trend_week_request,
-                )
-            },
-            |data| data.points.is_empty(),
-        )?;
-        timings.push(timing);
-        let (breadth_index, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "breadth-index",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_breadth_index(paths, config, session_database_key, request),
-            |_| false,
-        )?;
-        timings.push(timing);
-        let (path_flows, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "path-flows",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_path_flows(
-                    paths,
-                    config,
-                    session_database_key,
-                    &path_flow_request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (compare_sets, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "compare-sets",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_compare_sets(paths, config, session_database_key, request),
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-        let (multi_browser_diff, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "multi-browser-diff",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || intelligence::get_multi_browser_diff(paths, config, session_database_key, request),
-            |data| data.profiles.is_empty() && data.category_distributions.is_empty(),
-        )?;
-        timings.push(timing);
-        let (observed_interactions, timing) = build_timed_section_result(
-            paths,
-            config,
-            session_database_key,
-            "observed-interactions",
-            CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-            || {
-                intelligence::get_observed_interactions(
-                    paths,
-                    config,
-                    session_database_key,
-                    request,
-                )
-            },
-            |data| data.is_empty(),
-        )?;
-        timings.push(timing);
-
-        Ok(CoreIntelligenceSecondaryOverview {
-            stable_sources,
-            search_effectiveness,
-            friction_signals,
-            reopened_investigations,
-            discovery_trend_week,
-            breadth_index,
-            path_flows,
-            compare_sets,
-            multi_browser_diff,
-            observed_interactions,
-            total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
-            timings,
-        })
+            request,
+        )
     })
 }
 

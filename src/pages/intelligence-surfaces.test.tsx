@@ -3560,6 +3560,134 @@ describe('intelligence surfaces', () => {
     )
   })
 
+  test('prewarms search-activity hidden tabs after first paint instead of waiting for a click', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockResolvedValue(
+      wrapSection('digest-summary', {
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        totalVisits: { value: 180, trend: 'flat' as const },
+        totalSearches: { value: 24, trend: 'flat' as const },
+        newDomains: { value: 8, trend: 'flat' as const },
+        deepReadPages: { value: 12, trend: 'flat' as const },
+        refindPages: { value: 4, trend: 'flat' as const },
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection('top-sites', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    const queriesSpy = vi
+      .spyOn(coreIntelligenceApi, 'getSearchQueries')
+      .mockResolvedValue(
+        wrapSection('search-activity', {
+          page: 0,
+          pageSize: 20,
+          total: 0,
+          rows: [],
+        }),
+      )
+    const familiesSpy = vi
+      .spyOn(coreIntelligenceApi, 'getQueryFamilies')
+      .mockResolvedValue(
+        wrapSection('query-families', {
+          page: 0,
+          pageSize: 10,
+          total: 0,
+          families: [],
+        }),
+      )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+      wrapSection('discovery-trend', { points: [], availableYears: [2026] }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 0,
+        hhi: 0,
+        concentrationDomainCount: 0,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habit-patterns', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('interrupted-habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      route: '/intelligence',
+      snapshot,
+    })
+
+    await screen.findByRole('heading', { name: 'Search Activity' })
+    expect(screen.getByRole('tab', { name: 'Engine Ranking' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByRole('tab', { name: 'Recent Queries' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+
+    await waitFor(() => expect(queriesSpy).toHaveBeenCalled(), {
+      timeout: 3000,
+    })
+    await waitFor(() => expect(familiesSpy).toHaveBeenCalled(), {
+      timeout: 3000,
+    })
+  })
+
   test('renders grouped storage analytics in the intelligence health tail', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')

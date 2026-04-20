@@ -22,6 +22,9 @@ describe('core intelligence api', () => {
   beforeEach(() => {
     callMock.mockReset()
     callMock.mockResolvedValue({})
+    return import('./api').then(({ clearIntelligenceOverviewCache }) => {
+      clearIntelligenceOverviewCache()
+    })
   })
 
   test('requests embed cards through the backend payload-provider command', async () => {
@@ -243,6 +246,221 @@ describe('core intelligence api', () => {
         profileId: 'chrome:Default',
       },
     })
+  })
+
+  test('dedupes inflight primary-overview reads and seeds first-band section cache', async () => {
+    const { getDigestSummary, loadIntelligencePrimaryOverview } =
+      await import('./api')
+
+    callMock.mockResolvedValueOnce({
+      digestSummary: {
+        data: {
+          dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          totalVisits: { value: 42, trend: 'flat' },
+          totalSearches: { value: 7, trend: 'flat' },
+          newDomains: { value: 3, trend: 'flat' },
+          deepReadPages: { value: 2, trend: 'flat' },
+          refindPages: { value: 1, trend: 'flat' },
+        },
+        meta: {
+          sectionId: 'digest-summary',
+          generatedAt: '2026-04-18T12:00:00Z',
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['daily-rollups'],
+          sourceTables: ['daily_summary_rollups'],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      onThisDay: {
+        data: [],
+        meta: {
+          sectionId: 'on-this-day',
+          generatedAt: null,
+          window: { kind: 'calendar-day-history', referenceDate: '2026-04-18' },
+          moduleIds: [],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      topSites: {
+        data: [],
+        meta: {
+          sectionId: 'top-sites',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['daily-rollups'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      refindPages: {
+        data: [],
+        meta: {
+          sectionId: 'refind-pages',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['refind-pages'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      searchEngineRanking: {
+        data: [],
+        meta: {
+          sectionId: 'search-activity',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['daily-rollups'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      topSearchConcepts: {
+        data: [],
+        meta: {
+          sectionId: 'search-activity',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['search-trails'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      queryFamilies: {
+        data: { page: 0, pageSize: 10, total: 0, families: [] },
+        meta: {
+          sectionId: 'search-activity',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['search-trails'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      activityMix: {
+        data: { categories: [], changeVsPrevious: [] },
+        meta: {
+          sectionId: 'activity-mix',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['activity-mix'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      discoveryTrendDay: {
+        data: { points: [], availableYears: [2026] },
+        meta: {
+          sectionId: 'browsing-rhythm',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['daily-rollups'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      habitPatterns: {
+        data: [],
+        meta: {
+          sectionId: 'habits',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['domain-deep-dive'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      interruptedHabits: {
+        data: [],
+        meta: {
+          sectionId: 'habits',
+          generatedAt: null,
+          window: {
+            kind: 'date-range',
+            dateRange: { start: '2026-04-01', end: '2026-04-30' },
+          },
+          moduleIds: ['domain-deep-dive'],
+          sourceTables: [],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      },
+      timings: [{ sectionId: 'digest-summary', durationMs: 4 }],
+      totalDurationMs: 12,
+    })
+
+    const request = { start: '2026-04-01', end: '2026-04-30' } as const
+    const [first, second] = await Promise.all([
+      loadIntelligencePrimaryOverview(request, 'chrome:Default'),
+      loadIntelligencePrimaryOverview(request, 'chrome:Default'),
+    ])
+
+    expect(callMock).toHaveBeenCalledTimes(1)
+    expect(first.digestSummary.data.totalVisits.value).toBe(42)
+    expect(second.digestSummary.data.totalVisits.value).toBe(42)
+
+    const digest = await getDigestSummary(request, 'chrome:Default')
+    expect(callMock).toHaveBeenCalledTimes(1)
+    expect(digest.data.totalVisits.value).toBe(42)
   })
 
   test('requests search-query history through the shared section command', async () => {

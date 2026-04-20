@@ -24,6 +24,68 @@ export function invokeRequest<
   return call<TResponse>(command, { request })
 }
 
+const readRequestCache = new Map<string, unknown>()
+const inflightReadRequests = new Map<string, Promise<unknown>>()
+
+function readRequestKey(command: string, args: Record<string, unknown>) {
+  return JSON.stringify({
+    command,
+    args,
+  })
+}
+
+export function peekCachedReadResult<T>(
+  command: string,
+  args: Record<string, unknown>,
+): T | null {
+  return (
+    (readRequestCache.get(readRequestKey(command, args)) as T | undefined) ??
+    null
+  )
+}
+
+export function writeCachedReadResult<T>(
+  command: string,
+  args: Record<string, unknown>,
+  value: T,
+) {
+  readRequestCache.set(readRequestKey(command, args), value)
+}
+
+export function invokeCachedRead<T>(
+  command: string,
+  args: Record<string, unknown>,
+  transform: (result: unknown) => T,
+  options?: { force?: boolean },
+): Promise<T> {
+  const key = readRequestKey(command, args)
+  const inflight = inflightReadRequests.get(key) as Promise<T> | undefined
+  if (inflight) {
+    return inflight
+  }
+
+  if (!options?.force) {
+    const cached = readRequestCache.get(key) as T | undefined
+    if (cached !== undefined) {
+      return Promise.resolve(cached)
+    }
+  }
+
+  const next = call<unknown>(command, args)
+    .then((result) => {
+      const normalized = transform(result)
+      readRequestCache.set(key, normalized)
+      return normalized
+    })
+    .finally(() => {
+      if (inflightReadRequests.get(key) === next) {
+        inflightReadRequests.delete(key)
+      }
+    })
+  inflightReadRequests.set(key, next)
+  return next
+}
+
 function directSectionFallback(
   sectionId: string,
   window: CoreIntelligenceSectionWindow,
@@ -429,10 +491,19 @@ export function invokeSectionRequest<
   request: TRequest,
   sectionId: string,
   window: CoreIntelligenceSectionWindow,
+  options?: { force?: boolean },
 ) {
-  return call<CoreIntelligenceSectionResult<TResponse> | TResponse>(command, {
-    request,
-  }).then((result) => normalizeSectionResult(sectionId, window, result))
+  return invokeCachedRead<CoreIntelligenceSectionResult<TResponse>>(
+    command,
+    { request },
+    (result) =>
+      normalizeSectionResult<TResponse>(
+        sectionId,
+        window,
+        result as CoreIntelligenceSectionResult<TResponse> | TResponse,
+      ),
+    options,
+  )
 }
 
 export function invokeSectionArgs<TResponse>(
@@ -440,13 +511,23 @@ export function invokeSectionArgs<TResponse>(
   args: Record<string, unknown>,
   sectionId: string,
   window: CoreIntelligenceSectionWindow,
+  options?: { force?: boolean },
 ) {
-  return call<CoreIntelligenceSectionResult<TResponse> | TResponse>(
+  return invokeCachedRead<CoreIntelligenceSectionResult<TResponse>>(
     command,
     args,
-  ).then((result) => normalizeSectionResult(sectionId, window, result))
+    (result) =>
+      normalizeSectionResult<TResponse>(
+        sectionId,
+        window,
+        result as CoreIntelligenceSectionResult<TResponse> | TResponse,
+      ),
+    options,
+  )
 }
 
 export function clearOverviewCache() {
   overviewCache.clear()
+  readRequestCache.clear()
+  inflightReadRequests.clear()
 }

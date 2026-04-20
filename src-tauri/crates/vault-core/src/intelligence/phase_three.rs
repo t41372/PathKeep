@@ -32,6 +32,13 @@ pub fn get_breadth_index(
 ) -> Result<BreadthIndex> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_breadth_index_with_connection(&connection, request)
+}
+
+pub(crate) fn get_breadth_index_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<BreadthIndex> {
     let mut statement = connection.prepare(
         "SELECT registrable_domain, SUM(visit_count) AS total_visits
          FROM domain_daily_rollups
@@ -91,6 +98,13 @@ pub fn get_habit_patterns(
 ) -> Result<Vec<HabitPattern>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_habit_patterns_with_connection(&connection, request)
+}
+
+pub(crate) fn get_habit_patterns_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<HabitPattern>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT visit_derived_facts.registrable_domain, visits.visit_time_ms
@@ -136,6 +150,13 @@ pub fn get_interrupted_habits(
 ) -> Result<Vec<InterruptedHabit>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_interrupted_habits_with_connection(&connection, request)
+}
+
+pub(crate) fn get_interrupted_habits_with_connection(
+    connection: &Connection,
+    request: &ProfileScopedRequest,
+) -> Result<Vec<InterruptedHabit>> {
     let mut statement = connection.prepare(
         "SELECT registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms
          FROM habit_patterns
@@ -177,6 +198,13 @@ pub fn get_path_flows(
 ) -> Result<Vec<PathFlow>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_path_flows_with_connection(&connection, request)
+}
+
+pub(crate) fn get_path_flows_with_connection(
+    connection: &Connection,
+    request: &PathFlowRequest,
+) -> Result<Vec<PathFlow>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let step_count = request.step_count.clamp(2, 4) as usize;
     let limit = request.limit.unwrap_or(20).max(1) as usize;
@@ -250,13 +278,19 @@ pub fn get_observed_interactions(
 ) -> Result<Vec<ObservedInteraction>> {
     let archive = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&archive)?;
+    get_observed_interactions_with_connection(paths, config, key, &archive, request)
+}
+
+pub(crate) fn get_observed_interactions_with_connection(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    archive: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<ObservedInteraction>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let visits = load_observed_interaction_visits(
-        &archive,
-        request.profile_id.as_deref(),
-        start_ms,
-        end_ms,
-    )?;
+    let visits =
+        load_observed_interaction_visits(archive, request.profile_id.as_deref(), start_ms, end_ms)?;
     if visits.is_empty() {
         return Ok(Vec::new());
     }

@@ -89,7 +89,9 @@ export function useStagedIntelligenceOverview(
     const nextCachedState = createOverviewState(nextDateRange, profileId)
     const nextScopeKey = nextCachedState.scopeKey
 
-    void loadIntelligencePrimaryOverview(nextDateRange, profileId)
+    void loadIntelligencePrimaryOverview(nextDateRange, profileId, {
+      force: nextCachedState.primaryReady,
+    })
       .then(() => {
         if (cancelled) return
         setState((current) => ({
@@ -111,7 +113,9 @@ export function useStagedIntelligenceOverview(
                 : nextCachedState),
               secondaryLoading: true,
             }))
-            void loadIntelligenceSecondaryOverview(nextDateRange, profileId)
+            void loadIntelligenceSecondaryOverview(nextDateRange, profileId, {
+              force: nextCachedState.secondaryReady,
+            })
               .then(() => {
                 if (cancelled) return
                 setState((current) => ({

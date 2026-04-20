@@ -287,6 +287,9 @@ function DigestSection({
   const { data, loading, error } = useAsyncData(
     () => api.getDigestSummary(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekDigestSummary(dateRange, profileId),
+    },
   )
   const digest = data?.data ?? null
 
@@ -364,6 +367,9 @@ function TopSitesSection({
   const { data, loading } = useAsyncData(
     () => api.getTopSites(dateRange, profileId, sortBy, 20),
     [dateRange, profileId, sortBy],
+    {
+      getCached: () => api.peekTopSites(dateRange, profileId, sortBy, 20),
+    },
   )
   const sites = data?.data ?? []
 
@@ -480,6 +486,9 @@ function RefindPagesSection({
   const { data, loading } = useAsyncData(
     () => api.getRefindPages(dateRange, profileId, 5),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekRefindPages(dateRange, profileId, 5),
+    },
   )
   const pages = data?.data ?? []
 

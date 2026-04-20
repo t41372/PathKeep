@@ -12,7 +12,7 @@
  * - `ActivityMixSection`
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { QueryFamilyCard } from '../../../components/intelligence/query-family-card'
@@ -32,6 +32,30 @@ import { evidenceHref } from '../../../lib/intelligence'
 import { intelligenceCategoryLabel } from '../copy'
 import { IntelligenceSectionBody } from './section-body'
 import { firstSectionMeta, formatNumber, type T } from './shared'
+
+function scheduleIdlePrefetch(callback: () => void) {
+  if (typeof window === 'undefined') {
+    return () => {}
+  }
+
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (
+      cb: IdleRequestCallback,
+      options?: IdleRequestOptions,
+    ) => number
+    cancelIdleCallback?: (handle: number) => void
+  }
+
+  if (typeof idleWindow.requestIdleCallback === 'function') {
+    const handle = idleWindow.requestIdleCallback(() => callback(), {
+      timeout: 1200,
+    })
+    return () => idleWindow.cancelIdleCallback?.(handle)
+  }
+
+  const handle = window.setTimeout(callback, 160)
+  return () => window.clearTimeout(handle)
+}
 
 export function SearchActivitySection({
   dateRange,
@@ -56,12 +80,31 @@ export function SearchActivitySection({
   const engines = useAsyncData(
     () => api.getSearchEngineRanking(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekSearchEngineRanking(dateRange, profileId),
+    },
   )
   const concepts = useAsyncData(
     () => api.getTopSearchConcepts(dateRange, profileId, 50),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekTopSearchConcepts(dateRange, profileId, 50),
+    },
   )
   const meta = firstSectionMeta(engines.data, concepts.data)
+
+  useEffect(() => {
+    return scheduleIdlePrefetch(() => {
+      void api.getSearchQueries(dateRange, {
+        profileId,
+        pagination: { page: 0, pageSize: 20 },
+      })
+      void api.getQueryFamilies(dateRange, profileId, {
+        page: 0,
+        pageSize: 10,
+      })
+    })
+  }, [dateRange, profileId])
 
   return (
     <section className="intelligence-section search-activity-section">
@@ -256,6 +299,16 @@ function RecentQueriesPanel({
         pagination: { page: 0, pageSize: loadSegments * 20 },
       }),
     [dateRange, engine, loadSegments, profileId, query, sort],
+    {
+      getCached: () =>
+        api.peekSearchQueries(dateRange, {
+          profileId,
+          engine: engine || undefined,
+          query: query || undefined,
+          sort,
+          pagination: { page: 0, pageSize: loadSegments * 20 },
+        }),
+    },
   )
 
   if (loading && !data) {
@@ -452,6 +505,10 @@ function QueryFamiliesPanel({
   const { data, loading, error } = useAsyncData(
     () => api.getQueryFamilies(dateRange, profileId, { page: 0, pageSize: 10 }),
     [dateRange, profileId],
+    {
+      getCached: () =>
+        api.peekQueryFamilies(dateRange, profileId, { page: 0, pageSize: 10 }),
+    },
   )
   const families = data?.data.families ?? []
 
@@ -512,10 +569,17 @@ export function ActivityMixSection({
   const mixResult = useAsyncData(
     () => api.getActivityMix(dateRange, profileId),
     [dateRange, profileId],
+    {
+      getCached: () => api.peekActivityMix(dateRange, profileId),
+    },
   )
   const topSitesResult = useAsyncData(
     () => api.getTopSites(dateRange, profileId, 'visit_count', 40),
     [dateRange, profileId],
+    {
+      getCached: () =>
+        api.peekTopSites(dateRange, profileId, 'visit_count', 40),
+    },
   )
   const mix = mixResult.data?.data ?? null
   const examplesByCategory = new Map<string, TopSite[]>()

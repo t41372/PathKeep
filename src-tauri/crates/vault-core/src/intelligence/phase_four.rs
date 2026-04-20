@@ -26,7 +26,14 @@ pub fn get_compare_sets(
 ) -> Result<Vec<CompareSet>> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
-    let rows = load_compare_trail_members(&connection, request, None)?;
+    get_compare_sets_with_connection(&connection, request)
+}
+
+pub(crate) fn get_compare_sets_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<Vec<CompareSet>> {
+    let rows = load_compare_trail_members(connection, request, None)?;
 
     let mut members_by_trail = HashMap::<String, Vec<CompareTrailMember>>::new();
     for member in rows {
@@ -85,10 +92,16 @@ pub fn get_multi_browser_diff(
 ) -> Result<BrowserDiff> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
+    get_multi_browser_diff_with_connection(&connection, request)
+}
 
-    let profiles = load_browser_profile_summaries(&connection, request)?;
-    let domain_counts = load_profile_domain_counts(&connection, request)?;
-    let category_distributions = load_category_distributions(&connection, request)?;
+pub(crate) fn get_multi_browser_diff_with_connection(
+    connection: &Connection,
+    request: &ScopedDateRangeRequest,
+) -> Result<BrowserDiff> {
+    let profiles = load_browser_profile_summaries(connection, request)?;
+    let domain_counts = load_profile_domain_counts(connection, request)?;
+    let category_distributions = load_category_distributions(connection, request)?;
 
     let mut exclusive_domains = Vec::new();
     let mut shared_domains = Vec::new();
