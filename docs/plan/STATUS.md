@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M9 — Cross-App Reuse Audit And Shared Composition**
+**當前 Milestone：M10 — Workbench Reuse And Transport Hygiene**
 
 ---
 
@@ -20,44 +20,30 @@
 > 2026-04-19 M6 closeout：`WORK-M6-A` 已完成。`day` 與 `domain` 現在都已升格成 first-class shared insights entity：新增 `/intelligence/day/:date`、保留但正式升格 `/intelligence/domain/:domain`、shared href grammar、`Insight Access` strip，以及 Dashboard / Intelligence / Explorer 的 route-first entry。下一輪 active current-focus 改成 `WORK-M7-A`，用來全面盤點其餘仍然 consumer-local 的 intelligence entity reuse。
 > 2026-04-19 M7 closeout：`WORK-M7-A` 已完成。repo 現在正式有 generic `InsightEntityTarget` / href contract、shared entity CTA chrome、以及 `/intelligence/query-family/:familyId`、`/intelligence/refind/:canonicalUrl`、`/intelligence/session/:sessionId`、`/intelligence/trail/:trailId` 四條 first-class shared insights route；`reopened investigation`、`habit/stable source/friction/multi-browser diff`、`compare set` 與 Settings external-output chips 也已收斂到 shared destination。下一輪 active current-focus 改成 `WORK-M8-A`，專門處理 path-flow stable identity、compare-set full detail、context focus 與更多 reusable entity IDs。
 > 2026-04-19 M8 closeout：`WORK-M8-A` 已完成。repo 現在正式有 `/intelligence/compare-set/:compareSetId`、shared `focusType` / `focusId` query grammar、typed `path flow` identity、以及 trusted external-output payload 的 structured entity targets；`public snapshot` 仍維持 redacted。下一輪 active current-focus 改成 `WORK-M9-A` / `WORK-M9-B`，全面盤點剩餘 consumer-local composition 與 shared extraction 機會。
+> 2026-04-19 M9 closeout：`WORK-M9-A` 與 `WORK-M9-B` 已完成。repo 現在正式有 shared route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 inline-end section-meta header chrome；`證據與新鮮度` badge 不再佔整行或吃滿整個 card header。下一輪 active current-focus 改成 `WORK-M10-A` / `WORK-M10-B`，專門處理仍未抽出的 workbench/review rows 與 route / desktop glue decomposition。
 
-- [ ] **WORK-M9-A** — Remaining Reuse Inventory And Single-Source Map
+- [ ] **WORK-M10-A** — Shared Review Rows And Workbench Surface Reuse
   - 讀先：
+    `docs/plan/m10-workbench-reuse/README.md`
     `docs/plan/m9-cross-app-reuse/README.md`
-    `docs/plan/m8-aggregate-entity-identity/README.md`
-    `docs/design/intelligence-aggregate-entity-focus-tradeoff.md`
+    `docs/design/intelligence-shared-route-composition-tradeoff.md`
     `docs/features/intelligence-current-state.md`
     `docs/features/core-intelligence-ultimate-design.md`
     `docs/design/screens-and-nav.md`
-  - 目標：掃描整個 app 內仍然存在的 consumer-local composition、duplicated helper / read-model glue、以及跨 Dashboard / Intelligence / Explorer / Settings 的 shared review chrome 漂移，建立 single-source map。
-  - 契約：不得推翻 M6–M8 已接受的 entity-first / focus / trusted-output 邊界；這一輪先做 inventory、抽象邊界與 source-of-truth 收斂，不把它擴成新的分析算法里程碑。凡是新的 deferred gap，都要改記 `TODO: M9` 或 `TODO: M10`，並在 docs / status / code TODO 間保持可追蹤。
+  - 目標：收斂仍然 consumer-local 的 workbench / review row composition，優先處理 `refind` summary/detail、Explorer detail/session/trail row，以及 richer Settings review chrome 的重複造輪子。
+  - 契約：不得推翻 M6–M9 已接受的 entity-first / focus / trusted-output / shared-composition 邊界；本輪重點是 reusable workbench surface，不是新的 route grammar 或大型視覺重設。凡是新的 deferred gap，都要改記後續 milestone，且在 docs / status / code TODO 間保持可追蹤。
   - 驗收：`bun run check && bun run build`
 
-- [ ] **WORK-M9-B** — Shared Digest / CTA / Evidence Composition Extraction
+- [ ] **WORK-M10-B** — Intelligence Route And Desktop Glue Decomposition
   - 讀先：
-    `docs/plan/m9-cross-app-reuse/README.md`
+    `docs/plan/m10-workbench-reuse/README.md`
+    `docs/design/intelligence-shared-route-composition-tradeoff.md`
     `docs/design/screens-and-nav.md`
     `docs/features/intelligence-current-state.md`
     `docs/features/core-intelligence-ultimate-design.md`
-    `docs/design/ui-review-guardrails.md`
-  - 目標：根據 `WORK-M9-A` 的 inventory，把至少一輪高價值 shared composition（例如 digest/meta rows、CTA hierarchy、evidence/focus review chrome、target-link derivation）從多個 consumer 中正式抽離，降低 drift 與重複造輪子。
-  - 契約：只抽明確跨 consumer 重複且能降低 drift 風險的 composition；不得為了抽象而引入新的 global state、又或重新把 route / focus contract page-local 化。
-  - 驗收：`bun run check && bun run build`
-
-- [x] **WORK-M8-A** — Aggregate Entity Identity And Context Reuse
-  - 讀先：
-    `docs/plan/m8-aggregate-entity-identity/README.md`
-    `docs/plan/m7-reuse-audit/README.md`
-    `docs/design/intelligence-generic-entity-navigation-tradeoff.md`
-    `docs/features/intelligence-current-state.md`
-    `docs/features/core-intelligence-ultimate-design.md`
-    `docs/design/screens-and-nav.md`
-  - 目標：補齊 M7 故意 deferred 的 aggregate entity identity、context focus 與 reusable payload id 缺口，避免 shared destination 仍靠 best-effort parsing 或 page-local state 維持。
-  - 契約：不得推翻 M6/M7 已接受的 `Insights first` / entity-first route baseline；本輪重點是 identity / context reuse，不是再擴一輪大型新 feature 或重開 consumer-local deep-link。凡是剩餘的 deferred reuse gap，都要改用 `TODO: M8` 並在 docs / status / code TODO 之間保持可追蹤對應。
-  - 2026-04-19：新增 [`docs/design/intelligence-aggregate-entity-focus-tradeoff.md`](../design/intelligence-aggregate-entity-focus-tradeoff.md)，正式接受 compare-set promotion、shared `focusType` / `focusId` query grammar、path-flow typed identity，以及 trusted external-output structured targets；同時新增 [`docs/plan/m9-cross-app-reuse/README.md`](m9-cross-app-reuse/README.md)，把下一輪 reuse inventory / extraction 立項。
-  - 更新 [`src-tauri/crates/vault-core/src/models/core_intelligence.rs`](../../src-tauri/crates/vault-core/src/models/core_intelligence.rs)、[`src-tauri/crates/vault-core/src/intelligence/{mod.rs,phase_three.rs,phase_four.rs}`](../../src-tauri/crates/vault-core/src/intelligence/mod.rs)、[`src-tauri/crates/vault-core/src/intelligence_catalog.rs`](../../src-tauri/crates/vault-core/src/intelligence_catalog.rs)、[`src-tauri/crates/vault-worker/src/{intelligence.rs,lib.rs}`](../../src-tauri/crates/vault-worker/src/intelligence.rs)、[`src-tauri/src/{commands/intelligence.rs,worker_bridge/intelligence.rs,dev_ipc_bridge.rs,lib.rs}`](../../src-tauri/src/commands/intelligence.rs) 與 [`src/lib/core-intelligence/{types.ts,api.ts,routes.ts}`](../../src/lib/core-intelligence/types.ts)，補齊 `CompareSetDetail` / `get_compare_set_detail`、`InsightEntityReference`、trusted payload structured targets、`flowId` / typed path-flow steps，以及對應的 desktop command / worker / TS contract。
-  - 更新 [`src/lib/intelligence.ts`](../../src/lib/intelligence.ts)、[`src/pages/intelligence/{index.tsx,route-state.ts,day-insights.tsx,domain-deep-dive.tsx,promoted-entity-routes.tsx}`](../../src/pages/intelligence/index.tsx)、[`src/pages/intelligence/sections{.tsx,/secondary-sections.tsx}`](../../src/pages/intelligence/sections.tsx)、[`src/app/router.tsx`](../../src/app/router.tsx)、[`src/pages/settings/external-outputs-panel.tsx`](../../src/pages/settings/external-outputs-panel.tsx)、[`src/components/intelligence/explainability-panel.tsx`](../../src/components/intelligence/explainability-panel.tsx)、[`src/lib/i18n/catalog.ts`](../../src/lib/i18n/catalog.ts) 與 [`src/lib/backend.ts`](../../src/lib/backend.ts)，正式落地 compare-set route、focus-aware trail/day/domain highlighting、path-flow focus chips、structured `Open insights` links，以及 compare-set explainability / i18n surface。
-  - 擴寫 [`src/lib/intelligence.test.ts`](../../src/lib/intelligence.test.ts)、[`src/lib/core-intelligence/{api.test.ts,routes.test.ts}`](../../src/lib/core-intelligence/api.test.ts) 與 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)，覆蓋 compare-set href / route、focus query grammar、path-flow typed steps、structured target links，以及 compare-set context highlighting；本輪驗收通過 `bun run check` 與 `bun run build`。
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：盤點 intelligence route files、Tauri command / worker bridge / TS invoke wrapper 仍存在的重複 glue，決定哪些值得正式拆分與去重，哪些只留 inventory。
+  - 契約：不得把 M10-B 擴成大規模 desktop contract rewrite；只處理 ownership 清晰、能降低 drift 或 mega-file 壓力的 split。route grammar、payload shape 與 accepted transport boundary 不得因為「想簡化」就被改寫。
   - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup

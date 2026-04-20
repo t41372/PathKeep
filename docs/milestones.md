@@ -116,3 +116,12 @@
 - 延續 M6–M8 已接受的 entity-first / focus / trusted-output 邊界，不回退成 consumer-local state
 
 📋 詳細待辦 → [plan/m9-cross-app-reuse/README.md](plan/m9-cross-app-reuse/README.md)
+
+## M10 — Workbench Reuse And Transport Hygiene
+
+- 收斂仍然 consumer-local 的 workbench / review row composition，尤其 `refind`、Explorer detail/session/trail 與 richer Settings review surfaces
+- 決定哪些 intelligence route / desktop glue 值得正式拆分，哪些只保留 inventory 而不重構
+- 清理 M9 留下的 `TODO: M10`，避免 reusable UI 與 transport hygiene 再度混在同一輪裡
+- 延續 M9 的 route-level shared composition baseline，不回退成各頁各自拼 CTA / review chrome
+
+📋 詳細待辦 → [plan/m10-workbench-reuse/README.md](plan/m10-workbench-reuse/README.md)

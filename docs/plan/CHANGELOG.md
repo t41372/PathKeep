@@ -598,3 +598,33 @@
   - 擴寫 [`src/lib/intelligence.test.ts`](../../src/lib/intelligence.test.ts)、[`src/lib/core-intelligence/{api.test.ts,routes.test.ts}`](../../src/lib/core-intelligence/api.test.ts) 與 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)，覆蓋 compare-set href / route、focus query grammar、path-flow typed steps、structured target links，以及 compare-set context highlighting。
   - 同步回寫 [`docs/design/intelligence-generic-entity-navigation-tradeoff.md`](../design/intelligence-generic-entity-navigation-tradeoff.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/plan/README.md`](README.md)、[`docs/milestones.md`](../milestones.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/BACKLOG.md`](BACKLOG.md)，把 M8 accepted truth 與 M9 seed plan 寫回 source-of-truth。
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M9-A** — Remaining Reuse Inventory And Single-Source Map
+  - 讀先：
+    `docs/plan/m9-cross-app-reuse/README.md`
+    `docs/plan/m8-aggregate-entity-identity/README.md`
+    `docs/design/intelligence-aggregate-entity-focus-tradeoff.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：掃描整個 app 內仍然存在的 consumer-local composition、duplicated helper / read-model glue、以及跨 Dashboard / Intelligence / Explorer / Settings 的 shared review chrome 漂移，建立 single-source map。
+  - 契約：不得推翻 M6–M8 已接受的 entity-first / focus / trusted-output 邊界；這一輪先做 inventory、抽象邊界與 source-of-truth 收斂，不把它擴成新的分析算法里程碑。凡是新的 deferred gap，都要改記 `TODO: M9` 或 `TODO: M10`，並在 docs / status / code TODO 間保持可追蹤。
+  - 2026-04-19：新增 [`docs/design/intelligence-shared-route-composition-tradeoff.md`](../design/intelligence-shared-route-composition-tradeoff.md)，正式接受「M9 先抽 route-level shared composition，不擴成 backend transport refactor」的邊界；同時新增 [`docs/plan/m10-workbench-reuse/README.md`](m10-workbench-reuse/README.md)，把下一輪 workbench reuse / glue decomposition seed 正式立項。
+  - 同步回寫 [`docs/plan/m9-cross-app-reuse/README.md`](m9-cross-app-reuse/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/design/ui-review-guardrails.md`](../design/ui-review-guardrails.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)、[`docs/milestones.md`](../milestones.md) 與 [`docs/plan/README.md`](README.md)，把 shared composition inventory、section-meta header chrome 與 M10 邊界寫回 source-of-truth。
+  - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M9-B** — Shared Digest / CTA / Evidence Composition Extraction
+  - 讀先：
+    `docs/plan/m9-cross-app-reuse/README.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/core-intelligence-ultimate-design.md`
+    `docs/design/ui-review-guardrails.md`
+  - 目標：根據 `WORK-M9-A` 的 inventory，把至少一輪高價值 shared composition（例如 digest/meta rows、CTA hierarchy、evidence/focus review chrome、target-link derivation）從多個 consumer 中正式抽離，降低 drift 與重複造輪子。
+  - 契約：只抽明確跨 consumer 重複且能降低 drift 風險的 composition；不得為了抽象而引入新的 global state、又或重新把 route / focus contract page-local 化。
+  - 2026-04-19：新增 [`src/components/intelligence/{metric-grid.tsx,query-family-card.tsx,compare-set-page-list.tsx}`](../../src/components/intelligence/metric-grid.tsx) 與 [`src/lib/intelligence.ts`](../../src/lib/intelligence.ts) 的 structured target label helper，正式收斂 route-level metric strip、`query-family-card`、compare-set page list、以及 trusted output target label 的 shared primitive。
+  - 更新 [`src/pages/intelligence/{sections.tsx,day-insights.tsx,promoted-entity-routes.tsx}`](../../src/pages/intelligence/sections.tsx)、[`src/pages/intelligence/sections/{search-and-activity-section.tsx,secondary-sections.tsx}`](../../src/pages/intelligence/sections/search-and-activity-section.tsx)、[`src/pages/settings/external-outputs-panel.tsx`](../../src/pages/settings/external-outputs-panel.tsx) 與 [`src/pages/intelligence/intelligence.css`](../../src/pages/intelligence/intelligence.css)，讓 overview / promoted routes / Settings 都改吃 shared composition；`證據與新鮮度` badge 也回到 inline-end header chrome，hover 命中區不再吃滿整個 card header。
+  - 擴寫 [`src/lib/intelligence.test.ts`](../../src/lib/intelligence.test.ts) 與 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)，覆蓋 structured target labels、Settings external-output chips，以及 route-level shared composition adoption；本輪驗收通過 `bun run check` 與 `bun run build`。
+  - 新增 `TODO: M10` 追蹤：[`src/pages/intelligence/sections.tsx`](../../src/pages/intelligence/sections.tsx) 與 [`src/pages/intelligence/day-insights.tsx`](../../src/pages/intelligence/day-insights.tsx) 現在都明確標記 `refind` summary/detail chrome 留待下一輪 workbench reuse 收斂。
+  - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/README.md`](README.md)，把 M9 closeout 與 M10 active current-focus 寫回 planning tracking。
+  - 驗收：`bun run check`、`bun run build`
