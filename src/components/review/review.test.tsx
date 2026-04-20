@@ -3,9 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import {
+  copyReviewValue,
   GeneratedArtifactViewer,
   PmeTabBar,
   ReviewCodePreview,
+  ReviewPathActionRow,
   ReviewTargetLinksRow,
   VerifyCheckList,
 } from '.'
@@ -99,6 +101,70 @@ describe('shared review primitives', () => {
     expect(onOpenPath).toHaveBeenCalledWith('/tmp/b.txt')
     await user.click(screen.getByRole('button', { name: 'Copy path' }))
     expect(onCopy).toHaveBeenCalledWith('path:b.txt', '/tmp/b.txt')
+  })
+
+  test('copies review values through the shared clipboard helper', async () => {
+    const writeText = vi.fn(async () => undefined)
+    const originalClipboard = navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    const onFeedback = vi.fn()
+
+    try {
+      await expect(
+        copyReviewValue('/tmp/pathkeep', {
+          key: 'settings:app-root',
+          onFeedback,
+        }),
+      ).resolves.toBe('success')
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard,
+      })
+    }
+
+    expect(writeText).toHaveBeenCalledWith('/tmp/pathkeep')
+    expect(onFeedback).toHaveBeenCalledWith({
+      key: 'settings:app-root',
+      tone: 'success',
+    })
+  })
+
+  test('renders shared path-action rows with open/copy chrome and feedback', async () => {
+    const user = userEvent.setup()
+    const onCopy = vi.fn()
+    const onOpenPath = vi.fn()
+
+    render(
+      <ReviewPathActionRow
+        copyFeedback={{ key: 'settings:app-root', tone: 'success' }}
+        copyKey="settings:app-root"
+        copyLabel="Copy"
+        errorMessage="Copy failed"
+        label="App root"
+        onCopy={onCopy}
+        onOpenPath={onOpenPath}
+        openPathLabel="Open path"
+        secondaryAction={<button type="button">Open audit</button>}
+        status="Shared support actions stay reviewable."
+        successMessage="Copied"
+        value="/tmp/pathkeep"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Open path' }))
+    expect(onOpenPath).toHaveBeenCalledWith('/tmp/pathkeep')
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(onCopy).toHaveBeenCalledWith('settings:app-root', '/tmp/pathkeep')
+    expect(screen.getByText('Open audit')).toBeVisible()
+    expect(
+      screen.getByText('Shared support actions stay reviewable.'),
+    ).toBeVisible()
+    expect(screen.getByText('Copied')).toBeVisible()
   })
 
   test('renders verify-result rows as shared review sections', () => {
