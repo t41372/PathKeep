@@ -1,170 +1,195 @@
-[![CI](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/ci.yml/badge.svg)](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/ci.yml)
-[![Release](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/release.yml/badge.svg)](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/release.yml)
-[![Mutation](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/mutation.yml/badge.svg)](https://github.com/t41372/BrowserHistoryBackup/actions/workflows/mutation.yml)
-[![Latest release](https://img.shields.io/github/v/release/t41372/BrowserHistoryBackup?display_name=tag)](https://github.com/t41372/BrowserHistoryBackup/releases)
+[![CI](https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg)](https://github.com/t41372/PathKeep/actions/workflows/ci.yml)
+[![Release](https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg)](https://github.com/t41372/PathKeep/actions/workflows/release.yml)
+[![Mutation](https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg)](https://github.com/t41372/PathKeep/actions/workflows/mutation.yml)
+[![Latest release](https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag)](https://github.com/t41372/PathKeep/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-1f6feb.svg)](./LICENSE)
 
 # PathKeep
 
-PathKeep is a local-first desktop app for long-term, auditable browser history archiving. It is built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun, and it treats every high-risk action as a reviewable flow instead of a background black box.
+**Keep the path you've walked.**
 
-The app keeps canonical history facts, rollback state, audit artifacts, scheduler previews, remote backup bundles, and optional AI-derived state separate. That separation is what makes Preview / Manual / Execute possible across backup, import, scheduling, security, and remote backup.
+<!-- TODO: add screenshot to docs/assets/ and uncomment:
+![PathKeep screenshot](./docs/assets/screenshot.png)
+-->
 
-## Product Boundaries
+PathKeep is a local-first desktop app for long-term browser history archiving and intelligence. Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun. Supports Chrome, Chromium-based browsers, Safari, Firefox, and more on macOS, Windows, and Linux.
 
-- Local-first by default. Archive data stays on the machine unless the user explicitly configures remote backup.
-- Intelligence is optional. Search, backup, import, rollback, export, audit, and recovery still work without any AI provider.
-- Recoverability beats convenience. Remote backup, re-key, rollback, and derived-state rebuild all keep the user-facing boundary honest.
-- Hidden telemetry is a non-goal. Any frontend analytics must stay explicit opt-in, coarse, metadata-only, and first-party.
+---
 
-## Release Status
+## Why PathKeep
 
-- `WORK-M4-B` release-readiness closeout is complete: release docs, troubleshooting docs, platform validation runbooks, support diagnostics guidance, and release workflow preflight are now in repo.
-- macOS is the primary release target and has a documented signing / notarization path in CI.
-- Windows and Linux release artifacts are built in CI and covered by the validation runbook, but both remain explicit preview channels until maintainers wire platform signing choices for their own credentials and distribution policy.
-- App Lock remains a session-only boundary. macOS now ships truthful Touch ID unlock for the current session, while Windows / Linux still show honest unsupported states instead of fake parity.
-- Settings also includes a manual update-check surface with release availability, release notes, install progress, and restart controls backed by Tauri's updater contract.
+Chrome keeps your browser history locally for only 90 days (or 18 months if synced with Google). Edge does the same. Safari defaults to a year. Many other browsers follow similar patterns — your browsing data expires on their schedule, not yours.
 
-## What Ships Today
+Browser history is not just something that can be thrown away. It's how we think, how we learn, how we get information, how we entertain, and how we live on the internet. For many of us, a significant chunk of our life plays out online. We should be able to keep our own history forever, and get insights out of it. We should own our data without having to live under the rule set of the browsers.
 
-### Archive, Audit, And Trust
+Browsers record **a lot** of information from your browsing history. If Google can analyze your browser history, you should be able to do it too — on your own machine, with full transparency.
 
-- Incremental browser-history backup through staged database copies rather than live reads.
-- Append-only archive ledger with rollback-aware visibility and audit artifacts kept outside the archive DB.
-- Google Takeout preview, import, revert, restore, and doctor / repair flows.
-- Plaintext and encrypted archive modes, plus re-key preview / execute review surfaces.
-- Native scheduler preview for macOS `launchd`, Windows Task Scheduler XML, and Linux `systemd --user`.
+---
 
-### Recall And Intelligence
+## What It Does
 
-- Keyword, regex, semantic, and hybrid recall surfaces with honest fallback when AI is disabled or unavailable.
-- Optional provider configuration for LLM and embedding backends.
-- Insight cards, topic / thread views, storage analytics, and evidence deep-links back into Explorer.
-- Remote backup PME with bundle preview, upload, and checksum / restore-readiness verification.
+PathKeep is organized around three functional pillars, built in order of priority:
 
-### Platform And Support Surfaces
+```
+┌─────────────────────────────────────────────────────┐
+│               INTELLIGENCE                          │
+│   Core insights · Semantic search · AI assistant   │
+├─────────────────────────────────────────────────────┤
+│               RECALL                                │
+│   Full-text search · Timeline · Filters · Export   │
+├─────────────────────────────────────────────────────┤
+│               ARCHIVE                               │
+│   Incremental backup · Schedule · Security ·        │
+│   Import · Audit · Encryption                      │
+└─────────────────────────────────────────────────────┘
+```
 
-- Settings page exposes the app data root, archive database path, audit repository path, app version, and git short SHA.
-- Platform troubleshooting callouts exist for Safari Full Disk Access, scheduler mismatch / manual review, and keyring degradation.
-- User-facing support docs, troubleshooting guidance, and issue templates are bundled in-repo instead of living only in chat or tribal knowledge.
+### Archive
 
-## Browser Support Today
+The foundation. Everything else depends on a trustworthy archive.
 
-PathKeep separates implemented adapters from publicly validated support so the README only promises the browser paths that are currently backed by local validation evidence.
+- **Incremental backup** — staged database copies (never reads live browser DBs), append-only archive, automatic deduplication
+- **Multi-browser discovery** — auto-detects installed browsers and profiles; you choose which to back up
+- **Scheduled backups** — native scheduler support for macOS (`launchd`), Windows (Task Scheduler), and Linux (`systemd --user`)
+- **Google Takeout import** — preview, import, revert, restore, and repair flows with full dry-run
+- **Encryption** — plaintext or SQLCipher-encrypted archive, with re-key preview and audit trail
+- **Audit ledger** — every backup, import, rollback, and restore leaves an immutable run record with manifests and artifacts forming a hash chain
+- **Rollback** — any write operation is reversible; user-visible facts use soft-hide visibility, not destructive delete
 
-- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
-- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
-- `Adapter candidates`: browsers that are not yet wired into discovery, parser selection, and canonical archive ingest.
+### Recall
+
+Finding what you've seen before, across years of history.
+
+- **Full-text search** — FTS5-powered keyword search across URLs, titles, and search terms
+- **Regex search** — optional regex mode for advanced pattern matching, post-filtered on canonical results
+- **Interactive timeline** — year → month → day drill-down with density visualization and virtual scrolling for millions of records
+- **Composite filters** — by browser, profile, domain, time range, page type, visit source, or import batch
+- **Export** — filtered result sets exportable to HTML, Markdown, plain text, or JSONL
+
+### Intelligence
+
+Understanding your browsing patterns, built on top of a solid archive. **All AI features are off by default** — PathKeep works fully without any AI provider.
+
+- **Deterministic insights** — browsing rhythm calendar heatmap, search activity, domain deep-dive, sessions, search trails, query families, refind pages, activity mix, and periodic summaries — all computed from archive facts, no AI required
+- **Semantic search** — embedding-based vector similarity via LanceDB sidecar and rig.rs, with honest fallback to keyword recall when unavailable
+- **AI assistant** — ask questions about your browsing history in natural language; agentic RAG retrieval with evidence citations
+- **MCP server** — expose your history to external AI tools (Cursor, Copilot, Gemini CLI, etc.) via a localhost-only Model Context Protocol server
+- **Insight cards** — topic timelines, task/thread detection, browsing rhythm, explore-vs-exploit patterns, source effectiveness, and contrastive summaries
+- **Remote backup** — Preview → Manual → Execute flow for S3-compatible remote bundles, with checksum and restore-readiness verification
+
+---
+
+## Browser Support
+
+PathKeep separates implemented adapters from publicly validated support. The README only promises what has been independently verified.
+
+| Status | Browsers |
+| ------ | -------- |
+| **Validated** | Google Chrome; Safari (macOS, requires Full Disk Access) |
+| **Implemented** | Chromium, Microsoft Edge, Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox |
+
+Implemented browsers appear in discovery and archive data but are not yet in the public support promise. See the [adapter playbook](./docs/architecture/browser-support-and-adapter-playbook.md) for the promotion gate.
+
+---
 
 ## Platform Support
 
-| Platform | Channel | Notes                                                                                                                           |
-| -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| macOS    | Primary | Signed / notarized path is documented for release CI; Safari baseline support still depends on Full Disk Access.                |
-| Windows  | Preview | MSI / NSIS artifacts build in CI; SmartScreen reputation and code signing remain maintainer-operated.                           |
-| Linux    | Preview | AppImage / `.deb` / `.rpm` build when packaging dependencies are present; keyring behavior still varies by desktop environment. |
+| Platform | Status | Notes |
+| -------- | ------ | ----- |
+| macOS | Primary | Signed / notarized builds; Touch ID session unlock; Safari support requires Full Disk Access |
+| Windows | Preview | MSI / NSIS builds available; code signing is maintainer-operated |
+| Linux | Preview | AppImage / `.deb` / `.rpm` builds available; keyring behavior varies by desktop environment |
 
-## Build From Source
+---
+
+## Tech Stack
+
+| Layer | Choice | Why |
+| ----- | ------ | --- |
+| Desktop framework | Tauri 2 | Cross-platform, Rust core, lightweight |
+| Core logic | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform |
+| Browser parsing | `browser-history-parser` (standalone Rust crate) | Reusable, community-publishable parser |
+| Frontend | React 19 + TypeScript + Vite | Modern, type-safe |
+| Toolchain | Bun | Package management and scripts |
+| Canonical storage | SQLite (optional SQLCipher encryption) | 20-year durability, local-first |
+| Full-text search | SQLite FTS5 | Core recall, no external service |
+| Vector / semantic | LanceDB sidecar + rig.rs | Embedded, Rust-native, disk-based ANN index |
+| AI inference | Local (Ollama / LM Studio) or cloud API | Optional, user-configured |
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- Bun
+- [Bun](https://bun.sh)
 - Rust `1.94.1` with `clippy`, `rustfmt`, and `llvm-tools-preview`
 - Git
-- Tauri 2 platform prerequisites: [Tauri distribute docs](https://v2.tauri.app/distribute/)
+- [Tauri 2 platform prerequisites](https://v2.tauri.app/distribute/)
 
-Linux development on Debian or Ubuntu currently uses:
+Linux (Debian / Ubuntu) development packages:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  pkg-config \
-  libglib2.0-dev \
-  libgtk-3-dev \
-  libwebkit2gtk-4.1-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev \
-  patchelf \
-  rpm
+  pkg-config libglib2.0-dev libgtk-3-dev \
+  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev patchelf rpm
 ```
 
-Install dependencies:
+### Install & Run
 
 ```bash
 bun install
+bun run dev              # Browser-only Vite preview (127.0.0.1:1420)
+bun run desktop:dev      # Full Tauri desktop app
 ```
 
-Run the browser preview shell:
+### Build
 
 ```bash
-bun run dev
+bun run build            # TypeScript + Vite bundle
+bun run desktop:build    # Release desktop bundle
 ```
 
-Run the full desktop app:
+---
+
+## Quality & Testing
 
 ```bash
-bun run desktop:dev
+bun run check            # All mainline quality gates
+bun run build            # TypeScript + Vite bundle
+bun run test:unit        # Vitest unit tests
+bun run test:e2e         # Playwright end-to-end tests
+bun run coverage:js      # JS coverage gate
+bun run coverage:rust    # Rust coverage gate
 ```
 
-Build the current host bundle:
+For the full gate matrix, deep checks, and release signoff commands, see [TESTING.md](./TESTING.md).
 
-```bash
-bun run desktop:build
-```
+---
 
-Build the debug desktop binary:
+## Documentation
 
-```bash
-bun run desktop:build:debug
-```
+| What you need | Where to look |
+| ------------- | ------------- |
+| Contributor workflow | [CONTRIBUTING.md](./CONTRIBUTING.md) |
+| Local environment and repo layout | [DEVELOPMENT.md](./DEVELOPMENT.md) |
+| Test surfaces and command matrix | [TESTING.md](./TESTING.md) |
+| Release runbook and artifact matrix | [RELEASE.md](./RELEASE.md) |
+| User-facing troubleshooting | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
+| Support and bug-report expectations | [SUPPORT.md](./SUPPORT.md) |
+| Browser support and adapter promotion | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
+| Product vision, features, and design | [docs/](./docs/) |
 
-## Quality Gates
-
-Mainline checks:
-
-- `bun run check`
-- `bun run coverage:js`
-- `bun run coverage:rust`
-- `bun run build`
-- `bun run test:e2e`
-
-Release / deep checks:
-
-- `bun run verify`
-- `bun run mutation:js`
-- `bun run mutation:rust`
-- `bun run mutation:rust:full` (exploratory whole-workspace Rust sweep)
-
-Current recovery-mode note: mutation scripts remain available, but they are temporarily out of the default `check` / `verify` path until the current product-recovery wave is complete.
-
-`bun run mutation:rust` currently protects the honest Rust mutation contract: `browser-history-parser` plus the `vault-core/src/ai.rs` status/helper slice. The desktop-contract slice inside `bun run check` only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`; it is not a blanket signoff for every route or component. See [TESTING.md](./TESTING.md) for the honest boundary.
-
-## Docs Map
-
-| Need                                        | Read                                                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Contributor workflow                        | [CONTRIBUTING.md](./CONTRIBUTING.md)                                                                                     |
-| Local environment and repo layout           | [DEVELOPMENT.md](./DEVELOPMENT.md)                                                                                       |
-| Test surfaces and command matrix            | [TESTING.md](./TESTING.md)                                                                                               |
-| Release runbook and artifact matrix         | [RELEASE.md](./RELEASE.md)                                                                                               |
-| User troubleshooting and diagnostics        | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)                                                                               |
-| Support and bug-report expectations         | [SUPPORT.md](./SUPPORT.md)                                                                                               |
-| Browser support truth and adapter promotion | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
-| Product, feature, and milestone source docs | [docs/](./docs/)                                                                                                         |
-
-## Repository Layout
-
-- [`src`](./src): React + TypeScript desktop UI, preview fixtures, and UI tests.
-- [`src-tauri`](./src-tauri): Tauri shell plus the Rust workspace.
-- [`src-tauri/crates/vault-core`](./src-tauri/crates/vault-core): archive engine, remote backup, indexing, insights, and audit behavior.
-- [`src-tauri/crates/vault-platform`](./src-tauri/crates/vault-platform): scheduler artifacts and platform adapters.
-- [`src-tauri/crates/vault-worker`](./src-tauri/crates/vault-worker): shared orchestration for GUI, worker CLI, and MCP mode.
-- [`docs/plan/m4-full-polish/release-readiness-runbook.md`](./docs/plan/m4-full-polish/release-readiness-runbook.md): internal release-readiness and platform validation source of truth.
+---
 
 ## Contributing
 
-PathKeep uses Conventional Commits, colocated tests, and doc-first updates for product or platform changes. Start with [CONTRIBUTING.md](./CONTRIBUTING.md); release and support changes must also keep [RELEASE.md](./RELEASE.md), [TROUBLESHOOTING.md](./TROUBLESHOOTING.md), and the matching `docs/` source docs in sync.
+PathKeep uses Conventional Commits, colocated tests, and doc-first updates. Start with [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+---
 
 ## License
 
-PathKeep is licensed under the [GNU General Public License v3.0](./LICENSE).
+[GNU General Public License v3.0](./LICENSE)
