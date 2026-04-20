@@ -180,13 +180,15 @@ export function DataRow({
 }
 
 // ---------------------------------------------------------------------------
-// PathRow — path display with open/copy actions
+// PathRow — legacy path display with open/copy actions
 // ---------------------------------------------------------------------------
 
 /**
  * Explains how path row works.
  *
- * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
+ * TODO: M13 - Retire this fallback once no route relies on the old shell-level
+ * path row. M12 moves the canonical support-action grammar to
+ * `src/components/review/`, so this component should not grow new consumers.
  */
 export function PathRow({
   label,

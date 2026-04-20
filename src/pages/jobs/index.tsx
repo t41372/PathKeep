@@ -738,6 +738,10 @@ export function JobsPage() {
           <p>{jobsT('runtimeHealthBody')}</p>
         </div>
 
+        {/* TODO: M13 - These plugin/module summary rows still use a Jobs-local
+            runtime-health layout. Only extract them once the broader support /
+            trust / workflow reuse audit proves the same grammar would also pay
+            off in Settings and other non-Jobs consumers. */}
         <div className="jobs-summary-grid">
           <div className="panel">
             <div className="panel-header">

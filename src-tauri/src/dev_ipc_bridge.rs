@@ -832,7 +832,7 @@ async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
-        // TODO: M12 - Revisit this dev-only intelligence mirror only if the
+        // TODO: M13 - Revisit this dev-only intelligence mirror only if the
         // next transport parity audit proves a shared manifest or generation
         // layer would reduce real maintenance cost.
         "get_browsing_rhythm" => {

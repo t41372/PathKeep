@@ -103,14 +103,14 @@ M11 已把 neutral review primitive 推到 Settings / Schedule / Audit / Jobs，
 
 ### 4.1 canonical owner map
 
-| 契約 / 能力 | canonical owner | M12 結論 |
-| --- | --- | --- |
-| neutral review shell | `src/components/review/` | 維持 M11 結論 |
-| shared clipboard feedback + action status | `src/components/review/` | M12 正式升格 |
-| labeled path/support row | `src/components/review/` | M12 正式升格 |
-| `PathRow` | `src/components/ui.tsx` | 不再作為 active owner；後續只保留 compatibility / fallback 角色，必要時再退休 |
-| dev IPC mirror parity | `src-tauri/src/dev_ipc_bridge.rs` | 只做 inventory |
-| worker / `vault-worker` pass-through debt | `src-tauri/src/worker_bridge/intelligence.rs`、`src-tauri/crates/vault-worker/src/intelligence.rs` | 只做 inventory |
+| 契約 / 能力                               | canonical owner                                                                                    | M12 結論                                                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| neutral review shell                      | `src/components/review/`                                                                           | 維持 M11 結論                                                                 |
+| shared clipboard feedback + action status | `src/components/review/`                                                                           | M12 正式升格                                                                  |
+| labeled path/support row                  | `src/components/review/`                                                                           | M12 正式升格                                                                  |
+| `PathRow`                                 | `src/components/ui.tsx`                                                                            | 不再作為 active owner；後續只保留 compatibility / fallback 角色，必要時再退休 |
+| dev IPC mirror parity                     | `src-tauri/src/dev_ipc_bridge.rs`                                                                  | 只做 inventory                                                                |
+| worker / `vault-worker` pass-through debt | `src-tauri/src/worker_bridge/intelligence.rs`、`src-tauri/crates/vault-worker/src/intelligence.rs` | 只做 inventory                                                                |
 
 ### 4.2 M12-B 優先採用範圍
 

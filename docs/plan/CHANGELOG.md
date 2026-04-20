@@ -691,3 +691,32 @@
   - 新增 [`src/components/review/review.test.tsx`](../../src/components/review/review.test.tsx) 並維持 [`src/pages/intelligence-surfaces.test.tsx`](../../src/pages/intelligence-surfaces.test.tsx)、[`src/pages/trust-flows.test.tsx`](../../src/pages/trust-flows.test.tsx) 與 [`src/lib/intelligence.test.ts`](../../src/lib/intelligence.test.ts) 綠燈，覆蓋 code preview、target links、generated artifact viewer、verify rows、PME tabs，以及受影響的 Settings / Schedule / Audit / Jobs surface。
   - 同步回寫 [`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m11-app-wide-reuse/README.md`](m11-app-wide-reuse/README.md)、[`docs/plan/{STATUS.md,BACKLOG.md,README.md}`](STATUS.md)，把 M11 closeout 與 M12 active current-focus 寫回 source-of-truth。
   - 驗收：`bun run check`、`bun run build`
+
+- [x] **WORK-M12-A** — Shared Support Actions And Diagnostics Inventory
+  - 讀先：
+    `docs/plan/m12-support-actions-and-diagnostics/README.md`
+    `docs/plan/m11-app-wide-reuse/README.md`
+    `docs/design/app-wide-review-grammar-tradeoff.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/intelligence-current-state.md`
+  - 目標：盤點全 app 還未進 shared review grammar 的 support actions、diagnostics rows、以及 Settings mega-route 的下一輪拆分機會，建立 single-source map 與 extraction boundary。
+  - 契約：延續 M11 已 accepted 的 neutral review primitive / route / trusted-output 邊界；這一輪先做 inventory 與 owner map，不直接擴成大規模 route rewrite 或 transport automation 專案。
+  - 2026-04-19：新增 [`docs/design/support-actions-and-diagnostics-tradeoff.md`](../design/support-actions-and-diagnostics-tradeoff.md)，正式接受 M12 的 canonical owner map：support-action grammar 只能掛在 [`src/components/review/`](../../src/components/review/index.ts)，`PathRow` 不再視為 active single source。
+  - 更新 [`docs/plan/m12-support-actions-and-diagnostics/README.md`](m12-support-actions-and-diagnostics/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/plan/README.md`](README.md) 與 [`docs/milestones.md`](../milestones.md)，把 M12 inventory、owner map、deferred list 與 M13 seed milestone 回寫到 source-of-truth。
+  - 新增 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)，把 broad reuse audit 正式立項成下一輪 milestone；主題固定為 support / trust / workflow reuse，而不是 Settings-only split 或 transport-first 專案。
+  - 驗收：source docs、inventory map、後續 `TODO: M13` 與 extraction strategy 存在
+
+- [x] **WORK-M12-B** — Support Action / Diagnostics Primitive Extraction
+  - 讀先：
+    `docs/plan/m12-support-actions-and-diagnostics/README.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/plan/e2e-workflow-tests.md`
+  - 目標：根據 `WORK-M12-A` 的 inventory，把至少一輪高價值的 shared support action / diagnostics primitive 抽離，優先處理 open-path / copy action、general diagnostics rows、以及 Settings / Import / Audit / Jobs 的 support summary drift。
+  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而重開 M11 已收斂的 route / payload / review shell contract。
+  - 2026-04-19：新增 [`src/components/review/clipboard.ts`](../../src/components/review/clipboard.ts) 與 [`src/components/review/support-actions.tsx`](../../src/components/review/support-actions.tsx)，正式升格 shared clipboard helper 與 `ReviewPathActionRow`；[`src/components/ui.tsx`](../../src/components/ui.tsx) 的 `PathRow` 則退回 legacy fallback。
+  - 更新 [`src/pages/settings/{index.tsx,external-outputs-panel.tsx,external-output-local-host-panel.tsx}`](../../src/pages/settings/index.tsx)、[`src/pages/audit/{index.tsx,hooks/use-audit-data.ts,panels/run-detail.tsx}`](../../src/pages/audit/index.tsx)、[`src/pages/import/index.tsx`](../../src/pages/import/index.tsx)、[`src/pages/schedule/index.tsx`](../../src/pages/schedule/index.tsx)、[`src/pages/security/index.tsx`](../../src/pages/security/index.tsx)、[`src/pages/lock/index.tsx`](../../src/pages/lock/index.tsx)、[`src/pages/explorer/{index.tsx,hooks/use-explorer-data.ts,panels/results-panel.tsx}`](../../src/pages/explorer/index.tsx) 與 [`src/pages/explorer/panels/privacy-redaction.test.tsx`](../../src/pages/explorer/panels/privacy-redaction.test.tsx)，讓 Settings general diagnostics / App Lock、Audit manifest / artifact review、Import selected-batch audit path、Schedule detected-file / audit path、Security / Lock config path，以及 Explorer export path 全部改吃 shared review-layer support-action contract。
+  - 更新 [`src/pages/jobs/index.tsx`](../../src/pages/jobs/index.tsx)、[`src-tauri/src/dev_ipc_bridge.rs`](../../src-tauri/src/dev_ipc_bridge.rs) 與 [`src-tauri/src/worker_bridge/intelligence.rs`](../../src-tauri/src/worker_bridge/intelligence.rs) 的 deferred comments，把 Jobs plugin/module summary rows與 transport parity follow-up 明確改記 `TODO: M13`。
+  - 同步回寫 [`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m12-support-actions-and-diagnostics/README.md`](m12-support-actions-and-diagnostics/README.md)、[`docs/plan/{STATUS.md,BACKLOG.md,README.md}`](STATUS.md)，把 M12 closeout 與 M13 active current-focus 寫回 source-of-truth。
+  - 驗收：`bun run check`、`bun run build`

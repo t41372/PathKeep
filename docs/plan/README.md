@@ -39,6 +39,8 @@
 > **2026-04-19 M9 closeout note**：`WORK-M9-A` 與 `WORK-M9-B` 已完成。repo 現在正式有 shared route-level metric strip、`query-family-card`、compare-set page list、structured target label，以及 inline-end section-meta header chrome；`證據與新鮮度` badge 不再獨占一整行，也不再把 hover hitbox 擴成整張卡 header。下一輪 active 規劃改成 `M10 — Workbench Reuse And Transport Hygiene`，專門處理仍未抽出的 review rows 與 route / desktop glue decomposition。
 >
 > **2026-04-19 M10 closeout note**：`WORK-M10-A` 與 `WORK-M10-B` 已完成。repo 現在正式有 shared `refind` workbench shell、Explorer session/trail shared group-card/member-row primitive、Settings external-output/local-host shared review chrome，以及 split 的 promoted routes / Core Intelligence API / Tauri command + worker-bridge intelligence facade；對外 route / payload contract 維持不變。下一輪 active 規劃改成 `M11 — App-Wide Reuse And Shared Review Grammar`，用來全面盤點剩餘 mixed helper、dev mirror、與跨 route review / PME / diagnostics drift。
+>
+> **2026-04-19 M12 closeout note**：`WORK-M12-A` 與 `WORK-M12-B` 已完成。repo 現在正式有 app-wide shared support-action / clipboard grammar，Settings general diagnostics / App Lock、Audit、Import、Schedule、Security / Lock 與 Explorer export path 都已接到 `src/components/review/` 的 canonical owner；Jobs plugin / module summary rows與 transport parity follow-up 則明確移交給 `M13 — Broad Reuse Audit Across Support / Trust / Workflow Surfaces`。
 
 ---
 
@@ -176,23 +178,23 @@ M13 Broad Reuse Audit Across Support / Trust / Workflow Surfaces
 
 ## 里程碑入口
 
-| 里程碑 | 目標                                                                                                | 狀態  | 入口                                                                                           |
-| ------ | --------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------- |
-| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                                            | `[/]` | [program/README.md](program/README.md)                                                         |
-| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                                            | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                                             |
-| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎                                   | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                                       |
-| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                                            | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                                 |
-| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights                            | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                                         |
-| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證                               | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                                           |
-| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime                              | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)                     |
-| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface                               | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)                   |
-| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation                                    | `[x]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                                           |
-| `M8`   | 補齊 aggregate entity identity、context focus 與 reusable entity IDs                                | `[x]` | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md)               |
-| `M9`   | 全面盤點剩餘重複造輪子處，並收斂 shared composition / extraction strategy                           | `[x]` | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                                   |
-| `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition                          | `[x]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                                 |
-| `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift | `[x]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                                   |
-| `M12`  | 收斂 shared support actions / diagnostics rows，並盤點 Settings 與 transport parity 的下一輪拆分    | `[/]` | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
-| `M13`  | 以 support / trust / workflow surface 為主題，延續 broad reuse audit 與 shared composition extraction | `[ ]` | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
+| 里程碑 | 目標                                                                                                  | 狀態  | 入口                                                                                           |
+| ------ | ----------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------- |
+| `PG`   | 盤清 repo 現況、建立決策 backlog、維護文檔導覽和依賴關係                                              | `[/]` | [program/README.md](program/README.md)                                                         |
+| `M0`   | 切斷舊 UI 和舊產品骨架，建立新的前端、後端和資料平面起點                                              | `[x]` | [m0-foundation/README.md](m0-foundation/README.md)                                             |
+| `M1`   | 把 Archive、Audit、Schedule、Security、Explorer v1 做成可信的基礎                                     | `[x]` | [m1-solid-archive/README.md](m1-solid-archive/README.md)                                       |
+| `M2`   | 補齊導入、回滾、Doctor、多瀏覽器、PME、i18n 和跨平台排程                                              | `[x]` | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                                 |
+| `M3`   | 在穩定 archive 之上加入 optional AI provider、index、assistant、insights                              | `[x]` | [m3-intelligence/README.md](m3-intelligence/README.md)                                         |
+| `M4`   | 補齊 enrichment、進階洞察、remote backup、release polish 和多平台驗證                                 | `[x]` | [m4-full-polish/README.md](m4-full-polish/README.md)                                           |
+| `M5`   | 以 honest evidence 重建 deterministic intelligence baseline 與 runtime                                | `[x]` | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)                     |
+| `M6`   | 將 `day` / `domain` 升格成 first-class shared insights entity surface                                 | `[x]` | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)                   |
+| `M7`   | 全面盤點 cross-app reuse，抽出 generic insight-entity navigation                                      | `[x]` | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                                           |
+| `M8`   | 補齊 aggregate entity identity、context focus 與 reusable entity IDs                                  | `[x]` | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md)               |
+| `M9`   | 全面盤點剩餘重複造輪子處，並收斂 shared composition / extraction strategy                             | `[x]` | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                                   |
+| `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition                            | `[x]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                                 |
+| `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift   | `[x]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                                   |
+| `M12`  | 收斂 shared support actions / diagnostics rows，並盤點 Settings 與 transport parity 的下一輪拆分      | `[x]` | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
+| `M13`  | 以 support / trust / workflow surface 為主題，延續 broad reuse audit 與 shared composition extraction | `[/]` | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
 
 ---
 
