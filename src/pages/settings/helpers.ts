@@ -20,12 +20,14 @@
 
 import type {
   AiProviderConfig,
+  AiIntegrationPreview,
   AiProviderPurpose,
   AiSettings,
   ScheduleStatus,
   SecurityStatus,
   RetentionPreview,
 } from '../../lib/types'
+import type { IntelligenceLocalHostPreview } from '../../lib/core-intelligence/types'
 
 /**
  * Creates a defensive copy of ai provider config.
@@ -49,6 +51,11 @@ export interface SupportState {
   scheduleStatus: ScheduleStatus | null
   securityStatus: SecurityStatus | null
 }
+
+type SettingsTranslator = (
+  key: string,
+  vars?: Record<string, string | number>,
+) => string
 
 /**
  * Creates a defensive copy of ai settings.
@@ -262,4 +269,161 @@ export function browserIcon(profileId: string): string {
 export function browserIconClass(profileId: string): string {
   const kind = profileId.split(':')[0]
   return `browser-icon ${kind}`
+}
+
+/**
+ * Localizes AI integration preview sentences so Settings never ships the raw
+ * English backend copy as its final UI.
+ */
+function localizeAiIntegrationLine(
+  value: string,
+  t: SettingsTranslator,
+): string {
+  switch (value) {
+    case 'External AI integrations stay local-first and explicit. PathKeep only exposes localhost MCP tools after you turn on AI + MCP in Settings, and the current app session must stay unlocked.':
+    case 'External AI integrations stay local-first and only start after the user enables them in Settings.':
+      return t('aiIntegrationConsentSummary')
+    case 'Enable MCP or Skill integration in Settings first. Both are off by default.':
+    case 'Enable MCP or Skill integration in Settings first.':
+      return t('aiIntegrationManualEnable')
+    case 'Store the database key in the native keyring if the archive is encrypted, so background and MCP lookups can unlock the archive.':
+    case 'Store the database key in the native keyring if the archive is encrypted.':
+      return t('aiIntegrationManualStoreKey')
+    case 'Copy the generated MCP JSON into your local MCP client configuration and restart that client.':
+    case 'Copy the generated MCP JSON into your MCP client configuration.':
+      return t('aiIntegrationManualCopyJson')
+    case 'Copy the generated skill markdown into your local skills directory if you want a reusable history-research workflow.':
+      return t('aiIntegrationManualCopySkill')
+    case 'MCP server toggle is currently enabled in saved Settings.':
+      return t('aiIntegrationCapabilityMcpEnabled')
+    case 'MCP server toggle is currently disabled in saved Settings.':
+      return t('aiIntegrationCapabilityMcpDisabled')
+    case 'Skill integration toggle is currently enabled in saved Settings.':
+      return t('aiIntegrationCapabilitySkillEnabled')
+    case 'Skill integration toggle is currently disabled in saved Settings.':
+      return t('aiIntegrationCapabilitySkillDisabled')
+    case 'Semantic retrieval can use the configured embedding provider when the semantic index is built.':
+      return t('aiIntegrationCapabilityEmbeddingEnabled')
+    case 'No embedding provider is selected right now, so MCP and external assistants fall back to lexical recall only. They still respect archive visibility and App Lock.':
+    case 'No embedding provider is selected right now, so external tools fall back to lexical recall only.':
+      return t('aiIntegrationCapabilityEmbeddingDisabled')
+    case 'Queries only see currently visible archive facts. Reverted visits stay hidden even if an old embedding row still exists.':
+    case 'Only visible archive facts are returned to external tools.':
+      return t('aiIntegrationScopeVisibleOnly')
+    case 'If App Lock re-locks the session, MCP search returns a locked refusal instead of reading the archive behind the UI.':
+    case 'If App Lock re-locks the session, MCP search returns a locked refusal.':
+      return t('aiIntegrationScopeLock')
+    case 'The MCP surface is localhost-only and never publishes the archive to a remote PathKeep service.':
+      return t('aiIntegrationScopeLocalhost')
+    case 'Every MCP request is recorded as a dedicated `mcp_query` run in the unified archive ledger.':
+    case 'Each MCP search writes a dedicated run-ledger entry.':
+      return t('aiIntegrationAuditMcp')
+    case 'Assistant answers keep their provider snapshot, retrieval provider, and citations inside `ai_assistant_runs`.':
+    case 'Assistant and semantic-index work keep distinct run types.':
+      return t('aiIntegrationAuditAssistant')
+    case 'MCP and skill integration are both disabled in Settings right now.':
+      return t('aiIntegrationWarningDisabled')
+    case 'Local MCP client configuration snippet for PathKeep.':
+    case 'PathKeep MCP client snippet':
+      return t('aiIntegrationGeneratedFileMcpPurpose')
+    case 'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.':
+    case 'Codex skill starter':
+      return t('aiIntegrationGeneratedFileSkillPurpose')
+    default: {
+      const derivedPathMatch = value.match(
+        /^Derived AI state lives beside the archive at (.+) and can be cleared\/rebuilt without touching canonical visits\.$/,
+      )
+      if (derivedPathMatch) {
+        return t('aiIntegrationAuditDerivedPath', {
+          path: derivedPathMatch[1],
+        })
+      }
+      return value
+    }
+  }
+}
+
+/**
+ * Localizes trusted local-host review strings whenever preview fixtures still
+ * emit English sentences.
+ */
+function localizeLocalHostLine(value: string, t: SettingsTranslator): string {
+  switch (value) {
+    case 'This local host only uses deterministic Core Intelligence read models.':
+      return t('externalOutputsLocalHostBoundaryDeterministic')
+    case 'Trusted-only cards must stay inside PathKeep-controlled local surfaces.':
+      return t('externalOutputsLocalHostBoundaryTrusted')
+    case 'Review index.html and bundle.json before handing this folder to another trusted local tool.':
+      return t('externalOutputsLocalHostManualReview')
+    case 'Open index.html from this folder inside a trusted local browser surface.':
+      return t('externalOutputsLocalHostManualOpen')
+    case 'Rebuild this local snippet whenever scope, window, or locale changes.':
+      return t('externalOutputsLocalHostManualRebuild')
+    case 'This local snippet includes trusted-only cards and should not be treated like a public export.':
+      return t('externalOutputsLocalHostWarningTrusted')
+    case 'Core Intelligence snippet that can be opened directly in a local browser.':
+      return t('externalOutputsLocalHostPurposeEntry')
+    case 'Machine-readable JSON bundle for the same local host artifact.':
+      return t('externalOutputsLocalHostPurposeBundle')
+    default:
+      return value
+  }
+}
+
+/**
+ * Rewrites AI integration preview payloads into Settings-owned localized copy.
+ */
+export function localizeAiIntegrationPreview(
+  preview: AiIntegrationPreview,
+  t: SettingsTranslator,
+): AiIntegrationPreview {
+  return {
+    ...preview,
+    consentSummary: localizeAiIntegrationLine(preview.consentSummary, t),
+    manualSteps: preview.manualSteps.map((step) =>
+      localizeAiIntegrationLine(step, t),
+    ),
+    capabilityNotes: preview.capabilityNotes.map((note) =>
+      localizeAiIntegrationLine(note, t),
+    ),
+    scopeBoundary: preview.scopeBoundary.map((note) =>
+      localizeAiIntegrationLine(note, t),
+    ),
+    auditTrace: preview.auditTrace.map((note) =>
+      localizeAiIntegrationLine(note, t),
+    ),
+    warnings: preview.warnings.map((warning) =>
+      localizeAiIntegrationLine(warning, t),
+    ),
+    generatedFiles: preview.generatedFiles.map((file) => ({
+      ...file,
+      purpose: localizeAiIntegrationLine(file.purpose, t),
+    })),
+  }
+}
+
+/**
+ * Rewrites trusted local-host preview payloads into Settings-owned localized
+ * copy whenever fallback fixtures still emit English.
+ */
+export function localizeIntelligenceLocalHostPreview(
+  preview: IntelligenceLocalHostPreview,
+  t: SettingsTranslator,
+): IntelligenceLocalHostPreview {
+  return {
+    ...preview,
+    boundaryNotes: preview.boundaryNotes.map((note) =>
+      localizeLocalHostLine(note, t),
+    ),
+    manualSteps: preview.manualSteps.map((step) =>
+      localizeLocalHostLine(step, t),
+    ),
+    warnings: preview.warnings.map((warning) =>
+      localizeLocalHostLine(warning, t),
+    ),
+    generatedFiles: preview.generatedFiles.map((file) => ({
+      ...file,
+      purpose: localizeLocalHostLine(file.purpose, t),
+    })),
+  }
 }

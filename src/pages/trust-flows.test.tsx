@@ -705,6 +705,35 @@ describe('trust flows', () => {
     ).toBeVisible()
   })
 
+  test('localizes locked-archive security warnings instead of rendering raw backend English', async () => {
+    const { snapshot } = await seedInitializedSnapshot()
+    await backend.clearSessionDatabaseKey()
+    const lockedStatus = await backend.securityStatus()
+    const securityStatusSpy = vi
+      .spyOn(backend, 'securityStatus')
+      .mockResolvedValue({
+        ...lockedStatus,
+        warnings: ['database key is required for encrypted archives'],
+      })
+
+    renderTrustPage(<SecurityPage />, {
+      language: 'zh-TW',
+      route: '/security',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(
+        '請先用目前密碼解鎖這個加密封存，再查看歷史記錄或稽核資料。',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText('database key is required for encrypted archives'),
+    ).not.toBeInTheDocument()
+
+    securityStatusSpy.mockRestore()
+  })
+
   test('fails fast when a candidate archive key does not unlock the archive', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
@@ -820,6 +849,33 @@ describe('trust flows', () => {
 
     previewSpy.mockRestore()
     runSpy.mockRestore()
+  })
+
+  test('localizes AI integration review copy in non-English settings surfaces', async () => {
+    const { snapshot, dashboard } = await seedInitializedSnapshot()
+    const settingsT = createNamespaceTranslator('zh-TW', 'settings')
+
+    renderTrustPage(<SettingsPage />, {
+      dashboard,
+      language: 'zh-TW',
+      route: '/settings',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(settingsT('aiIntegrationReview')),
+    ).toBeVisible()
+    expect(
+      screen.getByText(settingsT('aiIntegrationManualEnable')),
+    ).toBeVisible()
+    expect(
+      screen.getByText(settingsT('aiIntegrationGeneratedFileMcpPurpose')),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(
+        'Enable MCP or Skill integration in Settings first. Both are off by default.',
+      ),
+    ).not.toBeInTheDocument()
   })
 
   test('filters audit runs and shows delta against the previous visible run', async () => {

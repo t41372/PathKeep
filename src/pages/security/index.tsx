@@ -46,6 +46,51 @@ interface SecurityLoadState {
   error: string | null
 }
 
+type SecurityTranslate = (
+  key: string,
+  vars?: Record<string, string | number>,
+) => string
+
+function localizeSecurityWarning(
+  warning: string,
+  t: SecurityTranslate,
+): string {
+  const normalizedWarning = warning.trim()
+
+  switch (normalizedWarning) {
+    case 'database key is required for encrypted archives':
+      return t('security.encryptedArchiveNeedsPasswordWarning')
+    case 'Archive is configured to remember the database key, but no native keyring backend is available on this machine.':
+      return t('security.rememberKeyNeedsKeychainWarning')
+    case 'Archive is encrypted, but the database key is not currently stored in the system keyring.':
+      return t('security.rememberedKeyMissingWarning')
+  }
+
+  if (
+    normalizedWarning.includes(
+      'database key is required for encrypted archives',
+    )
+  ) {
+    return t('security.encryptedArchiveNeedsPasswordWarning')
+  }
+  if (
+    normalizedWarning.includes(
+      'no native keyring backend is available on this machine',
+    )
+  ) {
+    return t('security.rememberKeyNeedsKeychainWarning')
+  }
+  if (
+    normalizedWarning.includes(
+      'database key is not currently stored in the system keyring',
+    )
+  ) {
+    return t('security.rememberedKeyMissingWarning')
+  }
+
+  return warning
+}
+
 /**
  * Waits for next paint.
  *
@@ -124,6 +169,9 @@ export function SecurityPage() {
 
   const status = loadState.status
   const pageError = loadState.error
+  const localizedWarnings = status
+    ? status.warnings.map((warning) => localizeSecurityWarning(warning, t))
+    : []
 
   useEffect(() => {
     if (
@@ -525,7 +573,7 @@ export function SecurityPage() {
             </div>
           ) : null}
 
-          {status.warnings.map((warning) => (
+          {localizedWarnings.map((warning) => (
             <div key={warning} className="warning-box">
               <div className="warning-icon">⚠</div>
               <div className="warning-text">{warning}</div>
@@ -772,7 +820,9 @@ export function SecurityPage() {
               {preview.warnings.map((warning) => (
                 <div key={warning} className="warning-box">
                   <div className="warning-icon">⚠</div>
-                  <div className="warning-text">{warning}</div>
+                  <div className="warning-text">
+                    {localizeSecurityWarning(warning, t)}
+                  </div>
                 </div>
               ))}
             </div>

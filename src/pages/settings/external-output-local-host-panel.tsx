@@ -39,6 +39,7 @@ import {
 } from '../../lib/core-intelligence'
 import { useI18n } from '../../lib/i18n/hooks'
 import { profileIdLabel } from '../../lib/profile-scope-context'
+import { localizeIntelligenceLocalHostPreview } from './helpers'
 
 interface SettingsExternalOutputLocalHostPanelProps {
   activeProfileId: string | null
@@ -89,7 +90,13 @@ export function SettingsExternalOutputLocalHostPanel({
     setLastBuiltHost(null)
   }, [dateRange.start, dateRange.end, language, activeProfileId])
 
-  const currentPreview = preview.data
+  const currentPreview = useMemo(
+    () =>
+      preview.data
+        ? localizeIntelligenceLocalHostPreview(preview.data, t)
+        : null,
+    [preview.data, t],
+  )
   const generatedFiles = currentPreview?.generatedFiles ?? []
   const installedHost = currentPreview?.installedHost ?? lastBuiltHost ?? null
   const scopeValue = activeProfileId

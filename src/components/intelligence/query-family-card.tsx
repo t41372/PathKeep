@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { QueryFamily } from '../../lib/core-intelligence'
+import { formatDateTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n/hooks'
 
 type QueryFamilyLinkMode = 'none' | 'anchor' | 'card'
 
@@ -25,6 +27,7 @@ export function QueryFamilyCard({
   showDates?: boolean
   showMembers?: boolean
 }) {
+  const { language } = useI18n()
   const canExpand = showMembers && typeof moreLabel === 'function'
   const [expanded, setExpanded] = useState(!canExpand)
   const visibleQueries =
@@ -40,6 +43,13 @@ export function QueryFamilyCard({
     ) : (
       <span className="query-family-card__anchor">"{family.anchorQuery}"</span>
     )
+
+  const firstSeenLabel =
+    (language ? formatDateTime(family.firstSeenAt, language) : null) ??
+    family.firstSeenAt
+  const lastSeenLabel =
+    (language ? formatDateTime(family.lastSeenAt, language) : null) ??
+    family.lastSeenAt
 
   const body = (
     <>
@@ -85,7 +95,7 @@ export function QueryFamilyCard({
       ) : null}
       {showDates ? (
         <span className="query-family-card__dates">
-          {family.firstSeenAt} - {family.lastSeenAt}
+          {firstSeenLabel} - {lastSeenLabel}
         </span>
       ) : null}
       {footer}

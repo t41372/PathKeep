@@ -2265,6 +2265,83 @@ describe('intelligence surfaces', () => {
     expect(previewSpy).toHaveBeenCalled()
   })
 
+  test('localizes trusted local-host manual review copy in non-English settings surfaces', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('zh-TW', 'settings')
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getIntelligenceEmbedCards',
+    ).mockResolvedValue([])
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getIntelligenceWidgetSnapshot',
+    ).mockResolvedValue({
+      generatedAt: '2026-04-17T09:45:00Z',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' },
+      digestSummary: {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      highlights: [],
+      notes: [],
+    })
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getIntelligencePublicSnapshot',
+    ).mockResolvedValue({
+      generatedAt: '2026-04-17T09:45:00Z',
+      dateRange: { start: '2026-03-17', end: '2026-04-17' },
+      digestSummary: {
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      topDomains: [],
+      searchEngines: [],
+      discoveryTrend: { points: [], availableYears: [] },
+      notes: [],
+    })
+    vi.spyOn(
+      coreIntelligenceApi,
+      'previewIntelligenceLocalHost',
+    ).mockResolvedValue(createLocalHostPreview('en'))
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'zh-TW',
+      route: '/settings',
+      snapshot,
+    })
+
+    const panel = await screen.findByTestId('settings-external-outputs')
+    expect(
+      await within(panel).findByText(
+        settingsT('externalOutputsLocalHostManualReview'),
+      ),
+    ).toBeVisible()
+    expect(
+      within(panel).getByText(
+        settingsT('externalOutputsLocalHostPurposeEntry'),
+      ),
+    ).toBeVisible()
+    expect(
+      within(panel).queryByText(
+        'Review index.html and bundle.json before handing this folder to another trusted local tool.',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
   test('renders background jobs controls and lets the user pause or replay work', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
@@ -4427,6 +4504,7 @@ describe('intelligence surfaces', () => {
 
   test('renders query-family insights as a first-class route with related trail links', async () => {
     const { snapshot } = await seedArchiveState()
+    const intelligenceTw = createNamespaceTranslator('zh-TW', 'intelligence')
     const detailSpy = vi
       .spyOn(coreIntelligenceApi, 'getQueryFamilyDetail')
       .mockResolvedValue(
@@ -4476,6 +4554,7 @@ describe('intelligence surfaces', () => {
       {
         route:
           '/intelligence/query-family/family-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome:Default',
+        language: 'zh-TW',
         snapshot,
       },
     )
@@ -4483,13 +4562,34 @@ describe('intelligence surfaces', () => {
     expect(
       await screen.findByRole('heading', { name: /sqlite wal/i }),
     ).toBeVisible()
+    expect(
+      screen.getByText(intelligenceTw('queryFamilyRouteTitle')),
+    ).toBeVisible()
+    expect(
+      screen.getByText(intelligenceTw('queryFamilyQueriesTitle')),
+    ).toBeVisible()
+    expect(
+      screen.getByText(intelligenceTw('searchQueriesEngineFilter')),
+    ).toBeVisible()
+    expect(
+      screen.queryByText('INTELLIGENCE.QUERYFAMILYROUTETITLE'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('INTELLIGENCE.QUERYFAMILYQUERIESTITLE'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('intelligence.searchQueriesEngineFilter'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('2026-04-18T00:00:00Z')).not.toBeInTheDocument()
     expect(detailSpy).toHaveBeenCalledWith(
       'family-1',
       { start: '2026-04-01', end: '2026-04-30' },
       'chrome:Default',
     )
     expect(
-      screen.getByRole('link', { name: 'Open evidence in Explorer' }),
+      screen.getByRole('link', {
+        name: intelligenceTw('entityOpenExplorer'),
+      }),
     ).toHaveAttribute(
       'href',
       '/explorer?profileId=chrome%3ADefault&start=2026-04-01&end=2026-04-30&q=sqlite+wal',

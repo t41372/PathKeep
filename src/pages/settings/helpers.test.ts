@@ -14,13 +14,21 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { AiSettings, RetentionPreview } from '../../lib/types'
+import { createNamespaceTranslator } from '../../lib/i18n'
+import type { IntelligenceLocalHostPreview } from '../../lib/core-intelligence/types'
+import type {
+  AiIntegrationPreview,
+  AiSettings,
+  RetentionPreview,
+} from '../../lib/types'
 import {
   appendAiProviderDraft,
   browserIcon,
   browserIconClass,
   buildRetentionSelection,
   cloneAiSettings,
+  localizeAiIntegrationPreview,
+  localizeIntelligenceLocalHostPreview,
   mergeAiProviderSecretState,
   patchAiProviderDraft,
   removeAiProviderDraft,
@@ -93,6 +101,107 @@ const retentionPreviewFixture: RetentionPreview = {
     },
   ],
   warnings: [],
+}
+
+const aiIntegrationPreviewFixture: AiIntegrationPreview = {
+  mcpCommand: '/Applications/PathKeep.app --worker mcp-server',
+  consentSummary:
+    'External AI integrations stay local-first and explicit. PathKeep only exposes localhost MCP tools after you turn on AI + MCP in Settings, and the current app session must stay unlocked.',
+  manualSteps: [
+    'Enable MCP or Skill integration in Settings first. Both are off by default.',
+    'Store the database key in the native keyring if the archive is encrypted, so background and MCP lookups can unlock the archive.',
+  ],
+  capabilityNotes: [
+    'MCP server toggle is currently disabled in saved Settings.',
+    'Skill integration toggle is currently disabled in saved Settings.',
+    'No embedding provider is selected right now, so MCP and external assistants fall back to lexical recall only. They still respect archive visibility and App Lock.',
+  ],
+  scopeBoundary: [
+    'Queries only see currently visible archive facts. Reverted visits stay hidden even if an old embedding row still exists.',
+  ],
+  auditTrace: [
+    'Every MCP request is recorded as a dedicated `mcp_query` run in the unified archive ledger.',
+    'Derived AI state lives beside the archive at /tmp/pathkeep and can be cleared/rebuilt without touching canonical visits.',
+  ],
+  generatedFiles: [
+    {
+      relativePath: 'integrations/pathkeep-mcp.json',
+      absolutePath: '/tmp/pathkeep/integrations/pathkeep-mcp.json',
+      purpose: 'Local MCP client configuration snippet for PathKeep.',
+      contents: '{\n  "mcpServers": {}\n}',
+    },
+  ],
+  warnings: [
+    'MCP and skill integration are both disabled in Settings right now.',
+  ],
+}
+
+const localHostPreviewFixture: IntelligenceLocalHostPreview = {
+  artifactRoot: '/tmp/pathkeep/browser-snippet-v1',
+  entryFilePath: '/tmp/pathkeep/browser-snippet-v1/index.html',
+  generatedFiles: [
+    {
+      relativePath:
+        'integrations/core-intelligence/browser-snippet-v1/index.html',
+      absolutePath: '/tmp/pathkeep/browser-snippet-v1/index.html',
+      purpose:
+        'Core Intelligence snippet that can be opened directly in a local browser.',
+      contents: '<!doctype html>',
+    },
+  ],
+  bundle: {
+    bundleVersion: 'pathkeep.core-intelligence.local-host.v1',
+    hostId: 'browser-snippet-v1',
+    generatedAt: '2026-04-18T10:15:00Z',
+    locale: 'en',
+    dateRange: { start: '2026-04-01', end: '2026-04-18' },
+    profileId: 'chrome:Default',
+    embedCards: [],
+    widgetSnapshot: {
+      generatedAt: '2026-04-18T10:15:00Z',
+      dateRange: { start: '2026-04-01', end: '2026-04-18' },
+      digestSummary: {
+        dateRange: { start: '2026-04-01', end: '2026-04-18' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      highlights: [],
+      notes: [],
+    },
+    publicSnapshot: {
+      generatedAt: '2026-04-18T10:15:00Z',
+      dateRange: { start: '2026-04-01', end: '2026-04-18' },
+      digestSummary: {
+        dateRange: { start: '2026-04-01', end: '2026-04-18' },
+        totalVisits: { value: 0, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 0, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      topDomains: [],
+      searchEngines: [],
+      discoveryTrend: { availableYears: [], points: [] },
+      notes: [],
+    },
+    trustedOnlyCardIds: [],
+    trustedOnlyCardCount: 0,
+    boundaryNotes: [],
+  },
+  boundaryNotes: [
+    'This local host only uses deterministic Core Intelligence read models.',
+  ],
+  manualSteps: [
+    'Review index.html and bundle.json before handing this folder to another trusted local tool.',
+    'Open index.html from this folder inside a trusted local browser surface.',
+  ],
+  warnings: [
+    'This local snippet includes trusted-only cards and should not be treated like a public export.',
+  ],
+  installedHost: null,
 }
 
 describe('settings helpers', () => {
@@ -179,5 +288,50 @@ describe('settings helpers', () => {
     const withRemoved = removeAiProviderDraft(withSelected, 'llm', 'llm-2')
     expect(withRemoved.llmProviders).toHaveLength(1)
     expect(withRemoved.llmProviderId).toBeNull()
+  })
+
+  it('localizes AI integration preview review copy through settings-owned strings', () => {
+    const settingsT = createNamespaceTranslator('zh-TW', 'settings')
+    const localized = localizeAiIntegrationPreview(
+      aiIntegrationPreviewFixture,
+      settingsT,
+    )
+
+    expect(localized.consentSummary).toBe(
+      settingsT('aiIntegrationConsentSummary'),
+    )
+    expect(localized.manualSteps).toContain(
+      settingsT('aiIntegrationManualEnable'),
+    )
+    expect(localized.auditTrace).toContain(
+      settingsT('aiIntegrationAuditDerivedPath', { path: '/tmp/pathkeep' }),
+    )
+    expect(localized.generatedFiles[0].purpose).toBe(
+      settingsT('aiIntegrationGeneratedFileMcpPurpose'),
+    )
+    expect(localized.warnings).toContain(
+      settingsT('aiIntegrationWarningDisabled'),
+    )
+  })
+
+  it('localizes trusted local-host preview fallback strings before settings renders them', () => {
+    const settingsT = createNamespaceTranslator('zh-TW', 'settings')
+    const localized = localizeIntelligenceLocalHostPreview(
+      localHostPreviewFixture,
+      settingsT,
+    )
+
+    expect(localized.boundaryNotes).toContain(
+      settingsT('externalOutputsLocalHostBoundaryDeterministic'),
+    )
+    expect(localized.manualSteps).toContain(
+      settingsT('externalOutputsLocalHostManualReview'),
+    )
+    expect(localized.generatedFiles[0].purpose).toBe(
+      settingsT('externalOutputsLocalHostPurposeEntry'),
+    )
+    expect(localized.warnings).toContain(
+      settingsT('externalOutputsLocalHostWarningTrusted'),
+    )
   })
 })

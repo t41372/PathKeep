@@ -104,6 +104,7 @@ import {
   browserIconClass,
   buildRetentionSelection,
   cloneAiSettings,
+  localizeAiIntegrationPreview,
   mergeAiProviderSecretState,
   patchAiProviderDraft,
   removeAiProviderDraft,
@@ -507,6 +508,13 @@ export function SettingsPage() {
   const commonNs = ns('common')
   const settingsNs = ns('settings')
   const intelligenceT = ns('intelligence')
+  const localizedAiIntegrationPreview = useMemo(
+    () =>
+      aiIntegrationPreview
+        ? localizeAiIntegrationPreview(aiIntegrationPreview, settingsNs)
+        : null,
+    [aiIntegrationPreview, settingsNs],
+  )
   const runtimePluginsById = useMemo(
     () =>
       new Map(
@@ -2733,45 +2741,45 @@ export function SettingsPage() {
                 title={t('settings.aiIntegrationUnavailable')}
                 body={aiIntegrationError}
               />
-            ) : aiIntegrationPreview ? (
+            ) : localizedAiIntegrationPreview ? (
               <>
                 <StatusCallout
                   tone={
-                    aiIntegrationPreview.warnings.length > 0
+                    localizedAiIntegrationPreview.warnings.length > 0
                       ? 'warning'
                       : 'info'
                   }
                   title={t('settings.aiIntegrationReview')}
-                  body={aiIntegrationPreview.consentSummary}
+                  body={localizedAiIntegrationPreview.consentSummary}
                 />
                 <ReviewSection title={t('settings.aiMcpCommand')}>
                   <div className="code-panel">
-                    <pre>{aiIntegrationPreview.mcpCommand}</pre>
+                    <pre>{localizedAiIntegrationPreview.mcpCommand}</pre>
                   </div>
                 </ReviewSection>
                 <ReviewSection title={t('settings.aiCapabilityNotes')}>
-                  {aiIntegrationPreview.capabilityNotes.map((note) => (
+                  {localizedAiIntegrationPreview.capabilityNotes.map((note) => (
                     <p key={note}>{note}</p>
                   ))}
                 </ReviewSection>
                 <ReviewSection title={t('settings.aiScopeBoundary')}>
-                  {aiIntegrationPreview.scopeBoundary.map((note) => (
+                  {localizedAiIntegrationPreview.scopeBoundary.map((note) => (
                     <p key={note}>{note}</p>
                   ))}
                 </ReviewSection>
                 <ReviewSection title={t('settings.aiAuditTrace')}>
-                  {aiIntegrationPreview.auditTrace.map((note) => (
+                  {localizedAiIntegrationPreview.auditTrace.map((note) => (
                     <p key={note}>{note}</p>
                   ))}
                 </ReviewSection>
                 <ReviewSection title={t('settings.aiGeneratedFiles')}>
-                  {aiIntegrationPreview.generatedFiles.length > 0 ? (
+                  {localizedAiIntegrationPreview.generatedFiles.length > 0 ? (
                     <GeneratedArtifactViewer
                       copyFeedback={aiIntegrationCopyFeedback}
                       copyLabel={t('common.copyAction')}
                       copyPathLabel={t('common.copyAction')}
                       errorMessage={t('audit.copyFailed')}
-                      files={aiIntegrationPreview.generatedFiles}
+                      files={localizedAiIntegrationPreview.generatedFiles}
                       onCopy={handleAiIntegrationCopy}
                       onOpenPath={(path) => {
                         void backend.openPathInFileManager(path)
@@ -2782,10 +2790,10 @@ export function SettingsPage() {
                   ) : null}
                 </ReviewSection>
                 <ReviewSection title={t('settings.aiManualSteps')}>
-                  {aiIntegrationPreview.manualSteps.map((step) => (
+                  {localizedAiIntegrationPreview.manualSteps.map((step) => (
                     <p key={step}>{step}</p>
                   ))}
-                  {aiIntegrationPreview.warnings.map((warning) => (
+                  {localizedAiIntegrationPreview.warnings.map((warning) => (
                     <p key={warning}>{warning}</p>
                   ))}
                 </ReviewSection>

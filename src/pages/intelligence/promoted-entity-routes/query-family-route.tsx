@@ -8,6 +8,7 @@ import { IntelligenceSectionMeta } from '../../../components/intelligence/sectio
 import { TimeRangeSelector } from '../../../components/intelligence/time-range-selector'
 import { useAsyncData } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
+import { formatDateTime } from '../../../lib/format'
 import { useI18n } from '../../../lib/i18n/hooks'
 import { evidenceHref } from '../../../lib/intelligence'
 import { useIntelligenceRouteState } from '../route-state'
@@ -18,7 +19,7 @@ import { ScopeCallout, TrailLinkCard } from './shared'
 
 export function QueryFamilyInsightsRoutePage() {
   const { familyId } = useParams<{ familyId: string }>()
-  const { t } = useI18n('intelligence')
+  const { language, t } = useI18n('intelligence')
   const {
     dateRange,
     effectiveProfileId,
@@ -56,6 +57,16 @@ export function QueryFamilyInsightsRoutePage() {
         title: decodedFamilyId ?? '',
         dateRange,
       })
+  const firstSeenLabel =
+    detail && language
+      ? (formatDateTime(detail.family.firstSeenAt, language) ??
+        detail.family.firstSeenAt)
+      : null
+  const lastSeenLabel =
+    detail && language
+      ? (formatDateTime(detail.family.lastSeenAt, language) ??
+        detail.family.lastSeenAt)
+      : null
 
   return (
     <div className="intelligence-page">
@@ -97,7 +108,7 @@ export function QueryFamilyInsightsRoutePage() {
             }
             backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
             backLabel={t('entityBackToOverview')}
-            eyebrow={t('queryFamiliesTitle')}
+            eyebrow={t('queryFamilyRouteTitle')}
             subtitle={t('queryFamilyRouteSubtitle')}
             title={`"${detail.family.anchorQuery}"`}
           />
@@ -114,7 +125,7 @@ export function QueryFamilyInsightsRoutePage() {
               },
               {
                 icon: '🧭',
-                label: t('searchActivityEnginesTitle'),
+                label: t('searchQueriesEngineFilter'),
                 value: detail.family.searchEngine,
               },
               {
@@ -127,14 +138,22 @@ export function QueryFamilyInsightsRoutePage() {
           <div className="intelligence-row intelligence-row--two-col">
             <section className="intelligence-section">
               <h2 className="intelligence-section__title">
-                {t('searchActivityFamiliesTitle')}
+                {t('queryFamilyQueriesTitle')}
               </h2>
               <IntelligenceSectionBody className="query-families">
                 <QueryFamilyCard
                   family={detail.family}
+                  footer={
+                    firstSeenLabel && lastSeenLabel ? (
+                      <span className="query-family-card__dates">
+                        {firstSeenLabel} - {lastSeenLabel}
+                      </span>
+                    ) : undefined
+                  }
                   href={explorerHref}
                   linkMode="anchor"
                   memberCountLabel={t('queryFamilyMemberCount')}
+                  showDates={false}
                 />
               </IntelligenceSectionBody>
             </section>

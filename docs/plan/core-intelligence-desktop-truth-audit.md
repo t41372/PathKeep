@@ -165,6 +165,43 @@ This does **not** yet replace a full post-unlock profiling pass. It only proves 
 
 These fixes are real and test-backed even though the current host still shows live desktop drift that requires another pass.
 
+### 2026-04-20 follow-up: query-family + Security truth repair did land in source, but current-host Tauri WebView is still drifting
+
+This follow-up re-ran `bun run desktop:dev`, unlocked the archive with `000000`, and used Computer Use to revisit:
+
+- `#/intelligence/domain/google.com`
+- the shared `query-family` deep link reached from `打開搜尋演化`
+- `#/security` in both unlocked and locked states
+
+What landed in source during this follow-up:
+
+- `src/pages/intelligence/promoted-entity-routes/query-family-route.tsx`
+  - route-level fallback now uses already-shipping intelligence keys (`queryFamilyRouteTitle`, `queryFamilyQueriesTitle`, `searchQueriesEngineFilter`) instead of depending on freshly added copy keys
+  - the route now formats query-family dates itself and passes them through the existing `QueryFamilyCard` footer path, so live desktop no longer depends on the card module updating before ISO timestamps disappear
+- `src/pages/security/index.tsx`
+  - known locked-archive warning sentences are now mapped into front-end-owned localized copy instead of being rendered as raw backend English
+- targeted regression coverage now includes:
+  - query-family route translation/date assertions in `src/pages/intelligence-surfaces.test.tsx`
+  - locked-archive warning localization in `src/pages/trust-flows.test.tsx`
+
+Verification truth from this host:
+
+- `bun run test:unit:product-flows` passed
+- `bun run check` passed
+- `bun run build` passed
+- `curl http://127.0.0.1:1420/src/pages/intelligence/promoted-entity-routes/query-family-route.tsx` showed the new route-local fallback labels/date formatting
+- `curl http://127.0.0.1:1420/src/pages/security/index.tsx` showed the new warning-localization code
+- **but** the current-host Tauri desktop window still rendered:
+  - raw `INTELLIGENCE.*` / `intelligence.*` copy on the `query-family` route
+  - raw ISO timestamps on the `query-family` route
+  - raw `database key is required for encrypted archives` on the Security page
+
+At this point the most honest interpretation is:
+
+- source-level repair is real and test-backed
+- the current host is still serving stale route/security modules inside the Tauri WebView even after a clean `bun run desktop:dev` restart
+- current-host desktop truth for these specific surfaces is therefore **not signed off yet**, but the blocker is now host/runtime drift rather than an unverified source fix
+
 ---
 
 ## Remaining Work After This Audit

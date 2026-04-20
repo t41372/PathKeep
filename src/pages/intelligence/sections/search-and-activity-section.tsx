@@ -26,7 +26,7 @@ import {
   type TopSite,
 } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
-import type { ResolvedLanguage } from '../../../lib/i18n'
+import type { ResolvedLanguage } from '../../../lib/i18n/catalog'
 import { intelligenceCategoryLabel } from '../copy'
 import { IntelligenceSectionBody } from './section-body'
 import { firstSectionMeta, formatNumber, type T } from './shared'
