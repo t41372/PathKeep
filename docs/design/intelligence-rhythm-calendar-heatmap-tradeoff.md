@@ -177,7 +177,24 @@
 
 ---
 
-## 8. 用户确认记录
+## 8. 2026-04-20 shipped override
+
+2026-04-20，用户进一步明确指出：
+
+- `/intelligence` overview 与 Dashboard 的 `Browsing Rhythm` 卡片，不应该在点日格时直接跳走
+- 点日格后应先在卡片下方展示 compact day preview
+- 只有用户再按明确的 `查看详情` CTA，才进入 `/intelligence/day/:date`
+- Dashboard 若 archive 横跨多年，还要用 bounded pager 浏览不同年份，并明确显示当前年份
+
+这次 override **没有** 推翻「day 是 first-class shared route」这条更高层 contract。  
+真正被修正的是 `Browsing Rhythm` 卡片自己的 click grammar：
+
+- `Browsing Rhythm` 卡片：**preview-first**
+- Explorer detail rail / 其他 day entry surface：**route-first**
+
+这样既保留了 shared `day insights` route 作为唯一完整 read model，也把卡片内本来就约定好的同日摘要 / 小时分布 / 重点网站恢复回来。
+
+## 9. 用户确认记录
 
 2026-04-19，用户已明确确认：
 

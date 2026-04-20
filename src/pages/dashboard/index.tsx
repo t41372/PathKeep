@@ -589,11 +589,15 @@ export function DashboardPage() {
         </div>
         <div className="panel-body">
           <BrowsingRhythmCard
+            dayDomainHref={(domain, date) =>
+              domainDayInsightsHref(domain, date, activeProfileId)
+            }
             dayHref={(date) => dayInsightsHref(date, activeProfileId)}
             mode="year"
             language={language}
             profileId={activeProfileId}
             t={intelligenceT}
+            yearNavigation="pager"
           />
         </div>
       </div>

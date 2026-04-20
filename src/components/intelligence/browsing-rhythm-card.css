@@ -18,6 +18,11 @@
   color: var(--text-muted);
 }
 
+.browsing-rhythm-card__legend {
+  flex: 1;
+  min-width: 120px;
+}
+
 .browsing-rhythm-card__selector {
   display: flex;
   align-items: center;
@@ -32,6 +37,67 @@
   font-size: 0.75rem;
   padding: var(--space-1) var(--space-2);
   min-width: 120px;
+}
+
+.browsing-rhythm-card__year-pager {
+  display: inline-flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+}
+
+.browsing-rhythm-card__year-button {
+  width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    border-color var(--transition),
+    color var(--transition),
+    background-color var(--transition);
+}
+
+.browsing-rhythm-card__year-button:hover:not(:disabled),
+.browsing-rhythm-card__year-button:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-bright);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg) 90%);
+}
+
+.browsing-rhythm-card__year-button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.browsing-rhythm-card__year-current {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 88px;
+  padding: 0 var(--space-3);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface) 90%);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  text-align: center;
+}
+
+.browsing-rhythm-card__year-caption {
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.browsing-rhythm-card__year-value {
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-bright);
 }
 
 .browsing-rhythm-card__empty {
@@ -205,6 +271,12 @@
   border-top: 1px solid var(--border);
 }
 
+.rhythm-day-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
 .rhythm-day-detail__header {
   display: flex;
   align-items: flex-start;
@@ -229,12 +301,52 @@
   font-size: 0.75rem;
 }
 
+.rhythm-day-detail__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
 .rhythm-day-detail__badge {
   padding: 4px 8px;
   border: 1px solid var(--border);
   color: var(--accent);
   font-family: var(--font-code);
   font-size: 0.6875rem;
+}
+
+.rhythm-day-detail__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition:
+    border-color var(--transition),
+    color var(--transition),
+    background-color var(--transition);
+}
+
+.rhythm-day-detail__link:hover,
+.rhythm-day-detail__link:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-bright);
+}
+
+.rhythm-day-detail__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 84%, transparent);
 }
 
 .rhythm-day-detail__stats {
@@ -322,6 +434,107 @@
   color: var(--text);
   font-size: 0.75rem;
   text-decoration: none;
+  transition:
+    border-color var(--transition),
+    color var(--transition),
+    background-color var(--transition);
+}
+
+.rhythm-day-detail__site-chip:hover,
+.rhythm-day-detail__site-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text-bright);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface) 90%);
+}
+
+.rhythm-day-detail__mix-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-day-detail__mix-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.rhythm-day-detail__mix-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.rhythm-day-detail__mix-label,
+.rhythm-day-detail__mix-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.rhythm-day-detail__mix-label {
+  color: var(--text);
+}
+
+.rhythm-day-detail__mix-value {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.rhythm-day-detail__mix-bar {
+  width: 100%;
+  height: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.rhythm-day-detail__mix-fill {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 72%, var(--bg-surface) 28%);
+}
+
+.rhythm-day-detail__mix-fill[data-category='developer'] {
+  background: #6ea8ff;
+}
+
+.rhythm-day-detail__mix-fill[data-category='video'] {
+  background: #ff8f6b;
+}
+
+.rhythm-day-detail__mix-fill[data-category='social'] {
+  background: #56d39b;
+}
+
+.rhythm-day-detail__mix-fill[data-category='shopping'] {
+  background: #f0b45d;
+}
+
+.rhythm-day-detail__mix-fill[data-category='search'] {
+  background: #ffd166;
+}
+
+.rhythm-day-detail__mix-fill[data-category='docs'] {
+  background: #82cfff;
+}
+
+.rhythm-day-detail__mix-fill[data-category='ai'] {
+  background: #b28cff;
+}
+
+.rhythm-day-detail__mix-fill[data-category='news'] {
+  background: #ff9f9f;
+}
+
+.rhythm-day-detail__mix-fill[data-category='finance'] {
+  background: #7ce2c7;
+}
+
+.rhythm-day-detail__mix-fill[data-category='entertainment'] {
+  background: #ff9ed3;
+}
+
+.rhythm-day-detail__mix-fill[data-category='unknown'] {
+  background: color-mix(in srgb, var(--text-muted) 65%, var(--bg-surface) 35%);
 }
 
 @media (max-width: 900px) {
@@ -330,8 +543,27 @@
     align-items: flex-start;
   }
 
+  .rhythm-day-detail__grid {
+    grid-template-columns: 1fr;
+  }
+
   .rhythm-day-detail__header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .rhythm-day-detail__actions {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .browsing-rhythm-card__year-pager {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .browsing-rhythm-card__year-current {
+    flex: 1;
   }
 }
