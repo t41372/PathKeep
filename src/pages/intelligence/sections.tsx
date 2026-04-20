@@ -18,9 +18,8 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
-import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
+import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import {
   RefindSummaryCard,

@@ -90,9 +90,8 @@ export function SettingsExternalOutputsPanel({
   const { activeProfileId } = useProfileScope()
   const { dateRange, preset, setCustomRange, setPreset } = useTimeRange('month')
   const [activeTab, setActiveTab] = useState<OutputTab>('embed')
-  const [copyFeedback, setCopyFeedback] = useState<WorkbenchCopyFeedback | null>(
-    null,
-  )
+  const [copyFeedback, setCopyFeedback] =
+    useState<WorkbenchCopyFeedback | null>(null)
   const ready = initialized && unlocked
   const profileScopeLabel = activeProfileId
     ? profileIdLabel(activeProfileId)
@@ -445,7 +444,6 @@ function WidgetSnapshotTab({
         }
         title={t('externalOutputsWidgetPreviewTitle')}
       >
-
         <p className="dashboard-next-action">
           {t('externalOutputsWindowLabel', {
             start: snapshot.dateRange.start,
@@ -466,33 +464,38 @@ function WidgetSnapshotTab({
           items={[
             {
               label: intelligenceT('digestVisits'),
-              value: snapshot.digestSummary.totalVisits.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.totalVisits.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestSearches'),
-              value: snapshot.digestSummary.totalSearches.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.totalSearches.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestNewSites'),
-              value: snapshot.digestSummary.newDomains.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.newDomains.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestDeepRead'),
-              value: snapshot.digestSummary.deepReadPages.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.deepReadPages.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestRefind'),
-              value: snapshot.digestSummary.refindPages.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.refindPages.value.toLocaleString(
+                  language,
+                ),
             },
           ]}
         />
@@ -581,7 +584,6 @@ function PublicSnapshotTab({
         }
         title={t('externalOutputsPublicPreviewTitle')}
       >
-
         <StatusCallout
           tone="info"
           title={t('externalOutputsPublicRedactedTitle')}
@@ -600,33 +602,38 @@ function PublicSnapshotTab({
           items={[
             {
               label: intelligenceT('digestVisits'),
-              value: snapshot.digestSummary.totalVisits.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.totalVisits.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestSearches'),
-              value: snapshot.digestSummary.totalSearches.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.totalSearches.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestNewSites'),
-              value: snapshot.digestSummary.newDomains.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.newDomains.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestDeepRead'),
-              value: snapshot.digestSummary.deepReadPages.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.deepReadPages.value.toLocaleString(
+                  language,
+                ),
             },
             {
               label: intelligenceT('digestRefind'),
-              value: snapshot.digestSummary.refindPages.value.toLocaleString(
-                language,
-              ),
+              value:
+                snapshot.digestSummary.refindPages.value.toLocaleString(
+                  language,
+                ),
             },
           ]}
         />

@@ -105,7 +105,10 @@ export function RefindSummaryCard({
           </span>
         </button>
       ) : null}
-      <InsightEntityActions className="intelligence-actions" items={actionItems} />
+      <InsightEntityActions
+        className="intelligence-actions"
+        items={actionItems}
+      />
       {hasFactors && showFactors ? (
         <div id={factorPanelId}>
           <RefindFactorList factors={factorRows ?? []} />

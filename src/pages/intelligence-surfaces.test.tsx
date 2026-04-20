@@ -4148,10 +4148,15 @@ describe('intelligence surfaces', () => {
       'href',
       '/explorer?profileId=chrome%3ADefault&start=2026-04-01&end=2026-04-30&q=sqlite+wal',
     )
-    expect(screen.getByRole('link', { name: /sqlite wal/i })).toHaveAttribute(
-      'href',
-      '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
-    )
+    expect(
+      screen
+        .getAllByRole('link', { name: /sqlite wal/i })
+        .some(
+          (link) =>
+            link.getAttribute('href') ===
+            '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
+        ),
+    ).toBe(true)
   })
 
   test('renders refind-page insights with day and trail drilldowns', async () => {
@@ -4245,7 +4250,9 @@ describe('intelligence surfaces', () => {
     )
     expect(screen.getByText('cross_day_count')).toBeVisible()
     expect(screen.getByText('3 ×3')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Open domain insights' })).toHaveAttribute(
+    expect(
+      screen.getByRole('link', { name: 'Open domain insights' }),
+    ).toHaveAttribute(
       'href',
       '/intelligence/domain/sqlite.org?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
     )

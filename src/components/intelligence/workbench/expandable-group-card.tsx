@@ -26,7 +26,9 @@ export function WorkbenchExpandableGroupCard({
   rootClassName: string
 }) {
   return (
-    <div className={`${rootClassName}${expanded ? ` ${rootClassName}--expanded` : ''}`}>
+    <div
+      className={`${rootClassName}${expanded ? ` ${rootClassName}--expanded` : ''}`}
+    >
       <button
         aria-expanded={expanded}
         className={headerClassName}

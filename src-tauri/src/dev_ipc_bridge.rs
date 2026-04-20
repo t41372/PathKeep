@@ -832,6 +832,9 @@ async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        // TODO: M11 - Deduplicate this dev-only intelligence mirror against the
+        // Tauri command registry once the next transport audit decides whether
+        // a shared command manifest is worth the extra maintenance cost.
         "get_browsing_rhythm" => {
             let payload =
                 parse_payload::<WrappedRequest<CategoryFilteredDateRangeRequest>>(payload)?;

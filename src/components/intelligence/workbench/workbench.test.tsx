@@ -32,7 +32,11 @@ describe('intelligence workbench primitives', () => {
           expandLabel="Show factors"
           factorRows={[
             { label: 'Cross-day revisits', valueLabel: '4 ×3', emphasis: 12 },
-            { label: 'Distinct trail appearances', valueLabel: '2 ×3', emphasis: 6 },
+            {
+              label: 'Distinct trail appearances',
+              valueLabel: '2 ×3',
+              emphasis: 6,
+            },
           ]}
           scoreLabel="Score: 5.0"
           title="SQLite language reference"
@@ -47,9 +51,7 @@ describe('intelligence workbench primitives', () => {
       'href',
       '/intelligence/refind/https%3A%2F%2Fsqlite.org%2Flang.html',
     )
-    expect(
-      screen.getByRole('link', { name: 'sqlite.org' }),
-    ).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'sqlite.org' })).toHaveAttribute(
       'href',
       '/intelligence/domain/sqlite.org?range=custom&start=2026-04-01&end=2026-04-01',
     )
@@ -130,9 +132,7 @@ describe('intelligence workbench primitives', () => {
     )
 
     expect(screen.getByText('Open')).toBeVisible()
-    expect(
-      screen.getByRole('link', { name: 'Open insights' }),
-    ).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Open insights' })).toHaveAttribute(
       'href',
       '/intelligence/day/2026-04-18?profileId=chrome%3ADefault',
     )
@@ -140,9 +140,7 @@ describe('intelligence workbench primitives', () => {
       'href',
       '/intelligence/domain/sqlite.org?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
     )
-    expect(
-      screen.getByRole('link', { name: 'SQLite pragma' }),
-    ).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'SQLite pragma' })).toHaveAttribute(
       'href',
       '/intelligence/query-family/family-1?range=custom&start=2026-04-01&end=2026-04-18&profileId=chrome%3ADefault',
     )

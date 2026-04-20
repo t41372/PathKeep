@@ -68,9 +68,8 @@ export function SettingsExternalOutputLocalHostPanel({
   const t = ns('settings')
   const commonT = ns('common')
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
-  const [copyFeedback, setCopyFeedback] = useState<WorkbenchCopyFeedback | null>(
-    null,
-  )
+  const [copyFeedback, setCopyFeedback] =
+    useState<WorkbenchCopyFeedback | null>(null)
   const [buildState, setBuildState] = useState<{
     tone: 'success' | 'error'
     message: string
@@ -217,7 +216,9 @@ export function SettingsExternalOutputLocalHostPanel({
             </div>
           </WorkbenchReviewSection>
 
-          <WorkbenchReviewSection title={t('externalOutputsLocalHostBoundaryTitle')}>
+          <WorkbenchReviewSection
+            title={t('externalOutputsLocalHostBoundaryTitle')}
+          >
             <div className="inline-note-list">
               {currentPreview.boundaryNotes.map((note) => (
                 <p key={note}>{note}</p>
@@ -237,7 +238,9 @@ export function SettingsExternalOutputLocalHostPanel({
             </WorkbenchReviewSection>
           ) : null}
 
-          <WorkbenchReviewSection title={t('externalOutputsLocalHostManualTitle')}>
+          <WorkbenchReviewSection
+            title={t('externalOutputsLocalHostManualTitle')}
+          >
             {manualSteps.length > 0 ? (
               <div className="inline-note-list">
                 {manualSteps.map((step) => (
@@ -309,7 +312,9 @@ export function SettingsExternalOutputLocalHostPanel({
           ) : null}
 
           {installedHost ? (
-            <WorkbenchReviewSection title={t('externalOutputsLocalHostVerifyTitle')}>
+            <WorkbenchReviewSection
+              title={t('externalOutputsLocalHostVerifyTitle')}
+            >
               <div className="settings-field-grid">
                 <div className="config-row">
                   <span className="config-label">

@@ -715,7 +715,7 @@ describe('App shell', () => {
     },
     {
       entry: '/intelligence',
-      pageTestId: null,
+      pageTestId: 'intelligence-page',
       sentinel: intelligenceT('digestTitle'),
     },
     {
@@ -744,8 +744,10 @@ describe('App shell', () => {
         return
       }
 
-      const page = await screen.findByTestId(pageTestId)
-      expect(await within(page).findByText(sentinel)).toBeVisible()
+      await waitFor(() => {
+        const page = screen.getByTestId(pageTestId)
+        expect(within(page).getByText(sentinel)).toBeVisible()
+      })
     },
   )
 

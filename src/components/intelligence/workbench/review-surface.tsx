@@ -155,7 +155,7 @@ export function WorkbenchTargetLinksRow({
             {primaryLabel}
           </Link>
         ) : (
-          fallback ?? null
+          (fallback ?? null)
         )}
         {secondaryLinks.length > 0 ? (
           <span className="settings-output-chip-list">

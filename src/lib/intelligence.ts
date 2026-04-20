@@ -18,6 +18,10 @@
  * Source-of-truth notes:
  * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
  * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ *
+ * TODO: M11 - Split this remaining mixed helper surface into narrower modules
+ * once the next app-wide reuse audit decides which pieces belong to route
+ * grammar, evidence helpers, and assistant/runtime presentation.
  */
 
 import type {
