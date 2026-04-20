@@ -122,7 +122,10 @@ function renderTrashGlyph() {
   return (
     <>
       <path d="M5 7h14" {...glyphStrokeProps} />
-      <path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7" {...glyphStrokeProps} />
+      <path
+        d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7"
+        {...glyphStrokeProps}
+      />
       <path d="m8 7 1 12h6l1-12" {...glyphStrokeProps} />
       <path d="M11 10.5v5" {...glyphStrokeProps} />
       <path d="M13 10.5v5" {...glyphStrokeProps} />

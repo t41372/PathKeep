@@ -133,7 +133,9 @@ describe('App helpers', () => {
       </div>,
     )
 
-    expect(screen.queryByRole('img', { name: /check/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('img', { name: /check/i }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole('img', { name: 'Warning state' }),
     ).toBeInTheDocument()
