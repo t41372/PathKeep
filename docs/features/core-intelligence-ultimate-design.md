@@ -9,11 +9,11 @@
 >
 > **2026-04-19 accepted override:** `Browsing Rhythm` 主圖不再沿用本文早期版本裡的「週 × 小時」首屏契約。使用者已明確確認改成 **真實日期日曆熱力圖**，並把小時分布退到「選中某一天後的 detail 區」。完整 trade-off 與回滾邊界見 [`../design/intelligence-rhythm-calendar-heatmap-tradeoff.md`](../design/intelligence-rhythm-calendar-heatmap-tradeoff.md)。
 >
-> **2026-04-19 accepted entity note:** `day` 與 `domain` 現在都已升格成 first-class shared entity surface。`/intelligence/day/:date` 是 exact local day 的完整 insights route；`/intelligence/domain/:domain` 正式作為 `Domain Insights` module。overview / Dashboard / Explorer 的 primary interaction 預設採 `Insights first`，Explorer evidence 降為 secondary CTA。完整 trade-off 見 [`../design/intelligence-entity-route-tradeoff.md`](../design/intelligence-entity-route-tradeoff.md)。
+> **2026-04-19 accepted entity note:** `day` 與 `domain` 現在都已升格成 first-class shared entity surface。`/intelligence/day/:date` 是 exact local day 的完整 insights route；`/intelligence/domain/:domain` 正式作為 `Domain Insights` module。day/domain-facing surface 預設採 `Insights first`，Explorer evidence 降為 secondary CTA；目前唯一的 UI 特例是 `/intelligence` overview 與 Dashboard 的 `Browsing Rhythm` 卡片，點日格時會先打開 inline preview，再由明確 CTA 進入 shared day route。完整 trade-off 見 [`../design/intelligence-entity-route-tradeoff.md`](../design/intelligence-entity-route-tradeoff.md)。
 >
 > **2026-04-19 accepted generic-entity note:** M7 已把 generic insight-entity navigation 收斂成正式 contract：`query family`、`refind page`、`session`、`trail` 也已升格成 first-class shared insights route，其餘 active entity 則必須解析到既有 shared destination，而不是各 surface 各自決定 deep-link。Explorer 的 `session` / `trail` grouped view 仍是 browse-first canonical surface；route promotion 只承接 reusable detail / explainability / evidence CTA。完整 trade-off 見 [`../design/intelligence-generic-entity-navigation-tradeoff.md`](../design/intelligence-generic-entity-navigation-tradeoff.md)。
 >
-> **2026-04-19 accepted salvage note:** `Search Activity` 現在在既有 `engines / concepts / families` 之外，多了一個 additive 的 `Recent Queries` tab。這個 tab 讀 `get_search_queries`，每列都保留 reusable `familyId` / `trailId` / `profileId`，primary CTA 直接走 shared query-family insights route；這不是 Explorer `queries` view，也不代表 route grammar 改回 consumer-local workflow。search-engine rule editing 也正式收斂到 Settings derived-state panel，作為 deterministic rebuild 的一部分。
+> **2026-04-20 accepted search-browser note:** `Search Activity` 的第四個 tab 現在正式收斂成 `Search Keywords` browser，不再叫 `Recent Queries`。它仍然讀 `get_search_queries`、仍維持 distinct `(search_engine, normalized_query)` row 與 shared `query-family` / `trail` / evidence CTA grammar，但 UI 已升格成 bounded paged browser，而不是 additive load-more card list。`Top Search Concepts` 也不再用詞雲；accepted 規格改為 horizontal bar chart，且 concept/keyword-facing surface 只允許吃 keyword-eligible search rows，不再把 URL-like / navigational noise 混進排名。完整 trade-off 見 [`../design/search-activity-keyword-browser-tradeoff.md`](../design/search-activity-keyword-browser-tradeoff.md)。
 >
 > **2026-04-19 accepted M8 note:** M8 已把 aggregate entity identity / context reuse 收口成正式 contract：`compare set` 升格成 `/intelligence/compare-set/:compareSetId` first-class route；shared non-overview insights routes additive 支援受限的 `focusType` / `focusId`；`path flow` 改成 stable `flowId` + typed `steps`；trusted external outputs 也改帶 structured entity targets，而 `public snapshot` 維持 redacted。完整 trade-off 見 [`../design/intelligence-aggregate-entity-focus-tradeoff.md`](../design/intelligence-aggregate-entity-focus-tradeoff.md)。
 >
@@ -422,7 +422,7 @@ Explorer（歷史瀏覽）頁面新增「View by」分組選項：
 
 **取代原版「Top 搜索關鍵詞」**——raw query 幾乎不重複，統計沒意義。
 
-目前 shipping 為四個子視圖，其中第四個 `Recent Queries` 是沿著 M8 identity-reuse baseline 加上的 additive review surface，不重開新的 Explorer URL grammar：
+目前 shipping 為四個子視圖，其中第四個已正式命名為 `Search Keywords` browser，不重開新的 Explorer URL grammar：
 
 **A. 搜索入口排行**
 
@@ -433,12 +433,12 @@ Explorer（歷史瀏覽）頁面新增「View by」分組選項：
 
 **B. 高頻搜索概念 (Top Search Concepts)**
 
-| 項目         | 內容                                                                                                                           |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| **為什麼**   | 大部分搜索詞只出現一次，raw top keyword 沒意義。真正有價值的是「你持續關心什麼概念」                                           |
-| **怎麼算**   | 把 query 拆成 token，統計 token 頻率。`"sqlite wal checkpoint"` 和 `"sqlite wal too large"` 都為 `sqlite` 和 `wal` 貢獻計數    |
-| **分詞策略** | Latin → 空格分詞 + 去停用詞。CJK → n-gram + 可選 `jieba-rs`（Rust 原生，幾十 KB 字典）。Unicode normalization → 轉小寫、去標點 |
-| **怎麼展示** | 詞雲 (Word Cloud) 或 Packed Bubble Chart，不同搜索引擎用不同顏色                                                               |
+| 項目         | 內容                                                                                                                                                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼**   | 大部分搜索詞只出現一次，raw top keyword 沒意義。真正有價值的是「你持續關心什麼概念」                                                                                                                                                        |
+| **怎麼算**   | 只對 keyword-eligible `search_events` 拆 token 並統計頻率。`"sqlite wal checkpoint"` 和 `"sqlite wal too large"` 都為 `sqlite` 和 `wal` 貢獻計數；看起來像 pasted URL / hostname / navigational input 的 row 先排除，不再進 concept surface |
+| **分詞策略** | Latin → 空格分詞 + 去停用詞。CJK → n-gram + 可選 `jieba-rs`（Rust 原生，幾十 KB 字典）。Unicode normalization → 轉小寫、去標點；URL-like stop tokens（如 `http` / `https` / `www` / `com`）也不得主導概念排行                               |
+| **怎麼展示** | ranked horizontal bar chart，並附 chart description 說明目前顯示的是當前視窗內最常出現的搜索概念                                                                                                                                            |
 
 **C. Query Family（反覆搜索的問題）**
 
@@ -469,14 +469,14 @@ Query Family 範例:
 
 **跨瀏覽器：** Chromium ✅（`search_terms`） / Firefox ✅（`search_queries`） / Safari ⚠️（URL 規則 fallback） / Takeout ✅
 
-**D. Recent Queries（最近實際查過什麼）**
+**D. Search Keywords（目前時間窗裡真的查了什麼）**
 
-| 項目         | 內容                                                                                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **為什麼**   | `Top Search Concepts` 與 `Query Family` 都是 aggregate view，但使用者有時仍需要回看最近真的查了哪些 query，且要保留 reusable identity               |
-| **怎麼算**   | 讀 `search_events`，在請求視窗內先 dedupe 最新一筆 `(search_engine, normalized_query)`，再回填 `query_families` / `search_trails` context           |
-| **怎麼展示** | `Search Activity` 內的 additive tab，支援 engine/filter/sort；有 `familyId` 時 primary CTA 走 query-family insights，次要 CTA 才是 trail / evidence |
-| **邊界**     | 不新增 Explorer `queries` view、不新增新的 route grammar，也不把 M7 已接受的 promoted entity CTA 拉回 page-local deep-link                          |
+| 項目         | 內容                                                                                                                                                                                                              |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼**   | `Top Search Concepts` 與 `Query Family` 都是 aggregate view，但使用者有時仍需要回看當前時間窗內真的查了哪些 keyword，且要保留 reusable identity                                                                   |
+| **怎麼算**   | 讀 keyword-eligible `search_events`，在請求視窗內先 dedupe 最新一筆 `(search_engine, normalized_query)`，再回填 `query_families` / `search_trails` context                                                        |
+| **怎麼展示** | `Search Activity` 內的 bounded browser，支援 text filter、engine filter、nested date subrange、sort、pagination、page size；有 `familyId` 時 primary CTA 走 query-family insights，次要 CTA 才是 trail / evidence |
+| **邊界**     | 不新增 Explorer `queries` view、不新增新的 route grammar，也不把 M7 已接受的 promoted entity CTA 拉回 page-local deep-link；row 粒度仍是 distinct keyword，而不是每次 search event                                |
 
 ---
 
@@ -658,12 +658,12 @@ SELECT * FROM path ORDER BY depth DESC;
 
 #### 4.1 網站深度分析 (Domain Insights / Domain Deep Dive)
 
-| 項目         | 內容                                                                            |
-| ------------ | ------------------------------------------------------------------------------- |
-| **為什麼**   | 回答「我跟某個特定網站的關係是怎樣的？」                                        |
-| **包含**     | Top Pages、Top Referrers、Top Exits、Activity Over Time、搜索入口、到達方式分佈 |
-| **觸發方式** | 從 Top 網站列表點擊域名進入                                                     |
-| **性能**     | 基於 rollup 和索引查詢                                                          |
+| 項目         | 內容                                                                                                                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **為什麼**   | 回答「我跟某個特定網站的關係是怎樣的？」                                                                                                                                                                     |
+| **包含**     | Top Pages、Top Referrers、Top Exits、Activity Over Time、搜索入口、到達方式分佈；若該 domain 是已知 search engine 且目前視窗內有 keyword-eligible rows，還要額外顯示 domain-scoped `Search Keywords` browser |
+| **觸發方式** | 從 Top 網站列表點擊域名進入                                                                                                                                                                                  |
+| **性能**     | 基於 rollup 和索引查詢                                                                                                                                                                                       |
 
 ---
 
@@ -730,12 +730,12 @@ SELECT * FROM path ORDER BY depth DESC;
 
 #### 4.6 瀏覽節奏熱圖 (Browsing Rhythm Heatmap)
 
-> **2026-04-19 dashboard note:** Dashboard 現在也會共用這套真實日期日曆熱力圖，但固定以 calendar year 呈現；若 archive 內跨多個年份，卡片可切換年份。年份來源來自 `getDiscoveryTrend(..., 'day').availableYears`，而不是 hourly detail API。
+> **2026-04-20 dashboard note:** Dashboard 現在也會共用這套真實日期日曆熱力圖，但固定以 calendar year 呈現；若 archive 內跨多個年份，卡片必須顯示當前查看年份，並以 bounded pager 在 `getDiscoveryTrend(..., 'day').availableYears` 之間前後翻頁，而不是用 hourly detail API 或任意打開不存在的未來年份。
 
-| 項目       | 內容                                                                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **為什麼** | 使用者先需要知道「哪些真實日期值得看」，再決定要不要往同一天的具體時段下鑽。                                                                                                              |
-| **是什麼** | **主圖：** GitHub 式真實日期日曆熱力圖（1 格 = 1 天）<br />**主互動：** 點某一天後，進 `/intelligence/day/:date` 的完整 day insights route，再查看當天 digest / top sites / 24 小時分布。 |
+| 項目       | 內容                                                                                                                                                                                                                                                                   |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼** | 使用者先需要知道「哪些真實日期值得看」，再決定要不要往同一天的具體時段下鑽。                                                                                                                                                                                           |
+| **是什麼** | **主圖：** GitHub 式真實日期日曆熱力圖（1 格 = 1 天）<br />**主互動：** 點某一天後，先在卡片內顯示 compact day preview（當天 digest / top sites / 活動構成 / 24 小時分布）；使用者再透過明確的 `查看詳情` CTA 進 `/intelligence/day/:date` 的完整 day insights route。 |
 
 **主圖資料來源：**
 
