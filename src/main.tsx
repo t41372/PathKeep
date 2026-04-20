@@ -37,7 +37,7 @@ document.documentElement.setAttribute(
   resolveAppRuntime(),
 )
 
-// Keep glyph fallback honest before first paint when a persisted locale exists.
+// Keep the DOM locale honest before first paint when a persisted locale exists.
 try {
   document.documentElement.lang = localeTag(
     resolveLanguage(readStoredPreference()),

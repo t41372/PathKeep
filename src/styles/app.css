@@ -1030,16 +1030,16 @@
   gap: var(--space-4);
 }
 
-/* ═══ GLYPH — Material Symbols ═══ */
+/* ═══ GLYPH — Local SVG icons ═══ */
 .glyph {
-  font-size: 18px;
-  line-height: 1;
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  flex-shrink: 0;
   vertical-align: middle;
   user-select: none;
-}
-
-.glyph.filled {
-  font-variation-settings: 'FILL' 1;
+  color: currentColor;
+  overflow: visible;
 }
 
 .panel-header-icon {

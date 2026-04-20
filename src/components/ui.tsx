@@ -29,8 +29,262 @@ import type { ResolvedLanguage } from '../lib/i18n'
 import { formatDateTime } from '../lib/format'
 
 // ---------------------------------------------------------------------------
-// Glyph — Material Symbols icon wrapper
+// Glyph — local SVG icon wrapper
 // ---------------------------------------------------------------------------
+
+const glyphStrokeProps = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  strokeWidth: 1.8,
+} as const
+
+function renderBarChartGlyph() {
+  return (
+    <>
+      <path d="M4.5 19.5h15" {...glyphStrokeProps} />
+      <path d="M7 18v-5" {...glyphStrokeProps} />
+      <path d="M12 18V7" {...glyphStrokeProps} />
+      <path d="M17 18v-9" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderBookGlyph() {
+  return (
+    <>
+      <path
+        d="M6.5 5.5h4.5A3 3 0 0 1 14 8.5v10H9.5A3 3 0 0 0 6.5 21z"
+        {...glyphStrokeProps}
+      />
+      <path
+        d="M17.5 5.5H13A3 3 0 0 0 10 8.5v10h4.5A3 3 0 0 1 17.5 21z"
+        {...glyphStrokeProps}
+      />
+      <path d="M10 9.5h4" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderGearGlyph() {
+  return (
+    <>
+      <circle cx="12" cy="12" r="3.2" {...glyphStrokeProps} />
+      <path d="M12 3.5v2.2" {...glyphStrokeProps} />
+      <path d="M12 18.3v2.2" {...glyphStrokeProps} />
+      <path d="M20.5 12h-2.2" {...glyphStrokeProps} />
+      <path d="M5.7 12H3.5" {...glyphStrokeProps} />
+      <path d="m18 6-1.6 1.6" {...glyphStrokeProps} />
+      <path d="m7.6 16.4-1.6 1.6" {...glyphStrokeProps} />
+      <path d="m18 18-1.6-1.6" {...glyphStrokeProps} />
+      <path d="M7.6 7.6 6 6" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderWrenchGlyph() {
+  return (
+    <path
+      d="M14.7 6.3a3.7 3.7 0 0 0 5 5L10.2 20.8a2 2 0 0 1-2.8 0L5.2 18.6a2 2 0 0 1 0-2.8z"
+      {...glyphStrokeProps}
+    />
+  )
+}
+
+function renderCheckGlyph() {
+  return <path d="m5 12.5 4.2 4.2L19 7.5" {...glyphStrokeProps} />
+}
+
+function renderCloudUploadGlyph() {
+  return (
+    <>
+      <path
+        d="M7 18a4 4 0 1 1 .8-7.9A5.2 5.2 0 0 1 18 11a3.5 3.5 0 1 1 0 7H7z"
+        {...glyphStrokeProps}
+      />
+      <path d="M12 15V9.5" {...glyphStrokeProps} />
+      <path d="m9.5 11.8 2.5-2.5 2.5 2.5" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderCopyGlyph() {
+  return (
+    <>
+      <rect height="11" rx="1.5" width="10" x="9" y="7" {...glyphStrokeProps} />
+      <path d="M15 5H6a1 1 0 0 0-1 1v9" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderTrashGlyph() {
+  return (
+    <>
+      <path d="M5 7h14" {...glyphStrokeProps} />
+      <path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7" {...glyphStrokeProps} />
+      <path d="m8 7 1 12h6l1-12" {...glyphStrokeProps} />
+      <path d="M11 10.5v5" {...glyphStrokeProps} />
+      <path d="M13 10.5v5" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderFolderGlyph() {
+  return (
+    <>
+      <path
+        d="M3.5 9.5a2 2 0 0 1 2-2H10l2 2h6.5a2 2 0 0 1 2 2l-1 6.5a2 2 0 0 1-2 1.5H6a2 2 0 0 1-2-1.5z"
+        {...glyphStrokeProps}
+      />
+      <path d="M3.5 9.5V7A2 2 0 0 1 5.5 5H10l2 2h4" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderHistoryGlyph() {
+  return (
+    <>
+      <path d="M3.5 5.5V10H8" {...glyphStrokeProps} />
+      <path d="M4.3 10A8 8 0 1 0 8 5.3" {...glyphStrokeProps} />
+      <path d="M12 8v4.2l2.8 1.8" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderGlobeGlyph() {
+  return (
+    <>
+      <circle cx="12" cy="12" r="8" {...glyphStrokeProps} />
+      <path d="M4 12h16" {...glyphStrokeProps} />
+      <path
+        d="M12 4c2.4 2.1 3.6 4.8 3.6 8s-1.2 5.9-3.6 8c-2.4-2.1-3.6-4.8-3.6-8S9.6 6.1 12 4Z"
+        {...glyphStrokeProps}
+      />
+    </>
+  )
+}
+
+function renderMemoryGlyph() {
+  return (
+    <>
+      <rect height="8" rx="1.5" width="10" x="7" y="8" {...glyphStrokeProps} />
+      <path d="M9.5 8V6" {...glyphStrokeProps} />
+      <path d="M12 8V6" {...glyphStrokeProps} />
+      <path d="M14.5 8V6" {...glyphStrokeProps} />
+      <path d="M9.5 18v-2" {...glyphStrokeProps} />
+      <path d="M12 18v-2" {...glyphStrokeProps} />
+      <path d="M14.5 18v-2" {...glyphStrokeProps} />
+      <path d="M7 10H5" {...glyphStrokeProps} />
+      <path d="M7 14H5" {...glyphStrokeProps} />
+      <path d="M19 10h-2" {...glyphStrokeProps} />
+      <path d="M19 14h-2" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderPreviewGlyph() {
+  return (
+    <>
+      <path
+        d="M2.5 12s3.5-5.5 9.5-5.5S21.5 12 21.5 12s-3.5 5.5-9.5 5.5S2.5 12 2.5 12Z"
+        {...glyphStrokeProps}
+      />
+      <circle cx="12" cy="12" r="2.5" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderSearchGlyph() {
+  return (
+    <>
+      <circle cx="10.5" cy="10.5" r="4.5" {...glyphStrokeProps} />
+      <path d="m14 14 5 5" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderShieldGlyph() {
+  return (
+    <path
+      d="M12 3.5 19 6v5.5c0 4.2-2.7 8-7 9.7-4.3-1.7-7-5.5-7-9.7V6z"
+      {...glyphStrokeProps}
+    />
+  )
+}
+
+function renderRobotGlyph() {
+  return (
+    <>
+      <rect height="8" rx="2" width="10" x="7" y="8" {...glyphStrokeProps} />
+      <path d="M12 8V5.5" {...glyphStrokeProps} />
+      <path d="m10 17 1.2 1.5" {...glyphStrokeProps} />
+      <path d="m14 17-1.2 1.5" {...glyphStrokeProps} />
+      <path d="M8 11H6.5" {...glyphStrokeProps} />
+      <path d="M17.5 11H16" {...glyphStrokeProps} />
+      <circle cx="10" cy="11.5" fill="currentColor" r="0.8" />
+      <circle cx="14" cy="11.5" fill="currentColor" r="0.8" />
+      <path d="M10 14h4" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderSyncGlyph() {
+  return (
+    <>
+      <path d="M20 7h-6a5 5 0 0 0-5 5v1" {...glyphStrokeProps} />
+      <path d="m17 4 3 3-3 3" {...glyphStrokeProps} />
+      <path d="M4 17h6a5 5 0 0 0 5-5v-1" {...glyphStrokeProps} />
+      <path d="m7 20-3-3 3-3" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderSystemUpdateGlyph() {
+  return (
+    <>
+      <path d="M12 5v9" {...glyphStrokeProps} />
+      <path d="m8.5 10.5 3.5 3.5 3.5-3.5" {...glyphStrokeProps} />
+      <path d="M5 18h14v2H5z" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderWarningGlyph() {
+  return (
+    <>
+      <path d="M12 4.5 20 19H4z" {...glyphStrokeProps} />
+      <path d="M12 9v4.5" {...glyphStrokeProps} />
+      <circle cx="12" cy="16.5" fill="currentColor" r="0.8" />
+    </>
+  )
+}
+
+const glyphVectors = {
+  analytics: renderBarChartGlyph,
+  auto_stories: renderBookGlyph,
+  bar_chart: renderBarChartGlyph,
+  build: renderWrenchGlyph,
+  check: renderCheckGlyph,
+  cloud_upload: renderCloudUploadGlyph,
+  content_copy: renderCopyGlyph,
+  delete_sweep: renderTrashGlyph,
+  folder_open: renderFolderGlyph,
+  history: renderHistoryGlyph,
+  language: renderGlobeGlyph,
+  memory: renderMemoryGlyph,
+  preview: renderPreviewGlyph,
+  public: renderGlobeGlyph,
+  search: renderSearchGlyph,
+  settings: renderGearGlyph,
+  shield: renderShieldGlyph,
+  smart_toy: renderRobotGlyph,
+  sync: renderSyncGlyph,
+  system_update: renderSystemUpdateGlyph,
+  warning: renderWarningGlyph,
+} as const
+
+export type GlyphIconName = keyof typeof glyphVectors
 
 /**
  * Explains how glyph works.
@@ -41,15 +295,19 @@ export function Glyph({
   icon,
   filled = false,
 }: {
-  icon: string
+  icon: GlyphIconName
   filled?: boolean
 }) {
+  const renderVector = glyphVectors[icon]
+
   return (
-    <span
-      className={`material-symbols-outlined glyph ${filled ? 'filled' : ''}`}
+    <svg
+      className={`glyph ${filled ? 'filled' : ''}`}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
     >
-      {icon}
-    </span>
+      {renderVector()}
+    </svg>
   )
 }
 
@@ -71,7 +329,7 @@ export function Surface({
 }: {
   eyebrow: string
   title: string
-  icon: string
+  icon: GlyphIconName
   actions?: ReactNode
   children: ReactNode
 }) {
