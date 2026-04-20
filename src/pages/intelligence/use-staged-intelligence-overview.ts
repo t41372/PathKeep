@@ -34,13 +34,9 @@ function createOverviewState(
 
   return {
     scopeKey,
-    primaryReady: Boolean(
-      peekIntelligencePrimaryOverview(dateRange, profileId),
-    ),
+    primaryReady: false,
     primaryError: null,
-    secondaryReady: Boolean(
-      peekIntelligenceSecondaryOverview(dateRange, profileId),
-    ),
+    secondaryReady: false,
     secondaryLoading: false,
     secondaryError: null,
   }
@@ -88,9 +84,106 @@ export function useStagedIntelligenceOverview(
     }
     const nextCachedState = createOverviewState(nextDateRange, profileId)
     const nextScopeKey = nextCachedState.scopeKey
+    const hasPrimaryCache = Boolean(
+      peekIntelligencePrimaryOverview(nextDateRange, profileId),
+    )
+    const hasSecondaryCache = Boolean(
+      peekIntelligenceSecondaryOverview(nextDateRange, profileId),
+    )
+
+    const startSecondaryLoad = () => {
+      if (typeof window === 'undefined') {
+        return
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        cancelIdle = scheduleIdleLoad(() => {
+          if (cancelled) return
+          setState((current) => ({
+            ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+            secondaryReady: hasSecondaryCache,
+            secondaryLoading: !hasSecondaryCache,
+            secondaryError: null,
+          }))
+          void loadIntelligenceSecondaryOverview(nextDateRange, profileId, {
+            force: hasSecondaryCache,
+          })
+            .then(() => {
+              if (cancelled) return
+              setState((current) => ({
+                ...(current.scopeKey === nextScopeKey
+                  ? current
+                  : nextCachedState),
+                secondaryReady: true,
+                secondaryLoading: false,
+                secondaryError: null,
+              }))
+            })
+            .catch((error: unknown) => {
+              if (cancelled) return
+              setState((current) => ({
+                ...(current.scopeKey === nextScopeKey
+                  ? current
+                  : nextCachedState),
+                secondaryReady: hasSecondaryCache,
+                secondaryLoading: false,
+                secondaryError:
+                  error instanceof Error ? error.message : String(error),
+              }))
+            })
+        })
+      })
+    }
+
+    if (hasPrimaryCache) {
+      if (typeof window === 'undefined') {
+        queueMicrotask(() => {
+          if (cancelled) return
+          setState((current) => ({
+            ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+            primaryReady: true,
+            primaryError: null,
+          }))
+        })
+        startSecondaryLoad()
+      } else {
+        frameId = window.requestAnimationFrame(() => {
+          if (cancelled) return
+          setState((current) => ({
+            ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+            primaryReady: true,
+            primaryError: null,
+          }))
+          startSecondaryLoad()
+        })
+      }
+
+      void loadIntelligencePrimaryOverview(nextDateRange, profileId, {
+        force: true,
+      }).catch((error: unknown) => {
+        if (cancelled) return
+        setState((current) => ({
+          ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+          primaryReady: true,
+          primaryError: error instanceof Error ? error.message : String(error),
+        }))
+      })
+
+      return () => {
+        cancelled = true
+        cancelIdle()
+        if (
+          frameId !== null &&
+          typeof window !== 'undefined' &&
+          typeof window.cancelAnimationFrame === 'function'
+        ) {
+          window.cancelAnimationFrame(frameId)
+        }
+      }
+    }
 
     void loadIntelligencePrimaryOverview(nextDateRange, profileId, {
-      force: nextCachedState.primaryReady,
+      force: false,
     })
       .then(() => {
         if (cancelled) return
@@ -99,48 +192,7 @@ export function useStagedIntelligenceOverview(
           primaryReady: true,
           primaryError: null,
         }))
-
-        if (typeof window === 'undefined') {
-          return
-        }
-
-        frameId = window.requestAnimationFrame(() => {
-          cancelIdle = scheduleIdleLoad(() => {
-            if (cancelled) return
-            setState((current) => ({
-              ...(current.scopeKey === nextScopeKey
-                ? current
-                : nextCachedState),
-              secondaryLoading: true,
-            }))
-            void loadIntelligenceSecondaryOverview(nextDateRange, profileId, {
-              force: nextCachedState.secondaryReady,
-            })
-              .then(() => {
-                if (cancelled) return
-                setState((current) => ({
-                  ...(current.scopeKey === nextScopeKey
-                    ? current
-                    : nextCachedState),
-                  secondaryReady: true,
-                  secondaryLoading: false,
-                  secondaryError: null,
-                }))
-              })
-              .catch((error: unknown) => {
-                if (cancelled) return
-                setState((current) => ({
-                  ...(current.scopeKey === nextScopeKey
-                    ? current
-                    : nextCachedState),
-                  secondaryReady: true,
-                  secondaryLoading: false,
-                  secondaryError:
-                    error instanceof Error ? error.message : String(error),
-                }))
-              })
-          })
-        })
+        startSecondaryLoad()
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -157,7 +209,11 @@ export function useStagedIntelligenceOverview(
     return () => {
       cancelled = true
       cancelIdle()
-      if (frameId !== null && typeof window !== 'undefined') {
+      if (
+        frameId !== null &&
+        typeof window !== 'undefined' &&
+        typeof window.cancelAnimationFrame === 'function'
+      ) {
         window.cancelAnimationFrame(frameId)
       }
     }

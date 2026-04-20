@@ -44,6 +44,17 @@ describe('backend client', () => {
     invokeCommandMock.mockReset()
     backendHarnessMock.call.mockReset()
     hasDesktopCommandTransportMock.mockReturnValue(false)
+    ;(
+      window as Window & {
+        __PATHKEEP_DESKTOP_COMMAND_METRICS__?: Array<{
+          command: string
+          durationMs: number
+          requestBytes: number
+          responseBytes: number
+          recordedAt: string
+        }>
+      }
+    ).__PATHKEEP_DESKTOP_COMMAND_METRICS__ = []
   })
 
   test('uses the live desktop command transport when available', async () => {
@@ -70,5 +81,38 @@ describe('backend client', () => {
     )
     expect(result).toEqual({ version: 'preview' })
     expect(invokeCommandMock).not.toHaveBeenCalled()
+  })
+
+  test('records desktop metrics without traversing the entire response payload', async () => {
+    hasDesktopCommandTransportMock.mockReturnValue(true)
+    const rows = Array.from({ length: 8 }, (_, index) => ({ index }))
+    rows.length = 20
+    Object.defineProperty(rows, 15, {
+      enumerable: true,
+      get() {
+        throw new Error('desktop metrics should not read deep array entries')
+      },
+    })
+    invokeCommandMock.mockResolvedValueOnce({
+      version: '0.1.0',
+      rows,
+    })
+
+    const { backend } = await import('./backend-client')
+    const result = await backend.getAppBuildInfo()
+
+    expect(result).toEqual({
+      version: '0.1.0',
+      rows,
+    })
+    const metrics = (
+      window as Window & {
+        __PATHKEEP_DESKTOP_COMMAND_METRICS__?: Array<{
+          responseBytes: number
+        }>
+      }
+    ).__PATHKEEP_DESKTOP_COMMAND_METRICS__
+    expect(metrics).toHaveLength(1)
+    expect(metrics?.[0]?.responseBytes).toBeGreaterThan(0)
   })
 })
