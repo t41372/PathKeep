@@ -83,9 +83,9 @@ Understanding your browsing patterns, built on top of a solid archive. **All AI 
 
 PathKeep separates implemented adapters from publicly validated support. The README only promises what has been independently verified.
 
-| Status | Browsers |
-| ------ | -------- |
-| **Validated** | Google Chrome; Safari (macOS, requires Full Disk Access) |
+| Status          | Browsers                                                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Validated**   | Google Chrome; Safari (macOS, requires Full Disk Access)                                                       |
 | **Implemented** | Chromium, Microsoft Edge, Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox |
 
 Implemented browsers appear in discovery and archive data but are not yet in the public support promise. See the [adapter playbook](./docs/architecture/browser-support-and-adapter-playbook.md) for the promotion gate.
@@ -94,27 +94,27 @@ Implemented browsers appear in discovery and archive data but are not yet in the
 
 ## Platform Support
 
-| Platform | Status | Notes |
-| -------- | ------ | ----- |
-| macOS | Primary | Signed / notarized builds; Touch ID session unlock; Safari support requires Full Disk Access |
-| Windows | Preview | MSI / NSIS builds available; code signing is maintainer-operated |
-| Linux | Preview | AppImage / `.deb` / `.rpm` builds available; keyring behavior varies by desktop environment |
+| Platform | Status  | Notes                                                                                        |
+| -------- | ------- | -------------------------------------------------------------------------------------------- |
+| macOS    | Primary | Signed / notarized builds; Touch ID session unlock; Safari support requires Full Disk Access |
+| Windows  | Preview | MSI / NSIS builds available; code signing is maintainer-operated                             |
+| Linux    | Preview | AppImage / `.deb` / `.rpm` builds available; keyring behavior varies by desktop environment  |
 
 ---
 
 ## Tech Stack
 
-| Layer | Choice | Why |
-| ----- | ------ | --- |
-| Desktop framework | Tauri 2 | Cross-platform, Rust core, lightweight |
-| Core logic | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform |
-| Browser parsing | `browser-history-parser` (standalone Rust crate) | Reusable, community-publishable parser |
-| Frontend | React 19 + TypeScript + Vite | Modern, type-safe |
-| Toolchain | Bun | Package management and scripts |
-| Canonical storage | SQLite (optional SQLCipher encryption) | 20-year durability, local-first |
-| Full-text search | SQLite FTS5 | Core recall, no external service |
-| Vector / semantic | LanceDB sidecar + rig.rs | Embedded, Rust-native, disk-based ANN index |
-| AI inference | Local (Ollama / LM Studio) or cloud API | Optional, user-configured |
+| Layer             | Choice                                                          | Why                                         |
+| ----------------- | --------------------------------------------------------------- | ------------------------------------------- |
+| Desktop framework | Tauri 2                                                         | Cross-platform, Rust core, lightweight      |
+| Core logic        | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform      |
+| Browser parsing   | `browser-history-parser` (standalone Rust crate)                | Reusable, community-publishable parser      |
+| Frontend          | React 19 + TypeScript + Vite                                    | Modern, type-safe                           |
+| Toolchain         | Bun                                                             | Package management and scripts              |
+| Canonical storage | SQLite (optional SQLCipher encryption)                          | 20-year durability, local-first             |
+| Full-text search  | SQLite FTS5                                                     | Core recall, no external service            |
+| Vector / semantic | LanceDB sidecar + rig.rs                                        | Embedded, Rust-native, disk-based ANN index |
+| AI inference      | Local (Ollama / LM Studio) or cloud API                         | Optional, user-configured                   |
 
 ---
 
@@ -171,16 +171,16 @@ For the full gate matrix, deep checks, and release signoff commands, see [TESTIN
 
 ## Documentation
 
-| What you need | Where to look |
-| ------------- | ------------- |
-| Contributor workflow | [CONTRIBUTING.md](./CONTRIBUTING.md) |
-| Local environment and repo layout | [DEVELOPMENT.md](./DEVELOPMENT.md) |
-| Test surfaces and command matrix | [TESTING.md](./TESTING.md) |
-| Release runbook and artifact matrix | [RELEASE.md](./RELEASE.md) |
-| User-facing troubleshooting | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
-| Support and bug-report expectations | [SUPPORT.md](./SUPPORT.md) |
+| What you need                         | Where to look                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Contributor workflow                  | [CONTRIBUTING.md](./CONTRIBUTING.md)                                                                                     |
+| Local environment and repo layout     | [DEVELOPMENT.md](./DEVELOPMENT.md)                                                                                       |
+| Test surfaces and command matrix      | [TESTING.md](./TESTING.md)                                                                                               |
+| Release runbook and artifact matrix   | [RELEASE.md](./RELEASE.md)                                                                                               |
+| User-facing troubleshooting           | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)                                                                               |
+| Support and bug-report expectations   | [SUPPORT.md](./SUPPORT.md)                                                                                               |
 | Browser support and adapter promotion | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
-| Product vision, features, and design | [docs/](./docs/) |
+| Product vision, features, and design  | [docs/](./docs/)                                                                                                         |
 
 ---
 
