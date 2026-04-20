@@ -655,27 +655,37 @@
   text-align: right;
 }
 
-/* ---------- Concept Cloud ---------- */
+/* ---------- Search Concepts ---------- */
 
-.concept-cloud {
+.search-concepts-chart {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-concepts-chart__summary {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.search-concepts-chart__bars {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-concepts-chart__label-group {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.concept-cloud__term {
-  color: var(--accent);
-  font-family: var(--font-ui);
-  cursor: default;
-  transition: opacity var(--transition);
-  line-height: 1.2;
-}
-
-.concept-cloud__term:hover {
-  opacity: 0.7;
+.search-concepts-chart__engines {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
 }
 
 /* ---------- Refind Cards ---------- */
@@ -1718,6 +1728,65 @@
   gap: var(--space-2);
 }
 
+.search-keywords-browser {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-keywords-browser__header {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.search-keywords-browser__help {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.search-keywords-browser__controls,
+.search-keywords-browser__subrange,
+.search-keywords-browser__pagination-controls,
+.search-keywords-browser__nav,
+.search-keywords-browser__jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.search-keywords-browser__date-field,
+.search-keywords-browser__jump-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.search-keywords-browser__date-field input,
+.search-keywords-browser__jump-field input {
+  min-width: 108px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  padding: 0.4rem 0.55rem;
+}
+
+.search-keywords-browser__summary,
+.search-keywords-browser__pagination {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.search-keywords-browser__summary {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
 /* ---------- Top Sites Sort Controls ---------- */
 
 .top-sites-controls {
@@ -2279,12 +2348,38 @@
   gap: var(--space-4);
 }
 
+.intelligence-scope-strip {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 45%, var(--bg-elevated));
+}
+
+.intelligence-scope-strip__badge {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.intelligence-scope-strip__body {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .domain-deep-dive__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+.domain-search-keywords {
+  margin-top: var(--space-2);
 }
 
 .domain-deep-dive__domain-name {

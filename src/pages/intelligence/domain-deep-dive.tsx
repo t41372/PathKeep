@@ -17,6 +17,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
+import { SearchKeywordsBrowser } from '../../components/intelligence/search-keywords-browser'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -33,6 +34,8 @@ import {
   dayInsightsHref,
   domainInsightsHref,
   evidenceHref,
+  queryFamilyInsightsHref,
+  trailInsightsHref,
 } from '../../lib/intelligence'
 import {
   formatDomainPagePath,
@@ -106,17 +109,21 @@ export function DomainDeepDiveRoutePage() {
         t={t}
       />
 
-      <StatusCallout
-        tone="info"
-        title={effectiveProfileId ? t('scopedViewTitle') : archiveWideBadge}
-        body={
-          effectiveProfileId
+      <div
+        className="intelligence-scope-strip"
+        data-testid="domain-scope-strip"
+      >
+        <span className="intelligence-scope-strip__badge">
+          {effectiveProfileId ? t('scopedViewTitle') : archiveWideBadge}
+        </span>
+        <p className="intelligence-scope-strip__body">
+          {effectiveProfileId
             ? t('scopedViewBody', {
                 profile: profileScopeLabel ?? effectiveProfileId,
               })
-            : archiveWideBody
-        }
-      />
+            : archiveWideBody}
+        </p>
+      </div>
 
       <DomainDeepDivePage
         backHref={`/intelligence${withCurrentRouteSearch({ focus: null })}`}
@@ -399,6 +406,34 @@ export function DomainDeepDivePage({
             ))}
           </div>
         ) : null}
+
+        <SearchKeywordsBrowser
+          className="domain-search-keywords"
+          dateRange={dateRange}
+          domain={detail.registrableDomain}
+          help={t('domainSearchKeywordsHelp')}
+          hideWhenEmpty
+          language={language}
+          profileId={profileId}
+          queryFamilyHref={(familyId, nextProfileId) =>
+            queryFamilyInsightsHref({
+              familyId,
+              dateRange,
+              preset: 'custom',
+              profileId: nextProfileId ?? profileId,
+            })
+          }
+          title={t('domainSearchKeywordsTitle')}
+          t={t}
+          trailHref={(trailId, nextProfileId) =>
+            trailInsightsHref({
+              trailId,
+              dateRange,
+              preset: 'custom',
+              profileId: nextProfileId ?? profileId,
+            })
+          }
+        />
 
         {detail.topReferrers.length > 0 ? (
           <div>
