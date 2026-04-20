@@ -1,8 +1,8 @@
 # Core Intelligence Handoff
 
-> **Date:** 2026-04-19
+> **Date:** 2026-04-20
 > **Audience:** frontend implementer, next backend implementer  
-> **Status:** current handoff after desktop truth repair follow-up
+> **Status:** current handoff after desktop truth closeout
 
 ---
 
@@ -43,6 +43,7 @@ That means:
 - 2026-04-19 calendar heatmap follow-up: `Browsing Rhythm` no longer uses the old weekday × hour main chart. The main card now renders a real-date calendar heatmap backed by `getDiscoveryTrend(..., 'day')`, and the selected-day detail alone uses `getBrowsingRhythm(singleDayRange)` for the hourly strip. The same pass also moved `Search Activity` + `Activity Mix` into a shared half-width row and enforced capped-scroll bodies across Intelligence cards.
 - 2026-04-19 dashboard IA follow-up: Dashboard now reuses the same real-date `Browsing Rhythm` card in fixed calendar-year mode, with the year switcher sourced from `getDiscoveryTrend(..., 'day').availableYears`. `On This Day` was also removed from `/intelligence` and is now Dashboard-only because it does not follow the route time scope.
 - 2026-04-18 locked-archive/bootstrap follow-up: source now also degrades locked encrypted `app_snapshot` reads into a usable shell snapshot, makes the Security unlock flow validate candidate keys before full shell refresh, stops sidebar background polling until the archive is unlocked, and shows compact `version · short-sha[+]` build labels in shell/onboarding/lock chrome
+- 2026-04-20 desktop truth closeout: rebuilding the current-host release `.app` finally removed the stale WebView/bundle drift. Live desktop now shows `6412ad59+`, Chrome `Yi-Ting` can be re-imported with encryption `000000` while leaving keychain persistence off, `/intelligence` no longer exposes raw glyph ids, and domain deep-dive `Open domain evidence` now lands on `#/explorer?...` as intended. `WORK-CI-N` should now be treated as complete.
 
 What is **not** done, plus the latest backend truth:
 
@@ -52,8 +53,7 @@ What is **not** done, plus the latest backend truth:
 - 2026-04-17 backend finish-line closeout: append-only `visit-derive` / `daily-rollup` / `structural-rebuild` now persist per-profile `core_intelligence_stage_checkpoints`, structural stage profile aggregates batch-scan search events / derived visits, `visit-derive` / `daily-rollup` full-fallback paths are chunked, and the benchmark harness supports `--persist-app-root`, `--app-root`, `--session-key`, and `--skip-baseline-rebuild` for replayable synthetic plus existing-archive scenarios
 - 2026-04-17 signoff note: corrected artifacts now exist at `artifacts/benchmarks/2026-04-17-intelligence-signoff/{full-2k-smoke-signoff,full-1m-60y-signoff,full-10m-60y-signoff,expired-lease-recovery-10m-signoff,real-replay-signoff}.json`. `stageTimingsMs` now sum across all profiles, the durable `10m-signoff` root completed a rebuild-only replay at about `2,078,480 ms` baseline rebuild / `1,250 ms` query surfaces / `1.44 GiB` peak RSS, and the disposable encrypted app-root replay completed at about `373 ms` query surfaces / `44.1 MiB` peak RSS with the stored command shape redacting `--session-key` as `<redacted>`
 - 2026-04-18 long-horizon signoff note: `artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/{full-14_4m-60y-signoff,expired-lease-recovery-14_4m-signoff}.json` now close the current-host `14.4M / 60y` envelope. Full replay measured about `4,758,160 ms` baseline rebuild / `8,969 ms` query surfaces / `1.74 GiB` peak RSS; expired-lease replay measured about `2,013 ms` query surfaces / `598.6 MiB` peak RSS while recovering the queued lease and leaving the cancelled lease untouched.
-- host verification caveat: on this machine, Computer Use can still end up showing stale frontend behavior even when `devUrl` is already serving the repaired modules. In practice that meant raw `intelligence.archiveWideBadge` / `archiveWideBody`, the old external-output CTA copy, and the old `/intelligence` queue digest behavior were still visible in the desktop app while `http://127.0.0.1:1420/src/pages/intelligence/{index,sections,domain-deep-dive,copy}.tsx` already exposed the repaired source. Treat that as current-host WebView / stale bundle cache drift, not as current source truth. If someone needs fresh desktop screenshots, rebuild / relaunch and invalidate the stale desktop bundle before reopening a frontend TODO.
-- latest restart caveat: even after a fresh `bun run desktop:dev` relaunch, this host still rendered the old generic locked-archive dashboard shell and omitted the new short-SHA build label from visible chrome, while the worker logs already reflected encrypted-archive warnings from the new build. Treat that the same way: host-specific stale WebView / bundle cache drift until proven otherwise.
+- host verification caveat: this machine can still occasionally return `noWindowsAvailable` on some direct `Computer Use` coordinate clicks, so keyboard/a11y-driven actions are more reliable for repeatable desktop signoff. The earlier stale bundle/cache blocker itself is now resolved.
 - `PG-RD-AI-011`, `WORK-CI-B`, and `WORK-CI-C` are now closed. If we later want second-machine benchmark parity, that should be an explicitly re-scoped follow-up rather than a queued continuation of this cleanup block.
 - after this follow-up, the original deterministic Core Intelligence P1–P4 scope should be treated as complete. The only original-scope work still genuinely open is external host integration beyond `browser-snippet-v1` (OS widget install, localhost host/API, public API, alternate hosts).
 

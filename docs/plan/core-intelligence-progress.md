@@ -124,6 +124,10 @@
   - sidebar 背景工作 strip 在 archive 未解鎖時不再輪詢 queue/runtime，也會把 compact CTA 直接導向 `/security#unlock-archive`
   - shell / onboarding / lock / diagnostics 現在都支援 compact `version · short-sha[+]` build label，dirty worktree 會在 short SHA 後面加 `+`
   - 但這台主機 fresh `bun run desktop:dev` restart 仍然可能顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome；如果再次看到這種 screenshot，優先懷疑 current-host stale WebView / bundle cache drift，而不是直接回滾剛 landed 的 source 修補
+- 2026-04-20 desktop truth closeout：
+  - 重打 current-host release `.app`（`bunx tauri build --bundles app --no-sign`）後，live desktop 終於和 source 對齊：chrome 顯示 `6412ad59+`，`/intelligence` 不再外露 raw glyph ids，而 domain deep-dive `打開網域證據` 也會正確導向 `#/explorer?...`
+  - rebuilt bundle 重新建出一份空 app root，所以真實 re-import 直接在這個新 bundle 上重跑：Chrome `Yi-Ting`、archive encryption `000000`、不寫入鑰匙圈；目前 `config.json` 已記錄 `rememberDatabaseKeyInKeyring: false`，Dashboard 也載入 `64,498` visits / `35,110` URLs
+  - `WORK-CI-N` 現在已完成；Core Intelligence 現行 follow-up 不再是 desktop truth repair，而是回到 M13 reuse audit 與未來 optional profiling / external-host 工作
 - 2026-04-18 backend closeout：
   - crate-internal legacy `vault-core::insights` tree 已刪除；queued enrichment / readable-content helper 現在都歸 `enrichment` / `intelligence`
   - repo 只保留 registry-backed module ids、canonical derived-table names、以及 grouped clear-state counts；snapshot-era `Insight*` transport、legacy module-id alias 與 transitional `insight_status` wrapper 都已退場

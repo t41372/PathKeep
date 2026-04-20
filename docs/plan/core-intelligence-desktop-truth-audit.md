@@ -204,16 +204,82 @@ At this point the most honest interpretation is:
 
 ---
 
+### 2026-04-20 follow-up: the real-data import / unlock pass completed, but current-host desktop still serves stale Settings / Intelligence UI
+
+This follow-up started from a cleared app root after the user explicitly asked for a fresh pass. Using Computer Use against the desktop app:
+
+- onboarding selected Chrome `Yi-Ting` (`~/Library/Application Support/Google/Chrome/Default`)
+- storage stayed at `~/Library/Application Support/com.yi-ting.pathkeep`
+- archive encryption was enabled with `000000`
+- keychain persistence stayed off during onboarding, and the later Security unlock typed `000000` manually instead of saving it
+- first backup finished as run `#1`
+
+Live-desktop behavior that is now verified on this host:
+
+- onboarding + first backup completed successfully
+- the archive entered `encrypted / locked` state on relaunch instead of falling back to a fake plaintext / uninitialized shell
+- Security unlocked the archive with the manually entered password and continued to show `Save to Keychain` as an optional action, which is consistent with “password not stored”
+- Dashboard then loaded real archive totals (`64,696` visits, `35,170` URLs, `244` downloads)
+- `/intelligence` loaded real archive-wide data, and `/intelligence/domain/google.com?range=month` rendered live counts + top paths
+- Explorer grouped `session` and `trail` views both loaded real data
+- Jobs, Audit, Schedule preview, Assistant disabled state, and Settings external-output surfaces all remained navigable after the import
+
+Current-host drift that is still blocking full signoff:
+
+- shell chrome still reports build label `dc410477` even in the newly launched desktop sessions from the current working tree
+- `/settings` still renders the old English group dividers (`CORE`, `DATA & UPDATES`, etc.) instead of the localized strings that now exist in source/tests
+- `/intelligence` still exposes raw icon ids (`bar_chart`, `auto_stories`, `sync`) in the desktop accessibility tree, even though the source-level glyph contract now hides decorative icons
+- clicking Explorer’s `Open session insights` CTA through Computer Use landed on a malformed `tauri://localhost/intelligence/...#/...` URL and dropped back to Dashboard instead of opening the promoted entity route
+
+Source-level confirmation gathered during this follow-up:
+
+- `bunx vitest run src/index-html.test.ts src/App.helpers.test.tsx src/pages/intelligence-surfaces.test.tsx` passed
+- `bun run build` passed
+- browser-preview `/intelligence` no longer exposes raw glyph ids in its accessibility snapshot
+- the Settings zh-TW group-divider regression is now locked in `src/pages/intelligence-surfaces.test.tsx`
+
+The most honest interpretation after this rerun is:
+
+- the destructive-reset blocker is gone
+- the real-data import / unlock pass is now substantially complete
+- the remaining blocker is current-host desktop stale-frontend drift, not missing source fixes
+
 ## Remaining Work After This Audit
 
-1. **Fix the shell bootstrap drift for locked archives**
-   - current host still needs to actually render the repaired shell bundle so dashboard / sidebar / topbar agree with Security route truth
-2. **Fix the Security unlock settle path**
-   - re-run the live desktop flow now that source fails fast on bad keys; `000000` must either unlock successfully or fail explicitly
-3. **Re-run the full requested all-app audit after unlock works**
-   - import Chrome `yi-ting`
-   - run `/intelligence`, domain deep dive, Explorer session/trail, Settings external outputs, Jobs, Audit, Schedule, Assistant
-4. **Finish the profiling bundle after unlock**
-   - route-load + interaction samples after real data import
+### 2026-04-20 closeout: current-host stale bundle drift is resolved and the desktop truth pass is signed off
 
-Until those are done, the original “P1-P4 complete” statement remains true for **source-level implementation**, but not yet for **desktop truth on this host**.
+The stale-frontend blocker turned out to be a host artifact issue, not a missing source fix. `Computer Use` kept attaching to the old `dc410477` release bundle even when the new debug binary had already embedded `6412ad59`. Rebuilding the current-host release app with `bunx tauri build --bundles app --no-sign` and reopening that `.app` finally put the live desktop on the same code that source/tests were already exercising.
+
+Using `Computer Use` on that rebuilt release app:
+
+- live desktop chrome now reports `v0.1.0 · 6412ad59+`
+- `/intelligence` no longer leaks raw glyph ids into the accessibility tree
+- `/intelligence/domain/google.com?range=month` now renders `打開網域證據` as `tauri://localhost#/explorer?...`, and the CTA opens Explorer instead of dropping back to Dashboard
+- the rebuilt bundle unexpectedly recreated an empty app root, so the real-data pass was rerun on the new bundle itself:
+  - onboarding selected Chrome `Yi-Ting`
+  - storage stayed at `~/Library/Application Support/com.yi-ting.pathkeep`
+  - archive encryption used `000000`
+  - the keychain checkbox stayed off during onboarding
+  - the resulting `config.json` now records `rememberDatabaseKeyInKeyring: false`
+  - the first backup completed as run `#1`
+  - Dashboard now shows `64,498` visits and `35,110` URLs for this rerun
+- Explorer grouped `trail` view still loads correctly from the domain-scoped evidence CTA on the rebuilt bundle
+
+Source-level and host-level evidence both line up now:
+
+- `bunx vitest run src/components/intelligence/entity-actions.test.tsx src/pages/explorer/panels/privacy-redaction.test.tsx src/index-html.test.ts src/App.helpers.test.tsx src/pages/intelligence-surfaces.test.tsx` passed
+- `bun run check` passed
+- `bun run build` passed
+
+Current honest status:
+
+- the stale-bundle blocker is gone
+- the malformed entity/evidence CTA grammar is fixed
+- the requested Chrome `Yi-Ting` import + encrypted archive bootstrap truth pass is complete on this host
+
+## Remaining Work After This Audit
+
+1. **Optional future follow-up**
+   - collect a fresh post-unlock profiling bundle only if another performance regression investigation needs it
+
+The original “P1-P4 complete” statement is now true for both **source-level implementation** and **desktop truth on this host**.

@@ -18,16 +18,7 @@
 > 2026-04-19 M12 follow-up：`WORK-M12-A` 與 `WORK-M12-B` 已完成，並把下一輪 `WORK-M13-A — Broad Reuse Inventory Across Support / Trust / Workflow Surfaces` 與 `WORK-M13-B — Shared Support / Workflow Composition Extraction` 正式立項、提升到 `STATUS.md`。BACKLOG 目前再次只剩 blocked 的 `WORK-CI-N`；M13 的 active plan 改在 `STATUS.md` 與 `docs/plan/m13-broad-reuse-audit/README.md` 維護。
 > 2026-04-20 stop-ship note：使用者臨時插單 `WORK-PERF-A`，先把 `/intelligence` large-archive 凍結與 revisit 卡頓當成 stop-ship blocker 處理。M13 broad reuse audit 沒有取消，只是暫時讓位給 performance hot-path recovery；closeout 後仍回到 `STATUS.md` 繼續。
 > 2026-04-20 search activity note：使用者又插單 `WORK-CI-R`，要求先修 Search Activity keyword truth、shared keyword browser 與 search-engine domain deep-dive。這個 block 已獨立完成並 append 到 `CHANGELOG.md`，不折回 M13 reuse scope；BACKLOG 目前仍只保留 blocked 的 `WORK-CI-N`。
-
-- [!] **WORK-CI-N** — Full Desktop Truth Pass After Locked-Archive Bootstrap Recovery
-  - 讀先：
-    `docs/plan/core-intelligence-desktop-truth-audit.md`
-    `docs/plan/core-intelligence-progress.md`
-    `docs/plan/core-intelligence-handoff.md`
-    `docs/plan/e2e-workflow-tests.md`
-    `docs/plan/m4-full-polish/large-archive-performance-runbook.md`
-  - 目標：在 current-host shell bootstrap / Security unlock 可以穩定進入 unlocked state 之後，完成原本要求的 real-data import + Core Intelligence + 全 app Computer Use truth pass，並補齊 post-unlock profiling bundle。
-  - 契約：使用 Computer Use 跑 Chrome `yi-ting` profile、archive encryption `000000`（不寫入鑰匙圈）、Import / Intelligence / Domain Deep Dive / Explorer session-trail / Settings external outputs / Jobs / Audit / Schedule / Assistant 全路由；若現有 app root 仍不符合「已清資料」前提，必須先取得使用者明確確認後才能做 destructive reset。 [!blocked: 2026-04-19 current-host live desktop 已能顯示最新 short-SHA build label、staged `/intelligence` surface 與 shared runtime status，source-level bundle drift 不再是主要 blocker；剩下的 full truth pass 阻塞點是 onboarding / import 若要重做真實 re-import，仍需要先對當前 app root 做 destructive reset，而這一步必須取得使用者明確同意]
+> 2026-04-20 desktop truth-pass closeout：`WORK-CI-N` 已完成並 append 到 `CHANGELOG.md`。這輪先修掉前端 shipped blocker（remote glyph font、glyph a11y、Settings 分組 i18n），再補 shared entity CTA 的 HashRouter grammar，最後透過重打 current-host release `.app` 解掉 stale frontend drift。最新 Computer Use 驗到 build label `6412ad59+`、Chrome `Yi-Ting` re-import + `000000` 加密（未寫入鑰匙圈）、`rememberDatabaseKeyInKeyring: false` config truth、`/intelligence` 無 raw glyph ids、以及 domain deep-dive → Explorer evidence CTA 正常落到 `#/explorer?...`。BACKLOG 現在再次只剩 `STATUS.md` 上的 M13 active blocks，沒有額外 pending 的 desktop-truth follow-up。
 
 ---
 
