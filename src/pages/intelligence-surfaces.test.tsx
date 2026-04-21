@@ -19,7 +19,7 @@
  */
 
 import { type ReactNode, useState } from 'react'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -217,6 +217,19 @@ function createShellValue(
     notice: null,
     refreshKey: 1,
     refreshAppData: vi.fn().mockResolvedValue(undefined),
+    refreshRuntimeStatus: vi.fn().mockResolvedValue({
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      },
+      intelligence: createEmptyRuntimeSnapshot(),
+      loading: false,
+      error: null,
+    }),
     saveConfig: vi.fn().mockResolvedValue(snapshot),
     initializeArchive: vi.fn().mockResolvedValue(snapshot),
     runBackup: vi.fn().mockResolvedValue({
@@ -2609,10 +2622,6 @@ describe('intelligence surfaces', () => {
       ],
     }
 
-    vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue(queueStatus)
-    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
-      runtimeSnapshot,
-    )
     const replaySpy = vi
       .spyOn(backend, 'replayAiJob')
       .mockResolvedValue(queueStatus.recentJobs[0])
@@ -2623,6 +2632,12 @@ describe('intelligence surfaces', () => {
     const pausedSnapshot = structuredClone(snapshot)
     pausedSnapshot.config.ai.jobQueuePaused = true
     const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: queueStatus,
+      intelligence: runtimeSnapshot,
+      loading: false,
+      error: null,
+    }
     shellValue.saveConfig = vi.fn().mockResolvedValue(pausedSnapshot)
 
     renderSurface(<JobsPage />, {
@@ -2677,69 +2692,75 @@ describe('intelligence surfaces', () => {
     const { snapshot } = await seedArchiveState()
     const jobsT = createNamespaceTranslator('en', 'jobs')
 
-    vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue({
-      paused: false,
-      concurrency: 1,
-      queued: 0,
-      running: 0,
-      failed: 0,
-      recentJobs: [],
-    })
-    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue({
-      queue: {
-        queued: 3,
-        running: 1,
-        succeeded: 0,
-        failed: 2,
-        cancelled: 0,
-        lastActivityAt: '2026-04-10T16:30:00Z',
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
       },
-      plugins: [
-        {
-          pluginId: 'readable-content-refetch',
-          sourceKind: 'network',
-          enabled: true,
-          storedRecords: 5,
-          queuedJobs: 3,
-          runningJobs: 1,
-          failedJobs: 2,
-          lastCompletedAt: '2026-04-10T16:20:00Z',
-          lastError: 'unsupported-content',
+      intelligence: {
+        queue: {
+          queued: 3,
+          running: 1,
+          succeeded: 0,
+          failed: 2,
+          cancelled: 0,
+          lastActivityAt: '2026-04-10T16:30:00Z',
         },
-      ],
-      modules: [],
-      recentJobs: [
-        {
-          id: 990,
-          jobType: 'enrichment-plugin',
-          pluginId: 'readable-content-refetch',
-          state: 'running',
-          historyId: 2,
-          profileId: 'chrome:Default',
-          url: 'https://example.com/article',
-          title: 'Article',
-          attempt: 1,
-          createdAt: '2026-04-10T15:20:00Z',
-          startedAt: '2026-04-10T15:21:00Z',
-          finishedAt: null,
-          updatedAt: '2026-04-10T15:22:00Z',
-          heartbeatAt: null,
-          progressLabel: null,
-          progressDetail: null,
-          progressCurrent: null,
-          progressTotal: null,
-          progressPercent: null,
-          lastError: null,
-          retryable: false,
-          cancellable: true,
-        },
-      ],
-      notes: [],
-    })
+        plugins: [
+          {
+            pluginId: 'readable-content-refetch',
+            sourceKind: 'network',
+            enabled: true,
+            storedRecords: 5,
+            queuedJobs: 3,
+            runningJobs: 1,
+            failedJobs: 2,
+            lastCompletedAt: '2026-04-10T16:20:00Z',
+            lastError: 'unsupported-content',
+          },
+        ],
+        modules: [],
+        recentJobs: [
+          {
+            id: 990,
+            jobType: 'enrichment-plugin',
+            pluginId: 'readable-content-refetch',
+            state: 'running',
+            historyId: 2,
+            profileId: 'chrome:Default',
+            url: 'https://example.com/article',
+            title: 'Article',
+            attempt: 1,
+            createdAt: '2026-04-10T15:20:00Z',
+            startedAt: '2026-04-10T15:21:00Z',
+            finishedAt: null,
+            updatedAt: '2026-04-10T15:22:00Z',
+            heartbeatAt: null,
+            progressLabel: null,
+            progressDetail: null,
+            progressCurrent: null,
+            progressTotal: null,
+            progressPercent: null,
+            lastError: null,
+            retryable: false,
+            cancellable: true,
+          },
+        ],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
 
     renderSurface(<JobsPage />, {
       language: 'en',
       route: '/jobs',
+      shellValue,
       snapshot,
     })
 
@@ -2751,23 +2772,23 @@ describe('intelligence surfaces', () => {
     ).toBeGreaterThan(0)
   })
 
-  test('keeps polling while background work is still queued or running', async () => {
-    vi.useFakeTimers()
-
-    try {
-      const { snapshot } = await seedArchiveState()
-      const jobsT = createNamespaceTranslator('en', 'jobs')
-
-      const queueStatus: AiQueueStatus = {
+  test('reads jobs runtime truth from the shell source instead of page-local polling', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const loadAiQueueStatusSpy = vi.spyOn(backend, 'loadAiQueueStatus')
+    const loadRuntimeSpy = vi.spyOn(backend, 'loadIntelligenceRuntime')
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
         paused: false,
         concurrency: 1,
         queued: 2,
         running: 1,
         failed: 0,
         recentJobs: [],
-      }
-
-      const runtimeSnapshot: IntelligenceRuntimeSnapshot = {
+      },
+      intelligence: {
         queue: {
           queued: 1,
           running: 0,
@@ -2780,46 +2801,32 @@ describe('intelligence surfaces', () => {
         modules: [],
         recentJobs: [],
         notes: [],
-      }
-
-      const loadAiQueueStatusSpy = vi
-        .spyOn(backend, 'loadAiQueueStatus')
-        .mockResolvedValue(queueStatus)
-      const loadRuntimeSpy = vi
-        .spyOn(backend, 'loadIntelligenceRuntime')
-        .mockResolvedValue(runtimeSnapshot)
-
-      renderSurface(<JobsPage />, {
-        language: 'en',
-        route: '/jobs',
-        snapshot,
-      })
-
-      await act(async () => {
-        await Promise.resolve()
-        await Promise.resolve()
-      })
-
-      expect(screen.getByText(jobsT('runningTitle'))).toBeVisible()
-      expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(1)
-      expect(loadRuntimeSpy).toHaveBeenCalledTimes(1)
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3000)
-      })
-
-      expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(2)
-      expect(loadRuntimeSpy).toHaveBeenCalledTimes(2)
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3000)
-      })
-
-      expect(loadAiQueueStatusSpy).toHaveBeenCalledTimes(3)
-      expect(loadRuntimeSpy).toHaveBeenCalledTimes(3)
-    } finally {
-      vi.useRealTimers()
+      },
+      loading: false,
+      error: null,
     }
+    shellValue.refreshRuntimeStatus = vi
+      .fn()
+      .mockResolvedValue(shellValue.runtimeStatus)
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(screen.getByText(jobsT('runningTitle'))).toBeVisible()
+    expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
+    expect(loadRuntimeSpy).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: jobsT('refresh') }))
+
+    await waitFor(() =>
+      expect(shellValue.refreshRuntimeStatus).toHaveBeenCalledTimes(1),
+    )
+    expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
+    expect(loadRuntimeSpy).not.toHaveBeenCalled()
   })
 
   test('renders assistant queue state, provider probe, and answer citations', async () => {
@@ -2876,7 +2883,6 @@ describe('intelligence surfaces', () => {
       errorCode: null,
     }
 
-    vi.spyOn(backend, 'loadAiQueueStatus').mockResolvedValue(queueStatus)
     vi.spyOn(backend, 'testAiProviderConnection').mockResolvedValue(
       providerProbe,
     )
@@ -2900,9 +2906,18 @@ describe('intelligence surfaces', () => {
       notes: ['Answer kept inside the archive evidence boundary.'],
     })
 
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: queueStatus,
+      intelligence: createEmptyRuntimeSnapshot(),
+      loading: false,
+      error: null,
+    }
+
     renderSurface(<AssistantPage />, {
       language: 'zh-CN',
       route: '/assistant',
+      shellValue,
       snapshot,
     })
 

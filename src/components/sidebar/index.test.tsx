@@ -170,6 +170,12 @@ describe('Sidebar', () => {
       notice: null,
       refreshKey: 0,
       refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
       saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
       initializeArchive: vi
         .fn()
@@ -234,6 +240,12 @@ describe('Sidebar', () => {
       notice: null,
       refreshKey: 1,
       refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
       saveConfig: vi.fn().mockResolvedValue(snapshot),
       initializeArchive: vi.fn().mockResolvedValue(snapshot),
       runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
@@ -356,6 +368,12 @@ describe('Sidebar', () => {
       notice: null,
       refreshKey: 1,
       refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
       saveConfig: vi.fn().mockResolvedValue(snapshot),
       initializeArchive: vi.fn().mockResolvedValue(snapshot),
       runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),

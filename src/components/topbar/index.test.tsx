@@ -96,6 +96,12 @@ describe('Topbar', () => {
       notice: null,
       refreshKey: 0,
       refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
       saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
       initializeArchive: vi
         .fn()
@@ -148,6 +154,12 @@ describe('Topbar', () => {
       notice: null,
       refreshKey: 0,
       refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
       saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
       initializeArchive: vi
         .fn()

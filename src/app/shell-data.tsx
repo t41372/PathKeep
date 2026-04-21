@@ -24,6 +24,7 @@ import {
 import { backend } from '../lib/backend-client'
 import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
 import { useI18nContext } from '../lib/i18n'
+import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppBuildInfo,
   AppConfig,
@@ -39,40 +40,6 @@ import {
   ShellDataContext,
   type ShellRuntimeStatus,
 } from './shell-data-context'
-
-/**
- * Waits one frame so a busy overlay or loading transition can paint before the
- * next expensive async step begins.
- *
- * We use this in trust-critical flows such as backup and shell refresh where a
- * frozen frame would make PathKeep feel like it started work before explaining
- * what it was doing.
- */
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    if (
-      typeof window === 'undefined' ||
-      typeof window.requestAnimationFrame !== 'function'
-    ) {
-      resolve()
-      return
-    }
-
-    let settled = false
-    /**
-     * Settles the pending paint wait exactly once, regardless of which fallback
-     * path wins first.
-     */
-    const finish = () => {
-      if (settled) return
-      settled = true
-      resolve()
-    }
-
-    window.requestAnimationFrame(() => finish())
-    window.setTimeout(finish, 16)
-  })
-}
 
 /**
  * Detects the locked-state refusal messages that should kick the shell back
@@ -147,6 +114,27 @@ function emptyRuntimeStatus(): ShellRuntimeStatus {
   }
 }
 
+function runtimeStatusScopeKey(snapshot: AppSnapshot | null) {
+  if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+    return 'locked-or-uninitialized'
+  }
+
+  return [
+    snapshot.archiveStatus.databasePath,
+    snapshot.config.selectedProfileIds.join(','),
+    snapshot.config.ai.jobQueuePaused ? 'paused' : 'live',
+  ].join('|')
+}
+
+function countActiveRuntimeJobs(status: ShellRuntimeStatus) {
+  return (
+    (status.aiQueue?.queued ?? 0) +
+    (status.aiQueue?.running ?? 0) +
+    (status.intelligence?.queue.queued ?? 0) +
+    (status.intelligence?.queue.running ?? 0)
+  )
+}
+
 /**
  * Provides the front-end shell read model and shell-level actions to the rest
  * of the app.
@@ -174,6 +162,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const attemptedKeyringAutoUnlockRef = useRef(false)
   const surfacedCrashReportPathRef = useRef<string | null>(null)
   const dashboardRefreshTokenRef = useRef(0)
+  const runtimeRefreshPromiseRef = useRef<Promise<ShellRuntimeStatus> | null>(
+    null,
+  )
+  const runtimeRefreshScopeKeyRef = useRef<string | null>(null)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
 
   /**
@@ -259,12 +251,23 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
 
   const refreshRuntimeStatus = useCallback(
     async (nextSnapshot: AppSnapshot | null = snapshot) => {
+      const nextScopeKey = runtimeStatusScopeKey(nextSnapshot)
       if (
         !nextSnapshot?.config.initialized ||
         !nextSnapshot.archiveStatus.unlocked
       ) {
-        setRuntimeStatus(emptyRuntimeStatus())
-        return null
+        const nextStatus = emptyRuntimeStatus()
+        runtimeRefreshPromiseRef.current = null
+        runtimeRefreshScopeKeyRef.current = nextScopeKey
+        setRuntimeStatus(nextStatus)
+        return nextStatus
+      }
+
+      if (
+        runtimeRefreshPromiseRef.current &&
+        runtimeRefreshScopeKeyRef.current === nextScopeKey
+      ) {
+        return runtimeRefreshPromiseRef.current
       }
 
       setRuntimeStatus((current) => ({
@@ -273,34 +276,43 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         error: null,
       }))
 
-      try {
-        const [nextAiQueue, nextRuntime] = await Promise.all([
-          backend.loadAiQueueStatus(),
-          backend.loadIntelligenceRuntime(),
-        ])
-        setRuntimeStatus({
-          aiQueue: nextAiQueue,
-          intelligence: nextRuntime,
-          loading: false,
-          error: null,
+      const nextRequest = Promise.all([
+        backend.loadAiQueueStatus(),
+        backend.loadIntelligenceRuntime(),
+      ])
+        .then(([nextAiQueue, nextRuntime]) => {
+          const nextStatus: ShellRuntimeStatus = {
+            aiQueue: nextAiQueue,
+            intelligence: nextRuntime,
+            loading: false,
+            error: null,
+          }
+          setRuntimeStatus(nextStatus)
+          return nextStatus
         })
-        return {
-          aiQueue: nextAiQueue,
-          intelligence: nextRuntime,
-        }
-      } catch (nextError) {
-        const message =
-          nextError instanceof Error
-            ? nextError.message
-            : t('common.notAvailable')
-        setRuntimeStatus({
-          aiQueue: null,
-          intelligence: null,
-          loading: false,
-          error: message,
+        .catch((nextError) => {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : t('common.notAvailable')
+          const nextStatus: ShellRuntimeStatus = {
+            aiQueue: null,
+            intelligence: null,
+            loading: false,
+            error: message,
+          }
+          setRuntimeStatus(nextStatus)
+          return nextStatus
         })
-        return null
-      }
+        .finally(() => {
+          if (runtimeRefreshPromiseRef.current === nextRequest) {
+            runtimeRefreshPromiseRef.current = null
+          }
+        })
+
+      runtimeRefreshScopeKeyRef.current = nextScopeKey
+      runtimeRefreshPromiseRef.current = nextRequest
+      return nextRequest
     },
     [snapshot, t],
   )
@@ -535,12 +547,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     const load = async () => {
       const next = await refreshRuntimeStatus(snapshot)
       if (cancelled) return
-      const activeJobs =
-        (next?.aiQueue.queued ?? 0) +
-        (next?.aiQueue.running ?? 0) +
-        (next?.intelligence.queue.queued ?? 0) +
-        (next?.intelligence.queue.running ?? 0)
-      scheduleNext(activeJobs > 0 ? 3000 : 15000)
+      scheduleNext(countActiveRuntimeJobs(next) > 0 ? 3000 : 15000)
     }
 
     void load()
@@ -915,6 +922,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         notice,
         refreshKey,
         refreshAppData: () => refreshAppData(),
+        refreshRuntimeStatus: () => refreshRuntimeStatus(),
         saveConfig,
         initializeArchive,
         runBackup,

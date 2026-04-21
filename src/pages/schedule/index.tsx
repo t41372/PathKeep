@@ -30,6 +30,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import {
   platformLabelKey,
   platformSummaryKey,
@@ -64,38 +65,6 @@ type PmeTab = 'preview' | 'manual' | 'execute' | 'verify'
 interface ScheduleExecutionState {
   mode: 'apply' | 'remove'
   result: ApplyResult
-}
-
-/**
- * Waits for next paint.
- *
- * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    if (
-      typeof window === 'undefined' ||
-      typeof window.requestAnimationFrame !== 'function'
-    ) {
-      resolve()
-      return
-    }
-
-    let settled = false
-    /**
-     * Explains how finish works.
-     *
-     * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
-     */
-    const finish = () => {
-      if (settled) return
-      settled = true
-      resolve()
-    }
-
-    window.requestAnimationFrame(() => finish())
-    window.setTimeout(finish, 16)
-  })
 }
 
 /**

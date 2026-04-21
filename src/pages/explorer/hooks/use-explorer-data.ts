@@ -26,7 +26,6 @@ import {
 } from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
 import type {
-  AiQueueStatus,
   AiProviderConnectionTestReport,
   ExportFormat,
   ExportResult,
@@ -60,7 +59,7 @@ interface UseExplorerDataOptions {
   view: ExplorerViewMode
   persistRecentSearch: (params: RecentSearchEntry['params']) => void
   refreshAppData: () => Promise<void>
-  refreshKey: number
+  refreshRuntimeStatus: () => Promise<unknown>
   requestKey: string
   semanticQuery: Parameters<typeof backend.searchAiHistory>[0]
   semanticRequestKey: string
@@ -94,7 +93,7 @@ export function useExplorerData({
   view,
   persistRecentSearch,
   refreshAppData,
-  refreshKey,
+  refreshRuntimeStatus,
   requestKey,
   semanticQuery,
   semanticRequestKey,
@@ -130,7 +129,6 @@ export function useExplorerData({
   const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
     null,
   )
-  const [queueStatus, setQueueStatus] = useState<AiQueueStatus | null>(null)
   const [providerProbe, setProviderProbe] =
     useState<AiProviderConnectionTestReport | null>(null)
   const [indexAction, setIndexAction] = useState<string | null>(null)
@@ -211,22 +209,6 @@ export function useExplorerData({
   }, [archiveReady, historyBlockedByInvalidRegex, requestKey, view])
 
   useEffect(() => {
-    if (!archiveReady) return
-    let cancelled = false
-    void backend
-      .loadAiQueueStatus()
-      .then((status) => {
-        if (!cancelled) setQueueStatus(status)
-      })
-      .catch(() => {
-        if (!cancelled) setQueueStatus(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [archiveReady, refreshKey])
-
-  useEffect(() => {
     const request = semanticRequestRef.current
     if (!archiveReady || mode === 'keyword' || !request.semanticQuery.query) {
       setSemanticState({
@@ -281,8 +263,7 @@ export function useExplorerData({
    * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   async function refreshQueueStatus() {
-    const nextQueue = await backend.loadAiQueueStatus()
-    setQueueStatus(nextQueue)
+    await refreshRuntimeStatus()
   }
 
   /**
@@ -427,7 +408,6 @@ export function useExplorerData({
     providerProbe,
     queryState,
     queueAction,
-    queueStatus,
     refreshQueueStatus,
     selectedId,
     semanticState,

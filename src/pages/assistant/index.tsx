@@ -37,7 +37,6 @@ import {
 import type {
   AiAssistantResponse,
   AiProviderConnectionTestReport,
-  AiQueueStatus,
 } from '../../lib/types'
 
 /**
@@ -91,13 +90,22 @@ function renderParagraphs(content: string) {
  */
 export function AssistantPage() {
   const { language, ns, t } = useI18n()
-  const { refreshAppData, refreshKey, snapshot } = useShellData()
+  const {
+    refreshAppData,
+    refreshRuntimeStatus,
+    snapshot,
+    runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    },
+  } = useShellData()
   const { activeProfileId } = useProfileScope()
   const [searchParams, setSearchParams] = useSearchParams()
   const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [input, setInput] = useState(searchParams.get('question') ?? '')
   const [sending, setSending] = useState(false)
-  const [queueStatus, setQueueStatus] = useState<AiQueueStatus | null>(null)
   const [providerProbe, setProviderProbe] =
     useState<AiProviderConnectionTestReport | null>(null)
   const [queueAction, setQueueAction] = useState<string | null>(null)
@@ -124,35 +132,8 @@ export function AssistantPage() {
     const seededQuestion = searchParams.get('question')
     if (seededQuestion) setInput(seededQuestion)
   }, [searchParams])
-
-  useEffect(() => {
-    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked)
-      return
-    let cancelled = false
-    void backend
-      .loadAiQueueStatus()
-      .then((status) => {
-        if (!cancelled) setQueueStatus(status)
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setQueueStatus(null)
-          setPageError(
-            error instanceof Error
-              ? error.message
-              : assistantT('loadingQueueAction'),
-          )
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [
-    assistantT,
-    refreshKey,
-    snapshot?.archiveStatus.unlocked,
-    snapshot?.config.initialized,
-  ])
+  const queueStatus = runtimeStatus.aiQueue
+  const queueError = runtimeStatus.error
 
   const queuedAssistantJobs = useMemo(
     () =>
@@ -212,8 +193,7 @@ export function AssistantPage() {
    * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   async function refreshQueue() {
-    const status = await backend.loadAiQueueStatus()
-    setQueueStatus(status)
+    await refreshRuntimeStatus()
   }
 
   /**
@@ -325,7 +305,7 @@ export function AssistantPage() {
       await backend.cancelAiJob(jobId)
       const response = await backend.loadAiAssistantJob(jobId)
       upsertAssistantMessage(jobId, response)
-      await refreshQueue()
+      await Promise.all([refreshQueue(), refreshAppData()])
     } catch (error) {
       setPageError(
         error instanceof Error
@@ -606,10 +586,10 @@ export function AssistantPage() {
         </div>
       )}
 
-      {pageError && (
+      {(pageError || queueError) && (
         <ErrorState
           title={assistantT('attentionTitle')}
-          description={pageError}
+          description={pageError ?? queueError ?? assistantT('failedResponse')}
         />
       )}
 

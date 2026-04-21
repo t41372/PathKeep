@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/features/intelligence.md` for queue persistence, pause/resume, and recoverability semantics.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { ReviewSection } from '../../components/review'
@@ -42,26 +42,14 @@ import {
 } from '../../lib/intelligence-runtime'
 import type {
   AiQueueJob,
-  AiQueueStatus,
   AppConfig,
   IntelligenceJobOverview,
-  IntelligenceRuntimeSnapshot,
 } from '../../lib/types'
 
 type JobsTranslator = (
   key: string,
   vars?: Record<string, string | number>,
 ) => string
-
-function backgroundRefreshDelay(
-  aiQueue: AiQueueStatus | null,
-  runtime: IntelligenceRuntimeSnapshot | null,
-) {
-  const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
-  const running = (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0)
-
-  return queued + running > 0 ? 3000 : 15000
-}
 
 function aiJobStateLabel(state: string, jobsT: JobsTranslator) {
   switch (state) {
@@ -95,76 +83,30 @@ function nextPausedConfig(config: AppConfig, paused: boolean): AppConfig {
 }
 
 export function JobsPage() {
-  const { loading, refreshAppData, refreshKey, saveConfig, snapshot } =
-    useShellData()
+  const {
+    loading,
+    refreshAppData,
+    refreshRuntimeStatus,
+    saveConfig,
+    snapshot,
+    runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    },
+  } = useShellData()
   const { language, ns } = useI18n()
   const jobsT = ns('jobs')
   const settingsT = ns('settings')
   const commonT = ns('common')
-  const [aiQueue, setAiQueue] = useState<AiQueueStatus | null>(null)
-  const [runtime, setRuntime] = useState<IntelligenceRuntimeSnapshot | null>(
-    null,
-  )
   const [pageError, setPageError] = useState<string | null>(null)
   const [action, setAction] = useState<string | null>(null)
-  const [loaded, setLoaded] = useState(false)
-
-  const refreshBackgroundWork = useCallback(async () => {
-    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
-      setAiQueue(null)
-      setRuntime(null)
-      setPageError(null)
-      setLoaded(true)
-      return { nextAiQueue: null, nextRuntime: null }
-    }
-
-    try {
-      const [nextAiQueue, nextRuntime] = await Promise.all([
-        backend.loadAiQueueStatus(),
-        backend.loadIntelligenceRuntime(),
-      ])
-      setAiQueue(nextAiQueue)
-      setRuntime(nextRuntime)
-      setPageError(null)
-      return { nextAiQueue, nextRuntime }
-    } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : commonT('notAvailable'),
-      )
-      return { nextAiQueue: null, nextRuntime: null }
-    } finally {
-      setLoaded(true)
-    }
-  }, [commonT, snapshot?.archiveStatus.unlocked, snapshot?.config.initialized])
-
-  useEffect(() => {
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled || typeof window === 'undefined') return
-      timeoutId = window.setTimeout(async () => {
-        const next = await refreshBackgroundWork()
-        if (cancelled) return
-        scheduleNext(backgroundRefreshDelay(next.nextAiQueue, next.nextRuntime))
-      }, delayMs)
-    }
-
-    const load = async () => {
-      const next = await refreshBackgroundWork()
-      if (cancelled) return
-      scheduleNext(backgroundRefreshDelay(next.nextAiQueue, next.nextRuntime))
-    }
-
-    void load()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null && typeof window !== 'undefined') {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [refreshBackgroundWork, refreshKey])
+  const aiQueue = runtimeStatus.aiQueue
+  const runtime = runtimeStatus.intelligence
+  const runtimeLoading =
+    runtimeStatus.loading ||
+    (!runtimeStatus.error && aiQueue === null && runtime === null)
 
   const queueCounts = useMemo(() => {
     const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
@@ -212,7 +154,8 @@ export function JobsPage() {
   async function handleRefresh() {
     setAction(jobsT('refresh'))
     try {
-      await Promise.all([refreshAppData(), refreshBackgroundWork()])
+      setPageError(null)
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
     } finally {
       setAction(null)
     }
@@ -223,7 +166,8 @@ export function JobsPage() {
     setAction(paused ? jobsT('pauseQueue') : jobsT('resumeQueue'))
     try {
       await saveConfig(nextPausedConfig(snapshot.config, paused))
-      await Promise.all([refreshAppData(), refreshBackgroundWork()])
+      setPageError(null)
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
     } finally {
       setAction(null)
     }
@@ -233,7 +177,8 @@ export function JobsPage() {
     setAction(jobsT('retryJob'))
     try {
       await backend.replayAiJob(jobId)
-      await refreshBackgroundWork()
+      setPageError(null)
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
     } finally {
       setAction(null)
     }
@@ -243,7 +188,8 @@ export function JobsPage() {
     setAction(jobsT('cancelJob'))
     try {
       await backend.cancelAiJob(jobId)
-      await refreshBackgroundWork()
+      setPageError(null)
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
     } finally {
       setAction(null)
     }
@@ -252,15 +198,14 @@ export function JobsPage() {
   async function handleRetryRuntimeJob(jobId: number) {
     setAction(jobsT('retryJob'))
     try {
-      const nextRuntime = await backend.retryIntelligenceJob(jobId)
-      setRuntime(nextRuntime)
+      await backend.retryIntelligenceJob(jobId)
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
       setPageError(null)
-      await refreshAppData()
     } catch (error) {
       const message =
         error instanceof Error ? error.message : commonT('notAvailable')
       if (runtimeJobMutationNeedsRefresh(message)) {
-        await Promise.all([refreshAppData(), refreshBackgroundWork()])
+        await Promise.all([refreshAppData(), refreshRuntimeStatus()])
         return
       }
       setPageError(message)
@@ -272,15 +217,14 @@ export function JobsPage() {
   async function handleCancelRuntimeJob(jobId: number) {
     setAction(jobsT('cancelJob'))
     try {
-      const nextRuntime = await backend.cancelIntelligenceJob(jobId)
-      setRuntime(nextRuntime)
+      await backend.cancelIntelligenceJob(jobId)
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
       setPageError(null)
-      await refreshAppData()
     } catch (error) {
       const message =
         error instanceof Error ? error.message : commonT('notAvailable')
       if (runtimeJobMutationNeedsRefresh(message)) {
-        await Promise.all([refreshAppData(), refreshBackgroundWork()])
+        await Promise.all([refreshAppData(), refreshRuntimeStatus()])
         return
       }
       setPageError(message)
@@ -330,7 +274,7 @@ export function JobsPage() {
     )
   }
 
-  if (!loaded) {
+  if (runtimeLoading) {
     return (
       <section className="page-shell" data-testid="jobs-page">
         <LoadingState label={jobsT('loadingPage')} />
@@ -338,12 +282,12 @@ export function JobsPage() {
     )
   }
 
-  if (pageError && !aiQueue && !runtime) {
+  if (runtimeStatus.error && !aiQueue && !runtime) {
     return (
       <section className="page-shell" data-testid="jobs-page">
         <ErrorState
           title={jobsT('pageUnavailableTitle')}
-          description={pageError}
+          description={runtimeStatus.error}
           action={
             <button
               className="btn-secondary"
@@ -447,6 +391,14 @@ export function JobsPage() {
             </div>
           }
         />
+
+        {runtimeStatus.error ? (
+          <StatusCallout
+            tone="warning"
+            title={jobsT('pageUnavailableTitle')}
+            body={runtimeStatus.error}
+          />
+        ) : null}
 
         {pageError ? (
           <StatusCallout

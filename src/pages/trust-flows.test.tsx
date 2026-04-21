@@ -198,6 +198,12 @@ function createShellValue(
     notice: null,
     refreshKey: 0,
     refreshAppData: vi.fn().mockResolvedValue(undefined),
+    refreshRuntimeStatus: vi.fn().mockResolvedValue({
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    }),
     saveConfig: vi.fn().mockResolvedValue(snapshot),
     initializeArchive: vi.fn().mockResolvedValue(snapshot),
     runBackup: vi.fn().mockResolvedValue({

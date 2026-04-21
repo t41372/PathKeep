@@ -26,6 +26,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { backend } from '../../lib/backend-client'
 import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
+import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import {
   healthCheckStatusKey,
   healthCheckStatusTone,
@@ -55,28 +56,6 @@ type ImportMethod = 'takeout' | 'browser'
  * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
  */
 type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
-
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    if (
-      typeof window === 'undefined' ||
-      typeof window.requestAnimationFrame !== 'function'
-    ) {
-      resolve()
-      return
-    }
-
-    let settled = false
-    const finish = () => {
-      if (settled) return
-      settled = true
-      resolve()
-    }
-
-    window.requestAnimationFrame(() => finish())
-    window.setTimeout(finish, 16)
-  })
-}
 
 function localizedImportProgressDetail(
   progress: ImportProgressEvent,

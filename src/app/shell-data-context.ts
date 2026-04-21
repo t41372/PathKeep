@@ -71,6 +71,7 @@ export interface ShellDataContextValue {
   notice: string | null
   refreshKey: number
   refreshAppData: () => Promise<void>
+  refreshRuntimeStatus: () => Promise<ShellRuntimeStatus>
   saveConfig: (config: AppConfig) => Promise<AppSnapshot>
   initializeArchive: (
     config: AppConfig,

@@ -29,6 +29,7 @@ import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import { archiveModeKey, securityModeKey } from '../../lib/trust-review'
+import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
   ArchiveMode,
   RekeyPreview,
@@ -89,21 +90,6 @@ function localizeSecurityWarning(
   }
 
   return warning
-}
-
-/**
- * Waits for next paint.
- *
- * Keeping this as a named declaration makes the Security surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    if (typeof window === 'undefined') {
-      resolve()
-      return
-    }
-    window.requestAnimationFrame(() => resolve())
-  })
 }
 
 /**

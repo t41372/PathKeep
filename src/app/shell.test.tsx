@@ -96,6 +96,13 @@ describe('AppShell', () => {
       notice: null,
       refreshKey: 0,
       refreshAppData: () => Promise.resolve(undefined),
+      refreshRuntimeStatus: () =>
+        Promise.resolve({
+          aiQueue: null,
+          intelligence: null,
+          loading: false,
+          error: null,
+        }),
       saveConfig: () => Promise.reject(new Error('not implemented')),
       initializeArchive: () => Promise.reject(new Error('not implemented')),
       runBackup: () => Promise.reject(new Error('not implemented')),

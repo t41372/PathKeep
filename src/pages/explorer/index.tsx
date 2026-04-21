@@ -53,6 +53,13 @@ export function ExplorerPage() {
     loading: shellLoading,
     refreshKey,
     refreshAppData,
+    refreshRuntimeStatus,
+    runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: null,
+    },
     snapshot,
   } = useShellData()
   const { language, t, ns } = useI18n()
@@ -115,6 +122,7 @@ export function ExplorerPage() {
   const aiMeta = snapshot
     ? aiStatusMeta(snapshot.aiStatus, intelligenceT)
     : null
+  const queueStatus = runtimeStatus.aiQueue
   const embeddingProvider = snapshot
     ? selectedAiProvider(snapshot.config.ai, 'embedding')
     : null
@@ -158,7 +166,6 @@ export function ExplorerPage() {
     providerProbe,
     queryState,
     queueAction,
-    queueStatus,
     selectedId,
     semanticState,
     setQueueAction,
@@ -174,7 +181,7 @@ export function ExplorerPage() {
     view,
     persistRecentSearch,
     refreshAppData,
-    refreshKey,
+    refreshRuntimeStatus,
     requestKey,
     semanticQuery,
     semanticRequestKey,
@@ -638,7 +645,7 @@ export function ExplorerPage() {
           }
           onRefreshQueue={() =>
             void handleQueueAction(explorerT('refreshingQueueAction'), () =>
-              backend.loadAiQueueStatus(),
+              refreshRuntimeStatus(),
             )
           }
           onReplayJob={(jobId) =>
