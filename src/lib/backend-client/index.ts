@@ -41,9 +41,11 @@ import { supportClient } from './support'
 import { updateClient } from './update'
 
 /**
- * Exposes the legacy preview-aware backend facade consumed by older routes and tests.
+ * Exposes the compatibility backend facade for callers that still want one typed object
+ * instead of importing per-domain clients directly.
  *
- * The backend-client layer exists to keep command names, transport, and route code decoupled, so focused declarations here are intentional.
+ * This stays current for real frontend consumers; browser-preview fallback behavior is
+ * owned by `backend-client/shared.ts` plus `src/lib/backend.ts`, not by stale route-local mocks.
  */
 export const backend = {
   getAppBuildInfo: appClient.getBuildInfo,
