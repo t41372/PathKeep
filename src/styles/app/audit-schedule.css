@@ -1,0 +1,181 @@
+/**
+ * @file audit-schedule.css
+ * @description Audit history chain views and schedule PME surfaces for trust-critical review workflows.
+ * @module trust-workflows
+ *
+ * ## Responsibilities
+ * - Style audit chain inspection and manifest detail grids.
+ * - Own schedule PME tabs, config rows, and code block presentation.
+ *
+ * ## Not responsible for
+ * - Archive security state and settings sections.
+ * - Onboarding or import flows.
+ *
+ * ## Dependencies
+ * - Depends on shared buttons and panel primitives.
+ * - Consumed by audit and schedule routes.
+ *
+ * ## Performance notes
+ * - Keeps audit chains horizontally scrollable and PME artifacts bounded so long histories remain navigable.
+ */
+/* ═══ AUDIT ═══ */
+.audit-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.chain-viz {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-2) 0;
+}
+
+.chain-block {
+  border: 1px solid var(--accent);
+  padding: var(--space-3);
+  min-width: 220px;
+  flex-shrink: 0;
+  background: var(--accent-glow);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chain-block.older {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
+
+.chain-hash {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+}
+
+.chain-block.older .chain-hash {
+  color: var(--text-muted);
+}
+.chain-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.chain-link {
+  font-size: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.manifest-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.manifest-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.manifest-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+.manifest-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.audit-review-section {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.audit-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* ═══ SCHEDULE ═══ */
+.schedule-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 800px;
+}
+.schedule-config {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--bg-elevated);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.config-label {
+  width: 140px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.config-value {
+  color: var(--text);
+}
+
+.pme-tabs {
+  display: flex;
+  gap: 1px;
+}
+
+.pme-tab {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.pme-tab.active,
+.pme-tab:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.code-block {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.code-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

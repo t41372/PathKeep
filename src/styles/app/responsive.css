@@ -1,0 +1,141 @@
+/**
+ * @file responsive.css
+ * @description Global responsive breakpoints, reduced-motion guardrails, and screen-reader-only utility styling.
+ * @module responsive-foundation
+ *
+ * ## Responsibilities
+ * - Apply shared breakpoint behavior across shell and route grids.
+ * - Preserve reduced-motion and accessibility utility contracts.
+ *
+ * ## Not responsible for
+ * - Base desktop layout ownership.
+ * - Route-specific card styling outside breakpoint adjustments.
+ *
+ * ## Dependencies
+ * - Depends on previously imported layout modules and utilities.
+ * - Consumed across the full app surface through src/styles/app.css.
+ *
+ * ## Performance notes
+ * - Responsive changes only collapse existing grids and motion, avoiding extra DOM or script-driven layout work.
+ */
+/* ═══ RESPONSIVE ═══ */
+@media (max-width: 1200px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .audit-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  .explorer-grid {
+    grid-template-columns: 1fr;
+  }
+  .detail-panel {
+    position: static;
+    max-height: none;
+  }
+  .assistant-layout,
+  .intelligence-grid,
+  .insights-hero-grid,
+  .jobs-overview-grid,
+  .jobs-focus-grid {
+    grid-template-columns: 1fr;
+  }
+  .insights-runtime-digest {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .jobs-summary-grid,
+  .jobs-meta-grid {
+    grid-template-columns: 1fr;
+  }
+  .insights-grid {
+    grid-template-columns: 1fr;
+  }
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .insights-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .jobs-hero-stats,
+  .jobs-callout-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .preview-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .intelligence-stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .explorer-filters {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .pme-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-workflow-grid {
+    grid-template-columns: 1fr;
+  }
+  .fieldGrid.two,
+  .providerSecretRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .audit-filter-grid {
+    grid-template-columns: 1fr;
+  }
+  .workspace-scroll,
+  .onboarding-scroll,
+  .onboarding-header {
+    padding: var(--space-4);
+  }
+  .topbar {
+    padding: var(--space-4);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+  .topbar-right {
+    flex-direction: column;
+    width: 100%;
+  }
+  .global-search {
+    min-width: 0;
+    width: 100%;
+  }
+  .lock-page {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

@@ -1,0 +1,331 @@
+/**
+ * @file page-layout.css
+ * @description Reusable page-shell scaffolding, workspace scroll regions, and stat-row layout primitives.
+ * @module shared-page-layout
+ *
+ * ## Responsibilities
+ * - Define shared page containers and scroll boundaries.
+ * - Provide stat cards and common page-level grouping layout.
+ *
+ * ## Not responsible for
+ * - Feature-specific visualizations.
+ * - Route-specific workflow forms.
+ *
+ * ## Dependencies
+ * - Depends on shell content chrome and tokenized spacing.
+ * - Shared by dashboard, explorer, settings, and support routes.
+ *
+ * ## Performance notes
+ * - Caps internal scroll regions to avoid full-document growth on dense history and review pages.
+ */
+/* ═══ PAGE SHELL ═══ */
+.page-shell {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.lock-page-shell {
+  min-height: 100dvh;
+  padding: var(--space-6);
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--accent) 12%, transparent),
+      transparent 36%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-elevated) 92%, transparent),
+      var(--bg)
+    );
+}
+
+.lock-page {
+  width: min(960px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.lock-page__hero,
+.lock-page__panel {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+}
+
+.lock-page__hero {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+}
+
+.lock-page__title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(24px, 4vw, 40px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.lock-page__body {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.lock-page__panel {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.lock-page__summary,
+.lock-page__form,
+.lock-page__notes {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.busy-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.busy-overlay__card {
+  min-width: min(420px, calc(100vw - 48px));
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.busy-overlay__spinner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  padding-top: 2px;
+}
+
+.busy-overlay__bar {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.busy-overlay__bar:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.busy-overlay__bar:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.busy-overlay__bar:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+.busy-overlay__bar:nth-child(4) {
+  animation-delay: 450ms;
+}
+
+.busy-overlay__bar:nth-child(5) {
+  animation-delay: 600ms;
+}
+
+.busy-overlay__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-bright);
+}
+
+.busy-overlay__content {
+  display: grid;
+  gap: var(--space-2);
+  min-width: min(360px, calc(100vw - 120px));
+}
+
+.busy-overlay__detail {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.busy-overlay__progress {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.busy-overlay__progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.busy-overlay__progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.busy-overlay__progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 55%, var(--border)) 0%,
+    var(--accent) 100%
+  );
+}
+
+.busy-overlay__steps {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-1);
+}
+
+.busy-overlay__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.busy-overlay__step-marker {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+}
+
+.busy-overlay__step--done {
+  color: var(--success);
+}
+
+.busy-overlay__step--done .busy-overlay__step-marker {
+  border-color: var(--success);
+  background: var(--success);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--success) 35%, transparent);
+}
+
+.busy-overlay__step--active {
+  color: var(--text-bright);
+}
+
+.busy-overlay__step--active .busy-overlay__step-marker {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: busy-step-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+@keyframes busy-step-pulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ═══ STATS ROW ═══ */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.stat-block,
+.stat-card {
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg);
+}
+
+.stat-block {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.stat-block[data-tone='accent'] .stat-value,
+.stat-card[data-tone='accent'] .stat-value {
+  color: var(--accent);
+}
+.stat-block[data-tone='success'] .stat-value,
+.stat-card[data-tone='success'] .stat-value {
+  color: var(--success);
+}
+
+.stat-detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.stat-delta {
+  font-size: 11px;
+  margin-top: var(--space-1);
+}
+
+.stat-delta.positive {
+  color: var(--success);
+}
+.stat-delta.neutral {
+  color: var(--text-muted);
+}
+.stat-delta.negative {
+  color: var(--error);
+}

@@ -1,0 +1,282 @@
+/**
+ * @file topbar.css
+ * @description Main content column chrome and topbar controls shared across route surfaces.
+ * @module app-shell
+ *
+ * ## Responsibilities
+ * - Style the workspace column container and topbar composition.
+ * - Own global search, back/forward controls, and topbar action layout.
+ *
+ * ## Not responsible for
+ * - Sidebar navigation.
+ * - Route-specific cards, tables, and workflows.
+ *
+ * ## Dependencies
+ * - Depends on the shell grid established by shell-frame.css.
+ * - Consumed by every route rendered inside the shell.
+ *
+ * ## Performance notes
+ * - Keeps topbar controls on a fixed chrome strip so route updates do not rebuild shell layout structure.
+ */
+/* ═══ MAIN CONTENT ═══ */
+.workspace-frame {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.workspace-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ═══ TOPBAR ═══ */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  min-height: 52px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.topbar-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.topbar-history__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+
+.topbar-history__button:last-child {
+  border-right: none;
+}
+
+.topbar-history__button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+
+.topbar-history__button:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.crosshair-mark {
+  font-family: var(--font-code);
+  font-size: 14px;
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+.crosshair-mark.small {
+  font-size: 11px;
+}
+
+.page-title {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text-bright);
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.page-subtitle {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: 2px 0 0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.global-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  min-width: 240px;
+}
+
+.profile-switcher {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-switcher__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 188px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.profile-switcher__trigger:hover,
+.profile-switcher__trigger[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.profile-switcher__icon {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.profile-switcher__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-switcher__caret {
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.profile-switcher__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  gap: 1px;
+  min-width: 220px;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--bg) 78%, transparent);
+}
+
+.profile-switcher__option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-switcher__option:hover,
+.profile-switcher__option--active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+
+.profile-switcher__browser-icon,
+.profile-switcher__option-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.search-icon {
+  color: var(--text-faint);
+  font-size: 13px;
+  font-family: var(--font-ui);
+}
+
+.search-input {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+}
+
+.search-input::placeholder {
+  color: var(--text-faint);
+}
+
+.btn-backup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-backup:hover {
+  background: var(--accent-dim);
+}
+
+.btn-backup:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.backup-icon {
+  font-size: 10px;
+}
+
+.topbar-notice {
+  margin-left: auto;
+  color: var(--accent);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+}

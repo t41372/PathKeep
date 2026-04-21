@@ -1,0 +1,132 @@
+/**
+ * @file buttons.css
+ * @description Shared action button variants used across shell, workflow, and review surfaces.
+ * @module shared-actions
+ *
+ * ## Responsibilities
+ * - Define primary, secondary, ghost, danger, and tiny button treatments.
+ * - Keep disabled-state rules centralized for shared action affordances.
+ *
+ * ## Not responsible for
+ * - Route-specific form layout.
+ * - Navigation chrome and sidebar interactions.
+ *
+ * ## Dependencies
+ * - Depends on tokenized typography and state colors.
+ * - Consumed broadly across route and component surfaces.
+ *
+ * ## Performance notes
+ * - Pure style-only state changes keep interaction feedback lightweight even on action-heavy review surfaces.
+ */
+/* ═══ BUTTONS ═══ */
+.btn-primary,
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: none;
+  min-height: 36px;
+}
+
+.btn-primary:hover,
+.primary-button:hover {
+  background: var(--accent-hover);
+}
+
+.btn-primary.btn-lg {
+  font-size: 14px;
+  padding: var(--space-3) var(--space-8);
+  letter-spacing: 0.02em;
+}
+
+.btn-secondary,
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: none;
+  min-height: 36px;
+}
+
+.btn-secondary:hover,
+.ghost-button:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.btn-ghost {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.btn-ghost:hover {
+  color: var(--text-muted);
+}
+
+.btn-danger {
+  background: none;
+  border: 1px solid var(--error);
+  color: var(--error);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-danger:hover {
+  background: var(--error-dim);
+}
+
+.btn-tiny {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  margin-left: var(--space-2);
+}
+
+.btn-tiny:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.primary-button:disabled,
+.ghost-button:disabled,
+.btn-primary:disabled,
+.btn-backup:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

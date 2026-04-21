@@ -1,0 +1,244 @@
+/**
+ * @file import.css
+ * @description Import source selection, wizard body, preview stats, and import-specific review presentation.
+ * @module import-workflow
+ *
+ * ## Responsibilities
+ * - Style import source cards, profile picking, and wizard steps.
+ * - Own import preview summaries and file review rows.
+ *
+ * ## Not responsible for
+ * - Shared buttons.
+ * - Security/settings workflows outside import.
+ *
+ * ## Dependencies
+ * - Depends on shared panel primitives and workflow result rows.
+ * - Consumed by import route modules under src/pages/import.
+ *
+ * ## Performance notes
+ * - Uses compact preview grids and bounded card stacks so large import previews do not explode layout cost.
+ */
+/* ═══ IMPORT ═══ */
+.import-container {
+  max-width: 800px;
+}
+
+.import-source-stack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.import-methods {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.import-card {
+  flex: 1;
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg);
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--transition);
+}
+
+.import-card:hover {
+  border-color: var(--text-muted);
+}
+.import-card.active-import {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.import-card-icon {
+  font-size: 24px;
+  margin-bottom: var(--space-2);
+}
+.import-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+}
+.import-card-desc {
+  font-size: 11px;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+}
+
+.import-profile-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.import-profile-card {
+  width: 100%;
+  cursor: pointer;
+}
+
+.import-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.import-source-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 68%, var(--bg-elevated));
+}
+
+.import-manual-path {
+  border-color: color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+/* Wizard */
+.wizard-panel {
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  gap: var(--space-2);
+}
+
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.step-number {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.wizard-step.completed .step-number {
+  background: var(--success-dim);
+  border-color: var(--success);
+  color: var(--success);
+}
+.wizard-step.active-step .step-number {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.wizard-step.completed .step-label {
+  color: var(--success);
+}
+.wizard-step.active-step .step-label {
+  color: var(--accent);
+}
+
+.wizard-step-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  min-width: 16px;
+}
+.wizard-step-line.completed {
+  background: var(--success);
+}
+.wizard-step-line.active {
+  background: var(--accent);
+}
+
+.wizard-body {
+  padding: var(--space-5);
+}
+.wizard-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+}
+.wizard-description {
+  font-size: 12px;
+  margin-bottom: var(--space-4);
+  color: var(--text-muted);
+}
+
+.preview-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.inline-note-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: 11px;
+}
+
+.preview-stat {
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+}
+.preview-stat-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+}
+.preview-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+}
+.preview-stat-value.accent {
+  color: var(--accent);
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.file-status {
+  font-size: 12px;
+}
+.file-status.ok {
+  color: var(--success);
+}
+.file-status.warn {
+  color: var(--warning);
+}
+
+.wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}

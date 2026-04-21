@@ -1,0 +1,281 @@
+/**
+ * @file dashboard-primitives.css
+ * @description Dashboard grid layout plus shared glyph, panel, table, and badge primitives used across route cards.
+ * @module shared-primitives
+ *
+ * ## Responsibilities
+ * - Own card, table, and badge presentation reused across multiple routes.
+ * - Keep dashboard column layout next to the primitives it was originally tuned with.
+ *
+ * ## Not responsible for
+ * - Explorer timeline and detail rail.
+ * - Workflow forms and onboarding steps.
+ *
+ * ## Dependencies
+ * - Depends on shared page layout containers.
+ * - Consumed by dashboard, jobs, assistant, explorer, and settings review cards.
+ *
+ * ## Performance notes
+ * - Shared primitives stay paint-only and avoid per-item effects so large review/result lists remain lightweight.
+ */
+/* ═══ DASHBOARD GRID ═══ */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--space-4);
+}
+
+.dashboard-left,
+.dashboard-right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ═══ GLYPH — Local SVG icons ═══ */
+.glyph {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  user-select: none;
+  color: currentColor;
+  overflow: visible;
+}
+
+.panel-header-icon {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  margin-right: var(--space-2);
+  vertical-align: middle;
+}
+
+/* ═══ PANELS ═══ */
+.shell-panel,
+.panel {
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.panel-accent,
+.shell-panel--accent {
+  border-color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+
+.shell-panel--warning {
+  border-color: var(--warning);
+  border-left: 2px solid var(--warning);
+}
+
+.panel-wide {
+  grid-column: 1 / -1;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.panel-action {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.panel-action:hover {
+  color: var(--accent-hover);
+}
+
+.panel-link,
+.table-link {
+  text-decoration: none;
+}
+
+.table-link {
+  color: var(--accent);
+}
+
+.panel-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 1px 5px;
+  opacity: 0.7;
+}
+
+.panel-body {
+  padding: var(--space-4);
+}
+
+.panel-header--toggle {
+  align-items: center;
+}
+
+.panel-body--compact {
+  padding-block: var(--space-3);
+}
+
+.panel-controls {
+  display: flex;
+  gap: 1px;
+}
+
+.ctrl-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.ctrl-btn.active,
+.ctrl-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ═══ DATA TABLE ═══ */
+.shell-table,
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.shell-table th,
+.data-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.shell-table td,
+.data-table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--bg-elevated);
+  color: var(--text);
+}
+
+.shell-table tr:hover td,
+.data-table tr:hover td {
+  background: var(--bg-hover);
+}
+
+.mono-cell {
+  color: var(--text-bright);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+}
+.dim {
+  color: var(--text-muted);
+}
+.accent {
+  color: var(--accent);
+}
+
+/* ═══ TAGS & BADGES ═══ */
+.tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border: 1px solid;
+  display: inline-block;
+  font-family: var(--font-ui);
+}
+
+.tag-sm {
+  font-size: 10px;
+  padding: 1px 4px;
+}
+.tag-backup {
+  color: var(--info);
+  border-color: var(--info);
+}
+.tag-import {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.tag-search {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.state-chip,
+.status-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border: 1px solid;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.status-completed,
+.state-chip--ready {
+  color: var(--success);
+  border-color: var(--success);
+}
+.status-reverted {
+  color: var(--error);
+  border-color: var(--error);
+}
+.status-pending,
+.state-chip--blocked {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.status-success {
+  color: var(--success);
+  border-color: var(--success);
+}
+.status-warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.status-blocked {
+  color: var(--error);
+  border-color: var(--error);
+}
+.status-info {
+  color: var(--info);
+  border-color: var(--info);
+}
+.state-chip--running {
+  color: var(--accent);
+  border-color: var(--accent);
+}

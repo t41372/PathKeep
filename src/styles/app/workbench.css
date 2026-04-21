@@ -1,0 +1,432 @@
+/**
+ * @file workbench.css
+ * @description Jobs and intelligence workbench hero cards, summaries, and assistant conversation surface styles.
+ * @module workbench
+ *
+ * ## Responsibilities
+ * - Style intelligence and jobs overview cards, timelines, and ranked lists.
+ * - Own the primary assistant transcript surface and evidence stack.
+ *
+ * ## Not responsible for
+ * - Import/onboarding wizards.
+ * - Settings diagnostics and trust workflows.
+ *
+ * ## Dependencies
+ * - Depends on shared card primitives and page layout.
+ * - Consumed by intelligence, jobs, and assistant routes.
+ *
+ * ## Performance notes
+ * - Keeps dense workbench cards bounded and grid-based so status updates do not trigger oversized layout shifts.
+ */
+/* ═══ INSIGHTS ═══ */
+.insights-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.insights-runtime-digest {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  margin-bottom: var(--space-3);
+}
+
+.insights-hero-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.insights-hero-card::before,
+.jobs-hero-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 8%, transparent),
+      transparent 40%
+    );
+  pointer-events: none;
+}
+
+.insights-hero-card--wide .panel-body,
+.jobs-hero-card--wide .panel-body {
+  position: relative;
+}
+
+.insights-hero-stack,
+.jobs-hero-copy {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.insights-hero-copy h2,
+.jobs-hero-copy h2 {
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin: 0;
+  color: var(--text-bright);
+}
+
+.insights-hero-copy p,
+.jobs-hero-copy p {
+  margin: 0;
+}
+
+.insights-hero-notes {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.insights-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.insights-hero-card .insights-summary {
+  margin-bottom: 0;
+}
+
+.insight-kpi {
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg);
+}
+
+.kpi-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+}
+
+.kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-bright);
+  line-height: 1.1;
+  font-family: var(--font-mono);
+}
+
+.kpi-sublabel {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+}
+
+.insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.insights-section-heading,
+.jobs-section-heading {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.insights-section-heading p,
+.jobs-section-heading p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+/* Topic Timeline */
+.topic-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.topic-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.topic-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 180px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.topic-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+.topic-bars {
+  flex: 1;
+}
+.topic-bar-track {
+  position: relative;
+  height: 16px;
+  background: var(--bg-elevated);
+}
+.topic-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--accent);
+}
+.topic-count {
+  width: 48px;
+  text-align: right;
+  font-size: 11px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.topic-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: var(--space-2);
+  padding-left: 195px;
+  font-family: var(--font-mono);
+}
+
+.summary-text {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+.summary-text strong {
+  color: var(--text);
+}
+.summary-stats {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+/* Threads */
+.thread-item {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.thread-status {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.thread-status.hot {
+  background: var(--accent);
+}
+.thread-status.warm {
+  background: var(--warning);
+}
+.thread-status.cool {
+  background: var(--text-faint);
+}
+
+.thread-name {
+  font-size: 12px;
+  color: var(--text);
+}
+.thread-meta {
+  font-size: 10px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Domain List */
+.domain-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.domain-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.domain-rank {
+  width: 20px;
+  text-align: right;
+  color: var(--text-faint);
+}
+.domain-name {
+  width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.domain-bar-container {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-elevated);
+}
+.domain-bar {
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.6;
+}
+.domain-count {
+  width: 36px;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+/* ═══ AI ASSISTANT ═══ */
+.assistant-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+}
+
+.assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.msg {
+  margin-bottom: var(--space-4);
+  max-width: 720px;
+}
+.msg-user {
+  margin-left: auto;
+}
+
+.msg-user .msg-content {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  padding: var(--space-3) var(--space-4);
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.msg-ai .msg-content {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.msg-ai .msg-content p {
+  max-width: none;
+  margin: 0;
+}
+.msg-ai .msg-content strong {
+  color: var(--accent);
+}
+
+.msg-evidence {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+}
+
+.evidence-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+}
+
+.evidence-item {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 11px;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--bg-elevated);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.assistant-input-area {
+  border-top: 1px solid var(--border);
+  padding: var(--space-4) 0;
+}
+
+.assistant-input-wrapper {
+  display: flex;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.assistant-input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: var(--space-3) var(--space-4);
+  outline: none;
+}
+
+.assistant-input::placeholder {
+  color: var(--text-faint);
+}
+
+.assistant-send {
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 18px;
+  padding: 0 var(--space-4);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: all var(--transition);
+}
+
+.assistant-send:hover {
+  background: var(--accent-dim);
+}
+.assistant-hint {
+  font-size: 10px;
+  margin-top: var(--space-2);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}

@@ -1,0 +1,519 @@
+/**
+ * @file security-review.css
+ * @description Archive security status, trust callouts, and review/workflow helper layouts reused by support surfaces.
+ * @module trust-workflows
+ *
+ * ## Responsibilities
+ * - Style security status panels and warning/callout states.
+ * - Provide review helper layouts such as workflow cards, field grids, provider editors, and regex rows.
+ *
+ * ## Not responsible for
+ * - Settings page section navigation and profile lists.
+ * - Onboarding shell chrome.
+ *
+ * ## Dependencies
+ * - Depends on shared panels, badges, and buttons.
+ * - Consumed by security, settings review panels, explorer semantic/runtime panels, and shared review components.
+ *
+ * ## Performance notes
+ * - Uses grid-based helper layouts and bounded artifact/code surfaces so review-heavy pages stay readable without unbounded DOM expansion.
+ */
+/* ═══ SECURITY ═══ */
+.security-container {
+  max-width: 700px;
+}
+
+.security-status {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.security-icon {
+  font-size: 32px;
+}
+.security-icon.encrypted {
+  color: var(--success);
+}
+.security-state {
+  font-size: 15px;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+}
+.security-state strong {
+  color: var(--success);
+}
+.security-detail {
+  font-size: 11px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.security-fields {
+  margin-top: var(--space-3);
+}
+
+.warning-box {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--warning);
+  border-left: 2px solid var(--warning);
+  background: var(--warning-dim);
+  margin-top: var(--space-4);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.warning-icon {
+  font-size: 16px;
+  color: var(--warning);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.warning-icon .glyph {
+  font-size: 16px;
+  color: var(--warning);
+}
+.warning-text {
+  color: var(--text-muted);
+}
+.warning-text strong {
+  color: var(--warning);
+}
+
+.status-callout {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.status-callout h3,
+.status-callout p {
+  margin: 0;
+}
+
+.status-callout p {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.status-callout--info {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 80%, var(--bg-elevated));
+}
+
+.status-callout--success {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
+  background: color-mix(in srgb, var(--success-dim) 80%, var(--bg-elevated));
+}
+
+.status-callout--warning {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning-dim) 90%, var(--bg-elevated));
+}
+
+.status-callout--danger,
+.status-callout--blocked {
+  border-color: color-mix(in srgb, var(--error) 42%, var(--border));
+  background: color-mix(in srgb, var(--error-dim) 90%, var(--bg-elevated));
+}
+
+.dashboard-callouts,
+.settings-support-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.settings-remote-grid,
+.settings-result-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.settings-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.settings-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings-remote-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.quick-actions-grid,
+.result-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.settings-select {
+  min-width: 220px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.previewList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.previewEntry {
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.previewEntry strong,
+.previewEntry p,
+.previewEntry small {
+  margin: 0;
+}
+
+.previewEntry p,
+.previewEntry small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.previewMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.audit-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.statusTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.statusTag.info {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.statusTag.success {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.statusTag.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.statusTag.neutral {
+  color: var(--text-muted);
+}
+
+.workflowList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.workflowStep {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.workflowMarker {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.workflowStep.current .workflowMarker {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.workflowStep.complete .workflowMarker {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-dim);
+}
+
+.workflowCard {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+}
+
+.workflowHeader {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.workflowHeader h3,
+.workflowSummary,
+.workflowSection p,
+.workflowSection strong {
+  margin: 0;
+}
+
+.workflowSummary,
+.workflowSection p {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.workflowSection {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.workflowActions,
+.artifactList,
+.generatedList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.surfaceInset {
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+}
+
+.toolbarLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.toolbarLine h3 {
+  margin: 0;
+}
+
+.fieldGrid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.fieldGrid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldBlock {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fieldBlock input,
+.fieldBlock select,
+.fieldBlock textarea {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.multilineInput {
+  resize: vertical;
+}
+
+.readOnlyField {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+  color: var(--text-muted);
+}
+
+.secondaryButton,
+.ghostButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.secondaryButton {
+  background: var(--bg);
+}
+
+.secondaryButton:hover,
+.ghostButton:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toggleList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.compactToggleList {
+  margin-top: var(--space-3);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+}
+
+.providerPanel + .providerPanel {
+  margin-top: var(--space-4);
+}
+
+.providerList {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.providerCard {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.providerCard.selected {
+  border-color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.providerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.providerSelect {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.providerSelect input {
+  margin: 0;
+}
+
+.providerMono {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.providerSecretRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.artifactCard.compactCard,
+.codeArtifact {
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+}
+
+.artifactHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.codeArtifact pre {
+  margin: var(--space-3) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stepList {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: grid;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}

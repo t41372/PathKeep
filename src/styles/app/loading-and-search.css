@@ -1,0 +1,271 @@
+/**
+ * @file loading-and-search.css
+ * @description Shared loading skeletons, progress placeholders, regex inputs, and global scrollbar styling.
+ * @module shared-feedback
+ *
+ * ## Responsibilities
+ * - Style reusable loading states and skeleton placeholders.
+ * - Own regex input affordances and global scrollbar cosmetics.
+ *
+ * ## Not responsible for
+ * - Route-specific cards and workflow copy.
+ * - Responsive layout breakpoints.
+ *
+ * ## Dependencies
+ * - Depends on shared tokens and utility surfaces.
+ * - Consumed by LoadingState primitives and search-rule/explorer filter forms.
+ *
+ * ## Performance notes
+ * - Skeletons use simple CSS animations and bounded blocks so loading chrome stays inexpensive under heavy data refresh.
+ */
+.loading-state {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+}
+
+.loading-state--compact {
+  padding: var(--space-3) var(--space-4);
+}
+
+.loading-state__spinner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+}
+
+.loading-state__block {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.loading-state__block:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.loading-state__block:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+.loading-state__content {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.loading-state__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-bright);
+}
+
+.loading-state__detail {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.loading-state__progress {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.loading-state__progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.loading-state__progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.loading-state__progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 55%, var(--border)) 0%,
+    var(--accent) 100%
+  );
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-hover);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 50%,
+    transparent 100%
+  );
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+}
+
+.skeleton--text {
+  margin-bottom: var(--space-2);
+}
+
+.skeleton--block,
+.skeleton--stat-card {
+  border: 1px solid var(--border);
+}
+
+.skeleton--stat-card {
+  padding: var(--space-4);
+  background: var(--bg);
+}
+
+.skeleton__line {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-hover);
+}
+
+.skeleton--table-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.skeleton--table-row .skeleton__line {
+  height: 12px;
+}
+
+.skeleton-table {
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.skeleton-block {
+  background: var(--border);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.regex-input-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.regex-input-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.regex-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.regex-toggle:hover,
+.regex-toggle--active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.regex-badge {
+  margin-left: var(--space-1);
+  padding: 0 4px;
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.regex-error,
+.regex-valid {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.regex-valid {
+  color: var(--success);
+}
+
+.regex-error {
+  color: var(--accent);
+}
+
+.input-invalid {
+  border-color: var(--accent) !important;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* ═══ SCROLLBAR ═══ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}

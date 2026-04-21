@@ -1,0 +1,171 @@
+/**
+ * @file workbench-layouts.css
+ * @description Supplemental jobs, intelligence, and assistant layout grids extracted from the lower workbench section.
+ * @module workbench
+ *
+ * ## Responsibilities
+ * - Own lower-page jobs overview grids and intelligence layout helpers.
+ * - Keep assistant sidebar and message-head layout coupled with workbench card grids.
+ *
+ * ## Not responsible for
+ * - Assistant transcript chrome already defined in workbench.css.
+ * - Settings external-output cards.
+ *
+ * ## Dependencies
+ * - Depends on workbench.css hero and card primitives.
+ * - Consumed by jobs, intelligence, assistant, and explorer runtime panels.
+ *
+ * ## Performance notes
+ * - Maintains bounded grid layouts for dense metrics so route-level updates stay localized.
+ */
+.jobs-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.jobs-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.jobs-hero-card,
+.jobs-overview-card,
+.jobs-focus-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.jobs-hero-card--wide {
+  min-height: 100%;
+}
+
+.jobs-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.jobs-hero-stat,
+.jobs-mini-callout {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-1);
+}
+
+.jobs-hero-stat strong {
+  font-size: 20px;
+  color: var(--text-bright);
+}
+
+.jobs-callout-strip,
+.jobs-focus-grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.jobs-callout-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.jobs-focus-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.jobs-summary-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.jobs-panel-stack,
+.jobs-status-grid,
+.jobs-notes {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.jobs-meta-grid {
+  display: grid;
+  gap: var(--space-1) var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.jobs-progress {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.jobs-progress__track {
+  position: relative;
+  overflow: hidden;
+  height: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.jobs-progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--transition);
+}
+
+.jobs-progress__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.intelligence-stack,
+.intelligence-result-list,
+.intelligence-note-list,
+.intelligence-job-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.intelligence-actions,
+.assistant-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.assistant-inline-actions {
+  margin-top: var(--space-2);
+}
+
+.intelligence-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.intelligence-panel {
+  margin-bottom: var(--space-4);
+}
+
+.assistant-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.assistant-sidebar {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.assistant-message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}

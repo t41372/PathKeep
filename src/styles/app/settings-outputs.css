@@ -1,0 +1,96 @@
+/**
+ * @file settings-outputs.css
+ * @description Settings external-output tabs, cards, digest summaries, and chip lists.
+ * @module settings
+ *
+ * ## Responsibilities
+ * - Style external-output tabs and output card grids.
+ * - Keep settings-owned output digest summaries scoped away from generic utilities.
+ *
+ * ## Not responsible for
+ * - Jobs and assistant workbench layouts.
+ * - Shared review result rows.
+ *
+ * ## Dependencies
+ * - Depends on shared utility chip buttons and panel primitives.
+ * - Consumed by settings external output surfaces.
+ *
+ * ## Performance notes
+ * - Uses auto-fit card grids with capped content so output summaries remain lightweight.
+ */
+.settings-output-tabs {
+  align-items: center;
+}
+
+.settings-output-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.settings-output-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 85%, transparent);
+}
+
+.settings-output-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.settings-output-card__header h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.settings-output-card p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.settings-output-digest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.settings-output-digest-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--bg-elevated);
+}
+
+.settings-output-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip-button--static {
+  cursor: default;
+}
+
+.chip-button--static:hover {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.intelligence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.intelligence-grid--assistant {
+  margin-bottom: var(--space-5);
+}

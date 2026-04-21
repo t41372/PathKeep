@@ -1,0 +1,39 @@
+/**
+ * @file onboarding-final.css
+ * @description Final onboarding panel alignment extracted from the post-utilities tail section.
+ * @module onboarding
+ *
+ * ## Responsibilities
+ * - Own the last-step onboarding panel alignment that appears after shared utility definitions.
+ *
+ * ## Not responsible for
+ * - General loading placeholders.
+ * - Responsive breakpoints.
+ *
+ * ## Dependencies
+ * - Depends on onboarding shell and step-specific panels.
+ * - Consumed by the onboarding ready step.
+ *
+ * ## Performance notes
+ * - Simple flex alignment only; keeps final CTA layout cheap.
+ */
+.onboarding-final-panel {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+}
+
+.pme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.pme-column {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--bg-elevated);
+}

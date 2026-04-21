@@ -1,0 +1,343 @@
+/**
+ * @file onboarding-steps.css
+ * @description Onboarding storage, security, schedule, and ready-step detail presentation.
+ * @module onboarding
+ *
+ * ## Responsibilities
+ * - Style step-specific onboarding forms and comparison blocks.
+ * - Own onboarding-only manual-step and readiness summaries.
+ *
+ * ## Not responsible for
+ * - Reusable settings diagnostics.
+ * - Import review and post-onboarding settings surfaces.
+ *
+ * ## Dependencies
+ * - Depends on onboarding shell chrome and shared button styles.
+ * - Consumed by route-local onboarding step modules.
+ *
+ * ## Performance notes
+ * - Keeps step detail layouts compact and vertically chunked so wizard transitions do not cause oversized reflow.
+ */
+/* ═══ STEP 2: STORAGE ═══ */
+.storage-path-display {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.storage-path-field {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--accent);
+  background: var(--accent-glow);
+  font-size: 13px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.dir-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dir-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--text);
+  padding: var(--space-1) 0;
+  font-family: var(--font-mono);
+}
+
+.dir-item.indent {
+  margin-left: var(--space-6);
+}
+.dir-icon {
+  font-size: 13px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.estimate-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.estimate-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--bg-elevated);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.estimate-item.highlight {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+.estimate-label {
+  color: var(--text-muted);
+}
+.estimate-value {
+  color: var(--text);
+}
+
+/* ═══ STEP 3: SECURITY OPTIONS ═══ */
+.security-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.security-option {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  transition: all var(--transition);
+}
+
+.security-option.selected {
+  border-color: var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.security-option-trigger {
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.security-option-trigger:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.security-option-trigger:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.option-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.option-radio {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  transition: all var(--transition);
+}
+
+.option-radio.selected {
+  border-color: var(--accent);
+}
+
+.option-radio.selected::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  background: var(--accent);
+}
+
+.option-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.option-title {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+.option-body {
+  padding: var(--space-4);
+}
+.option-desc {
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.security-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.form-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--space-2) var(--space-3);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.form-input:focus {
+  border-color: var(--accent);
+}
+.form-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.encryption-details {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.plaintext-tradeoffs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.tradeoff-row {
+  font-size: 12px;
+  padding: var(--space-1) 0;
+  font-family: var(--font-mono);
+}
+.tradeoff-pro {
+  color: var(--success);
+}
+.tradeoff-con {
+  color: var(--error);
+}
+
+/* ═══ STEP 4: SCHEDULE ═══ */
+.interval-chips {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.interval-chip {
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.interval-chip:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.interval-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.manual-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.manual-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.step-num-inline {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.manual-step code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-surface);
+  padding: 1px 4px;
+}
+
+/* ═══ STEP 5: READY ═══ */
+.summary-config {
+  display: flex;
+  flex-direction: column;
+}
+.init-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.init-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.init-num {
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1.4;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+.init-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.init-action {
+  font-size: 12px;
+  color: var(--text);
+}
+.init-detail {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}

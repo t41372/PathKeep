@@ -1,0 +1,158 @@
+/**
+ * @file dashboard-detail.css
+ * @description Dashboard-specific heatmap, on-this-day, and storage summary presentation.
+ * @module dashboard
+ *
+ * ## Responsibilities
+ * - Style compact history activity summaries and storage bars.
+ * - Keep dashboard-only evidence links and summaries visually scoped to the home surface.
+ *
+ * ## Not responsible for
+ * - Shared shell cards or explorer records.
+ * - Settings and workflow diagnostics.
+ *
+ * ## Dependencies
+ * - Depends on shared panel and badge primitives.
+ * - Consumed primarily by src/pages/dashboard/index.tsx.
+ *
+ * ## Performance notes
+ * - Uses fixed-size summary cells instead of unbounded grids so archive-scale snapshots stay cheap to render.
+ */
+/* ═══ HEATMAP ═══ */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(52, 1fr);
+  grid-template-rows: repeat(7, 1fr);
+  gap: 2px;
+  height: 90px;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--bg-elevated);
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 10px;
+  justify-content: flex-end;
+  font-family: var(--font-mono);
+}
+
+.heatmap-scale {
+  display: flex;
+  gap: 2px;
+}
+
+.hm-cell {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border);
+}
+
+/* ═══ ON THIS DAY ═══ */
+.otd-item {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.dashboard-evidence-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dashboard-evidence-link:hover .otd-title,
+.dashboard-evidence-link:focus-visible .otd-title {
+  color: var(--accent);
+}
+
+.otd-favicon {
+  font-size: 14px;
+  line-height: 1.4;
+}
+.otd-title {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.otd-url {
+  font-size: 10px;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.otd-summary {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--accent);
+  border-left: 2px solid var(--accent);
+  background: var(--accent-glow);
+}
+
+.summary-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+}
+
+.otd-summary p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ═══ STORAGE ═══ */
+.storage-item {
+  margin-bottom: var(--space-3);
+}
+
+.storage-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+}
+
+.storage-bar {
+  height: 4px;
+  background: var(--bg-elevated);
+  width: 100%;
+}
+
+.storage-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 600ms ease;
+}
+
+.storage-fill.secondary {
+  background: var(--info);
+}
+.storage-fill.tertiary {
+  background: var(--success);
+}
+.storage-fill.dim {
+  background: var(--text-faint);
+}
+
+.storage-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-3);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+}

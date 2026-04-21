@@ -1,0 +1,308 @@
+/**
+ * @file settings.css
+ * @description Settings page navigation strip, section grouping, retention, updater, profile selection, and provider card presentation.
+ * @module settings
+ *
+ * ## Responsibilities
+ * - Own sticky settings navigation and section grouping hierarchy.
+ * - Style settings-only retention, updater, profile, and provider selection surfaces.
+ *
+ * ## Not responsible for
+ * - Shared review helpers already defined in security-review.css.
+ * - Onboarding and import workflows.
+ *
+ * ## Dependencies
+ * - Depends on shared buttons and trust-review helpers.
+ * - Consumed by settings route sections under src/pages/settings.
+ *
+ * ## Performance notes
+ * - Keeps dense settings sections in scoped grids and lists so background runtime updates do not reflow the entire page.
+ */
+/* ═══ SETTINGS ═══ */
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 800px;
+}
+
+/* Section navigation strip */
+.settings-nav {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+
+.settings-nav__link {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  transition: all var(--transition);
+}
+
+.settings-nav__link:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+
+/* Panel visual hierarchy variants */
+.panel--critical {
+  border-left: 3px solid var(--warning);
+}
+
+.panel--security {
+  border-left: 3px solid var(--accent);
+}
+
+.panel--optional {
+  border-left: 3px solid var(--text-faint);
+}
+
+/* Panel title with icon */
+.panel-title .glyph {
+  font-size: 12px;
+  margin-right: var(--space-1);
+  vertical-align: middle;
+  color: var(--text-muted);
+}
+
+/* Category group spacing */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-group + .settings-group {
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+.settings-group__label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
+}
+
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 800px;
+}
+
+/* Retention proportional bar */
+.retention-bar {
+  display: flex;
+  height: 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  gap: 1px;
+  background: var(--bg-surface);
+}
+
+.retention-bar__segment {
+  background: var(--text-faint);
+  transition: background var(--transition);
+  min-width: 2%;
+}
+
+.retention-bar__segment--selected {
+  background: var(--warning);
+}
+
+/* AI health dot indicator */
+.ai-health-indicator {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.ai-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.ai-health-dot--success {
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+
+.ai-health-dot--warning {
+  background: var(--warning);
+  box-shadow: 0 0 4px var(--warning);
+}
+
+.ai-health-dot--blocked {
+  background: var(--danger);
+  box-shadow: 0 0 4px var(--danger);
+}
+
+.ai-health-dot--info,
+.ai-health-dot--idle {
+  background: var(--text-faint);
+}
+
+/* Updater download progress bar */
+.update-progress-bar {
+  height: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: var(--space-2) 0;
+}
+
+.update-progress-bar__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width var(--transition);
+}
+.profile-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--bg-elevated);
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.checkbox.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.checkbox.active .glyph {
+  font-size: 14px;
+}
+
+.browser-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--bg-elevated);
+}
+
+.profile-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-info {
+  flex: 1;
+  min-width: 0;
+}
+.profile-name {
+  font-size: 12px;
+  color: var(--text);
+}
+.profile-path {
+  font-size: 10px;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.profile-stats {
+  font-size: 10px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.profile-detection {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+/* Provider Cards */
+.provider-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.provider-card {
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+}
+
+.provider-card.active-provider {
+  border-color: var(--success);
+  border-left: 2px solid var(--success);
+}
+
+.provider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.provider-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+}
+.provider-config {
+  display: flex;
+  flex-direction: column;
+}

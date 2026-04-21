@@ -1,0 +1,90 @@
+/**
+ * @file shell-frame.css
+ * @description Global shell frame scaffolding, background grid, and sidebar-width state hooks.
+ * @module app-shell
+ *
+ * ## Responsibilities
+ * - Own the app frame container and shell grid columns.
+ * - Keep the ambient shell decoration isolated from route-level surfaces.
+ *
+ * ## Not responsible for
+ * - Sidebar navigation internals.
+ * - Topbar and page-level content layout.
+ *
+ * ## Dependencies
+ * - Depends on global design tokens from src/styles/tokens.css.
+ * - Consumed transitively by src/index.css through src/styles/app.css.
+ *
+ * ## Performance notes
+ * - Uses paint-only decoration so shell chrome does not add layout churn while large routes stream in.
+ */
+/* ═══════════════════════════════════════════════
+   PathKeep — Terminal × Tech-Brutalism Design System
+   Adapted for React shell (app-frame / shell-grid)
+   ═══════════════════════════════════════════════ */
+
+/* ═══ CORNER CROSSHAIRS ═══ */
+.corner-mark {
+  position: absolute;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--text-faint);
+  pointer-events: none;
+  line-height: 1;
+}
+
+.corner-mark--tl {
+  top: 8px;
+  left: 8px;
+}
+.corner-mark--tr {
+  top: 8px;
+  right: 8px;
+}
+.corner-mark--bl {
+  bottom: 8px;
+  left: 8px;
+}
+.corner-mark--br {
+  bottom: 8px;
+  right: 8px;
+}
+
+/* ═══ DOT GRID BACKGROUND ═══ */
+.shell-dot-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--text-faint) 65%, transparent) 0.5px,
+    transparent 0.5px
+  );
+  background-size: 24px 24px;
+  opacity: 0.28;
+}
+
+/* ═══ APP SHELL ═══ */
+.app-frame {
+  position: relative;
+  height: 100dvh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.shell-grid {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.app-frame[data-sidebar-collapsed='true'] .shell-grid {
+  grid-template-columns: 72px minmax(0, 1fr);
+}

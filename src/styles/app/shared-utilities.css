@@ -1,0 +1,257 @@
+/**
+ * @file shared-utilities.css
+ * @description Shared utility blocks and preserved compatibility classes reused across workflow and review surfaces.
+ * @module shared-utilities
+ *
+ * ## Responsibilities
+ * - Keep preserved utility layouts and compatibility helpers in one owner.
+ * - Support shared review rows, code panels, and utility content blocks used by multiple routes.
+ *
+ * ## Not responsible for
+ * - Settings output cards and jobs-specific layouts.
+ * - Responsive media queries.
+ *
+ * ## Dependencies
+ * - Depends on tokenized spacing and shared button/panel primitives.
+ * - Consumed by import, settings, review, explorer, and component-level review surfaces.
+ *
+ * ## Performance notes
+ * - Utilities stay layout-focused and avoid expensive visual effects so they can be reused safely in dense review lists.
+ */
+/* ═══ EXISTING UTILITY CLASSES (PRESERVED) ═══ */
+.mono-kicker {
+  font-family: var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text-faint);
+}
+
+.mono-support {
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.stacked-column,
+.stack-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.list-item {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.list-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.utility-block {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-3);
+  max-width: 720px;
+}
+
+.utility-block h2,
+.shell-panel h2 {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text-bright);
+}
+
+.utility-block__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.inline-error {
+  color: var(--warning);
+}
+.dashboard-next-action {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* Old onboarding layout classes (preserved for compat) */
+.onboarding-hero__body,
+.onboarding-summary-grid,
+.onboarding-workflow-grid,
+.security-form-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.onboarding-hero__body {
+  gap: var(--space-6);
+}
+.onboarding-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.onboarding-workflow-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.choice-row,
+.field-stack,
+.checkbox-row,
+.result-row,
+.code-panel {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--bg-elevated);
+}
+
+.choice-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-4);
+}
+
+.choice-row[data-active='true'] {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 80%, var(--bg-elevated));
+}
+
+.field-stack {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.field-stack input,
+.field-stack select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.field-stack textarea {
+  width: 100%;
+  min-height: 96px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.segmented-row,
+.generated-file-tabs,
+.recent-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip-button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.chip-button--active,
+.chip-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.code-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.code-panel pre {
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-4);
+  background: var(--bg);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.result-row {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: left;
+}
+
+.result-row:hover,
+.result-row--active {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 80%, var(--bg-elevated));
+}
+
+.result-row__header,
+.result-row__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.result-row p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.result-row strong,
+.result-row p,
+.result-row .mono-support {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
