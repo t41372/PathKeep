@@ -1,0 +1,486 @@
+/**
+ * @file derived-runtime-review.tsx
+ * @description Renders the runtime, module, plugin, and recent-job review surface for Settings derived-state.
+ * @module pages/settings
+ *
+ * ## 職責
+ * - 顯示 runtime queue summary、deterministic modules、enrichment plugins、recent jobs 與 rebuild/clear results。
+ * - 把 retry/cancel/toggle 行為交回 route-owned handlers。
+ * - 維持 derived-state runtime review 與 Jobs/Audit deep links 的誠實關係。
+ *
+ * ## 不負責
+ * - 不載入 runtime snapshot。
+ * - 不管理 search-rule editor。
+ * - 不改變 runtime queue grammar。
+ *
+ * ## 依賴關係
+ * - 依賴 route hook 提供 runtime snapshot、dashboard recent run 與 handlers。
+ * - 依賴 intelligence runtime helper labels。
+ *
+ * ## 性能備注
+ * - 只根據既有 snapshot/runtime payload 派生小型 display models，不做額外 IO。
+ */
+
+import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { StatusCallout } from '../../components/primitives/status-callout'
+import {
+  READABLE_CONTENT_REFETCH_PLUGIN_ID,
+  enrichmentPluginRegistry,
+  enrichmentPluginState,
+  resolveEnrichmentSettings,
+} from '../../lib/enrichment'
+import { formatDateTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
+import {
+  deterministicModuleDescription,
+  deterministicModuleLabel,
+  deterministicModuleStatusLabel,
+  enrichmentPluginBoundaryLabel,
+  enrichmentPluginDescription,
+  enrichmentPluginLabel,
+  intelligenceRuntimeJobStateLabel,
+} from '../../lib/intelligence-runtime'
+import type {
+  AppSnapshot,
+  ClearDerivedIntelligenceReport,
+  DashboardSnapshot,
+  IntelligenceRuntimeSnapshot,
+} from '../../lib/types'
+import type { CoreIntelligenceQueueReport } from '../../lib/core-intelligence/types'
+
+/**
+ * Props for the extracted runtime review surface.
+ */
+export interface DerivedRuntimeReviewProps {
+  action: string | null
+  clearReport: ClearDerivedIntelligenceReport | null
+  dashboardRecentRun: DashboardSnapshot['recentRuns'][number] | null
+  intelligenceRuntime: IntelligenceRuntimeSnapshot | null
+  intelligenceRuntimeError: string | null
+  rebuildQueueReport: CoreIntelligenceQueueReport | null
+  snapshot: AppSnapshot
+  onCancelRuntimeJob: (jobId: number) => Promise<void>
+  onDeterministicModuleToggle: (moduleId: string) => Promise<void>
+  onEnrichmentPluginToggle: (pluginId: string) => Promise<void>
+  onRetryRuntimeJob: (jobId: number) => Promise<void>
+}
+
+/**
+ * Renders runtime/module/plugin review cards from route-owned state.
+ */
+export function DerivedRuntimeReview({
+  action,
+  clearReport,
+  dashboardRecentRun,
+  intelligenceRuntime,
+  intelligenceRuntimeError,
+  rebuildQueueReport,
+  snapshot,
+  onCancelRuntimeJob,
+  onDeterministicModuleToggle,
+  onEnrichmentPluginToggle,
+  onRetryRuntimeJob,
+}: DerivedRuntimeReviewProps) {
+  const { language, t, ns } = useI18n()
+  const commonNs = ns('common')
+  const settingsNs = ns('settings')
+  const enrichmentSettings = useMemo(
+    () => resolveEnrichmentSettings(snapshot.config.enrichment),
+    [snapshot.config.enrichment],
+  )
+  const runtimePluginsById = useMemo(
+    () =>
+      new Map(
+        (intelligenceRuntime?.plugins ?? []).map((plugin) => [
+          plugin.pluginId,
+          plugin,
+        ]),
+      ),
+    [intelligenceRuntime?.plugins],
+  )
+  const reviewableEnrichmentPlugins = useMemo(() => {
+    const registryIds = enrichmentPluginRegistry.map((plugin) => plugin.id)
+    const extraIds = enrichmentSettings.plugins
+      .map((plugin) => plugin.id)
+      .filter((pluginId) => !registryIds.includes(pluginId))
+
+    return [...registryIds, ...extraIds].map((pluginId) => ({
+      definition: enrichmentPluginRegistry.find(
+        (plugin) => plugin.id === pluginId,
+      ),
+      runtime: runtimePluginsById.get(pluginId),
+      state: enrichmentPluginState(enrichmentSettings, pluginId),
+    }))
+  }, [enrichmentSettings, runtimePluginsById])
+  const runtimeModulesById = useMemo(
+    () =>
+      new Map(
+        (intelligenceRuntime?.modules ?? []).map((module) => [
+          module.moduleId,
+          module,
+        ]),
+      ),
+    [intelligenceRuntime?.modules],
+  )
+  const reviewableDeterministicModules = useMemo(() => {
+    const configuredModules = snapshot.config.deterministic.modules
+    const configIds = configuredModules.map((module) => module.id)
+    const extraIds = [...runtimeModulesById.keys()].filter(
+      (moduleId) => !configIds.includes(moduleId),
+    )
+
+    return [...configIds, ...extraIds].map((moduleId) => ({
+      runtime: runtimeModulesById.get(moduleId),
+      state: configuredModules.find((module) => module.id === moduleId) ?? {
+        id: moduleId,
+        enabled: true,
+        version: 'diagnostic',
+      },
+    }))
+  }, [runtimeModulesById, snapshot.config.deterministic.modules])
+
+  return (
+    <>
+      <StatusCallout
+        tone={
+          intelligenceRuntimeError || intelligenceRuntime?.queue.failed
+            ? 'warning'
+            : 'info'
+        }
+        title={
+          intelligenceRuntimeError
+            ? settingsNs('runtimeUnavailableTitle')
+            : settingsNs('runtimeQueueTitle')
+        }
+        body={intelligenceRuntimeError ?? settingsNs('runtimeQueueBody')}
+        actions={
+          intelligenceRuntimeError ? undefined : (
+            <div className="settings-action-row">
+              <span className="mono">
+                {settingsNs('runtimeQueueSummary', {
+                  queued: intelligenceRuntime?.queue.queued ?? 0,
+                  running: intelligenceRuntime?.queue.running ?? 0,
+                  failed: intelligenceRuntime?.queue.failed ?? 0,
+                })}
+              </span>
+            </div>
+          )
+        }
+      />
+
+      {reviewableDeterministicModules.map((module) => (
+        <div className="result-row result-row--active" key={module.state.id}>
+          <div className="result-row__header">
+            <strong>
+              {deterministicModuleLabel(module.state.id, settingsNs)}
+            </strong>
+            <span className="mono">
+              {module.runtime
+                ? deterministicModuleStatusLabel(
+                    module.runtime.status,
+                    settingsNs,
+                  )
+                : module.state.enabled
+                  ? settingsNs('deterministicModuleIdle')
+                  : settingsNs('deterministicModuleDisabled')}
+            </span>
+          </div>
+          <p>{deterministicModuleDescription(module.state.id, settingsNs)}</p>
+          <div className="config-row">
+            <span className="config-label">
+              {settingsNs('deterministicModuleDependsOn')}
+            </span>
+            <span className="config-value mono">
+              {module.runtime?.dependsOn.length
+                ? module.runtime.dependsOn
+                    .map((moduleId) =>
+                      deterministicModuleLabel(moduleId, settingsNs),
+                    )
+                    .join(', ')
+                : commonNs('notAvailable')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {settingsNs('deterministicModuleTables')}
+            </span>
+            <span className="config-value mono">
+              {module.runtime?.derivedTables.join(', ') ??
+                commonNs('notAvailable')}
+            </span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">
+              {settingsNs('deterministicModuleLastBuilt')}
+            </span>
+            <span className="config-value mono">
+              {module.runtime?.lastBuiltAt
+                ? (formatDateTime(module.runtime.lastBuiltAt, language) ??
+                  module.runtime.lastBuiltAt)
+                : commonNs('notAvailable')}
+            </span>
+          </div>
+          {module.runtime?.staleReason ? (
+            <div className="config-row">
+              <span className="config-label">
+                {settingsNs('deterministicModuleStaleReason')}
+              </span>
+              <span className="config-value">{module.runtime.staleReason}</span>
+            </div>
+          ) : null}
+          {module.runtime?.notes.length ? (
+            <div className="intelligence-note-list">
+              {module.runtime.notes.map((note) => (
+                <p className="mono-support" key={`${module.state.id}-${note}`}>
+                  {note}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          <div className="settings-action-row">
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={Boolean(action)}
+              onClick={() => {
+                void onDeterministicModuleToggle(module.state.id)
+              }}
+            >
+              {module.state.enabled
+                ? t('settings.disablePlugin')
+                : t('settings.enablePlugin')}
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {reviewableEnrichmentPlugins.map((plugin) => {
+        const sourceKind =
+          plugin.runtime?.sourceKind ??
+          (plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
+            ? 'network'
+            : 'local')
+
+        return (
+          <div className="result-row result-row--active" key={plugin.state.id}>
+            <div className="result-row__header">
+              <strong>
+                {enrichmentPluginLabel(plugin.state.id, settingsNs)}
+              </strong>
+              <span className="mono">
+                {plugin.state.enabled
+                  ? t('settings.enabled')
+                  : t('settings.disabled')}
+              </span>
+            </div>
+            <p>{enrichmentPluginDescription(plugin.state.id, settingsNs)}</p>
+            <div className="config-row">
+              <span className="config-label">
+                {settingsNs('pluginBoundary')}
+              </span>
+              <span className="config-value mono">
+                {enrichmentPluginBoundaryLabel(sourceKind, settingsNs)}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">{t('settings.pluginQueue')}</span>
+              <span className="config-value mono">
+                {plugin.runtime
+                  ? settingsNs('pluginQueueCounts', {
+                      queued: plugin.runtime.queuedJobs,
+                      running: plugin.runtime.runningJobs,
+                      failed: plugin.runtime.failedJobs,
+                    })
+                  : commonNs('notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.pluginFreshness')}
+              </span>
+              <span className="config-value mono">
+                {plugin.definition?.freshnessDays
+                  ? t('settings.daysFreshness', {
+                      days: plugin.definition.freshnessDays,
+                    })
+                  : commonNs('notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {t('settings.pluginDerivedTables')}
+              </span>
+              <span className="config-value mono">
+                {plugin.definition?.derivedTables.join(', ') ??
+                  commonNs('notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {settingsNs('pluginStoredRecords')}
+              </span>
+              <span className="config-value mono">
+                {plugin.runtime?.storedRecords ?? 0}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {settingsNs('pluginLastCompleted')}
+              </span>
+              <span className="config-value mono">
+                {plugin.runtime?.lastCompletedAt
+                  ? formatDateTime(plugin.runtime.lastCompletedAt, language)
+                  : commonNs('notAvailable')}
+              </span>
+            </div>
+            <div className="config-row">
+              <span className="config-label">
+                {settingsNs('pluginLastError')}
+              </span>
+              <span className="config-value">
+                {plugin.runtime?.lastError ?? commonNs('notAvailable')}
+              </span>
+            </div>
+            <div className="settings-action-row">
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={Boolean(action)}
+                onClick={() => {
+                  void onEnrichmentPluginToggle(plugin.state.id)
+                }}
+              >
+                {plugin.state.enabled
+                  ? t('settings.disablePlugin')
+                  : t('settings.enablePlugin')}
+              </button>
+            </div>
+          </div>
+        )
+      })}
+
+      <div className="settings-result-list">
+        <div className="result-row">
+          <div className="result-row__header">
+            <strong>{settingsNs('runtimeRecentJobs')}</strong>
+          </div>
+          {intelligenceRuntime?.recentJobs.length ? (
+            intelligenceRuntime.recentJobs.map((job) => (
+              <div className="result-row" key={job.id}>
+                <div className="result-row__header">
+                  <strong>
+                    {enrichmentPluginLabel(
+                      job.pluginId ?? job.jobType,
+                      settingsNs,
+                    )}
+                  </strong>
+                  <span className="mono">
+                    {intelligenceRuntimeJobStateLabel(job.state, settingsNs)}
+                  </span>
+                </div>
+                <p>
+                  {job.title ?? job.url ?? job.jobType} ·{' '}
+                  {settingsNs('runtimeJobAttempt', { attempt: job.attempt })}
+                </p>
+                {job.lastError ? <p>{job.lastError}</p> : null}
+                <div className="settings-action-row">
+                  {job.retryable ? (
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      disabled={Boolean(action)}
+                      onClick={() => {
+                        void onRetryRuntimeJob(job.id)
+                      }}
+                    >
+                      {settingsNs('retryRuntimeJob')}
+                    </button>
+                  ) : null}
+                  {job.cancellable ? (
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      disabled={Boolean(action)}
+                      onClick={() => {
+                        void onCancelRuntimeJob(job.id)
+                      }}
+                    >
+                      {settingsNs('cancelRuntimeJob')}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p>{settingsNs('runtimeNoJobs')}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="settings-result-list">
+        {dashboardRecentRun ? (
+          <div className="result-row">
+            <div className="result-row__header">
+              <strong>{t('settings.latestGrowthSignal')}</strong>
+              <Link
+                className="btn-tiny"
+                to={`/audit?run=${dashboardRecentRun.id}`}
+              >
+                {t('settings.openAuditRun')}
+              </Link>
+            </div>
+            <p>
+              {t('settings.latestGrowthSignalBody', {
+                runId: dashboardRecentRun.id,
+                visits: dashboardRecentRun.newVisits,
+                urls: dashboardRecentRun.newUrls,
+                downloads: dashboardRecentRun.newDownloads,
+              })}
+            </p>
+          </div>
+        ) : null}
+        {rebuildQueueReport ? (
+          <div className="result-row">
+            <div className="result-row__header">
+              <strong>{t('settings.rebuildQueuedTitle')}</strong>
+              <span className="mono">#{rebuildQueueReport.jobId}</span>
+            </div>
+            <p>
+              {t('settings.rebuildQueuedBody', {
+                jobId: rebuildQueueReport.jobId,
+              })}
+            </p>
+            <div className="settings-action-row">
+              <Link className="btn-secondary" to="/jobs">
+                {t('settings.runtimeQueueTitle')}
+              </Link>
+            </div>
+          </div>
+        ) : null}
+        {clearReport ? (
+          <div className="result-row">
+            <div className="result-row__header">
+              <strong>{t('settings.clearCompletedTitle')}</strong>
+              <span className="mono">
+                {clearReport.clearedVisitDerivedFactRows +
+                  clearReport.clearedDailyRollupRows +
+                  clearReport.clearedStructuralRows +
+                  clearReport.clearedRuntimeRows}
+              </span>
+            </div>
+            <p>
+              {t('settings.clearCompletedBody', {
+                visitDerivedFacts: clearReport.clearedVisitDerivedFactRows,
+                dailyRollups: clearReport.clearedDailyRollupRows,
+                structural: clearReport.clearedStructuralRows,
+                runtime: clearReport.clearedRuntimeRows,
+              })}
+            </p>
+          </div>
+        ) : null}
+        {action ? <StatusCallout tone="info" title={action} body="" /> : null}
+      </div>
+    </>
+  )
+}

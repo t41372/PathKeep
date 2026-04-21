@@ -22,12 +22,17 @@ import type {
   AiProviderConfig,
   AiIntegrationPreview,
   AiProviderPurpose,
+  AiRequestFormat,
   AiSettings,
   ScheduleStatus,
   SecurityStatus,
   RetentionPreview,
 } from '../../lib/types'
-import type { IntelligenceLocalHostPreview } from '../../lib/core-intelligence/types'
+import type {
+  IntelligenceLocalHostPreview,
+  SearchEngineRule,
+  SearchEngineRuleInput,
+} from '../../lib/core-intelligence/types'
 
 /**
  * Creates a defensive copy of ai provider config.
@@ -245,6 +250,117 @@ export function buildRetentionSelection(
       current[bucket.id] ?? bucket.bytes > 0,
     ]),
   )
+}
+
+/**
+ * Creates the editable draft shape used by the search-engine rule editor.
+ *
+ * This keeps built-in and custom rule rows aligned with the same draft model,
+ * so the Settings route does not need to duplicate empty-state wiring and
+ * "edit existing rule" normalization inline.
+ */
+export function buildSearchEngineRuleDraft(
+  rule?: SearchEngineRule | null,
+): SearchEngineRuleInput {
+  return {
+    ruleId: rule?.ruleId ?? null,
+    engineId: rule?.engineId ?? '',
+    displayName: rule?.displayName ?? '',
+    hostPattern: rule?.hostPattern ?? '',
+    pathPrefix: rule?.pathPrefix ?? '',
+    queryParamKey: rule?.queryParamKey ?? '',
+    enabled: rule?.enabled ?? true,
+    note: rule?.note ?? '',
+    exampleUrl: rule?.exampleUrl ?? '',
+  }
+}
+
+/**
+ * Normalizes the search-engine rule draft before it crosses the backend
+ * boundary.
+ *
+ * The editor is intentionally forgiving while people type, but persistence
+ * should collapse empty strings back to null for optional fields so rebuild
+ * payloads stay stable and review output stays honest.
+ */
+export function normalizeSearchEngineRuleDraft(
+  draft: SearchEngineRuleInput,
+): SearchEngineRuleInput {
+  return {
+    ruleId: draft.ruleId?.trim() || null,
+    engineId: draft.engineId.trim(),
+    displayName: draft.displayName.trim(),
+    hostPattern: draft.hostPattern.trim(),
+    pathPrefix: draft.pathPrefix?.trim() || null,
+    queryParamKey: draft.queryParamKey.trim(),
+    enabled: draft.enabled,
+    note: draft.note?.trim() || null,
+    exampleUrl: draft.exampleUrl?.trim() || null,
+  }
+}
+
+/**
+ * Seeds a new AI provider draft with format-specific defaults.
+ *
+ * The Settings UI lets people add providers before they know every field, so
+ * the draft starts with a truthful localhost/cloud preset instead of an empty
+ * blob that would force every route slice to reinvent the same defaults.
+ */
+export function makeDefaultAiProviderDraft(
+  purpose: AiProviderPurpose,
+  format: AiRequestFormat,
+): AiProviderConfig {
+  const presets: Record<
+    AiRequestFormat,
+    { name: string; baseUrl: string; model: string; embModel: string }
+  > = {
+    ollama: {
+      name: 'Ollama',
+      baseUrl: 'http://localhost:11434',
+      model: 'llama3.2:8b',
+      embModel: 'nomic-embed-text',
+    },
+    'lm-studio': {
+      name: 'LM Studio',
+      baseUrl: 'http://localhost:1234/v1',
+      model: 'local-model',
+      embModel: 'local-embed',
+    },
+    openai: {
+      name: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      embModel: 'text-embedding-3-small',
+    },
+    anthropic: {
+      name: 'Anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-6',
+      embModel: 'voyage-3',
+    },
+    google: {
+      name: 'Google',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      model: 'gemini-2.0-flash',
+      embModel: 'text-embedding-004',
+    },
+  }
+  const preset = presets[format]
+  return {
+    id: `${format}-${purpose}-${Date.now()}`,
+    name: preset.name,
+    purpose,
+    requestFormat: format,
+    enabled: true,
+    baseUrl: preset.baseUrl,
+    apiKeySaved: false,
+    defaultModel: purpose === 'llm' ? preset.model : preset.embModel,
+    modelCatalog: [],
+    temperature: purpose === 'llm' ? 0.7 : null,
+    maxTokens: purpose === 'llm' ? 1200 : null,
+    dimensions: purpose === 'embedding' ? 1536 : null,
+    notes: null,
+  }
 }
 
 /**
