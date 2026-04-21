@@ -132,16 +132,23 @@ reference/
   PathKeep — Desktop UI Design/   設計師 prototype
 ```
 
+**前端架構紅線（Frontend Architecture Guardrails）**：
+
+- 組件只負責渲染和局部交互；業務邏輯、數據轉換、副作用管理不允許洩漏進 UI 層
+- 禁止「上帝組件」（God Component）：單個組件承擔超過一個清晰職責時，必須拆分
+- 大數據量渲染必須使用虛擬化（virtualization）；禁止在列表/表格組件中全量渲染無上限的數據集
+- Props drilling 超過兩層時必須引入 context 或狀態管理，不允許繼續透傳
+- 新的共享狀態不允許塞進 `lib/app-context.tsx`（已標記為 reference only）；需要新增狀態管理時先在 `BACKLOG.md` 提出設計方案
+
 ---
 
 ## 核心原則
 
 1. **Trust & Transparency** — 所有操作走 PME 流程（Preview → Manual → Execute），沒有黑盒執行
 2. **Data Sovereignty** — 數據不上傳雲端，AI 也用本地或用戶自配的 provider
-3. **Longevity** — 設計壽命 20 年，選 SQLite/plaintext，不鎖死用戶
+3. **Performance Is A First-Class Constraint** — 目標機器為 4 核 3GHz CPU / 8GB RAM，需流暢支撐 1440 萬條+ 歷史記錄（中度用戶 60 年積累），並支持一次性批量導入同等量級的數據。任何代碼改動都需通過心理測試：_「1440 萬條數據時，這段邏輯會怎樣？」_ 不能製造不必要的全量加載、主線程阻塞、或無上限的內存增長。
 4. **Intelligence Is Optional** — 沒有 LLM 或 Embedding provider 時 PathKeep 仍完整可用，AI 是增值層
-5. **Recoverability** — 所有操作可回滾，用戶不因我們的 bug 永久丟失數據
-6. **Internationalization Is A Shipping Contract** — user-visible copy、honesty note、loading label、preview fixture text 都不是最後才補的 polish，而是開發當下就要交付的產品契約
+5. **Internationalization Is A Shipping Contract** — user-visible copy、honesty note、loading label、preview fixture text 都不是最後才補的 polish，而是開發當下就要交付的產品契約
 
 ---
 
@@ -157,6 +164,18 @@ reference/
 - **注釋**：代碼注釋即開發者文檔，重要技術決策、trade-off 在代碼處寫注釋
 - **文檔更新**：改功能行為 → 更新 `docs/features/`；新技術決策 → 更新 `docs/architecture/`
 - **提交前**：`bun run check` + `bun run build` 全過才提交
+- **大文件重構的兩階段原則**：任何超過 1000 行的文件，**禁止直接動手重構**。必須先完成審查階段（輸出架構地圖、職責清單、拆分方案），得到確認後才能進入執行階段。審查階段不改一行代碼。這條規則同樣適用於 AI agent 主動發現的大文件，不只是被明確指派的重構任務。
+
+- **文件行數硬限制**：
+  - 單文件超過 **600 行**：必須在當前 work block 的收工步驟裡，在 `BACKLOG.md` 新增一條拆分任務
+  - 單文件超過 **1000 行**：當前 work block **不允許**再往該文件新增業務邏輯；只允許 bug fix 或臨時性的最小改動，並在 `BACKLOG.md` 標記為高優先級
+  - 新創建的文件不得在初始版本就超過 600 行；超過說明職責邊界沒有想清楚，先拆模塊再寫代碼
+
+- **Doc Comments 標準**：所有新建或整段重寫的模塊，必須在交付時附帶完整 doc comments，不允許事後補充：
+  - **文件頂部**：一句話職責說明 + `## 職責`（列舉） + `## 不負責`（明確排除，防止邊界蔓延） + `## 依賴關係` + `## 性能備注`（如有大數據量注意事項）
+  - **所有 exported function / hook / class / type**：說明「為什麼需要這個」而不是「它做了什麼」（後者代碼已經說了）；標注參數語義、返回值語義、邊界條件；性能敏感路徑必須標注
+  - 注釋說人話，不寫 `This function does X` 式廢話
+  - Design document 的決策理由融入 doc comments，我們不單獨維護文檔站
 
 ---
 
