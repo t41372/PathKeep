@@ -35,10 +35,6 @@ import {
 } from '../../lib/analytics'
 import { backend } from '../../lib/backend-client'
 import {
-  formatBuildRevisionLabel,
-  formatBuildVersionTitle,
-} from '../../lib/build-info'
-import {
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
   enrichmentPluginRegistry,
   enrichmentPluginState,
@@ -55,7 +51,7 @@ import {
   upsertDeterministicModuleState,
   upsertEnrichmentPluginPreference,
 } from '../../lib/intelligence-runtime'
-import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
+import { useI18n } from '../../lib/i18n'
 import { aiStatusMeta } from '../../lib/intelligence'
 import { formatBytes, formatDateTime } from '../../lib/format'
 import {
@@ -99,7 +95,9 @@ import type {
   SearchEngineRule,
   SearchEngineRuleInput,
 } from '../../lib/core-intelligence/types'
+import { AnalyticsSection } from './analytics-section'
 import { SettingsExternalOutputsPanel } from './external-outputs-panel'
+import { GeneralSection } from './general-section'
 import {
   appendAiProviderDraft,
   buildRetentionSelection,
@@ -112,6 +110,12 @@ import {
   serializeAiSettings,
   type SupportState,
 } from './helpers'
+import {
+  createSettingsSectionNavItems,
+  getSettingsSectionNavItem,
+  type SettingsSectionKey,
+} from './section-nav-items'
+import { SettingsSectionNav } from './section-nav'
 
 function buildSearchEngineRuleDraft(
   rule?: SearchEngineRule | null,
@@ -167,8 +171,6 @@ export function SettingsPage() {
     snapshot,
   } = useShellData()
   const { language, setLanguagePreference, t, ns } = useI18n()
-  const buildRevision = formatBuildRevisionLabel(buildInfo)
-  const buildTitle = formatBuildVersionTitle(buildInfo)
   const [saving, setSaving] = useState(false)
   const [remoteTab, setRemoteTab] = useState<
     'preview' | 'manual' | 'execute' | 'verify'
@@ -671,6 +673,21 @@ export function SettingsPage() {
       key,
       onFeedback: setAiIntegrationCopyFeedback,
     })
+  }
+  async function handleSupportPathCopy(key: string, value: string) {
+    await copyReviewValue(value, {
+      key,
+      onFeedback: setSupportCopyFeedback,
+    })
+  }
+  function handleSupportPathOpen(path: string) {
+    void backend.openPathInFileManager(path)
+  }
+  function handleAnalyticsEnabledChange(enabled: boolean) {
+    setAnalyticsDraft((current) => ({
+      enabled,
+      consentGrantedAt: current?.consentGrantedAt ?? null,
+    }))
   }
   const appLockCanEnable =
     currentAppLockSettings.passcodeConfigured ||
@@ -1688,301 +1705,50 @@ export function SettingsPage() {
   const noAiProviders =
     currentAiSettings.llmProviders.length === 0 &&
     currentAiSettings.embeddingProviders.length === 0
+  const settingsSectionNavItems = createSettingsSectionNavItems(t)
+  function settingsSection(key: SettingsSectionKey) {
+    return getSettingsSectionNavItem(settingsSectionNavItems, key)
+  }
 
   return (
     <section className="page-shell settings-page" data-testid="settings-page">
+      <SettingsSectionNav
+        items={settingsSectionNavItems}
+        label={t('navigation.settingsLabel')}
+      />
+
       <div className="settings-group">
         <div className="settings-group__label">{t('settings.groupCore')}</div>
-
-        <div className="panel" id="settings-general">
-          <div className="panel-header">
-            <span className="panel-title">
-              <Glyph icon="settings" filled />{' '}
-              <span>{t('settings.general')}</span>
-            </span>
-          </div>
-          <div className="panel-body panel-body--compact">
-            <p className="dashboard-next-action">
-              {t('settings.generalDescription')}
-            </p>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.interfaceLanguage')}
-              </span>
-              <select
-                aria-label={t('settings.interfaceLanguage')}
-                className="settings-select"
-                disabled={saving}
-                value={snapshot.config.preferredLanguage}
-                onChange={(event) => {
-                  void handleLanguageChange(event.target.value)
-                }}
-              >
-                <option value="system">{t('common.followSystem')}</option>
-                {supportedLanguages.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {languageLabel(entry, language)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.currentLanguage')}
-              </span>
-              <span className="config-value">
-                {languageLabel(language, language)}
-              </span>
-            </div>
-            <ReviewPathActionRow
-              copyFeedback={supportCopyFeedback}
-              copyKey="settings:app-root"
-              copyLabel={t('common.copyAction')}
-              errorMessage={t('audit.copyFailed')}
-              label={t('settings.dataDirectory')}
-              onCopy={(key, value) => {
-                void copyReviewValue(value, {
-                  key,
-                  onFeedback: setSupportCopyFeedback,
-                })
-              }}
-              onOpenPath={(path) => {
-                void backend.openPathInFileManager(path)
-              }}
-              openPathLabel={t('settings.openDirectory')}
-              successMessage={t('common.copiedNotice')}
-              value={snapshot.directories.appRoot}
-            />
-            <ReviewPathActionRow
-              copyFeedback={supportCopyFeedback}
-              copyKey="settings:archive-database"
-              copyLabel={t('common.copyAction')}
-              errorMessage={t('audit.copyFailed')}
-              label={t('settings.archiveDatabase')}
-              onCopy={(key, value) => {
-                void copyReviewValue(value, {
-                  key,
-                  onFeedback: setSupportCopyFeedback,
-                })
-              }}
-              onOpenPath={(path) => {
-                void backend.openPathInFileManager(path)
-              }}
-              openPathLabel={t('settings.openDirectory')}
-              successMessage={t('common.copiedNotice')}
-              value={snapshot.directories.archiveDatabasePath}
-            />
-            <ReviewPathActionRow
-              copyFeedback={supportCopyFeedback}
-              copyKey="settings:audit-repo"
-              copyLabel={t('common.copyAction')}
-              errorMessage={t('audit.copyFailed')}
-              label={t('settings.auditRepository')}
-              onCopy={(key, value) => {
-                void copyReviewValue(value, {
-                  key,
-                  onFeedback: setSupportCopyFeedback,
-                })
-              }}
-              onOpenPath={(path) => {
-                void backend.openPathInFileManager(path)
-              }}
-              openPathLabel={t('settings.openDirectory')}
-              successMessage={t('common.copiedNotice')}
-              value={snapshot.directories.auditRepoPath}
-            />
-            <ReviewPathActionRow
-              copyFeedback={supportCopyFeedback}
-              copyKey="settings:logs-dir"
-              copyLabel={t('common.copyAction')}
-              errorMessage={t('audit.copyFailed')}
-              label={t('settings.logsDirectory')}
-              onCopy={(key, value) => {
-                void copyReviewValue(value, {
-                  key,
-                  onFeedback: setSupportCopyFeedback,
-                })
-              }}
-              onOpenPath={(path) => {
-                void backend.openPathInFileManager(path)
-              }}
-              openPathLabel={t('settings.openDirectory')}
-              successMessage={t('common.copiedNotice')}
-              value={snapshot.directories.logsDir}
-            />
-            <ReviewPathActionRow
-              copyFeedback={supportCopyFeedback}
-              copyKey="settings:crash-reports"
-              copyLabel={t('common.copyAction')}
-              errorMessage={t('audit.copyFailed')}
-              label={t('settings.crashReports')}
-              onCopy={(key, value) => {
-                void copyReviewValue(value, {
-                  key,
-                  onFeedback: setSupportCopyFeedback,
-                })
-              }}
-              onOpenPath={(path) => {
-                void backend.openPathInFileManager(path)
-              }}
-              openPathLabel={t('settings.openDirectory')}
-              successMessage={t('common.copiedNotice')}
-              value={snapshot.directories.crashReportsDir}
-            />
-            {snapshot.runtimeDiagnostics.latestCrashReport ? (
-              <StatusCallout
-                tone="warning"
-                title={t('settings.latestCrashTitle')}
-                body={t('settings.latestCrashBody', {
-                  source:
-                    snapshot.runtimeDiagnostics.latestCrashReport.source ===
-                    'rust-panic'
-                      ? t('settings.latestCrashSourceRust')
-                      : t('settings.latestCrashSourceFrontend'),
-                  time:
-                    formatDateTime(
-                      snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
-                      language,
-                    ) ??
-                    snapshot.runtimeDiagnostics.latestCrashReport.recordedAt,
-                  message:
-                    snapshot.runtimeDiagnostics.latestCrashReport.message,
-                })}
-                actions={
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void backend.openPathInFileManager(
-                        snapshot.runtimeDiagnostics.latestCrashReport?.path ??
-                          snapshot.directories.crashReportsDir,
-                      )
-                    }}
-                  >
-                    {t('settings.openCrashReport')}
-                  </button>
-                }
-              />
-            ) : (
-              <StatusCallout
-                tone="info"
-                title={t('settings.latestCrashClearTitle')}
-                body={t('settings.latestCrashClearBody')}
-              />
-            )}
-            <div className="config-row">
-              <span className="config-label">{t('settings.mcpServer')}</span>
-              <span className="config-value">
-                {snapshot.config.ai.mcpEnabled
-                  ? t('settings.enabled')
-                  : t('settings.disabled')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('settings.version')}</span>
-              <span className="config-value mono">
-                {buildInfo?.version ?? t('common.notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('settings.gitCommit')}</span>
-              <span
-                className="config-value mono"
-                title={buildTitle ?? undefined}
-              >
-                {buildRevision ?? t('common.notAvailable')}
-              </span>
-            </div>
-          </div>
-        </div>
+        <GeneralSection
+          buildInfo={buildInfo}
+          navItem={settingsSection('general')}
+          onCopyPath={handleSupportPathCopy}
+          onLanguageChange={handleLanguageChange}
+          onOpenPath={handleSupportPathOpen}
+          saving={saving}
+          snapshot={snapshot}
+          supportCopyFeedback={supportCopyFeedback}
+        />
       </div>
 
       <div className="settings-group">
         <div className="settings-group__label">
           {t('settings.groupDataUpdates')}
         </div>
+        <AnalyticsSection
+          analyticsAction={analyticsAction}
+          analyticsConfigDirty={analyticsConfigDirty}
+          analyticsEndpointConfigured={analyticsEndpointConfigured}
+          currentAnalyticsSettings={currentAnalyticsSettings}
+          navItem={settingsSection('analytics')}
+          onAnalyticsEnabledChange={handleAnalyticsEnabledChange}
+          onSaveAnalyticsConsent={handleSaveAnalyticsConsent}
+        />
 
-        <div className="panel panel--optional" id="settings-analytics">
-          <div className="panel-header">
-            <span className="panel-title">
-              <Glyph icon="analytics" filled />{' '}
-              <span>{t('settings.analyticsTitle')}</span>
-            </span>
-            <span className="panel-badge">{t('settings.optional')}</span>
-          </div>
-          <div className="panel-body settings-remote-grid">
-            <StatusCallout
-              tone={currentAnalyticsSettings.enabled ? 'warning' : 'info'}
-              title={t('settings.analyticsBoundaryTitle')}
-              body={t('settings.analyticsBoundaryBody')}
-            />
-
-            {!analyticsEndpointConfigured ? (
-              <StatusCallout
-                tone="warning"
-                title={t('settings.analyticsEndpointMissingTitle')}
-                body={t('settings.analyticsEndpointMissingBody')}
-              />
-            ) : null}
-
-            <div className="settings-field-grid">
-              <label className="checkbox-row">
-                <input
-                  aria-label={t('settings.analyticsEnabled')}
-                  checked={currentAnalyticsSettings.enabled}
-                  type="checkbox"
-                  onChange={(event) => {
-                    setAnalyticsDraft((current) => ({
-                      enabled: event.target.checked,
-                      consentGrantedAt: current?.consentGrantedAt ?? null,
-                    }))
-                  }}
-                />
-                <span>{t('settings.analyticsEnabled')}</span>
-              </label>
-
-              <div className="config-row">
-                <span className="config-label">
-                  {t('settings.analyticsEndpoint')}
-                </span>
-                <span className="config-value mono">
-                  {analyticsEndpointConfigured
-                    ? import.meta.env.VITE_ANALYTICS_ENDPOINT
-                    : t('common.notAvailable')}
-                </span>
-              </div>
-
-              <div className="config-row">
-                <span className="config-label">
-                  {t('settings.analyticsConsentGrantedAt')}
-                </span>
-                <span className="config-value mono">
-                  {currentAnalyticsSettings.consentGrantedAt ??
-                    t('common.notAvailable')}
-                </span>
-              </div>
-
-              <p className="dashboard-next-action">
-                {t('settings.analyticsStatusBody')}
-              </p>
-
-              <div className="settings-action-row">
-                <button
-                  className="btn-primary"
-                  type="button"
-                  disabled={Boolean(analyticsAction) || !analyticsConfigDirty}
-                  onClick={() => {
-                    void handleSaveAnalyticsConsent()
-                  }}
-                >
-                  {analyticsAction ?? t('settings.analyticsSave')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel panel--critical" id="settings-updater">
+        <div
+          className="panel panel--critical"
+          id={settingsSection('updater').id}
+        >
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="system_update" filled />{' '}
@@ -2135,7 +1901,10 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="panel panel--critical" id="settings-retention">
+        <div
+          className="panel panel--critical"
+          id={settingsSection('retention').id}
+        >
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="delete_sweep" filled />{' '}
@@ -2302,7 +2071,10 @@ export function SettingsPage() {
           {t('settings.groupSecurityAccess')}
         </div>
 
-        <div className="panel panel--security" id="settings-applock">
+        <div
+          className="panel panel--security"
+          id={settingsSection('applock').id}
+        >
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="shield" filled />{' '}
@@ -2546,7 +2318,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="panel" id="settings-profiles">
+        <div className="panel" id={settingsSection('profiles').id}>
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="language" filled />{' '}
@@ -2604,7 +2376,7 @@ export function SettingsPage() {
           {t('settings.groupIntelligence')}
         </div>
 
-        <div className="panel panel--optional" id="settings-ai">
+        <div className="panel panel--optional" id={settingsSection('ai').id}>
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="smart_toy" filled />{' '}
@@ -2906,7 +2678,10 @@ export function SettingsPage() {
           unlocked={snapshot.archiveStatus.unlocked}
         />
 
-        <div className="panel panel--optional" id="settings-derived">
+        <div
+          className="panel panel--optional"
+          id={settingsSection('derived').id}
+        >
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="memory" filled />{' '}
@@ -3647,7 +3422,10 @@ export function SettingsPage() {
           {t('settings.groupBackupSync')}
         </div>
 
-        <div className="panel panel--optional" id="settings-remote">
+        <div
+          className="panel panel--optional"
+          id={settingsSection('remote').id}
+        >
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="cloud_upload" filled />{' '}
@@ -4110,7 +3888,7 @@ export function SettingsPage() {
           {t('settings.groupPlatform')}
         </div>
 
-        <div className="panel" id="settings-platform">
+        <div className="panel" id={settingsSection('platform').id}>
           <div className="panel-header">
             <span className="panel-title">
               <Glyph icon="build" filled />{' '}

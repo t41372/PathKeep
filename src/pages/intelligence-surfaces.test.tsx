@@ -27,6 +27,7 @@ import {
   ShellDataContext,
   type ShellDataContextValue,
 } from '../app/shell-data-context'
+import { CONFIGURED_ANALYTICS_ENDPOINT } from '../lib/analytics'
 import { backend } from '../lib/backend-client'
 import { backendTestHarness } from '../lib/backend'
 import { I18nContext, type I18nContextValue } from '../lib/i18n/context'
@@ -1502,6 +1503,166 @@ describe('intelligence surfaces', () => {
     expect(screen.getByText(settingsT('groupPlatform'))).toBeVisible()
     expect(screen.queryByText(/^CORE$/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^DATA & UPDATES$/)).not.toBeInTheDocument()
+  })
+
+  test('renders settings nav anchors and keeps extracted general section actions wired to the route owner', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const commonT = createNamespaceTranslator('en', 'common')
+    const navigationT = createNamespaceTranslator('en', 'navigation')
+    const settingsT = createNamespaceTranslator('en', 'settings')
+
+    snapshot.runtimeDiagnostics.latestCrashReport = {
+      source: 'frontend',
+      recordedAt: '2026-04-18T10:15:00Z',
+      fatal: false,
+      message: 'Renderer stalled while collecting logs.',
+      path: '/tmp/pathkeep/crash/frontend.log',
+    }
+
+    const openPathSpy = vi
+      .spyOn(backend, 'openPathInFileManager')
+      .mockResolvedValue('/tmp/pathkeep/crash/frontend.log')
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    const shellValue = createShellValue(snapshot, dashboard)
+    shellValue.buildInfo = {
+      productName: 'PathKeep',
+      version: '0.9.0',
+      gitCommitShort: 'abc1234',
+      gitCommitFull: 'abc123456789',
+      gitDirty: false,
+    }
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      shellValue,
+      snapshot,
+    })
+
+    const nav = await screen.findByRole('navigation', {
+      name: navigationT('settingsLabel'),
+    })
+    expect(
+      within(nav).getByRole('link', { name: settingsT('general') }),
+    ).toHaveAttribute('href', '#settings-general')
+    expect(
+      within(nav).getByRole('link', { name: settingsT('analyticsTitle') }),
+    ).toHaveAttribute('href', '#settings-analytics')
+    expect(
+      within(nav).getByRole('link', {
+        name: settingsT('platformTroubleshooting'),
+      }),
+    ).toHaveAttribute('href', '#settings-platform')
+
+    const generalPanel = document.getElementById('settings-general')
+    if (!(generalPanel instanceof HTMLElement)) {
+      throw new Error('expected settings general panel')
+    }
+
+    expect(
+      within(generalPanel).getByRole('combobox', {
+        name: settingsT('interfaceLanguage'),
+      }),
+    ).toHaveValue(snapshot.config.preferredLanguage)
+    expect(within(generalPanel).getByText('0.9.0')).toBeVisible()
+    expect(within(generalPanel).getByText('abc1234')).toBeVisible()
+    expect(
+      within(generalPanel).getByRole('button', {
+        name: settingsT('openCrashReport'),
+      }),
+    ).toBeVisible()
+
+    await user.click(
+      within(generalPanel).getAllByRole('button', {
+        name: commonT('copyAction'),
+      })[0],
+    )
+    expect(
+      await within(generalPanel).findByText(commonT('copiedNotice')),
+    ).toBeVisible()
+
+    await user.click(
+      within(generalPanel).getByRole('button', {
+        name: settingsT('openCrashReport'),
+      }),
+    )
+    expect(openPathSpy).toHaveBeenLastCalledWith(
+      '/tmp/pathkeep/crash/frontend.log',
+    )
+  })
+
+  test('keeps extracted analytics section dirty-state and save behavior truthful', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    const shellValue = createShellValue(snapshot, dashboard)
+    shellValue.saveConfig = vi.fn().mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        analytics: {
+          enabled: true,
+          consentGrantedAt: '2026-04-20T18:20:00.000Z',
+        },
+      },
+    })
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      shellValue,
+      snapshot,
+    })
+
+    const analyticsPanel = document.getElementById('settings-analytics')
+    if (!(analyticsPanel instanceof HTMLElement)) {
+      throw new Error('expected settings analytics panel')
+    }
+
+    const saveButton = within(analyticsPanel).getByRole('button', {
+      name: settingsT('analyticsSave'),
+    })
+    expect(saveButton).toBeDisabled()
+    if (CONFIGURED_ANALYTICS_ENDPOINT) {
+      expect(
+        within(analyticsPanel).queryByText(
+          settingsT('analyticsEndpointMissingTitle'),
+        ),
+      ).not.toBeInTheDocument()
+    } else {
+      expect(
+        within(analyticsPanel).getByText(
+          settingsT('analyticsEndpointMissingTitle'),
+        ),
+      ).toBeVisible()
+    }
+
+    await user.click(
+      within(analyticsPanel).getByRole('checkbox', {
+        name: settingsT('analyticsEnabled'),
+      }),
+    )
+    expect(saveButton).toBeEnabled()
+
+    await user.click(saveButton)
+    await waitFor(() => expect(shellValue.saveConfig).toHaveBeenCalledTimes(1))
+    expect(shellValue.saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analytics: expect.objectContaining({
+          enabled: true,
+          consentGrantedAt: expect.any(String),
+        }),
+      }),
+    )
   })
 
   test('renders settings enrichment runtime review and syncs plugin toggles', async () => {

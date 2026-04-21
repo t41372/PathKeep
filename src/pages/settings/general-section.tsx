@@ -16,7 +16,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { backend } from '../../lib/backend-client'
+import { Glyph } from '../../components/ui'
 import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
@@ -24,37 +24,54 @@ import {
 import { formatDateTime } from '../../lib/format'
 import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
 import type { AppBuildInfo, AppSnapshot } from '../../lib/types'
+import type { SettingsSectionNavItem } from './section-nav-items'
 
+/**
+ * Props for the extracted general Settings section.
+ *
+ * The route still owns mutations and side effects; this component only renders
+ * the panel and forwards section-local interactions back to the route.
+ */
 export interface GeneralSectionProps {
   buildInfo: AppBuildInfo | null
+  navItem: SettingsSectionNavItem
+  onCopyPath: (key: string, value: string) => Promise<void>
   saving: boolean
   snapshot: AppSnapshot
   supportCopyFeedback: ReviewCopyFeedback | null
-  onCopyReviewValue: (
-    value: string,
-    opts: { key: string; onFeedback: (fb: ReviewCopyFeedback | null) => void },
-  ) => Promise<void>
   onLanguageChange: (language: string) => Promise<void>
+  onOpenPath: (path: string) => void
 }
 
+/**
+ * Renders the general Settings panel from route-owned state and callbacks.
+ *
+ * This keeps diagnostics rows, language controls, and build metadata in a
+ * dedicated render module while the route retains the actual mutation logic.
+ */
 export function GeneralSection({
   buildInfo,
+  navItem,
+  onCopyPath,
   saving,
   snapshot,
   supportCopyFeedback,
-  onCopyReviewValue,
   onLanguageChange,
+  onOpenPath,
 }: GeneralSectionProps) {
   const { language, t } = useI18n()
   const buildRevision = formatBuildRevisionLabel(buildInfo)
   const buildTitle = formatBuildVersionTitle(buildInfo)
 
   return (
-    <div className="panel" id="settings-general">
+    <div className="panel" id={navItem.id}>
       <div className="panel-header">
-        <span className="panel-title">{t('settings.general')}</span>
+        <span className="panel-title">
+          <Glyph icon={navItem.icon} filled />
+          <span>{navItem.label}</span>
+        </span>
       </div>
-      <div className="panel-body">
+      <div className="panel-body panel-body--compact">
         <p className="dashboard-next-action">
           {t('settings.generalDescription')}
         </p>
@@ -92,14 +109,9 @@ export function GeneralSection({
           errorMessage={t('audit.copyFailed')}
           label={t('settings.dataDirectory')}
           onCopy={(key, value) => {
-            void onCopyReviewValue(value, {
-              key,
-              onFeedback: () => {},
-            })
+            void onCopyPath(key, value)
           }}
-          onOpenPath={(path) => {
-            void backend.openPathInFileManager(path)
-          }}
+          onOpenPath={onOpenPath}
           openPathLabel={t('settings.openDirectory')}
           successMessage={t('common.copiedNotice')}
           value={snapshot.directories.appRoot}
@@ -111,14 +123,9 @@ export function GeneralSection({
           errorMessage={t('audit.copyFailed')}
           label={t('settings.archiveDatabase')}
           onCopy={(key, value) => {
-            void onCopyReviewValue(value, {
-              key,
-              onFeedback: () => {},
-            })
+            void onCopyPath(key, value)
           }}
-          onOpenPath={(path) => {
-            void backend.openPathInFileManager(path)
-          }}
+          onOpenPath={onOpenPath}
           openPathLabel={t('settings.openDirectory')}
           successMessage={t('common.copiedNotice')}
           value={snapshot.directories.archiveDatabasePath}
@@ -130,14 +137,9 @@ export function GeneralSection({
           errorMessage={t('audit.copyFailed')}
           label={t('settings.auditRepository')}
           onCopy={(key, value) => {
-            void onCopyReviewValue(value, {
-              key,
-              onFeedback: () => {},
-            })
+            void onCopyPath(key, value)
           }}
-          onOpenPath={(path) => {
-            void backend.openPathInFileManager(path)
-          }}
+          onOpenPath={onOpenPath}
           openPathLabel={t('settings.openDirectory')}
           successMessage={t('common.copiedNotice')}
           value={snapshot.directories.auditRepoPath}
@@ -149,14 +151,9 @@ export function GeneralSection({
           errorMessage={t('audit.copyFailed')}
           label={t('settings.logsDirectory')}
           onCopy={(key, value) => {
-            void onCopyReviewValue(value, {
-              key,
-              onFeedback: () => {},
-            })
+            void onCopyPath(key, value)
           }}
-          onOpenPath={(path) => {
-            void backend.openPathInFileManager(path)
-          }}
+          onOpenPath={onOpenPath}
           openPathLabel={t('settings.openDirectory')}
           successMessage={t('common.copiedNotice')}
           value={snapshot.directories.logsDir}
@@ -168,14 +165,9 @@ export function GeneralSection({
           errorMessage={t('audit.copyFailed')}
           label={t('settings.crashReports')}
           onCopy={(key, value) => {
-            void onCopyReviewValue(value, {
-              key,
-              onFeedback: () => {},
-            })
+            void onCopyPath(key, value)
           }}
-          onOpenPath={(path) => {
-            void backend.openPathInFileManager(path)
-          }}
+          onOpenPath={onOpenPath}
           openPathLabel={t('settings.openDirectory')}
           successMessage={t('common.copiedNotice')}
           value={snapshot.directories.crashReportsDir}
@@ -202,7 +194,7 @@ export function GeneralSection({
                 className="btn-secondary"
                 type="button"
                 onClick={() => {
-                  void backend.openPathInFileManager(
+                  onOpenPath(
                     snapshot.runtimeDiagnostics.latestCrashReport?.path ??
                       snapshot.directories.crashReportsDir,
                   )

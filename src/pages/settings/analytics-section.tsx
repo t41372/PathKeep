@@ -12,34 +12,51 @@
  */
 
 import { StatusCallout } from '../../components/primitives/status-callout'
+import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
 import type { AnalyticsConfig } from '../../lib/types'
+import type { SettingsSectionNavItem } from './section-nav-items'
 
+/**
+ * Props for the extracted analytics Settings section.
+ *
+ * The route keeps the draft state and save behavior, while this component
+ * renders the consent surface from the current route-owned snapshot.
+ */
 export interface AnalyticsSectionProps {
   analyticsAction: string | null
   analyticsConfigDirty: boolean
   analyticsEndpointConfigured: boolean
   currentAnalyticsSettings: AnalyticsConfig
-  onAnalyticsDraftChange: (
-    updater: (current: AnalyticsConfig) => AnalyticsConfig,
-  ) => void
+  navItem: SettingsSectionNavItem
+  onAnalyticsEnabledChange: (enabled: boolean) => void
   onSaveAnalyticsConsent: () => Promise<void>
 }
 
+/**
+ * Renders the analytics consent panel from route-owned draft state.
+ *
+ * Keeping this surface extracted makes the Settings route smaller without
+ * changing the underlying config contract or save flow.
+ */
 export function AnalyticsSection({
   analyticsAction,
   analyticsConfigDirty,
   analyticsEndpointConfigured,
   currentAnalyticsSettings,
-  onAnalyticsDraftChange,
+  navItem,
+  onAnalyticsEnabledChange,
   onSaveAnalyticsConsent,
 }: AnalyticsSectionProps) {
   const { t } = useI18n()
 
   return (
-    <div className="panel" id="settings-analytics">
+    <div className="panel panel--optional" id={navItem.id}>
       <div className="panel-header">
-        <span className="panel-title">{t('settings.analyticsTitle')}</span>
+        <span className="panel-title">
+          <Glyph icon={navItem.icon} filled />
+          <span>{navItem.label}</span>
+        </span>
         <span className="panel-badge">{t('settings.optional')}</span>
       </div>
       <div className="panel-body settings-remote-grid">
@@ -64,10 +81,7 @@ export function AnalyticsSection({
               checked={currentAnalyticsSettings.enabled}
               type="checkbox"
               onChange={(event) => {
-                onAnalyticsDraftChange((current) => ({
-                  enabled: event.target.checked,
-                  consentGrantedAt: current?.consentGrantedAt ?? null,
-                }))
+                onAnalyticsEnabledChange(event.target.checked)
               }}
             />
             <span>{t('settings.analyticsEnabled')}</span>
