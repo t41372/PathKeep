@@ -18,7 +18,6 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import {
   copyReviewValue,
-  ReviewPathActionRow,
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -27,12 +26,6 @@ import { backend } from '../../lib/backend-client'
 import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
-import {
-  healthCheckStatusKey,
-  healthCheckStatusTone,
-  importBatchStatusKey,
-  importBatchStatusTone,
-} from '../../lib/trust-review'
 import type {
   BrowserProfile,
   HealthReport,
@@ -41,46 +34,13 @@ import type {
   ImportProgressEvent,
   TakeoutInspection,
 } from '../../lib/types'
-import { OperationWorkflow, PreviewEntryList } from '../../components/ui'
-import { BusyOverlay } from '../../components/primitives/busy-overlay'
-
-/**
- * Defines the type-level contract for import method.
- *
- * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-type ImportMethod = 'takeout' | 'browser'
-/**
- * Defines the type-level contract for wizard step.
- *
- * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
-
-function localizedImportProgressDetail(
-  progress: ImportProgressEvent,
-  t: (key: string, vars?: Record<string, string | number>) => string,
-  language: string,
-) {
-  switch (progress.phase) {
-    case 'prepare':
-      return t('import.importProgressPrepareDetail', {
-        files: progress.total.toLocaleString(language),
-      })
-    case 'import-file':
-      return t('import.importProgressImportDetail', {
-        current: progress.current.toLocaleString(language),
-        total: progress.total.toLocaleString(language),
-        source: progress.sourcePath ?? '',
-      })
-    case 'finalize':
-      return t('import.importProgressFinalizeDetail')
-    case 'complete':
-      return t('import.importProgressCompleteDetail')
-    default:
-      return progress.detail
-  }
-}
+import { ImportReviewPanels } from './review-panels'
+import {
+  type ImportMethod,
+  type ImportWizardStepDefinition,
+  type WizardStep,
+} from './shared'
+import { ImportWorkflowPanel } from './workflow-panel'
 
 /**
  * Renders the import route.
@@ -116,7 +76,7 @@ export function ImportPage() {
   const [supportCopyFeedback, setSupportCopyFeedback] =
     useState<ReviewCopyFeedback | null>(null)
 
-  const wizardSteps: { key: WizardStep; label: string }[] = [
+  const wizardSteps: ImportWizardStepDefinition[] = [
     { key: 'select', label: t('import.stepUpload') },
     { key: 'scan', label: t('import.stepScan') },
     { key: 'preview', label: t('import.stepPreview') },
@@ -560,6 +520,35 @@ export function ImportPage() {
     }
   }
 
+  /**
+   * Copies one review-path value through the shared review grammar so follow-through
+   * surfaces keep the same feedback behavior as the rest of the app.
+   */
+  async function handleSupportPathCopy(key: string, value: string) {
+    await copyReviewValue(value, {
+      key,
+      onFeedback: setSupportCopyFeedback,
+    })
+  }
+
+  /**
+   * Opens a reviewed support path through the host file manager.
+   */
+  function handleSupportPathOpen(path: string) {
+    void backend.openPathInFileManager(path)
+  }
+
+  /**
+   * Resets the import wizard after one completed run without touching the
+   * route-level batch review state.
+   */
+  function handleImportAnother() {
+    setStep('select')
+    setInspection(null)
+    setImportResult(null)
+    setSourcePath('')
+  }
+
   if (!snapshot?.config.initialized) {
     return (
       <section className="page-shell">
@@ -585,850 +574,55 @@ export function ImportPage() {
         body={t('import.trustBody')}
       />
 
-      <div className="panel">
-        <div className="panel-header panel-header--toggle">
-          <span className="panel-title">{t('import.workflowLabel')}</span>
-          <button
-            aria-expanded={workflowExpanded}
-            className="btn-ghost"
-            type="button"
-            onClick={() => setWorkflowExpanded((current) => !current)}
-          >
-            {workflowExpanded
-              ? t('import.hideWorkflow')
-              : t('import.showWorkflow')}
-          </button>
-        </div>
-        {workflowExpanded ? (
-          <div className="panel-body">
-            <OperationWorkflow
-              actionLabel={t('import.workflowLabel')}
-              labels={{
-                why: t('common.whyThisStepMatters'),
-                files: t('common.filesLabel'),
-                commands: t('common.commandsLabel'),
-                checklist: t('common.checklistLabel'),
-                copy: t('common.copyAction'),
-                current: t('common.current'),
-                complete: t('common.complete'),
-                pending: t('common.pending'),
-                command: (index) => t('common.commandStepLabel', { index }),
-              }}
-              onCopy={async (value) => {
-                await copyReviewValue(value)
-              }}
-              steps={workflowSteps}
-            />
-          </div>
-        ) : (
-          <div className="panel-body panel-body--compact">
-            <p className="dashboard-next-action">
-              {t('import.workflowCollapsedHint')}
-            </p>
-          </div>
-        )}
-      </div>
+      <ImportWorkflowPanel
+        detectedBrowserProfiles={detectedBrowserProfiles}
+        importing={importing}
+        importProgress={importProgress}
+        importResult={importResult}
+        inspection={inspection}
+        language={language}
+        manualPathExpanded={manualPathExpanded}
+        method={method}
+        selectedBrowserProfile={selectedBrowserProfile}
+        selectedBrowserProfileId={selectedBrowserProfileId}
+        sourcePath={sourcePath}
+        step={step}
+        stepIndex={stepIndex}
+        wizardSteps={wizardSteps}
+        workflowExpanded={workflowExpanded}
+        workflowSteps={workflowSteps}
+        onBrowseSource={handleBrowseSource}
+        onCopyWorkflowValue={async (value) => {
+          await copyReviewValue(value)
+        }}
+        onImport={handleImport}
+        onImportAnother={handleImportAnother}
+        onManualPathExpandedChange={setManualPathExpanded}
+        onMethodChange={handleMethodChange}
+        onScan={handleScan}
+        onSelectBrowserProfile={handleSelectBrowserProfile}
+        onSourcePathChange={applySourcePath}
+        onStepChange={setStep}
+        onWorkflowExpandedChange={setWorkflowExpanded}
+      />
 
-      <div className="import-container">
-        <div className="import-methods">
-          <button
-            className={`import-card ${method === 'takeout' ? 'active-import' : ''}`}
-            type="button"
-            aria-pressed={method === 'takeout'}
-            onClick={() => handleMethodChange('takeout')}
-          >
-            <div className="import-card-icon">↓</div>
-            <div className="import-card-title">
-              {t('import.takeoutMethodTitle')}
-            </div>
-            <div className="import-card-desc dim">
-              {t('import.takeoutMethodBody')}
-            </div>
-          </button>
-          <button
-            className={`import-card ${method === 'browser' ? 'active-import' : ''}`}
-            type="button"
-            aria-pressed={method === 'browser'}
-            onClick={() => handleMethodChange('browser')}
-          >
-            <div className="import-card-icon">⊕</div>
-            <div className="import-card-title">
-              {t('import.browserMethodTitle')}
-            </div>
-            <div className="import-card-desc dim">
-              {t('import.browserMethodBody')}
-            </div>
-          </button>
-        </div>
-        <p className="dim" style={{ marginTop: 'var(--space-2)' }}>
-          {method === 'takeout'
-            ? t('import.takeoutPreparationHint')
-            : t('import.browserPreparationHint')}
-        </p>
-
-        <div className="wizard-panel">
-          <div className="wizard-steps">
-            {wizardSteps.map((wizardStep, index) => (
-              <div key={wizardStep.key} style={{ display: 'contents' }}>
-                {index > 0 && (
-                  <div
-                    className={`wizard-step-line ${
-                      index <= stepIndex
-                        ? 'completed'
-                        : index === stepIndex + 1
-                          ? 'active'
-                          : ''
-                    }`}
-                  />
-                )}
-                <div
-                  aria-current={index === stepIndex ? 'step' : undefined}
-                  className={`wizard-step ${
-                    index < stepIndex
-                      ? 'completed'
-                      : index === stepIndex
-                        ? 'active-step'
-                        : ''
-                  }`}
-                >
-                  <div className="step-number">{index + 1}</div>
-                  <div className="step-label">{wizardStep.label}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="wizard-body">
-            {step === 'select' && (
-              <>
-                <div className="wizard-title">{t('import.selectTitle')}</div>
-                <div className="wizard-description dim">
-                  {method === 'takeout'
-                    ? t('import.takeoutSelectBody')
-                    : t('import.browserSelectBody')}
-                </div>
-                {method === 'browser' ? (
-                  <div
-                    className="import-source-stack"
-                    style={{ marginTop: 'var(--space-4)' }}
-                  >
-                    <div className="row-between">
-                      <span className="mono-kicker">
-                        {t('import.detectedBrowserProfiles')}
-                      </span>
-                      <span className="mono-support">
-                        {t('import.detectedBrowserProfilesCount', {
-                          count:
-                            detectedBrowserProfiles.length.toLocaleString(
-                              language,
-                            ),
-                        })}
-                      </span>
-                    </div>
-                    {detectedBrowserProfiles.length > 0 ? (
-                      <div className="import-profile-list">
-                        {detectedBrowserProfiles.map((profile) => (
-                          <button
-                            key={profile.profileId}
-                            className={`result-row import-profile-card ${
-                              selectedBrowserProfileId === profile.profileId
-                                ? 'result-row--active'
-                                : ''
-                            }`}
-                            type="button"
-                            onClick={() => handleSelectBrowserProfile(profile)}
-                          >
-                            <div className="result-row__header">
-                              <strong>
-                                {profile.browserName} · {profile.profileName}
-                              </strong>
-                              <span className="status-badge">
-                                {t('import.browserProfileReady')}
-                              </span>
-                            </div>
-                            <div className="result-row__meta">
-                              <span className="mono-support">
-                                {profile.profileId}
-                              </span>
-                              <span className="mono-support">
-                                {profile.historyFileName}
-                              </span>
-                            </div>
-                            <p className="mono-support">
-                              {profile.historyPath}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <StatusCallout
-                        tone="warning"
-                        title={t('import.noDetectedBrowserProfilesTitle')}
-                        body={t('import.noDetectedBrowserProfilesBody')}
-                      />
-                    )}
-                  </div>
-                ) : null}
-                <div className="import-source-actions">
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void handleBrowseSource({ directory: false })
-                    }}
-                  >
-                    {method === 'takeout'
-                      ? t('import.chooseTakeoutFile')
-                      : t('import.chooseHistoryFile')}
-                  </button>
-                  {method === 'takeout' ? (
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => {
-                        void handleBrowseSource({ directory: true })
-                      }}
-                    >
-                      {t('import.chooseTakeoutFolder')}
-                    </button>
-                  ) : (
-                    <button
-                      aria-expanded={manualPathExpanded}
-                      className="btn-ghost"
-                      type="button"
-                      onClick={() =>
-                        setManualPathExpanded((current) => !current)
-                      }
-                    >
-                      {manualPathExpanded
-                        ? t('import.hideManualPath')
-                        : t('import.showManualPath')}
-                    </button>
-                  )}
-                </div>
-                {sourcePath.trim() ? (
-                  <div className="import-source-summary">
-                    <span className="mono-kicker">
-                      {t('import.selectedSource')}
-                    </span>
-                    <span className="mono-support">{sourcePath}</span>
-                    {method === 'browser' && selectedBrowserProfile ? (
-                      <span className="mono-support">
-                        {selectedBrowserProfile.browserName} ·{' '}
-                        {selectedBrowserProfile.profileName}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-                {(method === 'takeout' ||
-                  manualPathExpanded ||
-                  detectedBrowserProfiles.length === 0) && (
-                  <label
-                    className="field-stack import-manual-path"
-                    style={{ marginTop: 'var(--space-4)' }}
-                  >
-                    <span className="mono-kicker">
-                      {t('import.sourcePath')}
-                    </span>
-                    <input
-                      type="text"
-                      value={sourcePath}
-                      onChange={(event) => {
-                        applySourcePath(event.target.value)
-                        if (method === 'browser') {
-                          setManualPathExpanded(true)
-                        }
-                      }}
-                      placeholder={
-                        method === 'takeout'
-                          ? t('import.takeoutPathPlaceholder')
-                          : t('import.browserPathPlaceholder')
-                      }
-                    />
-                  </label>
-                )}
-                <div className="wizard-actions">
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    onClick={() => {
-                      void handleScan()
-                    }}
-                    disabled={!sourcePath.trim()}
-                    aria-disabled={!sourcePath.trim()}
-                  >
-                    {t('import.scanSource')}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {step === 'scan' && (
-              <div style={{ position: 'relative', minHeight: '120px' }}>
-                <BusyOverlay
-                  label={t('import.scanningTitle')}
-                  detail={t('import.workflowPreviewReason')}
-                  progressLabel={`2 / ${wizardSteps.length.toLocaleString(language)}`}
-                  progressValue={(2 / wizardSteps.length) * 100}
-                  steps={wizardSteps
-                    .slice(0, 3)
-                    .map((wizardStep) => wizardStep.label)}
-                  activeStep={1}
-                />
-              </div>
-            )}
-
-            {step === 'preview' && inspection && (
-              <>
-                <div className="wizard-title">{t('import.previewTitle')}</div>
-                <div className="wizard-description dim">
-                  {t('import.previewBody')}
-                </div>
-
-                <div className="preview-stats">
-                  <div className="preview-stat">
-                    <div className="preview-stat-label">
-                      {t('import.recordsFound')}
-                    </div>
-                    <div className="preview-stat-value mono">
-                      {inspection.candidateItems.toLocaleString(language)}
-                    </div>
-                  </div>
-                  <div className="preview-stat">
-                    <div className="preview-stat-label">
-                      {t('import.duplicates')}
-                    </div>
-                    <div className="preview-stat-value mono">
-                      {inspection.duplicateItems.toLocaleString(language)}
-                    </div>
-                  </div>
-                  <div className="preview-stat">
-                    <div className="preview-stat-label">
-                      {t('import.newRecords')}
-                    </div>
-                    <div className="preview-stat-value mono accent">
-                      {(
-                        inspection.candidateItems - inspection.duplicateItems
-                      ).toLocaleString(language)}
-                    </div>
-                  </div>
-                </div>
-
-                {inspection.recognizedFiles.length > 0 && (
-                  <div className="preview-files">
-                    <div
-                      className="panel-header"
-                      style={{ marginTop: 'var(--space-4)' }}
-                    >
-                      <span className="panel-title">
-                        {t('import.detectedFiles')}
-                      </span>
-                    </div>
-                    {inspection.recognizedFiles.map((file) => (
-                      <div key={file.path} className="file-item">
-                        <span
-                          className="file-status ok"
-                          aria-label={t('common.statusSuccess')}
-                        >
-                          ✓
-                        </span>
-                        <span
-                          className="file-name mono"
-                          title={file.path}
-                          style={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {file.path}
-                        </span>
-                        <span className="file-detail dim">
-                          {file.records.toLocaleString(language)} · {file.kind}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {inspection.quarantinedFiles.length > 0 && (
-                  <div className="preview-files">
-                    <div
-                      className="panel-header"
-                      style={{ marginTop: 'var(--space-4)' }}
-                    >
-                      <span className="panel-title">
-                        {t('import.quarantinedFiles')}
-                      </span>
-                    </div>
-                    {inspection.quarantinedFiles.map((file) => (
-                      <div key={file.path} className="file-item">
-                        <span
-                          className="file-status warn"
-                          aria-label={t('common.warning')}
-                        >
-                          ⚠
-                        </span>
-                        <span
-                          className="file-name mono"
-                          title={file.path}
-                          style={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {file.path}
-                        </span>
-                        <span className="file-detail dim">{file.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {inspection.previewEntries.length > 0 ? (
-                  <div
-                    className="panel"
-                    style={{ marginTop: 'var(--space-4)' }}
-                  >
-                    <div className="panel-header">
-                      <span className="panel-title">
-                        {t('import.previewRows')}
-                      </span>
-                    </div>
-                    <div className="panel-body">
-                      <PreviewEntryList
-                        entries={inspection.previewEntries}
-                        language={language}
-                        statusLabel={(status) =>
-                          t(importBatchStatusKey(status))
-                        }
-                        statusTone={importBatchStatusTone}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-
-                {inspection.notes.length > 0 && (
-                  <div className="inline-note-list dim">
-                    {inspection.notes.map((note) => (
-                      <div key={note}>{note}</div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-                  <div className="panel-header">
-                    <span className="panel-title">
-                      {t('import.confirmSummaryTitle')}
-                    </span>
-                  </div>
-                  <div className="panel-body">
-                    <p className="dim">{t('import.confirmSummaryBody')}</p>
-                    <div className="manifest-grid">
-                      <div className="manifest-field">
-                        <span className="field-label">
-                          {t('import.confirmSummaryNewRecords')}
-                        </span>
-                        <span className="field-value mono accent">
-                          {(
-                            inspection.candidateItems -
-                            inspection.duplicateItems
-                          ).toLocaleString(language)}
-                        </span>
-                      </div>
-                      <div className="manifest-field">
-                        <span className="field-label">
-                          {t('import.confirmSummaryDuplicates')}
-                        </span>
-                        <span className="field-value mono">
-                          {inspection.duplicateItems.toLocaleString(language)}
-                        </span>
-                      </div>
-                      <div className="manifest-field">
-                        <span className="field-label">
-                          {t('import.confirmSummaryFiles')}
-                        </span>
-                        <span className="field-value mono">
-                          {inspection.recognizedFiles.length.toLocaleString(
-                            language,
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="wizard-actions">
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => setStep('select')}
-                    disabled={importing}
-                  >
-                    {t('import.backAction')}
-                  </button>
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    onClick={() => {
-                      void handleImport()
-                    }}
-                    disabled={importing}
-                  >
-                    {t('import.confirmImport')}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {step === 'confirm' && importing && (
-              <div style={{ position: 'relative', minHeight: '120px' }}>
-                <BusyOverlay
-                  label={t('import.importingTitle')}
-                  detail={
-                    importProgress
-                      ? localizedImportProgressDetail(
-                          importProgress,
-                          t,
-                          language,
-                        )
-                      : t('import.importingProgressDetail', {
-                          records: (
-                            inspection?.candidateItems ?? 0
-                          ).toLocaleString(language),
-                          files: (
-                            inspection?.recognizedFiles.length ?? 0
-                          ).toLocaleString(language),
-                        })
-                  }
-                  logLines={
-                    importProgress
-                      ? [
-                          localizedImportProgressDetail(
-                            importProgress,
-                            t,
-                            language,
-                          ),
-                        ]
-                      : []
-                  }
-                  progressLabel={
-                    importProgress
-                      ? `${importProgress.current.toLocaleString(language)} / ${importProgress.total.toLocaleString(language)}`
-                      : `4 / ${wizardSteps.length.toLocaleString(language)}`
-                  }
-                  progressValue={
-                    importProgress?.progressPercent ??
-                    (4 / wizardSteps.length) * 100
-                  }
-                  steps={wizardSteps
-                    .slice(2)
-                    .map((wizardStep) => wizardStep.label)}
-                  activeStep={1}
-                />
-              </div>
-            )}
-
-            {step === 'done' && importResult && (
-              <>
-                <div className="wizard-title">{t('import.completeTitle')}</div>
-                <div className="wizard-description dim">
-                  {t('import.completeBody')}
-                </div>
-                <div className="preview-stats">
-                  <div className="preview-stat">
-                    <div className="preview-stat-label">
-                      {t('import.imported')}
-                    </div>
-                    <div className="preview-stat-value mono accent">
-                      {importResult.importedItems.toLocaleString(language)}
-                    </div>
-                  </div>
-                  <div className="preview-stat">
-                    <div className="preview-stat-label">
-                      {t('import.duplicatesSkipped')}
-                    </div>
-                    <div className="preview-stat-value mono">
-                      {importResult.duplicateItems.toLocaleString(language)}
-                    </div>
-                  </div>
-                </div>
-                <div className="wizard-actions">
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    onClick={() => {
-                      setStep('select')
-                      setInspection(null)
-                      setImportResult(null)
-                      setSourcePath('')
-                    }}
-                  >
-                    {t('import.importAnother')}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-grid">
-        <div className="dashboard-left">
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{t('import.recentBatches')}</span>
-            </div>
-            <div className="panel-body">
-              <p className="dashboard-next-action">
-                {t('import.recentBatchesBody')}
-              </p>
-              {(recentImportBatches?.length ?? 0) === 0 ? (
-                <p className="dim">{t('import.noImportBatches')}</p>
-              ) : (
-                <div className="result-list">
-                  {(recentImportBatches ?? []).map((batch) => (
-                    <button
-                      key={batch.id}
-                      className={`result-row ${
-                        selectedBatchId === batch.id ? 'result-row--active' : ''
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedBatchId(batch.id)}
-                    >
-                      <div className="result-row__header">
-                        <strong>
-                          {t('import.batchIdLabel', {
-                            id: String(batch.id),
-                          })}
-                        </strong>
-                        <span
-                          aria-label={t(importBatchStatusKey(batch.status))}
-                          className="status-badge"
-                        >
-                          {t(importBatchStatusKey(batch.status))}
-                        </span>
-                      </div>
-                      <p
-                        className="mono"
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                        title={batch.sourcePath}
-                      >
-                        {batch.sourcePath}
-                      </p>
-                      <div className="result-row__meta dim">
-                        <span>
-                          {t('import.importedRows')}: {batch.importedItems}
-                        </span>
-                        <span>
-                          {t('import.visibleRows')}: {batch.visibleItems}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{t('import.healthReport')}</span>
-            </div>
-            <div className="panel-body">
-              <p className="dashboard-next-action">
-                {t('import.healthReportBody')}
-              </p>
-              <div className="wizard-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => {
-                    void handleRunDoctor()
-                  }}
-                >
-                  {t('import.runHealthCheckAction')}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={!healthReport}
-                  aria-disabled={!healthReport}
-                  onClick={() => {
-                    void handleRepairHealth()
-                  }}
-                >
-                  {t('common.repairAction')}
-                </button>
-              </div>
-              <p className="dim" style={{ marginTop: 'var(--space-2)' }}>
-                {t('import.repairDescription')}
-              </p>
-              {healthReport ? (
-                <div
-                  className="manual-steps"
-                  style={{ marginTop: 'var(--space-4)' }}
-                >
-                  {healthReport.checks.map((check) => (
-                    <StatusCallout
-                      key={check.name}
-                      tone={healthCheckStatusTone(check.status)}
-                      title={`${t(healthCheckStatusKey(check.status))} — ${check.name}`}
-                      body={check.message}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="dim">{t('import.noHealthChecks')}</p>
-              )}
-              {repairNotice ? (
-                <p className="mono-support" role="status">
-                  {repairNotice}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="dashboard-right">
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{t('import.selectedBatch')}</span>
-            </div>
-            <div className="panel-body">
-              <p className="dashboard-next-action">
-                {t('import.selectedBatchBody')}
-              </p>
-              {loadingBatch ? (
-                <p className="dim">{t('common.loading')}</p>
-              ) : activeBatchDetail ? (
-                <>
-                  <div className="manifest-grid">
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.candidateRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {activeBatchDetail.batch.candidateItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.importedRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {activeBatchDetail.batch.importedItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.duplicateRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {activeBatchDetail.batch.duplicateItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.visibleRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {activeBatchDetail.batch.visibleItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="detail-divider" />
-                  {activeBatchDetail.previewEntries.length > 0 ? (
-                    <PreviewEntryList
-                      entries={activeBatchDetail.previewEntries}
-                      language={language}
-                      statusLabel={(status) => t(importBatchStatusKey(status))}
-                      statusTone={importBatchStatusTone}
-                    />
-                  ) : (
-                    <p className="dim">{t('import.noPreviewRows')}</p>
-                  )}
-                  {activeBatchDetail.batch.auditPath ? (
-                    <ReviewPathActionRow
-                      copyFeedback={supportCopyFeedback}
-                      copyKey={`import:audit:${activeBatchDetail.batch.id}`}
-                      copyLabel={t('common.copyAction')}
-                      errorMessage={t('audit.copyFailed')}
-                      label={t('audit.manifestPath')}
-                      onCopy={(key, value) => {
-                        void copyReviewValue(value, {
-                          key,
-                          onFeedback: setSupportCopyFeedback,
-                        })
-                      }}
-                      onOpenPath={(path) => {
-                        void backend.openPathInFileManager(path)
-                      }}
-                      openPathLabel={t('common.openAction')}
-                      successMessage={t('common.copiedNotice')}
-                      value={activeBatchDetail.batch.auditPath}
-                    />
-                  ) : null}
-                  <div className="wizard-actions">
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => {
-                        void handleBatchMutation(
-                          activeBatchDetail.batch,
-                          'revert',
-                        )
-                      }}
-                      disabled={activeBatchDetail.batch.status === 'reverted'}
-                      aria-disabled={
-                        activeBatchDetail.batch.status === 'reverted'
-                      }
-                    >
-                      {t('import.revertBatch')}
-                    </button>
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => {
-                        void handleBatchMutation(
-                          activeBatchDetail.batch,
-                          'restore',
-                        )
-                      }}
-                      disabled={activeBatchDetail.batch.status !== 'reverted'}
-                      aria-disabled={
-                        activeBatchDetail.batch.status !== 'reverted'
-                      }
-                    >
-                      {t('import.restoreBatch')}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="dim">{t('import.noImportBatches')}</p>
-              )}
-              {actionError ? (
-                <p className="inline-error" role="alert">
-                  {actionError}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
+      <ImportReviewPanels
+        activeBatchDetail={activeBatchDetail}
+        actionError={actionError}
+        healthReport={healthReport}
+        language={language}
+        loadingBatch={loadingBatch}
+        recentImportBatches={recentImportBatches}
+        repairNotice={repairNotice}
+        selectedBatchId={selectedBatchId}
+        supportCopyFeedback={supportCopyFeedback}
+        onBatchMutation={handleBatchMutation}
+        onCopyPath={handleSupportPathCopy}
+        onOpenPath={handleSupportPathOpen}
+        onRepairHealth={handleRepairHealth}
+        onRunDoctor={handleRunDoctor}
+        onSelectBatch={setSelectedBatchId}
+      />
     </section>
   )
 }

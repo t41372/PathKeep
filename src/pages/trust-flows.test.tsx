@@ -652,6 +652,79 @@ describe('trust flows', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('keeps selected batch audit-path actions wired after the import review split', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const commonT = createNamespaceTranslator('en', 'common')
+    const auditT = createNamespaceTranslator('en', 'audit')
+    const batch: ImportBatchOverview = {
+      id: 1,
+      sourceKind: 'takeout',
+      sourcePath: '/tmp/takeout-a',
+      profileId: 'takeout::browser-history',
+      createdAt: '2026-04-10T10:00:00.000Z',
+      importedAt: '2026-04-10T10:05:00.000Z',
+      revertedAt: null,
+      status: 'imported',
+      candidateItems: 1,
+      importedItems: 1,
+      duplicateItems: 0,
+      visibleItems: 1,
+      auditPath: '/tmp/import-audit-a.json',
+      gitCommit: null,
+    }
+
+    snapshot.recentImportBatches = [batch]
+    vi.spyOn(backend, 'previewImportBatch').mockResolvedValue({
+      batch,
+      previewEntries: [
+        {
+          sourcePath: '/tmp/takeout-a',
+          url: 'https://example.com/first',
+          title: 'First batch entry',
+          visitedAt: '2026-04-10T10:04:00.000Z',
+          sourceVisitId: 1,
+          status: 'imported',
+        },
+      ],
+      recognizedFiles: [],
+      quarantinedFiles: [],
+      notes: [],
+    })
+    const openPathSpy = vi
+      .spyOn(backend, 'openPathInFileManager')
+      .mockResolvedValue('/tmp/import-audit-a.json')
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import?batch=1',
+      snapshot,
+    })
+
+    const selectedBatchPanel = expectHtmlElement(
+      document.querySelector('.dashboard-right .panel'),
+    )
+    expect(
+      await within(selectedBatchPanel).findByText(auditT('manifestPath')),
+    ).toBeVisible()
+
+    await user.click(
+      within(selectedBatchPanel).getByRole('button', {
+        name: commonT('openAction'),
+      }),
+    )
+    expect(openPathSpy).toHaveBeenLastCalledWith('/tmp/import-audit-a.json')
+
+    await user.click(
+      within(selectedBatchPanel).getByRole('button', {
+        name: commonT('copyAction'),
+      }),
+    )
+    expect(
+      await within(selectedBatchPanel).findByText(commonT('copiedNotice')),
+    ).toBeVisible()
+  })
+
   test('renders Windows scheduler guidance and keeps PME tabs keyboard reachable', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
