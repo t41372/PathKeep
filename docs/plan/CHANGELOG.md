@@ -777,3 +777,16 @@
   - 更新 [`src/app/shell-data.test.tsx`](../../src/app/shell-data.test.tsx) 與 [`src/pages/trust-flows.test.tsx`](../../src/pages/trust-flows.test.tsx)，新增 initialize / backup pending busy-state 與 import scan / import paint-first regressions，保護 overlay 先顯示、進度事件持續更新、以及不再等任務結束才一次補播。
   - 同步回寫 [`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/{STATUS.md,BACKLOG.md}`](STATUS.md) 與 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)，把 archive/import long-running command 的 off-main-thread contract 與 M13 pause history 寫回 source-of-truth。
   - 驗收：`bun x vitest run src/app/shell-data.test.tsx src/pages/trust-flows.test.tsx`、`bun run check`、`bun run build`
+
+- [x] **WORK-M13-A** — Broad Reuse Inventory Across Support / Trust / Workflow Surfaces
+  - 讀先：
+    `docs/plan/m13-broad-reuse-audit/README.md`
+    `docs/plan/m12-support-actions-and-diagnostics/README.md`
+    `docs/design/support-actions-and-diagnostics-tradeoff.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+  - 目標：沿著 M12 的 support-action single-source 方法，盤點全 app 剩餘的 support / trust / workflow reuse drift，建立下一輪 canonical owner map 與 extraction priority。
+  - 契約：不得把 M13 收斂成單純的 Settings route split 或 transport-first 專案；Jobs summary、workflow follow-through 與 support composition 必須一起納入 inventory，transport parity 只保留 subordinate role。
+  - 2026-04-21：更新 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md) 與 [`docs/plan/README.md`](README.md)，正式補齊 M13 single-source map、remaining hotspot priority、`PG-RD-UX-016`，以及「runtime-boundary review grammar 掛回 `src/components/review/`」的 source-of-truth。
+  - 這輪 inventory 也同步把後續順序固定為：shell-data owner、Security / Import workflow follow-through、Dashboard fallback owner、`Browsing Rhythm` layering；不再讓 M13 退化成單純的 Settings split 或 transport 專案。
+  - 驗收：source docs、inventory map、`TODO: M13` 與 extraction priority 存在

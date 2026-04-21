@@ -30,17 +30,7 @@
 > 2026-04-19 M12 closeout：`WORK-M12-A` 與 `WORK-M12-B` 已完成。repo 現在正式有 app-wide shared support-action / clipboard grammar：`src/components/review/` 追加了 shared clipboard helper 與 `ReviewPathActionRow`，而 Settings general diagnostics / App Lock、Audit manifest / artifact review、Import selected-batch audit path、Schedule detected-file / audit quick jump、Security / Lock path rows，以及 Explorer export path 都已接回同一個 canonical owner。Jobs plugin / module summary rows與 dev bridge / worker parity follow-up 則已明確改記 `TODO: M13`。依照工作流，下一輪 active current-focus 已切到 `WORK-M13-A` / `WORK-M13-B`。
 > 2026-04-20 performance stop-ship closeout：使用者明確要求先停下 M13 reuse audit，優先修復 `/intelligence` 在三個月真實資料上的 UI 凍結與 route revisit 卡頓。這輪插單的 `WORK-PERF-A` 已完成：Core Intelligence overview 讀路徑現在同一批只重用一條 intelligence connection 與一份 runtime snapshot；前端則補上 scope-keyed warm cache、in-flight dedupe、stale-while-revalidate、以及 Search Activity hidden tabs 的 idle prewarm。M13 A/B 保留 pending，等這輪驗收完成後再繼續。
 > 2026-04-20 archive/import stop-ship closeout：使用者再度插單 `WORK-PERF-B`，要求先修 Onboarding 初始化 / 手動備份 / Takeout scan-import 會把整個桌面 UI 卡死的問題。source 現在已把 `initialize_archive`、`run_backup_now`、`inspect_takeout`、`import_takeout` 改成 off-main-thread `async + spawn_blocking` facade，Import route 也補上 explicit paint-first yield；同時新增 shell-data 與 Import route regressions，確保 busy overlay 在 promise 未完成前就已經可見，且進度文案不再等任務結束後才一次補播。M13 A/B 繼續維持 active current-focus。
-
-- [ ] **WORK-M13-A** — Broad Reuse Inventory Across Support / Trust / Workflow Surfaces
-  - 讀先：
-    `docs/plan/m13-broad-reuse-audit/README.md`
-    `docs/plan/m12-support-actions-and-diagnostics/README.md`
-    `docs/design/support-actions-and-diagnostics-tradeoff.md`
-    `docs/design/screens-and-nav.md`
-    `docs/design/ux-principles.md`
-  - 目標：沿著 M12 的 support-action single-source 方法，盤點全 app 剩餘的 support / trust / workflow reuse drift，建立下一輪 canonical owner map 與 extraction priority。
-  - 契約：不得把 M13 收斂成單純的 Settings route split 或 transport-first 專案；Jobs summary、workflow follow-through 與 support composition 必須一起納入 inventory，transport parity 只保留 subordinate role。
-  - 驗收：source docs、inventory map、`TODO: M13` 與 extraction priority 存在
+> 2026-04-21 M13 inventory closeout：`WORK-M13-A` 已完成。`docs/plan/m13-broad-reuse-audit/README.md` 現在正式記錄 app-wide single-source map、extraction priority 與 remaining hotspot；`PG-RD-UX-016` 也把 runtime-boundary review grammar 收斂成 `src/components/review/runtime-boundary-card.tsx` 的 canonical owner。這輪同步落地的第一個 code slice 讓 Jobs runtime health / plugin / module summary 與 Settings derived runtime review 共用同一套 runtime-boundary card shell，但 `WORK-M13-B` 仍保持 active，後續 focus 改成 shell-data、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering。
 
 - [ ] **WORK-M13-B** — Shared Support / Workflow Composition Extraction
   - 讀先：
@@ -50,6 +40,7 @@
     `docs/plan/e2e-workflow-tests.md`
   - 目標：根據 `WORK-M13-A` 的 inventory，把至少一輪高價值的 support / trust / workflow composition 抽離，優先處理 Jobs plugin/module summary、workflow follow-through 與剩餘 support summary drift。
   - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而重開 M6–M12 已收斂的 route / payload / review / support-action contract。
+  - 2026-04-21 progress：shared runtime-boundary card grammar 已落到 `src/components/review/runtime-boundary-card.tsx`，Jobs runtime health / plugin / module summary 與 Settings derived runtime review 是第一批 consumer；Jobs route shell 也因此降到 `1000` 行以下。下一輪優先處理 shell-data owner split、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering smell。
   - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup

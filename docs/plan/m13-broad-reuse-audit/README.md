@@ -41,3 +41,54 @@
 - 不回退 M6–M12 已 accepted 的 route / payload / review-shell / support-action boundary
 - 不讓 Settings route split 壟斷整個 milestone；它只是一個 consumer，不是唯一主題
 - transport parity 只在 inventory 證明 owner drift / maintenance cost 持續上升時才進下一步，不預設升格成主線
+
+---
+
+## Single-Source Map
+
+| 契約 / 能力                                   | canonical owner                                   | M13 結論                                                           |
+| --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| neutral review shell                          | `src/components/review/`                          | 延續 M11，不重開 owner                                             |
+| support-action / clipboard grammar            | `src/components/review/`                          | 延續 M12，不重開 owner                                             |
+| runtime-boundary review card grammar          | `src/components/review/runtime-boundary-card.tsx` | M13 正式升格；Jobs 與 Settings derived runtime review 共用         |
+| Jobs route orchestration                      | `src/pages/jobs/index.tsx`                        | 保留 route owner，只移走 runtime health / boundary composition     |
+| Jobs runtime health composition               | `src/pages/jobs/runtime-health-section.tsx`       | M13 第一輪 extraction 已落地                                       |
+| Settings derived runtime detail orchestration | `src/pages/settings/derived-runtime-review.tsx`   | 仍是 consumer owner，但已改吃 shared runtime-boundary card shell   |
+| shell bootstrap / runtime polling owner       | `src/app/shell-data.tsx`                          | 明確列為下一輪高優先 follow-up，不在這一輪硬拆                     |
+| workflow follow-through route split           | `src/pages/{security,import,dashboard}/`          | 明確列為下一輪 extraction priority，不在 Jobs slice 內機械擴 scope |
+| transport parity / worker pass-through        | existing Rust owners                              | 維持 subordinate inventory，不升格成 M13 主線                      |
+
+## Inventory Snapshot
+
+### 本輪已證明值得抽離
+
+- Jobs 的 plugin / module summary rows 與 runtime health summary，不再維持 Jobs-local review shell。
+- Settings derived runtime review 與 Jobs runtime boundary 都依賴同一組 title / status / metric / notes / action row grammar。
+- `src/components/review/` 現在不只承接 neutral review 與 support actions，也承接 runtime-boundary review shell。
+
+### 仍維持後續 priority 的 hotspot
+
+1. `src/app/shell-data.tsx`
+2. `src/pages/security/index.tsx`
+3. `src/pages/import/index.tsx`
+4. `src/pages/dashboard/index.tsx`
+5. `src/components/intelligence/browsing-rhythm-card.tsx`
+6. `src/components/ui.tsx` 的 legacy `PathRow` retirement
+
+### 這輪刻意不做
+
+- 不把 `ShellDataContextValue` 對外 shape 改成新 contract。
+- 不把 Settings route 再拆成另一輪 mega-route cleanup。
+- 不碰 `backend.ts`、transport codegen、或 worker parity automation。
+
+## 2026-04-21 WORK-M13-A Closeout
+
+- inventory 已正式收斂成 app-wide owner map，而不是只有「下一個想拆什麼檔案」的口頭清單。
+- `components/review` 現在明確多了一層 runtime-boundary card grammar；Jobs runtime health composition 與 Settings derived runtime review 是第一批 consumer。
+- 下一輪 extraction priority 也已固定：先 shell owner / workflow-heavy routes，再處理 dashboard 與 browsing-rhythm layering。
+
+## 2026-04-21 WORK-M13-B Slice Note
+
+- 第一輪高價值 extraction 已落地：Jobs runtime health / plugin / module summary rows 不再維持 Jobs-local review shell。
+- [`src/pages/jobs/index.tsx`](../../src/pages/jobs/index.tsx) 現在降到可接受的 route-shell 尺寸；runtime health / boundary section 已拆到 [`src/pages/jobs/runtime-health-section.tsx`](../../src/pages/jobs/runtime-health-section.tsx)。
+- `WORK-M13-B` 仍保留 active，後續 focus 改為 shell-data、Security / Import workflow follow-through、Dashboard fallback owner，以及 `Browsing Rhythm` layering smell。

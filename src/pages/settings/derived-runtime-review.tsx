@@ -23,6 +23,7 @@
 
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { ReviewRuntimeBoundaryCard } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import {
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
@@ -170,75 +171,9 @@ export function DerivedRuntimeReview({
       />
 
       {reviewableDeterministicModules.map((module) => (
-        <div className="result-row result-row--active" key={module.state.id}>
-          <div className="result-row__header">
-            <strong>
-              {deterministicModuleLabel(module.state.id, settingsNs)}
-            </strong>
-            <span className="mono">
-              {module.runtime
-                ? deterministicModuleStatusLabel(
-                    module.runtime.status,
-                    settingsNs,
-                  )
-                : module.state.enabled
-                  ? settingsNs('deterministicModuleIdle')
-                  : settingsNs('deterministicModuleDisabled')}
-            </span>
-          </div>
-          <p>{deterministicModuleDescription(module.state.id, settingsNs)}</p>
-          <div className="config-row">
-            <span className="config-label">
-              {settingsNs('deterministicModuleDependsOn')}
-            </span>
-            <span className="config-value mono">
-              {module.runtime?.dependsOn.length
-                ? module.runtime.dependsOn
-                    .map((moduleId) =>
-                      deterministicModuleLabel(moduleId, settingsNs),
-                    )
-                    .join(', ')
-                : commonNs('notAvailable')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {settingsNs('deterministicModuleTables')}
-            </span>
-            <span className="config-value mono">
-              {module.runtime?.derivedTables.join(', ') ??
-                commonNs('notAvailable')}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {settingsNs('deterministicModuleLastBuilt')}
-            </span>
-            <span className="config-value mono">
-              {module.runtime?.lastBuiltAt
-                ? (formatDateTime(module.runtime.lastBuiltAt, language) ??
-                  module.runtime.lastBuiltAt)
-                : commonNs('notAvailable')}
-            </span>
-          </div>
-          {module.runtime?.staleReason ? (
-            <div className="config-row">
-              <span className="config-label">
-                {settingsNs('deterministicModuleStaleReason')}
-              </span>
-              <span className="config-value">{module.runtime.staleReason}</span>
-            </div>
-          ) : null}
-          {module.runtime?.notes.length ? (
-            <div className="intelligence-note-list">
-              {module.runtime.notes.map((note) => (
-                <p className="mono-support" key={`${module.state.id}-${note}`}>
-                  {note}
-                </p>
-              ))}
-            </div>
-          ) : null}
-          <div className="settings-action-row">
+        <ReviewRuntimeBoundaryCard
+          active
+          actions={
             <button
               className="btn-secondary"
               type="button"
@@ -251,8 +186,76 @@ export function DerivedRuntimeReview({
                 ? t('settings.disablePlugin')
                 : t('settings.enablePlugin')}
             </button>
-          </div>
-        </div>
+          }
+          description={deterministicModuleDescription(
+            module.state.id,
+            settingsNs,
+          )}
+          headerMeta={
+            <span className="mono">
+              {module.runtime
+                ? deterministicModuleStatusLabel(
+                    module.runtime.status,
+                    settingsNs,
+                  )
+                : module.state.enabled
+                  ? settingsNs('deterministicModuleIdle')
+                  : settingsNs('deterministicModuleDisabled')}
+            </span>
+          }
+          key={module.state.id}
+          metrics={[
+            {
+              label: settingsNs('deterministicModuleDependsOn'),
+              value: module.runtime?.dependsOn.length
+                ? module.runtime.dependsOn
+                    .map((moduleId) =>
+                      deterministicModuleLabel(moduleId, settingsNs),
+                    )
+                    .join(', ')
+                : commonNs('notAvailable'),
+              valueClassName: 'mono',
+            },
+            {
+              label: settingsNs('deterministicModuleTables'),
+              value:
+                module.runtime?.derivedTables.join(', ') ??
+                commonNs('notAvailable'),
+              valueClassName: 'mono',
+            },
+            {
+              label: settingsNs('deterministicModuleLastBuilt'),
+              value: module.runtime?.lastBuiltAt
+                ? (formatDateTime(module.runtime.lastBuiltAt, language) ??
+                  module.runtime.lastBuiltAt)
+                : commonNs('notAvailable'),
+              valueClassName: 'mono',
+            },
+            ...(module.runtime?.staleReason
+              ? [
+                  {
+                    label: settingsNs('deterministicModuleStaleReason'),
+                    value: module.runtime.staleReason,
+                  },
+                ]
+              : []),
+          ]}
+          notes={
+            module.runtime?.notes.length ? (
+              <div className="intelligence-note-list">
+                {module.runtime.notes.map((note) => (
+                  <p
+                    className="mono-support"
+                    key={`${module.state.id}-${note}`}
+                  >
+                    {note}
+                  </p>
+                ))}
+              </div>
+            ) : undefined
+          }
+          title={deterministicModuleLabel(module.state.id, settingsNs)}
+        />
       ))}
 
       {reviewableEnrichmentPlugins.map((plugin) => {
@@ -263,86 +266,9 @@ export function DerivedRuntimeReview({
             : 'local')
 
         return (
-          <div className="result-row result-row--active" key={plugin.state.id}>
-            <div className="result-row__header">
-              <strong>
-                {enrichmentPluginLabel(plugin.state.id, settingsNs)}
-              </strong>
-              <span className="mono">
-                {plugin.state.enabled
-                  ? t('settings.enabled')
-                  : t('settings.disabled')}
-              </span>
-            </div>
-            <p>{enrichmentPluginDescription(plugin.state.id, settingsNs)}</p>
-            <div className="config-row">
-              <span className="config-label">
-                {settingsNs('pluginBoundary')}
-              </span>
-              <span className="config-value mono">
-                {enrichmentPluginBoundaryLabel(sourceKind, settingsNs)}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('settings.pluginQueue')}</span>
-              <span className="config-value mono">
-                {plugin.runtime
-                  ? settingsNs('pluginQueueCounts', {
-                      queued: plugin.runtime.queuedJobs,
-                      running: plugin.runtime.runningJobs,
-                      failed: plugin.runtime.failedJobs,
-                    })
-                  : commonNs('notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginFreshness')}
-              </span>
-              <span className="config-value mono">
-                {plugin.definition?.freshnessDays
-                  ? t('settings.daysFreshness', {
-                      days: plugin.definition.freshnessDays,
-                    })
-                  : commonNs('notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {t('settings.pluginDerivedTables')}
-              </span>
-              <span className="config-value mono">
-                {plugin.definition?.derivedTables.join(', ') ??
-                  commonNs('notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {settingsNs('pluginStoredRecords')}
-              </span>
-              <span className="config-value mono">
-                {plugin.runtime?.storedRecords ?? 0}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {settingsNs('pluginLastCompleted')}
-              </span>
-              <span className="config-value mono">
-                {plugin.runtime?.lastCompletedAt
-                  ? formatDateTime(plugin.runtime.lastCompletedAt, language)
-                  : commonNs('notAvailable')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">
-                {settingsNs('pluginLastError')}
-              </span>
-              <span className="config-value">
-                {plugin.runtime?.lastError ?? commonNs('notAvailable')}
-              </span>
-            </div>
-            <div className="settings-action-row">
+          <ReviewRuntimeBoundaryCard
+            active
+            actions={
               <button
                 className="btn-secondary"
                 type="button"
@@ -355,8 +281,72 @@ export function DerivedRuntimeReview({
                   ? t('settings.disablePlugin')
                   : t('settings.enablePlugin')}
               </button>
-            </div>
-          </div>
+            }
+            description={enrichmentPluginDescription(
+              plugin.state.id,
+              settingsNs,
+            )}
+            headerMeta={
+              <span className="mono">
+                {plugin.state.enabled
+                  ? t('settings.enabled')
+                  : t('settings.disabled')}
+              </span>
+            }
+            key={plugin.state.id}
+            metrics={[
+              {
+                label: settingsNs('pluginBoundary'),
+                value: enrichmentPluginBoundaryLabel(sourceKind, settingsNs),
+                valueClassName: 'mono',
+              },
+              {
+                label: t('settings.pluginQueue'),
+                value: plugin.runtime
+                  ? settingsNs('pluginQueueCounts', {
+                      queued: plugin.runtime.queuedJobs,
+                      running: plugin.runtime.runningJobs,
+                      failed: plugin.runtime.failedJobs,
+                    })
+                  : commonNs('notAvailable'),
+                valueClassName: 'mono',
+              },
+              {
+                label: t('settings.pluginFreshness'),
+                value: plugin.definition?.freshnessDays
+                  ? t('settings.daysFreshness', {
+                      days: plugin.definition.freshnessDays,
+                    })
+                  : commonNs('notAvailable'),
+                valueClassName: 'mono',
+              },
+              {
+                label: t('settings.pluginDerivedTables'),
+                value:
+                  plugin.definition?.derivedTables.join(', ') ??
+                  commonNs('notAvailable'),
+                valueClassName: 'mono',
+              },
+              {
+                label: settingsNs('pluginStoredRecords'),
+                value: plugin.runtime?.storedRecords ?? 0,
+                valueClassName: 'mono',
+              },
+              {
+                label: settingsNs('pluginLastCompleted'),
+                value: plugin.runtime?.lastCompletedAt
+                  ? (formatDateTime(plugin.runtime.lastCompletedAt, language) ??
+                    plugin.runtime.lastCompletedAt)
+                  : commonNs('notAvailable'),
+                valueClassName: 'mono',
+              },
+              {
+                label: settingsNs('pluginLastError'),
+                value: plugin.runtime?.lastError ?? commonNs('notAvailable'),
+              },
+            ]}
+            title={enrichmentPluginLabel(plugin.state.id, settingsNs)}
+          />
         )
       })}
 

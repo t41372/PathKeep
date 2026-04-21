@@ -6,6 +6,7 @@ import {
   copyReviewValue,
   GeneratedArtifactViewer,
   PmeTabBar,
+  ReviewRuntimeBoundaryCard,
   ReviewCodePreview,
   ReviewPathActionRow,
   ReviewTargetLinksRow,
@@ -165,6 +166,46 @@ describe('shared review primitives', () => {
       screen.getByText('Shared support actions stay reviewable.'),
     ).toBeVisible()
     expect(screen.getByText('Copied')).toBeVisible()
+  })
+
+  test('renders shared runtime-boundary cards with metrics, notes, and actions', async () => {
+    const user = userEvent.setup()
+    const onToggle = vi.fn()
+
+    render(
+      <ReviewRuntimeBoundaryCard
+        active
+        actions={
+          <button type="button" onClick={onToggle}>
+            Retry
+          </button>
+        }
+        description="Shared runtime cards keep Jobs and Settings on the same review grammar."
+        headerMeta={<span className="mono">Stale</span>}
+        metrics={[
+          {
+            label: 'Derived tables',
+            value: 'search_trails, query_families',
+            valueClassName: 'mono',
+          },
+          {
+            label: 'Last built',
+            value: '2026-04-21 10:30',
+            valueClassName: 'mono-support',
+          },
+        ]}
+        notes={<p className="mono-support">Needs rebuild after new imports.</p>}
+        title="Search trails"
+      />,
+    )
+
+    expect(screen.getByText('Search trails')).toBeVisible()
+    expect(screen.getByText('Derived tables')).toBeVisible()
+    expect(screen.getByText('search_trails, query_families')).toBeVisible()
+    expect(screen.getByText('Needs rebuild after new imports.')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
   test('renders verify-result rows as shared review sections', () => {

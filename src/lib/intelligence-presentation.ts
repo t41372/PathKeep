@@ -1,6 +1,14 @@
 import type { EnrichmentPluginStatus, IntelligenceJobOverview } from './types'
 
-type JobsTranslator = (
+/**
+ * Defines the translator contract shared by Jobs-specific runtime presentation helpers.
+ *
+ * These helpers intentionally stay route-aware because they translate queue and
+ * plugin failure states into user-facing Jobs copy. Exporting the type keeps
+ * other Jobs-owned modules aligned without forcing them to duplicate the
+ * callback signature locally.
+ */
+export type JobsTranslator = (
   key: string,
   vars?: Record<string, string | number>,
 ) => string

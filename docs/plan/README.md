@@ -41,6 +41,8 @@
 > **2026-04-19 M10 closeout note**：`WORK-M10-A` 與 `WORK-M10-B` 已完成。repo 現在正式有 shared `refind` workbench shell、Explorer session/trail shared group-card/member-row primitive、Settings external-output/local-host shared review chrome，以及 split 的 promoted routes / Core Intelligence API / Tauri command + worker-bridge intelligence facade；對外 route / payload contract 維持不變。下一輪 active 規劃改成 `M11 — App-Wide Reuse And Shared Review Grammar`，用來全面盤點剩餘 mixed helper、dev mirror、與跨 route review / PME / diagnostics drift。
 >
 > **2026-04-19 M12 closeout note**：`WORK-M12-A` 與 `WORK-M12-B` 已完成。repo 現在正式有 app-wide shared support-action / clipboard grammar，Settings general diagnostics / App Lock、Audit、Import、Schedule、Security / Lock 與 Explorer export path 都已接到 `src/components/review/` 的 canonical owner；Jobs plugin / module summary rows與 transport parity follow-up 則明確移交給 `M13 — Broad Reuse Audit Across Support / Trust / Workflow Surfaces`。
+>
+> **2026-04-21 M13 inventory note**：`WORK-M13-A` 已完成。repo 現在除了既有 neutral review 與 support-action grammar，也正式有 shared runtime-boundary card grammar；Jobs runtime health / plugin / module summary 與 Settings derived runtime review 是第一批 consumer。`WORK-M13-B` 仍維持 active，下一輪 priority 改成 shell-data owner、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering。
 
 ---
 

@@ -211,6 +211,15 @@ describe('intelligence surfaces', () => {
     expect(await screen.findByText(jobsT('failedTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('statusEyebrow'))).toBeVisible()
     expect(screen.getByText('Derived-data queue')).toBeVisible()
+    expect(screen.getByText(jobsT('runtimeHealthTitle'))).toBeVisible()
+    expect(screen.getByText(jobsT('pluginsTitle'))).toBeVisible()
+    expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
+      0,
+    )
+    expect(screen.getByText('Sessions')).toBeVisible()
+    expect(
+      screen.getByText('New imports were added after the last rebuild.'),
+    ).toBeVisible()
     expect(screen.getByText('Scoring visits')).toBeVisible()
     expect(
       screen.getAllByText('24,000 / 64,781 visits').length,

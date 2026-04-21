@@ -27,16 +27,10 @@ import { formatDateTime, formatRelativeTime } from '../../lib/format'
 import { type ResolvedLanguage, useI18n } from '../../lib/i18n'
 import {
   runtimeJobMutationNeedsRefresh,
-  summarizePluginError,
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
 import {
-  deterministicModuleDescription,
-  deterministicModuleLabel,
-  deterministicModuleStatusLabel,
-  enrichmentPluginBoundaryLabel,
-  enrichmentPluginDescription,
   enrichmentPluginLabel,
   intelligenceRuntimeJobStateLabel,
 } from '../../lib/intelligence-runtime'
@@ -45,6 +39,7 @@ import type {
   AppConfig,
   IntelligenceJobOverview,
 } from '../../lib/types'
+import { JobsRuntimeHealthSection } from './runtime-health-section'
 
 type JobsTranslator = (
   key: string,
@@ -312,24 +307,12 @@ export function JobsPage() {
     runtime?.plugins.find(
       (plugin) => plugin.pluginId === 'readable-content-refetch',
     ) ?? null
-  const titlePlugin =
-    runtime?.plugins.find(
-      (plugin) => plugin.pluginId === 'title-normalization',
-    ) ?? null
-  const readyModuleCount =
-    runtime?.modules.filter((module) => module.status === 'ready').length ?? 0
-  const attentionModuleCount =
-    runtime?.modules.filter(
-      (module) => !['ready', 'disabled'].includes(module.status),
-    ).length ?? 0
   const activeRuntimeJob =
     runtime?.recentJobs.find((job) => job.state === 'running') ??
     runtime?.recentJobs.find((job) => job.state === 'queued') ??
     null
   const reviewRuntimeJob =
     runtime?.recentJobs.find((job) => job.state === 'failed') ?? null
-  const latestModuleBuildAt =
-    runtime?.modules.find((module) => module.lastBuiltAt)?.lastBuiltAt ?? null
   const contentQueueMessage = contentPlugin
     ? contentPlugin.queuedJobs > 0
       ? jobsT('contentFetchBacklogBody', {
@@ -560,230 +543,13 @@ export function JobsPage() {
             </div>
           </div>
         </div>
-
-        <div className="jobs-focus-grid">
-          <div className="panel jobs-focus-card">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('contentFetchTitle')}</span>
-              <span className="panel-action">
-                {enrichmentPluginBoundaryLabel('network', settingsT)}
-              </span>
-            </div>
-            <div className="panel-body jobs-panel-stack">
-              <p>{contentQueueMessage}</p>
-              <div className="jobs-meta-grid mono-support">
-                <span>
-                  {jobsT('queuedCount')}:{' '}
-                  {(contentPlugin?.queuedJobs ?? 0).toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('runningCount')}:{' '}
-                  {(contentPlugin?.runningJobs ?? 0).toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('failedCount')}:{' '}
-                  {(contentPlugin?.failedJobs ?? 0).toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('savedReadableContent')}:{' '}
-                  {(contentPlugin?.storedRecords ?? 0).toLocaleString(language)}
-                </span>
-              </div>
-              {contentPlugin?.lastError ? (
-                <p className="mono-support">
-                  {summarizePluginError(contentPlugin, jobsT)}
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="panel jobs-focus-card">
-            <div className="panel-header">
-              <span className="panel-title">
-                {enrichmentPluginLabel('title-normalization', settingsT)}
-              </span>
-              <span className="panel-action">
-                {enrichmentPluginBoundaryLabel('local', settingsT)}
-              </span>
-            </div>
-            <div className="panel-body jobs-panel-stack">
-              <p>{jobsT('titleNormalizationBody')}</p>
-              <div className="jobs-meta-grid mono-support">
-                <span>
-                  {jobsT('queuedCount')}:{' '}
-                  {(titlePlugin?.queuedJobs ?? 0).toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('runningCount')}:{' '}
-                  {(titlePlugin?.runningJobs ?? 0).toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('failedCount')}:{' '}
-                  {(titlePlugin?.failedJobs ?? 0).toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('storedRecordsLabel')}:{' '}
-                  {(titlePlugin?.storedRecords ?? 0).toLocaleString(language)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel jobs-focus-card">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('modulesTitle')}</span>
-              <span className="panel-action">
-                {readyModuleCount.toLocaleString(language)} /{' '}
-                {(runtime?.modules.length ?? 0).toLocaleString(language)}
-              </span>
-            </div>
-            <div className="panel-body jobs-panel-stack">
-              <p>
-                {attentionModuleCount > 0
-                  ? jobsT('moduleAttentionBody', {
-                      count: attentionModuleCount,
-                    })
-                  : jobsT('moduleHealthyBody')}
-              </p>
-              <div className="jobs-meta-grid mono-support">
-                <span>
-                  {jobsT('moduleReadyCount')}:{' '}
-                  {readyModuleCount.toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('moduleAttentionCount')}:{' '}
-                  {attentionModuleCount.toLocaleString(language)}
-                </span>
-                <span>
-                  {jobsT('lastCompletedAt')}:{' '}
-                  {latestModuleBuildAt
-                    ? formatDateTime(latestModuleBuildAt, language)
-                    : commonT('notAvailable')}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel jobs-focus-card">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('recoveryTitle')}</span>
-            </div>
-            <div className="panel-body jobs-panel-stack">
-              <p>{jobsT('recoveryBody')}</p>
-              {runtime?.notes?.length ? (
-                <div className="jobs-notes">
-                  {runtime.notes.map((note) => (
-                    <p key={note} className="mono-support">
-                      {note}
-                    </p>
-                  ))}
-                </div>
-              ) : (
-                <p className="mono-support">{jobsT('noRecoveryNotes')}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="jobs-section-heading">
-          <span className="panel-title">{jobsT('runtimeHealthTitle')}</span>
-          <p>{jobsT('runtimeHealthBody')}</p>
-        </div>
-
-        {/* TODO: M13 - These plugin/module summary rows still use a Jobs-local
-            runtime-health layout. Only extract them once the broader support /
-            trust / workflow reuse audit proves the same grammar would also pay
-            off in Settings and other non-Jobs consumers. */}
-        <div className="jobs-summary-grid">
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('pluginsTitle')}</span>
-            </div>
-            <div className="panel-body jobs-status-grid">
-              {(runtime?.plugins ?? []).map((plugin) => (
-                <div key={plugin.pluginId} className="result-row">
-                  <div className="result-row__header">
-                    <strong>
-                      {enrichmentPluginLabel(plugin.pluginId, settingsT)}
-                    </strong>
-                    <span className="mono-support">
-                      {enrichmentPluginBoundaryLabel(
-                        plugin.sourceKind,
-                        settingsT,
-                      )}
-                    </span>
-                  </div>
-                  <p>
-                    {enrichmentPluginDescription(plugin.pluginId, settingsT)}
-                  </p>
-                  <div className="jobs-meta-grid mono-support">
-                    <span>
-                      {jobsT('queuedCount')}:{' '}
-                      {plugin.queuedJobs.toLocaleString(language)}
-                    </span>
-                    <span>
-                      {jobsT('runningCount')}:{' '}
-                      {plugin.runningJobs.toLocaleString(language)}
-                    </span>
-                    <span>
-                      {jobsT('failedCount')}:{' '}
-                      {plugin.failedJobs.toLocaleString(language)}
-                    </span>
-                    <span>
-                      {jobsT('lastCompletedAt')}:{' '}
-                      {plugin.lastCompletedAt
-                        ? formatDateTime(plugin.lastCompletedAt, language)
-                        : commonT('notAvailable')}
-                    </span>
-                  </div>
-                  {plugin.lastError ? (
-                    <p className="mono-support">
-                      {summarizePluginError(plugin, jobsT)}
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('modulesTitle')}</span>
-            </div>
-            <div className="panel-body jobs-status-grid">
-              {(runtime?.modules ?? []).map((module) => (
-                <div key={module.moduleId} className="result-row">
-                  <div className="result-row__header">
-                    <strong>
-                      {deterministicModuleLabel(module.moduleId, settingsT)}
-                    </strong>
-                    <span className="mono-support">
-                      {deterministicModuleStatusLabel(module.status, settingsT)}
-                    </span>
-                  </div>
-                  <p>
-                    {deterministicModuleDescription(module.moduleId, settingsT)}
-                  </p>
-                  <div className="jobs-meta-grid mono-support">
-                    <span>
-                      {jobsT('lastCompletedAt')}:{' '}
-                      {module.lastBuiltAt
-                        ? formatDateTime(module.lastBuiltAt, language)
-                        : commonT('notAvailable')}
-                    </span>
-                    <span>
-                      {jobsT('derivedTables')}:{' '}
-                      {module.derivedTables.join(', ')}
-                    </span>
-                  </div>
-                  {module.staleReason ? (
-                    <p className="mono-support">{module.staleReason}</p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <JobsRuntimeHealthSection
+          commonT={commonT}
+          jobsT={jobsT}
+          language={language}
+          runtime={runtime}
+          settingsT={settingsT}
+        />
 
         <div className="jobs-section-heading">
           <span className="panel-title">{jobsT('recentActivityTitle')}</span>
