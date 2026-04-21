@@ -22,118 +22,28 @@ import {
   type ReactNode,
 } from 'react'
 import { backend } from '../lib/backend-client'
-import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
 import { useI18nContext } from '../lib/i18n'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppBuildInfo,
-  AppConfig,
   AppLockStatus,
   AppSnapshot,
-  BackupProgressEvent,
   DashboardSnapshot,
-  SetAppLockPasscodeRequest,
-  UnlockAppSessionRequest,
 } from '../lib/types'
 import {
   type BusyOverlayState,
   ShellDataContext,
   type ShellRuntimeStatus,
 } from './shell-data-context'
-
-/**
- * Detects the locked-state refusal messages that should kick the shell back
- * onto the explicit App Lock flow instead of surfacing a generic error.
- */
-function isAppLockError(error: unknown) {
-  return (
-    error instanceof Error &&
-    /currently locked|unlock the app|unlock pathkeep/i.test(error.message)
-  )
-}
-
-/**
- * Builds a shell-safe dashboard fallback when the archive has not been
- * initialized yet but the dashboard read model still failed to load.
- *
- * This keeps the shell usable enough to reach onboarding instead of trapping
- * first-run desktop sessions behind a generic archive read error.
- */
-function buildUninitializedDashboardFallback(
-  snapshot: AppSnapshot,
-): DashboardSnapshot {
-  return {
-    generatedAt: new Date().toISOString(),
-    totalProfiles: 0,
-    totalUrls: 0,
-    totalVisits: 0,
-    totalDownloads: 0,
-    lastSuccessfulBackupAt: null,
-    recentRuns: snapshot.recentRuns,
-    storage: {
-      archiveDatabaseBytes: 0,
-      sourceEvidenceDatabaseBytes: 0,
-      searchDatabaseBytes: 0,
-      intelligenceDatabaseBytes: 0,
-      manifestBytes: 0,
-      snapshotBytes: 0,
-      exportBytes: 0,
-      stagingBytes: 0,
-      quarantineBytes: 0,
-      semanticSidecarBytes: 0,
-      intelligenceBlobBytes: 0,
-    },
-    nextAction: null,
-  }
-}
-
-/**
- * Returns whether the shell is allowed to try the best-effort keyring auto
- * unlock path during bootstrap.
- *
- * The point is not to hide archive locking; it is to avoid asking the user to
- * repeat an unlock step when they explicitly chose "remember key in keyring"
- * and the platform says a stored secret is available.
- */
-function shouldAttemptKeyringAutoUnlock(snapshot: AppSnapshot) {
-  return (
-    snapshot.archiveStatus.encrypted &&
-    !snapshot.archiveStatus.unlocked &&
-    snapshot.config.rememberDatabaseKeyInKeyring &&
-    snapshot.keyringStatus.available &&
-    snapshot.keyringStatus.storedSecret
-  )
-}
-
-function emptyRuntimeStatus(): ShellRuntimeStatus {
-  return {
-    aiQueue: null,
-    intelligence: null,
-    loading: false,
-    error: null,
-  }
-}
-
-function runtimeStatusScopeKey(snapshot: AppSnapshot | null) {
-  if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
-    return 'locked-or-uninitialized'
-  }
-
-  return [
-    snapshot.archiveStatus.databasePath,
-    snapshot.config.selectedProfileIds.join(','),
-    snapshot.config.ai.jobQueuePaused ? 'paused' : 'live',
-  ].join('|')
-}
-
-function countActiveRuntimeJobs(status: ShellRuntimeStatus) {
-  return (
-    (status.aiQueue?.queued ?? 0) +
-    (status.aiQueue?.running ?? 0) +
-    (status.intelligence?.queue.queued ?? 0) +
-    (status.intelligence?.queue.running ?? 0)
-  )
-}
+import { createShellDataActions } from './shell-data-actions'
+import {
+  buildUninitializedDashboardFallback,
+  countActiveRuntimeJobs,
+  emptyRuntimeStatus,
+  isAppLockError,
+  runtimeStatusScopeKey,
+  shouldAttemptKeyringAutoUnlock,
+} from './shell-data-helpers'
 
 /**
  * Provides the front-end shell read model and shell-level actions to the rest
@@ -317,105 +227,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     [snapshot, t],
   )
 
-  /**
-   * Converts a low-level backup progress event into the readable busy-overlay
-   * state shown by the shell.
-   *
-   * This is part of the PME honesty contract: users should see which phase a
-   * backup is in, which profile is being processed, and roughly how far along
-   * the run has moved.
-   */
-  function backupOverlay(progress: BackupProgressEvent): BusyOverlayState {
-    const backupSteps = [
-      t('shell.backupStepPrepare'),
-      t('shell.backupStepArchive'),
-      t('shell.backupStepRefresh'),
-    ]
-    const stepProgress =
-      progress.totalSteps > 0
-        ? (Math.min(progress.step + 1, progress.totalSteps) /
-            progress.totalSteps) *
-          100
-        : null
-    const profileCurrent =
-      progress.phase === 'stage-profile' || progress.phase === 'ingest-profile'
-        ? progress.completedProfiles + 1
-        : progress.completedProfiles
-    const profileDetail =
-      progress.profileId && progress.totalProfiles > 0
-        ? t('shell.backupProfileProgress', {
-            profileId: progress.profileId,
-            current: profileCurrent,
-            total: progress.totalProfiles,
-          })
-        : null
-    const progressLabel =
-      progress.totalProfiles > 0
-        ? `${profileCurrent.toLocaleString()} / ${progress.totalProfiles.toLocaleString()}`
-        : `${Math.min(progress.step + 1, progress.totalSteps).toLocaleString()} / ${progress.totalSteps.toLocaleString()}`
-
-    switch (progress.phase) {
-      case 'prepare': {
-        const detail = t('shell.runningManualBackupDetail')
-        return {
-          label: t('shell.runningManualBackup'),
-          detail,
-          progressLabel,
-          progressValue: stepProgress,
-          steps: backupSteps,
-          activeStep: 0,
-          logLines: [detail],
-        }
-      }
-      case 'stage-profile':
-      case 'ingest-profile': {
-        const detail = profileDetail ?? t('shell.backupWritingArchiveDetail')
-        return {
-          label: t('shell.backupWritingArchive'),
-          detail,
-          progressLabel,
-          progressValue:
-            progress.totalProfiles > 0
-              ? (profileCurrent / progress.totalProfiles) * 100
-              : stepProgress,
-          steps: backupSteps,
-          activeStep: 1,
-          logLines: [detail],
-        }
-      }
-      case 'finalize': {
-        const detail = t('shell.backupFinalizeProgress', {
-          current: progress.completedProfiles,
-          total: progress.totalProfiles,
-        })
-        return {
-          label: t('shell.refreshingArchiveViews'),
-          detail,
-          progressLabel,
-          progressValue:
-            progress.totalProfiles > 0
-              ? (progress.completedProfiles / progress.totalProfiles) * 100
-              : stepProgress,
-          steps: backupSteps,
-          activeStep: 2,
-          logLines: [detail],
-        }
-      }
-      default: {
-        const detail = t('shell.runningManualBackupDetail')
-        return {
-          label: t('shell.runningManualBackup'),
-          detail,
-          progressLabel,
-          progressValue: stepProgress,
-          steps: backupSteps,
-          activeStep: 0,
-          logLines: [detail],
-        }
-      }
-    }
-  }
-
   const refreshAppData = useCallback(
     async (showSpinner = true) => {
       if (showSpinner) {
@@ -590,20 +401,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    /**
-     * Explains how schedule idle reset works.
-     *
-     * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-     */
     const scheduleIdleReset = () => {
       armIdleDeadline(appLockStatus.idleTimeoutMinutes)
     }
 
-    /**
-     * Handles visibility.
-     *
-     * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-     */
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         armIdleDeadline(appLockStatus.idleTimeoutMinutes)
@@ -636,275 +437,28 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     clearIdleTimer,
   ])
 
-  /**
-   * Explains how save config works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function saveConfig(config: AppConfig) {
-    showBusyOverlay({
-      label: t('shell.savingArchiveChoices'),
-      detail: t('shell.savingArchiveChoicesDetail'),
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      await waitForNextPaint()
-      const nextSnapshot = await backend.saveConfig(config)
-      setLanguagePreference(nextSnapshot.config.preferredLanguage)
-      setAppLockStatus(nextSnapshot.appLockStatus)
-      setSnapshot(nextSnapshot)
-      setRefreshKey((value) => value + 1)
-      void refreshDashboardSnapshot(nextSnapshot)
-      return nextSnapshot
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.savingSettingsFailed'),
-      )
-      throw nextError
-    } finally {
-      clearBusyOverlay()
-    }
-  }
-
-  /**
-   * Explains how initialize archive works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function initializeArchive(
-    config: AppConfig,
-    databaseKey?: string | null,
-  ) {
-    showBusyOverlay({
-      label: t('shell.preparingArchive'),
-      detail: t('shell.preparingArchiveDetail'),
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      await waitForNextPaint()
-      const nextSnapshot = await backend.initializeArchive(config, databaseKey)
-      setLanguagePreference(nextSnapshot.config.preferredLanguage)
-      setAppLockStatus(nextSnapshot.appLockStatus)
-      setSnapshot(nextSnapshot)
-      setNotice(t('shell.initializedNotice'))
-      setRefreshKey((value) => value + 1)
-      void refreshDashboardSnapshot(nextSnapshot)
-      return nextSnapshot
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.initializeArchiveFailed'),
-      )
-      throw nextError
-    } finally {
-      clearBusyOverlay()
-    }
-  }
-
-  /**
-   * Explains how run backup works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function runBackup() {
-    const backupSteps = [
-      t('shell.backupStepPrepare'),
-      t('shell.backupStepArchive'),
-      t('shell.backupStepRefresh'),
-    ]
-    /**
-     * Explains how unsubscribe works.
-     *
-     * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-     */
-    let unsubscribe = () => {}
-
-    showBusyOverlay({
-      label: t('shell.runningManualBackup'),
-      detail: t('shell.runningManualBackupDetail'),
-      progressLabel: `1 / ${backupSteps.length.toLocaleString()}`,
-      progressValue: 33,
-      steps: backupSteps,
-      activeStep: 0,
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      unsubscribe = await subscribeToBackupProgress((progress) => {
-        showBusyOverlay(backupOverlay(progress))
-      })
-      await waitForNextPaint()
-      showBusyOverlay({
-        label: t('shell.backupWritingArchive'),
-        detail: t('shell.backupWritingArchiveDetail'),
-        progressLabel: `2 / ${backupSteps.length.toLocaleString()}`,
-        progressValue: 67,
-        steps: backupSteps,
-        activeStep: 1,
-      })
-      const report = await backend.runBackupNow(false)
-      showBusyOverlay({
-        label: t('shell.refreshingArchiveViews'),
-        detail: t('shell.refreshingArchiveViewsDetail'),
-        progressLabel: `3 / ${backupSteps.length.toLocaleString()}`,
-        progressValue: 100,
-        steps: backupSteps,
-        activeStep: 2,
-      })
-      void refreshAppData(false)
-      setNotice(
-        report.dueSkipped
-          ? (report.reason ?? t('shell.manualBackupDueWindow'))
-          : report.run
-            ? t('shell.manualBackupFinished', { runId: report.run.id })
-            : t('common.complete'),
-      )
-      return report
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.manualBackupFailed'),
-      )
-      throw nextError
-    } finally {
-      unsubscribe()
-      clearBusyOverlay()
-    }
-  }
-
-  /**
-   * Explains how set app lock passcode works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function setAppLockPasscode(request: SetAppLockPasscodeRequest) {
-    showBusyOverlay({
-      label: t('shell.settingAppLockPasscode'),
-      detail: t('shell.settingAppLockPasscodeDetail'),
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      await waitForNextPaint()
-      const nextStatus = await backend.setAppLockPasscode(request)
-      setAppLockStatus(nextStatus)
-      void refreshAppData(false)
-      return nextStatus
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.setAppLockPasscodeFailed'),
-      )
-      throw nextError
-    } finally {
-      clearBusyOverlay()
-    }
-  }
-
-  /**
-   * Explains how clear app lock passcode works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function clearAppLockPasscode() {
-    showBusyOverlay({
-      label: t('shell.clearingAppLockPasscode'),
-      detail: t('shell.clearingAppLockPasscodeDetail'),
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      await waitForNextPaint()
-      const nextStatus = await backend.clearAppLockPasscode()
-      setAppLockStatus(nextStatus)
-      void refreshAppData(false)
-      return nextStatus
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.clearAppLockPasscodeFailed'),
-      )
-      throw nextError
-    } finally {
-      clearBusyOverlay()
-    }
-  }
-
-  /**
-   * Explains how lock app session works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function lockAppSession(reason?: string | null) {
-    showBusyOverlay({
-      label: t('shell.lockingApp'),
-      detail: t('shell.lockingAppDetail'),
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      await waitForNextPaint()
-      const nextStatus = await backend.lockAppSession(reason ?? null)
-      setAppLockStatus(nextStatus)
-      clearLoadedState()
-      setRefreshKey((value) => value + 1)
-      return nextStatus
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.lockAppFailed'),
-      )
-      throw nextError
-    } finally {
-      clearBusyOverlay()
-    }
-  }
-
-  /**
-   * Explains how unlock app session works.
-   *
-   * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
-   */
-  async function unlockAppSession(request: UnlockAppSessionRequest) {
-    showBusyOverlay({
-      label: t('shell.unlockingApp'),
-      detail: t('shell.unlockingAppDetail'),
-    })
-    setNotice(null)
-    setError(null)
-
-    try {
-      await waitForNextPaint()
-      const nextStatus = await backend.unlockAppSession(request)
-      setAppLockStatus(nextStatus)
-      void refreshAppData(false)
-      return nextStatus
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('shell.unlockAppFailed'),
-      )
-      throw nextError
-    } finally {
-      clearBusyOverlay()
-    }
-  }
+  const {
+    saveConfig,
+    initializeArchive,
+    runBackup,
+    setAppLockPasscode,
+    clearAppLockPasscode,
+    lockAppSession,
+    unlockAppSession,
+  } = createShellDataActions({
+    t,
+    setLanguagePreference,
+    refreshDashboardSnapshot,
+    refreshAppData,
+    clearLoadedState,
+    showBusyOverlay,
+    clearBusyOverlay,
+    setNotice,
+    setError,
+    setSnapshot,
+    setAppLockStatus,
+    setRefreshKey,
+  })
 
   return (
     <ShellDataContext.Provider
