@@ -1,56 +1,53 @@
 /**
- * This module renders the onboarding flow that teaches the archive boundary, browser-retention honesty, and first-backup setup steps.
+ * @file index.tsx
+ * @description Renders the onboarding route shell and keeps step ownership, validation, and setup-side effects in one route-level owner.
+ * @module pages/onboarding
  *
- * Why this file exists:
- * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
- * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ * ## 職責
+ * - 處理 onboarding route 的 loading/error/empty gating。
+ * - 持有 step state、config mutation、schedule preview、以及 finish validation/initialize flow。
+ * - 組合 extracted onboarding step renderers與 stepper。
  *
- * Main declarations:
- * - `OnboardingPage`
+ * ## 不負責
+ * - 不在 route 內保留每一步的大段 JSX。
+ * - 不把 onboarding draft state 塞回全域 context。
+ * - 不改變既有 initialize / runBackup backend contract。
  *
- * Source-of-truth notes:
- * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
- * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ * ## 依賴關係
+ * - 依賴 `useShellData()` 提供 snapshot、saveConfig、initializeArchive、runBackup。
+ * - 依賴 extracted step modules 渲染各步畫面。
+ *
+ * ## 性能備注
+ * - schedule preview 只在使用者進到 schedule step 時載入，避免 onboarding 首屏 fan-out。
  */
 
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import { BrandMark } from '../../components/brand-mark'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
-import { useI18n } from '../../lib/i18n'
 import { backend } from '../../lib/backend-client'
 import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
 } from '../../lib/build-info'
-import { browserRetentionMeta } from '../../lib/browser-retention'
-import { formatBytes } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
 import { estimateOnboardingStorage } from '../../lib/onboarding-estimates'
-import type { SchedulePlan } from '../../lib/types'
-
-const stepKeys = [
-  'stepWelcome',
-  'stepBrowsers',
-  'stepStorage',
-  'stepSecurity',
-  'stepSchedule',
-  'stepReady',
-] as const
-const dueAfterOptions = [6, 12, 24, 72]
-
-interface SecurityDraftState {
-  confirmPassword: string
-  masterPassword: string
-  rememberKey: boolean
-}
+import type { AppConfig, SchedulePlan } from '../../lib/types'
+import { BrowserDetectionStep } from './browser-detection-step'
+import { ReadyStep } from './ready-step'
+import { ScheduleStep } from './schedule-step'
+import { SecurityStep } from './security-step'
+import { onboardingStepKeys, type SecurityDraftState } from './shared'
+import { StorageStep } from './storage-step'
+import { WelcomeStep } from './welcome-step'
 
 /**
- * Renders the onboarding route.
+ * Renders the onboarding route around extracted step renderers.
  *
- * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Onboarding expectations in the design docs.
+ * The route keeps all workflow validation and side effects centralized so each
+ * step renderer can stay presentational and easy to reason about.
  */
 export function OnboardingPage() {
   const navigate = useNavigate()
@@ -64,15 +61,13 @@ export function OnboardingPage() {
     runBackup,
     snapshot,
   } = useShellData()
-  const { language, t, ns } = useI18n('onboarding')
-  const commonT = ns('common')
-  const platformT = ns('platform')
+  const { t } = useI18n('onboarding')
   const buildRevision = formatBuildRevisionLabel(buildInfo)
   const buildTitle = formatBuildVersionTitle(buildInfo)
   const [step, setStep] = useState(0)
   const [securityDraft, setSecurityDraft] = useState<SecurityDraftState>({
-    masterPassword: '',
     confirmPassword: '',
+    masterPassword: '',
     rememberKey: false,
   })
   const [localError, setLocalError] = useState<string | null>(null)
@@ -83,36 +78,42 @@ export function OnboardingPage() {
   >(null)
 
   useEffect(() => {
-    if (step === 4 && snapshot) {
-      let cancelled = false
+    if (step !== 4 || !snapshot) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadSchedulePreview = async () => {
       setSchedulePreviewLoading(true)
       setSchedulePreviewError(null)
-      void backend
-        .previewSchedule()
-        .then((plan) => {
-          if (!cancelled) setSchedulePlan(plan)
-        })
-        .catch((nextError) => {
-          if (!cancelled) {
-            setSchedulePlan(null)
-            setSchedulePreviewError(
-              nextError instanceof Error
-                ? nextError.message
-                : t('schedulePreviewFallbackError'),
-            )
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setSchedulePreviewLoading(false)
-          }
-        })
-      return () => {
-        cancelled = true
+      try {
+        const plan = await backend.previewSchedule()
+        if (!cancelled) {
+          setSchedulePlan(plan)
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setSchedulePlan(null)
+          setSchedulePreviewError(
+            nextError instanceof Error
+              ? nextError.message
+              : t('schedulePreviewFallbackError'),
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setSchedulePreviewLoading(false)
+        }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, snapshot?.config.dueAfterHours])
+
+    void loadSchedulePreview()
+
+    return () => {
+      cancelled = true
+    }
+  }, [step, snapshot, t])
 
   if (loading && !snapshot) {
     return (
@@ -131,7 +132,7 @@ export function OnboardingPage() {
         className="page-shell onboarding-page"
         data-testid="onboarding-page"
       >
-        <ErrorState title={t('errorTitle')} description={error} />
+        <ErrorState description={error} title={t('errorTitle')} />
       </section>
     )
   }
@@ -152,29 +153,25 @@ export function OnboardingPage() {
   }
 
   const currentConfig = snapshot.config
-  const readableProfiles = snapshot.browserProfiles.filter(
-    (p) => p.historyExists,
-  )
-  const attentionProfiles = snapshot.browserProfiles.filter(
-    (p) => !p.historyExists,
-  )
-  const selectedCount = snapshot.config.selectedProfileIds.filter((id) =>
+  const selectedCount = currentConfig.selectedProfileIds.filter((id) =>
     snapshot.browserProfiles.some(
       (profile) => profile.profileId === id && profile.historyExists,
     ),
   ).length
   const storageEstimate = estimateOnboardingStorage(
     snapshot.browserProfiles,
-    snapshot.config.selectedProfileIds,
+    currentConfig.selectedProfileIds,
   )
 
-  /**
-   * Handles security card click.
-   *
-   * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
+  async function updateConfig(
+    updater: (config: typeof currentConfig) => typeof currentConfig,
+  ) {
+    setLocalError(null)
+    await saveConfig(updater(currentConfig))
+  }
+
   function handleSecurityCardClick(
-    mode: 'Encrypted' | 'Plaintext',
+    mode: AppConfig['archiveMode'],
     target: EventTarget | null,
   ) {
     const element = target instanceof HTMLElement ? target : null
@@ -184,21 +181,6 @@ export function OnboardingPage() {
     void updateConfig((config) => ({ ...config, archiveMode: mode }))
   }
 
-  /**
-   * Persists a small onboarding config change while clearing any stale local
-   * error message from the previous step.
-   */
-  async function updateConfig(
-    updater: (c: typeof currentConfig) => typeof currentConfig,
-  ) {
-    setLocalError(null)
-    await saveConfig(updater(currentConfig))
-  }
-
-  /**
-   * Prevents the setup wizard from advancing until at least one readable
-   * browser profile is selected for backup.
-   */
   function handleBrowsersContinue() {
     setLocalError(null)
     if (selectedCount === 0) {
@@ -208,11 +190,31 @@ export function OnboardingPage() {
     setStep(2)
   }
 
-  /**
-   * Handles finish.
-   *
-   * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
+  function updateSecurityDraft(next: Partial<SecurityDraftState>) {
+    setLocalError(null)
+    setSecurityDraft((current) => ({
+      ...current,
+      ...next,
+    }))
+  }
+
+  function handleSecurityContinue() {
+    setLocalError(null)
+    if (currentConfig.archiveMode !== 'Encrypted') {
+      setStep(4)
+      return
+    }
+    if (!securityDraft.masterPassword.trim()) {
+      setLocalError(t('errorNeedPassword'))
+      return
+    }
+    if (securityDraft.masterPassword !== securityDraft.confirmPassword) {
+      setLocalError(t('errorPasswordMismatch'))
+      return
+    }
+    setStep(4)
+  }
+
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
@@ -242,917 +244,135 @@ export function OnboardingPage() {
       }
       await runBackup()
       void navigate('/')
-    } catch (e) {
-      setLocalError(e instanceof Error ? e.message : t('errorFinishFailed'))
+    } catch (nextError) {
+      setLocalError(
+        nextError instanceof Error ? nextError.message : t('errorFinishFailed'),
+      )
     }
   }
 
-  /**
-   * Updates the local encrypted-onboarding draft without depending on blur or step transitions.
-   */
-  function updateSecurityDraft(next: Partial<SecurityDraftState>) {
-    setLocalError(null)
-    setSecurityDraft((current) => ({
-      ...current,
-      ...next,
+  function handleToggleProfile(profileId: string) {
+    const selected = currentConfig.selectedProfileIds.includes(profileId)
+    const nextSelected = selected
+      ? currentConfig.selectedProfileIds.filter((value) => value !== profileId)
+      : [...currentConfig.selectedProfileIds, profileId]
+    void updateConfig((config) => ({
+      ...config,
+      selectedProfileIds: nextSelected,
     }))
-  }
-
-  /**
-   * Prevents the user from leaving the security step with an incomplete encrypted setup.
-   */
-  function handleSecurityContinue() {
-    setLocalError(null)
-    if (currentConfig.archiveMode !== 'Encrypted') {
-      setStep(4)
-      return
-    }
-
-    if (!securityDraft.masterPassword.trim()) {
-      setLocalError(t('errorNeedPassword'))
-      return
-    }
-
-    if (securityDraft.masterPassword !== securityDraft.confirmPassword) {
-      setLocalError(t('errorPasswordMismatch'))
-      return
-    }
-
-    setStep(4)
-  }
-
-  function schedulePlatformLabel(platform: string) {
-    if (platform === 'macos') return platformT('macosLabel')
-    if (platform === 'windows') return platformT('windowsLabel')
-    if (platform === 'linux') return platformT('linuxLabel')
-    return platform
-  }
-
-  function localizeScheduleManualStep(step: string, label: string) {
-    if (step === `Save the plist to ~/Library/LaunchAgents/${label}.plist.`) {
-      return t('scheduleManualStepLaunchAgentSave', { label })
-    }
-    if (
-      step ===
-      `Run \`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/${label}.plist\` to load the new schedule.`
-    ) {
-      return t('scheduleManualStepLaunchAgentBootstrap', { label })
-    }
-    if (
-      step ===
-      'Open the desktop build to verify the LaunchAgent artifact and install status.'
-    ) {
-      return t('scheduleManualStepLaunchAgentReviewInstalled')
-    }
-    if (step === 'Remove the LaunchAgent if you no longer want automation.') {
-      return t('scheduleManualStepLaunchAgentRemove')
-    }
-    if (step === 'Save the XML file and import it in Task Scheduler.') {
-      return t('scheduleManualStepWindowsSaveXml')
-    }
-    if (
-      step ===
-      `Alternatively run \`schtasks /Create /TN ${label} /XML ${label}.task.xml\`.`
-    ) {
-      return t('scheduleManualStepWindowsCreateTask', { label })
-    }
-    if (step === 'Copy the files to ~/.config/systemd/user/.') {
-      return t('scheduleManualStepLinuxCopy')
-    }
-    if (step === 'Run `systemctl --user daemon-reload`.') {
-      return t('scheduleManualStepLinuxReload')
-    }
-    if (step === `Run \`systemctl --user enable --now ${label}.timer\`.`) {
-      return t('scheduleManualStepLinuxEnable', { label })
-    }
-    if (
-      step ===
-      `Run \`systemctl --user list-timers ${label}.timer\` to verify the next scheduled run.`
-    ) {
-      return t('scheduleManualStepLinuxVerify', { label })
-    }
-    return step
-  }
-
-  /**
-   * Maps a browser profile ID to the CSS modifier used by the onboarding
-   * browser cards.
-   */
-  function browserIconClass(profileId: string) {
-    if (profileId.startsWith('chrome:')) return 'chrome'
-    if (profileId.startsWith('arc:')) return 'arc'
-    if (profileId.startsWith('firefox:')) return 'firefox'
-    if (profileId.startsWith('safari:')) return 'safari'
-    return ''
-  }
-
-  /**
-   * Maps a browser profile ID to the single-letter fallback glyph used when the
-   * onboarding browser cards do not render a richer icon.
-   */
-  function browserIconLetter(profileId: string) {
-    if (profileId.startsWith('chrome:')) return 'C'
-    if (profileId.startsWith('arc:')) return 'A'
-    if (profileId.startsWith('firefox:')) return 'F'
-    if (profileId.startsWith('safari:')) return 'S'
-    return '?'
   }
 
   return (
     <section data-testid="onboarding-page">
-      {/* Stepper Bar */}
-      {step > 0 && (
+      {step > 0 ? (
         <div className="onboarding-stepper">
           <div className="stepper-track">
-            {stepKeys.map((key, i) => (
+            {onboardingStepKeys.map((key, index) => (
               <div key={key} style={{ display: 'contents' }}>
                 <button
+                  aria-current={index === step ? 'step' : undefined}
+                  aria-label={`${t(key)}${index < step ? ' ✓' : ''}`}
+                  className={`stepper-step ${index < step ? 'completed' : ''} ${index === step ? 'active' : ''} ${index < step ? 'clickable' : ''}`}
+                  disabled={index > step}
                   type="button"
-                  className={`stepper-step ${i < step ? 'completed' : ''} ${i === step ? 'active' : ''} ${i < step ? 'clickable' : ''}`}
-                  aria-current={i === step ? 'step' : undefined}
-                  aria-label={`${t(key)}${i < step ? ' ✓' : ''}`}
-                  disabled={i > step}
                   onClick={() => {
-                    if (i < step) setStep(i)
+                    if (index < step) {
+                      setStep(index)
+                    }
                   }}
                 >
                   <div className="stepper-dot">
                     <span className="stepper-check">✓</span>
-                    <span className="stepper-num">{i + 1}</span>
+                    <span className="stepper-num">{index + 1}</span>
                   </div>
                   <span className="stepper-label">{t(key)}</span>
                 </button>
-                {i < stepKeys.length - 1 && (
+                {index < onboardingStepKeys.length - 1 ? (
                   <div
-                    className={`stepper-line ${i < step ? 'completed' : ''} ${i === step - 1 ? 'active' : ''}`}
+                    className={`stepper-line ${index < step ? 'completed' : ''} ${index === step - 1 ? 'active' : ''}`}
                   />
-                )}
+                ) : null}
               </div>
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* STEP 0: WELCOME */}
-      {step === 0 && (
-        <div className="welcome-hero">
-          <div className="welcome-logo">
-            <BrandMark alt="" />
-          </div>
-          <h1 className="welcome-title">PATHKEEP</h1>
-          <p className="welcome-version mono" title={buildTitle ?? undefined}>
-            {t('versionLine', {
-              version: buildRevision
-                ? `${buildInfo?.version ?? 'preview'} · ${buildRevision}`
-                : (buildInfo?.version ?? 'preview'),
-            })}
-          </p>
-          <p className="welcome-tagline">
-            {t('welcomeTagline1')}
-            <br />
-            {t('welcomeTagline2')}
-          </p>
+      {step === 0 ? (
+        <WelcomeStep
+          buildInfo={buildInfo}
+          buildRevision={buildRevision}
+          buildTitle={buildTitle}
+          onBegin={() => setStep(1)}
+        />
+      ) : null}
 
-          <div className="welcome-features">
-            <div className="welcome-feature">
-              <div className="feature-icon">↓</div>
-              <div className="feature-text">
-                <div className="feature-title">{t('featureBackupTitle')}</div>
-                <div className="feature-desc">{t('featureBackupDesc')}</div>
-              </div>
-            </div>
-            <div className="welcome-feature">
-              <div className="feature-icon">◎</div>
-              <div className="feature-text">
-                <div className="feature-title">{t('featureSearchTitle')}</div>
-                <div className="feature-desc">{t('featureSearchDesc')}</div>
-              </div>
-            </div>
-            <div className="welcome-feature">
-              <div className="feature-icon">◈</div>
-              <div className="feature-text">
-                <div className="feature-title">{t('featureInsightsTitle')}</div>
-                <div className="feature-desc">{t('featureInsightsDesc')}</div>
-              </div>
-            </div>
-          </div>
+      {step === 1 ? (
+        <BrowserDetectionStep
+          browserProfiles={snapshot.browserProfiles}
+          busyAction={busyAction}
+          localError={localError}
+          selectedCount={selectedCount}
+          selectedProfileIds={currentConfig.selectedProfileIds}
+          onBack={() => setStep(0)}
+          onContinue={handleBrowsersContinue}
+          onToggleProfile={handleToggleProfile}
+        />
+      ) : null}
 
-          <div className="welcome-trust">
-            <div className="trust-item">
-              <span className="trust-icon">⊘</span>
-              <span>{t('trustLocalFirst')}</span>
-            </div>
-            <div className="trust-item">
-              <span className="trust-icon">⊞</span>
-              <span>{t('trustOpenSource')}</span>
-            </div>
-            <div className="trust-item">
-              <span className="trust-icon">⚙</span>
-              <span>{t('trustBuiltWith')}</span>
-            </div>
-          </div>
+      {step === 2 ? (
+        <StorageStep
+          appRoot={snapshot.directories.appRoot}
+          storageEstimate={storageEstimate}
+          onBack={() => setStep(1)}
+          onContinue={() => setStep(3)}
+        />
+      ) : null}
 
-          <button
-            className="btn-primary btn-lg"
-            type="button"
-            onClick={() => setStep(1)}
-          >
-            {t('beginSetup')}
-          </button>
-        </div>
-      )}
+      {step === 3 ? (
+        <SecurityStep
+          archiveMode={currentConfig.archiveMode}
+          busyAction={busyAction}
+          localError={localError}
+          securityDraft={securityDraft}
+          onBack={() => setStep(2)}
+          onContinue={handleSecurityContinue}
+          onSecurityCardClick={handleSecurityCardClick}
+          onSelectArchiveMode={(mode) => {
+            void updateConfig((config) => ({ ...config, archiveMode: mode }))
+          }}
+          onUpdateSecurityDraft={updateSecurityDraft}
+        />
+      ) : null}
 
-      {/* STEP 1: BROWSER DETECTION */}
-      {step === 1 && (
-        <div className="ob-panel-container">
-          <div className="ob-header">
-            <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">{t('browserDetectionTitle')}</h2>
-            <p className="ob-desc">{t('browserDetectionDesc')}</p>
-          </div>
+      {step === 4 ? (
+        <ScheduleStep
+          dueAfterHours={currentConfig.dueAfterHours}
+          schedulePlan={schedulePlan}
+          schedulePreviewError={schedulePreviewError}
+          schedulePreviewLoading={schedulePreviewLoading}
+          onBack={() => setStep(3)}
+          onContinue={() => setStep(5)}
+          onSelectDueAfterHours={(hours) => {
+            void updateConfig((config) => ({ ...config, dueAfterHours: hours }))
+          }}
+        />
+      ) : null}
 
-          <div className="ob-scan-status">
-            <div className="status-dot status-ok" />
-            <span className="mono">
-              {t('scanStatus')
-                .replace('{count}', String(snapshot.browserProfiles.length))
-                .replace('{selected}', String(selectedCount))}
-            </span>
-          </div>
-
-          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-            <div className="panel-header">
-              <span className="panel-title">{t('detectedProfiles')}</span>
-              <span className="panel-action">
-                {t('found').replace(
-                  '{count}',
-                  String(snapshot.browserProfiles.length),
-                )}
-              </span>
-            </div>
-            <div className="panel-body" style={{ padding: 0 }}>
-              <div className="profile-list">
-                {[...readableProfiles, ...attentionProfiles].map((profile) => {
-                  const selected = snapshot.config.selectedProfileIds.includes(
-                    profile.profileId,
-                  )
-                  const retention = browserRetentionMeta(profile, commonT)
-                  /**
-                   * Explains how toggle profile works.
-                   *
-                   * Keeping this as a named declaration makes the Onboarding surface easier to review and test than burying the behavior inside another anonymous callback.
-                   */
-                  const toggleProfile = () => {
-                    const nextSelected = selected
-                      ? snapshot.config.selectedProfileIds.filter(
-                          (v) => v !== profile.profileId,
-                        )
-                      : [
-                          ...snapshot.config.selectedProfileIds,
-                          profile.profileId,
-                        ]
-                    void updateConfig((c) => ({
-                      ...c,
-                      selectedProfileIds: nextSelected,
-                    }))
-                  }
-                  return (
-                    <label
-                      key={profile.profileId}
-                      className="profile-item"
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={selected}
-                        onChange={toggleProfile}
-                        aria-label={`${profile.browserName} / ${profile.profileName}`}
-                      />
-                      <div className={`checkbox ${selected ? 'active' : ''}`}>
-                        {selected ? '✓' : ''}
-                      </div>
-                      <div
-                        className={`browser-icon ${browserIconClass(profile.profileId)}`}
-                      >
-                        {browserIconLetter(profile.profileId)}
-                      </div>
-                      <div className="profile-info">
-                        <div className="profile-name">
-                          {profile.browserName} / {profile.profileName}
-                        </div>
-                        <div className="profile-path dim mono">
-                          {profile.profilePath}
-                        </div>
-                      </div>
-                      <div className="profile-detection">
-                        <span
-                          className={`status-badge ${
-                            profile.historyExists
-                              ? 'status-completed'
-                              : 'status-pending'
-                          }`}
-                        >
-                          {profile.historyExists
-                            ? t('historyFound')
-                            : t('actionRequired')}
-                        </span>
-                        <span
-                          className="mono dim"
-                          style={{
-                            fontSize: '10px',
-                            marginTop: '2px',
-                            display: 'block',
-                          }}
-                        >
-                          {profile.historyExists
-                            ? t('browserEngineLabel', {
-                                version:
-                                  profile.browserVersion ?? t('versionUnknown'),
-                                engine: profile.browserFamily,
-                              })
-                            : profile.browserFamily === 'safari'
-                              ? t('safariAccessHint')
-                              : t('cannotReadHint').replace(
-                                  '{fileName}',
-                                  profile.historyFileName,
-                                )}
-                        </span>
-                        {profile.historyExists ? (
-                          <>
-                            <span
-                              className="mono dim"
-                              style={{
-                                fontSize: '10px',
-                                marginTop: '2px',
-                                display: 'block',
-                              }}
-                            >
-                              {retention.label}
-                            </span>
-                            <span
-                              className="mono dim"
-                              style={{
-                                fontSize: '10px',
-                                marginTop: '2px',
-                                display: 'block',
-                              }}
-                            >
-                              {commonT('browserRetentionArchiveBoundary')}
-                            </span>
-                          </>
-                        ) : null}
-                      </div>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          {snapshot.browserProfiles.some(
-            (profile) => profile.browserFamily !== 'chromium',
-          ) && (
-            <div className="ob-info-box">
-              <span className="info-icon">ℹ</span>
-              <span className="info-text">{t('firefoxSafariInfo')}</span>
-            </div>
-          )}
-
-          {localError ? (
-            <p className="inline-error" role="alert">
-              {localError}
-            </p>
-          ) : null}
-
-          <div className="ob-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => setStep(0)}
-            >
-              {t('backButton')}
-            </button>
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={busyAction !== null}
-              onClick={handleBrowsersContinue}
-            >
-              {t('continueButton')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 2: STORAGE */}
-      {step === 2 && (
-        <div className="ob-panel-container">
-          <div className="ob-header">
-            <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">{t('storageTitle')}</h2>
-            <p className="ob-desc">{t('storageDesc')}</p>
-          </div>
-
-          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-            <div className="panel-header">
-              <span className="panel-title">{t('archiveRoot')}</span>
-              <span className="panel-action">{t('localFirst')}</span>
-            </div>
-            <div className="panel-body">
-              <div
-                className="storage-path-display"
-                style={{ marginBottom: 'var(--space-4)' }}
-              >
-                <span className="storage-path-field">
-                  {snapshot.directories.appRoot}
-                </span>
-              </div>
-
-              <div className="dir-tree">
-                <div className="dir-item">
-                  <span className="dir-icon">📁</span>
-                  <span>{snapshot.directories.appRoot}</span>
-                </div>
-                <div className="dir-item indent">
-                  <span className="dir-icon">🗄</span>
-                  <span>archive/history-vault.sqlite</span>
-                </div>
-                <div className="dir-item indent">
-                  <span className="dir-icon">📋</span>
-                  <span>audit/manifests/</span>
-                </div>
-                <div className="dir-item indent">
-                  <span className="dir-icon">📸</span>
-                  <span>raw-snapshots/</span>
-                </div>
-                <div className="dir-item indent">
-                  <span className="dir-icon">📤</span>
-                  <span>exports/</span>
-                </div>
-                <div className="dir-item indent">
-                  <span className="dir-icon">⚙</span>
-                  <span>config.json</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-            <div className="panel-header">
-              <span className="panel-title">{t('sizeEstimates')}</span>
-              <span className="panel-action">{t('projected')}</span>
-            </div>
-            <div className="panel-body">
-              <div className="estimate-grid">
-                <div className="estimate-item">
-                  <span className="estimate-label">
-                    {t('estimateArchiveDb')}
-                  </span>
-                  <span className="estimate-value mono">
-                    {formatBytes(storageEstimate.archiveDbBytes, language)}
-                  </span>
-                </div>
-                <div className="estimate-item">
-                  <span className="estimate-label">
-                    {t('estimateManifest')}
-                  </span>
-                  <span className="estimate-value mono">
-                    {formatBytes(storageEstimate.manifestBytes, language)}
-                  </span>
-                </div>
-                <div className="estimate-item">
-                  <span className="estimate-label">
-                    {t('estimateSnapshots')}
-                  </span>
-                  <span className="estimate-value mono">
-                    {formatBytes(storageEstimate.snapshotsBytes, language)}
-                  </span>
-                </div>
-                <div className="estimate-item highlight">
-                  <span className="estimate-label">{t('estimateTotal')}</span>
-                  <span className="estimate-value mono">
-                    {formatBytes(storageEstimate.totalBytes, language)}
-                  </span>
-                </div>
-              </div>
-              <p
-                className="mono-support"
-                style={{ marginTop: 'var(--space-3)' }}
-              >
-                {t('estimateExplanation', {
-                  count: storageEstimate.profileCount,
-                  source: formatBytes(storageEstimate.sourceBytes, language),
-                })}
-              </p>
-            </div>
-          </div>
-
-          <div className="ob-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => setStep(1)}
-            >
-              {t('backButton')}
-            </button>
-            <button
-              className="btn-primary"
-              type="button"
-              onClick={() => setStep(3)}
-            >
-              {t('continueButton')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3: SECURITY */}
-      {step === 3 && (
-        <div className="ob-panel-container">
-          <div className="ob-header">
-            <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">{t('securityTitle')}</h2>
-            <p className="ob-desc">{t('securityDesc')}</p>
-          </div>
-
-          <div
-            aria-label={t('encryptionModeLabel')}
-            className="security-options"
-            role="radiogroup"
-          >
-            <div
-              className={`security-option ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
-              onClick={(event) =>
-                handleSecurityCardClick('Encrypted', event.target)
-              }
-            >
-              <button
-                aria-checked={currentConfig.archiveMode === 'Encrypted'}
-                aria-label={t('encryptedSelectLabel')}
-                className="security-option-trigger"
-                disabled={busyAction !== null}
-                role="radio"
-                type="button"
-                onClick={() =>
-                  void updateConfig((c) => ({ ...c, archiveMode: 'Encrypted' }))
-                }
-              >
-                <div className="option-header">
-                  <div
-                    className={`option-radio ${currentConfig.archiveMode === 'Encrypted' ? 'selected' : ''}`}
-                  />
-                  <div className="option-title-row">
-                    <span className="option-title">
-                      🔒 {t('encryptedOption')}
-                    </span>
-                    <span className="tag tag-sm tag-backup">
-                      {t('recommended')}
-                    </span>
-                  </div>
-                </div>
-              </button>
-              <div className="option-body">
-                <p className="option-desc">{t('encryptedDesc')}</p>
-                {currentConfig.archiveMode === 'Encrypted' && (
-                  <div className="security-form">
-                    <div className="form-field">
-                      <label className="field-label">
-                        {t('masterPasswordLabel')}
-                      </label>
-                      <input
-                        className="form-input"
-                        type="password"
-                        autoComplete="new-password"
-                        value={securityDraft.masterPassword}
-                        onChange={(e) =>
-                          updateSecurityDraft({
-                            masterPassword: e.target.value,
-                          })
-                        }
-                        placeholder={t('masterPasswordPlaceholder')}
-                      />
-                    </div>
-                    <div className="form-field">
-                      <label className="field-label">
-                        {t('confirmPasswordLabel')}
-                      </label>
-                      <input
-                        className="form-input"
-                        type="password"
-                        autoComplete="new-password"
-                        value={securityDraft.confirmPassword}
-                        onChange={(e) =>
-                          updateSecurityDraft({
-                            confirmPassword: e.target.value,
-                          })
-                        }
-                        placeholder={t('confirmPasswordPlaceholder')}
-                      />
-                    </div>
-                    <label className="form-checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={securityDraft.rememberKey}
-                        onChange={(e) =>
-                          updateSecurityDraft({
-                            rememberKey: e.target.checked,
-                          })
-                        }
-                      />
-                      <span>{t('storeInKeyring')}</span>
-                    </label>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div
-              className={`security-option ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
-              onClick={(event) =>
-                handleSecurityCardClick('Plaintext', event.target)
-              }
-            >
-              <button
-                aria-checked={currentConfig.archiveMode === 'Plaintext'}
-                aria-label={t('plaintextSelectLabel')}
-                className="security-option-trigger"
-                disabled={busyAction !== null}
-                role="radio"
-                type="button"
-                onClick={() =>
-                  void updateConfig((c) => ({ ...c, archiveMode: 'Plaintext' }))
-                }
-              >
-                <div className="option-header">
-                  <div
-                    className={`option-radio ${currentConfig.archiveMode === 'Plaintext' ? 'selected' : ''}`}
-                  />
-                  <div className="option-title-row">
-                    <span className="option-title">
-                      📄 {t('plaintextOption')}
-                    </span>
-                  </div>
-                </div>
-              </button>
-              <div className="option-body">
-                <p className="option-desc">{t('plaintextDesc')}</p>
-                {currentConfig.archiveMode === 'Plaintext' && (
-                  <div className="plaintext-tradeoffs">
-                    <div className="tradeoff-row tradeoff-pro">
-                      ✓ {t('tradeoffNoPassword')}
-                    </div>
-                    <div className="tradeoff-row tradeoff-pro">
-                      ✓ {t('tradeoffEasyInspect')}
-                    </div>
-                    <div className="tradeoff-row tradeoff-con">
-                      ✗ {t('tradeoffVisible')}
-                    </div>
-                    <div className="tradeoff-row tradeoff-con">
-                      ✗ {t('tradeoffNoUpgrade')}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="warning-box">
-            <span className="warning-icon">⚠</span>
-            <span className="warning-text">
-              <strong>{t('passwordWarningTitle')}</strong>{' '}
-              {t('passwordWarningBody')}
-            </span>
-          </div>
-
-          {localError ? (
-            <p className="inline-error" role="alert">
-              {localError}
-            </p>
-          ) : null}
-
-          <div className="ob-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => setStep(2)}
-            >
-              {t('backButton')}
-            </button>
-            <button
-              className="btn-primary"
-              type="button"
-              onClick={handleSecurityContinue}
-            >
-              {t('continueButton')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 4: SCHEDULE */}
-      {step === 4 && (
-        <div className="ob-panel-container">
-          <div className="ob-header">
-            <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">{t('scheduleTitle')}</h2>
-            <p className="ob-desc">{t('scheduleDesc')}</p>
-          </div>
-
-          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-            <div className="panel-header">
-              <span className="panel-title">{t('backupInterval')}</span>
-              <span className="panel-action">{t('selectHours')}</span>
-            </div>
-            <div className="panel-body">
-              <div className="interval-chips">
-                {dueAfterOptions.map((hours) => (
-                  <button
-                    key={hours}
-                    className={`interval-chip ${currentConfig.dueAfterHours === hours ? 'active' : ''}`}
-                    type="button"
-                    onClick={() =>
-                      void updateConfig((c) => ({ ...c, dueAfterHours: hours }))
-                    }
-                  >
-                    {t('intervalChipLabel').replace('{hours}', String(hours))}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {schedulePreviewLoading ? (
-            <LoadingState label={t('previewingSchedule')} />
-          ) : null}
-
-          {schedulePreviewError ? (
-            <p className="inline-error" role="alert">
-              {schedulePreviewError}
-            </p>
-          ) : null}
-
-          {schedulePlan && (
-            <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-              <div className="panel-header">
-                <span className="panel-title">{t('schedulePreview')}</span>
-                <span className="panel-action">
-                  {schedulePlatformLabel(schedulePlan.platform)}
-                </span>
-              </div>
-              <div className="panel-body">
-                <div className="manual-steps">
-                  {schedulePlan.manualSteps.map((s, i) => (
-                    <div key={i} className="manual-step">
-                      <span className="step-num-inline">{i + 1}.</span>
-                      <span>
-                        {localizeScheduleManualStep(s, schedulePlan.label)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="ob-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => setStep(3)}
-            >
-              {t('backButton')}
-            </button>
-            <button
-              className="btn-primary"
-              type="button"
-              onClick={() => setStep(5)}
-            >
-              {t('continueButton')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 5: READY */}
-      {step === 5 && (
-        <div className="ob-panel-container">
-          <div className="ob-header">
-            <div className="crosshair-mark">+</div>
-            <h2 className="ob-title">{t('readyTitle')}</h2>
-            <p className="ob-desc">{t('readyDesc')}</p>
-          </div>
-
-          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-            <div className="panel-header">
-              <span className="panel-title">{t('configSummary')}</span>
-              <span className="panel-action">{t('reviewBeforeInit')}</span>
-            </div>
-            <div className="panel-body">
-              <div className="summary-config">
-                <div className="config-row">
-                  <span className="config-label">{t('configProfiles')}</span>
-                  <span className="config-value">
-                    {t('configProfilesValue').replace(
-                      '{count}',
-                      String(selectedCount),
-                    )}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">{t('configStorage')}</span>
-                  <span className="config-value">
-                    {snapshot.directories.appRoot}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">{t('configEncryption')}</span>
-                  <span className="config-value">
-                    {currentConfig.archiveMode === 'Encrypted'
-                      ? commonT('modeEncrypted')
-                      : commonT('modePlaintext')}
-                  </span>
-                </div>
-                <div className="config-row">
-                  <span className="config-label">{t('configSchedule')}</span>
-                  <span className="config-value">
-                    {t('configScheduleValue').replace(
-                      '{hours}',
-                      String(currentConfig.dueAfterHours),
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-            <div className="panel-header">
-              <span className="panel-title">{t('initSteps')}</span>
-              <span className="panel-action">{t('whatHappensNext')}</span>
-            </div>
-            <div className="panel-body">
-              <div className="init-steps">
-                <div className="init-step">
-                  <span className="init-num">1.</span>
-                  <div className="init-info">
-                    <span className="init-action">{t('initStep1Action')}</span>
-                    <span className="init-detail">
-                      {currentConfig.archiveMode === 'Encrypted'
-                        ? t('initStep1DetailEncrypted')
-                        : t('initStep1DetailPlaintext')}
-                    </span>
-                  </div>
-                </div>
-                <div className="init-step">
-                  <span className="init-num">2.</span>
-                  <div className="init-info">
-                    <span className="init-action">{t('initStep2Action')}</span>
-                    <span className="init-detail">{t('initStep2Detail')}</span>
-                  </div>
-                </div>
-                <div className="init-step">
-                  <span className="init-num">3.</span>
-                  <div className="init-info">
-                    <span className="init-action">{t('initStep3Action')}</span>
-                    <span className="init-detail">
-                      {t('initStep3Detail')
-                        .replace('{count}', String(selectedCount))
-                        .replace('{plural}', selectedCount !== 1 ? 's' : '')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {localError && (
-            <p className="inline-error" role="alert">
-              {localError}
-            </p>
-          )}
-
-          <div className="ob-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => setStep(4)}
-            >
-              {t('backButton')}
-            </button>
-            <button
-              className="btn-primary btn-lg"
-              type="button"
-              disabled={busyAction !== null}
-              onClick={() => {
-                void handleFinish()
-              }}
-            >
-              {busyAction ?? t('initButton')}
-            </button>
-          </div>
-        </div>
-      )}
+      {step === 5 ? (
+        <ReadyStep
+          appRoot={snapshot.directories.appRoot}
+          archiveMode={currentConfig.archiveMode}
+          busyAction={busyAction}
+          dueAfterHours={currentConfig.dueAfterHours}
+          localError={localError}
+          selectedCount={selectedCount}
+          onBack={() => setStep(4)}
+          onFinish={() => {
+            void handleFinish()
+          }}
+        />
+      ) : null}
     </section>
   )
 }
