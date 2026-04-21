@@ -1,0 +1,46 @@
+/**
+ * Intelligence route responsive adjustments.
+ *
+ * ## Responsibilities
+ * - Own the route-level responsive layout changes that apply across multiple Intelligence style modules.
+ * - Preserve the existing mobile and tablet breakpoints for the grid, digest cards, and top-site rows.
+ *
+ * ## Non-responsibilities
+ * - Does not restyle individual cards beyond the breakpoint-specific overrides already shipped.
+ * - Does not replace component-local responsive rules such as `section-meta.css`.
+ *
+ * ## Dependencies
+ * - Depends on selectors defined by `page-shell.css` and `overview-cards.css`.
+ * - Assumes the Intelligence route keeps the same top-level class names and breakpoints.
+ *
+ * ## Performance note
+ * - Keeps the original breakpoint-only overrides with no new selector complexity or animation cost.
+ */
+
+@media (max-width: 900px) {
+  .intelligence-row--two-col {
+    flex-direction: column;
+  }
+
+  .intelligence-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .digest-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .digest-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .top-site-row {
+    grid-template-columns: 28px 1fr auto;
+  }
+
+  .top-site-row__bar {
+    display: none;
+  }
+}

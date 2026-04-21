@@ -1,0 +1,226 @@
+/**
+ * Intelligence query-surface styles.
+ *
+ * ## Responsibilities
+ * - Own the visual treatment for Query Families and Search Queries cards.
+ * - Keep the search-keywords browser controls and pagination chrome scoped to the query surfaces.
+ * - Preserve the existing route-local card spacing, typography, and action layout for query browsing.
+ *
+ * ## Non-responsibilities
+ * - Does not own overview cards such as Top Sites, Refind, or Activity Mix.
+ * - Does not define generic page-shell section chrome, skeletons, or digest cards.
+ * - Does not include Explorer-specific selectors that happen to appear later in `intelligence.css`.
+ *
+ * ## Dependencies
+ * - Relies on the current Intelligence route markup and CSS variable tokens.
+ * - Assumes shared shell styles remain available from `intelligence.css` or future barrel imports.
+ *
+ * ## Performance note
+ * - Preserves the existing grid/flex layout exactly so the split does not introduce new reflow
+ *   behavior while paging through large query datasets.
+ */
+
+/* ---------- Query Families ---------- */
+
+.query-families {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.query-family-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition: border-color var(--transition);
+}
+
+.query-family-card:hover {
+  border-color: var(--border-active);
+}
+
+.query-family-card__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.query-family-card__anchor {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.query-family-card__engine {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.query-family-card__count {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.query-family-card__members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-3);
+}
+
+.query-family-card__member {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.query-family-card__member::before {
+  content: '├ ';
+  font-family: var(--font-code);
+  color: var(--text-faint);
+}
+
+.query-family-card__member:last-child::before {
+  content: '└ ';
+}
+
+.query-family-card__dates {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* ---------- Search Queries ---------- */
+
+.search-queries {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-queries__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.search-queries__list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-queries__footer {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.search-query-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.search-query-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.search-query-card__title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.search-query-card__query {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.search-query-card__engine,
+.search-query-card__timestamp,
+.search-query-card__meta {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.search-query-card__context {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.search-query-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.search-keywords-browser {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-keywords-browser__header {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.search-keywords-browser__help {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.search-keywords-browser__controls,
+.search-keywords-browser__subrange,
+.search-keywords-browser__pagination-controls,
+.search-keywords-browser__nav,
+.search-keywords-browser__jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.search-keywords-browser__date-field,
+.search-keywords-browser__jump-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.search-keywords-browser__date-field input,
+.search-keywords-browser__jump-field input {
+  min-width: 108px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  padding: 0.4rem 0.55rem;
+}
+
+.search-keywords-browser__summary,
+.search-keywords-browser__pagination {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.search-keywords-browser__summary {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}

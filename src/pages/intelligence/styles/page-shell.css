@@ -1,0 +1,534 @@
+/**
+ * Intelligence page shell styles.
+ *
+ * ## Responsibilities
+ * - Own the page container, grid, section chrome, shared empty states, and tab/time-range shell.
+ * - Define the reusable digest-card presentation used by the route shell and overview surfaces.
+ * - Keep shell-level affordances like links and trend badges local to the Intelligence route.
+ *
+ * ## Non-responsibilities
+ * - Does not style overview content modules like Top Sites, Activity Mix, or Refind cards.
+ * - Does not own browsing-rhythm, domain deep-dive, or promoted entity route styles.
+ * - Does not replace `intelligence.css`; this file is a style-ownership slice for later barrel wiring.
+ *
+ * ## Dependencies
+ * - Consumes design tokens from `src/styles/tokens.css` via CSS variables.
+ * - Expects existing Intelligence route class names and DOM structure to stay unchanged.
+ *
+ * ## Performance note
+ * - Keeps animation and overflow behavior identical to the canonical stylesheet so the split does not
+ *   introduce new paint or layout costs on large archives.
+ */
+
+/* ---------- Page Container ---------- */
+
+.intelligence-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--density-panel-padding);
+  max-width: 1200px;
+}
+
+.intelligence-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.intelligence-page__scope-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.intelligence-access-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+}
+
+.intelligence-access-strip__copy,
+.intelligence-access-strip__controls,
+.intelligence-access-strip__control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.intelligence-access-strip__controls {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.intelligence-access-strip__action {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.intelligence-access-strip__action input {
+  min-height: 36px;
+  min-width: 220px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.intelligence-access-strip__title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.day-insights__hero,
+.day-insights__hero-copy,
+.day-insights__actions,
+.day-insights__stats,
+.day-insights__secondary-grid {
+  display: flex;
+}
+
+.day-insights__hero,
+.day-insights__stats {
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.day-insights__hero {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.day-insights__hero-copy,
+.day-insights__actions {
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.day-insights__wide-section {
+  gap: var(--space-3);
+}
+
+.day-insights__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.day-insights__subtitle {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.day-insights__stats > .digest-card {
+  min-width: 140px;
+}
+
+/* ---------- Grid Layout ---------- */
+
+.intelligence-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.intelligence-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+.intelligence-row {
+  display: flex;
+  gap: var(--space-6);
+  align-items: stretch;
+}
+
+.intelligence-row--two-col > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- Section ---------- */
+
+.intelligence-section {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.intelligence-section__title {
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.intelligence-section__help {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 42rem;
+}
+
+.intelligence-section__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.intelligence-section__title-row > .intelligence-section__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.intelligence-section__scroll-region {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(28rem, 55vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--space-1);
+  scrollbar-gutter: stable;
+}
+
+.intelligence-section__body {
+  min-height: 0;
+}
+
+.intelligence-section__body--workbench.intelligence-section__scroll-region {
+  max-height: min(40rem, 72vh);
+}
+
+.intelligence-runtime-digest {
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.intelligence-runtime-digest__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.intelligence-runtime-digest__badge {
+  width: fit-content;
+}
+
+.intelligence-runtime-digest__badge--info {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.intelligence-runtime-digest__badge--warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.intelligence-runtime-digest__badge--success {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.intelligence-runtime-digest__body,
+.intelligence-runtime-digest__detail,
+.intelligence-runtime-digest__meta {
+  margin: 0;
+}
+
+.intelligence-runtime-digest__body {
+  font-size: 0.8125rem;
+  color: var(--text);
+  line-height: 1.5;
+  max-width: 42rem;
+}
+
+/* ---------- Empty & Skeleton States ---------- */
+
+.intelligence-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.intelligence-empty__eyebrow {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-1) 0;
+}
+
+.intelligence-empty__text {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  margin: 0;
+  max-width: 360px;
+}
+
+.intelligence-skeleton {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  animation: intelligence-pulse 1.5s ease-in-out infinite;
+}
+
+.intelligence-skeleton--card {
+  height: 100px;
+}
+
+.intelligence-skeleton--list {
+  height: 200px;
+}
+
+.intelligence-skeleton--bar,
+.intelligence-skeleton--chart,
+.intelligence-skeleton--cloud {
+  height: 180px;
+}
+
+.intelligence-skeleton--heatmap {
+  height: 220px;
+}
+
+@keyframes intelligence-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+/* ---------- Link / Action ---------- */
+
+.intelligence-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--font-ui);
+  transition: color var(--transition);
+}
+
+.intelligence-link:hover {
+  color: var(--accent-hover);
+}
+
+/* ---------- Tabs ---------- */
+
+.intelligence-tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+
+.intelligence-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    border-color var(--transition);
+}
+
+.intelligence-tab:hover {
+  color: var(--text);
+}
+
+.intelligence-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.intelligence-tab-content {
+  padding-top: var(--space-4);
+}
+
+/* ---------- Time Range Bar ---------- */
+
+.time-range-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.time-range-bar__presets {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.time-range-bar__btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.time-range-bar__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.time-range-bar__btn--active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.time-range-bar__custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.time-range-bar__custom input[type='date'] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-2);
+}
+
+.time-range-bar__separator {
+  color: var(--text-faint);
+}
+
+.time-range-bar__apply {
+  background: var(--accent);
+  border: none;
+  color: var(--bg);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background var(--transition);
+}
+
+.time-range-bar__apply:hover {
+  background: var(--accent-hover);
+}
+
+/* ---------- Digest Cards ---------- */
+
+.digest-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.digest-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  text-align: left;
+  transition: border-color var(--transition);
+}
+
+.digest-card:hover {
+  border-color: var(--border-active);
+}
+
+.digest-card--skeleton {
+  min-height: 90px;
+  animation: intelligence-pulse 1.5s ease-in-out infinite;
+}
+
+.digest-card__value-skeleton {
+  width: 60px;
+  height: 28px;
+  background: var(--bg-hover);
+}
+
+.digest-card__label-skeleton {
+  width: 40px;
+  height: 14px;
+  background: var(--bg-hover);
+}
+
+.digest-card__icon {
+  color: var(--accent);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.digest-card__value {
+  font-family: var(--font-ui);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  line-height: 1;
+}
+
+.digest-card__label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Trend Badge ---------- */
+
+.trend-badge {
+  font-size: 0.6875rem;
+  font-family: var(--font-code);
+  padding: 1px var(--space-1);
+}
+
+.trend-badge--up {
+  color: var(--success);
+}
+
+.trend-badge--down {
+  color: var(--error);
+}
+
+.trend-badge--flat {
+  color: var(--text-faint);
+}

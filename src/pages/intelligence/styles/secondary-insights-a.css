@@ -1,0 +1,599 @@
+/**
+ * Secondary insight styles for the first intelligence extraction batch.
+ *
+ * Responsibilities:
+ * - Own the Stable Sources, Search Effectiveness, Friction Detection,
+ *   Reopened Investigations, Discovery Trend, and Domain Deep Dive
+ *   section styling for the Intelligence route.
+ * - Preserve the existing selector contract and declaration order so the
+ *   parent `intelligence.css` file can later become a thin `@import` barrel.
+ *
+ * Non-responsibilities:
+ * - Does not style the page shell, primary-grid layout, or other secondary
+ *   insight cards owned by parallel extraction files.
+ * - Does not redefine shared design tokens or cross-route primitives.
+ *
+ * Dependencies:
+ * - Consumes CSS variables from `src/styles/tokens.css`.
+ * - Assumes the existing Intelligence section markup and class names remain
+ *   unchanged during the style-ownership rollout.
+ *
+ * Performance note:
+ * - This file keeps to static selectors only; no expensive selectors or
+ *   animations are introduced during the extraction.
+ */
+/* ---------- Stable Sources (P2-1b) ---------- */
+
+.stable-sources {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.stable-sources__column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stable-sources__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stable-sources__subtitle {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-1);
+}
+
+.stable-sources__help,
+.stable-sources__empty {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.stable-source-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  text-decoration: none;
+  border-top: 1px dashed var(--border);
+}
+
+.stable-source-row:first-of-type {
+  border-top: none;
+}
+
+.stable-source-row__rank {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  width: 20px;
+  text-align: right;
+}
+
+.stable-source-row__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.stable-source-row__domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stable-source-row__detail {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ---------- Search Effectiveness (P2-2b) ---------- */
+
+.search-effectiveness {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.search-effectiveness__engines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.search-effectiveness__engine-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.search-effectiveness__engine-summary,
+.search-effectiveness__engine-metrics {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.search-effectiveness__engine-name {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.search-effectiveness__metric-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 0 1rem;
+}
+
+.search-effectiveness__metric-line,
+.search-effectiveness__engine-stat,
+.search-effectiveness__source-meta,
+.search-effectiveness__topic-stat,
+.search-effectiveness__topic-detail,
+.search-effectiveness__source-detail,
+.search-effectiveness__help {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.search-effectiveness__metric-line {
+  line-height: 1.5;
+}
+
+.search-effectiveness__engine-stat {
+  font-family: var(--font-code);
+}
+
+.search-effectiveness__hard-topics {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.search-effectiveness__sources {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.search-effectiveness__subtitle {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-2);
+}
+
+.search-effectiveness__help {
+  margin: 0 0 var(--space-2);
+  line-height: 1.5;
+}
+
+.search-effectiveness__topic-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--border);
+}
+
+.search-effectiveness__topic-row:first-of-type {
+  border-top: none;
+}
+
+.search-effectiveness__topic-main,
+.search-effectiveness__source-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.search-effectiveness__topic-query {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-style: italic;
+}
+
+.search-effectiveness__topic-stat {
+  font-family: var(--font-code);
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.search-effectiveness__source-row {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.search-effectiveness__source-domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.search-effectiveness__source-meta {
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- Friction Detection (P2-3b) ---------- */
+
+.friction-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.friction-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.friction-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.friction-card__evidence-badge {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px var(--space-2);
+  flex-shrink: 0;
+}
+
+.friction-card__evidence-badge--strong {
+  background: var(--error);
+  color: var(--bg);
+}
+
+.friction-card__evidence-badge--weak {
+  background: var(--warning);
+  color: var(--bg);
+}
+
+.friction-card__domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friction-card__count {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--error);
+  flex-shrink: 0;
+}
+
+.friction-card__description {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ---------- Reopened Investigations (P2-4b) ---------- */
+
+.reopened-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reopened-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reopened-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.reopened-card__anchor-badge {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px var(--space-2);
+  flex-shrink: 0;
+}
+
+.reopened-card__anchor-badge--query_family {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.reopened-card__anchor-badge--reference_page {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.reopened-card__label {
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reopened-card__meta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.reopened-card__dates {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* ---------- Discovery Trend (P2-7b) ---------- */
+
+.discovery-trend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.discovery-trend__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.discovery-trend__row-header,
+.discovery-trend__stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.discovery-trend__date-label {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.discovery-trend__rate,
+.discovery-trend__stat {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.discovery-trend__bar {
+  display: block;
+  height: 8px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.discovery-trend__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ---------- Domain Deep Dive (P2-5b) ---------- */
+
+.domain-deep-dive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.intelligence-scope-strip {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 45%, var(--bg-elevated));
+}
+
+.intelligence-scope-strip__badge {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.intelligence-scope-strip__body {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.domain-deep-dive__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.domain-search-keywords {
+  margin-top: var(--space-2);
+}
+
+.domain-deep-dive__domain-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.domain-deep-dive__category-badge {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 1px var(--space-2);
+}
+
+.domain-deep-dive__kpi-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.domain-deep-dive__kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  min-width: 80px;
+}
+
+.domain-deep-dive__kpi-value {
+  font-family: var(--font-code);
+  font-size: 1.125rem;
+  color: var(--text);
+}
+
+.domain-deep-dive__kpi-label {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.domain-deep-dive__arrival-breakdown {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.domain-deep-dive__arrival-bar {
+  height: 8px;
+  transition: width var(--transition);
+}
+
+.domain-deep-dive__arrival-bar--search {
+  background: var(--accent);
+}
+
+.domain-deep-dive__arrival-bar--link {
+  background: var(--success);
+}
+
+.domain-deep-dive__arrival-bar--typed {
+  background: var(--warning);
+}
+
+.domain-deep-dive__arrival-bar--other {
+  background: var(--text-faint);
+}
+
+.domain-deep-dive__arrival-legend {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.domain-deep-dive__sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.domain-deep-dive__section-title {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 0 0 var(--space-2);
+}
+
+.domain-deep-dive__page-row,
+.domain-deep-dive__flow-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: 0.8125rem;
+}
+
+.domain-deep-dive__page-path {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-deep-dive__flow-domain {
+  color: var(--text);
+  flex: 1;
+}
+
+.domain-deep-dive .discovery-trend__bar-group {
+  text-decoration: none;
+}
+
+.domain-deep-dive__page-count,
+.domain-deep-dive__flow-count {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}

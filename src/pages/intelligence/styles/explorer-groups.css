@@ -1,0 +1,542 @@
+/**
+ * Intelligence explorer-group styles.
+ *
+ * Responsibilities:
+ * - Own the grouped Explorer mode switcher plus session, trail, and navigation-tracer card chrome.
+ * - Preserve existing expand/collapse, pagination, member-row, and visit-row visual treatment.
+ *
+ * Non-responsibilities:
+ * - Does not own query-family, search-keyword, top-site, or other intelligence list/card styles.
+ * - Does not change route data flow, grouping logic, or any interaction contract.
+ *
+ * Dependencies:
+ * - Relies on shared token variables for spacing, colors, borders, and typography.
+ * - Assumes the existing Explorer grouped-view class names remain the stable public surface.
+ *
+ * Performance note:
+ * - Keeps the current lightweight hover and state styles only, avoiding extra visual effects on large grouped result sets.
+ */
+
+/* ---------- Session Group Panel ---------- */
+
+.session-group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.session-group-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-group-panel__summary {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+}
+
+.session-group-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.session-group-panel__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.session-group-panel__page-label {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Session Card ---------- */
+
+.session-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  transition: border-color var(--transition);
+}
+
+.session-card:hover {
+  border-color: var(--border-active);
+}
+
+.session-card--expanded {
+  border-color: var(--accent-dim);
+}
+
+.session-card__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  text-align: left;
+  transition: background var(--transition);
+}
+
+.session-card__header:hover {
+  background: var(--bg-hover);
+}
+
+.session-card__expand-icon {
+  font-size: 0.625rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.session-card__date-badge {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.session-card__title {
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-card__meta {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.session-card__deep-dive-badge {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.session-card__body {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+}
+
+.session-card__visits {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ---------- Session Visit Row ---------- */
+
+.session-visit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.session-visit-row:hover {
+  background: var(--bg-hover);
+}
+
+.session-visit-row--search {
+  background: var(--accent-dim);
+}
+
+.session-visit-row--search:hover {
+  background: var(--accent-dim);
+  filter: brightness(0.95);
+}
+
+.session-visit-row__search-icon,
+.session-visit-row__page-icon {
+  font-size: 0.8125rem;
+  flex-shrink: 0;
+}
+
+.session-visit-row__content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-visit-row__query {
+  font-size: 0.8125rem;
+  color: var(--accent);
+  font-style: italic;
+}
+
+.session-visit-row__title {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.session-visit-row__time {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* ---------- Trail Group Panel ---------- */
+
+.trail-group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.trail-group-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.trail-group-panel__summary {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+}
+
+.trail-group-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.trail-group-panel__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.trail-group-panel__page-label {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Trail Card ---------- */
+
+.trail-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  transition: border-color var(--transition);
+}
+
+.trail-card:hover {
+  border-color: var(--border-active);
+}
+
+.trail-card--expanded {
+  border-color: var(--accent-dim);
+}
+
+.trail-card__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  text-align: left;
+  transition: background var(--transition);
+}
+
+.trail-card__header:hover {
+  background: var(--bg-hover);
+}
+
+.trail-card__expand-icon {
+  font-size: 0.625rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.trail-card__engine-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.trail-card__query {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-style: italic;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trail-card__reformulation-badge {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 1px var(--space-2);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.trail-card__meta {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.trail-card__body {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ---------- Trail Evolution Chain ---------- */
+
+.trail-card__evolution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.trail-card__evolution-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.trail-card__evolution-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.trail-card__evolution-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.trail-card__evolution-arrow {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.trail-card__evolution-query {
+  font-size: 0.8125rem;
+  color: var(--accent);
+  font-style: italic;
+}
+
+.trail-card__evolution-landing {
+  font-size: 0.75rem;
+  color: var(--success);
+}
+
+/* ---------- Trail Member Row ---------- */
+
+.trail-card__members {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.trail-member-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.trail-member-row:hover {
+  background: var(--bg-hover);
+}
+
+.trail-member-row--search_event {
+  background: var(--accent-dim);
+}
+
+.trail-member-row--landing {
+  border-left: 2px solid var(--success);
+}
+
+.trail-member-row__ordinal {
+  font-size: 0.8125rem;
+  flex-shrink: 0;
+}
+
+.trail-member-row__content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.trail-member-row__time {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* ---------- Navigation Tracer ---------- */
+
+.navigation-tracer {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  margin-top: var(--space-2);
+}
+
+.navigation-tracer__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.navigation-tracer__toggle:hover {
+  color: var(--accent);
+}
+
+.navigation-tracer__toggle-icon {
+  font-size: 0.625rem;
+  flex-shrink: 0;
+}
+
+.navigation-tracer__toggle-label {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.navigation-tracer__body {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.navigation-tracer__path {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.navigation-tracer__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+}
+
+.navigation-tracer__depth {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  white-space: pre;
+  flex-shrink: 0;
+}
+
+.navigation-tracer__step-content {
+  font-size: 0.8125rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--transition);
+}
+
+.navigation-tracer__step-content:hover {
+  color: var(--accent);
+}
+
+.navigation-tracer__step--current .navigation-tracer__step-content {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.navigation-tracer__here-badge {
+  font-size: 0.6875rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ---------- Explorer View Mode Selector ---------- */
+
+.explorer-view-mode {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.explorer-view-mode__label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-right: var(--space-2);
+}
+
+.explorer-view-mode__btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.explorer-view-mode__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.explorer-view-mode__btn--active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}

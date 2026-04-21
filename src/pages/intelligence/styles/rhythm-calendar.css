@@ -1,0 +1,282 @@
+/**
+ * Intelligence Rhythm Calendar styles.
+ *
+ * Responsibilities:
+ * - Own the Browsing Rhythm calendar heatmap, selected-day detail, and hour-strip chrome.
+ * - Preserve the existing scroll-region spacing and day-level intensity presentation.
+ *
+ * Non-responsibilities:
+ * - Does not own Search Activity, Activity Mix, or any other intelligence card styles.
+ * - Does not change route layout, sizing policy, or interaction logic.
+ *
+ * Dependencies:
+ * - Relies on shared design tokens from the app token layer such as spacing, border, accent, and type variables.
+ * - Assumes the existing intelligence section shell class names remain unchanged.
+ *
+ * Performance note:
+ * - Keeps styling to lightweight stateful selectors only; no expensive animations are introduced for large calendar grids.
+ */
+
+/* ---------- Rhythm Calendar ---------- */
+
+.rhythm-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.rhythm-panel.intelligence-section__scroll-region {
+  padding-right: calc(var(--space-4) + var(--space-2));
+  padding-bottom: var(--space-3);
+  padding-left: var(--space-4);
+}
+
+.rhythm-calendar-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+}
+
+.rhythm-calendar__legend {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.rhythm-calendar__months {
+  display: flex;
+  gap: var(--space-2);
+  min-width: max-content;
+}
+
+.rhythm-calendar__months-spacer {
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.rhythm-calendar__months-track {
+  display: flex;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.rhythm-calendar__month {
+  width: 16px;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--text-faint);
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.rhythm-calendar {
+  display: flex;
+  gap: var(--space-2);
+  min-width: max-content;
+}
+
+.rhythm-calendar__weekday-rail {
+  display: grid;
+  grid-template-rows: repeat(7, 16px);
+  gap: 3px;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.rhythm-calendar__weekday {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.rhythm-calendar__weeks {
+  display: flex;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.rhythm-calendar__week {
+  display: grid;
+  grid-template-rows: repeat(7, 16px);
+  gap: 3px;
+}
+
+.rhythm-calendar__day {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition:
+    border-color var(--transition),
+    background-color var(--transition),
+    transform var(--transition);
+}
+
+.rhythm-calendar__day:hover:not(:disabled),
+.rhythm-calendar__day--active {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.rhythm-calendar__day:disabled {
+  cursor: default;
+}
+
+.rhythm-calendar__day--outside {
+  border-color: transparent;
+  background: transparent;
+}
+
+.rhythm-calendar__day[data-level='0'] {
+  background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
+}
+
+.rhythm-calendar__day[data-level='1'] {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface) 80%);
+}
+
+.rhythm-calendar__day[data-level='2'] {
+  background: color-mix(in srgb, var(--accent) 40%, var(--bg-surface) 60%);
+}
+
+.rhythm-calendar__day[data-level='3'] {
+  background: color-mix(in srgb, var(--accent) 65%, var(--bg-surface) 35%);
+}
+
+.rhythm-calendar__day[data-level='4'] {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg-surface) 15%);
+}
+
+.rhythm-day-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.rhythm-day-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.rhythm-day-detail__title,
+.rhythm-day-detail__subtitle {
+  margin: 0;
+}
+
+.rhythm-day-detail__title {
+  font-size: 0.9375rem;
+  color: var(--text-bright);
+}
+
+.rhythm-day-detail__subtitle,
+.rhythm-day-detail__empty,
+.rhythm-day-detail__stat-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.rhythm-day-detail__badge {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+}
+
+.rhythm-day-detail__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.rhythm-day-detail__hours {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-hour-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-hour-strip__grid {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.rhythm-hour-strip__cell {
+  display: block;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
+}
+
+.rhythm-hour-strip__cell[data-level='1'] {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface) 80%);
+}
+
+.rhythm-hour-strip__cell[data-level='2'] {
+  background: color-mix(in srgb, var(--accent) 40%, var(--bg-surface) 60%);
+}
+
+.rhythm-hour-strip__cell[data-level='3'] {
+  background: color-mix(in srgb, var(--accent) 65%, var(--bg-surface) 35%);
+}
+
+.rhythm-hour-strip__cell[data-level='4'] {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg-surface) 15%);
+}
+
+.rhythm-hour-strip__labels {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+.rhythm-day-detail__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.rhythm-day-detail__sites {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-day-detail__site-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.rhythm-day-detail__site-chip {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  background: var(--bg-surface);
+}

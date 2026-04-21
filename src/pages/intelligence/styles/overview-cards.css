@@ -1,0 +1,470 @@
+/**
+ * Intelligence overview card styles.
+ *
+ * ## Responsibilities
+ * - Own the card-level presentation for overview sections such as On This Day, Top Sites,
+ *   Engine Ranking, Search Concepts, Refind, and Activity Mix.
+ * - Preserve route-local controls that belong to those cards, including Top Sites sorting and
+ *   Refind expansion.
+ * - Keep overview-specific change indicators scoped away from the generic page shell.
+ *
+ * ## Non-responsibilities
+ * - Does not own generic section chrome, tabs, digest cards, or empty-state primitives.
+ * - Does not style query-family or search-query browsing surfaces.
+ * - Does not include rhythm, path-flow, or other secondary-route-specific modules.
+ *
+ * ## Dependencies
+ * - Consumes the existing Intelligence DOM/class contract and shared CSS variables.
+ * - Assumes `page-shell.css` or the legacy `intelligence.css` still provides shared shell tokens.
+ *
+ * ## Performance note
+ * - Copies the existing transitions and bar-fill rules verbatim so the split does not change
+ *   scrolling, hover, or paint behavior for overview-heavy screens.
+ */
+
+/* ---------- On This Day ---------- */
+
+.on-this-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.on-this-day-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.on-this-day-entry__date {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.on-this-day-entry__summary {
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+/* ---------- Top Sites ---------- */
+
+.top-sites-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.top-site-row {
+  background: none;
+  border: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px 1fr 120px auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  text-align: left;
+}
+
+.top-site-row--interactive {
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.top-site-row--interactive:hover {
+  transform: translateX(2px);
+}
+
+.top-site-row__rank {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.top-site-row__domain {
+  font-size: 0.8125rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-site-row__bar {
+  height: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.top-site-row__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width var(--transition);
+}
+
+.top-site-row__count {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ---------- Engine Ranking ---------- */
+
+.engine-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.engine-ranking__row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.engine-ranking__name {
+  font-size: 0.8125rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.engine-ranking__bar {
+  height: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.engine-ranking__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width var(--transition);
+}
+
+.engine-ranking__count {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ---------- Search Concepts ---------- */
+
+.search-concepts-chart {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-concepts-chart__summary {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.search-concepts-chart__bars {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.search-concepts-chart__label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.search-concepts-chart__engines {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+/* ---------- Refind Cards ---------- */
+
+.refind-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.refind-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition: border-color var(--transition);
+}
+
+.refind-card:hover {
+  border-color: var(--border-active);
+}
+
+.refind-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.refind-card__icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.refind-card__title {
+  font-size: 0.8125rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.refind-card__description {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ---------- Activity Mix ---------- */
+
+.activity-mix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.activity-mix__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.activity-mix__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.activity-mix__category {
+  font-size: 0.8125rem;
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.activity-mix__bar {
+  height: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.activity-mix__bar-fill {
+  display: block;
+  height: 100%;
+  transition: width var(--transition);
+}
+
+.activity-mix__bar-fill[data-category='developer'] {
+  background: var(
+    --activity-developer,
+    color-mix(in srgb, var(--accent) 70%, var(--info))
+  );
+}
+.activity-mix__bar-fill[data-category='video'] {
+  background: var(--activity-video, var(--danger));
+}
+.activity-mix__bar-fill[data-category='social'] {
+  background: var(--activity-social, var(--success));
+}
+.activity-mix__bar-fill[data-category='shopping'] {
+  background: var(--activity-shopping, var(--warning));
+}
+.activity-mix__bar-fill[data-category='search'] {
+  background: var(
+    --activity-search,
+    color-mix(in srgb, var(--accent) 60%, var(--info))
+  );
+}
+.activity-mix__bar-fill[data-category='docs'] {
+  background: var(
+    --activity-docs,
+    color-mix(in srgb, var(--info) 60%, var(--accent))
+  );
+}
+.activity-mix__bar-fill[data-category='ai'] {
+  background: var(
+    --activity-ai,
+    color-mix(in srgb, var(--danger) 50%, var(--accent))
+  );
+}
+.activity-mix__bar-fill[data-category='news'] {
+  background: var(
+    --activity-news,
+    color-mix(in srgb, var(--warning) 70%, var(--danger))
+  );
+}
+.activity-mix__bar-fill[data-category='finance'] {
+  background: var(--activity-finance, var(--success));
+}
+.activity-mix__bar-fill[data-category='entertainment'] {
+  background: var(
+    --activity-entertainment,
+    color-mix(in srgb, var(--accent) 50%, var(--info))
+  );
+}
+.activity-mix__bar-fill {
+  background: var(--text-faint);
+}
+
+.activity-mix__share {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.activity-mix__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.activity-mix__examples {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.activity-mix__example-links {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-left: var(--space-2);
+}
+
+/* ---------- Top Sites Sort Controls ---------- */
+
+.top-sites-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.top-sites-controls__search {
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-2);
+}
+
+.top-sites-controls__sort {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+/* ---------- Refind Expand ---------- */
+
+.refind-card__expand-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  padding: 0;
+  transition: color var(--transition);
+}
+
+.refind-card__expand-toggle:hover {
+  color: var(--accent);
+}
+
+.refind-card__factors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-2);
+}
+
+.refind-card__factor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.6875rem;
+}
+
+.refind-card__factor-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 140px;
+}
+
+.refind-card__factor-bar {
+  height: 4px;
+  background: var(--accent);
+  opacity: 0.6;
+  border-radius: 2px;
+  transition: width var(--transition);
+}
+
+.refind-card__factor-value {
+  font-family: var(--font-code);
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* ---------- Activity Mix Change ---------- */
+
+.activity-mix__change {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+}
+
+.activity-mix__change--positive {
+  color: var(--success);
+}
+
+.activity-mix__change--negative {
+  color: var(--error);
+}
+
+.activity-mix__change--flat {
+  color: var(--text-faint);
+}
