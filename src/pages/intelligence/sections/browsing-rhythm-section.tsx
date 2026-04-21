@@ -4,7 +4,11 @@
 
 import { BrowsingRhythmCard } from '../../../components/intelligence/browsing-rhythm-card'
 import { IntelligenceSectionMeta } from '../../../components/intelligence/section-meta'
-import { useAsyncData, type DateRange } from '../../../lib/core-intelligence'
+import {
+  useAsyncData,
+  type DateRange,
+  type TimeRangePreset,
+} from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import { domainDayInsightsHref } from '../../../lib/intelligence'
@@ -15,6 +19,7 @@ export function BrowsingRhythmSection({
   dateRange,
   dayHref,
   language,
+  preset,
   profileId,
   scopeLabel,
   t,
@@ -22,6 +27,7 @@ export function BrowsingRhythmSection({
   dateRange: DateRange
   dayHref: (date: string) => string
   language: ResolvedLanguage
+  preset: TimeRangePreset
   profileId: string | null
   scopeLabel: string
   t: T
@@ -56,6 +62,7 @@ export function BrowsingRhythmSection({
           language={language}
           mode="range"
           profileId={profileId}
+          summaryPreset={preset}
           t={t}
         />
       </IntelligenceSectionBody>

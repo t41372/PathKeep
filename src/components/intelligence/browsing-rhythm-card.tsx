@@ -2,6 +2,10 @@ import './browsing-rhythm-card.css'
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  RhythmActivityProportionBar,
+  RhythmHourStrip,
+} from './browsing-rhythm-detail'
 import * as api from '../../lib/core-intelligence/api'
 import {
   dateRangeForCalendarYear,
@@ -9,7 +13,9 @@ import {
   type DateRange,
   type DayInsights,
   type DiscoveryTrendPoint,
+  type TimeRangePreset,
 } from '../../lib/core-intelligence'
+import { intelligenceCategoryLabel } from '../../pages/intelligence/copy'
 
 export type BrowsingRhythmTranslator = (
   key: string,
@@ -31,6 +37,8 @@ interface BrowsingRhythmCardProps {
   language: string
   mode: 'range' | 'year'
   profileId?: string | null
+  showCurrentYearShortcut?: boolean
+  summaryPreset?: TimeRangePreset | 'calendar-year'
   t: BrowsingRhythmTranslator
   yearNavigation?: 'select' | 'pager'
 }
@@ -51,12 +59,13 @@ export function BrowsingRhythmCard({
   language,
   mode,
   profileId,
+  showCurrentYearShortcut = false,
+  summaryPreset,
   t,
   yearNavigation = 'select',
 }: BrowsingRhythmCardProps) {
-  const [selectedYear, setSelectedYear] = useState(() =>
-    new Date().getFullYear(),
-  )
+  const currentCalendarYear = new Date().getFullYear()
+  const [selectedYear, setSelectedYear] = useState(() => currentCalendarYear)
   const [manualYearSelection, setManualYearSelection] = useState(false)
   const effectiveDateRange = useMemo(() => {
     if (mode === 'year') {
@@ -110,6 +119,32 @@ export function BrowsingRhythmCard({
     () => Math.max(...calendarDays.map((cell) => cell.totalVisits), 1),
     [calendarDays],
   )
+  const totalVisits = useMemo(
+    () => points.reduce((sum, point) => sum + point.totalVisits, 0),
+    [points],
+  )
+  const hasCalendarVisits = totalVisits > 0
+  const visitSummary = useMemo(
+    () =>
+      buildVisitSummary({
+        dateRange: effectiveDateRange,
+        language,
+        selectedYear,
+        summaryPreset:
+          summaryPreset ?? (mode === 'year' ? 'calendar-year' : 'custom'),
+        totalVisits,
+        t,
+      }),
+    [
+      effectiveDateRange,
+      language,
+      mode,
+      selectedYear,
+      summaryPreset,
+      t,
+      totalVisits,
+    ],
+  )
   const selectedDateOverride =
     selectedDateState?.scopeKey === selectionScopeKey
       ? selectedDateState.dateKey
@@ -150,6 +185,11 @@ export function BrowsingRhythmCard({
     selectedYearIndex >= 0 && selectedYearIndex < availableYears.length - 1
       ? availableYears[selectedYearIndex + 1]
       : null
+  const canResetToCurrentYear =
+    showCurrentYearShortcut &&
+    mode === 'year' &&
+    availableYears.includes(currentCalendarYear) &&
+    selectedYear !== currentCalendarYear
 
   useEffect(() => {
     if (mode !== 'year' || availableYears.length === 0) {
@@ -188,56 +228,71 @@ export function BrowsingRhythmCard({
         </span>
         {mode === 'year' && availableYears.length > 1 ? (
           yearNavigation === 'pager' ? (
-            <div
-              className="browsing-rhythm-card__year-pager"
-              data-testid="browsing-rhythm-year-pager"
-            >
-              <button
-                aria-label={t('rhythmPreviousYearAria', {
-                  year: newerYear ?? selectedYear,
-                })}
-                className="browsing-rhythm-card__year-button"
-                data-testid="browsing-rhythm-year-previous"
-                disabled={newerYear === null}
-                type="button"
-                onClick={() => {
-                  if (newerYear !== null) {
-                    setManualYearSelection(true)
-                    setSelectedYear(newerYear)
-                  }
-                }}
-              >
-                {'<'}
-              </button>
+            <div className="browsing-rhythm-card__year-actions">
               <div
-                aria-live="polite"
-                className="browsing-rhythm-card__year-current"
-                data-testid="browsing-rhythm-year-label"
+                className="browsing-rhythm-card__year-pager"
+                data-testid="browsing-rhythm-year-pager"
               >
-                <span className="browsing-rhythm-card__year-caption">
-                  {t('rhythmYearLabel')}
-                </span>
-                <strong className="browsing-rhythm-card__year-value">
-                  {selectedYear}
-                </strong>
+                <button
+                  aria-label={t('rhythmPreviousYearAria', {
+                    year: newerYear ?? selectedYear,
+                  })}
+                  className="browsing-rhythm-card__year-button"
+                  data-testid="browsing-rhythm-year-previous"
+                  disabled={newerYear === null}
+                  type="button"
+                  onClick={() => {
+                    if (newerYear !== null) {
+                      setManualYearSelection(true)
+                      setSelectedYear(newerYear)
+                    }
+                  }}
+                >
+                  {'<'}
+                </button>
+                <div
+                  aria-live="polite"
+                  className="browsing-rhythm-card__year-current"
+                  data-testid="browsing-rhythm-year-label"
+                >
+                  <span className="browsing-rhythm-card__year-caption">
+                    {t('rhythmYearLabel')}
+                  </span>
+                  <strong className="browsing-rhythm-card__year-value">
+                    {selectedYear}
+                  </strong>
+                </div>
+                <button
+                  aria-label={t('rhythmNextYearAria', {
+                    year: olderYear ?? selectedYear,
+                  })}
+                  className="browsing-rhythm-card__year-button"
+                  data-testid="browsing-rhythm-year-next"
+                  disabled={olderYear === null}
+                  type="button"
+                  onClick={() => {
+                    if (olderYear !== null) {
+                      setManualYearSelection(true)
+                      setSelectedYear(olderYear)
+                    }
+                  }}
+                >
+                  {'>'}
+                </button>
               </div>
-              <button
-                aria-label={t('rhythmNextYearAria', {
-                  year: olderYear ?? selectedYear,
-                })}
-                className="browsing-rhythm-card__year-button"
-                data-testid="browsing-rhythm-year-next"
-                disabled={olderYear === null}
-                type="button"
-                onClick={() => {
-                  if (olderYear !== null) {
+              {canResetToCurrentYear ? (
+                <button
+                  className="browsing-rhythm-card__current-year-button"
+                  data-testid="browsing-rhythm-current-year-shortcut"
+                  type="button"
+                  onClick={() => {
                     setManualYearSelection(true)
-                    setSelectedYear(olderYear)
-                  }
-                }}
-              >
-                {'>'}
-              </button>
+                    setSelectedYear(currentCalendarYear)
+                  }}
+                >
+                  {t('rhythmCurrentYearAction')}
+                </button>
+              ) : null}
             </div>
           ) : (
             <label className="browsing-rhythm-card__selector">
@@ -273,7 +328,7 @@ export function BrowsingRhythmCard({
             {trendResult.error}
           </p>
         </div>
-      ) : calendarDays.length === 0 ? (
+      ) : !hasCalendarVisits ? (
         <div className="browsing-rhythm-card__empty">
           <p className="browsing-rhythm-card__empty-text">
             {mode === 'year' ? t('rhythmYearEmpty') : t('rhythmEmpty')}
@@ -281,6 +336,12 @@ export function BrowsingRhythmCard({
         </div>
       ) : (
         <>
+          <p
+            className="browsing-rhythm-card__summary"
+            data-testid="browsing-rhythm-summary"
+          >
+            {visitSummary}
+          </p>
           <div className="rhythm-calendar-shell">
             <div className="rhythm-calendar__months">
               <span className="rhythm-calendar__months-spacer" />
@@ -352,6 +413,7 @@ export function BrowsingRhythmCard({
               dayHref={dayHref}
               detail={selectedDayResult.data?.data ?? null}
               error={selectedDayResult.error}
+              language={language}
               loading={selectedDayResult.loading}
               t={t}
             />
@@ -375,6 +437,7 @@ function BrowsingRhythmDayDetail({
   detail,
   error,
   loading,
+  language,
   t,
 }: {
   dateKey: string
@@ -383,22 +446,9 @@ function BrowsingRhythmDayDetail({
   detail: DayInsights | null
   error: string | null
   loading: boolean
+  language: string
   t: BrowsingRhythmTranslator
 }) {
-  const hourlyCells = useMemo(
-    () => buildHourCells(detail?.hourlyActivity ?? []),
-    [detail?.hourlyActivity],
-  )
-  const maxHourlyCount = Math.max(
-    ...hourlyCells.map((cell) => cell.visitCount),
-    1,
-  )
-  const activityMix =
-    detail?.activityMix.categories.slice(0, 4).map((category) => ({
-      ...category,
-      sharePercent: Math.round(category.share * 100),
-    })) ?? []
-
   return (
     <div className="rhythm-day-detail" data-testid="browsing-rhythm-day-detail">
       <div className="rhythm-day-detail__header">
@@ -429,7 +479,7 @@ function BrowsingRhythmDayDetail({
       </div>
 
       {loading ? (
-        <div className="rhythm-day-detail__grid">
+        <div className="rhythm-day-detail__skeletons">
           <div className="browsing-rhythm-card__mini-skeleton" />
           <div className="browsing-rhythm-card__mini-skeleton" />
           <div className="browsing-rhythm-card__mini-skeleton" />
@@ -437,36 +487,17 @@ function BrowsingRhythmDayDetail({
       ) : error ? (
         <p className="rhythm-day-detail__empty">{error}</p>
       ) : detail ? (
-        <div className="rhythm-day-detail__grid">
-          <div className="rhythm-day-detail__panel">
+        <div className="rhythm-day-detail__content">
+          <div className="rhythm-day-detail__block">
             <span className="rhythm-day-detail__stat-label">
               {t('rhythmDayHoursTitle')}
             </span>
-            {hourlyCells.some((cell) => cell.visitCount > 0) ? (
-              <div
-                className="rhythm-hour-strip"
-                role="img"
-                aria-label={t('rhythmHourStripLabel', { date: dateKey })}
-              >
-                <div className="rhythm-hour-strip__grid">
-                  {hourlyCells.map((cell) => (
-                    <span
-                      key={cell.hour}
-                      className="rhythm-hour-strip__cell"
-                      data-level={heatLevel(cell.visitCount, maxHourlyCount)}
-                      title={t('rhythmHourTooltip', {
-                        hour: formatHourRange(cell.hour),
-                        count: cell.visitCount,
-                      })}
-                    />
-                  ))}
-                </div>
-                <div className="rhythm-hour-strip__labels" aria-hidden="true">
-                  {[0, 6, 12, 18, 23].map((hour) => (
-                    <span key={hour}>{hour}</span>
-                  ))}
-                </div>
-              </div>
+            {detail.hourlyActivity.some((bucket) => bucket.visitCount > 0) ? (
+              <RhythmHourStrip
+                date={dateKey}
+                hourly={detail.hourlyActivity}
+                t={t}
+              />
             ) : (
               <p className="rhythm-day-detail__empty">
                 {t('rhythmDayNoHourlyData')}
@@ -474,7 +505,7 @@ function BrowsingRhythmDayDetail({
             )}
           </div>
 
-          <div className="rhythm-day-detail__panel">
+          <div className="rhythm-day-detail__block">
             <span className="rhythm-day-detail__stat-label">
               {t('dayInsightsTopSitesTitle')}
             </span>
@@ -508,38 +539,23 @@ function BrowsingRhythmDayDetail({
             )}
           </div>
 
-          <div className="rhythm-day-detail__panel">
+          <div className="rhythm-day-detail__block">
             <span className="rhythm-day-detail__stat-label">
               {t('dayInsightsActivityMixTitle')}
             </span>
-            {activityMix.length > 0 ? (
-              <div className="rhythm-day-detail__mix-list">
-                {activityMix.map((category) => (
-                  <div
-                    key={category.domainCategory}
-                    className="rhythm-day-detail__mix-row"
-                  >
-                    <div className="rhythm-day-detail__mix-summary">
-                      <span className="rhythm-day-detail__mix-label">
-                        {t(`category_${category.domainCategory}`)}
-                      </span>
-                      <span className="rhythm-day-detail__mix-value">
-                        {category.sharePercent}%
-                      </span>
-                    </div>
-                    <span className="rhythm-day-detail__mix-bar">
-                      <span
-                        className="rhythm-day-detail__mix-fill"
-                        data-category={category.domainCategory}
-                        style={{ width: `${category.sharePercent}%` }}
-                      />
-                    </span>
-                    <span className="rhythm-day-detail__mix-count">
-                      {formatNumber(category.visitCount)} {t('visits')}
-                    </span>
-                  </div>
-                ))}
-              </div>
+            {detail.activityMix.categories.length > 0 ? (
+              <RhythmActivityProportionBar
+                categories={detail.activityMix.categories}
+                categoryLabel={(domainCategory) =>
+                  intelligenceCategoryLabel(
+                    language as 'en' | 'zh-CN' | 'zh-TW',
+                    t,
+                    domainCategory,
+                  )
+                }
+                language={language as 'en' | 'zh-CN' | 'zh-TW'}
+                t={t}
+              />
             ) : (
               <p className="rhythm-day-detail__empty">
                 {t('activityMixEmpty')}
@@ -550,19 +566,6 @@ function BrowsingRhythmDayDetail({
       ) : null}
     </div>
   )
-}
-
-function buildHourCells(
-  buckets: DayInsights['hourlyActivity'],
-): Array<{ hour: number; visitCount: number }> {
-  const byHour = new Map(
-    buckets.map((bucket) => [bucket.hour, bucket.visitCount]),
-  )
-
-  return Array.from({ length: 24 }, (_, hour) => ({
-    hour,
-    visitCount: byHour.get(hour) ?? 0,
-  }))
 }
 
 function buildCalendarWeeks(
@@ -637,18 +640,6 @@ function heatLevel(count: number, maxCount: number) {
   return 1
 }
 
-function formatNumber(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return String(value)
-}
-
-function formatHourRange(hour: number) {
-  const start = String(hour).padStart(2, '0')
-  const end = String((hour + 1) % 24).padStart(2, '0')
-  return `${start}:00-${end}:00`
-}
-
 function parseDateKey(dateKey: string) {
   const [year, month, day] = dateKey.split('-').map(Number)
   return new Date(year, (month ?? 1) - 1, day ?? 1, 12)
@@ -679,4 +670,91 @@ function localeFromLanguage(language: string) {
   if (language === 'zh-CN') return 'zh-CN'
   if (language === 'zh-TW') return 'zh-TW'
   return 'en-US'
+}
+
+function buildVisitSummary({
+  dateRange,
+  language,
+  selectedYear,
+  summaryPreset,
+  totalVisits,
+  t,
+}: {
+  dateRange: DateRange
+  language: string
+  selectedYear: number
+  summaryPreset: TimeRangePreset | 'calendar-year'
+  totalVisits: number
+  t: BrowsingRhythmTranslator
+}) {
+  const count = new Intl.NumberFormat(localeFromLanguage(language)).format(
+    totalVisits,
+  )
+
+  if (summaryPreset === 'calendar-year') {
+    return t('rhythmVisitSummaryYear', {
+      count,
+      year: selectedYear,
+    })
+  }
+
+  if (dateRange.start === dateRange.end) {
+    return t('rhythmVisitSummaryDay', {
+      count,
+      date: formatDisplayDate(dateRange.start, language),
+    })
+  }
+
+  if (isFullCalendarMonth(dateRange)) {
+    return t('rhythmVisitSummaryMonth', {
+      count,
+      monthYear: formatMonthYear(dateRange.start, language),
+    })
+  }
+
+  if (isFullCalendarYear(dateRange)) {
+    return t('rhythmVisitSummaryYear', {
+      count,
+      year: dateRange.start.slice(0, 4),
+    })
+  }
+
+  return t('rhythmVisitSummaryRange', {
+    count,
+    start: formatDisplayDate(dateRange.start, language),
+    end: formatDisplayDate(dateRange.end, language),
+  })
+}
+
+function formatDisplayDate(dateKey: string, language: string) {
+  return new Intl.DateTimeFormat(localeFromLanguage(language), {
+    dateStyle: 'medium',
+  }).format(parseDateKey(dateKey))
+}
+
+function formatMonthYear(dateKey: string, language: string) {
+  return new Intl.DateTimeFormat(localeFromLanguage(language), {
+    month: 'long',
+    year: 'numeric',
+  }).format(parseDateKey(dateKey))
+}
+
+function isFullCalendarYear(dateRange: DateRange) {
+  return (
+    dateRange.start.endsWith('-01-01') &&
+    dateRange.end.endsWith('-12-31') &&
+    dateRange.start.slice(0, 4) === dateRange.end.slice(0, 4)
+  )
+}
+
+function isFullCalendarMonth(dateRange: DateRange) {
+  const start = parseDateKey(dateRange.start)
+  const end = parseDateKey(dateRange.end)
+  return (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === 1 &&
+    end.getDate() ===
+      new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate()
+  )
 }

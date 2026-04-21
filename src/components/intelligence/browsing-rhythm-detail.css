@@ -1,0 +1,182 @@
+.rhythm-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rhythm-distribution__grid {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.rhythm-distribution__cell {
+  display: block;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
+}
+
+.rhythm-distribution__cell[data-level='1'] {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface) 80%);
+}
+
+.rhythm-distribution__cell[data-level='2'] {
+  background: color-mix(in srgb, var(--accent) 40%, var(--bg-surface) 60%);
+}
+
+.rhythm-distribution__cell[data-level='3'] {
+  background: color-mix(in srgb, var(--accent) 65%, var(--bg-surface) 35%);
+}
+
+.rhythm-distribution__cell[data-level='4'] {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg-surface) 15%);
+}
+
+.rhythm-distribution__labels {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+.rhythm-proportion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rhythm-proportion__bar {
+  display: flex;
+  height: 12px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.rhythm-proportion__segment {
+  min-width: 1px;
+}
+
+.rhythm-proportion__segment[data-category='developer'] {
+  background: var(
+    --activity-developer,
+    color-mix(in srgb, var(--accent) 70%, var(--info))
+  );
+}
+
+.rhythm-proportion__segment[data-category='video'] {
+  background: var(--activity-video, var(--danger));
+}
+
+.rhythm-proportion__segment[data-category='social'] {
+  background: var(--activity-social, var(--success));
+}
+
+.rhythm-proportion__segment[data-category='shopping'] {
+  background: var(--activity-shopping, var(--warning));
+}
+
+.rhythm-proportion__segment[data-category='search'] {
+  background: var(
+    --activity-search,
+    color-mix(in srgb, var(--accent) 60%, var(--info))
+  );
+}
+
+.rhythm-proportion__segment[data-category='docs'] {
+  background: var(
+    --activity-docs,
+    color-mix(in srgb, var(--info) 60%, var(--accent))
+  );
+}
+
+.rhythm-proportion__segment[data-category='ai'] {
+  background: var(
+    --activity-ai,
+    color-mix(in srgb, var(--danger) 50%, var(--accent))
+  );
+}
+
+.rhythm-proportion__segment[data-category='news'] {
+  background: var(
+    --activity-news,
+    color-mix(in srgb, var(--warning) 70%, var(--danger))
+  );
+}
+
+.rhythm-proportion__segment[data-category='finance'] {
+  background: var(--activity-finance, var(--success));
+}
+
+.rhythm-proportion__segment[data-category='entertainment'] {
+  background: var(
+    --activity-entertainment,
+    color-mix(in srgb, var(--accent) 50%, var(--info))
+  );
+}
+
+.rhythm-proportion__segment[data-category='community'] {
+  background: color-mix(in srgb, var(--info) 45%, var(--success) 55%);
+}
+
+.rhythm-proportion__segment[data-category='unknown'] {
+  background: color-mix(in srgb, var(--text-muted) 65%, var(--bg-surface) 35%);
+}
+
+.rhythm-proportion__legend {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.rhythm-proportion__legend-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.rhythm-proportion__legend-main {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rhythm-proportion__legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.rhythm-proportion__legend-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.rhythm-proportion__legend-share,
+.rhythm-proportion__legend-count {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .rhythm-proportion__legend-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rhythm-proportion__legend-count {
+    grid-column: 1 / -1;
+  }
+}

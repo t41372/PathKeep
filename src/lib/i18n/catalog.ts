@@ -306,6 +306,11 @@ const zhCnM3Namespaces = {
     rhythmYearAria: '切换浏览节奏年份，当前：{year}',
     rhythmPreviousYearAria: '查看较新的年份：{year}',
     rhythmNextYearAria: '查看较早的年份：{year}',
+    rhythmCurrentYearAction: '回到今年',
+    rhythmVisitSummaryYear: '{year} 年共浏览 {count} 次',
+    rhythmVisitSummaryMonth: '{monthYear} 共浏览 {count} 次',
+    rhythmVisitSummaryDay: '{date} 共浏览 {count} 次',
+    rhythmVisitSummaryRange: '{start} 至 {end}，共浏览 {count} 次',
     rhythmSelectDayPrompt: '选择某一天后，才会加载当天摘要和小时分布。',
     rhythmDetailLoading: '正在加载这一天的摘要和小时分布。',
     rhythmViewDetails: '查看详情',
@@ -982,6 +987,7 @@ const zhCnM3Namespaces = {
     latestRunGrowth: '最近备份新增',
     latestRunGrowthBody:
       '最近一次备份新增了 {visits} 条访问、{urls} 个网址和 {downloads} 条下载记录。',
+    openGrowthAuditRun: '在审计日志中查看这次备份',
     noGrowthEvidenceTitle: '还没有数据增长记录',
     noGrowthEvidenceDescription:
       '完成第一次备份后，这里会显示每次备份新增的数据量。',
@@ -1342,6 +1348,11 @@ const zhTwM3Namespaces = {
     rhythmYearAria: '切換瀏覽節奏年份，目前：{year}',
     rhythmPreviousYearAria: '查看較新的年份：{year}',
     rhythmNextYearAria: '查看較早的年份：{year}',
+    rhythmCurrentYearAction: '回到今年',
+    rhythmVisitSummaryYear: '{year} 年共瀏覽 {count} 次',
+    rhythmVisitSummaryMonth: '{monthYear} 共瀏覽 {count} 次',
+    rhythmVisitSummaryDay: '{date} 共瀏覽 {count} 次',
+    rhythmVisitSummaryRange: '{start} 至 {end}，共瀏覽 {count} 次',
     rhythmSelectDayPrompt: '選擇某一天後，才會載入當天摘要和小時分布。',
     rhythmDetailLoading: '正在載入這一天的摘要和小時分布。',
     rhythmViewDetails: '查看詳情',
@@ -2020,6 +2031,7 @@ const zhTwM3Namespaces = {
     latestRunGrowth: '最近備份新增',
     latestRunGrowthBody:
       '最近一次備份新增了 {visits} 筆瀏覽、{urls} 個網址和 {downloads} 筆下載紀錄。',
+    openGrowthAuditRun: '在稽核日誌中查看這次備份',
     noGrowthEvidenceTitle: '還沒有資料成長紀錄',
     noGrowthEvidenceDescription:
       '完成第一次備份後，這裡會顯示每次備份新增的資料量。',
@@ -3788,6 +3800,11 @@ const catalog: Record<
       rhythmYearAria: 'Switch browsing rhythm year. Current: {year}',
       rhythmPreviousYearAria: 'Show the newer browsing year: {year}',
       rhythmNextYearAria: 'Show the older browsing year: {year}',
+      rhythmCurrentYearAction: 'Back to current year',
+      rhythmVisitSummaryYear: '{count} visits in {year}',
+      rhythmVisitSummaryMonth: '{count} visits in {monthYear}',
+      rhythmVisitSummaryDay: '{count} visits on {date}',
+      rhythmVisitSummaryRange: '{count} visits from {start} to {end}',
       rhythmSelectDayPrompt:
         'Select a day to load its same-day summary and hourly distribution.',
       rhythmDetailLoading:
@@ -4497,6 +4514,7 @@ const catalog: Record<
       latestRunGrowth: 'Last backup added',
       latestRunGrowthBody:
         'Added {visits} visits, {urls} URLs, and {downloads} downloads.',
+      openGrowthAuditRun: 'Open this backup in Audit',
       noGrowthEvidenceTitle: 'No growth data yet',
       noGrowthEvidenceDescription:
         'Run at least one backup to see how your archive grows over time.',

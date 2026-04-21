@@ -185,6 +185,8 @@
 - 点日格后应先在卡片下方展示 compact day preview
 - 只有用户再按明确的 `查看详情` CTA，才进入 `/intelligence/day/:date`
 - Dashboard 若 archive 横跨多年，还要用 bounded pager 浏览不同年份，并明确显示当前年份
+- 顶部摘要文案必须诚实使用 `totalVisits` 口径；Dashboard 用 calendar-year wording，`/intelligence` overview 则按实际 date range 显示 exact-range wording
+- compact day preview 的信息层级也要收紧成：全宽 24 小时分布、全宽重点网站列、proportion bar 活动构成
 
 这次 override **没有** 推翻「day 是 first-class shared route」这条更高层 contract。  
 真正被修正的是 `Browsing Rhythm` 卡片自己的 click grammar：
@@ -193,6 +195,11 @@
 - Explorer detail rail / 其他 day entry surface：**route-first**
 
 这样既保留了 shared `day insights` route 作为唯一完整 read model，也把卡片内本来就约定好的同日摘要 / 小时分布 / 重点网站恢复回来。
+
+这一轮之后，还多了两个明确的 shipped contract：
+
+- summary line 不再写成 `pages visited` 这种容易误导成 unique pages 的句式；当前 truth 明确是 `visits`
+- `/intelligence/day/:date` 会重用同一套 flat 24 小时分布与 proportion bar 活动构成，但 richer `Standout Sites` section 继续留在 detail route，不被压回 overview preview 的 chip row
 
 ## 9. 用户确认记录
 

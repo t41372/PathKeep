@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  commonHealthText,
   formatDomainPagePath,
   intelligenceCategoryLabel,
   intelligenceText,
@@ -19,6 +20,36 @@ describe('intelligence display copy helpers', () => {
     expect(
       intelligenceText('en', brokenTranslator, 'externalOutputsReviewBody'),
     ).toContain('Settings')
+  })
+
+  test('falls back to shipped health-tail copy when intelligence keys are missing', () => {
+    const brokenTranslator = (key: string) => `intelligence.${key}`
+
+    expect(intelligenceText('en', brokenTranslator, 'storageAnalytics')).toBe(
+      'Storage',
+    )
+    expect(
+      intelligenceText('zh-TW', brokenTranslator, 'openGrowthAuditRun'),
+    ).toContain('稽核日誌')
+    expect(
+      intelligenceText('zh-CN', brokenTranslator, 'latestRunGrowthBody', {
+        visits: 12,
+        urls: 7,
+        downloads: 3,
+      }),
+    ).toContain('12')
+  })
+
+  test('falls back to shipped storage labels when common keys are missing', () => {
+    const brokenTranslator = (key: string) => `common.${key}`
+
+    expect(commonHealthText('en', brokenTranslator, 'coreHistory')).toBe(
+      'Core history',
+    )
+    expect(commonHealthText('zh-CN', brokenTranslator, 'auditArtifacts')).toBe(
+      '审计产物',
+    )
+    expect(commonHealthText('zh-TW', brokenTranslator, 'exports')).toBe('匯出')
   })
 
   test('falls back to a localized community label when the category key is missing', () => {

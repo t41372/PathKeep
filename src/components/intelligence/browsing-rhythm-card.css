@@ -29,6 +29,14 @@
   gap: var(--space-2);
 }
 
+.browsing-rhythm-card__year-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .browsing-rhythm-card__select {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -98,6 +106,35 @@
   font-size: 1rem;
   font-weight: 700;
   color: var(--text-bright);
+}
+
+.browsing-rhythm-card__current-year-button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color var(--transition),
+    color var(--transition),
+    background-color var(--transition);
+}
+
+.browsing-rhythm-card__current-year-button:hover,
+.browsing-rhythm-card__current-year-button:focus-visible {
+  border-color: var(--accent);
+  color: var(--text-bright);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.browsing-rhythm-card__summary {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
 .browsing-rhythm-card__empty {
@@ -271,12 +308,6 @@
   border-top: 1px solid var(--border);
 }
 
-.rhythm-day-detail__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
 .rhythm-day-detail__header {
   display: flex;
   align-items: flex-start;
@@ -299,6 +330,22 @@
 .rhythm-day-detail__stat-label {
   color: var(--text-muted);
   font-size: 0.75rem;
+}
+
+.rhythm-day-detail__content,
+.rhythm-day-detail__skeletons,
+.rhythm-day-detail__block {
+  display: flex;
+  flex-direction: column;
+}
+
+.rhythm-day-detail__content,
+.rhythm-day-detail__skeletons {
+  gap: var(--space-4);
+}
+
+.rhythm-day-detail__block {
+  gap: var(--space-2);
 }
 
 .rhythm-day-detail__actions {
@@ -339,88 +386,6 @@
   color: var(--text-bright);
 }
 
-.rhythm-day-detail__panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-height: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-surface) 84%, transparent);
-}
-
-.rhythm-day-detail__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: var(--space-3);
-}
-
-.rhythm-day-detail__hours {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.rhythm-hour-strip {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.rhythm-hour-strip__grid {
-  display: grid;
-  grid-template-columns: repeat(24, minmax(0, 1fr));
-  gap: 3px;
-}
-
-.rhythm-hour-strip__cell {
-  display: block;
-  height: 16px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
-}
-
-.rhythm-hour-strip__cell[data-level='1'] {
-  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface) 80%);
-}
-
-.rhythm-hour-strip__cell[data-level='2'] {
-  background: color-mix(in srgb, var(--accent) 40%, var(--bg-surface) 60%);
-}
-
-.rhythm-hour-strip__cell[data-level='3'] {
-  background: color-mix(in srgb, var(--accent) 65%, var(--bg-surface) 35%);
-}
-
-.rhythm-hour-strip__cell[data-level='4'] {
-  background: color-mix(in srgb, var(--accent) 85%, var(--bg-surface) 15%);
-}
-
-.rhythm-hour-strip__labels {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-  font-family: var(--font-code);
-  font-size: 0.625rem;
-  color: var(--text-faint);
-}
-
-.rhythm-day-detail__stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-
-.rhythm-day-detail__sites {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
 .rhythm-day-detail__site-list {
   display: flex;
   flex-wrap: wrap;
@@ -447,104 +412,10 @@
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface) 90%);
 }
 
-.rhythm-day-detail__mix-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.rhythm-day-detail__mix-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-}
-
-.rhythm-day-detail__mix-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.rhythm-day-detail__mix-label,
-.rhythm-day-detail__mix-count {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.rhythm-day-detail__mix-label {
-  color: var(--text);
-}
-
-.rhythm-day-detail__mix-value {
-  font-size: 0.6875rem;
-  color: var(--text-faint);
-}
-
-.rhythm-day-detail__mix-bar {
-  width: 100%;
-  height: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-}
-
-.rhythm-day-detail__mix-fill {
-  display: block;
-  height: 100%;
-  background: color-mix(in srgb, var(--accent) 72%, var(--bg-surface) 28%);
-}
-
-.rhythm-day-detail__mix-fill[data-category='developer'] {
-  background: #6ea8ff;
-}
-
-.rhythm-day-detail__mix-fill[data-category='video'] {
-  background: #ff8f6b;
-}
-
-.rhythm-day-detail__mix-fill[data-category='social'] {
-  background: #56d39b;
-}
-
-.rhythm-day-detail__mix-fill[data-category='shopping'] {
-  background: #f0b45d;
-}
-
-.rhythm-day-detail__mix-fill[data-category='search'] {
-  background: #ffd166;
-}
-
-.rhythm-day-detail__mix-fill[data-category='docs'] {
-  background: #82cfff;
-}
-
-.rhythm-day-detail__mix-fill[data-category='ai'] {
-  background: #b28cff;
-}
-
-.rhythm-day-detail__mix-fill[data-category='news'] {
-  background: #ff9f9f;
-}
-
-.rhythm-day-detail__mix-fill[data-category='finance'] {
-  background: #7ce2c7;
-}
-
-.rhythm-day-detail__mix-fill[data-category='entertainment'] {
-  background: #ff9ed3;
-}
-
-.rhythm-day-detail__mix-fill[data-category='unknown'] {
-  background: color-mix(in srgb, var(--text-muted) 65%, var(--bg-surface) 35%);
-}
-
 @media (max-width: 900px) {
   .browsing-rhythm-card__controls {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .rhythm-day-detail__grid {
-    grid-template-columns: 1fr;
   }
 
   .rhythm-day-detail__header {
@@ -563,7 +434,15 @@
     justify-content: space-between;
   }
 
+  .browsing-rhythm-card__year-actions {
+    width: 100%;
+  }
+
   .browsing-rhythm-card__year-current {
     flex: 1;
+  }
+
+  .browsing-rhythm-card__current-year-button {
+    width: 100%;
   }
 }

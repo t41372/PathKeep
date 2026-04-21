@@ -8,8 +8,11 @@
  *   stay navigation-first instead of rebuilding inline detail everywhere.
  */
 
-import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import {
+  RhythmActivityProportionBar,
+  RhythmHourStrip,
+} from '../../components/intelligence/browsing-rhythm-detail'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
 import { Glyph } from '../../components/ui'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
@@ -18,11 +21,7 @@ import { QueryFamilyCard } from '../../components/intelligence/query-family-card
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
 import { RefindSummaryCard } from '../../components/intelligence/workbench'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import {
-  singleDayDateRange,
-  useAsyncData,
-  type DayInsightsHourlyBucket,
-} from '../../lib/core-intelligence'
+import { singleDayDateRange, useAsyncData } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
@@ -42,7 +41,7 @@ import {
 } from '../../lib/core-intelligence/routes'
 import { intelligenceCategoryLabel, intelligenceText } from './copy'
 import { IntelligenceSectionBody } from './sections/section-body'
-import { formatHourRange, formatNumber } from './sections/shared'
+import { formatNumber } from './sections/shared'
 
 interface DayInsightsPageProps {
   backHref: string
@@ -235,20 +234,46 @@ export function DayInsightsPage({
         ]}
       />
 
-      <div className="intelligence-row intelligence-row--two-col">
-        <section className="intelligence-section">
-          <h2 className="intelligence-section__title">
-            {t('dayInsightsHourlyTitle')}
-          </h2>
-          <IntelligenceSectionBody>
-            <DayInsightsHourStrip
-              date={detail.date}
-              hourly={detail.hourlyActivity}
-              t={t}
-            />
-          </IntelligenceSectionBody>
-        </section>
+      <section className="intelligence-section day-insights__wide-section">
+        <h2 className="intelligence-section__title">
+          {t('dayInsightsHourlyTitle')}
+        </h2>
+        {detail.hourlyActivity.some((bucket) => bucket.visitCount > 0) ? (
+          <RhythmHourStrip
+            date={detail.date}
+            hourly={detail.hourlyActivity}
+            t={t}
+          />
+        ) : (
+          <div className="intelligence-empty">
+            <p className="intelligence-empty__text">
+              {t('rhythmDayNoHourlyData')}
+            </p>
+          </div>
+        )}
+      </section>
 
+      <section className="intelligence-section day-insights__wide-section">
+        <h2 className="intelligence-section__title">
+          {t('dayInsightsActivityMixTitle')}
+        </h2>
+        {detail.activityMix.categories.length === 0 ? (
+          <div className="intelligence-empty">
+            <p className="intelligence-empty__text">{t('activityMixEmpty')}</p>
+          </div>
+        ) : (
+          <RhythmActivityProportionBar
+            categories={detail.activityMix.categories}
+            categoryLabel={(domainCategory) =>
+              intelligenceCategoryLabel(language, t, domainCategory)
+            }
+            language={language}
+            t={t}
+          />
+        )}
+      </section>
+
+      <div className="intelligence-secondary-grid day-insights__secondary-grid">
         <section className="intelligence-section">
           <h2 className="intelligence-section__title">
             {t('dayInsightsTopSitesTitle')}
@@ -289,50 +314,6 @@ export function DayInsightsPage({
                     {formatNumber(site.visitCount)} {t('visits')}
                   </span>
                 </Link>
-              ))}
-            </IntelligenceSectionBody>
-          )}
-        </section>
-      </div>
-
-      <div className="intelligence-secondary-grid day-insights__secondary-grid">
-        <section className="intelligence-section">
-          <h2 className="intelligence-section__title">
-            {t('dayInsightsActivityMixTitle')}
-          </h2>
-          {detail.activityMix.categories.length === 0 ? (
-            <div className="intelligence-empty">
-              <p className="intelligence-empty__text">
-                {t('activityMixEmpty')}
-              </p>
-            </div>
-          ) : (
-            <IntelligenceSectionBody className="activity-mix">
-              {detail.activityMix.categories.map((category) => (
-                <div
-                  key={category.domainCategory}
-                  className="activity-mix__row"
-                >
-                  <div className="activity-mix__summary">
-                    <span className="activity-mix__category">
-                      {intelligenceCategoryLabel(
-                        language,
-                        t,
-                        category.domainCategory,
-                      )}
-                    </span>
-                    <span className="activity-mix__share">
-                      {Math.round(category.share * 100)}%
-                    </span>
-                  </div>
-                  <span className="activity-mix__bar">
-                    <span
-                      className="activity-mix__bar-fill"
-                      style={{ width: `${Math.round(category.share * 100)}%` }}
-                      data-category={category.domainCategory}
-                    />
-                  </span>
-                </div>
               ))}
             </IntelligenceSectionBody>
           )}
@@ -423,73 +404,4 @@ export function DayInsightsPage({
       </div>
     </div>
   )
-}
-
-function DayInsightsHourStrip({
-  date,
-  hourly,
-  t,
-}: {
-  date: string
-  hourly: DayInsightsHourlyBucket[]
-  t: (key: string, vars?: Record<string, string | number>) => string
-}) {
-  const maxHourlyCount = Math.max(
-    ...hourly.map((bucket) => bucket.visitCount),
-    1,
-  )
-  const normalized = useMemo(() => {
-    const byHour = new Map(
-      hourly.map((bucket) => [bucket.hour, bucket.visitCount]),
-    )
-    return Array.from({ length: 24 }, (_, hour) => ({
-      hour,
-      visitCount: byHour.get(hour) ?? 0,
-    }))
-  }, [hourly])
-
-  if (!normalized.some((bucket) => bucket.visitCount > 0)) {
-    return (
-      <p className="rhythm-day-detail__empty">{t('rhythmDayNoHourlyData')}</p>
-    )
-  }
-
-  return (
-    <div
-      className="rhythm-hour-strip"
-      role="img"
-      aria-label={t('rhythmHourStripLabel', { date })}
-    >
-      <div className="rhythm-hour-strip__grid">
-        {normalized.map((bucket) => (
-          <span
-            key={bucket.hour}
-            className="rhythm-hour-strip__cell"
-            data-level={heatLevel(bucket.visitCount, maxHourlyCount)}
-            title={t('rhythmHourTooltip', {
-              hour: formatHourRange(bucket.hour),
-              count: bucket.visitCount,
-            })}
-          />
-        ))}
-      </div>
-      <div className="rhythm-hour-strip__labels" aria-hidden="true">
-        {[0, 6, 12, 18, 23].map((hour) => (
-          <span key={hour}>{hour}</span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function heatLevel(count: number, maxCount: number) {
-  if (count <= 0 || maxCount <= 0) {
-    return 0
-  }
-
-  const ratio = count / maxCount
-  if (ratio >= 0.75) return 4
-  if (ratio >= 0.5) return 3
-  if (ratio >= 0.25) return 2
-  return 1
 }

@@ -40,7 +40,7 @@ import { intelligenceText } from './copy'
  */
 export function IntelligencePage() {
   const { language, t } = useI18n('intelligence')
-  const { snapshot } = useShellData()
+  const { dashboard, snapshot } = useShellData()
   const {
     dateRange,
     effectiveProfileId,
@@ -150,11 +150,13 @@ export function IntelligencePage() {
       {stagedOverview.primaryReady ? (
         <IntelligenceSections
           compareSetHref={compareSetHref}
+          dashboard={dashboard}
           dateRange={dateRange}
           dayHref={dayHref}
           domainHref={domainHref}
           focusedDomainHref={focusedDomainHref}
           language={language}
+          preset={preset}
           profileId={effectiveProfileId}
           queryFamilyHref={queryFamilyHref}
           refindHref={refindHref}

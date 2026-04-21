@@ -105,6 +105,10 @@
   gap: var(--space-2);
 }
 
+.day-insights__wide-section {
+  gap: var(--space-3);
+}
+
 .day-insights__title {
   margin: 0;
   font-size: 1.5rem;

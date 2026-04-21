@@ -30,10 +30,13 @@ import {
   useAsyncData,
   type DateRange,
   type RefindPage,
+  type TimeRangePreset,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import { evidenceHref } from '../../lib/intelligence'
+import { storageGrowthEvidence } from '../../lib/storage-analytics'
+import type { DashboardSnapshot } from '../../lib/types'
 import { IntelligenceSectionBody } from './sections/section-body'
 import { GrowthSignalSection, StorageAnalyticsSection } from './sections/health'
 import {
@@ -58,6 +61,7 @@ import { formatNumber, type T } from './sections/shared'
 
 interface IntelligenceSectionsProps {
   compareSetHref: (compareSetId: string) => string
+  dashboard: DashboardSnapshot | null
   dateRange: DateRange
   dayHref: (date: string) => string
   domainHref: (domain: string) => string
@@ -66,6 +70,7 @@ interface IntelligenceSectionsProps {
     focus: { focusType: 'compare-set' | 'path-flow'; focusId: string },
   ) => string
   language: ResolvedLanguage
+  preset: TimeRangePreset
   profileId: string | null
   queryFamilyHref: (familyId: string, profileId?: string | null) => string
   refindHref: (canonicalUrl: string) => string
@@ -80,11 +85,13 @@ interface IntelligenceSectionsProps {
  */
 export function IntelligenceSections({
   compareSetHref,
+  dashboard,
   dateRange,
   dayHref,
   domainHref,
   focusedDomainHref,
   language,
+  preset,
   profileId,
   queryFamilyHref,
   refindHref,
@@ -93,6 +100,33 @@ export function IntelligenceSections({
   trailHref,
   t,
 }: IntelligenceSectionsProps) {
+  const growth = storageGrowthEvidence(dashboard)
+  const healthSections = [
+    {
+      element: (
+        <StorageAnalyticsSection
+          key="storage-analytics"
+          dashboard={dashboard}
+        />
+      ),
+      empty: dashboard === null,
+      key: 'storage-analytics',
+    },
+    {
+      element: (
+        <GrowthSignalSection key="growth-signal" dashboard={dashboard} />
+      ),
+      empty: growth.latestRunId === null,
+      key: 'growth-signal',
+    },
+  ]
+  const primaryHealthSections = healthSections
+    .filter((section) => !section.empty)
+    .map((section) => section.element)
+  const deferredHealthSections = healthSections
+    .filter((section) => section.empty)
+    .map((section) => section.element)
+
   return (
     <div className="intelligence-grid">
       <DigestSection
@@ -140,6 +174,7 @@ export function IntelligenceSections({
         dateRange={dateRange}
         dayHref={dayHref}
         language={language}
+        preset={preset}
         profileId={profileId}
         scopeLabel={scopeLabel}
         t={t}
@@ -187,8 +222,7 @@ export function IntelligenceSections({
             scopeLabel={scopeLabel}
             t={t}
           />
-          <StorageAnalyticsSection />
-          <GrowthSignalSection />
+          {primaryHealthSections}
           <BreadthIndexSection
             dateRange={dateRange}
             profileId={profileId}
@@ -224,6 +258,7 @@ export function IntelligenceSections({
             scopeLabel={scopeLabel}
             t={t}
           />
+          {deferredHealthSections}
         </div>
       ) : (
         <div className="intelligence-secondary-grid">

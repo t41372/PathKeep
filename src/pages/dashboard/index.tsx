@@ -596,6 +596,8 @@ export function DashboardPage() {
             mode="year"
             language={language}
             profileId={activeProfileId}
+            showCurrentYearShortcut
+            summaryPreset="calendar-year"
             t={intelligenceT}
             yearNavigation="pager"
           />
