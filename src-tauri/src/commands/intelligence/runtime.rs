@@ -1,18 +1,9 @@
 #[cfg(not(test))]
+use super::super::blocking::run_blocking_command;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::State;
-#[cfg(not(test))]
-use tauri::async_runtime;
-
-#[cfg(not(test))]
-async fn run_blocking_intelligence_command<T: Send + 'static>(
-    task: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    async_runtime::spawn_blocking(task)
-        .await
-        .map_err(|error| format!("PathKeep intelligence command join failed: {error}"))?
-}
 
 #[cfg(not(test))]
 #[tauri::command]
@@ -68,7 +59,7 @@ pub(crate) async fn get_intelligence_primary_overview(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligencePrimaryOverview, String> {
     let session_database_key = state.get_key();
-    run_blocking_intelligence_command(move || {
+    run_blocking_command("get_intelligence_primary_overview", move || {
         worker_bridge::get_intelligence_primary_overview_impl(
             request,
             session_database_key.as_deref(),
@@ -84,7 +75,7 @@ pub(crate) async fn get_intelligence_secondary_overview(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligenceSecondaryOverview, String> {
     let session_database_key = state.get_key();
-    run_blocking_intelligence_command(move || {
+    run_blocking_command("get_intelligence_secondary_overview", move || {
         worker_bridge::get_intelligence_secondary_overview_impl(
             request,
             session_database_key.as_deref(),
@@ -145,7 +136,7 @@ pub(crate) async fn load_intelligence_runtime(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceRuntimeSnapshot, String> {
     let session_database_key = state.get_key();
-    run_blocking_intelligence_command(move || {
+    run_blocking_command("load_intelligence_runtime", move || {
         worker_bridge::load_intelligence_runtime_impl(session_database_key.as_deref())
     })
     .await

@@ -1,6 +1,8 @@
 //! Tauri commands for Takeout inspection/import and import-batch review.
 
 #[cfg(not(test))]
+use super::blocking::run_blocking_command;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::{AppHandle, Emitter, State};
@@ -8,23 +10,28 @@ use tauri::{AppHandle, Emitter, State};
 #[cfg(not(test))]
 #[tauri::command]
 /// Inspects a Takeout source without importing it.
-pub(crate) fn inspect_takeout(
+pub(crate) async fn inspect_takeout(
     request: vault_core::TakeoutRequest,
 ) -> Result<vault_core::TakeoutInspection, String> {
-    worker_bridge::inspect_takeout_impl(request)
+    run_blocking_command("inspect_takeout", move || worker_bridge::inspect_takeout_impl(request))
+        .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
 /// Imports a Takeout source into the current archive.
-pub(crate) fn import_takeout(
+pub(crate) async fn import_takeout(
     app: AppHandle,
     request: vault_core::TakeoutRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, String> {
-    worker_bridge::import_takeout_impl(request, state.get_key().as_deref(), |event| {
-        let _ = app.emit("pathkeep://import-progress", &event);
+    let session_database_key = state.get_key();
+    run_blocking_command("import_takeout", move || {
+        worker_bridge::import_takeout_impl(request, session_database_key.as_deref(), |event| {
+            let _ = app.emit("pathkeep://import-progress", &event);
+        })
     })
+    .await
 }
 
 #[cfg(not(test))]

@@ -56,6 +56,28 @@ type ImportMethod = 'takeout' | 'browser'
  */
 type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
 
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.requestAnimationFrame !== 'function'
+    ) {
+      resolve()
+      return
+    }
+
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+
+    window.requestAnimationFrame(() => finish())
+    window.setTimeout(finish, 16)
+  })
+}
+
 function localizedImportProgressDetail(
   progress: ImportProgressEvent,
   t: (key: string, vars?: Record<string, string | number>) => string,
@@ -314,6 +336,7 @@ export function ImportPage() {
     setActionError(null)
     setStep('scan')
     try {
+      await waitForNextPaint()
       const result = await backend.inspectTakeout({ sourcePath, dryRun: true })
       setInspection(result)
       setImportResult(null)
@@ -437,6 +460,7 @@ export function ImportPage() {
     setStep('confirm')
     let unsubscribe = () => {}
     try {
+      await waitForNextPaint()
       unsubscribe = await subscribeToImportProgress((progress) => {
         setImportProgress(progress)
       })

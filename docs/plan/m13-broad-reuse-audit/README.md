@@ -4,6 +4,8 @@
 >
 > **2026-04-20 pause note:** 使用者在 M13 開工後直接插單 `WORK-PERF-A`，要求先修 `/intelligence` large-archive 凍結與 route revisit 卡頓。M13 scope 沒被取消，但在 perf stop-ship block 收尾前不再往 reuse extraction 繼續推進。
 >
+> **2026-04-20 insert note:** 使用者後續又插單 `WORK-PERF-B`，要求先修 Onboarding 初始化 / 手動備份 / Takeout scan-import 造成的整體 UI freeze。該 block 已獨立完成，並以 off-main-thread Tauri command facade + import paint-first yield 收口；M13 scope 本身沒有變更。
+>
 > **2026-04-20 insert note:** 使用者另行插單 `WORK-CI-R`，要求先收斂 Search Activity keyword truth 與 search-engine domain deep-dive；該 block 已獨立完成並 append 到 `CHANGELOG.md`，不視為 M13 deliverable 的一部分。
 
 ---

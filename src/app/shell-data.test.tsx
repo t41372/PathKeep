@@ -407,6 +407,111 @@ describe('ShellDataProvider', () => {
     )
   })
 
+  test('surfaces initialize and backup busy states before long-running work settles', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const initializedSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        initialized: true,
+      },
+    }
+    const backupReport: BackupReport = {
+      dueSkipped: false,
+      run: {
+        id: 77,
+        startedAt: '2026-04-20T08:00:00Z',
+        finishedAt: '2026-04-20T08:05:00Z',
+        status: 'success',
+        manifestHash: 'manifest-77',
+        profileScope: ['chrome:Default'],
+        profilesProcessed: 1,
+        newVisits: 3,
+        newUrls: 1,
+        newDownloads: 0,
+        runType: 'backup',
+      },
+      profiles: [],
+      warnings: [],
+      remoteBackup: null,
+    }
+    const unsubscribe = vi.fn()
+    let resolveInitialize: ((value: AppSnapshot) => void) | null = null
+    let resolveBackup: ((value: BackupReport) => void) | null = null
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue({
+      productName: 'PathKeep',
+      version: '0.1.0',
+      gitCommitShort: 'abc123',
+      gitCommitFull: 'abc123def456',
+      gitDirty: false,
+    })
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'initializeArchive').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveInitialize = resolve
+        }),
+    )
+    vi.mocked(subscribeToBackupProgress).mockResolvedValue(unsubscribe)
+    vi.spyOn(backend, 'runBackupNow').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBackup = resolve
+        }),
+    )
+
+    render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'initialize' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        createTranslator('en')('shell.preparingArchive'),
+      ),
+    )
+    await waitFor(() => expect(backend.initializeArchive).toHaveBeenCalled())
+    expect(screen.getByTestId('notice')).toHaveTextContent('none')
+
+    await act(async () => {
+      resolveInitialize?.(initializedSnapshot)
+      await Promise.resolve()
+    })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).not.toHaveTextContent('none'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('busy-label')).toHaveTextContent(
+        createTranslator('en')('shell.backupWritingArchive'),
+      ),
+    )
+    await waitFor(() => expect(backend.runBackupNow).toHaveBeenCalled())
+
+    await act(async () => {
+      resolveBackup?.(backupReport)
+      await Promise.resolve()
+    })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(/run #77/i),
+    )
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
   test('auto-unlocks a remembered archive key once and reuses the session key afterwards', async () => {
     const user = userEvent.setup()
     const { dashboard, snapshot } = await seedSnapshot()

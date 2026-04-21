@@ -1,6 +1,8 @@
 //! Tauri commands for canonical archive flows.
 
 #[cfg(not(test))]
+use super::blocking::run_blocking_command;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::{AppHandle, Emitter, State};
@@ -10,12 +12,16 @@ use vault_worker::RekeyRequest;
 #[cfg(not(test))]
 #[tauri::command]
 /// Initializes the archive and optionally seeds the first session key.
-pub(crate) fn initialize_archive(
+pub(crate) async fn initialize_archive(
     config: vault_core::AppConfig,
     database_key: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
-    worker_bridge::initialize_archive_impl(config, database_key, &state)
+    let session = state.inner().clone();
+    run_blocking_command("initialize_archive", move || {
+        worker_bridge::initialize_archive_impl(config, database_key, &session)
+    })
+    .await
 }
 
 #[cfg(not(test))]
@@ -80,14 +86,18 @@ pub(crate) fn run_retention_prune(
 #[cfg(not(test))]
 #[tauri::command]
 /// Starts a backup run and streams progress events back to the renderer.
-pub(crate) fn run_backup_now(
+pub(crate) async fn run_backup_now(
     app: AppHandle,
     due_only: bool,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::BackupReport, String> {
-    worker_bridge::run_backup_now_impl(due_only, state.get_key().as_deref(), |event| {
-        let _ = app.emit("pathkeep://backup-progress", &event);
+    let session_database_key = state.get_key();
+    run_blocking_command("run_backup_now", move || {
+        worker_bridge::run_backup_now_impl(due_only, session_database_key.as_deref(), |event| {
+            let _ = app.emit("pathkeep://backup-progress", &event);
+        })
     })
+    .await
 }
 
 #[cfg(not(test))]

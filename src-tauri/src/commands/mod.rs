@@ -7,6 +7,7 @@
 
 mod app;
 mod archive;
+mod blocking;
 mod import;
 mod intelligence;
 mod remote;

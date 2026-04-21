@@ -762,3 +762,18 @@
   - 重打 current-host release `.app`（`bunx tauri build --bundles app --no-sign`）後，再用 Computer Use 在最新 bundle 上重跑 Chrome `Yi-Ting` onboarding / re-import / `000000` 加密（未寫入鑰匙圈）。latest desktop 現在顯示 `6412ad59+`、`config.json` 記錄 `rememberDatabaseKeyInKeyring: false`、Dashboard 載入 `64,498` visits / `35,110` URLs、`/intelligence` 不再外露 raw glyph ids，且 `/intelligence/domain/google.com?range=month` 的 `打開網域證據` 會正確進入 `#/explorer?...` 並保持 Explorer grouped trail view 可用。
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,core-intelligence-desktop-truth-audit.md,core-intelligence-progress.md,core-intelligence-handoff.md}`](STATUS.md)，把 stale-bundle blocker closeout、latest rerun evidence、以及 M13 再次回到 active focus 寫回 source-of-truth。
   - 驗收：`bunx vitest run src/components/intelligence/entity-actions.test.tsx src/pages/explorer/panels/privacy-redaction.test.tsx src/index-html.test.ts src/App.helpers.test.tsx src/pages/intelligence-surfaces.test.tsx`、`bun run check`、`bun run build`
+
+- [x] **WORK-PERF-B** — Archive / Import Main-Thread Freeze Repair
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/design/ux-principles.md`
+    `docs/design/screens-and-nav.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/plan/m13-broad-reuse-audit/README.md`
+  - 目標：修掉 Onboarding 初始化、手動備份、Takeout scan / import 仍會把桌面 UI 整段凍住的 stop-ship 問題，讓 busy overlay 先 repaint、再持續更新，而不是等整串 Rust 工作結束後才快轉補播。
+  - 契約：不新增或刪除 Tauri command；不改 command args / return shape；不改 `pathkeep://backup-progress` 與 `pathkeep://import-progress` payload；不把重工作業搬去前端 Web Worker。
+  - 2026-04-20：新增 [`src-tauri/src/commands/blocking.rs`](../../src-tauri/src/commands/blocking.rs)，把 join error shaping 與 `tauri::async_runtime::spawn_blocking` 收斂成 shared helper；[`src-tauri/src/commands/{archive.rs,import.rs}`](../../src-tauri/src/commands/archive.rs) 的 `initialize_archive`、`run_backup_now`、`inspect_takeout`、`import_takeout` 現在全部改成 off-main-thread async facade；[`src-tauri/src/commands/intelligence/runtime.rs`](../../src-tauri/src/commands/intelligence/runtime.rs) 也同步改用同一條 helper。
+  - 更新 [`src/pages/import/index.tsx`](../../src/pages/import/index.tsx)，在 `scan` 與 `confirm/import` 兩條前景流程加入 explicit paint-first yield，確保 route-level BusyOverlay 能先出現在桌面上，再啟動實際的 inspect / import work。
+  - 更新 [`src/app/shell-data.test.tsx`](../../src/app/shell-data.test.tsx) 與 [`src/pages/trust-flows.test.tsx`](../../src/pages/trust-flows.test.tsx)，新增 initialize / backup pending busy-state 與 import scan / import paint-first regressions，保護 overlay 先顯示、進度事件持續更新、以及不再等任務結束才一次補播。
+  - 同步回寫 [`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/{STATUS.md,BACKLOG.md}`](STATUS.md) 與 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)，把 archive/import long-running command 的 off-main-thread contract 與 M13 pause history 寫回 source-of-truth。
+  - 驗收：`bun x vitest run src/app/shell-data.test.tsx src/pages/trust-flows.test.tsx`、`bun run check`、`bun run build`

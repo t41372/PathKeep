@@ -18,19 +18,24 @@
  */
 
 import type { ReactNode } from 'react'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-const { invoke, isTauri } = vi.hoisted(() => ({
+const { invoke, isTauri, subscribeToImportProgress } = vi.hoisted(() => ({
   invoke: vi.fn(),
   isTauri: vi.fn(() => false),
+  subscribeToImportProgress: vi.fn(() => Promise.resolve(vi.fn())),
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke,
   isTauri,
+}))
+
+vi.mock('../lib/ipc/import-progress', () => ({
+  subscribeToImportProgress,
 }))
 
 import {
@@ -47,6 +52,7 @@ import { ProfileScopeProvider } from '../lib/profile-scope'
 import { backend } from '../lib/backend-client'
 import { backendTestHarness } from '../lib/backend'
 import { platformLabelKey } from '../lib/platform-guidance'
+import { subscribeToImportProgress as subscribeToImportProgressModule } from '../lib/ipc/import-progress'
 import { securityModeKey } from '../lib/trust-review'
 import type {
   AppConfig,
@@ -55,6 +61,7 @@ import type {
   DashboardSnapshot,
   ImportBatchDetail,
   ImportBatchOverview,
+  ImportProgressEvent,
 } from '../lib/types'
 import { AuditPage } from './audit'
 import { ImportPage } from './import'
@@ -270,6 +277,7 @@ describe('trust flows', () => {
     isTauri.mockReturnValue(false)
     invoke.mockReset()
     backendTestHarness.reset()
+    vi.mocked(subscribeToImportProgressModule).mockResolvedValue(vi.fn())
   })
 
   test('covers import preview, execute, revert, and doctor review in a translated locale', async () => {
@@ -369,6 +377,185 @@ describe('trust flows', () => {
       screen.getByRole('button', { name: importT('showManualPath') }),
     )
     expect(screen.getByPlaceholderText('/path/to/History')).toBeVisible()
+  })
+
+  test('paints scan and import overlays before long-running import work settles', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    let resolveInspection:
+      | ((value: Awaited<ReturnType<typeof backend.inspectTakeout>>) => void)
+      | null = null
+    let resolveImport:
+      | ((value: Awaited<ReturnType<typeof backend.importTakeout>>) => void)
+      | null = null
+    let importListener: ((event: ImportProgressEvent) => void) | null = null
+
+    const previewInspection = {
+      dryRun: true,
+      sourcePath: '/tmp/takeout',
+      recognizedFiles: [
+        {
+          path: '/tmp/takeout/BrowserHistory.json',
+          kind: 'browser-history',
+          status: 'recognized',
+          records: 1,
+        },
+      ],
+      quarantinedFiles: [],
+      previewEntries: [
+        {
+          sourcePath: '/tmp/takeout/BrowserHistory.json',
+          url: 'https://example.com/trust',
+          title: 'Trust flow entry',
+          visitedAt: '2026-04-20T10:00:00.000Z',
+          sourceVisitId: 1,
+          status: 'candidate',
+        },
+      ],
+      candidateItems: 1,
+      importedItems: 0,
+      duplicateItems: 0,
+      notes: ['Preview ready.'],
+      importBatch: null,
+    } satisfies Awaited<ReturnType<typeof backend.inspectTakeout>>
+
+    const importedBatch: ImportBatchOverview = {
+      id: 7,
+      sourceKind: 'takeout',
+      sourcePath: '/tmp/takeout',
+      profileId: 'takeout::browser-history',
+      createdAt: '2026-04-20T10:00:00.000Z',
+      importedAt: '2026-04-20T10:01:00.000Z',
+      revertedAt: null,
+      status: 'imported',
+      candidateItems: 1,
+      importedItems: 1,
+      duplicateItems: 0,
+      visibleItems: 1,
+      auditPath: '/tmp/import-audit.json',
+      gitCommit: null,
+    }
+
+    const importedInspection = {
+      ...previewInspection,
+      dryRun: false,
+      importedItems: 1,
+      importBatch: importedBatch,
+    } satisfies Awaited<ReturnType<typeof backend.importTakeout>>
+
+    const importedBatchDetail: ImportBatchDetail = {
+      batch: importedBatch,
+      previewEntries: previewInspection.previewEntries,
+      recognizedFiles: previewInspection.recognizedFiles,
+      quarantinedFiles: [],
+      notes: ['Imported successfully.'],
+    }
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: (callback: FrameRequestCallback) => {
+        callback(0)
+        return 1
+      },
+    })
+
+    vi.spyOn(backend, 'inspectTakeout').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveInspection = resolve
+        }),
+    )
+    vi.spyOn(backend, 'importTakeout').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveImport = resolve
+        }),
+    )
+    vi.spyOn(backend, 'previewImportBatch').mockResolvedValue(
+      importedBatchDetail,
+    )
+    vi.mocked(subscribeToImportProgressModule).mockImplementation(
+      (nextListener) => {
+        importListener = nextListener
+        return Promise.resolve(vi.fn())
+      },
+    )
+
+    try {
+      renderTrustPage(<ImportPage />, {
+        language: 'en',
+        route: '/import',
+        snapshot,
+      })
+
+      await user.type(
+        screen.getByPlaceholderText('/path/to/takeout.zip'),
+        '/tmp/takeout',
+      )
+      await user.click(
+        screen.getByRole('button', { name: importT('scanSource') }),
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText(importT('scanningTitle'))).toBeVisible(),
+      )
+      await waitFor(() => expect(backend.inspectTakeout).toHaveBeenCalled())
+
+      await act(async () => {
+        resolveInspection?.(previewInspection)
+        await Promise.resolve()
+      })
+
+      expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
+
+      await user.click(
+        screen.getByRole('button', { name: importT('confirmImport') }),
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText(importT('importingTitle'))).toBeVisible(),
+      )
+      await waitFor(() => expect(backend.importTakeout).toHaveBeenCalled())
+
+      act(() => {
+        importListener?.({
+          phase: 'import-file',
+          label: 'Importing browser history',
+          detail: 'Processing /tmp/takeout/BrowserHistory.json (1/1)',
+          current: 1,
+          total: 1,
+          progressPercent: 100,
+          logLines: [
+            'Importing browser-history from /tmp/takeout/BrowserHistory.json.',
+          ],
+          sourcePath: '/tmp/takeout/BrowserHistory.json',
+        })
+      })
+
+      await waitFor(() =>
+        expect(
+          screen.getAllByText(
+            'Processing 1 / 1: /tmp/takeout/BrowserHistory.json',
+          ).length,
+        ).toBeGreaterThan(0),
+      )
+
+      await act(async () => {
+        resolveImport?.(importedInspection)
+        await Promise.resolve()
+      })
+
+      expect(await screen.findByText(importT('completeTitle'))).toBeVisible()
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRequestAnimationFrame,
+      })
+    }
   })
 
   test('clears stale batch detail when the newly selected preview fails', async () => {
