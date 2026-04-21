@@ -667,6 +667,7 @@ describe('intelligence surfaces', () => {
   test('uses a dashboard year pager and opens inline day preview before navigation', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedArchiveState()
+    const currentYear = new Date().getFullYear()
     const getDiscoveryTrendSpy = vi
       .spyOn(coreIntelligenceApi, 'getDiscoveryTrend')
       .mockImplementation((dateRange) =>
@@ -758,10 +759,27 @@ describe('intelligence surfaces', () => {
     )
 
     const yearLabel = await screen.findByTestId('browsing-rhythm-year-label')
-    await waitFor(() => expect(yearLabel).toHaveTextContent('2025'))
+    await waitFor(() =>
+      expect(yearLabel).toHaveTextContent(String(currentYear)),
+    )
     expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeDisabled()
     expect(screen.getByTestId('browsing-rhythm-year-next')).toBeEnabled()
     expect(getDayInsightsSpy).not.toHaveBeenCalled()
+
+    await user.click(screen.getByTestId('browsing-rhythm-year-next'))
+    await waitFor(() =>
+      expect(getDiscoveryTrendSpy).toHaveBeenLastCalledWith(
+        { start: '2025-01-01', end: '2025-12-31' },
+        null,
+        'day',
+      ),
+    )
+    expect(yearLabel).toHaveTextContent('2025')
+    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeEnabled()
+    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeEnabled()
+    expect(
+      screen.getByTestId('browsing-rhythm-current-year-shortcut'),
+    ).toBeVisible()
 
     await user.click(screen.getByTestId('browsing-rhythm-year-next'))
     await waitFor(() =>
@@ -808,7 +826,7 @@ describe('intelligence surfaces', () => {
       (dateRange) =>
         Promise.resolve(
           wrapSection('discovery-trend', {
-            availableYears: [currentYear + 1, currentYear, currentYear - 1],
+            availableYears: [currentYear + 1, currentYear - 2],
             points:
               dateRange.start === `${currentYear + 1}-01-01`
                 ? [
@@ -828,6 +846,75 @@ describe('intelligence surfaces', () => {
                         totalVisits: 7,
                       },
                     ]
+                  : dateRange.start === `${currentYear - 2}-01-01`
+                    ? [
+                        {
+                          dateKey: `${currentYear - 2}-02-11`,
+                          discoveryRate: 0.5,
+                          newDomainCount: 2,
+                          totalVisits: 9,
+                        },
+                      ]
+                    : [],
+          }),
+        ),
+    )
+
+    renderSurface(<DashboardPage />, {
+      dashboard,
+      route: '/',
+      snapshot,
+    })
+
+    const yearLabel = await screen.findByTestId('browsing-rhythm-year-label')
+    expect(yearLabel).toHaveTextContent(String(currentYear))
+    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeEnabled()
+    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeEnabled()
+    expect(
+      screen.queryByTestId('browsing-rhythm-current-year-shortcut'),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
+    expect(yearLabel).toHaveTextContent(String(currentYear + 1))
+    expect(
+      screen.getByTestId('browsing-rhythm-current-year-shortcut'),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByTestId('browsing-rhythm-current-year-shortcut'),
+    )
+    expect(yearLabel).toHaveTextContent(String(currentYear))
+  })
+
+  test('fills missing dashboard years and keeps empty years browsable', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const currentYear = new Date().getFullYear()
+
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockImplementation(
+      (dateRange) =>
+        Promise.resolve(
+          wrapSection('discovery-trend', {
+            availableYears: [currentYear, currentYear - 3],
+            points:
+              dateRange.start === `${currentYear}-01-01`
+                ? [
+                    {
+                      dateKey: `${currentYear}-04-18`,
+                      discoveryRate: 0.4,
+                      newDomainCount: 1,
+                      totalVisits: 7,
+                    },
+                  ]
+                : dateRange.start === `${currentYear - 3}-01-01`
+                  ? [
+                      {
+                        dateKey: `${currentYear - 3}-02-11`,
+                        discoveryRate: 0.5,
+                        newDomainCount: 2,
+                        totalVisits: 9,
+                      },
+                    ]
                   : [],
           }),
         ),
@@ -840,28 +927,23 @@ describe('intelligence surfaces', () => {
     })
 
     const yearLabel = await screen.findByTestId('browsing-rhythm-year-label')
-    await waitFor(() =>
-      expect(yearLabel).toHaveTextContent(String(currentYear + 1)),
-    )
-    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeDisabled()
-    expect(
-      screen.getByTestId('browsing-rhythm-current-year-shortcut'),
-    ).toBeVisible()
+    expect(yearLabel).toHaveTextContent(String(currentYear))
 
     await user.click(screen.getByTestId('browsing-rhythm-year-next'))
-    expect(yearLabel).toHaveTextContent(String(currentYear))
-    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeEnabled()
-    expect(
-      screen.queryByTestId('browsing-rhythm-current-year-shortcut'),
-    ).not.toBeInTheDocument()
-
-    await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
-    expect(yearLabel).toHaveTextContent(String(currentYear + 1))
-
-    await user.click(
-      screen.getByTestId('browsing-rhythm-current-year-shortcut'),
+    expect(yearLabel).toHaveTextContent(String(currentYear - 1))
+    expect(screen.getByTestId('browsing-rhythm-summary')).toHaveTextContent(
+      `0 visits in ${currentYear - 1}`,
     )
-    expect(yearLabel).toHaveTextContent(String(currentYear))
+    expect(
+      screen.queryByText(
+        'This year does not have enough browsing history yet.',
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('grid', {
+        name: 'Calendar heatmap of browsing activity by day',
+      }),
+    ).toBeVisible()
   })
 
   test('routes dashboard archive-key failures toward the security page', async () => {
@@ -3801,11 +3883,14 @@ describe('intelligence surfaces', () => {
       snapshot,
     })
 
-    expect(
-      await screen.findByRole('button', {
-        name: /2026-01-03 · 4 visits · 1 new sites/i,
-      }),
-    ).toBeVisible()
+    const firstDayButton = await screen.findByRole('button', {
+      name: /2026-01-03 · 4 visits · 1 new sites/i,
+    })
+    expect(firstDayButton).toBeVisible()
+    expect(firstDayButton).toHaveAttribute(
+      'title',
+      '2026-01-03 · 4 visits · 1 new sites',
+    )
     expect(screen.getByTestId('browsing-rhythm-summary')).toHaveTextContent(
       '20 visits in January 2026',
     )
@@ -3885,6 +3970,134 @@ describe('intelligence surfaces', () => {
       'href',
       '/intelligence/trail/trail-1?range=custom&start=2026-01-01&end=2026-01-31&profileId=chrome%3ADefault',
     )
+  })
+
+  test('formats same-year browsing rhythm ranges without repeating the year', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDigestSummary').mockResolvedValue(
+      wrapSection('digest-summary', {
+        dateRange: { start: '2026-03-20', end: '2026-04-20' },
+        totalVisits: { value: 180, trend: 'flat' as const },
+        totalSearches: { value: 24, trend: 'flat' as const },
+        newDomains: { value: 8, trend: 'flat' as const },
+        deepReadPages: { value: 12, trend: 'flat' as const },
+        refindPages: { value: 4, trend: 'flat' as const },
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSites').mockResolvedValue(
+      wrapSection('top-sites', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEngineRanking').mockResolvedValue(
+      wrapSection('engine-ranking', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getTopSearchConcepts').mockResolvedValue(
+      wrapSection('search-concepts', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchQueries').mockResolvedValue(
+      wrapSection('search-activity', {
+        page: 0,
+        pageSize: 20,
+        total: 0,
+        rows: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getQueryFamilies').mockResolvedValue(
+      wrapSection('query-families', {
+        page: 0,
+        pageSize: 10,
+        total: 0,
+        families: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getRefindPages').mockResolvedValue(
+      wrapSection('refind-pages', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getActivityMix').mockResolvedValue(
+      wrapSection('activity-mix', {
+        categories: [],
+        changeVsPrevious: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+      wrapSection('discovery-trend', {
+        availableYears: [2026],
+        points: [
+          {
+            dateKey: '2026-03-20',
+            discoveryRate: 0.25,
+            newDomainCount: 1,
+            totalVisits: 80,
+          },
+          {
+            dateKey: '2026-04-20',
+            discoveryRate: 0.2,
+            newDomainCount: 2,
+            totalVisits: 40,
+          },
+        ],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getStableSources').mockResolvedValue(
+      wrapSection('stable-sources', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getSearchEffectiveness').mockResolvedValue(
+      wrapSection('search-effectiveness', {
+        engineStats: [],
+        topResolvingSources: [],
+        hardestTopics: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getFrictionSignals').mockResolvedValue(
+      wrapSection('friction-signals', []),
+    )
+    vi.spyOn(
+      coreIntelligenceApi,
+      'getReopenedInvestigations',
+    ).mockResolvedValue(wrapSection('reopened-investigations', []))
+    vi.spyOn(coreIntelligenceApi, 'getBreadthIndex').mockResolvedValue(
+      wrapSection('breadth-index', {
+        breadthScore: 62,
+        hhi: 0.32,
+        concentrationDomainCount: 5,
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue(
+      wrapSection('path-flows', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getHabitPatterns').mockResolvedValue(
+      wrapSection('habit-patterns', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getInterruptedHabits').mockResolvedValue(
+      wrapSection('interrupted-habits', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getCompareSets').mockResolvedValue(
+      wrapSection('compare-sets', []),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getMultiBrowserDiff').mockResolvedValue(
+      wrapSection('multi-browser-diff', {
+        profiles: [],
+        sharedDomains: [],
+        exclusiveDomains: [],
+        categoryDistributions: [],
+      }),
+    )
+    vi.spyOn(coreIntelligenceApi, 'getObservedInteractions').mockResolvedValue(
+      wrapSection('observed-interactions', []),
+    )
+
+    renderSurface(<IntelligencePage />, {
+      language: 'zh-TW',
+      route: '/intelligence?range=custom&start=2026-03-20&end=2026-04-20',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByTestId('browsing-rhythm-summary'),
+    ).toHaveTextContent('2026年 3月20日 至 4月20日，共瀏覽 120 次')
   })
 
   test('prewarms search-activity hidden tabs after first paint instead of waiting for a click', async () => {

@@ -92,12 +92,21 @@ export function BrowsingRhythmCard({
     () => trendResult.data?.data.points ?? [],
     [trendResult.data],
   )
-  const availableYears = useMemo(
+  const dataYears = useMemo(
     () =>
-      [...(trendResult.data?.data.availableYears ?? [])].sort(
-        (left, right) => right - left,
-      ),
-    [trendResult.data],
+      Array.from(
+        new Set([
+          ...(trendResult.data?.data.availableYears ?? []),
+          ...points
+            .map((point) => extractPointYear(point.dateKey))
+            .filter((year): year is number => year !== null),
+        ]),
+      ).sort((left, right) => right - left),
+    [points, trendResult.data],
+  )
+  const yearOptions = useMemo(
+    () => buildYearOptions(dataYears, currentCalendarYear),
+    [currentCalendarYear, dataYears],
   )
   const pointByDate = useMemo(
     () => new Map(points.map((point) => [point.dateKey, point])),
@@ -120,8 +129,8 @@ export function BrowsingRhythmCard({
     [calendarDays],
   )
   const totalVisits = useMemo(
-    () => points.reduce((sum, point) => sum + point.totalVisits, 0),
-    [points],
+    () => calendarDays.reduce((sum, cell) => sum + cell.totalVisits, 0),
+    [calendarDays],
   )
   const hasCalendarVisits = totalVisits > 0
   const visitSummary = useMemo(
@@ -176,29 +185,31 @@ export function BrowsingRhythmCard({
   ]
   const waitingForYearRealignment =
     mode === 'year' &&
-    availableYears.length > 0 &&
-    !availableYears.includes(selectedYear)
-  const selectedYearIndex = availableYears.indexOf(selectedYear)
+    yearOptions.length > 0 &&
+    !yearOptions.includes(selectedYear)
+  const selectedYearIndex = yearOptions.indexOf(selectedYear)
   const newerYear =
-    selectedYearIndex > 0 ? availableYears[selectedYearIndex - 1] : null
+    selectedYearIndex > 0 ? yearOptions[selectedYearIndex - 1] : null
   const olderYear =
-    selectedYearIndex >= 0 && selectedYearIndex < availableYears.length - 1
-      ? availableYears[selectedYearIndex + 1]
+    selectedYearIndex >= 0 && selectedYearIndex < yearOptions.length - 1
+      ? yearOptions[selectedYearIndex + 1]
       : null
   const canResetToCurrentYear =
     showCurrentYearShortcut &&
     mode === 'year' &&
-    availableYears.includes(currentCalendarYear) &&
+    yearOptions.includes(currentCalendarYear) &&
     selectedYear !== currentCalendarYear
 
   useEffect(() => {
-    if (mode !== 'year' || availableYears.length === 0) {
+    if (mode !== 'year' || yearOptions.length === 0) {
       return
     }
 
-    const hasSelectedYear = availableYears.includes(selectedYear)
+    const hasSelectedYear = yearOptions.includes(selectedYear)
     const nextYear =
-      manualYearSelection && hasSelectedYear ? selectedYear : availableYears[0]
+      manualYearSelection && hasSelectedYear
+        ? selectedYear
+        : currentCalendarYear
 
     if (nextYear === selectedYear && hasSelectedYear) {
       return
@@ -218,7 +229,13 @@ export function BrowsingRhythmCard({
     return () => {
       cancelled = true
     }
-  }, [availableYears, manualYearSelection, mode, selectedYear])
+  }, [
+    currentCalendarYear,
+    manualYearSelection,
+    mode,
+    selectedYear,
+    yearOptions,
+  ])
 
   return (
     <div className="browsing-rhythm-card">
@@ -226,7 +243,7 @@ export function BrowsingRhythmCard({
         <span className="browsing-rhythm-card__legend">
           {t('rhythmLegend')}
         </span>
-        {mode === 'year' && availableYears.length > 1 ? (
+        {mode === 'year' ? (
           yearNavigation === 'pager' ? (
             <div className="browsing-rhythm-card__year-actions">
               <div
@@ -309,7 +326,7 @@ export function BrowsingRhythmCard({
                   setSelectedYear(Number(event.target.value))
                 }}
               >
-                {availableYears.map((year) => (
+                {yearOptions.map((year) => (
                   <option key={year} value={year}>
                     {year}
                   </option>
@@ -328,11 +345,9 @@ export function BrowsingRhythmCard({
             {trendResult.error}
           </p>
         </div>
-      ) : !hasCalendarVisits ? (
+      ) : mode !== 'year' && !hasCalendarVisits ? (
         <div className="browsing-rhythm-card__empty">
-          <p className="browsing-rhythm-card__empty-text">
-            {mode === 'year' ? t('rhythmYearEmpty') : t('rhythmEmpty')}
-          </p>
+          <p className="browsing-rhythm-card__empty-text">{t('rhythmEmpty')}</p>
         </div>
       ) : (
         <>
@@ -387,6 +402,11 @@ export function BrowsingRhythmCard({
                           }`}
                           data-level={level}
                           aria-label={t('rhythmDayTooltip', {
+                            date: cell.dateKey,
+                            count: cell.totalVisits,
+                            newDomains: cell.newDomainCount,
+                          })}
+                          title={t('rhythmDayTooltip', {
                             date: cell.dateKey,
                             count: cell.totalVisits,
                             newDomains: cell.newDomainCount,
@@ -721,8 +741,13 @@ function buildVisitSummary({
 
   return t('rhythmVisitSummaryRange', {
     count,
-    start: formatDisplayDate(dateRange.start, language),
-    end: formatDisplayDate(dateRange.end, language),
+    start: formatRangeBoundary(
+      dateRange.start,
+      dateRange.end,
+      language,
+      'start',
+    ),
+    end: formatRangeBoundary(dateRange.start, dateRange.end, language, 'end'),
   })
 }
 
@@ -737,6 +762,47 @@ function formatMonthYear(dateKey: string, language: string) {
     month: 'long',
     year: 'numeric',
   }).format(parseDateKey(dateKey))
+}
+
+function formatRangeBoundary(
+  startDateKey: string,
+  endDateKey: string,
+  language: string,
+  boundary: 'start' | 'end',
+) {
+  const start = parseDateKey(startDateKey)
+  const end = parseDateKey(endDateKey)
+  const target = boundary === 'start' ? start : end
+  const sameYear = start.getFullYear() === end.getFullYear()
+  const sameMonth = sameYear && start.getMonth() === end.getMonth()
+
+  if (language === 'zh-CN' || language === 'zh-TW') {
+    if (boundary === 'end' && sameMonth) {
+      return `${target.getDate()}日`
+    }
+    if (boundary === 'end' && sameYear) {
+      return `${target.getMonth() + 1}月${target.getDate()}日`
+    }
+    if (boundary === 'start' && sameYear) {
+      return `${target.getFullYear()}年 ${target.getMonth() + 1}月${target.getDate()}日`
+    }
+    return `${target.getFullYear()}年${target.getMonth() + 1}月${target.getDate()}日`
+  }
+
+  const monthFormatter = new Intl.DateTimeFormat(localeFromLanguage(language), {
+    month: 'short',
+  })
+  const month = monthFormatter.format(target)
+  if (boundary === 'end' && sameMonth) {
+    return String(target.getDate())
+  }
+  if (boundary === 'end' && sameYear) {
+    return `${month} ${target.getDate()}, ${target.getFullYear()}`
+  }
+  if (boundary === 'start' && sameYear) {
+    return `${month} ${target.getDate()}`
+  }
+  return `${month} ${target.getDate()}, ${target.getFullYear()}`
 }
 
 function isFullCalendarYear(dateRange: DateRange) {
@@ -757,4 +823,26 @@ function isFullCalendarMonth(dateRange: DateRange) {
     end.getDate() ===
       new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate()
   )
+}
+
+function buildYearOptions(dataYears: number[], currentYear: number) {
+  if (dataYears.length === 0) {
+    return [currentYear]
+  }
+
+  const lowerBound = Math.min(...dataYears, currentYear)
+  const upperBound = Math.max(...dataYears, currentYear)
+  return Array.from(
+    { length: upperBound - lowerBound + 1 },
+    (_, index) => upperBound - index,
+  )
+}
+
+function extractPointYear(dateKey: string) {
+  const match = /^(\d{4})/.exec(dateKey)
+  if (!match) {
+    return null
+  }
+  const year = Number(match[1])
+  return Number.isFinite(year) ? year : null
 }

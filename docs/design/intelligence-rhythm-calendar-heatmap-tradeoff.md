@@ -187,6 +187,8 @@
 - Dashboard 若 archive 横跨多年，还要用 bounded pager 浏览不同年份，并明确显示当前年份
 - 顶部摘要文案必须诚实使用 `totalVisits` 口径；Dashboard 用 calendar-year wording，`/intelligence` overview 则按实际 date range 显示 exact-range wording
 - compact day preview 的信息层级也要收紧成：全宽 24 小时分布、全宽重点网站列、proportion bar 活动构成
+- Dashboard 年份切换不能直接照抄 raw `availableYears`：必须补齐最早有数据年份到 `max(今年, 最晚有数据年份)` 之间的空白年份；这些空白年份也要显示空热力图，而且「回到今年」捷径以这条连续年份带为准，不取决于 backend 是否把 current year 放进 `availableYears`
+- 日格 hover 需要恢复 GitHub-style tooltip，显示 exact date 与当天 visits / new sites；同一年 date span 的摘要文案也不能重复写年份
 
 这次 override **没有** 推翻「day 是 first-class shared route」这条更高层 contract。  
 真正被修正的是 `Browsing Rhythm` 卡片自己的 click grammar：
