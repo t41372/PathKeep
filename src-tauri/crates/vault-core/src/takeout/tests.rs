@@ -48,6 +48,21 @@ fn write_takeout_fixture(dir: &Path) -> PathBuf {
     )
 }
 
+/// Writes a directory-based BrowserHistory JSON fixture.
+fn write_takeout_browser_json_fixture(dir: &Path, name: &str) -> PathBuf {
+    let source_dir = dir.join(name);
+    fs::create_dir_all(&source_dir).expect("create browser json source dir");
+    fs::write(
+        source_dir.join("BrowserHistory.json"),
+        r#"{"BrowserHistory":[
+            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"alpha"},
+            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
+        ]}"#,
+    )
+    .expect("write browser history json");
+    source_dir
+}
+
 /// Writes a zipped Takeout fixture with named entries for zip-path coverage.
 fn write_takeout_zip(dir: &Path, entries: &[(&str, &str)]) -> PathBuf {
     let zip_path = dir.join("takeout.zip");
@@ -362,6 +377,36 @@ fn takeout_records_without_timestamps_are_skipped_with_a_note() {
     let history =
         crate::archive::list_history(&paths, &config, None, Default::default()).expect("history");
     assert_eq!(history.total, 1);
+}
+
+#[test]
+fn import_takeout_streams_browser_history_json_payloads() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_takeout_browser_json_fixture(dir.path(), "takeout-browser-json");
+    let inspection = import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+    )
+    .expect("import browser history json");
+
+    assert_eq!(inspection.imported_items, 2);
+    assert_eq!(inspection.duplicate_items, 0);
+    assert_eq!(inspection.recognized_files.len(), 1);
+    assert_eq!(inspection.recognized_files[0].kind, "browser-json");
+    assert_eq!(inspection.recognized_files[0].records, 2);
+
+    let history =
+        crate::archive::list_history(&paths, &config, None, Default::default()).expect("history");
+    assert_eq!(history.total, 2);
 }
 
 #[test]
