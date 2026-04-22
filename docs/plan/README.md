@@ -51,6 +51,8 @@
 > **2026-04-21 takeout import follow-up note**：backend 軌道的第三、第四個 execution slice 也已落地。Takeout import 現在不再沿用 inspection preview helper 去額外建一整份 preview rows；`takeout/import_flow.rs` 已下沉 payload parse/write 細節到 `takeout/payload_import.rs`，並把 parser report ownership 直接交給 source-evidence plan。同時 batch review read/audit repair 也已拆到 `takeout/batch_review.rs`，讓 `takeout/batches.rs` 回到 write-side revert/restore ownership。剩餘 backend 風險現在集中在更深一層的 parser/import streaming contract 和 `archive/mod.rs`，而不再是 Takeout boundary 的文件尺寸本身。
 >
 > **2026-04-21 execute-path note**：Takeout execute path 的雙重解析也已經拿掉。現在 `import_takeout` 在 non-dry-run 下不會再先做一輪完整 `inspect_takeout`；它改成單次掃描檔案、邊寫 canonical rows 邊累積 batch metadata，最後再從 persisted `preview_import_batch` 回填 review payload。這讓後續真正需要攻克的問題只剩 parser crate 本身的 full-batch materialization，以及 archive ingest 邊界的進一步 streaming 化。
+>
+> **2026-04-21 archive backup follow-up note**：backend 軌道的第六個 execution slice 已落地。`src-tauri/crates/vault-core/src/archive/mod.rs` 現在又把 backup orchestration 與 manifest/snapshot support helper 下沉到 `archive/{backup,run_support,artifacts}.rs`，parent module 已進一步縮到 `406` 行。這表示 archive-side giant-file triage 基本完成；剩餘後端 stop-ship 風險回到 parser/import collect-then-ingest contract，而不是 `archive/mod.rs` 本身。
 
 ---
 

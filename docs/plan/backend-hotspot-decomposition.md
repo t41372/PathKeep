@@ -10,13 +10,13 @@
 
 ## Current hotspot snapshot
 
-| File                                                      | Current line count | Primary risk                                                                              |
-| --------------------------------------------------------- | -----------------: | ----------------------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module                 |
-| `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together              |
-| `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together          |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed           |
-| `src-tauri/crates/vault-core/src/archive/mod.rs`          |               1299 | Backup execution, manifest/checkpoint helpers, retention, and recoverability remain mixed |
+| File                                                      | Current line count | Primary risk                                                                           |
+| --------------------------------------------------------- | -----------------: | -------------------------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module              |
+| `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together           |
+| `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together       |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed        |
+| `src-tauri/crates/vault-core/src/deterministic.rs`        |               1528 | URL normalization, query extraction, tokenization, and taxonomy rules still co-located |
 
 ## Sequencing
 
@@ -36,6 +36,7 @@
 - Separate parser-side collection helpers from archive-side write orchestration.
 - Preserve canonical schema semantics and profile watermark behavior.
 - 2026-04-21 landed: `src-tauri/crates/vault-core/src/archive/mod.rs` now delegates canonical ingest work to `archive/ingest/{mod,parser,writes}.rs`, shrinking the parent file to `1299` lines while preserving backup, checkpoint, and snapshot-restore behavior. `archive::maintenance` now calls an explicit ingest preview helper instead of reaching into watermark internals.
+- 2026-04-21 follow-up landed: `archive/mod.rs` no longer owns backup orchestration or manifest/snapshot support helpers. Those responsibilities now live in `archive/{backup,run_support,artifacts}.rs`, shrinking the parent module to `406` lines without changing backup, restore, or takeout-facing contracts.
 
 ### Slice 3 — Intelligence runtime queue boundary
 
@@ -46,7 +47,7 @@
 
 - Split `archive/mod.rs` into backup execution, canonical ingest helpers, checkpoint / manifest helpers, and retention/recoverability helpers.
 - Preserve canonical archive behavior, run-ledger semantics, and existing `archive::*` public surface.
-- Remaining work after the first cut: move manifest/checkpoint helpers away from `archive/mod.rs` and continue reducing the parent module below the 1000-line hard-stop.
+- 2026-04-21 follow-up landed: backup execution plus manifest/checkpoint helpers are now out of `archive/mod.rs`, so the remaining archive-side work is no longer file-size triage. The next archive/runtime risk is the deeper parser/import collect-then-ingest contract that still materializes large parser batches before canonical writes begin.
 
 ### Slice 5 — Core Intelligence domain boundary
 
