@@ -274,10 +274,27 @@
   animation-delay: 40ms;
 }
 
+.explorer-grid--staged > .record-list,
+.explorer-grid--staged > .detail-panel {
+  animation: explorer-results-stage 180ms ease-out both;
+}
+
 @keyframes explorer-results-reveal {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes explorer-results-stage {
+  from {
+    opacity: 0.72;
+    transform: translateY(4px);
   }
 
   to {

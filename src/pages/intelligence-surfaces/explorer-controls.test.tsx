@@ -200,10 +200,12 @@ describe('intelligence surfaces', () => {
     )
     expect(scrollToSpy).not.toHaveBeenCalled()
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: explorerT('pageSizeLabel') }),
-      '100',
-    )
+    const pageSizeSelect = screen.getByRole('combobox', {
+      name: explorerT('pageSizeLabel'),
+    })
+    await waitFor(() => expect(pageSizeSelect).not.toBeDisabled())
+
+    await user.selectOptions(pageSizeSelect, '100')
 
     await waitFor(() =>
       expect(querySpy).toHaveBeenLastCalledWith(
@@ -302,10 +304,14 @@ describe('intelligence surfaces', () => {
       ),
     )
     expect(screen.getByLabelText(explorerT('filterKeywordAria'))).toBeVisible()
+    expect(await screen.findAllByText('Page 2 of 3')).not.toHaveLength(0)
     expect(screen.getByTestId('explorer-results-skeleton')).toHaveAttribute(
       'aria-label',
       commonT('loadingExplorerResults'),
     )
+    expect(
+      screen.getByRole('combobox', { name: explorerT('pageSizeLabel') }),
+    ).toBeDisabled()
 
     expect(resolvePageTwo).toBeDefined()
     if (!resolvePageTwo) {

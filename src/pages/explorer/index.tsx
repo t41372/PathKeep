@@ -19,10 +19,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
-import {
-  SkeletonExplorer,
-  SkeletonExplorerResults,
-} from '../../components/primitives/skeleton'
+import { SkeletonExplorer } from '../../components/primitives/skeleton'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
@@ -216,11 +213,20 @@ export function ExplorerPage() {
     archiveReady &&
     !historyBlockedByInvalidRegex &&
     queryState.requestKey !== requestKey
-  const historyPage = results?.page ?? explicitPage ?? 1
-  const historyPageCount = results?.pageCount ?? 1
+  const stagedResults =
+    archiveReady && !historyBlockedByInvalidRegex && view === 'time'
+      ? queryState.results
+      : null
+  const visibleTimeResults = results ?? (loading ? stagedResults : null)
+  const historyPage = loading
+    ? (explicitPage ?? visibleTimeResults?.page ?? 1)
+    : (visibleTimeResults?.page ?? explicitPage ?? 1)
+  const historyPageCount = visibleTimeResults?.pageCount ?? 1
   const selectedEntry =
-    results?.items.find((item) => item.id === selectedId) ??
-    results?.items[0] ??
+    (!loading ? visibleTimeResults : null)?.items.find(
+      (item) => item.id === selectedId,
+    ) ??
+    (!loading ? visibleTimeResults : null)?.items[0] ??
     null
   const selectedGroupedVisit =
     selectedGroupedVisitState?.key === groupedSelectionKey
@@ -297,7 +303,7 @@ export function ExplorerPage() {
           ))}
         </div>
         <div className="timeline-track">
-          {results ? (
+          {visibleTimeResults ? (
             <div className="timeline-page-summary">
               <span className="history-page-summary">
                 {explorerT('pageCountSummary', {
@@ -307,8 +313,8 @@ export function ExplorerPage() {
               </span>
               <span className="timeline-page-summary__loaded">
                 {explorerT('resultsSummary', {
-                  loaded: results.items.length,
-                  total: results.total,
+                  loaded: visibleTimeResults.items.length,
+                  total: visibleTimeResults.total,
                 })}
               </span>
             </div>
@@ -371,8 +377,8 @@ export function ExplorerPage() {
         <div className="panel-header">
           <span className="panel-title">{explorerT('queryFiltersTitle')}</span>
           <span className="panel-action">
-            {results
-              ? explorerT('visibleRecords', { count: results.total })
+            {visibleTimeResults
+              ? explorerT('visibleRecords', { count: visibleTimeResults.total })
               : explorerT('waitingForQuery')}
           </span>
         </div>
@@ -681,9 +687,7 @@ export function ExplorerPage() {
         />
       )}
 
-      {loading ? (
-        <SkeletonExplorerResults label={t('common.loadingExplorerResults')} />
-      ) : historyBlockedByInvalidRegex ? (
+      {historyBlockedByInvalidRegex ? (
         <StatusCallout
           tone="blocked"
           eyebrow={explorerT('regexEyebrow')}
@@ -692,7 +696,7 @@ export function ExplorerPage() {
         />
       ) : error ? (
         <ErrorState title={explorerT('queryFailedTitle')} description={error} />
-      ) : results && results.total === 0 ? (
+      ) : !loading && results && results.total === 0 ? (
         <EmptyState
           action={
             <button
@@ -707,7 +711,7 @@ export function ExplorerPage() {
           eyebrow={explorerT('noMatchesEyebrow')}
           title={explorerT('noMatchesTitle')}
         />
-      ) : results && view === 'time' ? (
+      ) : view === 'time' && (loading || visibleTimeResults) ? (
         <ExplorerResultsPanel
           actionError={actionError}
           commonT={commonT}
@@ -738,10 +742,11 @@ export function ExplorerPage() {
           historyPageSize={pageSize}
           intelligenceT={intelligenceT}
           language={language}
+          loading={loading}
           onHistoryPageInputChange={setHistoryPageInput}
           onHistoryPageSizeChange={setHistoryPageSize}
           onSelectHistory={setSelectedId}
-          results={results}
+          results={visibleTimeResults}
           selectedEntry={selectedEntry}
         />
       ) : view === 'session' ? (

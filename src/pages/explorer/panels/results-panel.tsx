@@ -56,10 +56,11 @@ interface ExplorerResultsPanelProps {
   historyPageSize: number
   intelligenceT: Translator
   language: ResolvedLanguage
+  loading: boolean
   onHistoryPageInputChange: (value: string) => void
   onHistoryPageSizeChange: (value: number) => void
   onSelectHistory: (id: number) => void
-  results: HistoryQueryResponse
+  results: HistoryQueryResponse | null
   selectedEntry: HistoryQueryResponse['items'][number] | null
 }
 
@@ -90,84 +91,142 @@ export function ExplorerResultsPanel({
   historyPageSize,
   intelligenceT,
   language,
+  loading,
   onHistoryPageInputChange,
   onHistoryPageSizeChange,
   onSelectHistory,
   results,
   selectedEntry,
 }: ExplorerResultsPanelProps) {
+  const controlsDisabled = loading || !results
+
   return (
-    <div className="explorer-grid explorer-grid--reveal">
+    <div
+      className={`explorer-grid explorer-grid--reveal ${
+        loading ? 'explorer-grid--staged' : ''
+      }`}
+    >
       <div className="record-list">
         <div className="record-group">
           <div className="record-group-header">
             <div className="record-group-header__summary">
-              <span className="history-page-summary">
-                {explorerT('pageCountSummary', {
-                  current: historyPage,
-                  total: historyPageCount,
-                })}
-              </span>
-              <span className="record-group-header__loaded">
-                {explorerT('resultsSummary', {
-                  loaded: results.items.length,
-                  total: results.total,
-                })}
-              </span>
+              {results ? (
+                <>
+                  <span className="history-page-summary">
+                    {explorerT('pageCountSummary', {
+                      current: historyPage,
+                      total: historyPageCount,
+                    })}
+                  </span>
+                  <span className="record-group-header__loaded">
+                    {explorerT('resultsSummary', {
+                      loaded: results.items.length,
+                      total: results.total,
+                    })}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div
+                    className="skeleton-block"
+                    style={{ width: '132px', height: '16px' }}
+                  />
+                  <div
+                    className="skeleton-block"
+                    style={{ width: '184px', height: '14px' }}
+                  />
+                </>
+              )}
             </div>
           </div>
-          {results.items.map((item) => (
+          {loading ? (
             <div
-              key={item.id}
-              className={`record-item ${selectedEntry?.id === item.id ? 'selected' : ''}`}
-              role="button"
-              tabIndex={0}
-              aria-pressed={selectedEntry?.id === item.id}
-              onClick={() => onSelectHistory(item.id)}
-              onKeyDown={(event) =>
-                activateRecordSelection(event, () => onSelectHistory(item.id))
-              }
+              className="panel-body"
+              style={{ padding: 0 }}
+              aria-busy="true"
+              aria-label={commonT('loadingExplorerResults')}
+              data-testid="explorer-results-skeleton"
             >
-              <HistoryFavicon domain={item.domain} favicon={item.favicon} />
-              <div className="record-main">
-                <div className="record-title">
-                  {sanitizeExplorerDisplayText(item.title || item.url)}
-                </div>
-                <div className="record-url dim mono">
-                  {sanitizeExplorerDisplayText(item.url, 72)}
-                </div>
-              </div>
-              <div className="record-meta">
-                <span className="dim mono" style={{ fontSize: '10px' }}>
-                  {formatRelativeTime(item.visitedAt, language)}
-                </span>
-                <button
-                  className="btn-tiny"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void handleVisit(item.url)
+              {Array.from({ length: 6 }, (_, index) => (
+                <div
+                  key={index}
+                  className="skeleton-block"
+                  style={{
+                    height: '70px',
+                    marginBottom: 'var(--space-2)',
                   }}
-                >
-                  {explorerT('visitRecord')}
-                </button>
-              </div>
+                />
+              ))}
             </div>
-          ))}
+          ) : (
+            results?.items.map((item) => (
+              <div
+                key={item.id}
+                className={`record-item ${selectedEntry?.id === item.id ? 'selected' : ''}`}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selectedEntry?.id === item.id}
+                onClick={() => onSelectHistory(item.id)}
+                onKeyDown={(event) =>
+                  activateRecordSelection(event, () => onSelectHistory(item.id))
+                }
+              >
+                <HistoryFavicon domain={item.domain} favicon={item.favicon} />
+                <div className="record-main">
+                  <div className="record-title">
+                    {sanitizeExplorerDisplayText(item.title || item.url)}
+                  </div>
+                  <div className="record-url dim mono">
+                    {sanitizeExplorerDisplayText(item.url, 72)}
+                  </div>
+                </div>
+                <div className="record-meta">
+                  <span className="dim mono" style={{ fontSize: '10px' }}>
+                    {formatRelativeTime(item.visitedAt, language)}
+                  </span>
+                  <button
+                    className="btn-tiny"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void handleVisit(item.url)
+                    }}
+                  >
+                    {explorerT('visitRecord')}
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
           <div className="record-group-pagination">
             <div className="record-group-pagination__summary">
-              <span className="history-page-summary">
-                {explorerT('pageCountSummary', {
-                  current: historyPage,
-                  total: historyPageCount,
-                })}
-              </span>
-              <span className="record-group-pagination__loaded">
-                {explorerT('resultsSummary', {
-                  loaded: results.items.length,
-                  total: results.total,
-                })}
-              </span>
+              {results ? (
+                <>
+                  <span className="history-page-summary">
+                    {explorerT('pageCountSummary', {
+                      current: historyPage,
+                      total: historyPageCount,
+                    })}
+                  </span>
+                  <span className="record-group-pagination__loaded">
+                    {explorerT('resultsSummary', {
+                      loaded: results.items.length,
+                      total: results.total,
+                    })}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div
+                    className="skeleton-block"
+                    style={{ width: '132px', height: '16px' }}
+                  />
+                  <div
+                    className="skeleton-block"
+                    style={{ width: '184px', height: '14px' }}
+                  />
+                </>
+              )}
             </div>
             <div className="record-group-pagination__controls">
               <div className="record-group-pagination__nav">
@@ -175,7 +234,7 @@ export function ExplorerResultsPanel({
                   className="btn-secondary"
                   type="button"
                   onClick={handleFirstHistoryPage}
-                  disabled={!results.hasPrevious}
+                  disabled={controlsDisabled || !results?.hasPrevious}
                 >
                   {explorerT('firstPage')}
                 </button>
@@ -183,7 +242,7 @@ export function ExplorerResultsPanel({
                   className="btn-secondary"
                   type="button"
                   onClick={handlePreviousHistoryPage}
-                  disabled={!results.hasPrevious}
+                  disabled={controlsDisabled || !results?.hasPrevious}
                 >
                   {explorerT('previousPage')}
                 </button>
@@ -191,7 +250,7 @@ export function ExplorerResultsPanel({
                   className="btn-secondary"
                   type="button"
                   onClick={handleNextHistoryPage}
-                  disabled={!results.hasNext}
+                  disabled={controlsDisabled || !results?.hasNext}
                 >
                   {explorerT('nextPage')}
                 </button>
@@ -199,7 +258,7 @@ export function ExplorerResultsPanel({
                   className="btn-secondary"
                   type="button"
                   onClick={() => handleLastHistoryPage(historyPageCount)}
-                  disabled={!results.hasNext}
+                  disabled={controlsDisabled || !results?.hasNext}
                 >
                   {explorerT('lastPage')}
                 </button>
@@ -211,6 +270,7 @@ export function ExplorerResultsPanel({
                   </span>
                   <input
                     className="history-page-jump__input"
+                    disabled={controlsDisabled}
                     inputMode="numeric"
                     min={1}
                     type="number"
@@ -228,6 +288,7 @@ export function ExplorerResultsPanel({
                 </label>
                 <button
                   className="btn-secondary"
+                  disabled={controlsDisabled}
                   type="button"
                   onClick={() => handleHistoryPageJump(historyPageCount)}
                 >
@@ -239,6 +300,7 @@ export function ExplorerResultsPanel({
                   </span>
                   <select
                     className="history-page-size__select"
+                    disabled={controlsDisabled}
                     value={historyPageSize}
                     onChange={(event) =>
                       onHistoryPageSizeChange(Number(event.target.value))
@@ -314,8 +376,9 @@ export function ExplorerResultsPanel({
         handleVisit={handleVisit}
         intelligenceT={intelligenceT}
         language={language}
+        loading={loading}
         selectedVisit={
-          selectedEntry
+          !loading && selectedEntry
             ? {
                 domain: selectedEntry.domain,
                 profileId: selectedEntry.profileId,

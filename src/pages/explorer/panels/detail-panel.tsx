@@ -37,6 +37,7 @@ interface ExplorerDetailPanelProps {
   handleVisit: (url: string) => Promise<void>
   intelligenceT: Translator
   language: ResolvedLanguage
+  loading?: boolean
   selectedVisit: ExplorerVisitSelection | null
 }
 
@@ -50,6 +51,7 @@ export function ExplorerDetailPanel({
   handleVisit,
   intelligenceT,
   language,
+  loading = false,
   selectedVisit,
 }: ExplorerDetailPanelProps) {
   const selectedDay = selectedVisit
@@ -62,7 +64,17 @@ export function ExplorerDetailPanel({
         <span className="crosshair-mark small">+</span>
         <span className="detail-label">{explorerT('recordDetail')}</span>
       </div>
-      {selectedVisit ? (
+      {loading ? (
+        <div
+          className="detail-body intelligence-stack"
+          aria-busy="true"
+          aria-label={commonT('loadingExplorerResults')}
+        >
+          <div className="skeleton-block" style={{ height: '64px' }} />
+          <div className="skeleton-block" style={{ height: '72px' }} />
+          <div className="skeleton-block" style={{ height: '160px' }} />
+        </div>
+      ) : selectedVisit ? (
         <div className="detail-body">
           <div className="detail-section">
             <div className="detail-field">
