@@ -15,11 +15,11 @@
 
 import { Link } from 'react-router-dom'
 import {
+  ImportBatchReview,
   ReviewPathActionRow,
   ReviewSection,
   type ReviewCopyFeedback,
 } from '../../../components/review'
-import { PreviewEntryList } from '../../../components/ui'
 import { StatusCallout } from '../../../components/primitives/status-callout'
 import { backend } from '../../../lib/backend-client'
 import { formatBytes, formatDateTime } from '../../../lib/format'
@@ -253,54 +253,20 @@ export function AuditRunDetailPanel({
                 />
               ) : relatedBatchDetail ? (
                 <>
-                  <div className="manifest-grid">
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.candidateRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {relatedBatchDetail.batch.candidateItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.importedRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {relatedBatchDetail.batch.importedItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.duplicateRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {relatedBatchDetail.batch.duplicateItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                    <div className="manifest-field">
-                      <span className="field-label">
-                        {t('import.visibleRows')}
-                      </span>
-                      <span className="field-value mono">
-                        {relatedBatchDetail.batch.visibleItems.toLocaleString(
-                          language,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="detail-divider" />
-                  <PreviewEntryList
-                    entries={relatedBatchDetail.previewEntries}
+                  <ImportBatchReview
+                    batchDetail={relatedBatchDetail}
                     language={language}
-                    statusLabel={(status) => t(importBatchStatusKey(status))}
-                    statusTone={importBatchStatusTone}
+                    metricLabels={{
+                      candidateRows: t('import.candidateRows'),
+                      duplicateRows: t('import.duplicateRows'),
+                      importedRows: t('import.importedRows'),
+                      visibleRows: t('import.visibleRows'),
+                    }}
+                    noPreviewEntriesLabel={t('import.noPreviewRows')}
+                    previewStatusLabel={(status) =>
+                      t(importBatchStatusKey(status))
+                    }
+                    previewStatusTone={importBatchStatusTone}
                   />
                   <div className="wizard-actions">
                     <Link

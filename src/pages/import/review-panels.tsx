@@ -21,11 +21,10 @@
  */
 
 import {
-  ReviewPathActionRow,
+  ImportBatchReview,
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { PreviewEntryList } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import {
@@ -226,74 +225,33 @@ export function ImportReviewPanels({
               <p className="dim">{t('common.loading')}</p>
             ) : activeBatchDetail ? (
               <>
-                <div className="manifest-grid">
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('import.candidateRows')}
-                    </span>
-                    <span className="field-value mono">
-                      {activeBatchDetail.batch.candidateItems.toLocaleString(
-                        language,
-                      )}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('import.importedRows')}
-                    </span>
-                    <span className="field-value mono">
-                      {activeBatchDetail.batch.importedItems.toLocaleString(
-                        language,
-                      )}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('import.duplicateRows')}
-                    </span>
-                    <span className="field-value mono">
-                      {activeBatchDetail.batch.duplicateItems.toLocaleString(
-                        language,
-                      )}
-                    </span>
-                  </div>
-                  <div className="manifest-field">
-                    <span className="field-label">
-                      {t('import.visibleRows')}
-                    </span>
-                    <span className="field-value mono">
-                      {activeBatchDetail.batch.visibleItems.toLocaleString(
-                        language,
-                      )}
-                    </span>
-                  </div>
-                </div>
-                <div className="detail-divider" />
-                {activeBatchDetail.previewEntries.length > 0 ? (
-                  <PreviewEntryList
-                    entries={activeBatchDetail.previewEntries}
-                    language={language}
-                    statusLabel={(status) => t(importBatchStatusKey(status))}
-                  />
-                ) : (
-                  <p className="dim">{t('import.noPreviewRows')}</p>
-                )}
-                {activeBatchDetail.batch.auditPath ? (
-                  <ReviewPathActionRow
-                    copyFeedback={supportCopyFeedback}
-                    copyKey={`import:audit:${activeBatchDetail.batch.id}`}
-                    copyLabel={t('common.copyAction')}
-                    errorMessage={t('audit.copyFailed')}
-                    label={t('audit.manifestPath')}
-                    onCopy={(key, value) => {
+                <ImportBatchReview
+                  auditPathActions={{
+                    copyFeedback: supportCopyFeedback,
+                    copyKey: `import:audit:${activeBatchDetail.batch.id}`,
+                    copyLabel: t('common.copyAction'),
+                    errorMessage: t('audit.copyFailed'),
+                    label: t('audit.manifestPath'),
+                    onCopy: (key, value) => {
                       void onCopyPath(key, value)
-                    }}
-                    onOpenPath={onOpenPath}
-                    openPathLabel={t('common.openAction')}
-                    successMessage={t('common.copiedNotice')}
-                    value={activeBatchDetail.batch.auditPath}
-                  />
-                ) : null}
+                    },
+                    onOpenPath,
+                    openPathLabel: t('common.openAction'),
+                    successMessage: t('common.copiedNotice'),
+                  }}
+                  batchDetail={activeBatchDetail}
+                  language={language}
+                  metricLabels={{
+                    candidateRows: t('import.candidateRows'),
+                    duplicateRows: t('import.duplicateRows'),
+                    importedRows: t('import.importedRows'),
+                    visibleRows: t('import.visibleRows'),
+                  }}
+                  noPreviewEntriesLabel={t('import.noPreviewRows')}
+                  previewStatusLabel={(status) =>
+                    t(importBatchStatusKey(status))
+                  }
+                />
                 <div className="wizard-actions">
                   <button
                     className="btn-secondary"

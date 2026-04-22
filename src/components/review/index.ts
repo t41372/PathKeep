@@ -1,5 +1,6 @@
 export * from './clipboard'
 export * from './generated-artifact-viewer'
+export * from './import-batch-review'
 export * from './pme-tab-bar'
 export * from './review-surface'
 export * from './runtime-boundary-card'
