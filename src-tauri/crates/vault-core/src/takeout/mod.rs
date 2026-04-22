@@ -34,10 +34,10 @@ mod tests;
 
 use crate::{
     archive::{
-        SourceBatchInput, coverage_stats_json, create_schema, open_archive_connection,
-        open_source_evidence_connection, persist_source_evidence, rebuild_search_projection,
-        record_schema_observation, stats_with_archive_totals, upsert_source_batch,
-        visit_event_fingerprint,
+        SourceBatchInput, SourceEvidencePayload, coverage_stats_json, create_schema,
+        open_archive_connection, open_source_evidence_connection, persist_source_evidence,
+        rebuild_search_projection, record_schema_observation, stats_with_archive_totals,
+        take_source_evidence_payload, upsert_source_batch, visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -48,12 +48,9 @@ use crate::{
     utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
-use browser_history_parser::{
-    ParsedHistory,
-    takeout::{
-        KIND_INDEX, TakeoutPayloadReport, parse_payload as parse_takeout_payload,
-        recognize_payload as recognize_takeout_payload,
-    },
+use browser_history_parser::takeout::{
+    KIND_INDEX, TakeoutPayloadReport, parse_payload as parse_takeout_payload,
+    recognize_payload as recognize_takeout_payload,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde_json::{Value, json};
@@ -130,11 +127,11 @@ struct CollectedPayload {
 }
 
 /// Stages the source-evidence writes required after canonical import commits.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct TakeoutSourceEvidencePlan {
     source_batch: SourceBatchInput,
     schema_observation: browser_history_parser::SchemaObservation,
-    parsed_history: ParsedHistory,
+    source_evidence_payload: SourceEvidencePayload,
 }
 
 /// Represents one persisted import batch plus its review metadata.

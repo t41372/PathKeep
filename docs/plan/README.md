@@ -53,6 +53,8 @@
 > **2026-04-21 execute-path note**：Takeout execute path 的雙重解析也已經拿掉。現在 `import_takeout` 在 non-dry-run 下不會再先做一輪完整 `inspect_takeout`；它改成單次掃描檔案、邊寫 canonical rows 邊累積 batch metadata，最後再從 persisted `preview_import_batch` 回填 review payload。這讓後續真正需要攻克的問題只剩 parser crate 本身的 full-batch materialization，以及 archive ingest 邊界的進一步 streaming 化。
 >
 > **2026-04-21 archive backup follow-up note**：backend 軌道的第六個 execution slice 已落地。`src-tauri/crates/vault-core/src/archive/mod.rs` 現在又把 backup orchestration 與 manifest/snapshot support helper 下沉到 `archive/{backup,run_support,artifacts}.rs`，parent module 已進一步縮到 `406` 行。這表示 archive-side giant-file triage 基本完成；剩餘後端 stop-ship 風險回到 parser/import collect-then-ingest contract，而不是 `archive/mod.rs` 本身。
+>
+> **2026-04-22 source-evidence follow-up note**：backend 軌道的第七個 execution slice 已落地。backup ingest 與 Takeout import 現在不再在 canonical commit 後保留第二份完整 `ParsedHistory` 只為了寫 cold source evidence；`archive::source_evidence` 已改成消費更窄的 `typed_evidence + native_entities` payload。這先拿掉了 post-commit duplicate retention，但 parser family 本身仍會先把 URL/visit/download/search-term/favicon vectors 整批 materialize，所以真正的下一輪重點仍是 parser-side streaming contract。
 
 ---
 

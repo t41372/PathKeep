@@ -62,8 +62,8 @@ pub use self::schema::{current_version, run_migrations};
 pub(crate) use self::search_projection::rebuild_search_projection;
 pub use self::source_evidence::open_source_evidence_connection;
 pub(crate) use self::source_evidence::{
-    SourceBatchInput, coverage_stats_json, persist_source_evidence, record_schema_observation,
-    upsert_source_batch,
+    SourceBatchInput, SourceEvidencePayload, coverage_stats_json, persist_source_evidence,
+    record_schema_observation, take_source_evidence_payload, upsert_source_batch,
 };
 pub use self::{
     doctor::{doctor, repair_health_issues},
@@ -95,7 +95,6 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use browser_history_parser::ParsedHistory;
 use chrono::{DateTime, Utc};
 use regex::RegexBuilder;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, named_params, params};

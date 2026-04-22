@@ -12,7 +12,9 @@ use crate::{
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
-use browser_history_parser::{CapabilitySnapshot, ParsedHistory, SchemaObservation};
+use browser_history_parser::{
+    CapabilitySnapshot, NativeEntity, ParsedHistory, SchemaObservation, TypedEvidenceBatch,
+};
 use rusqlite::{Connection, Transaction, params};
 use serde_json::json;
 use std::time::Duration as StdDuration;
@@ -135,6 +137,13 @@ pub(crate) struct SourceBatchInput {
     pub notes_json: Option<String>,
 }
 
+/// Cold evidence payload that still needs to be written after canonical ingest commits.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SourceEvidencePayload {
+    pub typed_evidence: TypedEvidenceBatch,
+    pub native_entities: Vec<NativeEntity>,
+}
+
 pub fn open_source_evidence_connection(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -202,14 +211,32 @@ pub(crate) fn record_schema_observation(
     Ok(())
 }
 
+/// Moves cold-evidence vectors out of a parsed history value once row ingest is finished.
+///
+/// Canonical ingest needs the full parser output while it is writing hot
+/// archive rows, but source-evidence persistence only needs typed evidence and
+/// native entities. Callers use this helper to drop now-unneeded URL/visit/
+/// download/search-term/favicon vectors before the post-commit evidence write.
+pub(crate) fn take_source_evidence_payload(parsed: &mut ParsedHistory) -> SourceEvidencePayload {
+    SourceEvidencePayload {
+        typed_evidence: std::mem::take(&mut parsed.typed_evidence),
+        native_entities: std::mem::take(&mut parsed.native_entities),
+    }
+}
+
+/// Persists typed evidence and native entities for one already-committed source batch.
+///
+/// The caller is responsible for writing the surrounding `source_batches` row
+/// and schema observations first. This helper intentionally ignores canonical
+/// visit/url rows because those already live in the hot archive.
 pub(crate) fn persist_source_evidence(
     transaction: &Transaction<'_>,
     source_batch_id: i64,
     source_profile_id: i64,
-    parsed: &ParsedHistory,
+    payload: &SourceEvidencePayload,
 ) -> Result<()> {
     let recorded_at = now_rfc3339();
-    for evidence in &parsed.typed_evidence.search {
+    for evidence in &payload.typed_evidence.search {
         transaction.execute(
             "INSERT INTO visit_search_evidence (
                source_batch_id, source_profile_id, source_visit_id, source_url_id,
@@ -229,7 +256,7 @@ pub(crate) fn persist_source_evidence(
             ],
         )?;
     }
-    for evidence in &parsed.typed_evidence.navigation {
+    for evidence in &payload.typed_evidence.navigation {
         transaction.execute(
             "INSERT INTO visit_navigation_evidence (
                source_batch_id, source_profile_id, source_visit_id, edge_kind, target_visit_id,
@@ -249,7 +276,7 @@ pub(crate) fn persist_source_evidence(
             ],
         )?;
     }
-    for evidence in &parsed.typed_evidence.engagement {
+    for evidence in &payload.typed_evidence.engagement {
         transaction.execute(
             "INSERT INTO visit_engagement_evidence (
                source_batch_id, source_profile_id, source_visit_id, metric_key,
@@ -268,7 +295,7 @@ pub(crate) fn persist_source_evidence(
             ],
         )?;
     }
-    for evidence in &parsed.typed_evidence.context {
+    for evidence in &payload.typed_evidence.context {
         transaction.execute(
             "INSERT INTO visit_context_evidence (
                source_batch_id, source_profile_id, source_visit_id, source_url_id,
@@ -287,7 +314,7 @@ pub(crate) fn persist_source_evidence(
             ],
         )?;
     }
-    for entity in &parsed.native_entities {
+    for entity in &payload.native_entities {
         transaction.execute(
             "INSERT INTO native_entities (
                source_batch_id, source_profile_id, entity_kind, native_primary_key,

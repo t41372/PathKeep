@@ -27,7 +27,8 @@ mod writes;
 
 use self::{
     parser::{
-        Watermark, load_watermark, parse_profile_snapshot, save_watermark, should_checkpoint,
+        ParsedProfileSnapshot, Watermark, load_watermark, parse_profile_snapshot, save_watermark,
+        should_checkpoint,
     },
     writes::{
         UrlVisitBounds, canonical_url_exists, insert_download, insert_favicon, insert_search_term,
@@ -46,13 +47,13 @@ pub(super) fn preview_snapshot_counts(
 }
 
 /// Defers source-evidence persistence until canonical archive writes have committed.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) struct SourceEvidencePlan {
     profile_id: String,
     source_profile_id: i64,
     source_batch: SourceBatchInput,
     schema_observation: browser_history_parser::SchemaObservation,
-    parsed_history: ParsedHistory,
+    source_evidence_payload: SourceEvidencePayload,
 }
 
 /// Keeps only the selected profiles that are currently readable on this host.
@@ -132,20 +133,22 @@ pub(super) fn process_profile_snapshot(
     };
     let parsed_snapshot = parse_profile_snapshot(snapshot, config, &watermark)
         .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
+    let ParsedProfileSnapshot {
+        mut history,
+        last_visit_id,
+        last_url_marker,
+        last_download_id,
+        last_favicon_marker,
+    } = parsed_snapshot;
 
     let mut summary = BackupProfileSummary {
         profile_id: snapshot.profile.profile_id.clone(),
-        notes: parsed_snapshot
-            .history
-            .warnings
-            .iter()
-            .map(|warning| warning.message.clone())
-            .collect(),
+        notes: history.warnings.iter().map(|warning| warning.message.clone()).collect(),
         ..BackupProfileSummary::default()
     };
 
     let mut url_id_map = HashMap::new();
-    for url in &parsed_snapshot.history.urls {
+    for url in &history.urls {
         let payload = serialize_payload(url)?;
         let existing_url = canonical_url_exists(archive, source_profile_id, url.source_url_id)?;
         let canonical_url_id =
@@ -157,7 +160,7 @@ pub(super) fn process_profile_snapshot(
     }
 
     let mut url_bounds = HashMap::<i64, UrlVisitBounds>::new();
-    for visit in &parsed_snapshot.history.visits {
+    for visit in &history.visits {
         let Some(&url_id) = url_id_map.get(&visit.source_url_id) else {
             continue;
         };
@@ -181,7 +184,7 @@ pub(super) fn process_profile_snapshot(
         sync_url_bounds(archive, url_id, &bounds)?;
     }
 
-    for download in &parsed_snapshot.history.downloads {
+    for download in &history.downloads {
         let payload = serialize_payload(download)?;
         let inserted =
             insert_download(archive, run_id, source_profile_id, download, &payload.hash)?;
@@ -191,7 +194,7 @@ pub(super) fn process_profile_snapshot(
     }
 
     let mut inserted_search_terms = 0usize;
-    for term in &parsed_snapshot.history.search_terms {
+    for term in &history.search_terms {
         let Some(&url_id) = url_id_map.get(&term.url_id) else {
             continue;
         };
@@ -211,7 +214,7 @@ pub(super) fn process_profile_snapshot(
         ));
     }
 
-    for favicon in &parsed_snapshot.history.favicons {
+    for favicon in &history.favicons {
         let payload = serialize_payload(favicon)?;
         insert_favicon(archive, run_id, source_profile_id, favicon, &payload.hash)?;
     }
@@ -243,8 +246,8 @@ pub(super) fn process_profile_snapshot(
             schema_version_text: None,
             schema_version_int: None,
             schema_fingerprint: schema_hash.clone(),
-            capability_snapshot: parsed_snapshot.history.capability_snapshot.clone(),
-            coverage_stats_json: coverage_stats_json(&parsed_snapshot.history),
+            capability_snapshot: history.capability_snapshot.clone(),
+            coverage_stats_json: coverage_stats_json(&history),
             artifact_refs_json: Some(
                 json!({
                     "historyPath": snapshot.history_path.display().to_string(),
@@ -253,27 +256,24 @@ pub(super) fn process_profile_snapshot(
                 })
                 .to_string(),
             ),
-            notes_json: Some(serde_json::to_string(&parsed_snapshot.history.warnings)?),
+            notes_json: Some(serde_json::to_string(&history.warnings)?),
         },
-        schema_observation: parsed_snapshot.history.schema_observation.clone(),
-        parsed_history: parsed_snapshot.history.clone(),
+        schema_observation: history.schema_observation.clone(),
+        source_evidence_payload: take_source_evidence_payload(&mut history),
     });
 
     save_watermark(
         archive,
         &snapshot.profile.profile_id,
         &Watermark {
-            last_visit_id: parsed_snapshot.last_visit_id.max(watermark.last_visit_id),
-            last_url_last_visit_time: parsed_snapshot
-                .last_url_marker
+            last_visit_id: last_visit_id.max(watermark.last_visit_id),
+            last_url_last_visit_time: last_url_marker
                 .unwrap_or(watermark.last_url_last_visit_time)
                 .max(watermark.last_url_last_visit_time),
-            last_download_id: parsed_snapshot
-                .last_download_id
+            last_download_id: last_download_id
                 .unwrap_or(watermark.last_download_id)
                 .max(watermark.last_download_id),
-            last_favicon_last_updated: parsed_snapshot
-                .last_favicon_marker
+            last_favicon_last_updated: last_favicon_marker
                 .unwrap_or(watermark.last_favicon_last_updated)
                 .max(watermark.last_favicon_last_updated),
             last_checkpoint_at: if summary.checkpoint_created {
@@ -310,7 +310,7 @@ pub(super) fn persist_source_evidence_plans(
             &transaction,
             source_batch_id,
             plan.source_profile_id,
-            &plan.parsed_history,
+            &plan.source_evidence_payload,
         )?;
         committed_batch_ids.push((plan.profile_id.clone(), source_batch_id));
     }
