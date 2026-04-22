@@ -22,12 +22,10 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
-import { formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
   aiStatusMeta,
   assistantResponseMeta,
-  evidenceHref,
   selectedAiProvider,
 } from '../../lib/intelligence'
 import {
@@ -38,18 +36,10 @@ import type {
   AiAssistantResponse,
   AiProviderConnectionTestReport,
 } from '../../lib/types'
-
-/**
- * Defines the typed shape for conversation message.
- *
- * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-interface ConversationMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  response?: AiAssistantResponse
-}
+import {
+  AssistantConversationPanel,
+  type AssistantConversationMessage,
+} from './conversation-panel'
 
 /**
  * Explains how message id works.
@@ -58,29 +48,6 @@ interface ConversationMessage {
  */
 function messageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
- * Explains how render paragraphs works.
- *
- * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-function renderParagraphs(content: string) {
-  return content
-    .split('\n')
-    .filter(Boolean)
-    .map((line, index) => (
-      <p key={`${line}-${index}`}>
-        {line.startsWith('- ') ? (
-          <span>
-            {'• '}
-            {line.slice(2)}
-          </span>
-        ) : (
-          line
-        )}
-      </p>
-    ))
 }
 
 /**
@@ -103,7 +70,7 @@ export function AssistantPage() {
   } = useShellData()
   const { activeProfileId } = useProfileScope()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [messages, setMessages] = useState<ConversationMessage[]>([])
+  const [messages, setMessages] = useState<AssistantConversationMessage[]>([])
   const [input, setInput] = useState(searchParams.get('question') ?? '')
   const [sending, setSending] = useState(false)
   const [providerProbe, setProviderProbe] =
@@ -594,175 +561,27 @@ export function AssistantPage() {
       )}
 
       <div className="assistant-layout">
-        <div className="assistant-container">
-          <div className="assistant-messages">
-            {messages.length === 0 && !sending ? (
-              <EmptyState
-                action={
-                  <div className="intelligence-actions">
-                    {suggestedQuestions.map((question, index) => (
-                      <button
-                        key={question}
-                        className="btn-secondary"
-                        type="button"
-                        onClick={() => setInput(question)}
-                      >
-                        {index === 0
-                          ? assistantT('loadExamplePrompt')
-                          : question}
-                      </button>
-                    ))}
-                  </div>
-                }
-                description={assistantT('emptyDescription')}
-                eyebrow={assistantT('emptyEyebrow')}
-                title={assistantT('emptyTitle')}
-              />
-            ) : null}
-
-            {messages.map((message) => {
-              const response = message.response
-              const responseMeta = response
-                ? assistantResponseMeta(response, intelligenceT)
-                : null
-              return (
-                <div
-                  key={message.id}
-                  className={`msg ${message.role === 'user' ? 'msg-user' : 'msg-ai'}`}
-                >
-                  <div className="msg-content">
-                    {responseMeta && response ? (
-                      <div className="assistant-message-head">
-                        <span
-                          className={`status-badge status-${responseMeta.tone}`}
-                        >
-                          {responseMeta.label}
-                        </span>
-                        <span className="mono-support">
-                          {assistantT('responseMeta', {
-                            jobId: String(response.jobId ?? '—'),
-                            runId: String(response.runId ?? '—'),
-                            provider:
-                              response.providerId || t('common.pending'),
-                          })}
-                        </span>
-                      </div>
-                    ) : null}
-                    {message.content ? renderParagraphs(message.content) : null}
-                    {response?.notes?.length ? (
-                      <div className="intelligence-note-list">
-                        {response.notes.map((note) => (
-                          <p key={note} className="mono-support">
-                            {note}
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {response?.citations?.length ? (
-                    <div className="msg-evidence">
-                      <div className="evidence-label">
-                        {assistantT('evidenceLabel', {
-                          count: response.citations.length,
-                        })}
-                      </div>
-                      {response.citations.map((citation) => (
-                        <Link
-                          key={`${citation.historyId}-${citation.url}`}
-                          className="evidence-item"
-                          to={evidenceHref(citation)}
-                        >
-                          <span className="mono dim">
-                            {formatDateTime(citation.visitedAt, language) ??
-                              citation.visitedAt}
-                          </span>
-                          <span>{citation.title ?? citation.url}</span>
-                        </Link>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {response?.state === 'queued' && response.jobId ? (
-                    <div className="assistant-inline-actions">
-                      <button
-                        className="btn-tiny"
-                        type="button"
-                        onClick={() =>
-                          void handleLoadQueuedJob(response.jobId!)
-                        }
-                        disabled={Boolean(queueAction)}
-                      >
-                        {assistantT('checkStatus')}
-                      </button>
-                      <button
-                        className="btn-tiny"
-                        type="button"
-                        onClick={() => void handleDrainQueue(response.jobId)}
-                        disabled={Boolean(queueAction)}
-                      >
-                        {assistantT('runQueuedJob')}
-                      </button>
-                      <button
-                        className="btn-tiny"
-                        type="button"
-                        onClick={() => void handleCancelJob(response.jobId!)}
-                        disabled={Boolean(queueAction)}
-                      >
-                        {assistantT('cancel')}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })}
-
-            {sending && (
-              <div className="msg msg-ai">
-                <div className="msg-content">
-                  <LoadingState
-                    compact
-                    label={assistantT('preparingAnswer')}
-                    detail={assistantT('searchingArchive')}
-                    progressLabel="1 / 3"
-                    progressValue={33}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="assistant-input-area">
-            <div className="assistant-input-wrapper">
-              <input
-                aria-label={assistantT('inputLabel')}
-                type="text"
-                className="assistant-input"
-                placeholder={assistantT('inputPlaceholder')}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void handleSend()
-                }}
-                disabled={sending}
-              />
-              <button
-                aria-label={assistantT('sendAction')}
-                className="assistant-send"
-                type="button"
-                onClick={() => {
-                  void handleSend()
-                }}
-                disabled={sending}
-              >
-                {assistantT('sendAction')}
-              </button>
-            </div>
-            <div className="assistant-hint dim">
-              {assistantT('auditTraceHint')}
-            </div>
-          </div>
-        </div>
+        <AssistantConversationPanel
+          assistantT={assistantT}
+          handleCancelJob={handleCancelJob}
+          handleDrainQueue={handleDrainQueue}
+          handleLoadQueuedJob={handleLoadQueuedJob}
+          input={input}
+          language={language}
+          messages={messages}
+          onInputChange={setInput}
+          onPromptPick={setInput}
+          onSend={() => {
+            void handleSend()
+          }}
+          queueAction={queueAction}
+          responseMetaFor={(response) =>
+            assistantResponseMeta(response, intelligenceT)
+          }
+          sending={sending}
+          suggestedQuestions={suggestedQuestions}
+          t={t}
+        />
 
         <aside className="assistant-sidebar">
           <div className="panel">
