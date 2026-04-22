@@ -18,7 +18,6 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
-import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
@@ -40,6 +39,7 @@ import {
   AssistantConversationPanel,
   type AssistantConversationMessage,
 } from './conversation-panel'
+import { AssistantQueueSidebar, AssistantRuntimePanels } from './runtime-panels'
 
 /**
  * Explains how message id works.
@@ -418,140 +418,41 @@ export function AssistantPage() {
 
   return (
     <section className="page-shell assistant-page" data-testid="assistant-page">
-      {activeProfileId ? (
-        <StatusCallout
-          tone="info"
-          eyebrow={t('common.profileScope')}
-          title={assistantT('scopedViewTitle')}
-          body={assistantT('scopedViewBody', {
-            profile: profileIdLabel(activeProfileId),
-          })}
-        />
-      ) : null}
-      {aiMeta && (
-        <div className="intelligence-grid intelligence-grid--assistant">
-          <StatusCallout
-            tone={aiMeta.tone}
-            eyebrow={assistantT('statusEyebrow')}
-            title={aiMeta.label}
-            body={aiMeta.description}
-            actions={
-              <div className="intelligence-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => void handleProviderProbe()}
-                  disabled={Boolean(queueAction) || !llmProvider}
-                >
-                  {assistantT('testProvider')}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => void handleRefreshQueue()}
-                  disabled={Boolean(queueAction)}
-                >
-                  {assistantT('refreshQueue')}
-                </button>
-                <Link className="btn-secondary" to="/settings">
-                  {assistantT('openSettings')}
-                </Link>
-              </div>
-            }
-          />
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {assistantT('runningContext')}
-              </span>
-              <span className="panel-action">
-                {llmProvider
-                  ? `${llmProvider.name} / ${llmProvider.defaultModel}`
-                  : assistantT('noLlmProviderSelected')}
-              </span>
-            </div>
-            <div className="panel-body intelligence-stack">
-              <div className="intelligence-stat-row">
-                <div className="summary-stat">
-                  <span className="dim">{t('common.profileScope')}</span>
-                  <span className="mono">
-                    {activeProfileId
-                      ? profileIdLabel(activeProfileId)
-                      : t('common.profileAllProfiles')}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{assistantT('llm')}</span>
-                  <span className="mono">
-                    {llmProvider?.id ?? assistantT('unset')}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{assistantT('retrieval')}</span>
-                  <span className="mono">
-                    {embeddingProvider?.id ?? assistantT('lexicalFallback')}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{assistantT('queuedLabel')}</span>
-                  <span className="mono">
-                    {queueStatus?.queued ?? snapshot.aiStatus.queuedJobs}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{assistantT('runningLabel')}</span>
-                  <span className="mono">
-                    {queueStatus?.running ?? snapshot.aiStatus.runningJobs}
-                  </span>
-                </div>
-              </div>
-
-              {providerProbe && (
-                <div className="result-row">
-                  <div className="result-row__header">
-                    <strong>
-                      {providerProbe.ok
-                        ? assistantT('providerReachable')
-                        : assistantT('providerNeedsAttention')}
-                    </strong>
-                    <span className="mono-support">
-                      {assistantT('providerProbeLatency', {
-                        model: providerProbe.model,
-                        latency:
-                          providerProbe.latencyMs.toLocaleString(language),
-                      })}
-                    </span>
-                  </div>
-                  <p>{providerProbe.message}</p>
-                  {providerProbe.actionHint ? (
-                    <p className="mono-support">{providerProbe.actionHint}</p>
-                  ) : null}
-                </div>
-              )}
-
-              {queuedAssistantJobs.length > 0 && (
-                <div className="intelligence-job-list">
-                  {queuedAssistantJobs.map((job) => (
-                    <div key={job.id} className="result-row">
-                      <div className="result-row__header">
-                        <strong>
-                          {assistantT('queuedJobLabel', { id: job.id })}
-                        </strong>
-                        <span className="mono-support">{job.state}</span>
-                      </div>
-                      <p>
-                        {job.summary ??
-                          job.errorMessage ??
-                          assistantT('queuedAssistantRequest')}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AssistantRuntimePanels
+        activeProfileLabel={
+          activeProfileId ? profileIdLabel(activeProfileId) : null
+        }
+        aiMeta={aiMeta}
+        assistantT={assistantT}
+        llmProviderAvailable={Boolean(llmProvider)}
+        llmProviderDisplay={
+          llmProvider
+            ? `${llmProvider.name} / ${llmProvider.defaultModel}`
+            : assistantT('noLlmProviderSelected')
+        }
+        llmProviderId={llmProvider?.id ?? assistantT('unset')}
+        embeddingProviderId={
+          embeddingProvider?.id ?? assistantT('lexicalFallback')
+        }
+        language={language}
+        onProviderProbe={() => {
+          void handleProviderProbe()
+        }}
+        onRefreshQueue={() => {
+          void handleRefreshQueue()
+        }}
+        profileScopeLabel={t('common.profileScope')}
+        profileScopeValue={
+          activeProfileId
+            ? profileIdLabel(activeProfileId)
+            : t('common.profileAllProfiles')
+        }
+        providerProbe={providerProbe}
+        queuedAssistantJobs={queuedAssistantJobs}
+        queuedCount={queueStatus?.queued ?? snapshot.aiStatus.queuedJobs}
+        queueAction={queueAction}
+        runningCount={queueStatus?.running ?? snapshot.aiStatus.runningJobs}
+      />
 
       {(pageError || queueError) && (
         <ErrorState
@@ -583,34 +484,12 @@ export function AssistantPage() {
           t={t}
         />
 
-        <aside className="assistant-sidebar">
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{assistantT('queueBoundary')}</span>
-            </div>
-            <div className="panel-body intelligence-stack">
-              <p className="dashboard-next-action">
-                {assistantT('queueBoundaryBody')}
-              </p>
-              {queueAction ? (
-                <LoadingState
-                  compact
-                  label={queueAction}
-                  detail={assistantT('queueBoundaryBody')}
-                  progressLabel={assistantT('queueProgressLabel', {
-                    queued: (
-                      queueStatus?.queued ?? snapshot.aiStatus.queuedJobs
-                    ).toLocaleString(language),
-                    running: (
-                      queueStatus?.running ?? snapshot.aiStatus.runningJobs
-                    ).toLocaleString(language),
-                  })}
-                  progressValue={67}
-                />
-              ) : null}
-            </div>
-          </div>
-        </aside>
+        <AssistantQueueSidebar
+          assistantT={assistantT}
+          queuedCount={queueStatus?.queued ?? snapshot.aiStatus.queuedJobs}
+          queueAction={queueAction}
+          runningCount={queueStatus?.running ?? snapshot.aiStatus.runningJobs}
+        />
       </div>
     </section>
   )
