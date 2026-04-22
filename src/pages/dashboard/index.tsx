@@ -16,78 +16,40 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import { BrowsingRhythmCard } from '../../components/intelligence/browsing-rhythm-card'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { ErrorState } from '../../components/primitives/error-state'
 import { EmptyState } from '../../components/primitives/empty-state'
-import {
-  DashboardSkeleton,
-  Skeleton,
-} from '../../components/primitives/skeleton'
+import { DashboardSkeleton } from '../../components/primitives/skeleton'
 import { backend } from '../../lib/backend-client'
 import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
-import { browserRetentionMeta } from '../../lib/browser-retention'
-import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
-import {
-  aiStatusMeta,
-  dayInsightsHref,
-  domainDayInsightsHref,
-  selectedAiProvider,
-} from '../../lib/intelligence'
+import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
 import { buildStorageAnalyticsSummary } from '../../lib/storage-analytics'
 import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
 import { hasSafariAccessIssue } from '../../lib/platform-guidance'
+import type { SecurityStatus } from '../../lib/types'
 import {
-  archiveModeKey,
-  runStatusKey,
-  runTypeKey,
-  sourceKindFromProfileScope,
-} from '../../lib/trust-review'
-import type { BrowserProfile, SecurityStatus } from '../../lib/types'
-
-/**
- * Returns whether backup ready profile.
- *
- * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-function isBackupReadyProfile(profile: {
-  profileId: string
-  historyExists: boolean
-}) {
-  return profile.historyExists
-}
-
-/**
- * Explains how browser icon class works.
- *
- * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-function browserIconClass(profileId: string) {
-  if (profileId.startsWith('chrome:')) return 'chrome'
-  if (profileId.startsWith('arc:')) return 'arc'
-  if (profileId.startsWith('firefox:')) return 'firefox'
-  if (profileId.startsWith('safari:')) return 'safari'
-  return ''
-}
-
-/**
- * Explains how browser icon letter works.
- *
- * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-function browserIconLetter(profileId: string) {
-  if (profileId.startsWith('chrome:')) return 'C'
-  if (profileId.startsWith('arc:')) return 'A'
-  if (profileId.startsWith('firefox:')) return 'F'
-  if (profileId.startsWith('safari:')) return 'S'
-  return '?'
-}
+  buildDashboardStats,
+  buildDashboardStorageSegments,
+  isBackupReadyProfile,
+  summarizeRunSources,
+} from './helpers'
+import {
+  DashboardArchiveBoundaryPanel,
+  DashboardIntelligencePanel,
+  DashboardOnThisDayPanel,
+  DashboardRecentRunsPanel,
+  DashboardRhythmPanel,
+  DashboardStatsRow,
+  DashboardStorageFootprintPanel,
+  DashboardTrustActionsPanel,
+} from './panels'
+import { DashboardZeroState } from './zero-state'
 
 /**
  * Renders the dashboard route.
@@ -292,124 +254,19 @@ export function DashboardPage() {
   const activeOnThisDayError = snapshot.config.initialized
     ? onThisDayError
     : null
-
-  /**
-   * Explains how run source summary works.
-   *
-   * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  function runSourceSummary(profileScope: string[] | undefined) {
-    const sourceKinds = sourceKindFromProfileScope(profileScope ?? [])
-    return sourceKinds
-      .map((sourceKind) => {
-        if (sourceKind === 'chrome') return t('audit.sourceChrome')
-        if (sourceKind === 'firefox') return t('audit.sourceFirefox')
-        if (sourceKind === 'safari') return t('audit.sourceSafari')
-        if (sourceKind === 'takeout') return t('audit.sourceTakeout')
-        if (sourceKind === 'archive-wide') return t('audit.archiveWide')
-        return sourceKind
-      })
-      .join(' · ')
-  }
-
-  /**
-   * Explains how render profile boundary works.
-   *
-   * Keeping this as a named declaration makes the Dashboard surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  function renderProfileBoundary(profile: BrowserProfile) {
-    const retention = browserRetentionMeta(profile, commonT)
-
-    return (
-      <div key={profile.profileId} className="otd-item">
-        <div className={`browser-icon ${browserIconClass(profile.profileId)}`}>
-          {browserIconLetter(profile.profileId)}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="otd-title">
-            {profile.browserName} / {profile.profileName}
-          </div>
-          <div className="otd-meta mono">
-            {profile.historyExists
-              ? t('dashboard.historyDetected')
-              : t('dashboard.historyMissing')}
-          </div>
-          {profile.historyExists ? (
-            <>
-              <div className="otd-meta">{retention.label}</div>
-              <div className="mono-support">
-                {retention.body} {commonT('browserRetentionArchiveBoundary')}
-              </div>
-            </>
-          ) : null}
-        </div>
-      </div>
-    )
-  }
-
-  const storageSegments = [
-    {
-      label: commonT('coreHistory'),
-      detail: [commonT('canonicalArchive'), commonT('sourceEvidence')].join(
-        ' · ',
-      ),
-      tone: 'storage-fill',
-      value: storageSummary.coreHistoryBytes,
-    },
-    {
-      label: commonT('otherData'),
-      detail: [
-        commonT('searchProjection'),
-        commonT('intelligenceProjection'),
-        commonT('semanticIndex'),
-        commonT('contentBlobs'),
-        commonT('auditArtifacts'),
-        commonT('exports'),
-        commonT('temporaryFiles'),
-      ].join(' · '),
-      tone: 'storage-fill secondary',
-      value: storageSummary.otherDataBytes,
-    },
-  ]
-  const stats = [
-    {
-      label: t('dashboard.totalRecords'),
-      value: dashboard.totalVisits.toLocaleString(language),
-      detail: t('dashboard.uniqueUrls', {
-        count: dashboard.totalUrls.toLocaleString(language),
-      }),
-      tone: 'accent' as const,
-    },
-    {
-      label: t('dashboard.lastBackup'),
-      value: dashboard.lastSuccessfulBackupAt
-        ? formatRelativeTime(dashboard.lastSuccessfulBackupAt, language)
-        : t('common.pending'),
-      detail: latestManifestHash ?? t('dashboard.noManifestYet'),
-      tone: dashboard.lastSuccessfulBackupAt
-        ? ('success' as const)
-        : ('neutral' as const),
-    },
-    {
-      label: t('dashboard.profilesInScope'),
-      value: `${selectedProfiles.length}`,
-      detail: t('dashboard.profilesReadableAttention', {
-        readable: backupReadyProfiles.length,
-        attention: previewOnlyProfiles.length,
-      }),
-      tone: 'neutral' as const,
-    },
-    {
-      label: t('dashboard.archiveMode'),
-      value: t(archiveModeKey(snapshot.config.archiveMode)),
-      detail: snapshot.archiveStatus.unlocked
-        ? t('dashboard.archiveUnlocked')
-        : t('dashboard.archiveNeedsUnlock'),
-      tone: snapshot.archiveStatus.unlocked
-        ? ('success' as const)
-        : ('neutral' as const),
-    },
-  ]
+  const storageSegments = buildDashboardStorageSegments(commonT, storageSummary)
+  const stats = buildDashboardStats({
+    dashboard,
+    snapshot,
+    selectedProfilesCount: selectedProfiles.length,
+    backupReadyProfilesCount: backupReadyProfiles.length,
+    previewOnlyProfilesCount: previewOnlyProfiles.length,
+    language,
+    latestManifestHash,
+    t,
+  })
+  const runSourceSummary = (profileScope: string[] | undefined) =>
+    summarizeRunSources(profileScope, t)
 
   if (!snapshot.config.initialized || dashboard.recentRuns.length === 0) {
     return (
@@ -422,90 +279,14 @@ export function DashboardPage() {
             body={t('dashboard.scopeNotice')}
           />
         ) : null}
-        <div className="stats-row">
-          {stats.map((stat) => (
-            <article
-              key={stat.label}
-              className="stat-card"
-              data-tone={stat.tone}
-            >
-              <div className="stat-label">{stat.label}</div>
-              <div className="stat-value">{stat.value}</div>
-              <div className="stat-delta neutral">{stat.detail}</div>
-            </article>
-          ))}
-        </div>
-        <StatusCallout
-          tone="info"
-          eyebrow={t('dashboard.zeroStateEyebrow')}
-          title={t('dashboard.zeroStateTitle')}
-          body={dashboard.nextAction ?? t('dashboard.zeroStateBody')}
-          actions={
-            <Link className="btn-primary" to="/onboarding">
-              {t('dashboard.openOnboardingFlow')}
-            </Link>
-          }
+        <DashboardZeroState
+          commonT={commonT}
+          dashboard={dashboard}
+          selectedProfiles={selectedProfiles}
+          snapshotInitialized={snapshot.config.initialized}
+          stats={stats}
+          t={t}
         />
-        <div className="dashboard-grid">
-          <div className="dashboard-left">
-            <div className="panel">
-              <div className="panel-header">
-                <span className="panel-title">
-                  {t('dashboard.archiveBoundary')}
-                </span>
-                <span className="panel-action">
-                  {t('dashboard.selectedProfiles', {
-                    count: selectedProfiles.length,
-                  })}
-                </span>
-              </div>
-              <div className="panel-body">
-                {selectedProfiles.length > 0 ? (
-                  selectedProfiles.map(renderProfileBoundary)
-                ) : (
-                  <p className="dashboard-next-action">
-                    {t('dashboard.zeroStateNoBrowsers')}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="dashboard-right">
-            <div className="panel">
-              <div className="panel-header">
-                <span className="panel-title">
-                  {t('dashboard.zeroStateChecklist')}
-                </span>
-              </div>
-              <div className="panel-body">
-                <div className="stacked-column">
-                  <div className="list-item">
-                    <span
-                      className={snapshot.config.initialized ? 'accent' : 'dim'}
-                    >
-                      {snapshot.config.initialized ? '✓' : '1'}
-                    </span>
-                    <span>{t('dashboard.zeroStep1')}</span>
-                  </div>
-                  <div className="list-item">
-                    <span
-                      className={
-                        dashboard.recentRuns.length > 0 ? 'accent' : 'dim'
-                      }
-                    >
-                      {dashboard.recentRuns.length > 0 ? '✓' : '2'}
-                    </span>
-                    <span>{t('dashboard.zeroStep2')}</span>
-                  </div>
-                  <div className="list-item">
-                    <span className="dim">3</span>
-                    <span>{t('dashboard.zeroStep3')}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </section>
     )
   }
@@ -566,283 +347,57 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="stats-row">
-        {stats.map((stat) => (
-          <article key={stat.label} className="stat-card" data-tone={stat.tone}>
-            <div className="stat-label">{stat.label}</div>
-            <div className="stat-value">{stat.value}</div>
-            <div
-              className={`stat-delta ${stat.tone === 'success' ? 'positive' : 'neutral'}`}
-            >
-              {stat.detail}
-            </div>
-          </article>
-        ))}
-      </div>
+      <DashboardStatsRow stats={stats} />
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{intelligenceT('rhythmTitle')}</span>
-          <Link className="panel-action" to="/intelligence">
-            {t('dashboard.reviewInsightsAction')}
-          </Link>
-        </div>
-        <div className="panel-body">
-          <BrowsingRhythmCard
-            dayDomainHref={(domain, date) =>
-              domainDayInsightsHref(domain, date, activeProfileId)
-            }
-            dayHref={(date) => dayInsightsHref(date, activeProfileId)}
-            mode="year"
-            language={language}
-            profileId={activeProfileId}
-            showCurrentYearShortcut
-            summaryPreset="calendar-year"
-            t={intelligenceT}
-            yearNavigation="pager"
-          />
-        </div>
-      </div>
+      <DashboardRhythmPanel
+        activeProfileId={activeProfileId}
+        intelligenceT={intelligenceT}
+        language={language}
+        t={t}
+      />
 
       <div className="dashboard-grid">
         <div className="dashboard-left">
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{t('dashboard.recentRuns')}</span>
-              <Link className="panel-action" to="/audit">
-                {t('dashboard.fullLedger')}
-              </Link>
-            </div>
-            <div className="panel-body" style={{ padding: 0 }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{t('dashboard.run')}</th>
-                    <th>{t('dashboard.type')}</th>
-                    <th>{t('dashboard.source')}</th>
-                    <th>{t('dashboard.records')}</th>
-                    <th>{t('dashboard.status')}</th>
-                    <th>{t('dashboard.time')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dashboard.recentRuns.map((run) => (
-                    <tr key={run.id}>
-                      <td>
-                        <Link
-                          className="table-link mono accent"
-                          to={`/audit?run=${run.id}`}
-                        >
-                          #{run.id}
-                        </Link>
-                      </td>
-                      <td>
-                        <span className="tag tag-sm tag-backup">
-                          {t(runTypeKey(run.runType ?? 'backup'))}
-                        </span>
-                      </td>
-                      <td>{runSourceSummary(run.profileScope)}</td>
-                      <td className="accent">+{run.newVisits}</td>
-                      <td>
-                        <span
-                          aria-label={t(runStatusKey(run.status))}
-                          className={`status-badge ${
-                            run.status === 'success'
-                              ? 'status-completed'
-                              : 'status-pending'
-                          }`}
-                        >
-                          {t(runStatusKey(run.status))}
-                        </span>
-                      </td>
-                      <td className="dim">
-                        {formatRelativeTime(
-                          run.finishedAt ?? run.startedAt,
-                          language,
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DashboardRecentRunsPanel
+            dashboard={dashboard}
+            language={language}
+            runSourceSummary={runSourceSummary}
+            t={t}
+          />
 
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {t('dashboard.archiveBoundary')}
-              </span>
-              <span className="panel-action">
-                {t('dashboard.selectedProfiles', {
-                  count: selectedProfiles.length,
-                })}
-              </span>
-            </div>
-            <div className="panel-body">
-              {selectedProfiles.map(renderProfileBoundary)}
-            </div>
-          </div>
+          <DashboardArchiveBoundaryPanel
+            commonT={commonT}
+            selectedProfiles={selectedProfiles}
+            t={t}
+          />
 
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {t('dashboard.storageFootprint')}
-              </span>
-              <span className="panel-action">
-                {t('dashboard.storageTotal', {
-                  size: formatBytes(totalStorage, language),
-                })}
-              </span>
-            </div>
-            <div className="panel-body">
-              <div className="storage-chart">
-                {storageSegments.map((segment) => (
-                  <div key={segment.label} className="storage-row">
-                    <div className="row-between">
-                      <span>{segment.label}</span>
-                      <span className="mono">
-                        {formatBytes(segment.value, language)}
-                      </span>
-                    </div>
-                    <div className="storage-bar">
-                      <div
-                        className={segment.tone}
-                        style={{
-                          width: `${totalStorage > 0 ? (segment.value / totalStorage) * 100 : 0}%`,
-                        }}
-                      />
-                    </div>
-                    <div className="mono-support">{segment.detail}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <DashboardStorageFootprintPanel
+            language={language}
+            storageSegments={storageSegments}
+            totalStorage={totalStorage}
+            t={t}
+          />
         </div>
 
         <div className="dashboard-right">
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {t('dashboard.intelligenceTitle')}
-              </span>
-              <span className="panel-action">{aiMeta.label}</span>
-            </div>
-            <div className="panel-body intelligence-stack">
-              <p className="dashboard-next-action">{aiMeta.description}</p>
-              <div className="summary-stats">
-                <div className="summary-stat">
-                  <span className="dim">{t('dashboard.llmLabel')}</span>
-                  <span className="mono">
-                    {llmProvider?.id ?? t('settings.disabled')}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{t('dashboard.embeddingLabel')}</span>
-                  <span className="mono">
-                    {embeddingProvider?.id ?? t('dashboard.embeddingFallback')}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{t('dashboard.queueLabel')}</span>
-                  <span className="mono">
-                    {backgroundQueueCount === null
-                      ? '—'
-                      : backgroundQueueCount.toLocaleString(language)}
-                  </span>
-                </div>
-              </div>
-              <div className="quick-actions-grid">
-                <Link className="btn-secondary" to="/explorer?mode=hybrid">
-                  {t('dashboard.semanticSearchAction')}
-                </Link>
-                <Link className="btn-secondary" to="/assistant">
-                  {t('dashboard.openAssistantAction')}
-                </Link>
-                <Link className="btn-secondary" to="/intelligence">
-                  {t('dashboard.reviewInsightsAction')}
-                </Link>
-              </div>
-            </div>
-          </div>
+          <DashboardIntelligencePanel
+            aiMeta={aiMeta}
+            backgroundQueueCount={backgroundQueueCount}
+            embeddingProviderId={embeddingProvider?.id}
+            language={language}
+            llmProviderId={llmProvider?.id}
+            t={t}
+          />
 
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                {intelligenceT('onThisDayTitle')}
-              </span>
-            </div>
-            <div className="panel-body">
-              {onThisDayLoading ? (
-                <div className="intelligence-stack" aria-busy="true">
-                  <Skeleton variant="block" height="68px" count={3} />
-                </div>
-              ) : activeOnThisDay.length > 0 ? (
-                activeOnThisDay.slice(0, 3).map((entry) => (
-                  <div key={`${entry.year}-${entry.date}`} className="otd-item">
-                    <div style={{ minWidth: 0 }}>
-                      <div className="otd-title">
-                        <Link to={dayInsightsHref(entry.date, activeProfileId)}>
-                          {entry.year} ·{' '}
-                          {intelligenceT('onThisDayVisits', {
-                            count: entry.totalVisits,
-                          })}
-                        </Link>
-                      </div>
-                      {entry.summary && (
-                        <div className="otd-url">{entry.summary}</div>
-                      )}
-                      {entry.topDomains.length > 0 && (
-                        <div className="mono-support">
-                          {entry.topDomains.slice(0, 4).map((domain, index) => (
-                            <span key={`${entry.year}:${domain}`}>
-                              {index > 0 ? ' · ' : null}
-                              <Link
-                                to={domainDayInsightsHref(
-                                  domain,
-                                  entry.date,
-                                  activeProfileId,
-                                )}
-                              >
-                                {domain}
-                              </Link>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="dashboard-next-action">
-                  {activeOnThisDayError ?? intelligenceT('onThisDayEmpty')}
-                </p>
-              )}
-            </div>
-          </div>
+          <DashboardOnThisDayPanel
+            activeOnThisDay={activeOnThisDay}
+            activeOnThisDayError={activeOnThisDayError}
+            activeProfileId={activeProfileId}
+            intelligenceT={intelligenceT}
+            onThisDayLoading={onThisDayLoading}
+          />
 
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">{t('dashboard.trustActions')}</span>
-            </div>
-            <div className="panel-body">
-              <p className="dashboard-next-action">
-                {t('dashboard.trustActionsBody')}
-              </p>
-              <div className="quick-actions-grid">
-                <Link className="btn-secondary" to="/import">
-                  {t('dashboard.reviewImportBatches')}
-                </Link>
-                <Link className="btn-secondary" to="/security">
-                  {t('dashboard.reviewSecurity')}
-                </Link>
-                <Link className="btn-secondary" to="/schedule">
-                  {t('dashboard.reviewSchedule')}
-                </Link>
-              </div>
-            </div>
-          </div>
+          <DashboardTrustActionsPanel t={t} />
         </div>
       </div>
     </section>
