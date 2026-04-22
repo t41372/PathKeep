@@ -17,11 +17,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { ErrorState } from '../../components/primitives/error-state'
-import { EmptyState } from '../../components/primitives/empty-state'
-import { DashboardSkeleton } from '../../components/primitives/skeleton'
 import { backend } from '../../lib/backend-client'
-import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
@@ -49,6 +45,8 @@ import {
   DashboardStorageFootprintPanel,
   DashboardTrustActionsPanel,
 } from './panels'
+import { DashboardRouteFallback } from './route-fallback'
+import { resolveDashboardRouteFallback } from './route-fallback-state'
 import { DashboardZeroState } from './zero-state'
 
 /**
@@ -160,79 +158,30 @@ export function DashboardPage() {
     }
   }, [dashboard, error, refreshKey, snapshot])
 
-  if ((loading || dashboardLoading) && !dashboard) {
-    return (
-      <section className="page-shell" data-testid="dashboard-page">
-        <DashboardSkeleton label={t('common.loadingDashboard')} />
-      </section>
-    )
-  }
+  const fallbackState = resolveDashboardRouteFallback({
+    archiveAccessFallback,
+    dashboard,
+    dashboardLoading,
+    error,
+    loading,
+    snapshot,
+  })
 
-  if (error && !dashboard) {
-    const needsArchiveUnlock =
-      isArchiveUnlockRequiredMessage(error) ||
-      (archiveAccessFallback?.initialized === true &&
-        archiveAccessFallback.encrypted &&
-        !archiveAccessFallback.unlocked)
-
-    if (archiveAccessFallback?.initialized === false) {
-      return (
-        <section className="page-shell" data-testid="dashboard-page">
-          <EmptyState
-            eyebrow={t('dashboard.zeroStateEyebrow')}
-            title={t('dashboard.zeroStateTitle')}
-            description={t('dashboard.zeroStateBody')}
-            action={
-              <Link className="btn-primary" to="/onboarding">
-                {t('dashboard.openOnboardingFlow')}
-              </Link>
-            }
-          />
-        </section>
-      )
-    }
-
-    return (
-      <section className="page-shell" data-testid="dashboard-page">
-        <ErrorState
-          eyebrow={
-            needsArchiveUnlock ? t('dashboard.archiveNeedsUnlock') : undefined
-          }
-          title={
-            needsArchiveUnlock
-              ? t('dashboard.archiveUnlockRequiredTitle')
-              : t('dashboard.archiveReadError')
-          }
-          description={
-            needsArchiveUnlock
-              ? t('dashboard.archiveUnlockRequiredBody')
-              : error
-          }
-          action={
-            needsArchiveUnlock ? (
-              <Link className="btn-primary" to="/security#unlock-archive">
-                {t('dashboard.archiveUnlockAction')}
-              </Link>
-            ) : undefined
-          }
-        />
-      </section>
-    )
+  if (fallbackState.kind !== 'ready') {
+    return <DashboardRouteFallback state={fallbackState} t={t} />
   }
 
   if (!snapshot || !dashboard) {
     return (
-      <section className="page-shell" data-testid="dashboard-page">
-        <ErrorState
-          title={t('dashboard.archiveUnavailable')}
-          description={t('dashboard.archiveUnavailableBody')}
-        />
-      </section>
+      <DashboardRouteFallback state={{ kind: 'archive-unavailable' }} t={t} />
     )
   }
 
-  const selectedProfiles = snapshot.browserProfiles.filter((profile) =>
-    snapshot.config.selectedProfileIds.includes(profile.profileId),
+  const readySnapshot = snapshot
+  const readyDashboard = dashboard
+
+  const selectedProfiles = readySnapshot.browserProfiles.filter((profile) =>
+    readySnapshot.config.selectedProfileIds.includes(profile.profileId),
   )
   const activeScopeLabel = activeProfileId
     ? profileIdLabel(activeProfileId)
@@ -243,21 +192,27 @@ export function DashboardPage() {
   const previewOnlyProfiles = selectedProfiles.filter(
     (profile) => !isBackupReadyProfile(profile),
   )
-  const storageSummary = buildStorageAnalyticsSummary(dashboard.storage)
+  const storageSummary = buildStorageAnalyticsSummary(readyDashboard.storage)
   const totalStorage = storageSummary.trackedStorageBytes
   const latestManifestHash =
-    dashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ?? null
-  const aiMeta = aiStatusMeta(snapshot.aiStatus, intelligenceT)
-  const llmProvider = selectedAiProvider(snapshot.config.ai, 'llm')
-  const embeddingProvider = selectedAiProvider(snapshot.config.ai, 'embedding')
-  const activeOnThisDay = snapshot.config.initialized ? onThisDayEntries : []
-  const activeOnThisDayError = snapshot.config.initialized
+    readyDashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ??
+    null
+  const aiMeta = aiStatusMeta(readySnapshot.aiStatus, intelligenceT)
+  const llmProvider = selectedAiProvider(readySnapshot.config.ai, 'llm')
+  const embeddingProvider = selectedAiProvider(
+    readySnapshot.config.ai,
+    'embedding',
+  )
+  const activeOnThisDay = readySnapshot.config.initialized
+    ? onThisDayEntries
+    : []
+  const activeOnThisDayError = readySnapshot.config.initialized
     ? onThisDayError
     : null
   const storageSegments = buildDashboardStorageSegments(commonT, storageSummary)
   const stats = buildDashboardStats({
-    dashboard,
-    snapshot,
+    dashboard: readyDashboard,
+    snapshot: readySnapshot,
     selectedProfilesCount: selectedProfiles.length,
     backupReadyProfilesCount: backupReadyProfiles.length,
     previewOnlyProfilesCount: previewOnlyProfiles.length,
@@ -268,7 +223,10 @@ export function DashboardPage() {
   const runSourceSummary = (profileScope: string[] | undefined) =>
     summarizeRunSources(profileScope, t)
 
-  if (!snapshot.config.initialized || dashboard.recentRuns.length === 0) {
+  if (
+    !readySnapshot.config.initialized ||
+    readyDashboard.recentRuns.length === 0
+  ) {
     return (
       <section className="page-shell" data-testid="dashboard-page">
         {activeProfileId ? (
@@ -281,9 +239,9 @@ export function DashboardPage() {
         ) : null}
         <DashboardZeroState
           commonT={commonT}
-          dashboard={dashboard}
+          dashboard={readyDashboard}
           selectedProfiles={selectedProfiles}
-          snapshotInitialized={snapshot.config.initialized}
+          snapshotInitialized={readySnapshot.config.initialized}
           stats={stats}
           t={t}
         />
@@ -292,12 +250,12 @@ export function DashboardPage() {
   }
 
   const needsKeyringReview =
-    snapshot.config.archiveMode === 'Encrypted' &&
-    snapshot.config.rememberDatabaseKeyInKeyring &&
-    !snapshot.keyringStatus.storedSecret
+    readySnapshot.config.archiveMode === 'Encrypted' &&
+    readySnapshot.config.rememberDatabaseKeyInKeyring &&
+    !readySnapshot.keyringStatus.storedSecret
   const safariNeedsAccess = hasSafariAccessIssue(selectedProfiles)
 
-  const nextActionMessage = dashboard.nextAction ?? null
+  const nextActionMessage = readyDashboard.nextAction ?? null
 
   return (
     <section className="page-shell" data-testid="dashboard-page">
@@ -359,7 +317,7 @@ export function DashboardPage() {
       <div className="dashboard-grid">
         <div className="dashboard-left">
           <DashboardRecentRunsPanel
-            dashboard={dashboard}
+            dashboard={readyDashboard}
             language={language}
             runSourceSummary={runSourceSummary}
             t={t}
