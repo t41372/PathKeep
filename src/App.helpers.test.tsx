@@ -20,12 +20,10 @@ import { describe, expect, test, vi } from 'vitest'
 import { AiProviderEditorList } from './components/ai-provider-editor'
 import {
   DataRow,
-  EmptyState,
   FieldBlock,
   Glyph,
   InfoStat,
   OperationWorkflow,
-  PathRow,
   PreviewEntryList,
   StatusTag,
   Surface,
@@ -80,7 +78,6 @@ describe('App helpers', () => {
   test('renders generic surface primitives', async () => {
     const user = userEvent.setup()
     const toggleSpy = vi.fn()
-    const pathSpy = vi.fn()
 
     renderWithI18n(
       <div>
@@ -98,16 +95,6 @@ describe('App helpers', () => {
           <dl>
             <DataRow label="Data" value="Value" />
           </dl>
-          <PathRow
-            actions={
-              <button type="button" onClick={pathSpy}>
-                Open
-              </button>
-            }
-            label="Path"
-            value="/tmp/example"
-          />
-          <EmptyState>Nothing here</EmptyState>
           <InfoStat label="Count" value="42" />
           <StatusTag tone="success">Done</StatusTag>
           <Glyph filled icon="check" />
@@ -116,13 +103,10 @@ describe('App helpers', () => {
     )
 
     expect(screen.getByText('Panel')).toBeInTheDocument()
-    expect(screen.getByText('Nothing here')).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
     expect(screen.getByText('Done')).toBeInTheDocument()
     await user.click(screen.getByLabelText('Enabled'))
     expect(toggleSpy).toHaveBeenCalledWith(true)
-    await user.click(screen.getByRole('button', { name: 'Open' }))
-    expect(pathSpy).toHaveBeenCalledTimes(1)
   })
 
   test('keeps glyphs decorative by default and supports explicit labels', () => {
@@ -402,7 +386,7 @@ describe('App helpers', () => {
     expect(screen.getByText('preview')).toBeInTheDocument()
   })
 
-  test('covers provider empty states, id fallbacks, default numeric values, and path rows without actions', () => {
+  test('covers provider empty states, id fallbacks, and default numeric values', () => {
     const noop = vi.fn()
 
     const sparseLlmProvider: AiProviderConfig = {
@@ -468,7 +452,6 @@ describe('App helpers', () => {
 
     renderWithI18n(
       <div>
-        <PathRow label="Readonly path" value="/tmp/no-actions" />
         <AiProviderEditorList
           addLabel="Add empty LLM"
           apiKeys={{}}
@@ -520,7 +503,6 @@ describe('App helpers', () => {
       </div>,
     )
 
-    expect(screen.getByDisplayValue('/tmp/no-actions')).toBeInTheDocument()
     expect(screen.getAllByText('No providers yet').length).toBeGreaterThan(0)
     expect(screen.getAllByText('llm-fallback').length).toBeGreaterThan(0)
     expect(screen.getAllByText('embedding-fallback').length).toBeGreaterThan(0)

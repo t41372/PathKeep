@@ -11,8 +11,6 @@
  * - `FieldBlock`
  * - `ToggleRow`
  * - `DataRow`
- * - `PathRow`
- * - `EmptyState`
  * - `InfoStat`
  * - `StatusTag`
  * - `PreviewEntryList`
@@ -24,7 +22,6 @@
 
 import type { ReactNode } from 'react'
 import type { TakeoutPreviewEntry } from '../lib/types'
-import { useI18n } from '../lib/i18n'
 import type { ResolvedLanguage } from '../lib/i18n'
 import { formatDateTime } from '../lib/format'
 
@@ -443,97 +440,6 @@ export function DataRow({
     <div className="dataRow">
       <dt>{label}</dt>
       <dd>{value ?? children}</dd>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// PathRow — legacy path display with open/copy actions
-// ---------------------------------------------------------------------------
-
-/**
- * Explains how path row works.
- *
- * TODO: M13 - Retire this fallback once no route relies on the old shell-level
- * path row. M12 moves the canonical support-action grammar to
- * `src/components/review/`, so this component should not grow new consumers.
- */
-export function PathRow({
-  label,
-  value,
-  actions,
-  onOpen,
-  onCopy,
-}: {
-  label: string
-  value: string
-  actions?: ReactNode
-  onOpen?: () => void
-  onCopy?: () => void
-}) {
-  const { t } = useI18n()
-  const actionBar =
-    actions ??
-    (onOpen || onCopy ? (
-      <>
-        {onOpen && (
-          <button
-            aria-label={t('common.openPath')}
-            className="ghostButton"
-            type="button"
-            onClick={onOpen}
-          >
-            <Glyph icon="folder_open" />
-          </button>
-        )}
-        {onCopy && (
-          <button
-            aria-label={t('common.copyAction')}
-            className="ghostButton"
-            type="button"
-            onClick={onCopy}
-          >
-            <Glyph icon="content_copy" />
-          </button>
-        )}
-      </>
-    ) : null)
-  return (
-    <div className="pathRow">
-      <FieldBlock
-        label={label}
-        control={
-          <input readOnly aria-label={label} type="text" value={value} />
-        }
-      />
-      {actionBar ? <div className="pathActions">{actionBar}</div> : null}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// EmptyState — dashed box placeholder
-// ---------------------------------------------------------------------------
-
-/**
- * Explains how empty state works.
- *
- * Shared components and primitives are reused across routes, so naming the contract here keeps the design-system and trust-state behavior consistent.
- */
-export function EmptyState({
-  children,
-  icon,
-  message,
-}: {
-  children?: ReactNode
-  icon?: GlyphIconName
-  message?: string
-}) {
-  return (
-    <div className="emptyState">
-      {icon && <Glyph icon={icon} />}
-      {message && <p>{message}</p>}
-      {children}
     </div>
   )
 }
