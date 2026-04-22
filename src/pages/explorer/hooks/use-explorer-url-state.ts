@@ -30,32 +30,24 @@ import {
 import {
   browserLabel,
   defaultKeywordPageSize,
-  dateShortcutWindows,
-  endOfDayMs,
   keywordPageSizeOptions,
   loadRecentSearches,
-  parseKeywordPageSize,
   recentSearchesStorageKey,
-  semanticPageSize,
   toLocalDateString,
 } from '../helpers'
-import type {
-  ExplorerMode,
-  ExplorerViewMode,
-  RecentSearchEntry,
-  Translator,
-} from '../types'
-
-/**
- * Defines the typed shape for active filter.
- *
- * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
- */
-interface ActiveFilter {
-  id: string
-  label: string
-  value: string
-}
+import type { ExplorerViewMode, RecentSearchEntry, Translator } from '../types'
+import {
+  buildExplorerActiveFilters,
+  buildExplorerBrowserKinds,
+  buildExplorerHistoryQuery,
+  buildExplorerHistoryQuerySignature,
+  buildExplorerRecentSearchLabel,
+  buildExplorerSemanticQuery,
+  buildExplorerSemanticQuerySignature,
+  deriveExplorerUrlParamState,
+  resolveExplorerActiveDateShortcut,
+  resolveExplorerGroupedDateRange,
+} from '../url-state-derivations'
 
 /**
  * Collects the inputs needed by `UseExplorerUrlState`.
@@ -83,35 +75,25 @@ export function useExplorerUrlState({
   const [searchParams, setSearchParams] = useSearchParams()
   const [recentSearches, setRecentSearches] =
     useState<RecentSearchEntry[]>(loadRecentSearches)
-  const rawQuery = searchParams.get('q') ?? ''
+  const {
+    browserKind,
+    cursor,
+    domain,
+    end,
+    explicitPage,
+    explicitProfileId,
+    mode,
+    pageSize,
+    profileId,
+    rawQuery,
+    regexMode,
+    semanticCursor,
+    sort,
+    start,
+    view,
+  } = deriveExplorerUrlParamState(searchParams, activeProfileId)
   const [queryInput, setQueryInput] = useState(rawQuery)
   const deferredQuery = useDeferredValue(rawQuery)
-  const regexMode = searchParams.get('regex') === '1'
-  const mode = (searchParams.get('mode') as ExplorerMode | null) ?? 'keyword'
-  const requestedView = searchParams.get('view')
-  const view: ExplorerViewMode =
-    requestedView === 'session' || requestedView === 'trail'
-      ? mode === 'keyword'
-        ? requestedView
-        : 'time'
-      : 'time'
-  const explicitProfileId = searchParams.get('profileId')
-  const profileId = explicitProfileId ?? activeProfileId
-  const browserKind = searchParams.get('browserKind')
-  const domain = searchParams.get('domain')
-  const start = searchParams.get('start')
-  const end = searchParams.get('end')
-  const sort =
-    (searchParams.get('sort') as 'newest' | 'oldest' | null) ?? 'newest'
-  const explicitPage = (() => {
-    const raw = searchParams.get('page')
-    if (!raw) return null
-    const parsed = Number.parseInt(raw, 10)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-  })()
-  const pageSize = parseKeywordPageSize(searchParams.get('pageSize'))
-  const cursor = searchParams.get('cursor')
-  const semanticCursor = searchParams.get('semanticCursor')
   const [semanticCursorTrail, setSemanticCursorTrail] = useState<
     Record<string, string[]>
   >({})
@@ -143,31 +125,17 @@ export function useExplorerUrlState({
 
   const buildRecentSearchLabel = useCallback(
     (params: RecentSearchEntry['params']) => {
-      const labelParts = [
-        params.mode === 'semantic'
-          ? explorerT('modeSemantic')
-          : params.mode === 'hybrid'
-            ? explorerT('modeHybrid')
+      return buildExplorerRecentSearchLabel({
+        explorerT,
+        formatRecentDate,
+        params: {
+          ...params,
+          profileId: params.profileId ? profileIdLabel(params.profileId) : null,
+          browserKind: params.browserKind
+            ? browserLabel(params.browserKind)
             : null,
-        params.view === 'session'
-          ? explorerT('viewModeSession')
-          : params.view === 'trail'
-            ? explorerT('viewModeTrail')
-            : null,
-        params.regex === '1' ? explorerT('activeFilterRegexEnabled') : null,
-        params.q?.trim() ? params.q.trim() : null,
-        params.domain?.trim() ? params.domain.trim() : null,
-        params.profileId ? profileIdLabel(params.profileId) : null,
-        params.browserKind ? browserLabel(params.browserKind) : null,
-        params.start || params.end
-          ? [
-              formatRecentDate(params.start) ?? explorerT('allRecordedTime'),
-              formatRecentDate(params.end) ?? explorerT('allRecordedTime'),
-            ].join(' - ')
-          : null,
-      ].filter(Boolean)
-
-      return labelParts.join(' · ')
+        },
+      })
     },
     [explorerT, formatRecentDate],
   )
@@ -202,19 +170,20 @@ export function useExplorerUrlState({
   )
 
   const currentQuery = useMemo(
-    () => ({
-      q: deferredQuery || null,
-      profileId,
-      browserKind,
-      domain,
-      startTimeMs: start ? new Date(`${start}T00:00:00.000`).getTime() : null,
-      endTimeMs: end ? endOfDayMs(end) : null,
-      sort,
-      limit: pageSize,
-      page: explicitPage,
-      cursor: explicitPage ? null : cursor,
-      regexMode,
-    }),
+    () =>
+      buildExplorerHistoryQuery({
+        browserKind,
+        cursor,
+        deferredQuery,
+        domain,
+        end,
+        explicitPage,
+        pageSize,
+        profileId,
+        regexMode,
+        sort,
+        start,
+      }),
     [
       browserKind,
       cursor,
@@ -230,36 +199,38 @@ export function useExplorerUrlState({
     ],
   )
   const semanticQuery = useMemo(
-    () => ({
-      query: deferredQuery.trim(),
-      profileId,
-      domain,
-      limit: semanticPageSize,
-      cursor: semanticCursor,
-    }),
+    () =>
+      buildExplorerSemanticQuery({
+        deferredQuery,
+        domain,
+        profileId,
+        semanticCursor,
+      }),
     [deferredQuery, domain, profileId, semanticCursor],
   )
   const historyQuerySignature = useMemo(
     () =>
-      JSON.stringify({
-        q: rawQuery || null,
-        view,
-        profileId,
+      buildExplorerHistoryQuerySignature({
         browserKind,
         domain,
-        start,
         end,
-        sort,
+        mode,
         pageSize,
+        profileId,
+        rawQuery,
         regexMode,
+        sort,
+        start,
+        view,
       }),
     [
       browserKind,
-      rawQuery,
       domain,
       end,
+      mode,
       pageSize,
       profileId,
+      rawQuery,
       regexMode,
       sort,
       start,
@@ -268,11 +239,11 @@ export function useExplorerUrlState({
   )
   const semanticQuerySignature = useMemo(
     () =>
-      JSON.stringify({
-        query: deferredQuery.trim(),
-        profileId,
+      buildExplorerSemanticQuerySignature({
+        deferredQuery,
         domain,
         mode,
+        profileId,
       }),
     [deferredQuery, domain, mode, profileId],
   )
@@ -313,82 +284,16 @@ export function useExplorerUrlState({
     }
   }, [queryInput, rawQuery, semanticQuerySignature, setSearchParams])
 
-  const browserKinds = Array.from(
-    new Set(
-      selectedProfileIds.map((profile) => profile.split(':')[0] ?? profile),
-    ),
-  )
-  const activeFilters = [
-    searchParams.get('q')
-      ? {
-          id: 'q',
-          label: explorerT('filterKeyword'),
-          value: searchParams.get('q') as string,
-        }
-      : null,
-    mode !== 'keyword'
-      ? {
-          id: 'mode',
-          label: explorerT('activeFilterMode'),
-          value:
-            mode === 'semantic'
-              ? explorerT('modeSemantic')
-              : explorerT('modeHybrid'),
-        }
-      : null,
-    view !== 'time'
-      ? {
-          id: 'view',
-          label: explorerT('viewModeLabel'),
-          value:
-            view === 'session'
-              ? explorerT('viewModeSession')
-              : explorerT('viewModeTrail'),
-        }
-      : null,
-    regexMode
-      ? {
-          id: 'regex',
-          label: explorerT('activeFilterRegex'),
-          value: explorerT('activeFilterRegexEnabled'),
-        }
-      : null,
-    searchParams.get('domain')
-      ? {
-          id: 'domain',
-          label: explorerT('filterDomain'),
-          value: searchParams.get('domain') as string,
-        }
-      : null,
-    searchParams.get('profileId')
-      ? {
-          id: 'profileId',
-          label: explorerT('filterProfile'),
-          value: searchParams.get('profileId') as string,
-        }
-      : null,
-    searchParams.get('browserKind')
-      ? {
-          id: 'browserKind',
-          label: explorerT('filterBrowser'),
-          value: searchParams.get('browserKind') as string,
-        }
-      : null,
-    start
-      ? {
-          id: 'start',
-          label: explorerT('filterStart'),
-          value: start,
-        }
-      : null,
-    end
-      ? {
-          id: 'end',
-          label: explorerT('filterEnd'),
-          value: end,
-        }
-      : null,
-  ].filter((value): value is ActiveFilter => Boolean(value))
+  const browserKinds = buildExplorerBrowserKinds(selectedProfileIds)
+  const activeFilters = buildExplorerActiveFilters({
+    end,
+    explorerT,
+    mode,
+    regexMode,
+    searchParams,
+    start,
+    view,
+  })
 
   /**
    * Explains how reset semantic pagination works.
@@ -643,33 +548,11 @@ export function useExplorerUrlState({
    * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   function activeDateShortcut() {
-    if (!start || !end) return null
-
-    const today = new Date()
-    const endString = toLocalDateString(today)
-    if (end !== endString) return null
-
-    return (
-      dateShortcutWindows.find((entry) => {
-        const startDate = new Date(today)
-        startDate.setDate(today.getDate() - (entry.days - 1))
-        return start === toLocalDateString(startDate)
-      })?.key ?? null
-    )
+    return resolveExplorerActiveDateShortcut(start, end)
   }
 
   const groupedDateRange = useMemo(() => {
-    if (start && end) {
-      return { start, end }
-    }
-
-    const endDate = new Date()
-    const startDate = new Date(endDate)
-    startDate.setDate(endDate.getDate() - 29)
-    return {
-      start: toLocalDateString(startDate),
-      end: toLocalDateString(endDate),
-    }
+    return resolveExplorerGroupedDateRange(start, end)
   }, [end, start])
 
   return {
