@@ -25,9 +25,9 @@
 
 use super::{
     ensure_core_intelligence_schema, get_query_families_with_connection,
-    get_refind_pages_with_connection, get_search_engine_ranking_with_connection,
-    get_top_search_concepts_with_connection, get_top_sites_with_connection, phase_four,
-    phase_three,
+    get_search_engine_ranking_with_connection, get_top_search_concepts_with_connection,
+    intelligence_refind::{get_refind_pages_with_connection, get_top_sites_with_connection},
+    phase_four, phase_three,
 };
 use crate::{
     archive::open_intelligence_connection,
