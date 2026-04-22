@@ -48,7 +48,7 @@
 - day-one provider matrix 採 request-format aware contract：OpenAI-compatible、Google、Ollama、LM Studio 同時支援 chat / embedding preset；Anthropic 目前只作 chat preset。
 - semantic index 的 operational metadata 與 intelligence runtime state 不再回寫 canonical archive；它們進 `derived/history-intelligence.sqlite`，與 hot archive facts 隔離。
 - 目前的 LanceDB 依賴鏈會經由 `tantivy 0.24.2` transitively 拉入 `lru 0.12.x`。RustSec `RUSTSEC-2026-0002` 影響的是 `IterMut`; PathKeep 目前只經由 tantivy `StoreReader` 使用 cache 的 `get` / `put` / `len` / `peek_lru` 路徑，因此暫時保留 allowlist，待上游提供兼容升級。
-- 2026-04-15 follow-up：`rustls-webpki 0.103.10` 的 `RUSTSEC-2026-0098` / `RUSTSEC-2026-0099` 目前只經由 `reqwest` / `hyper-rustls` transitively 存在於 Tauri updater、rig-core、LanceDB networking stack。PathKeep 不自管 wildcard / URI SAN name-constraint 驗證，因此暫時以 supply-chain allowlist 記錄 provenance，等待上游 rustls/request client 鏈升級。
+- 2026-04-21 follow-up：`rustls-webpki` 已升到 `0.103.13`，先前為 `0.103.10` 留下的 `RUSTSEC-2026-0098` / `RUSTSEC-2026-0099` supply-chain allowlist 已移除；目前的 security allowlist 只保留仍存在於實際依賴圖中的 advisories。
 
 2026-04-10 backend size audit note：
 

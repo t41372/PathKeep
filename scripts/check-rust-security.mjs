@@ -100,14 +100,6 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2026-0097',
     "rand 0.7/0.8/0.9 is currently only present through transitive LanceDB/DataFusion, Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
   ],
-  [
-    'RUSTSEC-2026-0098',
-    'rustls-webpki 0.103.10 is only present transitively through reqwest/hyper-rustls in the Tauri updater, rig-core, and LanceDB networking stack; PathKeep does not implement custom URI SAN name-constraint evaluation and is waiting on upstream rustls/request clients to publish the coordinated fix.',
-  ],
-  [
-    'RUSTSEC-2026-0099',
-    'rustls-webpki 0.103.10 is only present transitively through reqwest/hyper-rustls in the Tauri updater, rig-core, and LanceDB networking stack; PathKeep does not own certificate wildcard constraint parsing and is waiting on the upstream rustls/request stack to roll the fix.',
-  ],
 ])
 
 const allowedNonAdvisoryWarnings = new Map([
