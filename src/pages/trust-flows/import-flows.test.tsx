@@ -106,6 +106,9 @@ describe('trust flows/import flows', () => {
     )
 
     await user.click(
+      screen.getByRole('button', { name: importT('showHistoryTools') }),
+    )
+    await user.click(
       screen.getByRole('button', { name: importT('runHealthCheckAction') }),
     )
     expect(
@@ -424,15 +427,16 @@ describe('trust flows/import flows', () => {
 
     await user.click(
       screen.getByRole('button', {
+        name: /Show history/i,
+      }),
+    )
+    await user.click(
+      screen.getByRole('button', {
         name: /Batch #2/,
       }),
     )
 
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Batch detail unavailable',
-      ),
-    )
+    expect(await screen.findByText('Batch detail unavailable')).toBeVisible()
     expect(
       screen.queryByText('https://example.com/first'),
     ).not.toBeInTheDocument()
@@ -491,7 +495,7 @@ describe('trust flows/import flows', () => {
     })
 
     const selectedBatchPanel = expectHtmlElement(
-      document.querySelector('.dashboard-right .panel'),
+      document.querySelector('.import-review-primary'),
     )
     expect(
       await within(selectedBatchPanel).findByText(auditT('manifestPath')),

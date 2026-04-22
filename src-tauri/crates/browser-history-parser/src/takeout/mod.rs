@@ -44,7 +44,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub use source::{classify_payload_path, inspect_history, recognize_payload};
+pub use source::{
+    classify_payload_path, classify_payload_path_with_sniff, inspect_history, recognize_payload,
+};
 
 pub const KIND_JSONL: &str = "jsonl";
 pub const KIND_BROWSER_JSON: &str = "browser-json";
@@ -200,7 +202,8 @@ where
     let mut reports = Vec::new();
     let mut adapter = CanonicalOnlyTakeoutConsumer { inner: consumer };
     for file in source::gather_takeout_files(path)? {
-        let Some(kind) = recognize_payload(&file.path) else {
+        let path_match = source::classify_payload_path_with_sniff(path, &file.path, file.from_zip)?;
+        let Some(kind) = path_match.recognized_kind else {
             continue;
         };
         if kind == KIND_INDEX {

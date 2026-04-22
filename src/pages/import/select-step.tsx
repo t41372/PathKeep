@@ -103,27 +103,38 @@ export function ImportSelectStep({
 
       {method === 'takeout' ? (
         <div className="import-guide-grid">
-          <div className="import-scope-note">
+          <div className="import-guide-card">
             <span className="mono-kicker">{t('import.takeoutScopeTitle')}</span>
-            <p className="dim">{t('import.takeoutScopeBody')}</p>
+            <p className="dashboard-next-action">
+              {t('import.takeoutScopeBody')}
+            </p>
             <ul className="import-scope-list dim">
               <li>{t('import.takeoutScopeImportable')}</li>
-              <li>{t('import.takeoutScopeIgnored')}</li>
-              <li>{t('import.takeoutScopeReview')}</li>
+              <li>{t('import.takeoutGuideSupportedExample')}</li>
             </ul>
           </div>
-          <div className="import-scope-note">
+          <div className="import-guide-card">
             <span className="mono-kicker">{t('import.takeoutGuideTitle')}</span>
-            <p className="dim">{t('import.takeoutGuideBody')}</p>
+            <p className="dashboard-next-action">
+              {t('import.takeoutGuideBody')}
+            </p>
             <ol className="import-guide-list dim">
               <li>{t('import.takeoutGuideStepOne')}</li>
               <li>{t('import.takeoutGuideStepTwo')}</li>
               <li>{t('import.takeoutGuideStepThree')}</li>
             </ol>
-            <div className="import-guide-checklist dim">
-              <div>{t('import.takeoutGuideSupportedExample')}</div>
-              <div>{t('import.takeoutGuideUnsupportedExample')}</div>
-            </div>
+          </div>
+          <div className="import-guide-card">
+            <span className="mono-kicker">
+              {t('import.takeoutUnsupportedTitle')}
+            </span>
+            <p className="dashboard-next-action">
+              {t('import.takeoutGuideUnsupportedExample')}
+            </p>
+            <ul className="import-scope-list dim">
+              <li>{t('import.takeoutScopeIgnored')}</li>
+              <li>{t('import.takeoutScopeReview')}</li>
+            </ul>
           </div>
         </div>
       ) : null}

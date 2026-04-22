@@ -37,8 +37,9 @@ pub fn inspect_takeout(
     };
     let mut found_importable_payload = false;
 
+    let source_root = Path::new(&request.source_path);
     for file in files {
-        let classified_file = classify_takeout_file(&file);
+        let classified_file = classify_takeout_file(source_root, &file)?;
         merge_detected_locale(&mut inspection.detected_locale, classified_file.path_match.locale);
 
         if classified_file.path_match.disposition == TakeoutPathDisposition::NeedsReview {
@@ -323,6 +324,13 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
             .collect());
     }
 
+    if source.is_file() && !is_zip_source(source) {
+        if should_skip_takeout_file(source.to_string_lossy().as_ref()) {
+            return Ok(Vec::new());
+        }
+        return Ok(vec![TakeoutFile { path: source.display().to_string(), from_zip: false }]);
+    }
+
     let file = fs::File::open(source)?;
     let mut archive = ZipArchive::new(file)?;
     let mut files = Vec::new();
@@ -341,8 +349,14 @@ pub(super) fn recognize_takeout_file(path: &str) -> Option<String> {
     browser_history_parser::takeout::recognize_payload(path).map(ToString::to_string)
 }
 
-pub(super) fn classify_takeout_file(file: &TakeoutFile) -> ClassifiedTakeoutFile<'_> {
-    ClassifiedTakeoutFile { file, path_match: classify_takeout_payload_path(&file.path) }
+pub(super) fn classify_takeout_file<'a>(
+    source_root: &Path,
+    file: &'a TakeoutFile,
+) -> Result<ClassifiedTakeoutFile<'a>> {
+    Ok(ClassifiedTakeoutFile {
+        file,
+        path_match: classify_takeout_payload_with_sniff(source_root, &file.path, file.from_zip)?,
+    })
 }
 
 /// Reads one zip entry into memory so inspection/import can parse it.
@@ -406,6 +420,13 @@ fn quarantine_source_name(source_root: &Path) -> &str {
 
 /// Produces a safe relative path for a quarantined payload.
 fn quarantine_relative_path(source_root: &Path, path: &str) -> PathBuf {
+    if source_root.is_file() && !is_zip_source(source_root) {
+        return Path::new(path)
+            .file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("unknown"));
+    }
+
     let candidate = Path::new(path)
         .strip_prefix(source_root)
         .map(Path::to_path_buf)
@@ -445,4 +466,10 @@ fn should_skip_takeout_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/").to_lowercase();
     let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
     file_name.starts_with('.') || normalized.split('/').any(|segment| segment == "__macosx")
+}
+
+fn is_zip_source(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
 }

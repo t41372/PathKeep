@@ -51,6 +51,7 @@ export function ImportPage() {
   const [step, setStep] = useState<WizardStep>('select')
   const [sourcePath, setSourcePath] = useState('')
   const [workflowExpanded, setWorkflowExpanded] = useState(false)
+  const [historyExpanded, setHistoryExpanded] = useState(false)
   const [manualPathExpanded, setManualPathExpanded] = useState(false)
   const [selectedBrowserProfileId, setSelectedBrowserProfileId] = useState<
     string | null
@@ -334,12 +335,6 @@ export function ImportPage() {
 
   return (
     <section className="page-shell import-page" data-testid="import-page">
-      <StatusCallout
-        tone="info"
-        title={t('import.trustTitle')}
-        body={t('import.trustBody')}
-      />
-
       <ImportWorkflowPanel
         detectedBrowserProfiles={detectedBrowserProfiles}
         importing={importing}
@@ -372,10 +367,18 @@ export function ImportPage() {
         onWorkflowExpandedChange={setWorkflowExpanded}
       />
 
+      {actionError ? (
+        <StatusCallout
+          tone="danger"
+          title={t('import.actionErrorTitle')}
+          body={actionError}
+        />
+      ) : null}
+
       <ImportReviewPanels
         activeBatchDetail={activeBatchDetail}
-        actionError={actionError}
         healthReport={healthReport}
+        historyExpanded={historyExpanded}
         language={language}
         loadingBatch={loadingBatch}
         recentImportBatches={recentImportBatches}
@@ -384,6 +387,7 @@ export function ImportPage() {
         supportCopyFeedback={supportCopyFeedback}
         onBatchMutation={handleBatchMutation}
         onCopyPath={handleSupportPathCopy}
+        onHistoryExpandedChange={setHistoryExpanded}
         onOpenPath={handleSupportPathOpen}
         onRepairHealth={handleRepairHealth}
         onRunDoctor={handleRunDoctor}

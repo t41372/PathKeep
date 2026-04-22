@@ -40,7 +40,7 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     let mut table_names = BTreeSet::new();
     let mut warnings = Vec::new();
     for file in files {
-        let path_match = classify_payload_path(&file.path);
+        let path_match = classify_payload_path_with_sniff(path, &file.path, file.from_zip)?;
         if let Some(kind) = path_match.recognized_kind
             && kind != KIND_INDEX
         {
@@ -193,6 +193,31 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
     }
 }
 
+/// Classifies one Takeout file using path dispatch first, then a lightweight payload sniff.
+pub fn classify_payload_path_with_sniff(
+    source_root: &Path,
+    path: &str,
+    from_zip: bool,
+) -> Result<TakeoutPathMatch, ParseError> {
+    let path_match = classify_payload_path(path);
+    if !should_sniff_for_chrome_history(source_root, path, path_match) {
+        return Ok(path_match);
+    }
+
+    let snippet = read_takeout_snippet(source_root, path, from_zip)?;
+    if snippet_contains_browser_history_payload(&snippet) {
+        return Ok(TakeoutPathMatch {
+            family: KIND_BROWSER_JSON,
+            recognized_kind: Some(KIND_BROWSER_JSON),
+            locale: path_match.locale,
+            disposition: TakeoutPathDisposition::WillImport,
+            reason_code: "chrome-history-json",
+        });
+    }
+
+    Ok(path_match)
+}
+
 /// Recognizes the supported Takeout payload family for one file path.
 pub fn recognize_payload(path: &str) -> Option<&'static str> {
     classify_payload_path(path).recognized_kind
@@ -306,19 +331,12 @@ fn normalize_takeout_path(path: &str) -> String {
 }
 
 fn is_importable_chrome_history_path(file_name: &str, has_chrome_segment: bool) -> bool {
-    matches!(file_name, "browserhistory.json" | "history.json" | "verlauf.json")
-        && (has_chrome_segment
-            || file_name == "browserhistory.json"
-            || file_name == "history.json"
-            || file_name == "verlauf.json")
+    chrome_history_file_locale(file_name).is_some()
+        && (has_chrome_segment || chrome_history_file_locale(file_name).is_some())
 }
 
 fn chrome_history_locale(file_name: &str) -> Option<&'static str> {
-    match file_name {
-        "verlauf.json" => Some("de"),
-        "browserhistory.json" | "history.json" => Some("en"),
-        _ => None,
-    }
+    chrome_history_file_locale(file_name)
 }
 
 fn is_typed_url_path(file_name: &str) -> bool {
@@ -374,6 +392,14 @@ fn looks_history_like(file_name: &str) -> bool {
         || file_name.contains("browser")
 }
 
+fn chrome_history_file_locale(file_name: &str) -> Option<&'static str> {
+    match file_name {
+        "browserhistory.json" | "history.json" => Some("en"),
+        "verlauf.json" => Some("de"),
+        _ => None,
+    }
+}
+
 fn chrome_activity_suffixes(extension: &str) -> [&'static str; 4] {
     [
         match extension {
@@ -409,6 +435,13 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>, Pa
             .filter(|entry| !should_skip_takeout_file(entry.path().to_string_lossy().as_ref()))
             .map(|entry| TakeoutFile { path: entry.path().display().to_string(), from_zip: false })
             .collect());
+    }
+
+    if source.is_file() && !is_zip_source(source) {
+        if should_skip_takeout_file(source.to_string_lossy().as_ref()) {
+            return Ok(Vec::new());
+        }
+        return Ok(vec![TakeoutFile { path: source.display().to_string(), from_zip: false }]);
     }
 
     let file = fs::File::open(source).map_err(|source_error| ParseError::ReadSource {
@@ -457,4 +490,68 @@ fn should_skip_takeout_file(path: &str) -> bool {
     let normalized = normalize_takeout_path(path);
     let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
     file_name.starts_with('.') || normalized.split('/').any(|segment| segment == "__macosx")
+}
+
+fn is_zip_source(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+}
+
+fn should_sniff_for_chrome_history(
+    source_root: &Path,
+    path: &str,
+    path_match: TakeoutPathMatch,
+) -> bool {
+    if path_match.recognized_kind.is_some() {
+        return false;
+    }
+
+    let normalized = normalize_takeout_path(path);
+    if !normalized.ends_with(".json") {
+        return false;
+    }
+
+    source_root.is_file() || normalized.split('/').any(|segment| segment == "chrome")
+}
+
+fn read_takeout_snippet(
+    source_root: &Path,
+    path: &str,
+    from_zip: bool,
+) -> Result<Vec<u8>, ParseError> {
+    const SNIFF_BYTE_LIMIT: u64 = 64 * 1024;
+
+    if from_zip {
+        let file = fs::File::open(source_root).map_err(|source_error| ParseError::ReadSource {
+            path: source_root.to_path_buf(),
+            source: source_error,
+        })?;
+        let mut archive = ZipArchive::new(file)?;
+        let entry = archive.by_name(path)?;
+        let mut bytes = Vec::new();
+        entry.take(SNIFF_BYTE_LIMIT).read_to_end(&mut bytes).map_err(|source_error| {
+            ParseError::ReadSource {
+                path: PathBuf::from(format!("{}::{path}", source_root.display())),
+                source: source_error,
+            }
+        })?;
+        return Ok(bytes);
+    }
+
+    let file_path = PathBuf::from(path);
+    let file = fs::File::open(&file_path).map_err(|source_error| ParseError::ReadSource {
+        path: file_path.clone(),
+        source: source_error,
+    })?;
+    let mut bytes = Vec::new();
+    file.take(SNIFF_BYTE_LIMIT)
+        .read_to_end(&mut bytes)
+        .map_err(|source_error| ParseError::ReadSource { path: file_path, source: source_error })?;
+    Ok(bytes)
+}
+
+fn snippet_contains_browser_history_payload(snippet: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(snippet);
+    text.contains("\"Browser History\"") && text.contains("\"time_usec\"")
 }

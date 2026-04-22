@@ -105,7 +105,33 @@ export function ImportWorkflowPanel({
 
   return (
     <>
-      <div className="panel">
+      <ImportWizardPanel
+        detectedBrowserProfiles={detectedBrowserProfiles}
+        importing={importing}
+        importProgress={importProgress}
+        importResult={importResult}
+        inspection={inspection}
+        language={language}
+        manualPathExpanded={manualPathExpanded}
+        method={method}
+        selectedBrowserProfile={selectedBrowserProfile}
+        selectedBrowserProfileId={selectedBrowserProfileId}
+        sourcePath={sourcePath}
+        step={step}
+        stepIndex={stepIndex}
+        wizardSteps={wizardSteps}
+        onBrowseSource={onBrowseSource}
+        onImport={onImport}
+        onImportAnother={onImportAnother}
+        onManualPathExpandedChange={onManualPathExpandedChange}
+        onMethodChange={onMethodChange}
+        onScan={onScan}
+        onSelectBrowserProfile={onSelectBrowserProfile}
+        onSourcePathChange={onSourcePathChange}
+        onStepChange={onStepChange}
+      />
+
+      <div className="panel import-workflow-details">
         <div className="panel-header panel-header--toggle">
           <span className="panel-title">{t('import.workflowLabel')}</span>
           <button
@@ -146,32 +172,6 @@ export function ImportWorkflowPanel({
           </div>
         )}
       </div>
-
-      <ImportWizardPanel
-        detectedBrowserProfiles={detectedBrowserProfiles}
-        importing={importing}
-        importProgress={importProgress}
-        importResult={importResult}
-        inspection={inspection}
-        language={language}
-        manualPathExpanded={manualPathExpanded}
-        method={method}
-        selectedBrowserProfile={selectedBrowserProfile}
-        selectedBrowserProfileId={selectedBrowserProfileId}
-        sourcePath={sourcePath}
-        step={step}
-        stepIndex={stepIndex}
-        wizardSteps={wizardSteps}
-        onBrowseSource={onBrowseSource}
-        onImport={onImport}
-        onImportAnother={onImportAnother}
-        onManualPathExpandedChange={onManualPathExpandedChange}
-        onMethodChange={onMethodChange}
-        onScan={onScan}
-        onSelectBrowserProfile={onSelectBrowserProfile}
-        onSourcePathChange={onSourcePathChange}
-        onStepChange={onStepChange}
-      />
     </>
   )
 }

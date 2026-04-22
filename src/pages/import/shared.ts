@@ -88,8 +88,9 @@ export function parseImportBatchId(searchParams: URLSearchParams) {
 /**
  * Chooses which recent import batch the route should review next.
  *
- * A valid requested batch wins first, then an existing still-valid selection,
- * and only then the newest available fallback batch.
+ * A valid requested batch wins first, followed by an existing still-valid
+ * selection. The route no longer auto-picks the newest batch on first load,
+ * so historical review only steals focus after an explicit deep link or click.
  */
 export function resolveSelectedImportBatchId(
   recentBatches: ImportBatchOverview[],
@@ -118,7 +119,7 @@ export function resolveSelectedImportBatchId(
     }
   }
 
-  return recentBatches[0]?.id ?? null
+  return null
 }
 
 /**

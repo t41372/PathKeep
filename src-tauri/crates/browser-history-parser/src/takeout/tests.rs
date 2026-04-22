@@ -75,9 +75,44 @@ fn gather_takeout_files_skips_common_system_noise() {
     fs::create_dir_all(dir.path().join("__MACOSX")).expect("create macosx dir");
     fs::write(dir.path().join("__MACOSX").join("ignored.json"), "{}").expect("write ignored");
 
-    let files = gather_takeout_files(dir.path()).expect("gather files");
+    let files = source::gather_takeout_files(dir.path()).expect("gather files");
     assert_eq!(files.len(), 1);
     assert!(files[0].path.ends_with("Chrome/BrowserHistory.json"));
+}
+
+#[test]
+fn inspect_history_accepts_direct_localized_browser_history_files() {
+    let dir = tempdir().expect("tempdir");
+    let source = dir.path().join("歷史記錄.json");
+    fs::write(
+        &source,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ]),
+    )
+    .expect("write browser history");
+
+    let inspection = inspect_history(&source).expect("inspect direct file");
+    assert_eq!(inspection.table_names, vec![KIND_BROWSER_JSON.to_string()]);
+}
+
+#[test]
+fn classify_payload_path_with_sniff_accepts_unknown_named_chrome_history_files() {
+    let dir = tempdir().expect("tempdir");
+    let source = dir.path().join("任何名字.json");
+    fs::write(
+        &source,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ]),
+    )
+    .expect("write browser history");
+
+    let path_match =
+        classify_payload_path_with_sniff(&source, &source.display().to_string(), false)
+            .expect("classify direct file");
+    assert_eq!(path_match.recognized_kind, Some(KIND_BROWSER_JSON));
+    assert_eq!(path_match.disposition, TakeoutPathDisposition::WillImport);
 }
 
 #[test]

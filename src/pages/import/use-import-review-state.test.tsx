@@ -124,6 +124,27 @@ describe('useImportReviewState', () => {
     expect(backend.previewImportBatch).toHaveBeenCalledWith(2)
   })
 
+  test('does not auto-select the newest batch on initial load', async () => {
+    const previewSpy = vi.spyOn(backend, 'previewImportBatch')
+
+    const { result } = renderHook(
+      () =>
+        useImportReviewState({
+          importResult: null,
+          recentImportBatches: recentBatches,
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          t: translate,
+        }),
+      {
+        wrapper: createWrapper('/import'),
+      },
+    )
+
+    await waitFor(() => expect(result.current.selectedBatchId).toBeNull())
+    expect(result.current.activeBatchDetail).toBeNull()
+    expect(previewSpy).not.toHaveBeenCalled()
+  })
+
   test('revert/restore follow-through refreshes app data and updates loaded detail', async () => {
     const refreshAppData = vi.fn().mockResolvedValue(undefined)
     vi.spyOn(backend, 'previewImportBatch').mockResolvedValue(

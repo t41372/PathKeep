@@ -68,6 +68,20 @@ fn write_takeout_browser_json_fixture(dir: &Path, name: &str) -> PathBuf {
     source_dir
 }
 
+/// Writes one direct Browser History JSON payload file.
+fn write_direct_browser_history_json_file(dir: &Path, file_name: &str) -> PathBuf {
+    let source = dir.join(file_name);
+    fs::write(
+        &source,
+        chrome_browser_history_payload(&[
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000,"client_id":"alpha"}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000,"client_id":"beta"}"#,
+        ]),
+    )
+    .expect("write direct browser history json");
+    source
+}
+
 /// Writes a zipped Takeout fixture with named entries for zip-path coverage.
 fn write_takeout_zip(dir: &Path, entries: &[(&str, &str)]) -> PathBuf {
     let zip_path = dir.join("takeout.zip");
@@ -123,6 +137,25 @@ fn inspect_takeout_streams_browser_history_json_payloads() {
     assert_eq!(inspection.recognized_files[0].kind, "browser-json");
     assert_eq!(inspection.recognized_files[0].records, 2);
     assert!(inspection.notes.is_empty());
+}
+
+#[test]
+fn inspect_takeout_accepts_direct_browser_history_json_files_without_locale_tables() {
+    let dir = tempdir().expect("tempdir");
+    let source = write_direct_browser_history_json_file(dir.path(), "歷史記錄.json");
+    let inspection = inspect_takeout(
+        &sample_paths(dir.path()),
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+    )
+    .expect("inspect direct browser history json");
+
+    assert_eq!(inspection.source_path, source.display().to_string());
+    assert_eq!(inspection.candidate_items, 2);
+    assert_eq!(inspection.preview_entries.len(), 2);
+    assert_eq!(inspection.recognized_files.len(), 1);
+    assert_eq!(inspection.recognized_files[0].kind, "browser-json");
+    assert_eq!(inspection.recognized_files[0].records, 2);
+    assert!(inspection.quarantined_files.is_empty());
 }
 
 #[test]
@@ -263,6 +296,34 @@ fn import_preview_revert_and_restore_batch_are_reversible() {
     let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after restore");
     assert_eq!(recent_runs[0].run_type, "restore");
     assert_eq!(recent_runs[0].new_visits, 2);
+}
+
+#[test]
+fn import_takeout_accepts_direct_browser_history_json_files_without_locale_tables() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_direct_browser_history_json_file(dir.path(), "歷史記錄.json");
+    let inspection = import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+    )
+    .expect("import direct browser history json");
+
+    let batch = inspection.import_batch.expect("import batch");
+    assert_eq!(inspection.imported_items, 2);
+    assert_eq!(batch.candidate_items, 2);
+    assert_eq!(batch.imported_items, 2);
+    assert_eq!(batch.duplicate_items, 0);
+    assert_eq!(inspection.recognized_files.len(), 1);
+    assert_eq!(inspection.recognized_files[0].kind, "browser-json");
 }
 
 #[test]
@@ -481,7 +542,10 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     .expect("inspect my activity");
     assert!(inspection.recognized_files.is_empty());
     assert_eq!(inspection.quarantined_files.len(), 1);
-    assert_eq!(inspection.quarantined_files[0].reason_code.as_deref(), Some("chrome-my-activity-json"));
+    assert_eq!(
+        inspection.quarantined_files[0].reason_code.as_deref(),
+        Some("chrome-my-activity-json")
+    );
     assert_eq!(inspection.quarantined_files[0].detected_locale.as_deref(), Some("zh-tw"));
     assert_eq!(inspection.detected_locale.as_deref(), Some("zh-tw"));
 

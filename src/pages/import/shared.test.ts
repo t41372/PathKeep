@@ -117,10 +117,11 @@ describe('Import shared helpers', () => {
     expect(parseImportBatchId(new URLSearchParams('range=month'))).toBeNull()
   })
 
-  test('resolves the next selected batch id from deep links, current state, and recents', () => {
+  test('resolves the next selected batch id from deep links and current state without auto-selecting history', () => {
     expect(resolveSelectedImportBatchId(recentBatches, 2, null)).toBe(2)
     expect(resolveSelectedImportBatchId(recentBatches, 99, 1)).toBe(1)
-    expect(resolveSelectedImportBatchId(recentBatches, null, 99)).toBe(1)
+    expect(resolveSelectedImportBatchId(recentBatches, null, 99)).toBeNull()
+    expect(resolveSelectedImportBatchId(recentBatches, null, null)).toBeNull()
     expect(resolveSelectedImportBatchId([], 2, 1)).toBeNull()
   })
 

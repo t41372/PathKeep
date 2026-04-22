@@ -51,7 +51,7 @@ use crate::{
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
     KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch, TakeoutPayloadStreamReport,
-    classify_payload_path as classify_takeout_payload_path,
+    classify_payload_path_with_sniff as classify_takeout_payload_with_sniff,
 };
 #[cfg(test)]
 use browser_history_parser::takeout::{

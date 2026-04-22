@@ -57,12 +57,15 @@ where
 
     let source = Path::new(&request.source_path);
     let files = inspect::gather_takeout_files(source)?;
-    let classified_files = files.iter().map(inspect::classify_takeout_file).collect::<Vec<_>>();
+    let classified_files = files
+        .iter()
+        .map(|file| inspect::classify_takeout_file(source, file))
+        .collect::<Result<Vec<_>>>()?;
     let planned_files = classified_files
         .iter()
         .filter(|file| {
-          file.path_match.disposition == TakeoutPathDisposition::WillImport
-              && file.path_match.recognized_kind.is_some_and(|kind| kind != KIND_INDEX)
+            file.path_match.disposition == TakeoutPathDisposition::WillImport
+                && file.path_match.recognized_kind.is_some_and(|kind| kind != KIND_INDEX)
         })
         .count();
     if planned_files == 0 {
