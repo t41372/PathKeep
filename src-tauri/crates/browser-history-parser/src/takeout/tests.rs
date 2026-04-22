@@ -6,12 +6,19 @@ use std::{fs, io::Write};
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+fn browser_history_payload(records: &[&str]) -> String {
+    format!(r#"{{"Browser History":[{}]}}"#, records.join(","))
+}
+
 #[test]
 fn inspect_history_reports_supported_takeout_payloads() {
     let dir = tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join("Chrome")).expect("create chrome dir");
     fs::write(
-        dir.path().join("BrowserHistory.json"),
-        r#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+        dir.path().join("Chrome").join("BrowserHistory.json"),
+        browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ]),
     )
     .expect("write browser history");
     fs::write(
@@ -51,7 +58,10 @@ fn parse_payload_extracts_browser_history_records() {
     let report = parse_payload(
         "BrowserHistory.json",
         KIND_BROWSER_JSON,
-        br#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"abc"}]}"#,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000,"client_id":"abc"}"#,
+        ])
+        .as_bytes(),
     )
     .expect("parse payload");
     assert_eq!(report.record_count, 1);
@@ -94,10 +104,11 @@ fn stream_payload_batches_browser_history_rows() {
     let report = stream_payload(
         "BrowserHistory.json",
         KIND_BROWSER_JSON,
-        br#"{"BrowserHistory":[
-            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00"},
-            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00"}
-        ]}"#,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000}"#,
+        ])
+        .as_bytes(),
         1,
         &mut consumer,
     )
@@ -135,10 +146,11 @@ fn stream_payload_with_options_can_skip_source_evidence_accumulation() {
     let report = stream_payload_with_options(
         "BrowserHistory.json",
         KIND_BROWSER_JSON,
-        br#"{"BrowserHistory":[
-            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"alpha"},
-            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
-        ]}"#,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000,"client_id":"alpha"}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000,"client_id":"beta"}"#,
+        ])
+        .as_bytes(),
         10,
         TakeoutStreamOptions {
             collect_source_evidence: false,
@@ -192,10 +204,11 @@ fn stream_payload_with_sink_moves_source_evidence_out_of_the_report() {
     let report = stream_payload_with_sink(
         "BrowserHistory.json",
         KIND_BROWSER_JSON,
-        br#"{"BrowserHistory":[
-            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"alpha"},
-            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
-        ]}"#,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000,"client_id":"alpha"}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000,"client_id":"beta"}"#,
+        ])
+        .as_bytes(),
         1,
         TakeoutStreamOptions {
             collect_source_evidence: true,
@@ -236,12 +249,16 @@ fn parse_payload_preserves_typed_url_and_session_payloads_as_native_entities() {
 #[test]
 fn parse_history_reads_directory_and_zip_sources() {
     let dir = tempdir().expect("tempdir");
+    let chrome_dir = dir.path().join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create chrome dir");
     fs::write(
-        dir.path().join("BrowserHistory.json"),
-        r#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+        chrome_dir.join("BrowserHistory.json"),
+        browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ]),
     )
     .expect("write browser history");
-    fs::write(dir.path().join("Session.json"), r#"{"Session":[{"sessionTag":"device-1"}]}"#)
+    fs::write(chrome_dir.join("Session.json"), r#"{"Session":[{"sessionTag":"device-1"}]}"#)
         .expect("write session");
     let parsed = parse_history(dir.path()).expect("parse directory");
     assert_eq!(parsed.visits.len(), 1);
@@ -251,10 +268,15 @@ fn parse_history_reads_directory_and_zip_sources() {
     let file = fs::File::create(&zip_path).expect("create zip");
     let mut zip = zip::ZipWriter::new(file);
     let options = SimpleFileOptions::default();
-    zip.start_file("BrowserHistory.json", options).expect("start browser entry");
-    zip.write_all(br#"{"BrowserHistory":[{"titleUrl":"https://example.com/zip","pageTitle":"Zip","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#)
-        .expect("write browser entry");
-    zip.start_file("TypedUrl.json", options).expect("start typed entry");
+    zip.start_file("Chrome/BrowserHistory.json", options).expect("start browser entry");
+    zip.write_all(
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/zip","title":"Zip","time_usec":1711965600000000}"#,
+        ])
+        .as_bytes(),
+    )
+    .expect("write browser entry");
+    zip.start_file("Chrome/TypedUrl.json", options).expect("start typed entry");
     zip.write_all(br#"{"TypedUrl":[{"url":"https://example.com/zip","title":"Zip"}]}"#)
         .expect("write typed entry");
     zip.finish().expect("finish zip");

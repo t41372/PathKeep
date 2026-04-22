@@ -12,6 +12,10 @@ use std::io::Write;
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+fn chrome_browser_history_payload(records: &[&str]) -> String {
+    format!(r#"{{"Browser History":[{}]}}"#, records.join(","))
+}
+
 /// Builds temporary project paths for one Takeout test fixture root.
 fn sample_paths(root: &Path) -> ProjectPaths {
     project_paths_with_root(root)
@@ -51,13 +55,14 @@ fn write_takeout_fixture(dir: &Path) -> PathBuf {
 /// Writes a directory-based BrowserHistory JSON fixture.
 fn write_takeout_browser_json_fixture(dir: &Path, name: &str) -> PathBuf {
     let source_dir = dir.join(name);
-    fs::create_dir_all(&source_dir).expect("create browser json source dir");
+    let chrome_dir = source_dir.join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create browser json source dir");
     fs::write(
-        source_dir.join("BrowserHistory.json"),
-        r#"{"BrowserHistory":[
-            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"alpha"},
-            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
-        ]}"#,
+        chrome_dir.join("BrowserHistory.json"),
+        chrome_browser_history_payload(&[
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000,"client_id":"alpha"}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000,"client_id":"beta"}"#,
+        ]),
     )
     .expect("write browser history json");
     source_dir
@@ -435,8 +440,9 @@ fn import_takeout_streams_browser_history_json_payloads() {
 fn inspect_takeout_reports_parse_errors_for_recognized_files() {
     let dir = tempdir().expect("tempdir");
     let source = dir.path().join("malformed");
-    fs::create_dir_all(&source).expect("create malformed source");
-    fs::write(source.join("BrowserHistory.json"), "{not-json").expect("write malformed history");
+    fs::create_dir_all(source.join("Chrome")).expect("create malformed source");
+    fs::write(source.join("Chrome").join("BrowserHistory.json"), "{not-json")
+        .expect("write malformed history");
 
     let inspection = inspect_takeout(
         &sample_paths(dir.path()),
@@ -461,7 +467,10 @@ fn recognize_and_parse_takeout_payloads() {
     let records = collect_records_from_payload(
         "fixture.json",
         "browser-json",
-        br#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+        chrome_browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ])
+        .as_bytes(),
     )
     .expect("collect");
     assert_eq!(records.records.len(), 1);
@@ -470,7 +479,10 @@ fn recognize_and_parse_takeout_payloads() {
     let report = parse_payload_report(
         "fixture.json",
         "browser-json",
-        br#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+        chrome_browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ])
+        .as_bytes(),
     )
     .expect("parse report");
     assert_eq!(report.record_count, 1);
@@ -505,8 +517,10 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
         dir.path(),
         &[
             (
-                "BrowserHistory.json",
-                r#"{"BrowserHistory":[{"titleUrl":"https://example.com/zip","pageTitle":"Zip","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+                "Chrome/BrowserHistory.json",
+                &chrome_browser_history_payload(&[
+                    r#"{"url":"https://example.com/zip","title":"Zip","time_usec":1711965600000000}"#,
+                ]),
             ),
             ("archive_browser.html", "<html></html>"),
             ("nested/notes.txt", "ignore me"),
@@ -514,7 +528,8 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
     );
     let files = gather_takeout_files(&zip_source).expect("gather zip files");
     assert_eq!(files.len(), 3);
-    let zip_bytes = read_zip_entry(&zip_source, "BrowserHistory.json").expect("read zip entry");
+    let zip_bytes =
+        read_zip_entry(&zip_source, "Chrome/BrowserHistory.json").expect("read zip entry");
     assert!(String::from_utf8(zip_bytes).expect("zip utf8").contains("example.com/zip"));
 
     let zip_inspection = inspect_takeout(
@@ -712,19 +727,22 @@ fn import_takeout_persists_source_evidence_for_all_recognized_payloads() {
     drop(archive);
 
     let source = dir.path().join("rich-takeout");
-    fs::create_dir_all(&source).expect("create rich source");
+    let chrome_dir = source.join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create rich source");
     fs::write(
-        source.join("BrowserHistory.json"),
-        r#"{"BrowserHistory":[{"titleUrl":"https://example.com/imported","pageTitle":"Imported","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"client-1"}]}"#,
+        chrome_dir.join("BrowserHistory.json"),
+        chrome_browser_history_payload(&[
+            r#"{"url":"https://example.com/imported","title":"Imported","time_usec":1711965600000000,"client_id":"client-1"}"#,
+        ]),
     )
     .expect("write browser history");
     fs::write(
-        source.join("TypedUrl.json"),
+        chrome_dir.join("TypedUrl.json"),
         r#"{"TypedUrl":[{"url":"https://example.com/imported","title":"Imported","visits":[1711965600000000]}]}"#,
     )
     .expect("write typed urls");
     fs::write(
-        source.join("Session.json"),
+        chrome_dir.join("Session.json"),
         r#"{"Session":[{"sessionTag":"device-1","tab":[{"tabId":1,"navigation":[{"virtualUrl":"https://example.com/imported"}]}]}]}"#,
     )
     .expect("write session");
@@ -792,13 +810,13 @@ fn import_takeout_spools_large_streamed_source_evidence_chunks() {
 
     let large_blob = "x".repeat(300_000);
     let source = dir.path().join("spooled-takeout");
-    fs::create_dir_all(&source).expect("create spooled source");
+    fs::create_dir_all(source.join("Chrome")).expect("create spooled source");
     fs::write(
-        source.join("BrowserHistory.json"),
-        format!(
-            r#"{{"BrowserHistory":[{{"titleUrl":"https://example.com/huge","pageTitle":"Huge","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"{}"}}]}}"#,
+        source.join("Chrome").join("BrowserHistory.json"),
+        chrome_browser_history_payload(&[&format!(
+            r#"{{"url":"https://example.com/huge","title":"Huge","time_usec":1711965600000000,"client_id":"{}"}}"#,
             large_blob
-        ),
+        )]),
     )
     .expect("write large browser history");
 
@@ -848,8 +866,10 @@ fn import_takeout_quarantines_unknown_zip_entries() {
         dir.path(),
         &[
             (
-                "BrowserHistory.json",
-                r#"{"BrowserHistory":[{"titleUrl":"https://example.com/imported","pageTitle":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+                "Chrome/BrowserHistory.json",
+                &chrome_browser_history_payload(&[
+                    r#"{"url":"https://example.com/imported","title":"Imported","time_usec":1711965600000000}"#,
+                ]),
             ),
             ("nested/notes.txt", "quarantine me"),
         ],
@@ -872,11 +892,12 @@ fn browser_json_payloads_ignore_missing_and_valid_records() {
     let payload = collect_records_from_payload(
         "BrowserHistory.json",
         "browser-json",
-        br#"{"BrowserHistory":[
-                {"title":"Ignored"},
-                {"titleUrl":"https://example.com/missing","pageTitle":"Missing"},
-                {"titleUrl":"https://example.com/ok","pageTitle":"OK","visitedAt":"2026-04-01T10:00:00+00:00"}
-            ]}"#,
+        chrome_browser_history_payload(&[
+            r#"{"title":"Ignored"}"#,
+            r#"{"url":"https://example.com/missing","title":"Missing"}"#,
+            r#"{"url":"https://example.com/ok","title":"OK","time_usec":1711965600000000}"#,
+        ])
+        .as_bytes(),
     )
     .expect("collect browser history payload");
 

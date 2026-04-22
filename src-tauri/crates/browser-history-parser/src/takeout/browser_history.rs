@@ -325,8 +325,9 @@ fn parse_browser_record(
     }
     let Some(visit_time_micros) = record
         .get("visitTime")
-        .and_then(Value::as_i64)
-        .or_else(|| record.get("timeUsec").and_then(Value::as_i64))
+        .and_then(value_as_i64)
+        .or_else(|| record.get("timeUsec").and_then(value_as_i64))
+        .or_else(|| record.get("time_usec").and_then(value_as_i64))
         .or_else(|| record.get("visitedAt").and_then(Value::as_str).and_then(parse_iso_to_micros))
     else {
         return Ok(BrowserRecordOutcome::MissingVisitTime);
@@ -426,6 +427,10 @@ fn context_evidence_from_record(record: &ParsedBrowserRecord) -> Vec<ContextEvid
 
 fn parse_iso_to_micros(value: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(value).ok().map(|date| date.timestamp_micros())
+}
+
+fn value_as_i64(value: &Value) -> Option<i64> {
+    value.as_i64().or_else(|| value.as_str().and_then(|candidate| candidate.parse::<i64>().ok()))
 }
 
 fn micros_to_unix_ms(value: i64) -> i64 {
