@@ -23,7 +23,8 @@ pub type ParsedHistory = types::ChromiumHistory;
 /// Shared parser-side read models returned by the individual browser parsers.
 pub use types::{
     CapabilityCoverage, CapabilitySnapshot, ChromiumHistory, ChromiumReadCursor, ContextEvidence,
-    DatabaseInspection, EngagementEvidence, HistoryDatabaseSet, NativeEntity, NavigationEvidence,
-    ObservedColumn, ObservedTable, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl,
-    ParsedVisit, ParserWarning, SchemaObservation, SearchEvidence, TypedEvidenceBatch,
+    DatabaseInspection, EngagementEvidence, HistoryBatchConsumer, HistoryDatabaseSet, NativeEntity,
+    NavigationEvidence, ObservedColumn, ObservedTable, ParsedDownload, ParsedFavicon,
+    ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning, SchemaObservation, SearchEvidence,
+    StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
 };

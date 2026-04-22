@@ -337,16 +337,40 @@ pub(crate) fn persist_source_evidence(
 }
 
 pub(crate) fn coverage_stats_json(parsed: &ParsedHistory) -> String {
+    coverage_stats_json_from_parts(
+        parsed.urls.len(),
+        parsed.visits.len(),
+        parsed.downloads.len(),
+        parsed.search_terms.len(),
+        &SourceEvidencePayload {
+            typed_evidence: parsed.typed_evidence.clone(),
+            native_entities: parsed.native_entities.clone(),
+        },
+    )
+}
+
+/// Builds coverage stats JSON from canonical row counts plus the deferred cold payload.
+///
+/// Streamed ingest uses this path because it no longer keeps a full
+/// `ParsedHistory` value alive once canonical row batches have already been
+/// written.
+pub(crate) fn coverage_stats_json_from_parts(
+    urls: usize,
+    visits: usize,
+    downloads: usize,
+    search_terms: usize,
+    payload: &SourceEvidencePayload,
+) -> String {
     json!({
-        "urls": parsed.urls.len(),
-        "visits": parsed.visits.len(),
-        "downloads": parsed.downloads.len(),
-        "searchTerms": parsed.search_terms.len(),
-        "searchEvidence": parsed.typed_evidence.search.len(),
-        "navigationEvidence": parsed.typed_evidence.navigation.len(),
-        "engagementEvidence": parsed.typed_evidence.engagement.len(),
-        "contextEvidence": parsed.typed_evidence.context.len(),
-        "nativeEntities": parsed.native_entities.len(),
+        "urls": urls,
+        "visits": visits,
+        "downloads": downloads,
+        "searchTerms": search_terms,
+        "searchEvidence": payload.typed_evidence.search.len(),
+        "navigationEvidence": payload.typed_evidence.navigation.len(),
+        "engagementEvidence": payload.typed_evidence.engagement.len(),
+        "contextEvidence": payload.typed_evidence.context.len(),
+        "nativeEntities": payload.native_entities.len(),
     })
     .to_string()
 }

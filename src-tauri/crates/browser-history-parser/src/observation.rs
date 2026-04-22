@@ -64,6 +64,21 @@ pub fn capture_native_rows(
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Converts the current SQLite row into one preserved native-entity payload.
+///
+/// Streamed ingest paths use this helper to build source-native evidence while
+/// they are already scanning canonical rows, avoiding a second full query over
+/// the same table just to reconstruct raw-row JSON later.
+pub fn capture_native_row(
+    row: &Row<'_>,
+    column_names: &[String],
+    entity_kind: &str,
+    primary_key_column: &str,
+    parent_key_column: Option<&str>,
+) -> rusqlite::Result<NativeEntity> {
+    native_entity_from_row(row, column_names, entity_kind, primary_key_column, parent_key_column)
+}
+
 /// Builds a capability snapshot from a list of coarse coverage entries.
 pub fn capability_snapshot(items: Vec<CapabilityCoverage>) -> CapabilitySnapshot {
     CapabilitySnapshot { items }

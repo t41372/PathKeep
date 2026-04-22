@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
+use thiserror::Error;
 
 /// File paths for a Chromium history database plus its optional favicons sidecar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,4 +223,49 @@ pub struct ChromiumHistory {
     pub typed_evidence: TypedEvidenceBatch,
     pub native_entities: Vec<NativeEntity>,
     pub warnings: Vec<ParserWarning>,
+}
+
+/// Parser metadata returned after canonical row batches have been streamed away.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StreamedHistory {
+    pub inspection: DatabaseInspection,
+    pub schema_observation: SchemaObservation,
+    pub capability_snapshot: CapabilitySnapshot,
+    pub typed_evidence: TypedEvidenceBatch,
+    pub native_entities: Vec<NativeEntity>,
+    pub warnings: Vec<ParserWarning>,
+}
+
+/// Consumer trait for parser-side canonical row batches.
+///
+/// Archive ingest implements this so hot canonical rows can be persisted while
+/// the parser is still scanning the staged source database, instead of waiting
+/// for one giant `ParsedHistory` allocation to complete first.
+pub trait HistoryBatchConsumer {
+    type Error;
+
+    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error>;
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error>;
+
+    fn downloads(&mut self, _batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn search_terms(&mut self, _batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn favicons(&mut self, _batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// Wraps parser failures and downstream consumer failures for streamed ingest.
+#[derive(Debug, Error)]
+pub enum StreamHistoryError<E> {
+    #[error(transparent)]
+    Parse(#[from] crate::ParseError),
+    #[error("stream consumer failed: {0}")]
+    Consumer(E),
 }

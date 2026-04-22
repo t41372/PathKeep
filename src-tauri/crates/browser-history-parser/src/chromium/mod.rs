@@ -6,19 +6,68 @@
 
 use crate::{
     error::ParseError,
-    observation::{capability_snapshot, capture_native_rows, inspect_schema},
+    observation::{capability_snapshot, capture_native_row, inspect_schema},
     types::{
         CapabilityCoverage, ChromiumHistory, ChromiumReadCursor, ContextEvidence,
-        DatabaseInspection, EngagementEvidence, HistoryDatabaseSet, NavigationEvidence,
-        ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning,
-        SearchEvidence, TypedEvidenceBatch,
+        DatabaseInspection, EngagementEvidence, HistoryBatchConsumer, HistoryDatabaseSet,
+        NavigationEvidence, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl,
+        ParsedVisit, ParserWarning, SearchEvidence, StreamHistoryError, StreamedHistory,
+        TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, Row, params};
+use std::convert::Infallible;
 use std::path::Path;
 
 const CHROME_UNIX_EPOCH_OFFSET_MICROS: i64 = 11_644_473_600_000_000;
+
+#[derive(Debug, Default)]
+struct ChromiumHistoryCollector {
+    urls: Vec<ParsedUrl>,
+    visits: Vec<ParsedVisit>,
+    downloads: Vec<ParsedDownload>,
+    search_terms: Vec<ParsedSearchTerm>,
+    favicons: Vec<ParsedFavicon>,
+}
+
+impl HistoryBatchConsumer for ChromiumHistoryCollector {
+    type Error = Infallible;
+
+    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+        self.urls.extend(batch);
+        Ok(())
+    }
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        self.visits.extend(batch);
+        Ok(())
+    }
+
+    fn downloads(&mut self, batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+        self.downloads.extend(batch);
+        Ok(())
+    }
+
+    fn search_terms(&mut self, batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+        self.search_terms.extend(batch);
+        Ok(())
+    }
+
+    fn favicons(&mut self, batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
+        self.favicons.extend(batch);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct VisitCapabilityStats {
+    total_visits: usize,
+    from_visit_count: usize,
+    external_referrer_count: usize,
+    visit_duration_count: usize,
+    sync_state_count: usize,
+}
 
 /// Incremental URL ingest query used by the archive pipeline.
 pub const INGEST_URLS_SQL: &str =
@@ -86,95 +135,116 @@ pub fn parse_history(
     source: &HistoryDatabaseSet,
     cursor: ChromiumReadCursor,
 ) -> Result<ChromiumHistory, ParseError> {
+    let mut collector = ChromiumHistoryCollector::default();
+    let streamed =
+        stream_history(source, cursor, 10_000, &mut collector).map_err(|error| match error {
+            StreamHistoryError::Parse(error) => error,
+            StreamHistoryError::Consumer(never) => match never {},
+        })?;
+    Ok(ChromiumHistory {
+        inspection: streamed.inspection,
+        schema_observation: streamed.schema_observation,
+        capability_snapshot: streamed.capability_snapshot,
+        urls: collector.urls,
+        visits: collector.visits,
+        downloads: collector.downloads,
+        search_terms: collector.search_terms,
+        favicons: collector.favicons,
+        typed_evidence: streamed.typed_evidence,
+        native_entities: streamed.native_entities,
+        warnings: streamed.warnings,
+    })
+}
+
+/// Streams canonical Chromium rows into a caller-provided batch consumer.
+///
+/// The consumer sees URL/visit/download/search-term/favicon batches as they
+/// are parsed, which lets archive ingest start persisting canonical rows before
+/// the entire staged source database has been materialized in memory.
+pub fn stream_history<C>(
+    source: &HistoryDatabaseSet,
+    cursor: ChromiumReadCursor,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
     let inspection = inspect_history(source)?;
     let schema_observation =
         inspect_schema(&open_readonly(&source.history_path)?, &["urls", "visits"])?;
     validate_required_tables(&inspection)?;
 
     let history = open_readonly(&source.history_path)?;
-    let urls = parse_urls(&history, cursor.after_url_last_visit_time)?;
-    let visits = parse_visits(&history, cursor.after_visit_id)?;
+    let chunk_size = chunk_size.max(1);
     let mut warnings = inspection.warnings.clone();
+    let mut typed_evidence = TypedEvidenceBatch::default();
+    let mut native_entities = Vec::new();
+    let mut visit_stats = VisitCapabilityStats::default();
 
-    let downloads = if has_table(&inspection, "downloads") {
-        parse_downloads(&history, cursor.after_download_id)?
+    stream_url_batches(
+        &history,
+        cursor.after_url_last_visit_time,
+        chunk_size,
+        consumer,
+        &mut native_entities,
+    )?;
+    stream_visit_batches(
+        &history,
+        cursor.after_visit_id,
+        chunk_size,
+        consumer,
+        &mut typed_evidence,
+        &mut visit_stats,
+        &mut native_entities,
+    )?;
+
+    if has_table(&inspection, "downloads") {
+        stream_download_batches(
+            &history,
+            cursor.after_download_id,
+            chunk_size,
+            consumer,
+            &mut native_entities,
+        )?;
     } else {
         warnings.push(ParserWarning {
             code: "missing-table".to_string(),
             message: "optional Chromium table `downloads` is missing".to_string(),
         });
-        Vec::new()
-    };
+    }
 
-    let search_terms = if has_table(&inspection, "keyword_search_terms") {
-        parse_search_terms(&history, cursor.after_url_last_visit_time)?
+    if has_table(&inspection, "keyword_search_terms") {
+        stream_search_term_batches(
+            &history,
+            cursor.after_url_last_visit_time,
+            chunk_size,
+            consumer,
+            &mut typed_evidence,
+            &mut native_entities,
+        )?;
     } else {
         warnings.push(ParserWarning {
             code: "missing-table".to_string(),
             message: "optional Chromium table `keyword_search_terms` is missing".to_string(),
         });
-        Vec::new()
-    };
+    }
 
-    let favicons = match &source.favicons_path {
-        Some(path) => parse_favicons(path, cursor.after_favicon_last_updated)?,
-        None => {
-            warnings.push(ParserWarning {
-                code: "missing-source".to_string(),
-                message: "favicons database was not provided".to_string(),
-            });
-            Vec::new()
+    match &source.favicons_path {
+        Some(path) => {
+            stream_favicon_batches(path, cursor.after_favicon_last_updated, chunk_size, consumer)?;
         }
-    };
-
-    let typed_evidence = build_typed_evidence(&search_terms, &visits);
-    let capability_snapshot = build_capability_snapshot(&inspection, &typed_evidence, &visits);
-    let mut native_entities = capture_native_rows(
-        &history,
-        "SELECT * FROM urls WHERE last_visit_time >= ?1 ORDER BY last_visit_time ASC",
-        &[&cursor.after_url_last_visit_time],
-        "chromium-url-row",
-        "id",
-        None,
-    )?;
-    native_entities.extend(capture_native_rows(
-        &history,
-        "SELECT * FROM visits WHERE id > ?1 ORDER BY id ASC",
-        &[&cursor.after_visit_id],
-        "chromium-visit-row",
-        "id",
-        Some("url"),
-    )?);
-    if has_table(&inspection, "downloads") {
-        native_entities.extend(capture_native_rows(
-            &history,
-            "SELECT * FROM downloads WHERE id > ?1 ORDER BY id ASC",
-            &[&cursor.after_download_id],
-            "chromium-download-row",
-            "id",
-            None,
-        )?);
-    }
-    if has_table(&inspection, "keyword_search_terms") {
-        native_entities.extend(capture_native_rows(
-            &history,
-            "SELECT * FROM keyword_search_terms WHERE url_id IN (SELECT id FROM urls WHERE last_visit_time >= ?1)",
-            &[&cursor.after_url_last_visit_time],
-            "chromium-search-term-row",
-            "url_id",
-            None,
-        )?);
+        None => warnings.push(ParserWarning {
+            code: "missing-source".to_string(),
+            message: "favicons database was not provided".to_string(),
+        }),
     }
 
-    Ok(ChromiumHistory {
+    let capability_snapshot = build_capability_snapshot(&inspection, &typed_evidence, &visit_stats);
+    Ok(StreamedHistory {
         inspection,
         schema_observation,
         capability_snapshot,
-        urls,
-        visits,
-        downloads,
-        search_terms,
-        favicons,
         typed_evidence,
         native_entities,
         warnings,
@@ -195,57 +265,6 @@ pub fn chrome_time_to_iso(value: i64) -> String {
         .to_rfc3339()
 }
 
-fn parse_urls(connection: &Connection, last_visit_time: i64) -> Result<Vec<ParsedUrl>, ParseError> {
-    let mut statement = connection.prepare(INGEST_URLS_SQL)?;
-    let rows = statement.query_map(params![last_visit_time], parsed_url_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
-fn parse_visits(
-    connection: &Connection,
-    last_visit_id: i64,
-) -> Result<Vec<ParsedVisit>, ParseError> {
-    let mut statement = connection.prepare(INGEST_VISITS_SQL)?;
-    let rows = statement.query_map(params![last_visit_id], parsed_visit_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
-fn parse_downloads(
-    connection: &Connection,
-    last_download_id: i64,
-) -> Result<Vec<ParsedDownload>, ParseError> {
-    let mut statement = connection.prepare(DOWNLOADS_SQL)?;
-    let rows = statement.query_map(params![last_download_id], parsed_download_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
-fn parse_search_terms(
-    connection: &Connection,
-    last_visit_time: i64,
-) -> Result<Vec<ParsedSearchTerm>, ParseError> {
-    let mut statement = connection.prepare(SEARCH_TERMS_SQL)?;
-    let rows = statement.query_map(params![last_visit_time], parsed_search_term_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
-fn parse_favicons(
-    favicons_path: &Path,
-    last_favicon_last_updated: i64,
-) -> Result<Vec<ParsedFavicon>, ParseError> {
-    let connection = open_readonly(favicons_path)?;
-    let inspection = inspect_connection_tables(&connection)?;
-    if !has_table(&inspection, "favicons")
-        || !has_table(&inspection, "icon_mapping")
-        || !has_table(&inspection, "favicon_bitmaps")
-    {
-        return Ok(Vec::new());
-    }
-
-    let mut statement = connection.prepare(FAVICONS_SQL)?;
-    let rows = statement.query_map(params![last_favicon_last_updated], parsed_favicon_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
 fn open_readonly(path: &Path) -> Result<Connection, ParseError> {
     Connection::open_with_flags(
         path,
@@ -264,6 +283,10 @@ fn inspect_connection_tables(connection: &Connection) -> Result<DatabaseInspecti
     Ok(DatabaseInspection { table_names, warnings: Vec::new() })
 }
 
+fn stream_sql<T, E>(result: Result<T, rusqlite::Error>) -> Result<T, StreamHistoryError<E>> {
+    result.map_err(ParseError::from).map_err(StreamHistoryError::Parse)
+}
+
 fn validate_required_tables(inspection: &DatabaseInspection) -> Result<(), ParseError> {
     for table_name in ["urls", "visits"] {
         if !has_table(inspection, table_name) {
@@ -277,91 +300,274 @@ fn has_table(inspection: &DatabaseInspection, table_name: &str) -> bool {
     inspection.table_names.iter().any(|existing| existing == table_name)
 }
 
-fn build_typed_evidence(
-    search_terms: &[ParsedSearchTerm],
-    visits: &[ParsedVisit],
-) -> TypedEvidenceBatch {
-    let search = search_terms
-        .iter()
-        .map(|term| SearchEvidence {
+fn stream_url_batches<C>(
+    connection: &Connection,
+    last_visit_time: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let mut statement = stream_sql(connection.prepare(INGEST_URLS_SQL))?;
+    let column_names =
+        statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+    let mut rows = stream_sql(statement.query(params![last_visit_time]))?;
+    let mut batch = Vec::with_capacity(chunk_size);
+    while let Some(row) = stream_sql(rows.next())? {
+        batch.push(stream_sql(parsed_url_from_row(row))?);
+        native_entities.push(stream_sql(capture_native_row(
+            row,
+            &column_names,
+            "chromium-url-row",
+            "id",
+            None,
+        ))?);
+        if batch.len() >= chunk_size {
+            consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+    if !batch.is_empty() {
+        consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
+fn stream_visit_batches<C>(
+    connection: &Connection,
+    last_visit_id: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+    typed_evidence: &mut TypedEvidenceBatch,
+    visit_stats: &mut VisitCapabilityStats,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let mut statement = stream_sql(connection.prepare(INGEST_VISITS_SQL))?;
+    let column_names =
+        statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+    let mut rows = stream_sql(statement.query(params![last_visit_id]))?;
+    let mut batch = Vec::with_capacity(chunk_size);
+    while let Some(row) = stream_sql(rows.next())? {
+        let visit = stream_sql(parsed_visit_from_row(row))?;
+        track_visit_capability_stats(visit_stats, &visit);
+        if let Some(evidence) = navigation_evidence_for_visit(&visit) {
+            typed_evidence.navigation.push(evidence);
+        }
+        if let Some(evidence) = engagement_evidence_for_visit(&visit) {
+            typed_evidence.engagement.push(evidence);
+        }
+        typed_evidence.context.extend(context_evidence_for_visit(&visit));
+        native_entities.push(stream_sql(capture_native_row(
+            row,
+            &column_names,
+            "chromium-visit-row",
+            "id",
+            Some("url"),
+        ))?);
+        batch.push(visit);
+        if batch.len() >= chunk_size {
+            consumer.visits(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+    if !batch.is_empty() {
+        consumer.visits(batch).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
+fn stream_download_batches<C>(
+    connection: &Connection,
+    last_download_id: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let mut statement = stream_sql(connection.prepare(DOWNLOADS_SQL))?;
+    let column_names =
+        statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+    let mut rows = stream_sql(statement.query(params![last_download_id]))?;
+    let mut batch = Vec::with_capacity(chunk_size);
+    while let Some(row) = stream_sql(rows.next())? {
+        batch.push(stream_sql(parsed_download_from_row(row))?);
+        native_entities.push(stream_sql(capture_native_row(
+            row,
+            &column_names,
+            "chromium-download-row",
+            "id",
+            None,
+        ))?);
+        if batch.len() >= chunk_size {
+            consumer.downloads(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+    if !batch.is_empty() {
+        consumer.downloads(batch).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
+fn stream_search_term_batches<C>(
+    connection: &Connection,
+    last_visit_time: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+    typed_evidence: &mut TypedEvidenceBatch,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let mut statement = stream_sql(connection.prepare(SEARCH_TERMS_SQL))?;
+    let column_names =
+        statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+    let mut rows = stream_sql(statement.query(params![last_visit_time]))?;
+    let mut batch = Vec::with_capacity(chunk_size);
+    while let Some(row) = stream_sql(rows.next())? {
+        let term = stream_sql(parsed_search_term_from_row(row))?;
+        typed_evidence.search.push(SearchEvidence {
             source_visit_id: None,
             source_url_id: Some(term.url_id),
             evidence_key: "search.native_terms".to_string(),
             evidence_value: term.term.clone(),
             normalized_value: Some(term.normalized_term.clone()),
             source_field: "keyword_search_terms.term".to_string(),
-        })
-        .collect::<Vec<_>>();
-    let navigation = visits
-        .iter()
-        .filter(|visit| {
-            visit.from_visit.is_some()
-                || visit.external_referrer_url.is_some()
-                || visit.transition.is_some()
-        })
-        .map(|visit| NavigationEvidence {
-            source_visit_id: visit.source_visit_id,
-            edge_kind: "visit-navigation".to_string(),
-            target_visit_id: visit.from_visit,
-            target_url: visit.external_referrer_url.clone(),
-            transition: visit.transition,
-            source_field: "visits.from_visit/external_referrer_url/transition".to_string(),
-        })
-        .collect::<Vec<_>>();
-    let engagement = visits
-        .iter()
-        .filter_map(|visit| {
-            visit.visit_duration_ms.map(|value| EngagementEvidence {
-                source_visit_id: visit.source_visit_id,
-                metric_key: "engagement.visit_duration_ms".to_string(),
-                metric_value_int: Some(value),
-                metric_value_real: None,
-                source_field: "visits.visit_duration".to_string(),
-            })
-        })
-        .collect::<Vec<_>>();
-    let context = visits
-        .iter()
-        .flat_map(|visit| {
-            let mut items = Vec::new();
-            if visit.app_id.is_some() {
-                items.push(ContextEvidence {
-                    source_visit_id: Some(visit.source_visit_id),
-                    source_url_id: Some(visit.source_url_id),
-                    context_key: "context.app_id".to_string(),
-                    value_json: serde_json::json!(visit.app_id).to_string(),
-                    source_field: "visits.app_id".to_string(),
-                });
-            }
-            if visit.is_known_to_sync {
-                items.push(ContextEvidence {
-                    source_visit_id: Some(visit.source_visit_id),
-                    source_url_id: Some(visit.source_url_id),
-                    context_key: "context.is_known_to_sync".to_string(),
-                    value_json: "true".to_string(),
-                    source_field: "visits.is_known_to_sync".to_string(),
-                });
-            }
-            if visit.visited_link_id.is_some() {
-                items.push(ContextEvidence {
-                    source_visit_id: Some(visit.source_visit_id),
-                    source_url_id: Some(visit.source_url_id),
-                    context_key: "context.visited_link_id".to_string(),
-                    value_json: serde_json::json!(visit.visited_link_id).to_string(),
-                    source_field: "visits.visited_link_id".to_string(),
-                });
-            }
-            items
-        })
-        .collect::<Vec<_>>();
+        });
+        native_entities.push(stream_sql(capture_native_row(
+            row,
+            &column_names,
+            "chromium-search-term-row",
+            "url_id",
+            None,
+        ))?);
+        batch.push(term);
+        if batch.len() >= chunk_size {
+            consumer
+                .search_terms(std::mem::take(&mut batch))
+                .map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+    if !batch.is_empty() {
+        consumer.search_terms(batch).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
 
-    TypedEvidenceBatch { search, navigation, engagement, context }
+fn stream_favicon_batches<C>(
+    favicons_path: &Path,
+    last_favicon_last_updated: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let connection = open_readonly(favicons_path)?;
+    let inspection = inspect_connection_tables(&connection)?;
+    if !has_table(&inspection, "favicons")
+        || !has_table(&inspection, "icon_mapping")
+        || !has_table(&inspection, "favicon_bitmaps")
+    {
+        return Ok(());
+    }
+
+    let mut statement = stream_sql(connection.prepare(FAVICONS_SQL))?;
+    let mut rows = stream_sql(statement.query(params![last_favicon_last_updated]))?;
+    let mut batch = Vec::with_capacity(chunk_size);
+    while let Some(row) = stream_sql(rows.next())? {
+        batch.push(stream_sql(parsed_favicon_from_row(row))?);
+        if batch.len() >= chunk_size {
+            consumer.favicons(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+    if !batch.is_empty() {
+        consumer.favicons(batch).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
+fn track_visit_capability_stats(stats: &mut VisitCapabilityStats, visit: &ParsedVisit) {
+    stats.total_visits += 1;
+    if visit.from_visit.is_some() {
+        stats.from_visit_count += 1;
+    }
+    if visit.external_referrer_url.is_some() {
+        stats.external_referrer_count += 1;
+    }
+    if visit.visit_duration_ms.is_some() {
+        stats.visit_duration_count += 1;
+    }
+    if visit.is_known_to_sync {
+        stats.sync_state_count += 1;
+    }
+}
+
+fn navigation_evidence_for_visit(visit: &ParsedVisit) -> Option<NavigationEvidence> {
+    (visit.from_visit.is_some()
+        || visit.external_referrer_url.is_some()
+        || visit.transition.is_some())
+    .then(|| NavigationEvidence {
+        source_visit_id: visit.source_visit_id,
+        edge_kind: "visit-navigation".to_string(),
+        target_visit_id: visit.from_visit,
+        target_url: visit.external_referrer_url.clone(),
+        transition: visit.transition,
+        source_field: "visits.from_visit/external_referrer_url/transition".to_string(),
+    })
+}
+
+fn engagement_evidence_for_visit(visit: &ParsedVisit) -> Option<EngagementEvidence> {
+    visit.visit_duration_ms.map(|value| EngagementEvidence {
+        source_visit_id: visit.source_visit_id,
+        metric_key: "engagement.visit_duration_ms".to_string(),
+        metric_value_int: Some(value),
+        metric_value_real: None,
+        source_field: "visits.visit_duration".to_string(),
+    })
+}
+
+fn context_evidence_for_visit(visit: &ParsedVisit) -> Vec<ContextEvidence> {
+    let mut items = Vec::new();
+    if visit.app_id.is_some() {
+        items.push(ContextEvidence {
+            source_visit_id: Some(visit.source_visit_id),
+            source_url_id: Some(visit.source_url_id),
+            context_key: "context.app_id".to_string(),
+            value_json: serde_json::json!(visit.app_id).to_string(),
+            source_field: "visits.app_id".to_string(),
+        });
+    }
+    if visit.is_known_to_sync {
+        items.push(ContextEvidence {
+            source_visit_id: Some(visit.source_visit_id),
+            source_url_id: Some(visit.source_url_id),
+            context_key: "context.is_known_to_sync".to_string(),
+            value_json: "true".to_string(),
+            source_field: "visits.is_known_to_sync".to_string(),
+        });
+    }
+    if visit.visited_link_id.is_some() {
+        items.push(ContextEvidence {
+            source_visit_id: Some(visit.source_visit_id),
+            source_url_id: Some(visit.source_url_id),
+            context_key: "context.visited_link_id".to_string(),
+            value_json: serde_json::json!(visit.visited_link_id).to_string(),
+            source_field: "visits.visited_link_id".to_string(),
+        });
+    }
+    items
 }
 
 fn build_capability_snapshot(
     inspection: &DatabaseInspection,
     typed_evidence: &TypedEvidenceBatch,
-    visits: &[ParsedVisit],
+    visit_stats: &VisitCapabilityStats,
 ) -> crate::types::CapabilitySnapshot {
     capability_snapshot(vec![
         CapabilityCoverage {
@@ -373,33 +579,30 @@ fn build_capability_snapshot(
         },
         CapabilityCoverage {
             key: "nav.from_visit".to_string(),
-            available: visits.iter().any(|visit| visit.from_visit.is_some()),
-            populated_rows: visits.iter().filter(|visit| visit.from_visit.is_some()).count(),
-            total_rows: visits.len(),
+            available: visit_stats.from_visit_count > 0,
+            populated_rows: visit_stats.from_visit_count,
+            total_rows: visit_stats.total_visits,
             notes: vec!["Chromium visits.from_visit".to_string()],
         },
         CapabilityCoverage {
             key: "nav.external_referrer".to_string(),
-            available: visits.iter().any(|visit| visit.external_referrer_url.is_some()),
-            populated_rows: visits
-                .iter()
-                .filter(|visit| visit.external_referrer_url.is_some())
-                .count(),
-            total_rows: visits.len(),
+            available: visit_stats.external_referrer_count > 0,
+            populated_rows: visit_stats.external_referrer_count,
+            total_rows: visit_stats.total_visits,
             notes: vec!["Chromium visits.external_referrer_url".to_string()],
         },
         CapabilityCoverage {
             key: "engagement.visit_duration_ms".to_string(),
-            available: visits.iter().any(|visit| visit.visit_duration_ms.is_some()),
+            available: visit_stats.visit_duration_count > 0,
             populated_rows: typed_evidence.engagement.len(),
-            total_rows: visits.len(),
+            total_rows: visit_stats.total_visits,
             notes: vec!["Chromium visits.visit_duration".to_string()],
         },
         CapabilityCoverage {
             key: "context.sync_state".to_string(),
-            available: visits.iter().any(|visit| visit.is_known_to_sync),
-            populated_rows: visits.iter().filter(|visit| visit.is_known_to_sync).count(),
-            total_rows: visits.len(),
+            available: visit_stats.sync_state_count > 0,
+            populated_rows: visit_stats.sync_state_count,
+            total_rows: visit_stats.total_visits,
             notes: vec!["Chromium visits.is_known_to_sync".to_string()],
         },
     ])

@@ -36,6 +36,10 @@ use self::{
     },
 };
 use super::*;
+use browser_history_parser::{
+    ChromiumReadCursor, HistoryBatchConsumer, HistoryDatabaseSet, ParsedDownload, ParsedFavicon,
+    ParsedSearchTerm, ParsedUrl, ParsedVisit, StreamHistoryError, chromium,
+};
 use std::collections::{BTreeMap, HashMap};
 
 /// Parses a saved source checkpoint without incremental cursors so restore preview can size the replay.
@@ -54,6 +58,169 @@ pub(super) struct SourceEvidencePlan {
     source_batch: SourceBatchInput,
     schema_observation: browser_history_parser::SchemaObservation,
     source_evidence_payload: SourceEvidencePayload,
+}
+
+const CHROMIUM_STREAM_CHUNK_SIZE: usize = 10_000;
+
+#[derive(Debug, Default)]
+struct ChromiumStreamProgress {
+    url_id_map: HashMap<i64, i64>,
+    url_bounds: HashMap<i64, UrlVisitBounds>,
+    new_urls: usize,
+    new_visits: usize,
+    new_downloads: usize,
+    inserted_search_terms: usize,
+    url_count: usize,
+    visit_count: usize,
+    download_count: usize,
+    search_term_count: usize,
+    last_visit_id: i64,
+    last_url_marker: Option<i64>,
+    last_download_id: Option<i64>,
+    last_favicon_marker: Option<i64>,
+}
+
+struct ChromiumChunkConsumer<'a> {
+    archive: &'a Transaction<'a>,
+    run_id: i64,
+    source_profile_id: i64,
+    profile: &'a crate::models::BrowserProfile,
+    progress: ChromiumStreamProgress,
+}
+
+impl<'a> ChromiumChunkConsumer<'a> {
+    fn new(
+        archive: &'a Transaction<'a>,
+        run_id: i64,
+        source_profile_id: i64,
+        profile: &'a crate::models::BrowserProfile,
+    ) -> Self {
+        Self {
+            archive,
+            run_id,
+            source_profile_id,
+            profile,
+            progress: ChromiumStreamProgress::default(),
+        }
+    }
+
+    fn finish(mut self) -> Result<ChromiumStreamProgress> {
+        for (url_id, bounds) in self.progress.url_bounds.drain() {
+            sync_url_bounds(self.archive, url_id, &bounds)?;
+        }
+        Ok(self.progress)
+    }
+}
+
+impl HistoryBatchConsumer for ChromiumChunkConsumer<'_> {
+    type Error = anyhow::Error;
+
+    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+        for url in batch {
+            let payload = serialize_payload(&url)?;
+            let existing_url =
+                canonical_url_exists(self.archive, self.source_profile_id, url.source_url_id)?;
+            let canonical_url_id = upsert_url(
+                self.archive,
+                self.run_id,
+                self.source_profile_id,
+                self.profile,
+                &url,
+                &payload.hash,
+            )?;
+            self.progress.url_id_map.insert(url.source_url_id, canonical_url_id);
+            if !existing_url {
+                self.progress.new_urls += 1;
+            }
+            self.progress.url_count += 1;
+            let url_marker = unix_micros_to_chrome_time(url.last_visit_ms.saturating_mul(1_000));
+            self.progress.last_url_marker =
+                Some(self.progress.last_url_marker.unwrap_or_default().max(url_marker));
+        }
+        Ok(())
+    }
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        for visit in batch {
+            let Some(&url_id) = self.progress.url_id_map.get(&visit.source_url_id) else {
+                continue;
+            };
+            let payload = serialize_payload(&visit)?;
+            let inserted = insert_visit(
+                self.archive,
+                self.run_id,
+                self.source_profile_id,
+                &self.profile.profile_id,
+                url_id,
+                &visit,
+                &payload.hash,
+            )?;
+            if inserted > 0 {
+                self.progress.new_visits += 1;
+            }
+            self.progress.visit_count += 1;
+            self.progress.last_visit_id = self.progress.last_visit_id.max(visit.source_visit_id);
+            track_url_visit_bounds(&mut self.progress.url_bounds, url_id, &visit);
+        }
+        Ok(())
+    }
+
+    fn downloads(&mut self, batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+        for download in batch {
+            let payload = serialize_payload(&download)?;
+            let inserted = insert_download(
+                self.archive,
+                self.run_id,
+                self.source_profile_id,
+                &download,
+                &payload.hash,
+            )?;
+            if inserted > 0 {
+                self.progress.new_downloads += 1;
+            }
+            self.progress.download_count += 1;
+            self.progress.last_download_id = Some(
+                self.progress.last_download_id.unwrap_or_default().max(download.source_download_id),
+            );
+        }
+        Ok(())
+    }
+
+    fn search_terms(&mut self, batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+        for term in batch {
+            let Some(&url_id) = self.progress.url_id_map.get(&term.url_id) else {
+                continue;
+            };
+            self.progress.inserted_search_terms += insert_search_term(
+                self.archive,
+                self.run_id,
+                self.source_profile_id,
+                &self.profile.profile_id,
+                url_id,
+                &term,
+            )?;
+            self.progress.search_term_count += 1;
+        }
+        Ok(())
+    }
+
+    fn favicons(&mut self, batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
+        for favicon in batch {
+            let payload = serialize_payload(&favicon)?;
+            insert_favicon(
+                self.archive,
+                self.run_id,
+                self.source_profile_id,
+                &favicon,
+                &payload.hash,
+            )?;
+            let favicon_marker =
+                unix_micros_to_chrome_time(favicon.last_updated_ms.saturating_mul(1_000));
+            self.progress.last_favicon_marker =
+                Some(self.progress.last_favicon_marker.unwrap_or_default().max(favicon_marker));
+        }
+        Ok(())
+    }
 }
 
 /// Keeps only the selected profiles that are currently readable on this host.
@@ -109,6 +276,147 @@ pub(super) fn collect_skipped_profiles(
     warnings
 }
 
+#[allow(clippy::too_many_arguments)]
+fn process_chromium_profile_snapshot_streamed(
+    archive: &Transaction<'_>,
+    run_id: i64,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    snapshot: &ProfileSnapshot,
+    source_profile_id: i64,
+    schema_hash: &str,
+    watermark: &Watermark,
+    snapshot_artifacts: &mut Vec<SnapshotArtifact>,
+    source_evidence_plans: &mut Vec<SourceEvidencePlan>,
+    allow_checkpoint: bool,
+) -> Result<BackupProfileSummary> {
+    let mut consumer =
+        ChromiumChunkConsumer::new(archive, run_id, source_profile_id, &snapshot.profile);
+    let streamed = chromium::stream_history(
+        &HistoryDatabaseSet {
+            history_path: snapshot.history_path.clone(),
+            favicons_path: if config.capture_favicons {
+                snapshot.favicons_path.clone()
+            } else {
+                None
+            },
+        },
+        ChromiumReadCursor {
+            after_visit_id: watermark.last_visit_id,
+            after_url_last_visit_time: watermark.last_url_last_visit_time,
+            after_download_id: watermark.last_download_id,
+            after_favicon_last_updated: watermark.last_favicon_last_updated,
+        },
+        CHROMIUM_STREAM_CHUNK_SIZE,
+        &mut consumer,
+    )
+    .map_err(|error| match error {
+        StreamHistoryError::Parse(error) => anyhow::Error::new(error),
+        StreamHistoryError::Consumer(error) => error,
+    })
+    .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
+    let progress = consumer.finish()?;
+
+    let mut summary = BackupProfileSummary {
+        profile_id: snapshot.profile.profile_id.clone(),
+        notes: streamed.warnings.iter().map(|warning| warning.message.clone()).collect(),
+        new_urls: progress.new_urls,
+        new_visits: progress.new_visits,
+        new_downloads: progress.new_downloads,
+        ..BackupProfileSummary::default()
+    };
+
+    if progress.inserted_search_terms > 0 {
+        summary.notes.push(format!(
+            "Captured {} {} search term rows.",
+            progress.inserted_search_terms, snapshot.profile.browser_name
+        ));
+    }
+
+    if allow_checkpoint && should_checkpoint(watermark, schema_hash, config.checkpoint_days) {
+        let artifact = super::create_snapshot_artifact(
+            archive,
+            run_id,
+            paths,
+            snapshot,
+            if watermark.last_schema_hash.as_deref() != Some(schema_hash) {
+                "source-schema-changed"
+            } else {
+                "periodic-checkpoint"
+            },
+        )?;
+        snapshot_artifacts.push(artifact);
+        summary.checkpoint_created = true;
+    }
+
+    let source_evidence_payload = SourceEvidencePayload {
+        typed_evidence: streamed.typed_evidence,
+        native_entities: streamed.native_entities,
+    };
+    source_evidence_plans.push(SourceEvidencePlan {
+        profile_id: snapshot.profile.profile_id.clone(),
+        source_profile_id,
+        source_batch: SourceBatchInput {
+            source_profile_id,
+            run_id: Some(run_id),
+            source_kind: "local_db".to_string(),
+            browser_version: snapshot.profile.browser_version.clone(),
+            schema_version_text: None,
+            schema_version_int: None,
+            schema_fingerprint: schema_hash.to_string(),
+            capability_snapshot: streamed.capability_snapshot,
+            coverage_stats_json: coverage_stats_json_from_parts(
+                progress.url_count,
+                progress.visit_count,
+                progress.download_count,
+                progress.search_term_count,
+                &source_evidence_payload,
+            ),
+            artifact_refs_json: Some(
+                json!({
+                    "historyPath": snapshot.history_path.display().to_string(),
+                    "faviconsPath": snapshot.favicons_path.as_ref().map(|path| path.display().to_string()),
+                    "sourceHashes": snapshot_source_hashes(snapshot),
+                })
+                .to_string(),
+            ),
+            notes_json: Some(serde_json::to_string(&streamed.warnings)?),
+        },
+        schema_observation: streamed.schema_observation,
+        source_evidence_payload,
+    });
+
+    save_watermark(
+        archive,
+        &snapshot.profile.profile_id,
+        &Watermark {
+            last_visit_id: progress.last_visit_id.max(watermark.last_visit_id),
+            last_url_last_visit_time: progress
+                .last_url_marker
+                .unwrap_or(watermark.last_url_last_visit_time)
+                .max(watermark.last_url_last_visit_time),
+            last_download_id: progress
+                .last_download_id
+                .unwrap_or(watermark.last_download_id)
+                .max(watermark.last_download_id),
+            last_favicon_last_updated: progress
+                .last_favicon_marker
+                .unwrap_or(watermark.last_favicon_last_updated)
+                .max(watermark.last_favicon_last_updated),
+            last_checkpoint_at: if summary.checkpoint_created {
+                Some(now_rfc3339())
+            } else {
+                watermark.last_checkpoint_at.clone()
+            },
+            last_schema_hash: Some(schema_hash.to_string()),
+            last_source_batch_id: watermark.last_source_batch_id,
+            updated_at: now_rfc3339(),
+        },
+    )?;
+
+    Ok(summary)
+}
+
 /// Ingests one staged profile snapshot into canonical archive rows and deferred evidence plans.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn process_profile_snapshot(
@@ -131,6 +439,21 @@ pub(super) fn process_profile_snapshot(
     } else {
         Watermark::default()
     };
+    if snapshot.profile.browser_family == "chromium" {
+        return process_chromium_profile_snapshot_streamed(
+            archive,
+            run_id,
+            paths,
+            config,
+            snapshot,
+            source_profile_id,
+            &schema_hash,
+            &watermark,
+            snapshot_artifacts,
+            source_evidence_plans,
+            allow_checkpoint,
+        );
+    }
     let parsed_snapshot = parse_profile_snapshot(snapshot, config, &watermark)
         .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
     let ParsedProfileSnapshot {

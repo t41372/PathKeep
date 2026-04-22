@@ -55,6 +55,8 @@
 > **2026-04-21 archive backup follow-up note**：backend 軌道的第六個 execution slice 已落地。`src-tauri/crates/vault-core/src/archive/mod.rs` 現在又把 backup orchestration 與 manifest/snapshot support helper 下沉到 `archive/{backup,run_support,artifacts}.rs`，parent module 已進一步縮到 `406` 行。這表示 archive-side giant-file triage 基本完成；剩餘後端 stop-ship 風險回到 parser/import collect-then-ingest contract，而不是 `archive/mod.rs` 本身。
 >
 > **2026-04-22 source-evidence follow-up note**：backend 軌道的第七個 execution slice 已落地。backup ingest 與 Takeout import 現在不再在 canonical commit 後保留第二份完整 `ParsedHistory` 只為了寫 cold source evidence；`archive::source_evidence` 已改成消費更窄的 `typed_evidence + native_entities` payload。這先拿掉了 post-commit duplicate retention，但 parser family 本身仍會先把 URL/visit/download/search-term/favicon vectors 整批 materialize，所以真正的下一輪重點仍是 parser-side streaming contract。
+>
+> **2026-04-22 Chromium streaming note**：backend 軌道的第八個 execution slice 已落地。`browser-history-parser::chromium` 現在新增 chunked `stream_history` path，`archive::ingest` 也已把 Chromium live-backup path 接到這條新 contract；這表示主力 backup 路徑現在會邊 parse staged Chromium DB 邊寫 canonical archive，而不是等整份 parser batch 完成後才開始寫入。剩餘 stop-ship 風險因此進一步縮到 Firefox / Safari / Takeout 仍 full-batch materialize，以及 cold source-evidence 尚未完全 spool/stream 化。
 
 ---
 
