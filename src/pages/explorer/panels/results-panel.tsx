@@ -97,7 +97,7 @@ export function ExplorerResultsPanel({
   selectedEntry,
 }: ExplorerResultsPanelProps) {
   return (
-    <div className="explorer-grid">
+    <div className="explorer-grid explorer-grid--reveal">
       <div className="record-list">
         <div className="record-group">
           <div className="record-group-header">

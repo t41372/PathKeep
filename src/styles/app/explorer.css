@@ -265,6 +265,27 @@
   gap: var(--space-4);
 }
 
+.explorer-grid--reveal > .record-list,
+.explorer-grid--reveal > .detail-panel {
+  animation: explorer-results-reveal 220ms ease-out both;
+}
+
+.explorer-grid--reveal > .detail-panel {
+  animation-delay: 40ms;
+}
+
+@keyframes explorer-results-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .explorer-filters {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

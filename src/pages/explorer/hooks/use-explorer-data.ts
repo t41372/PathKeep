@@ -14,6 +14,7 @@
  */
 
 import {
+  startTransition,
   useEffect,
   useRef,
   useState,
@@ -25,6 +26,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
+import { waitForNextPaint } from '../../../lib/wait-for-next-paint'
 import type {
   AiProviderConnectionTestReport,
   ExportFormat,
@@ -173,12 +175,6 @@ export function useExplorerData({
       try {
         const response = await backend.queryHistory(request.currentQuery)
         if (cancelled) return
-        setQueryState({ requestKey, results: response, error: null })
-        setSelectedId((current) =>
-          response.items.some((item) => item.id === current)
-            ? current
-            : (response.items[0]?.id ?? null),
-        )
         request.persistRecentSearch({
           q: request.currentQuery.q,
           mode: request.mode,
@@ -192,6 +188,16 @@ export function useExplorerData({
           sort: request.currentQuery.sort ?? 'newest',
         })
         request.setRecentSearches(loadRecentSearches())
+        await waitForNextPaint()
+        if (cancelled) return
+        startTransition(() => {
+          setQueryState({ requestKey, results: response, error: null })
+          setSelectedId((current) =>
+            response.items.some((item) => item.id === current)
+              ? current
+              : (response.items[0]?.id ?? null),
+          )
+        })
       } catch (error) {
         if (cancelled) return
         setQueryState({

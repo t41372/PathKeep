@@ -200,7 +200,12 @@ export function SkeletonExplorer({ label }: LabeledSkeletonProps) {
  */
 export function SkeletonExplorerResults({ label }: LabeledSkeletonProps) {
   return (
-    <div className="explorer-grid" aria-busy="true" aria-label={label}>
+    <div
+      className="explorer-grid explorer-grid--skeleton"
+      aria-busy="true"
+      aria-label={label}
+      data-testid="explorer-results-skeleton"
+    >
       <div className="record-list">
         <div className="record-group">
           <div className="record-group-header">
