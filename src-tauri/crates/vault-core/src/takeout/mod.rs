@@ -23,6 +23,7 @@
 //!   execution and review helpers must avoid hidden extra passes and keep
 //!   per-file work explicit.
 
+mod batch_review;
 mod batches;
 mod import_flow;
 mod inspect;
@@ -65,9 +66,8 @@ use walkdir::WalkDir;
 use zip::ZipArchive;
 
 pub use self::{
-    batches::{
-        load_import_batches, preview_import_batch, restore_import_batch, revert_import_batch,
-    },
+    batch_review::{load_import_batches, preview_import_batch},
+    batches::{restore_import_batch, revert_import_batch},
     import_flow::{import_takeout, import_takeout_with_progress},
     inspect::inspect_takeout,
 };
@@ -76,7 +76,7 @@ pub(crate) use self::batches::ensure_import_batch_audit_artifact;
 
 #[cfg(test)]
 use self::{
-    batches::load_import_batch_record,
+    batch_review::load_import_batch_record,
     inspect::{
         collect_records_from_payload, gather_takeout_files, parse_payload_report,
         preview_entry_from_payload, quarantine_file, quarantine_takeout_file, read_zip_entry,

@@ -48,7 +48,7 @@
 >
 > **2026-04-21 archive ingest follow-up note**：backend 軌道的第二個 execution slice 已落地。`src-tauri/crates/vault-core/src/archive/mod.rs` 現在把 canonical ingest boundary 下沉到 `archive/ingest/{mod,parser,writes}.rs`，整體從 `2159` 行降到 `1299` 行；但 parser/import 仍維持 collect-then-ingest contract，且 `takeout/import_flow.rs` 仍超過 `600` 行，所以真正的 streaming/import batching 收尾已在 `BACKLOG.md` 立成後續 block。
 >
-> **2026-04-21 takeout import follow-up note**：backend 軌道的第三個 execution slice 也已落地。Takeout import 現在不再沿用 inspection preview helper 去額外建一整份 preview rows；`takeout/import_flow.rs` 已下沉 payload parse/write 細節到 `takeout/payload_import.rs`，並把 parser report ownership 直接交給 source-evidence plan。剩餘的 Takeout hotspot 已改成 `takeout/batches.rs` 與更深一層的 parser/import streaming contract，而不再是 `import_flow.rs` 本身。
+> **2026-04-21 takeout import follow-up note**：backend 軌道的第三、第四個 execution slice 也已落地。Takeout import 現在不再沿用 inspection preview helper 去額外建一整份 preview rows；`takeout/import_flow.rs` 已下沉 payload parse/write 細節到 `takeout/payload_import.rs`，並把 parser report ownership 直接交給 source-evidence plan。同時 batch review read/audit repair 也已拆到 `takeout/batch_review.rs`，讓 `takeout/batches.rs` 回到 write-side revert/restore ownership。剩餘 backend 風險現在集中在更深一層的 parser/import streaming contract 和 `archive/mod.rs`，而不再是 Takeout boundary 的文件尺寸本身。
 
 ---
 

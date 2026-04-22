@@ -199,7 +199,7 @@ where
 
     batches::ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("imported"))?;
 
-    let detail = batches::preview_import_batch(paths, config, key, batch_id)?;
+    let detail = preview_import_batch(paths, config, key, batch_id)?;
     inspection.import_batch = Some(detail.batch);
     progress_log_lines.push(format!(
         "Imported {} new record(s); {} duplicate(s) skipped.",
