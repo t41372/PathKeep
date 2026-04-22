@@ -204,6 +204,9 @@ describe('App shell', () => {
         }),
       ).toHaveValue(4),
     )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Go' })).toBeEnabled(),
+    )
     expect(expectHtmlElement(scrollContainer).scrollTop).toBe(240)
 
     const pageInput = screen.getByRole('spinbutton', {
