@@ -27,7 +27,7 @@ import {
 } from '../../components/review'
 import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
-import { aiStatusMeta } from '../../lib/intelligence'
+import { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
   AiIntegrationPreview,
   AiProviderConfig,

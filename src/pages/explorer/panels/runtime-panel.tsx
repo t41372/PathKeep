@@ -18,7 +18,7 @@ import { ErrorState } from '../../../components/primitives/error-state'
 import { LoadingState } from '../../../components/primitives/loading-state'
 import { StatusCallout } from '../../../components/primitives/status-callout'
 import type { ResolvedLanguage } from '../../../lib/i18n'
-import type { IntelligenceTone } from '../../../lib/intelligence'
+import type { IntelligenceTone } from '../../../lib/intelligence-ai-presentation'
 import type {
   AiIndexStatus,
   AiProviderConfig,

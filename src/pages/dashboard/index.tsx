@@ -21,7 +21,10 @@ import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
-import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
+import {
+  aiStatusMeta,
+  selectedAiProvider,
+} from '../../lib/intelligence-ai-presentation'
 import { buildStorageAnalyticsSummary } from '../../lib/storage-analytics'
 import {
   profileIdLabel,

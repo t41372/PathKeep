@@ -23,7 +23,10 @@ import { SkeletonExplorer } from '../../components/primitives/skeleton'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
-import { aiStatusMeta, selectedAiProvider } from '../../lib/intelligence'
+import {
+  aiStatusMeta,
+  selectedAiProvider,
+} from '../../lib/intelligence-ai-presentation'
 import {
   profileIdLabel,
   useProfileScope,

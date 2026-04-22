@@ -17,11 +17,8 @@ import { Link } from 'react-router-dom'
 import { EmptyState } from '../../../components/primitives/empty-state'
 import { ErrorState } from '../../../components/primitives/error-state'
 import { LoadingState } from '../../../components/primitives/loading-state'
-import {
-  assistantHref,
-  evidenceHref,
-  scoreBand,
-} from '../../../lib/intelligence'
+import { scoreBand } from '../../../lib/intelligence-ai-presentation'
+import { assistantHref, evidenceHref } from '../../../lib/intelligence'
 import { formatDateTime } from '../../../lib/format'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import type { AiSearchResponse } from '../../../lib/types'

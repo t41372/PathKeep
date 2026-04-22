@@ -26,7 +26,7 @@ import {
   aiStatusMeta,
   assistantResponseMeta,
   selectedAiProvider,
-} from '../../lib/intelligence'
+} from '../../lib/intelligence-ai-presentation'
 import {
   profileIdLabel,
   useProfileScope,

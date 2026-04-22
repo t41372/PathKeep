@@ -32,7 +32,7 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { Glyph } from '../../components/ui'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
-import type { aiStatusMeta } from '../../lib/intelligence'
+import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
   AiIndexStatus,
   AiIntegrationPreview,
