@@ -34,10 +34,11 @@ mod tests;
 
 use crate::{
     archive::{
-        SourceBatchInput, SourceEvidencePayload, coverage_stats_json, create_schema,
-        open_archive_connection, open_source_evidence_connection, persist_source_evidence,
-        rebuild_search_projection, record_schema_observation, stats_with_archive_totals,
-        take_source_evidence_payload, upsert_source_batch, visit_event_fingerprint,
+        DeferredSourceEvidencePayload, SourceBatchInput, coverage_stats_json_from_parts,
+        create_schema, defer_source_evidence_payload, open_archive_connection,
+        open_source_evidence_connection, rebuild_search_projection, record_schema_observation,
+        stats_with_archive_totals, take_source_evidence_payload, upsert_source_batch,
+        visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -131,7 +132,7 @@ struct CollectedPayload {
 struct TakeoutSourceEvidencePlan {
     source_batch: SourceBatchInput,
     schema_observation: browser_history_parser::SchemaObservation,
-    source_evidence_payload: SourceEvidencePayload,
+    source_evidence_payload: DeferredSourceEvidencePayload,
 }
 
 /// Represents one persisted import batch plus its review metadata.

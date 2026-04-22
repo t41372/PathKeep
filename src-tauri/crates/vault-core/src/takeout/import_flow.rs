@@ -140,6 +140,7 @@ where
                 fs::read(&file.path)?
             };
             let file_stats = match import_supported_payload(
+                paths,
                 &transaction,
                 run_id,
                 batch_id,

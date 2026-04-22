@@ -28,6 +28,7 @@ use super::{inspect, *};
 
 /// Imports one recognized payload into canonical archive rows plus source-evidence plans.
 pub(super) fn import_supported_payload(
+    paths: &ProjectPaths,
     archive: &Transaction<'_>,
     run_id: i64,
     batch_id: i64,
@@ -170,6 +171,7 @@ pub(super) fn import_supported_payload(
             records: report.record_count,
         },
         source_evidence_plan: build_takeout_source_evidence_plan(
+            paths,
             source_profile_id,
             run_id,
             source_path,
@@ -180,6 +182,7 @@ pub(super) fn import_supported_payload(
 
 /// Builds the cold source-evidence plan corresponding to one imported payload.
 fn build_takeout_source_evidence_plan(
+    paths: &ProjectPaths,
     source_profile_id: i64,
     run_id: i64,
     source_path: &str,
@@ -187,6 +190,16 @@ fn build_takeout_source_evidence_plan(
 ) -> Result<TakeoutSourceEvidencePlan> {
     let mut history = report.history;
     let observation_json = serde_json::to_string(&history.schema_observation)?;
+    let source_evidence_payload = take_source_evidence_payload(&mut history);
+    let coverage_stats_json = coverage_stats_json_from_parts(
+        history.urls.len(),
+        history.visits.len(),
+        history.downloads.len(),
+        history.search_terms.len(),
+        &source_evidence_payload,
+    );
+    let deferred_source_evidence_payload =
+        defer_source_evidence_payload(paths, source_path, source_evidence_payload)?;
     Ok(TakeoutSourceEvidencePlan {
         source_batch: SourceBatchInput {
             source_profile_id,
@@ -197,7 +210,7 @@ fn build_takeout_source_evidence_plan(
             schema_version_int: None,
             schema_fingerprint: sha256_hex(observation_json.as_bytes()),
             capability_snapshot: history.capability_snapshot.clone(),
-            coverage_stats_json: coverage_stats_json(&history),
+            coverage_stats_json,
             artifact_refs_json: Some(
                 json!({
                     "sourcePath": source_path,
@@ -208,7 +221,7 @@ fn build_takeout_source_evidence_plan(
             notes_json: Some(serde_json::to_string(&history.warnings)?),
         },
         schema_observation: history.schema_observation.clone(),
-        source_evidence_payload: take_source_evidence_payload(&mut history),
+        source_evidence_payload: deferred_source_evidence_payload,
     })
 }
 
@@ -237,11 +250,10 @@ pub(super) fn persist_takeout_source_evidence_plans(
             "takeout-payload",
             &plan.schema_observation,
         )?;
-        persist_source_evidence(
+        plan.source_evidence_payload.persist(
             &transaction,
             source_batch_id,
             plan.source_batch.source_profile_id,
-            &plan.source_evidence_payload,
         )?;
         last_source_batch_id = Some(source_batch_id);
     }

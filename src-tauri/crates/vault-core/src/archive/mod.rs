@@ -62,9 +62,9 @@ pub use self::schema::{current_version, run_migrations};
 pub(crate) use self::search_projection::rebuild_search_projection;
 pub use self::source_evidence::open_source_evidence_connection;
 pub(crate) use self::source_evidence::{
-    SourceBatchInput, SourceEvidencePayload, coverage_stats_json, coverage_stats_json_from_parts,
-    persist_source_evidence, record_schema_observation, take_source_evidence_payload,
-    upsert_source_batch,
+    DeferredSourceEvidencePayload, SourceBatchInput, SourceEvidencePayload,
+    coverage_stats_json_from_parts, defer_source_evidence_payload, record_schema_observation,
+    take_source_evidence_payload, upsert_source_batch,
 };
 pub use self::{
     doctor::{doctor, repair_health_issues},

@@ -59,6 +59,8 @@
 > **2026-04-22 Chromium streaming note**：backend 軌道的第八個 execution slice 已落地。`browser-history-parser::chromium` 現在新增 chunked `stream_history` path，`archive::ingest` 也已把 Chromium live-backup path 接到這條新 contract；這表示主力 backup 路徑現在會邊 parse staged Chromium DB 邊寫 canonical archive，而不是等整份 parser batch 完成後才開始寫入。剩餘 stop-ship 風險因此進一步縮到 Firefox / Safari / Takeout 仍 full-batch materialize，以及 cold source-evidence 尚未完全 spool/stream 化。
 >
 > **2026-04-22 cross-family streaming note**：backend 軌道又向前推了一輪。`browser-history-parser::firefox` 與 `::safari` 現在也補上相同的 streamed parser contract，`archive::ingest` 已把三個 live browser backup family 全部接到同一條 streamed canonical-ingest path。這讓 ordinary local backup runs 都不再等整份 parser batch 才開始寫 archive；剩下的 full-batch path 主要集中在 Takeout / restore-preview，以及 cold source-evidence 仍先在記憶體累積到 post-commit 才寫入。
+>
+> **2026-04-22 bounded-memory note**：backend 軌道這一輪再補了一刀。`archive::source_evidence` 現在會把超過閾值的 deferred cold payload spill 到 `staging/source-evidence-spool/`，所以 backup / import 不必把所有 post-commit native payload 一直留在 RAM 裡等 cold archive write 開始；`snapshot_restore` preview 也改成 direct checkpoint row counts，而不是為了估算 replay 再 materialize 一整份 parser batch。multi-profile backup 下 checkpoint preview 還順手修掉了 Safari / Firefox 會誤套第一個 `profile_scope` 的歸屬漂移。這讓剩下的 backend full-batch 風險更明確地只剩 Takeout parser/import 本身。
 
 ---
 

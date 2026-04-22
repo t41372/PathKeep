@@ -5,7 +5,9 @@ use crate::{
     models::{ArchiveMode, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest},
     utils::{restore_test_env_var, test_env_lock},
 };
+use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
 use rusqlite::Connection;
+use std::collections::BTreeMap;
 use tempfile::tempdir;
 
 fn sample_paths(root: &Path) -> ProjectPaths {
@@ -814,6 +816,115 @@ fn snapshot_restore_preview_and_run_record_the_saved_checkpoint() {
     );
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+}
+
+#[test]
+fn source_evidence_spools_large_deferred_payloads_and_cleans_up_tempfiles() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let spool_dir = paths.staging_dir.join("source-evidence-spool");
+    let large_blob = "x".repeat(300_000);
+
+    {
+        let deferred = defer_source_evidence_payload(
+            &paths,
+            "large-source-evidence",
+            SourceEvidencePayload {
+                typed_evidence: TypedEvidenceBatch {
+                    context: vec![ContextEvidence {
+                        source_visit_id: Some(1),
+                        source_url_id: Some(1),
+                        context_key: "context.takeout.large".to_string(),
+                        value_json: serde_json::to_string(&large_blob).expect("serialize context"),
+                        source_field: "payload".to_string(),
+                    }],
+                    ..TypedEvidenceBatch::default()
+                },
+                native_entities: vec![NativeEntity {
+                    entity_kind: "takeout-browser-history".to_string(),
+                    native_primary_key: "row-1".to_string(),
+                    parent_native_primary_key: None,
+                    payload_json: serde_json::json!({ "blob": large_blob }).to_string(),
+                    metadata: BTreeMap::new(),
+                }],
+            },
+        )
+        .expect("defer source evidence");
+
+        assert!(deferred.is_spooled());
+        assert_eq!(fs::read_dir(&spool_dir).expect("read spool dir").count(), 1);
+    }
+
+    assert_eq!(fs::read_dir(&spool_dir).expect("read cleaned spool dir").count(), 0);
+}
+
+#[test]
+fn snapshot_restore_preview_sizes_firefox_and_safari_checkpoints() {
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let firefox_profiles = seed_firefox_fixture(dir.path());
+    let safari_root = seed_safari_fixture(dir.path());
+    let original_firefox = std::env::var_os("CHB_FIREFOX_PROFILES_DIR");
+    let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+    unsafe {
+        std::env::set_var("CHB_FIREFOX_PROFILES_DIR", &firefox_profiles);
+        std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec![
+            "firefox:abcd.default-release".to_string(),
+            "safari:default".to_string(),
+        ],
+        ..AppConfig::default()
+    };
+
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    run_backup(&paths, &config, None, false).expect("run multi-browser backup");
+
+    let snapshot_paths = Connection::open(&paths.archive_database_path)
+        .expect("open archive")
+        .prepare("SELECT file_path FROM snapshots ORDER BY id")
+        .expect("prepare snapshot query")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query snapshots")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect snapshot paths");
+    let previews = snapshot_paths
+        .iter()
+        .map(|snapshot_path| {
+            preview_snapshot_restore(
+                &paths,
+                &config,
+                None,
+                &SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
+            )
+        })
+        .collect::<Result<Vec<_>>>()
+        .expect("preview snapshots");
+
+    assert!(previews.iter().any(|preview| {
+        preview
+            .source_browser_name
+            .as_deref()
+            .is_some_and(|browser_name| browser_name.eq_ignore_ascii_case("firefox"))
+            && preview.estimated_visits == 1
+            && preview.estimated_urls == 1
+    }));
+    assert!(previews.iter().any(|preview| {
+        preview
+            .source_browser_name
+            .as_deref()
+            .is_some_and(|browser_name| browser_name.eq_ignore_ascii_case("safari"))
+            && preview.estimated_visits == 1
+            && preview.estimated_urls == 1
+    }));
+
+    restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
+    restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
 }
 
 #[test]

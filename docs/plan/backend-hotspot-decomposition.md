@@ -40,6 +40,7 @@
 - 2026-04-22 follow-up landed: backup ingest and Takeout import no longer retain a second full `ParsedHistory` just to persist cold source evidence after canonical commits. `archive::source_evidence` now consumes a narrower payload (`typed_evidence + native_entities`), which drops the hottest duplicate retention path while keeping parser APIs and source-evidence schema stable.
 - 2026-04-22 streaming follow-up landed: the Chromium live-backup path no longer waits for one full parser batch before canonical writes begin. `browser-history-parser::chromium::stream_history` now emits URL/visit/download/search-term/favicon batches into `archive::ingest`, so the primary backup path can start canonical writes while parsing is still in progress.
 - 2026-04-22 cross-family streaming follow-up landed: Firefox and Safari now expose the same streamed parser contract, and `archive::ingest` routes all live local-backup browser families through one streamed canonical-ingest path. The remaining full-batch parser path is now concentrated in Takeout and restore-preview flows rather than ordinary browser backup runs.
+- 2026-04-22 bounded-memory follow-up landed: deferred cold source-evidence payloads now spill to temporary files under `staging/source-evidence-spool/` once they exceed the in-memory threshold, so backup/import flows no longer need to hold every post-commit native payload in RAM until the cold archive write begins. `snapshot_restore` preview also switched from parser materialization to direct checkpoint row counts, and checkpoint replay now resolves the owning profile id from the checkpoint directory when one backup run covered multiple profiles.
 
 ### Slice 3 — Intelligence runtime queue boundary
 
@@ -51,7 +52,7 @@
 - Split `archive/mod.rs` into backup execution, canonical ingest helpers, checkpoint / manifest helpers, and retention/recoverability helpers.
 - Preserve canonical archive behavior, run-ledger semantics, and existing `archive::*` public surface.
 - 2026-04-21 follow-up landed: backup execution plus manifest/checkpoint helpers are now out of `archive/mod.rs`, so the remaining archive-side work is no longer file-size triage.
-- Remaining risk after the 2026-04-22 source-evidence cut: Chromium / Firefox / Safari backup runs now stream canonical rows, but Takeout and restore-preview flows still materialize full parser batches, and cold source-evidence still accumulates in memory until post-commit persistence finishes. The next slice should keep pushing Takeout plus cold-evidence spooling toward truly bounded memory rather than spending more time on already-split archive/takeout owners.
+- Remaining risk after the 2026-04-22 bounded-memory cut: Chromium / Firefox / Safari backup runs now stream canonical rows, restore-preview no longer reparses full checkpoints just to size a replay, and cold source-evidence can spill out of RAM before post-commit persistence. The next slice should therefore focus on the remaining full-batch Takeout parser/import contract instead of spending more time on already-split archive/takeout owners.
 
 ### Slice 5 — Core Intelligence domain boundary
 

@@ -144,11 +144,7 @@ pub(crate) fn load_checkpoint_profile_snapshot(
     snapshot_path: &Path,
     snapshot: &SnapshotRecord,
 ) -> Result<ProfileSnapshot> {
-    let profile_id = snapshot
-        .profile_scope
-        .first()
-        .cloned()
-        .or_else(|| checkpoint_profile_id_from_path(snapshot_path))
+    let profile_id = checkpoint_profile_id_for_snapshot(snapshot_path, snapshot)
         .context("snapshot restore requires a recorded profile scope")?;
     let history_path = snapshot_path.join("History");
     if !history_path.exists() {
@@ -175,6 +171,27 @@ pub(crate) fn load_checkpoint_profile_snapshot(
         favicons_path: favicons_path.exists().then_some(favicons_path),
         source_hashes,
     })
+}
+
+/// Chooses the profile id that actually owns one saved checkpoint directory.
+///
+/// Multi-profile backup runs persist one snapshot row per profile but only one
+/// run-level `profile_scope_json`. When that scope contains multiple profile
+/// ids, the checkpoint directory name is the only stable way to decide whether
+/// this artifact belongs to Firefox, Safari, or Chromium.
+fn checkpoint_profile_id_for_snapshot(
+    snapshot_path: &Path,
+    snapshot: &SnapshotRecord,
+) -> Option<String> {
+    if snapshot.profile_scope.len() <= 1 {
+        return snapshot
+            .profile_scope
+            .first()
+            .cloned()
+            .or_else(|| checkpoint_profile_id_from_path(snapshot_path));
+    }
+    checkpoint_profile_id_from_path(snapshot_path)
+        .or_else(|| snapshot.profile_scope.first().cloned())
 }
 
 /// Records that a later run reused or consumed an existing snapshot artifact.

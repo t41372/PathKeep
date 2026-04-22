@@ -58,7 +58,7 @@ pub(super) struct SourceEvidencePlan {
     source_profile_id: i64,
     source_batch: SourceBatchInput,
     schema_observation: browser_history_parser::SchemaObservation,
-    source_evidence_payload: SourceEvidencePayload,
+    source_evidence_payload: DeferredSourceEvidencePayload,
 }
 
 const ARCHIVE_STREAM_CHUNK_SIZE: usize = 10_000;
@@ -347,6 +347,18 @@ fn process_streamed_profile_snapshot(
         typed_evidence: streamed.typed_evidence,
         native_entities: streamed.native_entities,
     };
+    let coverage_stats_json = coverage_stats_json_from_parts(
+        progress.url_count,
+        progress.visit_count,
+        progress.download_count,
+        progress.search_term_count,
+        &source_evidence_payload,
+    );
+    let deferred_source_evidence_payload = defer_source_evidence_payload(
+        paths,
+        &snapshot.profile.profile_id,
+        source_evidence_payload,
+    )?;
     source_evidence_plans.push(SourceEvidencePlan {
         profile_id: snapshot.profile.profile_id.clone(),
         source_profile_id,
@@ -359,13 +371,7 @@ fn process_streamed_profile_snapshot(
             schema_version_int: None,
             schema_fingerprint: schema_hash.to_string(),
             capability_snapshot: streamed.capability_snapshot,
-            coverage_stats_json: coverage_stats_json_from_parts(
-                progress.url_count,
-                progress.visit_count,
-                progress.download_count,
-                progress.search_term_count,
-                &source_evidence_payload,
-            ),
+            coverage_stats_json,
             artifact_refs_json: Some(
                 json!({
                     "historyPath": snapshot.history_path.display().to_string(),
@@ -377,7 +383,7 @@ fn process_streamed_profile_snapshot(
             notes_json: Some(serde_json::to_string(&streamed.warnings)?),
         },
         schema_observation: streamed.schema_observation,
-        source_evidence_payload,
+        source_evidence_payload: deferred_source_evidence_payload,
     });
 
     save_watermark(
@@ -600,6 +606,19 @@ pub(super) fn process_profile_snapshot(
         summary.checkpoint_created = true;
     }
 
+    let source_evidence_payload = take_source_evidence_payload(&mut history);
+    let coverage_stats_json = coverage_stats_json_from_parts(
+        history.urls.len(),
+        history.visits.len(),
+        history.downloads.len(),
+        history.search_terms.len(),
+        &source_evidence_payload,
+    );
+    let deferred_source_evidence_payload = defer_source_evidence_payload(
+        paths,
+        &snapshot.profile.profile_id,
+        source_evidence_payload,
+    )?;
     source_evidence_plans.push(SourceEvidencePlan {
         profile_id: snapshot.profile.profile_id.clone(),
         source_profile_id,
@@ -612,7 +631,7 @@ pub(super) fn process_profile_snapshot(
             schema_version_int: None,
             schema_fingerprint: schema_hash.clone(),
             capability_snapshot: history.capability_snapshot.clone(),
-            coverage_stats_json: coverage_stats_json(&history),
+            coverage_stats_json,
             artifact_refs_json: Some(
                 json!({
                     "historyPath": snapshot.history_path.display().to_string(),
@@ -624,7 +643,7 @@ pub(super) fn process_profile_snapshot(
             notes_json: Some(serde_json::to_string(&history.warnings)?),
         },
         schema_observation: history.schema_observation.clone(),
-        source_evidence_payload: take_source_evidence_payload(&mut history),
+        source_evidence_payload: deferred_source_evidence_payload,
     });
 
     save_watermark(
@@ -671,11 +690,10 @@ pub(super) fn persist_source_evidence_plans(
             "primary-source",
             &plan.schema_observation,
         )?;
-        persist_source_evidence(
+        plan.source_evidence_payload.persist(
             &transaction,
             source_batch_id,
             plan.source_profile_id,
-            &plan.source_evidence_payload,
         )?;
         committed_batch_ids.push((plan.profile_id.clone(), source_batch_id));
     }

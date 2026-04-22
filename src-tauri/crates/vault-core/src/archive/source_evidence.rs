@@ -1,9 +1,32 @@
 //! Cold source-evidence storage for browser-native metadata.
 //!
-//! Canonical archive facts stay in `archive/history-vault.sqlite`. This module
-//! owns the parallel `archive/source-evidence.sqlite` plane that preserves
-//! extractor observations, capability snapshots, typed evidence, and native
-//! entities without polluting the hot canonical query path.
+//! ## Responsibilities
+//! - Own the archived `archive/source-evidence.sqlite` plane that preserves
+//!   schema observations, capability snapshots, typed evidence, and native
+//!   entities without polluting the hot canonical archive.
+//! - Provide the post-commit persistence helpers used by backup/import flows
+//!   after canonical archive rows have committed successfully.
+//! - Offer a bounded-memory deferred payload contract so large source-evidence
+//!   batches can spill to temporary disk before the cold archive write runs.
+//!
+//! ## Not responsible for
+//! - Writing canonical URL/visit/download/search-term/favicon rows.
+//! - Driving archive run-ledger, manifest, or checkpoint orchestration.
+//! - Serving default shell queries; this plane remains a cold explain/debug
+//!   boundary.
+//!
+//! ## Dependencies
+//! - `browser_history_parser` read models for typed evidence and native
+//!   entities.
+//! - `tempfile` for spill-to-disk payloads that would otherwise keep large
+//!   post-commit batches in RAM.
+//!
+//! ## Performance notes
+//! - Canonical ingest stays on the hot archive path; source-evidence writes are
+//!   deferred until after the canonical transaction commits.
+//! - Large deferred payloads spill to temporary files in `staging/` so long
+//!   imports do not retain every source-native JSON blob in memory until the
+//!   cold archive catch-up write begins.
 
 use crate::{
     archive::apply_cipher_key,
@@ -16,8 +39,10 @@ use browser_history_parser::{
     CapabilitySnapshot, NativeEntity, ParsedHistory, SchemaObservation, TypedEvidenceBatch,
 };
 use rusqlite::{Connection, Transaction, params};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::time::Duration as StdDuration;
+use std::{fs, time::Duration as StdDuration};
+use tempfile::{Builder as TempFileBuilder, TempPath};
 
 const SOURCE_EVIDENCE_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS source_batches (
@@ -122,6 +147,8 @@ CREATE INDEX IF NOT EXISTS idx_native_entities_batch_kind
   ON native_entities(source_batch_id, entity_kind);
 "#;
 
+const SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES: usize = 512 * 1024;
+
 #[derive(Debug, Clone)]
 pub(crate) struct SourceBatchInput {
     pub source_profile_id: i64,
@@ -138,10 +165,77 @@ pub(crate) struct SourceBatchInput {
 }
 
 /// Cold evidence payload that still needs to be written after canonical ingest commits.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct SourceEvidencePayload {
     pub typed_evidence: TypedEvidenceBatch,
     pub native_entities: Vec<NativeEntity>,
+}
+
+/// Defers one cold payload until the archive transaction has committed.
+///
+/// Small payloads stay in memory. Larger ones spill into a temporary JSON file
+/// under `staging/source-evidence-spool/` so import/backup flows do not keep
+/// every native payload resident until post-commit source-evidence persistence.
+#[derive(Debug)]
+pub(crate) enum DeferredSourceEvidencePayload {
+    InMemory(SourceEvidencePayload),
+    SpoolFile(TempPath),
+}
+
+impl DeferredSourceEvidencePayload {
+    /// Returns `true` when this payload has been spilled to disk.
+    #[cfg(test)]
+    pub(crate) fn is_spooled(&self) -> bool {
+        matches!(self, Self::SpoolFile(_))
+    }
+
+    /// Persists the deferred payload into the cold source-evidence archive.
+    pub(crate) fn persist(
+        &self,
+        transaction: &Transaction<'_>,
+        source_batch_id: i64,
+        source_profile_id: i64,
+    ) -> Result<()> {
+        match self {
+            Self::InMemory(payload) => {
+                persist_source_evidence(transaction, source_batch_id, source_profile_id, payload)
+            }
+            Self::SpoolFile(path) => {
+                let file = fs::File::open(path).with_context(|| {
+                    format!("opening deferred source-evidence {}", path.display())
+                })?;
+                let payload: SourceEvidencePayload =
+                    serde_json::from_reader(file).with_context(|| {
+                        format!("reading deferred source-evidence {}", path.display())
+                    })?;
+                persist_source_evidence(transaction, source_batch_id, source_profile_id, &payload)
+            }
+        }
+    }
+}
+
+/// Moves a post-commit payload into bounded storage before the cold archive write begins.
+pub(crate) fn defer_source_evidence_payload(
+    paths: &ProjectPaths,
+    label: &str,
+    payload: SourceEvidencePayload,
+) -> Result<DeferredSourceEvidencePayload> {
+    if approx_source_evidence_payload_bytes(&payload) <= SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES {
+        return Ok(DeferredSourceEvidencePayload::InMemory(payload));
+    }
+
+    let spool_dir = paths.staging_dir.join("source-evidence-spool");
+    fs::create_dir_all(&spool_dir).with_context(|| format!("creating {}", spool_dir.display()))?;
+    let mut file = TempFileBuilder::new()
+        .prefix(&spool_file_prefix(label))
+        .suffix(".json")
+        .tempfile_in(&spool_dir)
+        .with_context(|| {
+            format!("allocating deferred source-evidence in {}", spool_dir.display())
+        })?;
+    serde_json::to_writer(file.as_file_mut(), &payload)
+        .context("serializing deferred source-evidence payload")?;
+    Ok(DeferredSourceEvidencePayload::SpoolFile(file.into_temp_path()))
 }
 
 pub fn open_source_evidence_connection(
@@ -336,17 +430,99 @@ pub(crate) fn persist_source_evidence(
     Ok(())
 }
 
-pub(crate) fn coverage_stats_json(parsed: &ParsedHistory) -> String {
-    coverage_stats_json_from_parts(
-        parsed.urls.len(),
-        parsed.visits.len(),
-        parsed.downloads.len(),
-        parsed.search_terms.len(),
-        &SourceEvidencePayload {
-            typed_evidence: parsed.typed_evidence.clone(),
-            native_entities: parsed.native_entities.clone(),
-        },
-    )
+fn approx_source_evidence_payload_bytes(payload: &SourceEvidencePayload) -> usize {
+    payload
+        .typed_evidence
+        .search
+        .iter()
+        .map(|evidence| {
+            option_i64_len(evidence.source_visit_id)
+                + option_i64_len(evidence.source_url_id)
+                + evidence.evidence_key.len()
+                + evidence.evidence_value.len()
+                + option_str_len(evidence.normalized_value.as_deref())
+                + evidence.source_field.len()
+        })
+        .sum::<usize>()
+        + payload
+            .typed_evidence
+            .navigation
+            .iter()
+            .map(|evidence| {
+                evidence.source_visit_id.to_string().len()
+                    + evidence.edge_kind.len()
+                    + option_i64_len(evidence.target_visit_id)
+                    + option_str_len(evidence.target_url.as_deref())
+                    + option_i64_len(evidence.transition)
+                    + evidence.source_field.len()
+            })
+            .sum::<usize>()
+        + payload
+            .typed_evidence
+            .engagement
+            .iter()
+            .map(|evidence| {
+                evidence.source_visit_id.to_string().len()
+                    + evidence.metric_key.len()
+                    + option_i64_len(evidence.metric_value_int)
+                    + option_f64_len(evidence.metric_value_real)
+                    + evidence.source_field.len()
+            })
+            .sum::<usize>()
+        + payload
+            .typed_evidence
+            .context
+            .iter()
+            .map(|evidence| {
+                option_i64_len(evidence.source_visit_id)
+                    + option_i64_len(evidence.source_url_id)
+                    + evidence.context_key.len()
+                    + evidence.value_json.len()
+                    + evidence.source_field.len()
+            })
+            .sum::<usize>()
+        + payload
+            .native_entities
+            .iter()
+            .map(|entity| {
+                entity.entity_kind.len()
+                    + entity.native_primary_key.len()
+                    + option_str_len(entity.parent_native_primary_key.as_deref())
+                    + entity.payload_json.len()
+                    + entity
+                        .metadata
+                        .iter()
+                        .map(|(key, value)| key.len() + value.len())
+                        .sum::<usize>()
+            })
+            .sum::<usize>()
+}
+
+fn option_i64_len(value: Option<i64>) -> usize {
+    value.map(|_| std::mem::size_of::<i64>()).unwrap_or_default()
+}
+
+fn option_f64_len(value: Option<f64>) -> usize {
+    value.map(|_| std::mem::size_of::<f64>()).unwrap_or_default()
+}
+
+fn option_str_len(value: Option<&str>) -> usize {
+    value.map(str::len).unwrap_or_default()
+}
+
+fn spool_file_prefix(label: &str) -> String {
+    let mut prefix =
+        label
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() { character.to_ascii_lowercase() } else { '-' }
+            })
+            .collect::<String>();
+    prefix.truncate(24);
+    if prefix.trim_matches('-').is_empty() {
+        prefix = "source-evidence".to_string();
+    }
+    format!("pathkeep-{prefix}-")
 }
 
 /// Builds coverage stats JSON from canonical row counts plus the deferred cold payload.

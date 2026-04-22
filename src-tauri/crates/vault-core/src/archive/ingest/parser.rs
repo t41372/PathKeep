@@ -23,6 +23,7 @@ use browser_history_parser::{
     ChromiumReadCursor, HistoryDatabaseSet, ParsedHistory, chromium, firefox, safari,
 };
 use chrono::{DateTime, Duration, Utc};
+use rusqlite::{Connection, OpenFlags};
 
 /// Tracks the last successfully ingested source cursors for one profile.
 #[derive(Debug, Default)]
@@ -50,10 +51,14 @@ pub(super) struct ParsedProfileSnapshot {
 /// Parses a saved source checkpoint without incremental cursors so restore preview can size the replay.
 pub(super) fn preview_snapshot_counts(
     snapshot: &ProfileSnapshot,
-    config: &AppConfig,
+    _config: &AppConfig,
 ) -> Result<(usize, usize, usize)> {
-    let parsed = parse_profile_snapshot(snapshot, config, &Watermark::default())?;
-    Ok((parsed.history.visits.len(), parsed.history.urls.len(), parsed.history.downloads.len()))
+    match snapshot.profile.browser_family.as_str() {
+        "chromium" => preview_chromium_snapshot_counts(snapshot),
+        "firefox" => preview_firefox_snapshot_counts(snapshot),
+        "safari" => preview_safari_snapshot_counts(snapshot),
+        family => anyhow::bail!("browser family `{family}` is not supported by the archive engine"),
+    }
 }
 
 /// Parses one staged profile snapshot using the correct browser-family parser and cursors.
@@ -238,4 +243,81 @@ pub(super) fn should_checkpoint(
 /// Converts canonical visit milliseconds back into Chromium's microsecond epoch for fingerprints.
 fn ms_to_chromium_time(value_ms: i64) -> i64 {
     unix_micros_to_chrome_time(value_ms.saturating_mul(1_000))
+}
+
+fn preview_chromium_snapshot_counts(snapshot: &ProfileSnapshot) -> Result<(usize, usize, usize)> {
+    let connection = open_snapshot_connection(&snapshot.history_path)?;
+    let urls = query_table_count(&connection, "urls", "SELECT COUNT(*) FROM urls")?;
+    let visits = query_table_count(&connection, "visits", "SELECT COUNT(*) FROM visits")?;
+    let downloads =
+        query_optional_table_count(&connection, "downloads", "SELECT COUNT(*) FROM downloads")?;
+    Ok((visits, urls, downloads))
+}
+
+fn preview_firefox_snapshot_counts(snapshot: &ProfileSnapshot) -> Result<(usize, usize, usize)> {
+    let connection = open_snapshot_connection(&snapshot.history_path)?;
+    let urls = query_table_count(
+        &connection,
+        "moz_places",
+        "SELECT COUNT(*) FROM moz_places WHERE last_visit_date IS NOT NULL",
+    )?;
+    let visits = query_table_count(
+        &connection,
+        "moz_historyvisits",
+        "SELECT COUNT(*) FROM moz_historyvisits",
+    )?;
+    Ok((visits, urls, 0))
+}
+
+fn preview_safari_snapshot_counts(snapshot: &ProfileSnapshot) -> Result<(usize, usize, usize)> {
+    let connection = open_snapshot_connection(&snapshot.history_path)?;
+    let visits =
+        query_table_count(&connection, "history_visits", "SELECT COUNT(*) FROM history_visits")?;
+    let urls = query_table_count(
+        &connection,
+        "history_items",
+        "SELECT COUNT(DISTINCT history_item) FROM history_visits",
+    )?;
+    Ok((visits, urls, 0))
+}
+
+fn open_snapshot_connection(path: &std::path::Path) -> Result<Connection> {
+    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .with_context(|| format!("opening checkpoint {}", path.display()))
+}
+
+fn query_table_count(connection: &Connection, table: &str, sql: &str) -> Result<usize> {
+    if !table_exists(connection, table)? {
+        anyhow::bail!("checkpoint is missing required table `{table}`");
+    }
+    query_count(connection, sql)
+}
+
+fn query_optional_table_count(connection: &Connection, table: &str, sql: &str) -> Result<usize> {
+    if !table_exists(connection, table)? {
+        return Ok(0);
+    }
+    query_count(connection, sql)
+}
+
+fn query_count(connection: &Connection, sql: &str) -> Result<usize> {
+    connection
+        .query_row(sql, [], |row| row.get::<_, i64>(0))
+        .map(|count| count as usize)
+        .map_err(Into::into)
+}
+
+fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(
+               SELECT 1
+               FROM sqlite_master
+               WHERE type = 'table' AND name = ?1
+             )",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|exists| exists != 0)
+        .map_err(Into::into)
 }
