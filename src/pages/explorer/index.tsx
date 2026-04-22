@@ -28,7 +28,6 @@ import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
-import { browserLabel, dateShortcutWindows } from './helpers'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
 import { ExplorerDetailPanel } from './panels/detail-panel'
@@ -37,6 +36,8 @@ import { ExplorerRuntimePanel } from './panels/runtime-panel'
 import { ExplorerSemanticPanel } from './panels/semantic-panel'
 import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
+import { ExplorerQueryFiltersPanel } from './query-filters-panel'
+import { ExplorerTimelineBar } from './timeline-bar'
 import type { ExplorerVisitSelection } from './types'
 
 /**
@@ -222,6 +223,9 @@ export function ExplorerPage() {
     ? (explicitPage ?? visibleTimeResults?.page ?? 1)
     : (visibleTimeResults?.page ?? explicitPage ?? 1)
   const historyPageCount = visibleTimeResults?.pageCount ?? 1
+  const activeScopeLabel = activeProfileId
+    ? profileIdLabel(activeProfileId)
+    : null
   const selectedEntry =
     (!loading ? visibleTimeResults : null)?.items.find(
       (item) => item.id === selectedId,
@@ -287,331 +291,49 @@ export function ExplorerPage() {
 
   return (
     <section className="page-shell explorer-page" data-testid="explorer-page">
-      <div className="timeline-bar">
-        <div className="timeline-controls">
-          {dateShortcutWindows.map((entry) => (
-            <button
-              key={entry.key}
-              className={`tl-btn ${
-                activeDateShortcut() === entry.key ? 'active' : ''
-              }`}
-              type="button"
-              onClick={() => applyDateShortcut(entry.days)}
-            >
-              {explorerT(entry.labelKey)}
-            </button>
-          ))}
-        </div>
-        <div className="timeline-track">
-          {visibleTimeResults ? (
-            <div className="timeline-page-summary">
-              <span className="history-page-summary">
-                {explorerT('pageCountSummary', {
-                  current: historyPage,
-                  total: historyPageCount,
-                })}
-              </span>
-              <span className="timeline-page-summary__loaded">
-                {explorerT('resultsSummary', {
-                  loaded: visibleTimeResults.items.length,
-                  total: visibleTimeResults.total,
-                })}
-              </span>
-            </div>
-          ) : (
-            <span className="timeline-label">
-              {explorerT('waitingForQuery')}
-            </span>
-          )}
-          <span className="timeline-label">
-            {start || end
-              ? `${start ?? '…'} → ${end ?? '…'}`
-              : explorerT('allRecordedTime')}
-          </span>
-          {(start || end) && (
-            <button className="tl-today" type="button" onClick={clearDateRange}>
-              {explorerT('clearRange')}
-            </button>
-          )}
-        </div>
-      </div>
+      <ExplorerTimelineBar
+        activeShortcutKey={activeDateShortcut()}
+        explorerT={explorerT}
+        onApplyDateShortcut={applyDateShortcut}
+        onClearDateRange={clearDateRange}
+        summary={
+          visibleTimeResults
+            ? {
+                currentPage: historyPage,
+                loaded: visibleTimeResults.items.length,
+                pageCount: historyPageCount,
+                total: visibleTimeResults.total,
+              }
+            : null
+        }
+        end={end}
+        start={start}
+      />
 
-      {activeFilters.length > 0 && (
-        <div className="filter-bar">
-          <div className="filter-tags">
-            {activeFilters.map((filter) => (
-              <div key={`${filter.id}:${filter.value}`} className="filter-tag">
-                <span>
-                  {filter.label}: {filter.value}
-                </span>
-                <button
-                  aria-label={explorerT('removeFilter', {
-                    label: filter.label,
-                    value: filter.value,
-                  })}
-                  className="filter-remove"
-                  type="button"
-                  onClick={() => updateParam(filter.id, null)}
-                >
-                  <span aria-hidden>×</span>
-                  <span className="sr-only">
-                    {explorerT('removeFilterShort')}
-                  </span>
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="filter-actions">
-            <button
-              className="filter-btn"
-              type="button"
-              onClick={clearAllFilters}
-            >
-              {explorerT('clearAllFilters')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{explorerT('queryFiltersTitle')}</span>
-          <span className="panel-action">
-            {visibleTimeResults
-              ? explorerT('visibleRecords', { count: visibleTimeResults.total })
-              : explorerT('waitingForQuery')}
-          </span>
-        </div>
-        <div className="panel-body">
-          <div
-            className="segmented-row"
-            style={{ marginBottom: 'var(--space-4)' }}
-          >
-            {(['keyword', 'semantic', 'hybrid'] as const).map((option) => (
-              <button
-                key={option}
-                className={`chip-button ${
-                  mode === option ? 'chip-button--active' : ''
-                }`}
-                type="button"
-                onClick={() =>
-                  updateParam('mode', option === 'keyword' ? null : option)
-                }
-              >
-                {option === 'keyword'
-                  ? explorerT('modeKeyword')
-                  : option === 'semantic'
-                    ? explorerT('modeSemantic')
-                    : explorerT('modeHybrid')}
-              </button>
-            ))}
-          </div>
-          <div
-            className="segmented-row"
-            style={{ marginBottom: 'var(--space-4)' }}
-            role="toolbar"
-            aria-label={intelligenceT('viewModeLabel')}
-          >
-            {(['time', 'session', 'trail'] as const).map((option) => (
-              <button
-                key={option}
-                className={`chip-button ${
-                  view === option ? 'chip-button--active' : ''
-                }`}
-                type="button"
-                disabled={mode !== 'keyword' && option !== 'time'}
-                aria-pressed={view === option}
-                onClick={() => setView(option)}
-              >
-                {option === 'time'
-                  ? intelligenceT('viewModeTime')
-                  : option === 'session'
-                    ? intelligenceT('viewModeSession')
-                    : intelligenceT('viewModeTrail')}
-              </button>
-            ))}
-          </div>
-          <div className="explorer-filters">
-            <div
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">
-                {explorerT('filterKeyword')}
-                {regexMode ? <span className="regex-badge">[.*]</span> : null}
-              </span>
-              <div className="regex-input-row">
-                <input
-                  aria-label={explorerT('filterKeywordAria')}
-                  className={regexMode && !regexValid ? 'input-invalid' : ''}
-                  type="search"
-                  value={queryInput}
-                  onChange={(event) => setQueryInput(event.target.value)}
-                />
-                <button
-                  aria-label={explorerT('toggleRegex')}
-                  aria-pressed={regexMode}
-                  className={`regex-toggle ${
-                    regexMode ? 'regex-toggle--active' : ''
-                  }`}
-                  title={explorerT('toggleRegex')}
-                  type="button"
-                  onClick={() => updateParam('regex', regexMode ? null : '1')}
-                >
-                  .*
-                </button>
-              </div>
-              {regexMode && queryInput.trim() ? (
-                <span
-                  className={regexValid ? 'regex-valid' : 'regex-error'}
-                  role={regexValid ? undefined : 'alert'}
-                >
-                  {regexValid
-                    ? explorerT('regexValid')
-                    : explorerT('regexInvalid')}
-                </span>
-              ) : null}
-            </div>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">{explorerT('filterDomain')}</span>
-              <input
-                aria-label={explorerT('filterDomain')}
-                type="search"
-                value={searchParams.get('domain') ?? ''}
-                onChange={(event) =>
-                  updateParam('domain', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">{explorerT('filterProfile')}</span>
-              <select
-                aria-label={explorerT('filterProfileAria')}
-                value={profileId ?? ''}
-                onChange={(event) =>
-                  updateParam('profileId', event.target.value || null)
-                }
-              >
-                <option value="">{explorerT('allProfiles')}</option>
-                {snapshot.config.selectedProfileIds.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-              {!explicitProfileId && activeProfileId ? (
-                <span className="mono-support">
-                  {explorerT('scopeInherited', {
-                    profile: profileIdLabel(activeProfileId),
-                  })}
-                </span>
-              ) : null}
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">{explorerT('filterBrowser')}</span>
-              <select
-                aria-label={explorerT('filterBrowser')}
-                value={searchParams.get('browserKind') ?? ''}
-                onChange={(event) =>
-                  updateParam('browserKind', event.target.value || null)
-                }
-              >
-                <option value="">{explorerT('allBrowsers')}</option>
-                {browserKinds.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {browserLabel(kind)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">{explorerT('filterStart')}</span>
-              <input
-                aria-label={explorerT('filterStart')}
-                type="date"
-                value={start ?? ''}
-                onChange={(event) =>
-                  updateParam('start', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">{explorerT('filterEnd')}</span>
-              <input
-                aria-label={explorerT('filterEnd')}
-                type="date"
-                value={end ?? ''}
-                onChange={(event) =>
-                  updateParam('end', event.target.value || null)
-                }
-              />
-            </label>
-            <label
-              className="field-stack"
-              style={{ border: 'none', background: 'transparent', padding: 0 }}
-            >
-              <span className="mono-kicker">{explorerT('filterSort')}</span>
-              <select
-                aria-label={explorerT('filterSort')}
-                value={searchParams.get('sort') ?? 'newest'}
-                onChange={(event) => updateParam('sort', event.target.value)}
-              >
-                <option value="newest">{explorerT('sortNewest')}</option>
-                <option value="oldest">{explorerT('sortOldest')}</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        <div
-          className="panel-body"
-          style={{
-            borderTop: '1px solid var(--border)',
-            paddingTop: 'var(--space-2)',
-          }}
-        >
-          <div className="recent-search-bar">
-            {recentSearches.length > 0 ? (
-              recentSearches.map((entry) => (
-                <button
-                  key={JSON.stringify(entry.params)}
-                  className="chip-button"
-                  type="button"
-                  onClick={() =>
-                    setSearchParams(
-                      new URLSearchParams(
-                        Object.entries(entry.params).flatMap(([key, value]) =>
-                          value ? [[key, value]] : [],
-                        ),
-                      ),
-                    )
-                  }
-                >
-                  {buildRecentSearchLabel(entry.params) || entry.label}
-                </button>
-              ))
-            ) : (
-              <span className="mono-support">
-                {explorerT('recentFiltersEmpty')}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+      <ExplorerQueryFiltersPanel
+        activeFilters={activeFilters}
+        activeScopeLabel={activeScopeLabel}
+        browserKinds={browserKinds}
+        buildRecentSearchLabel={buildRecentSearchLabel}
+        clearAllFilters={clearAllFilters}
+        explicitProfileId={explicitProfileId}
+        explorerT={explorerT}
+        intelligenceT={intelligenceT}
+        mode={mode}
+        profileId={profileId}
+        queryInput={queryInput}
+        recentSearches={recentSearches}
+        regexMode={regexMode}
+        regexValid={regexValid}
+        searchParams={searchParams}
+        selectedProfileIds={snapshot.config.selectedProfileIds}
+        setQueryInput={setQueryInput}
+        setSearchParams={setSearchParams}
+        setView={setView}
+        updateParam={updateParam}
+        view={view}
+        visibleRecordCount={visibleTimeResults?.total ?? null}
+      />
 
       {aiMeta && mode !== 'keyword' && (
         <ExplorerRuntimePanel
