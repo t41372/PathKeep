@@ -16,56 +16,22 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import { ReviewSection } from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
-import { formatDateTime, formatRelativeTime } from '../../lib/format'
-import { type ResolvedLanguage, useI18n } from '../../lib/i18n'
+import { formatRelativeTime } from '../../lib/format'
+import { useI18n } from '../../lib/i18n'
 import {
   runtimeJobMutationNeedsRefresh,
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
-import {
-  enrichmentPluginLabel,
-  intelligenceRuntimeJobStateLabel,
-} from '../../lib/intelligence-runtime'
-import type {
-  AiQueueJob,
-  AppConfig,
-  IntelligenceJobOverview,
-} from '../../lib/types'
+import type { AppConfig } from '../../lib/types'
+import { JobPanel, RuntimeJobPanel } from './job-panels'
 import { JobsRuntimeHealthSection } from './runtime-health-section'
-
-type JobsTranslator = (
-  key: string,
-  vars?: Record<string, string | number>,
-) => string
-
-function aiJobStateLabel(state: string, jobsT: JobsTranslator) {
-  switch (state) {
-    case 'queued':
-      return jobsT('jobStateQueued')
-    case 'running':
-      return jobsT('jobStateRunning')
-    case 'succeeded':
-      return jobsT('jobStateSucceeded')
-    case 'failed':
-      return jobsT('jobStateFailed')
-    case 'cancelled':
-      return jobsT('jobStateCancelled')
-    case 'paused':
-      return jobsT('jobStatePaused')
-    case 'stale':
-      return jobsT('jobStateStale')
-    default:
-      return state
-  }
-}
 
 function nextPausedConfig(config: AppConfig, paused: boolean): AppConfig {
   return {
@@ -561,250 +527,26 @@ export function JobsPage() {
             action={action}
             emptyLabel={jobsT('recentJobsEmpty')}
             jobs={aiQueue?.recentJobs ?? []}
+            jobsT={jobsT}
             language={language}
             noDetailsLabel={jobsT('noErrorDetails')}
             onCancel={handleCancelAiJob}
             onRetry={handleReplayAiJob}
-            stateLabel={(state) => aiJobStateLabel(state, jobsT)}
             title={jobsT('recentAiJobs')}
-            jobsT={jobsT}
           />
           <RuntimeJobPanel
             action={action}
             emptyLabel={jobsT('recentJobsEmpty')}
             jobs={runtime?.recentJobs ?? []}
+            jobsT={jobsT}
             language={language}
             onCancel={handleCancelRuntimeJob}
             onRetry={handleRetryRuntimeJob}
             settingsT={settingsT}
             title={jobsT('recentRuntimeJobs')}
-            jobsT={jobsT}
           />
         </div>
       </div>
     </section>
-  )
-}
-
-function JobPanel({
-  action,
-  emptyLabel,
-  jobs,
-  language,
-  noDetailsLabel,
-  onCancel,
-  onRetry,
-  stateLabel,
-  title,
-  jobsT,
-}: {
-  action: string | null
-  emptyLabel: string
-  jobs: AiQueueJob[]
-  language: ResolvedLanguage
-  noDetailsLabel: string
-  onCancel: (jobId: number) => Promise<void>
-  onRetry: (jobId: number) => Promise<void>
-  stateLabel: (state: string) => string
-  title: string
-  jobsT: JobsTranslator
-}) {
-  return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">{title}</span>
-      </div>
-      <div className="panel-body intelligence-job-list">
-        {jobs.length === 0 ? (
-          <p className="mono-support">{emptyLabel}</p>
-        ) : (
-          jobs.map((job) => (
-            <ReviewSection
-              key={job.id}
-              headerMeta={
-                <span className="mono-support">{stateLabel(job.state)}</span>
-              }
-              title={
-                <>
-                  {job.jobType} · #{job.id}
-                </>
-              }
-            >
-              <p>{job.summary ?? job.errorMessage ?? noDetailsLabel}</p>
-              <div className="jobs-meta-grid mono-support">
-                <span>
-                  {jobsT('createdAt')}:{' '}
-                  {formatDateTime(job.queuedAt, language) ?? job.queuedAt}
-                </span>
-                <span>
-                  {jobsT('startedAt')}:{' '}
-                  {job.startedAt
-                    ? formatDateTime(job.startedAt, language)
-                    : '—'}
-                </span>
-                <span>
-                  {jobsT('finishedAt')}:{' '}
-                  {job.finishedAt
-                    ? formatDateTime(job.finishedAt, language)
-                    : '—'}
-                </span>
-              </div>
-              <div className="intelligence-actions">
-                {['failed', 'cancelled', 'paused', 'stale'].includes(
-                  job.state,
-                ) ? (
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => void onRetry(job.id)}
-                    disabled={Boolean(action)}
-                  >
-                    {jobsT('retryJob')}
-                  </button>
-                ) : null}
-                {['queued', 'paused', 'stale'].includes(job.state) ? (
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => void onCancel(job.id)}
-                    disabled={Boolean(action)}
-                  >
-                    {jobsT('cancelJob')}
-                  </button>
-                ) : null}
-              </div>
-            </ReviewSection>
-          ))
-        )}
-      </div>
-    </div>
-  )
-}
-
-function RuntimeJobPanel({
-  action,
-  emptyLabel,
-  jobs,
-  language,
-  onCancel,
-  onRetry,
-  settingsT,
-  title,
-  jobsT,
-}: {
-  action: string | null
-  emptyLabel: string
-  jobs: IntelligenceJobOverview[]
-  language: ResolvedLanguage
-  onCancel: (jobId: number) => Promise<void>
-  onRetry: (jobId: number) => Promise<void>
-  settingsT: ReturnType<ReturnType<typeof useI18n>['ns']>
-  title: string
-  jobsT: JobsTranslator
-}) {
-  return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">{title}</span>
-      </div>
-      <div className="panel-body intelligence-job-list">
-        {jobs.length === 0 ? (
-          <p className="mono-support">{emptyLabel}</p>
-        ) : (
-          jobs.map((job) => (
-            <ReviewSection
-              key={job.id}
-              headerMeta={
-                <span className="mono-support">
-                  {intelligenceRuntimeJobStateLabel(job.state, settingsT)}
-                </span>
-              }
-              title={
-                <>
-                  {(job.pluginId
-                    ? enrichmentPluginLabel(job.pluginId, settingsT)
-                    : job.jobType) || job.jobType}{' '}
-                  · #{job.id}
-                </>
-              }
-            >
-              <p>{summarizeRuntimeJob(job, jobsT)}</p>
-              {job.lastError &&
-              summarizeRuntimeJob(job, jobsT) !== job.lastError ? (
-                <p className="mono-support">{job.lastError}</p>
-              ) : null}
-              {typeof job.progressPercent === 'number' ? (
-                <div className="jobs-progress">
-                  <div aria-hidden="true" className="jobs-progress__track">
-                    <span
-                      className="jobs-progress__fill"
-                      style={{
-                        width: `${Math.max(
-                          4,
-                          Math.min(100, job.progressPercent),
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="jobs-progress__meta mono-support">
-                    <span>{Math.round(job.progressPercent)}%</span>
-                    <span>{job.progressLabel ?? jobsT('runningCount')}</span>
-                  </div>
-                </div>
-              ) : null}
-              {job.progressDetail ? (
-                <p className="mono-support">{job.progressDetail}</p>
-              ) : null}
-              <div className="jobs-meta-grid mono-support">
-                <span>
-                  {jobsT('createdAt')}:{' '}
-                  {formatDateTime(job.createdAt, language) ?? job.createdAt}
-                </span>
-                <span>
-                  {jobsT('startedAt')}:{' '}
-                  {job.startedAt
-                    ? formatDateTime(job.startedAt, language)
-                    : '—'}
-                </span>
-                <span>
-                  {jobsT('finishedAt')}:{' '}
-                  {job.finishedAt
-                    ? formatDateTime(job.finishedAt, language)
-                    : '—'}
-                </span>
-                <span>
-                  {jobsT('lastActivity')}:{' '}
-                  {job.heartbeatAt
-                    ? formatRelativeTime(job.heartbeatAt, language)
-                    : formatRelativeTime(job.updatedAt, language)}
-                </span>
-              </div>
-              <div className="intelligence-actions">
-                {job.retryable ? (
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => void onRetry(job.id)}
-                    disabled={Boolean(action)}
-                  >
-                    {jobsT('retryJob')}
-                  </button>
-                ) : null}
-                {job.cancellable ? (
-                  <button
-                    className="btn-tiny"
-                    type="button"
-                    onClick={() => void onCancel(job.id)}
-                    disabled={Boolean(action)}
-                  >
-                    {jobsT('cancelJob')}
-                  </button>
-                ) : null}
-              </div>
-            </ReviewSection>
-          ))
-        )}
-      </div>
-    </div>
   )
 }
