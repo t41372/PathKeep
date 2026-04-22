@@ -23,13 +23,15 @@ import {
   FieldBlock,
   Glyph,
   InfoStat,
-  OperationWorkflow,
-  PreviewEntryList,
   StatusTag,
   Surface,
   ToggleRow,
-  type WorkflowStep,
 } from './components/ui'
+import {
+  OperationWorkflow,
+  PreviewEntryList,
+  type WorkflowStep,
+} from './components/review'
 import { formatDateTime, formatDuration } from './lib/format'
 import {
   createNamespaceTranslator,

@@ -23,9 +23,9 @@
  * - Centralizing this markup reduces cross-route drift without adding new reads or subscriptions.
  */
 
-import { PreviewEntryList } from '../ui'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { ImportBatchDetail } from '../../lib/types'
+import { PreviewEntryList } from './preview-entry-list'
 import type { ReviewCopyFeedback } from './review-surface'
 import { ReviewPathActionRow } from './support-actions'
 

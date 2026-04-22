@@ -12,7 +12,7 @@
  * - 不定義跨 route 的 shared primitive 或 stylesheet owner。
  *
  * ## 依賴關係
- * - 依賴 `src/components/ui.tsx` 的 `OperationWorkflow` primitive。
+ * - 依賴 `src/components/review/operation-workflow.tsx` 的 `OperationWorkflow` primitive。
  * - 依賴 `./wizard-panel.tsx` 渲染實際的 wizard body。
  * - 依賴 `./shared.ts` 的 route-local wizard types。
  *
@@ -21,7 +21,7 @@
  * - 重工作仍留在 route owner 觸發的 backend / progress path。
  */
 
-import { OperationWorkflow, type WorkflowStep } from '../../components/ui'
+import { OperationWorkflow, type WorkflowStep } from '../../components/review'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type {

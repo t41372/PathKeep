@@ -12,7 +12,7 @@
  * - 不直接做 backend import / inspect / subscribe side effects。
  *
  * ## 依賴關係
- * - 依賴 `src/components/ui.tsx` 的 `PreviewEntryList`。
+ * - 依賴 `src/components/review/preview-entry-list.tsx` 的 `PreviewEntryList`。
  * - 依賴 `src/components/primitives/busy-overlay.tsx` 的 progress overlay。
  * - 依賴 `./select-step.tsx` 與 `./shared.ts` 的 route-local wizard helpers。
  *
@@ -20,8 +20,8 @@
  * - 只渲染 route owner 已有的 wizard / preview state；重工作仍留在 backend 與 progress stream。
  */
 
-import { PreviewEntryList } from '../../components/ui'
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
+import { PreviewEntryList } from '../../components/review'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import {

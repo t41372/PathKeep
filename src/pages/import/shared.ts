@@ -19,7 +19,7 @@
  * - helper 只做小型字串映射，不做資料查詢或大規模轉換。
  */
 
-import type { WorkflowStep } from '../../components/ui'
+import type { WorkflowStep } from '../../components/review'
 import type {
   HealthReport,
   ImportBatchDetail,
