@@ -11,7 +11,13 @@
 //! run-ledger, manifest, and safety-snapshot story explicit instead of hiding
 //! maintenance side effects behind ad-hoc file operations.
 
-use super::*;
+use super::{
+    ingest::{
+        persist_source_evidence_plans, preview_snapshot_counts, process_profile_snapshot,
+        snapshot_source_hashes,
+    },
+    *,
+};
 
 /// Previews replaying one saved checkpoint or explains why the snapshot is manual-only.
 pub fn preview_snapshot_restore(
@@ -46,7 +52,8 @@ pub fn preview_snapshot_restore(
     }
 
     let checkpoint = load_checkpoint_profile_snapshot(&connection, &snapshot_path, &snapshot)?;
-    let parsed = parse_profile_snapshot(&checkpoint, config, &Watermark::default())?;
+    let (estimated_visits, estimated_urls, estimated_downloads) =
+        preview_snapshot_counts(&checkpoint, config)?;
 
     Ok(SnapshotRestorePreview {
         snapshot_path: snapshot.file_path,
@@ -57,9 +64,9 @@ pub fn preview_snapshot_restore(
         created_at: Some(snapshot.created_at),
         reason: snapshot.reason,
         execute_supported: true,
-        estimated_visits: parsed.history.visits.len(),
-        estimated_urls: parsed.history.urls.len(),
-        estimated_downloads: parsed.history.downloads.len(),
+        estimated_visits,
+        estimated_urls,
+        estimated_downloads,
         warnings: vec![
             "Snapshot restore replays the saved browser checkpoint into the current archive. Existing visible archive facts stay in place and duplicate rows are skipped.".to_string(),
         ],

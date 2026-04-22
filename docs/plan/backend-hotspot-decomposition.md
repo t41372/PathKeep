@@ -13,11 +13,11 @@
 | File                                                      | Current line count | Primary risk                                                                     |
 | --------------------------------------------------------- | -----------------: | -------------------------------------------------------------------------------- |
 | `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module        |
-| `src-tauri/crates/vault-core/src/takeout.rs`              |               2295 | Import inspect/quarantine/import/revert/restore/audit all mixed together         |
 | `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together     |
-| `src-tauri/crates/vault-core/src/archive/mod.rs`          |               2159 | Backup orchestration, ingest, checkpoint, manifest, retention mixed together     |
 | `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together |
 | `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed  |
+| `src-tauri/crates/vault-core/src/archive/mod.rs`          |               1299 | Backup execution, manifest/checkpoint helpers, retention, and recoverability remain mixed |
+| `src-tauri/crates/vault-core/src/takeout/import_flow.rs`  |                639 | Takeout execution path is isolated now, but import batching / rollback detail still over the 600-line limit |
 
 ## Sequencing
 
@@ -33,6 +33,7 @@
 - Revisit the parser-to-ingest contract so large imports no longer require one giant in-memory batch shape by default.
 - Separate parser-side collection helpers from archive-side write orchestration.
 - Preserve canonical schema semantics and profile watermark behavior.
+- 2026-04-21 landed: `src-tauri/crates/vault-core/src/archive/mod.rs` now delegates canonical ingest work to `archive/ingest/{mod,parser,writes}.rs`, shrinking the parent file to `1299` lines while preserving backup, checkpoint, and snapshot-restore behavior. `archive::maintenance` now calls an explicit ingest preview helper instead of reaching into watermark internals.
 
 ### Slice 3 — Intelligence runtime queue boundary
 
@@ -43,6 +44,7 @@
 
 - Split `archive/mod.rs` into backup execution, canonical ingest helpers, checkpoint / manifest helpers, and retention/recoverability helpers.
 - Preserve canonical archive behavior, run-ledger semantics, and existing `archive::*` public surface.
+- Remaining work after the first cut: move manifest/checkpoint helpers away from `archive/mod.rs` and continue reducing the parent module below the 1000-line hard-stop.
 
 ### Slice 5 — Core Intelligence domain boundary
 
