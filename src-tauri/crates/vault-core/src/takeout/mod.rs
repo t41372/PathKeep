@@ -52,7 +52,6 @@ use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
     KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch, TakeoutPayloadStreamReport,
     classify_payload_path as classify_takeout_payload_path,
-    recognize_payload as recognize_takeout_payload,
 };
 #[cfg(test)]
 use browser_history_parser::takeout::{

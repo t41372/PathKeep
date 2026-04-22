@@ -83,7 +83,7 @@ pub fn inspect_takeout(
 
         match preview_payload_stream(
             &file.path,
-            &kind,
+            kind,
             &bytes,
             PREVIEW_LIMIT.saturating_sub(inspection.preview_entries.len()),
         ) {
@@ -335,8 +335,9 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
 }
 
 /// Classifies a file path into the supported Takeout payload family, if any.
+#[cfg(test)]
 pub(super) fn recognize_takeout_file(path: &str) -> Option<String> {
-    recognize_takeout_payload(path).map(ToString::to_string)
+    browser_history_parser::takeout::recognize_payload(path).map(ToString::to_string)
 }
 
 pub(super) fn classify_takeout_file(file: &TakeoutFile) -> ClassifiedTakeoutFile<'_> {

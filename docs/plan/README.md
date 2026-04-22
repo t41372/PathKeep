@@ -69,6 +69,8 @@
 > **2026-04-22 Takeout source-evidence note**：後續又再往前推一刀。`browser-history-parser::takeout` 現在可把 source-native evidence 以 chunk 形式交給 consumer，`vault-core::takeout::payload_import` 則透過新的 `archive::source_evidence_builder` 邊接收邊 spill 到 `staging/source-evidence-spool/`。這表示 Takeout import 的 canonical rows、preview rows、以及 cold source-evidence 都已經進入 bounded-memory path；backend 軌道的下一個實際 focus 因此改成 `intelligence_runtime.rs` queue/recovery/runtime snapshot ownership。
 >
 > **2026-04-22 intelligence runtime note**：同一天的後續 execution slice 又把 `src-tauri/crates/vault-core/src/intelligence_runtime.rs` 從單個 `2222` 行 giant-file 拆成 `intelligence_runtime/{mod,enqueue,claims,job_control,recovery,snapshot,tests_queue,tests_runtime}.rs`。queue writes、lease recovery、runtime snapshot read model、以及回歸測試現在都有明確 owner；下一個 backend giant-file focus 因此正式轉到 `intelligence/mod.rs`，之後才是 `vault-worker/src/intelligence.rs`。
+>
+> **2026-04-22 intelligence read-model note**：同一天的下一個 execution slice 又把 `src-tauri/crates/vault-core/src/intelligence/mod.rs` 的 route-facing read-model layer 抽成 `intelligence_{overview,summary,domain,outputs}.rs`。`/intelligence` staged overview、digest/stable-source/search-effectiveness、domain/deep-dive/discovery/on-this-day、以及 embed/widget/public snapshot payload 現在都有明確 owner；`intelligence/mod.rs` 本體也先從 `11043` 行降到 `9761` 行，接下來的 backend giant-file focus 更集中在 explain 與 rebuild 路徑。
 
 ---
 

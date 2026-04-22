@@ -167,7 +167,7 @@ where
                 batch_id,
                 source_profile_id,
                 classified_file,
-                &kind,
+                kind,
                 &bytes,
             ) {
                 Ok(file_stats) => file_stats,

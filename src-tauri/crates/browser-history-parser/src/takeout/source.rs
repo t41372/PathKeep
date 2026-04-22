@@ -144,7 +144,7 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
         };
     }
 
-    if KNOWN_IGNORED_TOP_LEVEL_EN.iter().any(|segment| *segment == first_segment) {
+    if KNOWN_IGNORED_TOP_LEVEL_EN.contains(&first_segment) {
         return TakeoutPathMatch {
             family: "outside-scope",
             recognized_kind: None,
@@ -154,7 +154,7 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
         };
     }
 
-    if KNOWN_IGNORED_TOP_LEVEL_DE.iter().any(|segment| *segment == first_segment) {
+    if KNOWN_IGNORED_TOP_LEVEL_DE.contains(&first_segment) {
         return TakeoutPathMatch {
             family: "outside-scope",
             recognized_kind: None,
