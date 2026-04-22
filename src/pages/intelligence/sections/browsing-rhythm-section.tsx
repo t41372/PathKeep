@@ -2,14 +2,14 @@
  * `/intelligence` wrapper around the shared calendar-based browsing rhythm card.
  */
 
+import { useCallback, useState } from 'react'
 import { BrowsingRhythmCard } from '../../../components/intelligence/browsing-rhythm-card'
 import { IntelligenceSectionMeta } from '../../../components/intelligence/section-meta'
 import {
-  useAsyncData,
+  type CoreIntelligenceSectionMeta,
   type DateRange,
   type TimeRangePreset,
 } from '../../../lib/core-intelligence'
-import * as api from '../../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../../lib/i18n'
 import { domainDayInsightsHref } from '../../../lib/intelligence'
 import { IntelligenceSectionBody } from './section-body'
@@ -32,23 +32,23 @@ export function BrowsingRhythmSection({
   scopeLabel: string
   t: T
 }) {
-  const trendResult = useAsyncData(
-    () => api.getDiscoveryTrend(dateRange, profileId, 'day'),
-    [dateRange, profileId],
-    {
-      getCached: () => api.peekDiscoveryTrend(dateRange, profileId, 'day'),
+  const [trendMeta, setTrendMeta] =
+    useState<CoreIntelligenceSectionMeta | null>(null)
+  const handleTrendMetaChange = useCallback(
+    (nextMeta: CoreIntelligenceSectionMeta | null) => {
+      setTrendMeta((currentMeta) =>
+        currentMeta === nextMeta ? currentMeta : nextMeta,
+      )
     },
+    [],
   )
 
   return (
     <section className="intelligence-section rhythm-section">
       <div className="intelligence-section__title-row">
         <h2 className="intelligence-section__title">{t('rhythmTitle')}</h2>
-        {trendResult.data ? (
-          <IntelligenceSectionMeta
-            meta={trendResult.data.meta}
-            scopeLabel={scopeLabel}
-          />
+        {trendMeta ? (
+          <IntelligenceSectionMeta meta={trendMeta} scopeLabel={scopeLabel} />
         ) : null}
       </div>
       <p className="intelligence-section__help">{t('rhythmHelp')}</p>
@@ -61,6 +61,7 @@ export function BrowsingRhythmSection({
           dayHref={dayHref}
           language={language}
           mode="range"
+          onTrendMetaChange={handleTrendMetaChange}
           profileId={profileId}
           summaryPreset={preset}
           t={t}

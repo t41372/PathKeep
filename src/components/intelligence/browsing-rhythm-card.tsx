@@ -41,6 +41,7 @@ import * as api from '../../lib/core-intelligence/api'
 import {
   dateRangeForCalendarYear,
   useAsyncData,
+  type CoreIntelligenceSectionMeta,
   type DateRange,
   type TimeRangePreset,
 } from '../../lib/core-intelligence'
@@ -56,6 +57,7 @@ interface BrowsingRhythmCardProps {
   dayHref: (date: string) => string
   language: string
   mode: 'range' | 'year'
+  onTrendMetaChange?: (meta: CoreIntelligenceSectionMeta | null) => void
   profileId?: string | null
   showCurrentYearShortcut?: boolean
   summaryPreset?: TimeRangePreset | 'calendar-year'
@@ -78,6 +80,7 @@ export function BrowsingRhythmCard({
   dayHref,
   language,
   mode,
+  onTrendMetaChange,
   profileId,
   showCurrentYearShortcut = false,
   summaryPreset,
@@ -194,6 +197,11 @@ export function BrowsingRhythmCard({
         : Promise.resolve(null),
     [profileId, selectedDay?.dateKey],
   )
+
+  useEffect(() => {
+    onTrendMetaChange?.(trendResult.data?.meta ?? null)
+  }, [onTrendMetaChange, trendResult.data?.meta])
+
   const weekdayLabels = [
     t('dow_sun'),
     t('dow_mon'),

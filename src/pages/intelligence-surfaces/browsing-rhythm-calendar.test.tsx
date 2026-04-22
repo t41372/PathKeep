@@ -270,6 +270,11 @@ test('renders browsing rhythm as a real-date calendar and keeps secondary cards 
     '20 visits in January 2026',
   )
   expect(
+    vi
+      .mocked(coreIntelligenceApi.getDiscoveryTrend)
+      .mock.calls.filter(([, , granularity]) => granularity === 'day'),
+  ).toHaveLength(1)
+  expect(
     screen.getByRole('button', {
       name: /2026-01-30 · 8 visits · 2 new sites/i,
     }),
