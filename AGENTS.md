@@ -146,7 +146,7 @@ reference/
 
 1. **Trust & Transparency** — 所有操作走 PME 流程（Preview → Manual → Execute），沒有黑盒執行
 2. **Data Sovereignty** — 數據不上傳雲端，AI 也用本地或用戶自配的 provider
-3. **Performance Is A First-Class Constraint** — 目標機器為 4 核 3GHz CPU / 8GB RAM，需流暢支撐 1440 萬條+ 歷史記錄（中度用戶 60 年積累），並支持一次性批量導入同等量級的數據。任何代碼改動都需通過心理測試：_「1440 萬條數據時，這段邏輯會怎樣？」_ 不能製造不必要的全量加載、主線程阻塞、或無上限的內存增長。
+3. **Performance Is A First-Class Constraint** — 目標機器為 4 核 3GHz CPU / 8GB RAM，需流暢支撐 1440 萬條+ 歷史記錄（中度用戶 60 年積累），並支持一次性批量導入同等量級的數據。任何代碼改動都需通過心理測試：_「1440 萬條數據時，這段邏輯會怎樣？」_ 不能製造不必要的全量加載、主線程阻塞、或無上限的內存增長。UI 響應延遲是核心關注點。UI 不能在任何情況下凍結，對於潛在的耗時任務和性能熱點，要專門做 UI 優化。
 4. **Intelligence Is Optional** — 沒有 LLM 或 Embedding provider 時 PathKeep 仍完整可用，AI 是增值層
 5. **Internationalization Is A Shipping Contract** — user-visible copy、honesty note、loading label、preview fixture text 都不是最後才補的 polish，而是開發當下就要交付的產品契約
 
@@ -154,6 +154,7 @@ reference/
 
 ## 工作規範
 
+- **品質紅線**：永遠遵守最佳實踐，總是選擇長期最優解，避免臨時方案，絕對不能糊弄測試，或是為了降低開發成本做出妥協。開發的時間和精力成本不在決策考慮範圍內，但要注意降低代碼複雜度。
 - **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit。只要手上的變更已經形成一個可驗證、可回顧的原子單位，就要直接提交，不要把多個無關修復或文檔更新長時間混在 working tree
 - **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。現行 blocking / release gate 以 `docs/plan/program/quality-matrix.md` 為準：mainline 至少維持 `bun run check`、`bun run coverage:js`、`bun run coverage:rust`、`bun run build`、`bun run test:e2e`；`mutation:js` / `mutation:rust` / `verify` 屬於 scheduled、manual 或 pre-release deep checks。`bun run mutation:rust` 目前是誠實的 Rust mutation contract（`browser-history-parser` + `vault-core/src/ai.rs` status/helper slice），`bun run mutation:rust:full` 則保留作 exploratory whole-workspace sweep。當前這波 recovery 期間，mutation 已暫時退出日常 `check` / `verify`，但**所有新建或整段重寫的模組**仍必須有測試並達到 100% coverage；mutation verification 在這波收尾前要回到手動深檢流程
 - **Desktop contract slice**：目前納入 `bun run check` 的 targeted JS sub-gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`；前端 shell / route / sidebar / primitives 不在這條 coverage gate 內，不能再把 UI 完成度誤記到這條驗收上
@@ -164,7 +165,7 @@ reference/
 - **注釋**：代碼注釋即開發者文檔，重要技術決策、trade-off 在代碼處寫注釋
 - **文檔更新**：改功能行為 → 更新 `docs/features/`；新技術決策 → 更新 `docs/architecture/`
 - **提交前**：`bun run check` + `bun run build` 全過才提交
-- **大文件重構的兩階段原則**：任何超過 1000 行的文件，**禁止直接動手重構**。必須先完成審查階段（輸出架構地圖、職責清單、拆分方案），得到確認後才能進入執行階段。審查階段不改一行代碼。這條規則同樣適用於 AI agent 主動發現的大文件，不只是被明確指派的重構任務。
+- **大文件重構的兩階段原則**：任何超過 1000 行的文件，必須先完成審查階段（輸出架構地圖、職責清單、拆分方案），詳細審查影響，並確認或補充自動化測試，確保拆壞了也能發現後，才能進入執行階段。審查階段不改一行代碼。這條規則同樣適用於 AI agent 主動發現的大文件，不只是被明確指派的重構任務。
 
 - **文件行數硬限制**：
   - 單文件超過 **600 行**：必須在當前 work block 的收工步驟裡，在 `BACKLOG.md` 新增一條拆分任務
@@ -172,7 +173,7 @@ reference/
   - 新創建的文件不得在初始版本就超過 600 行；超過說明職責邊界沒有想清楚，先拆模塊再寫代碼
 
 - **Doc Comments 標準**：所有新建或整段重寫的模塊，必須在交付時附帶完整 doc comments，不允許事後補充：
-  - **文件頂部**：一句話職責說明 + `## 職責`（列舉） + `## 不負責`（明確排除，防止邊界蔓延） + `## 依賴關係` + `## 性能備注`（如有大數據量注意事項）
+  - **文件頂部**：一句話職責說明 + `## Responsibilities`（列舉） + `## Not responsible for`（明確排除，防止邊界蔓延） + `## Dependencies` + `## Performance notes`（如有大數據量注意事項）
   - **所有 exported function / hook / class / type**：說明「為什麼需要這個」而不是「它做了什麼」（後者代碼已經說了）；標注參數語義、返回值語義、邊界條件；性能敏感路徑必須標注
   - 注釋說人話，不寫 `This function does X` 式廢話
   - Design document 的決策理由融入 doc comments，我們不單獨維護文檔站
