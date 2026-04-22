@@ -76,6 +76,7 @@ describe('Explorer privacy redaction', () => {
           historyPageSize={50}
           intelligenceT={intelligenceT}
           language="en"
+          loading={false}
           onHistoryPageInputChange={vi.fn()}
           onHistoryPageSizeChange={vi.fn()}
           onSelectHistory={vi.fn()}

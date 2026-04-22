@@ -22,7 +22,7 @@
  */
 
 import { beforeEach, describe, expect, test } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from '../index'
@@ -209,8 +209,7 @@ describe('App shell', () => {
     const pageInput = screen.getByRole('spinbutton', {
       name: 'Page number',
     })
-    await user.clear(pageInput)
-    await user.type(pageInput, '8')
+    fireEvent.change(pageInput, { target: { value: '8' } })
     await user.click(screen.getByRole('button', { name: 'Go' }))
 
     await waitFor(() =>
