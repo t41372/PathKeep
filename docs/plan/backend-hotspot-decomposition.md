@@ -1,0 +1,69 @@
+# Backend Hotspot Decomposition
+
+> User-directed parallel backend track opened on 2026-04-21 while `WORK-M13-B` continues as a separate frontend/reuse stream.
+
+## Why this track exists
+
+- The Rust workspace is no longer suffering from the older `insights.rs` / `vault-worker/src/lib.rs` mega-file shape, but the current backend still has several oversized hotspots that mix orchestration, schema/bootstrap, read models, and long-running job control.
+- The most acute risk is no longer "no architecture"; it is concentrated complexity in a few high-churn files that sit on large-data paths.
+- This track turns the 2026-04-21 architecture review into an execution plan with explicit sequencing and invariants.
+
+## Current hotspot snapshot
+
+| File                                                      | Current line count | Primary risk                                                                     |
+| --------------------------------------------------------- | -----------------: | -------------------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module        |
+| `src-tauri/crates/vault-core/src/takeout.rs`              |               2295 | Import inspect/quarantine/import/revert/restore/audit all mixed together         |
+| `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together     |
+| `src-tauri/crates/vault-core/src/archive/mod.rs`          |               2159 | Backup orchestration, ingest, checkpoint, manifest, retention mixed together     |
+| `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed  |
+
+## Sequencing
+
+### Slice 1 — Takeout import boundary
+
+- Split `takeout.rs` into focused modules for inspect/quarantine, import execution, and batch review / revert / restore.
+- Keep Tauri command names, worker entrypoints, serde payloads, audit artifact format, and import-batch behavior unchanged.
+- Use this slice to establish the doc-comment standard for newly split backend modules.
+- 2026-04-21 landed: `src-tauri/crates/vault-core/src/takeout.rs` is now `takeout/{mod,inspect,import_flow,batches,tests}.rs`, and the targeted Takeout Rust regression suite passed after the split.
+
+### Slice 2 — Parser and ingest streaming boundary
+
+- Revisit the parser-to-ingest contract so large imports no longer require one giant in-memory batch shape by default.
+- Separate parser-side collection helpers from archive-side write orchestration.
+- Preserve canonical schema semantics and profile watermark behavior.
+
+### Slice 3 — Intelligence runtime queue boundary
+
+- Split `intelligence_runtime.rs` into queue writes, recovery, runtime snapshot reads, and module/plugin runtime ownership.
+- Preserve the `IntelligenceRuntimeSnapshot` contract and job ids / job-type semantics.
+
+### Slice 4 — Core archive ingest boundary
+
+- Split `archive/mod.rs` into backup execution, canonical ingest helpers, checkpoint / manifest helpers, and retention/recoverability helpers.
+- Preserve canonical archive behavior, run-ledger semantics, and existing `archive::*` public surface.
+
+### Slice 5 — Core Intelligence domain boundary
+
+- Split `intelligence/mod.rs` by schema/bootstrap, rebuild stages, read models, and explanation / host-artifact surfaces.
+- Do not reopen route, payload, or frontend grammar decisions already accepted in M6-M13.
+
+### Slice 6 — AI and worker follow-through
+
+- Split `ai.rs`, `ai_queue.rs`, and `vault-worker/src/intelligence.rs` after the archive/intelligence core boundaries are clearer.
+- Treat `remote.rs`, `models/core_intelligence.rs`, and dev-only bridge surfaces as follow-up cleanup, not first blockers.
+
+## Non-negotiable invariants
+
+- Preserve existing Tauri command names, worker CLI commands, top-level serde payloads, and frontend-facing transport semantics unless a slice explicitly funds a breaking change.
+- Keep long-running archive/import/intelligence work off the Tauri UI thread.
+- Do not let derived-state cleanup or runtime recovery rewrite canonical archive facts.
+- Every newly created or fully rewritten module must ship with file-level responsibility docs and declaration-level doc comments.
+- Each slice must be independently reviewable and commit-ready; do not batch unrelated backend cleanup together.
+
+## Validation strategy
+
+- During each slice: run the most relevant targeted Rust tests first so refactors fail fast near the touched boundary.
+- Before closing a backend slice that changes code: `bun run check && bun run build`.
+- If a slice exposes an existing large-data or off-main-thread risk that cannot be fixed inside that slice, record the exact follow-up in `BACKLOG.md` instead of hand-waving it away.

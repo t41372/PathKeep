@@ -31,6 +31,19 @@
 > 2026-04-20 performance stop-ship closeout：使用者明確要求先停下 M13 reuse audit，優先修復 `/intelligence` 在三個月真實資料上的 UI 凍結與 route revisit 卡頓。這輪插單的 `WORK-PERF-A` 已完成：Core Intelligence overview 讀路徑現在同一批只重用一條 intelligence connection 與一份 runtime snapshot；前端則補上 scope-keyed warm cache、in-flight dedupe、stale-while-revalidate、以及 Search Activity hidden tabs 的 idle prewarm。M13 A/B 保留 pending，等這輪驗收完成後再繼續。
 > 2026-04-20 archive/import stop-ship closeout：使用者再度插單 `WORK-PERF-B`，要求先修 Onboarding 初始化 / 手動備份 / Takeout scan-import 會把整個桌面 UI 卡死的問題。source 現在已把 `initialize_archive`、`run_backup_now`、`inspect_takeout`、`import_takeout` 改成 off-main-thread `async + spawn_blocking` facade，Import route 也補上 explicit paint-first yield；同時新增 shell-data 與 Import route regressions，確保 busy overlay 在 promise 未完成前就已經可見，且進度文案不再等任務結束後才一次補播。M13 A/B 繼續維持 active current-focus。
 > 2026-04-21 M13 inventory closeout：`WORK-M13-A` 已完成。`docs/plan/m13-broad-reuse-audit/README.md` 現在正式記錄 app-wide single-source map、extraction priority 與 remaining hotspot；`PG-RD-UX-016` 也把 runtime-boundary review grammar 收斂成 `src/components/review/runtime-boundary-card.tsx` 的 canonical owner。這輪同步落地的第一個 code slice 讓 Jobs runtime health / plugin / module summary 與 Settings derived runtime review 共用同一套 runtime-boundary card shell，但 `WORK-M13-B` 仍保持 active，後續 focus 改成 shell-data、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering。
+> 2026-04-21 backend track note：使用者明確要求並行開啟後端 hotspot 拆分，不等 `WORK-M13-B` front-end reuse 收束。這輪新增 `WORK-BE-A` 作為 user-directed parallel block；frontend reuse 與 backend decomposition 分開推進，彼此都不得覆寫對方未提交中的工作樹。
+
+- [ ] **WORK-BE-A** — Backend Hotspot Decomposition And Import Boundary Split
+  - 讀先：
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/tech-stack.md`
+  - 目標：把 2026-04-21 backend 架構審查轉成可執行的拆分軌道，先處理 `takeout` / parser / archive ingest 這條大數據量風險最高的 import boundary，再往 intelligence runtime 與 core intelligence hotspot 推進。
+  - 契約：維持現有 Tauri command、worker CLI、serde payload、audit artifact 與 canonical schema 語義穩定；不得把 frontend M13 reuse block 的未提交改動捲進來；所有新建或整段重寫的 backend 模塊都必須帶完整 file header 與 declaration-level doc comments。
+  - 2026-04-21 progress：第一階段後端審查已完成並落在 `docs/plan/backend-hotspot-decomposition.md`；第一個 execution slice 也已落地，把 `src-tauri/crates/vault-core/src/takeout.rs` 拆成 `takeout/{inspect,import_flow,batches,tests}.rs`，保留 import command / batch audit contract 不變，並補齊這組模塊的 file header 與 declaration-level doc comments。下一輪 priority 轉到 parser / archive ingest boundary，處理 collect-then-ingest 的大數據量風險。
+  - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 
 - [ ] **WORK-M13-B** — Shared Support / Workflow Composition Extraction
   - 讀先：
