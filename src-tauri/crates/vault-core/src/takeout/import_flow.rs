@@ -60,9 +60,14 @@ where
     let classified_files = files.iter().map(inspect::classify_takeout_file).collect::<Vec<_>>();
     let planned_files = classified_files
         .iter()
-        .filter_map(|file| file.path_match.recognized_kind)
-        .filter(|kind| *kind != KIND_INDEX)
+        .filter(|file| {
+          file.path_match.disposition == TakeoutPathDisposition::WillImport
+              && file.path_match.recognized_kind.is_some_and(|kind| kind != KIND_INDEX)
+        })
         .count();
+    if planned_files == 0 {
+        return inspect::inspect_takeout(paths, request);
+    }
     let mut inspection = TakeoutInspection {
         source_path: request.source_path.clone(),
         dry_run: false,

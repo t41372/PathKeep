@@ -46,11 +46,38 @@ fn classify_payload_path_handles_localized_history_and_review_only_paths() {
     let activity = classify_payload_path("My Activity/Chrome/MyActivity.json");
     assert_eq!(activity.recognized_kind, None);
     assert_eq!(activity.disposition, TakeoutPathDisposition::NeedsReview);
-    assert_eq!(activity.reason_code, "chrome-activity-outside-scope");
+    assert_eq!(activity.reason_code, "chrome-my-activity-json");
+
+    let activity_zh_tw = classify_payload_path("Takeout/我的活動/Chrome/我的活動.json");
+    assert_eq!(activity_zh_tw.recognized_kind, None);
+    assert_eq!(activity_zh_tw.disposition, TakeoutPathDisposition::NeedsReview);
+    assert_eq!(activity_zh_tw.reason_code, "chrome-my-activity-json");
+    assert_eq!(activity_zh_tw.locale, Some("zh-tw"));
+
+    let activity_html = classify_payload_path("Takeout/我的活動/Chrome/我的活動.html");
+    assert_eq!(activity_html.recognized_kind, None);
+    assert_eq!(activity_html.disposition, TakeoutPathDisposition::NeedsReview);
+    assert_eq!(activity_html.reason_code, "chrome-my-activity-html");
 
     let ignored = classify_payload_path("Google Play Store/Installs.json");
     assert_eq!(ignored.recognized_kind, None);
     assert_eq!(ignored.disposition, TakeoutPathDisposition::KnownIgnored);
+}
+
+#[test]
+fn gather_takeout_files_skips_common_system_noise() {
+    let dir = tempdir().expect("tempdir");
+    let chrome_dir = dir.path().join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create chrome dir");
+    fs::write(chrome_dir.join("BrowserHistory.json"), browser_history_payload(&[]))
+        .expect("write browser history");
+    fs::write(dir.path().join(".DS_Store"), "noise").expect("write ds_store");
+    fs::create_dir_all(dir.path().join("__MACOSX")).expect("create macosx dir");
+    fs::write(dir.path().join("__MACOSX").join("ignored.json"), "{}").expect("write ignored");
+
+    let files = gather_takeout_files(dir.path()).expect("gather files");
+    assert_eq!(files.len(), 1);
+    assert!(files[0].path.ends_with("Chrome/BrowserHistory.json"));
 }
 
 #[test]

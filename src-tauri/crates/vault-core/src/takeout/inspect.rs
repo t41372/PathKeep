@@ -318,6 +318,7 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| !should_skip_takeout_file(entry.path().to_string_lossy().as_ref()))
             .map(|entry| TakeoutFile { path: entry.path().display().to_string(), from_zip: false })
             .collect());
     }
@@ -327,7 +328,7 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
     let mut files = Vec::new();
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
-        if entry.is_file() {
+        if entry.is_file() && !should_skip_takeout_file(entry.name()) {
             files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
         }
     }
@@ -438,4 +439,10 @@ fn copy_if_exists(source: &str, destination: &Path) -> Result<()> {
         fs::copy(source, destination)?;
     }
     Ok(())
+}
+
+fn should_skip_takeout_file(path: &str) -> bool {
+    let normalized = path.replace('\\', "/").to_lowercase();
+    let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+    file_name.starts_with('.') || normalized.split('/').any(|segment| segment == "__macosx")
 }

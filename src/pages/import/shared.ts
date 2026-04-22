@@ -369,6 +369,10 @@ export function takeoutFileReasonLabel(
       return t('import.reasonTakeoutIndex')
     case 'chrome-activity-outside-scope':
       return t('import.reasonChromeActivityOutsideScope')
+    case 'chrome-my-activity-json':
+      return t('import.reasonChromeMyActivityJson')
+    case 'chrome-my-activity-html':
+      return t('import.reasonChromeMyActivityHtml')
     case 'activity-outside-scope':
       return t('import.reasonActivityOutsideScope')
     case 'outside-chrome-scope':
@@ -393,11 +397,22 @@ export function formatTakeoutLocaleLabel(
       return t('import.localeEnglish')
     case 'de':
       return t('import.localeGerman')
+    case 'zh-cn':
+      return t('import.localeChineseSimplified')
+    case 'zh-tw':
+      return t('import.localeChineseTraditional')
     case 'mixed':
       return t('import.localeMixed')
     default:
       return t('import.localeUnknown')
   }
+}
+
+export function hasTakeoutReasonCode(
+  reports: TakeoutFileReport[],
+  reasonCode: string,
+) {
+  return reports.some((report) => report.reasonCode === reasonCode)
 }
 
 export function formatTakeoutPreviewRange(

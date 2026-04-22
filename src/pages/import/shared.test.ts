@@ -28,8 +28,10 @@ import type {
 import {
   buildImportWorkflowSteps,
   countTakeoutFilesByClassification,
+  formatTakeoutLocaleLabel,
   deriveActiveImportBatchDetail,
   groupTakeoutFileReports,
+  hasTakeoutReasonCode,
   parseImportBatchId,
   resolveSelectedImportBatchId,
 } from './shared'
@@ -211,5 +213,21 @@ describe('Import shared helpers', () => {
         'needs-review',
       ),
     ).toBe(1)
+    expect(
+      hasTakeoutReasonCode(
+        groups.flatMap((group) => group.files),
+        'chrome-activity-outside-scope',
+      ),
+    ).toBe(true)
+  })
+
+  test('formats detected takeout locales including Chinese variants', () => {
+    expect(formatTakeoutLocaleLabel('zh-cn', t)).toBe(
+      'import.localeChineseSimplified',
+    )
+    expect(formatTakeoutLocaleLabel('zh-tw', t)).toBe(
+      'import.localeChineseTraditional',
+    )
+    expect(formatTakeoutLocaleLabel('mixed', t)).toBe('import.localeMixed')
   })
 })

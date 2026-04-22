@@ -21,6 +21,7 @@
  */
 
 import { BusyOverlay } from '../../components/primitives/busy-overlay'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { PreviewEntryList } from '../../components/review'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
@@ -39,6 +40,7 @@ import {
   formatTakeoutLocaleLabel,
   formatTakeoutPreviewRange,
   groupTakeoutFileReports,
+  hasTakeoutReasonCode,
   type ImportMethod,
   type ImportWizardStepDefinition,
   localizedImportProgressDetail,
@@ -122,6 +124,14 @@ export function ImportWizardPanel({
   const ignoredFileCount = countTakeoutFilesByClassification(
     previewFiles,
     'known-but-ignored',
+  )
+  const hasChromeMyActivityJson = hasTakeoutReasonCode(
+    previewFiles,
+    'chrome-my-activity-json',
+  )
+  const hasChromeMyActivityHtml = hasTakeoutReasonCode(
+    previewFiles,
+    'chrome-my-activity-html',
   )
 
   return (
@@ -250,6 +260,18 @@ export function ImportWizardPanel({
                   })}
                 </span>
               </div>
+
+              {hasChromeMyActivityJson || hasChromeMyActivityHtml ? (
+                <StatusCallout
+                  tone="warning"
+                  title={t('import.takeoutMismatchDetectedTitle')}
+                  body={
+                    hasChromeMyActivityHtml
+                      ? t('import.takeoutMismatchHtmlBody')
+                      : t('import.takeoutMismatchJsonBody')
+                  }
+                />
+              ) : null}
 
               {previewGroups.length > 0 && (
                 <div className="preview-groups">
@@ -386,9 +408,10 @@ export function ImportWizardPanel({
               </div>
 
               {willImportFileCount === 0 ? (
-                <p className="dim" style={{ marginTop: 'var(--space-3)' }}>
-                  {t('import.noImportableFilesNotice')}
-                </p>
+                <div className="import-empty-guidance">
+                  <p className="dim">{t('import.noImportableFilesNotice')}</p>
+                  <p className="dim">{t('import.takeoutGuideStepThree')}</p>
+                </div>
               ) : null}
 
               <div className="wizard-actions">

@@ -456,6 +456,49 @@ fn inspect_takeout_reports_parse_errors_for_recognized_files() {
 }
 
 #[test]
+fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = dir.path().join("takeout-my-activity");
+    fs::create_dir_all(source.join("我的活動").join("Chrome")).expect("create activity source");
+    fs::write(source.join(".DS_Store"), "noise").expect("write ds_store");
+    fs::write(
+        source.join("我的活動").join("Chrome").join("我的活動.json"),
+        r#"[{"header":"google.com","title":"Visited Example","titleUrl":"https://example.com","time":"2026-04-22T18:30:56.385Z","products":["Chrome"]}]"#,
+    )
+    .expect("write my activity json");
+
+    let inspection = inspect_takeout(
+        &paths,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+    )
+    .expect("inspect my activity");
+    assert!(inspection.recognized_files.is_empty());
+    assert_eq!(inspection.quarantined_files.len(), 1);
+    assert_eq!(inspection.quarantined_files[0].reason_code.as_deref(), Some("chrome-my-activity-json"));
+    assert_eq!(inspection.quarantined_files[0].detected_locale.as_deref(), Some("zh-tw"));
+    assert_eq!(inspection.detected_locale.as_deref(), Some("zh-tw"));
+
+    let imported = import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+    )
+    .expect("import my activity");
+    assert!(imported.import_batch.is_none());
+    assert_eq!(imported.imported_items, 0);
+    assert_eq!(imported.quarantined_files.len(), 1);
+    assert_eq!(load_import_batches(&paths, &config, None).expect("load batches").len(), 0);
+}
+
+#[test]
 fn recognize_and_parse_takeout_payloads() {
     assert_eq!(recognize_takeout_file("BrowserHistory.json"), Some("browser-json".to_string()));
     assert_eq!(recognize_takeout_file("Chrome/History.json"), Some("browser-json".to_string()));

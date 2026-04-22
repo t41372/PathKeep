@@ -114,10 +114,12 @@
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
   3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。
   4. dedicated Chrome history payload 的 parser 也必須對齊真實 Takeout envelope，而不是只靠 repo 自造 fixture；目前已驗到的 canonical shape 是頂層 `Browser History` 陣列，時間欄位使用 `time_usec`。
-  5. 已知但刻意不導入的檔案（例如 typed URL / session companion、Takeout index、其他 Google product export）必須明確標示為 `known-but-ignored`，而不是混進 quarantine 噪音。
-  6. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（例如 Chrome 相關 `My Activity`）要標成 `needs-review`，不能直接猜成 browser history。
-  7. 真正未支援或 parse 失敗的 payload 才進入 review / quarantine follow-through，並在 UI 中顯示原因和檔案摘要。
-  8. 用戶確認後，才正式寫入 archive。
+  5. wizard 的第一屏就必須明講「PathKeep 現在要什麼 Takeout 類型」，並教使用者在 Google Takeout 完成匯出後，先確認 zip / 資料夾裡是否真的有 `Chrome/BrowserHistory.json`、`Chrome/History.json` 或在地化等價檔，再進入掃描。
+  6. 若使用者提供的是 `My Activity/Chrome/*.json`、`我的活動/Chrome/我的活動.json`、或任何 `.html` activity 匯出，UI 不能只顯示 generic ignored / no matches；必須直接說這不是目前 importer 支援的 dedicated Chrome history payload。
+  7. 已知但刻意不導入的檔案（例如 typed URL / session companion、Takeout index、其他 Google product export）必須明確標示為 `known-but-ignored`，而不是混進 quarantine 噪音。
+  8. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（例如 Chrome 相關 `My Activity`）要標成 `needs-review`，不能直接猜成 browser history。
+  9. 真正未支援或 parse 失敗的 payload 才進入 review / quarantine follow-through，並在 UI 中顯示原因和檔案摘要。
+  10. 用戶確認後，才正式寫入 archive。
 - path recognition 不能再只靠檔名 substring；parser 必須走 locale-aware path dispatch，至少覆蓋目前已驗到的 English / German Chrome Takeout 目錄與檔名變體。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
 - dry-run / preview 必須回報 candidate item 數量、preview entries、preview time range、detected locale、以及依 `will-import / known-but-ignored / needs-review / parse-error` 分組的 file report。batch review 仍要保留可回看的 audit artifact 路徑。

@@ -85,11 +85,18 @@
   margin-top: var(--space-4);
 }
 
+.import-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
 .import-scope-note {
   margin-top: var(--space-4);
   padding: var(--space-4);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
   background: color-mix(in srgb, var(--accent-glow) 50%, var(--bg-elevated));
+  align-self: start;
 }
 
 .import-scope-list {
@@ -97,6 +104,22 @@
   padding-left: 1.25rem;
   display: grid;
   gap: var(--space-1);
+}
+
+.import-guide-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.import-guide-checklist {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  display: grid;
+  gap: var(--space-2);
+  font-size: 11px;
 }
 
 .import-source-summary {
@@ -216,6 +239,12 @@
   gap: var(--space-4);
 }
 
+.import-empty-guidance {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
 .preview-group-copy {
   margin-top: var(--space-2);
 }
@@ -302,4 +331,18 @@
   flex-wrap: wrap;
   gap: var(--space-3);
   margin-top: var(--space-5);
+}
+
+@media (max-width: 900px) {
+  .import-methods {
+    flex-direction: column;
+  }
+
+  .import-guide-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

@@ -114,13 +114,23 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
         };
     }
 
-    if is_chrome_activity_path(&normalized) {
+    if is_chrome_activity_json_path(&normalized) {
         return TakeoutPathMatch {
             family: "chrome-activity",
             recognized_kind: None,
             locale: chrome_activity_locale(&normalized),
             disposition: TakeoutPathDisposition::NeedsReview,
-            reason_code: "chrome-activity-outside-scope",
+            reason_code: "chrome-my-activity-json",
+        };
+    }
+
+    if is_chrome_activity_html_path(&normalized) {
+        return TakeoutPathMatch {
+            family: "chrome-activity",
+            recognized_kind: None,
+            locale: chrome_activity_locale(&normalized),
+            disposition: TakeoutPathDisposition::NeedsReview,
+            reason_code: "chrome-my-activity-html",
         };
     }
 
@@ -319,19 +329,26 @@ fn is_session_path(file_name: &str) -> bool {
     file_name == "session.json" || file_name == "sessions.json"
 }
 
-fn is_chrome_activity_path(normalized: &str) -> bool {
-    normalized.ends_with("my activity/chrome/myactivity.json")
-        || normalized.ends_with("meine aktivitäten/chrome/meine aktivitäten.json")
+fn is_chrome_activity_json_path(normalized: &str) -> bool {
+    chrome_activity_suffixes(".json").iter().any(|suffix| normalized.ends_with(suffix))
+}
+
+fn is_chrome_activity_html_path(normalized: &str) -> bool {
+    chrome_activity_suffixes(".html").iter().any(|suffix| normalized.ends_with(suffix))
 }
 
 fn chrome_activity_locale(normalized: &str) -> Option<&'static str> {
-    if normalized.contains("meine aktivitäten") {
-        Some("de")
-    } else if normalized.contains("my activity") {
-        Some("en")
-    } else {
-        None
+    for (segment, locale) in [
+        ("my activity", "en"),
+        ("meine aktivitäten", "de"),
+        ("我的活动", "zh-cn"),
+        ("我的活動", "zh-tw"),
+    ] {
+        if normalized.contains(&normalize_takeout_path(segment)) {
+            return Some(locale);
+        }
     }
+    None
 }
 
 fn chrome_supporting_file_disposition(file_name: &str) -> TakeoutPathDisposition {
@@ -357,6 +374,31 @@ fn looks_history_like(file_name: &str) -> bool {
         || file_name.contains("browser")
 }
 
+fn chrome_activity_suffixes(extension: &str) -> [&'static str; 4] {
+    [
+        match extension {
+            ".json" => "my activity/chrome/myactivity.json",
+            ".html" => "my activity/chrome/myactivity.html",
+            _ => unreachable!("unsupported chrome activity extension"),
+        },
+        match extension {
+            ".json" => "meine aktivitäten/chrome/meine aktivitäten.json",
+            ".html" => "meine aktivitäten/chrome/meine aktivitäten.html",
+            _ => unreachable!("unsupported chrome activity extension"),
+        },
+        match extension {
+            ".json" => "我的活动/chrome/我的活动.json",
+            ".html" => "我的活动/chrome/我的活动.html",
+            _ => unreachable!("unsupported chrome activity extension"),
+        },
+        match extension {
+            ".json" => "我的活動/chrome/我的活動.json",
+            ".html" => "我的活動/chrome/我的活動.html",
+            _ => unreachable!("unsupported chrome activity extension"),
+        },
+    ]
+}
+
 /// Enumerates every file candidate contained in a Takeout directory or zip archive.
 pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>, ParseError> {
     if source.is_dir() {
@@ -364,6 +406,7 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>, Pa
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| !should_skip_takeout_file(entry.path().to_string_lossy().as_ref()))
             .map(|entry| TakeoutFile { path: entry.path().display().to_string(), from_zip: false })
             .collect());
     }
@@ -376,7 +419,7 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>, Pa
     let mut files = Vec::new();
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
-        if entry.is_file() {
+        if entry.is_file() && !should_skip_takeout_file(entry.name()) {
             files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
         }
     }
@@ -408,4 +451,10 @@ fn read_zip_entry(source: &Path, entry_name: &str) -> Result<Vec<u8>, ParseError
         source: source_error,
     })?;
     Ok(bytes)
+}
+
+fn should_skip_takeout_file(path: &str) -> bool {
+    let normalized = normalize_takeout_path(path);
+    let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+    file_name.starts_with('.') || normalized.split('/').any(|segment| segment == "__macosx")
 }
