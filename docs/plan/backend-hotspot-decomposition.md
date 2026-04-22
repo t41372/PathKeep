@@ -28,6 +28,7 @@
 - 2026-04-21 landed: `src-tauri/crates/vault-core/src/takeout.rs` is now `takeout/{mod,inspect,import_flow,batches,tests}.rs`, and the targeted Takeout Rust regression suite passed after the split.
 - 2026-04-21 follow-up landed: import execution no longer goes through the inspection preview helper. `takeout/import_flow.rs` now delegates payload parsing/writes to `takeout/payload_import.rs`, so import avoids allocating a second visit-sized preview vector and source-evidence plans take ownership of the parsed history instead of cloning it.
 - 2026-04-21 review follow-up landed: batch review reads/audit repair now live in `takeout/batch_review.rs`, while `takeout/batches.rs` keeps the write-side revert/restore path. The active Takeout boundary no longer has any file above the 600-line hard stop.
+- 2026-04-21 execute-path follow-up landed: non-dry-run `import_takeout` no longer runs a full `inspect_takeout` pass before importing. The execute path now scans files once, accumulates batch metadata while writing canonical rows, and hydrates its final review payload from `preview_import_batch`, removing the old double-parse / double-read behavior from the hottest Takeout import path.
 
 ### Slice 2 — Parser and ingest streaming boundary
 

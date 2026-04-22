@@ -158,6 +158,17 @@ pub(super) fn import_supported_payload(
 
     Ok(ImportedPayload {
         stats,
+        record_count: report.record_count,
+        recognized_file: TakeoutFileReport {
+            path: source_path.to_string(),
+            kind: kind.to_string(),
+            status: if report.skipped_missing_visit_time > 0 {
+                "previewed-with-skips".to_string()
+            } else {
+                "previewed".to_string()
+            },
+            records: report.record_count,
+        },
         source_evidence_plan: build_takeout_source_evidence_plan(
             source_profile_id,
             run_id,

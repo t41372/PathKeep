@@ -157,6 +157,7 @@ fn import_preview_revert_and_restore_batch_are_reversible() {
     assert_eq!(batch.duplicate_items, 0);
     assert_eq!(inspection.imported_items, 2);
     assert!(inspection.notes.is_empty());
+    assert_eq!(inspection.preview_entries.len(), 2);
     assert_eq!(batch.visible_items, 2);
     let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after import");
     assert_eq!(recent_runs[0].run_type, "import");
@@ -353,7 +354,7 @@ fn takeout_records_without_timestamps_are_skipped_with_a_note() {
     assert_eq!(imported.duplicate_items, 0);
     assert_eq!(
         imported.notes.iter().filter(|note| note.contains("missing a visit timestamp")).count(),
-        2
+        1
     );
     assert_eq!(imported.recognized_files.len(), 1);
     assert_eq!(imported.recognized_files[0].records, 1);

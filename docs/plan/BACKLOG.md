@@ -21,7 +21,7 @@
 > 2026-04-20 search activity note：使用者又插單 `WORK-CI-R`，要求先修 Search Activity keyword truth、shared keyword browser 與 search-engine domain deep-dive。這個 block 已獨立完成並 append 到 `CHANGELOG.md`，不折回 M13 reuse scope；BACKLOG 目前仍只保留 blocked 的 `WORK-CI-N`。
 > 2026-04-20 desktop truth-pass closeout：`WORK-CI-N` 已完成並 append 到 `CHANGELOG.md`。這輪先修掉前端 shipped blocker（remote glyph font、glyph a11y、Settings 分組 i18n），再補 shared entity CTA 的 HashRouter grammar，最後透過重打 current-host release `.app` 解掉 stale frontend drift。最新 Computer Use 驗到 build label `6412ad59+`、Chrome `Yi-Ting` re-import + `000000` 加密（未寫入鑰匙圈）、`rememberDatabaseKeyInKeyring: false` config truth、`/intelligence` 無 raw glyph ids、以及 domain deep-dive → Explorer evidence CTA 正常落到 `#/explorer?...`。BACKLOG 現在再次只剩 `STATUS.md` 上的 M13 active blocks，沒有額外 pending 的 desktop-truth follow-up。
 > 2026-04-21 backend track note：使用者明確要求新增平行的後端 hotspot 拆分軌道。`WORK-BE-A` 已直接進入 `STATUS.md` 與 `docs/plan/backend-hotspot-decomposition.md`；這不是取消 `WORK-M13-B`，而是把 frontend reuse 與 backend decomposition 分開推進。
-> 2026-04-21 backend follow-up note：Takeout import / batch review boundary的文件尺寸已收斂到 repo 硬限制內；剩餘 backend risk 不再是 `takeout` mega-file，而是 parser → import/archive 的 collect-then-ingest contract，以及仍有 `1299` 行的 `src-tauri/crates/vault-core/src/archive/mod.rs`。
+> 2026-04-21 backend follow-up note：Takeout import / batch review boundary的文件尺寸已收斂到 repo 硬限制內，execute path 也已拿掉雙重 inspection/import 解析；剩餘 backend risk 不再是 `takeout` mega-file，而是更深一層的 parser → import/archive collect-then-ingest contract，以及仍有 `1299` 行的 `src-tauri/crates/vault-core/src/archive/mod.rs`。
 
 - [ ] **WORK-BE-B** — Import Streaming Contract And Remaining Archive/Takeout Hotspot Split
   - 依賴：`WORK-BE-A`

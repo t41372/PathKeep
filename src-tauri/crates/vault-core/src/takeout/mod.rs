@@ -116,6 +116,8 @@ struct ImportStats {
 #[derive(Debug)]
 struct ImportedPayload {
     stats: ImportStats,
+    record_count: usize,
+    recognized_file: TakeoutFileReport,
     source_evidence_plan: TakeoutSourceEvidencePlan,
 }
 

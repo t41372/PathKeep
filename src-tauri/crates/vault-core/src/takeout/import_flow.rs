@@ -47,9 +47,8 @@ where
     F: FnMut(ImportProgressEvent),
 {
     ensure_paths(paths)?;
-    let mut inspection = inspect::inspect_takeout(paths, request)?;
     if request.dry_run {
-        return Ok(inspection);
+        return inspect::inspect_takeout(paths, request);
     }
 
     if !config.initialized {
@@ -57,6 +56,17 @@ where
     }
 
     let source = Path::new(&request.source_path);
+    let files = inspect::gather_takeout_files(source)?;
+    let planned_files = files
+        .iter()
+        .filter_map(|file| inspect::recognize_takeout_file(&file.path))
+        .filter(|kind| kind != KIND_INDEX)
+        .count();
+    let mut inspection = TakeoutInspection {
+        source_path: request.source_path.clone(),
+        dry_run: false,
+        ..TakeoutInspection::default()
+    };
     let synthetic_profile = "takeout::browser-history".to_string();
     let started_at = now_rfc3339();
 
@@ -65,12 +75,7 @@ where
     let run_id = create_import_run(&archive, &synthetic_profile, &started_at)?;
     let transaction = archive.transaction()?;
     let source_profile_id = upsert_takeout_profile(&transaction, &synthetic_profile, source)?;
-
-    let batch_id =
-        batches::create_import_batch(&transaction, &synthetic_profile, request, &inspection)?;
-    let files = inspect::gather_takeout_files(source)?;
-    let planned_files =
-        inspection.recognized_files.iter().filter(|file| file.kind != KIND_INDEX).count();
+    let batch_id = batches::create_import_batch(&transaction, &synthetic_profile, request)?;
     let mut stats = ImportStats::default();
     let mut source_evidence_plans = Vec::new();
     let mut progress_log_lines = vec![format!(
@@ -94,10 +99,22 @@ where
         for file in files {
             let Some(kind) = inspect::recognize_takeout_file(&file.path) else {
                 inspect::quarantine_takeout_file(paths, source, &file)?;
+                inspection.quarantined_files.push(TakeoutFileReport {
+                    path: file.path.clone(),
+                    kind: "unknown".to_string(),
+                    status: "quarantine".to_string(),
+                    records: 0,
+                });
                 progress_log_lines.push(format!("Quarantined unsupported payload {}.", file.path));
                 continue;
             };
             if kind == KIND_INDEX {
+                inspection.recognized_files.push(TakeoutFileReport {
+                    path: file.path.clone(),
+                    kind: kind.clone(),
+                    status: "recognized".to_string(),
+                    records: 0,
+                });
                 continue;
             }
             imported_file_count += 1;
@@ -122,7 +139,7 @@ where
             } else {
                 fs::read(&file.path)?
             };
-            let file_stats = import_supported_payload(
+            let file_stats = match import_supported_payload(
                 &transaction,
                 run_id,
                 batch_id,
@@ -130,7 +147,21 @@ where
                 &file.path,
                 &kind,
                 &bytes,
-            )?;
+            ) {
+                Ok(file_stats) => file_stats,
+                Err(error) => {
+                    inspection.recognized_files.push(TakeoutFileReport {
+                        path: file.path.clone(),
+                        kind: kind.clone(),
+                        status: "parse-error".to_string(),
+                        records: 0,
+                    });
+                    inspection.notes.push(format!("Could not parse {}: {}", file.path, error));
+                    return Err(error);
+                }
+            };
+            inspection.candidate_items += file_stats.record_count;
+            inspection.recognized_files.push(file_stats.recognized_file);
             stats.imported_items += file_stats.stats.imported_items;
             stats.duplicate_items += file_stats.stats.duplicate_items;
             source_evidence_plans.push(file_stats.source_evidence_plan);
@@ -153,6 +184,13 @@ where
                 planned_files.max(1),
                 Some(file.path.clone()),
                 &progress_log_lines,
+            );
+        }
+
+        if inspection.recognized_files.is_empty() {
+            inspection.notes.push(
+                "No directly importable history files were detected. Dry-run still captured the archive structure."
+                    .to_string(),
             );
         }
 
@@ -201,6 +239,10 @@ where
 
     let detail = preview_import_batch(paths, config, key, batch_id)?;
     inspection.import_batch = Some(detail.batch);
+    inspection.preview_entries = detail.preview_entries;
+    inspection.recognized_files = detail.recognized_files;
+    inspection.quarantined_files = detail.quarantined_files;
+    inspection.notes = detail.notes;
     progress_log_lines.push(format!(
         "Imported {} new record(s); {} duplicate(s) skipped.",
         inspection.imported_items, inspection.duplicate_items

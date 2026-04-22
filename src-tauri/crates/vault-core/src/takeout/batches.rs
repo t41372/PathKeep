@@ -216,15 +216,14 @@ pub(super) fn create_import_batch(
     archive: &Transaction<'_>,
     profile_id: &str,
     request: &TakeoutRequest,
-    inspection: &TakeoutInspection,
 ) -> Result<i64> {
     let summary_json = serde_json::to_string(&json!({
-        "candidateItems": inspection.candidate_items,
+        "candidateItems": 0,
         "importedItems": 0,
         "duplicateItems": 0,
-        "recognizedFiles": inspection.recognized_files,
-        "quarantinedFiles": inspection.quarantined_files,
-        "notes": inspection.notes,
+        "recognizedFiles": [],
+        "quarantinedFiles": [],
+        "notes": [],
     }))?;
     archive.execute(
         "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, status, summary_json)
