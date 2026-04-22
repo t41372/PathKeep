@@ -57,16 +57,18 @@ where
 
     let source = Path::new(&request.source_path);
     let files = inspect::gather_takeout_files(source)?;
-    let planned_files = files
+    let classified_files = files.iter().map(inspect::classify_takeout_file).collect::<Vec<_>>();
+    let planned_files = classified_files
         .iter()
-        .filter_map(|file| inspect::recognize_takeout_file(&file.path))
-        .filter(|kind| kind != KIND_INDEX)
+        .filter_map(|file| file.path_match.recognized_kind)
+        .filter(|kind| *kind != KIND_INDEX)
         .count();
     let mut inspection = TakeoutInspection {
         source_path: request.source_path.clone(),
         dry_run: false,
         ..TakeoutInspection::default()
     };
+    let mut found_importable_payload = false;
     let synthetic_profile = "takeout::browser-history".to_string();
     let started_at = now_rfc3339();
 
@@ -96,26 +98,45 @@ where
 
     let import_result = (|| -> Result<()> {
         let mut imported_file_count = 0usize;
-        for file in files {
-            let Some(kind) = inspect::recognize_takeout_file(&file.path) else {
-                inspect::quarantine_takeout_file(paths, source, &file)?;
-                inspection.quarantined_files.push(TakeoutFileReport {
-                    path: file.path.clone(),
-                    kind: "unknown".to_string(),
-                    status: "quarantine".to_string(),
-                    records: 0,
-                });
-                progress_log_lines.push(format!("Quarantined unsupported payload {}.", file.path));
+        for classified_file in classified_files {
+            let file = classified_file.file;
+            merge_detected_locale(
+                &mut inspection.detected_locale,
+                classified_file.path_match.locale,
+            );
+
+            if classified_file.path_match.disposition == TakeoutPathDisposition::NeedsReview {
+                inspect::quarantine_takeout_file(paths, source, file)?;
+                inspection.quarantined_files.push(file_report_from_match(
+                    classified_file,
+                    "needs-review",
+                    0,
+                    None,
+                ));
+                progress_log_lines.push(format!("Queued review-needed payload {}.", file.path));
+                continue;
+            }
+
+            let Some(kind) = classified_file.path_match.recognized_kind else {
+                inspection.recognized_files.push(file_report_from_match(
+                    classified_file,
+                    "ignored",
+                    0,
+                    None,
+                ));
                 continue;
             };
             if kind == KIND_INDEX {
-                inspection.recognized_files.push(TakeoutFileReport {
-                    path: file.path.clone(),
-                    kind: kind.clone(),
-                    status: "recognized".to_string(),
-                    records: 0,
-                });
+                inspection.recognized_files.push(file_report_from_match(
+                    classified_file,
+                    "ignored",
+                    0,
+                    None,
+                ));
                 continue;
+            }
+            if classified_file.path_match.disposition == TakeoutPathDisposition::WillImport {
+                found_importable_payload = true;
             }
             imported_file_count += 1;
             progress_log_lines.push(format!("Importing {kind} from {}.", file.path));
@@ -145,24 +166,46 @@ where
                 run_id,
                 batch_id,
                 source_profile_id,
-                &file.path,
+                classified_file,
                 &kind,
                 &bytes,
             ) {
                 Ok(file_stats) => file_stats,
                 Err(error) => {
-                    inspection.recognized_files.push(TakeoutFileReport {
-                        path: file.path.clone(),
-                        kind: kind.clone(),
-                        status: "parse-error".to_string(),
-                        records: 0,
-                    });
+                    let mut report = file_report_from_match(
+                        classified_file,
+                        "parse-error",
+                        0,
+                        Some(error.to_string()),
+                    );
+                    report.classification = "parse-error".to_string();
+                    report.reason_code = Some("parse-error".to_string());
+                    inspection.recognized_files.push(report);
                     inspection.notes.push(format!("Could not parse {}: {}", file.path, error));
-                    return Err(error);
+                    if classified_file.path_match.disposition == TakeoutPathDisposition::WillImport
+                    {
+                        return Err(error);
+                    }
+                    progress_log_lines.push(format!(
+                        "Skipped non-critical payload {} after a parse error.",
+                        file.path
+                    ));
+                    continue;
                 }
             };
             inspection.candidate_items += file_stats.record_count;
             inspection.recognized_files.push(file_stats.recognized_file);
+            let mut preview_range = PreviewRangeSummary {
+                start: inspection.preview_range_start.take(),
+                end: inspection.preview_range_end.take(),
+            };
+            merge_preview_range(
+                &mut preview_range,
+                file_stats.earliest_visit_iso.as_deref(),
+                file_stats.latest_visit_iso.as_deref(),
+            );
+            inspection.preview_range_start = preview_range.start;
+            inspection.preview_range_end = preview_range.end;
             stats.imported_items += file_stats.stats.imported_items;
             stats.duplicate_items += file_stats.stats.duplicate_items;
             source_evidence_plans.push(file_stats.source_evidence_plan);
@@ -188,7 +231,7 @@ where
             );
         }
 
-        if inspection.recognized_files.is_empty() {
+        if !found_importable_payload {
             inspection.notes.push(
                 "No directly importable history files were detected. Dry-run still captured the archive structure."
                     .to_string(),
@@ -244,6 +287,9 @@ where
     inspection.recognized_files = detail.recognized_files;
     inspection.quarantined_files = detail.quarantined_files;
     inspection.notes = detail.notes;
+    inspection.detected_locale = detail.detected_locale;
+    inspection.preview_range_start = detail.preview_range_start;
+    inspection.preview_range_end = detail.preview_range_end;
     progress_log_lines.push(format!(
         "Imported {} new record(s); {} duplicate(s) skipped.",
         inspection.imported_items, inspection.duplicate_items

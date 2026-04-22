@@ -91,4 +91,5 @@
 
 - 第一輪高價值 extraction 已落地：Jobs runtime health / plugin / module summary rows 不再維持 Jobs-local review shell。
 - [`src/pages/jobs/index.tsx`](../../src/pages/jobs/index.tsx) 現在降到可接受的 route-shell 尺寸；runtime health / boundary section 已拆到 [`src/pages/jobs/runtime-health-section.tsx`](../../src/pages/jobs/runtime-health-section.tsx)。
+- 2026-04-22 Import follow-through slice landed：`/import` 現在不再只把 wizard / workflow explainer / recent batch review 疊成同質化面板。route 會以 `new import wizard -> grouped scan report -> recent imports / selected batch / doctor repair` 的順序呈現，並直接吃 backend 提供的 `will-import / known-but-ignored / needs-review / parse-error` file classification、preview time range 與 detected locale；這讓 Takeout UI 終於能把「現在會導入什麼」與「為什麼某些檔案沒被導入」講清楚。
 - `WORK-M13-B` 仍保留 active，後續 focus 改為 shell-data、Security / Import workflow follow-through、Dashboard fallback owner，以及 `Browsing Rhythm` layering smell。

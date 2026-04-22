@@ -38,6 +38,10 @@ export interface TakeoutFileReport {
   kind: string
   status: string
   records: number
+  classification: string
+  reasonCode?: string | null
+  reasonDetail?: string | null
+  detectedLocale?: string | null
 }
 
 /**
@@ -87,6 +91,9 @@ export interface ImportBatchDetail {
   recognizedFiles: TakeoutFileReport[]
   quarantinedFiles: TakeoutFileReport[]
   notes: string[]
+  detectedLocale?: string | null
+  previewRangeStart?: string | null
+  previewRangeEnd?: string | null
 }
 
 /**
@@ -105,6 +112,9 @@ export interface TakeoutInspection {
   duplicateItems: number
   notes: string[]
   importBatch?: ImportBatchOverview | null
+  detectedLocale?: string | null
+  previewRangeStart?: string | null
+  previewRangeEnd?: string | null
 }
 
 /**

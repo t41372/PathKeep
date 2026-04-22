@@ -186,6 +186,8 @@ where
         counts: TakeoutPayloadCounts::default(),
         record_count,
         skipped_missing_visit_time: 0,
+        earliest_visit_iso: None,
+        latest_visit_iso: None,
     })
 }
 
@@ -231,6 +233,8 @@ fn empty_stream_report(
         counts: TakeoutPayloadCounts::default(),
         record_count: 0,
         skipped_missing_visit_time: 0,
+        earliest_visit_iso: None,
+        latest_visit_iso: None,
     }
 }
 

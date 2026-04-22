@@ -37,6 +37,7 @@ import type {
   ImportBatchDetail,
   ImportBatchOverview,
 } from '../../lib/types'
+import { formatTakeoutLocaleLabel, formatTakeoutPreviewRange } from './shared'
 
 /**
  * Props for the extracted Import review panels.
@@ -223,6 +224,24 @@ export function ImportReviewPanels({
             </p>
             {activeBatchDetail ? (
               <>
+                <div className="import-batch-meta">
+                  <span className="status-badge">
+                    {t('import.detectedLocaleLabel')}:{' '}
+                    {formatTakeoutLocaleLabel(
+                      activeBatchDetail.detectedLocale,
+                      t,
+                    )}
+                  </span>
+                  <span className="mono-support">
+                    {t('import.timeRangeLabel')}:{' '}
+                    {formatTakeoutPreviewRange(
+                      activeBatchDetail.previewRangeStart,
+                      activeBatchDetail.previewRangeEnd,
+                      language,
+                      t,
+                    )}
+                  </span>
+                </div>
                 <ImportBatchReview
                   auditPathActions={{
                     copyFeedback: supportCopyFeedback,

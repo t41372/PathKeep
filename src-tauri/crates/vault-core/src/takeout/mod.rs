@@ -50,7 +50,9 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
-    KIND_INDEX, TakeoutPayloadStreamReport, recognize_payload as recognize_takeout_payload,
+    KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch, TakeoutPayloadStreamReport,
+    classify_payload_path as classify_takeout_payload_path,
+    recognize_payload as recognize_takeout_payload,
 };
 #[cfg(test)]
 use browser_history_parser::takeout::{
@@ -119,6 +121,8 @@ struct ImportedPayload {
     stats: ImportStats,
     record_count: usize,
     recognized_file: TakeoutFileReport,
+    earliest_visit_iso: Option<String>,
+    latest_visit_iso: Option<String>,
     source_evidence_plan: TakeoutSourceEvidencePlan,
 }
 
@@ -145,6 +149,9 @@ struct ImportBatchRecord {
     recognized_files: Vec<TakeoutFileReport>,
     quarantined_files: Vec<TakeoutFileReport>,
     notes: Vec<String>,
+    detected_locale: Option<String>,
+    preview_range_start: Option<String>,
+    preview_range_end: Option<String>,
 }
 
 /// Describes the summary JSON mutation applied to one import batch row.
@@ -158,6 +165,9 @@ struct BatchSummaryUpdate<'a> {
     recognized_files: &'a [TakeoutFileReport],
     quarantined_files: &'a [TakeoutFileReport],
     notes: &'a [String],
+    detected_locale: Option<&'a str>,
+    preview_range_start: Option<&'a str>,
+    preview_range_end: Option<&'a str>,
     reverted_at: Option<String>,
 }
 
@@ -176,4 +186,76 @@ struct ImportBatchOverviewRow {
     visible_items: usize,
     audit_path: Option<String>,
     git_commit: Option<String>,
+}
+
+/// Tracks the earliest/latest previewable visit timestamps seen across Takeout files.
+#[derive(Debug, Clone, Default)]
+struct PreviewRangeSummary {
+    start: Option<String>,
+    end: Option<String>,
+}
+
+/// Combines a parser-side path classification with the file being reported to the UI.
+#[derive(Debug, Clone, Copy)]
+struct ClassifiedTakeoutFile<'a> {
+    file: &'a TakeoutFile,
+    path_match: TakeoutPathMatch,
+}
+
+fn merge_detected_locale(detected_locale: &mut Option<String>, next_locale: Option<&str>) {
+    let Some(next_locale) = next_locale else {
+        return;
+    };
+    match detected_locale.as_deref() {
+        None => *detected_locale = Some(next_locale.to_string()),
+        Some(current) if current == next_locale || current == "mixed" => {}
+        Some(_) => *detected_locale = Some("mixed".to_string()),
+    }
+}
+
+fn merge_preview_range(
+    preview_range: &mut PreviewRangeSummary,
+    next_start: Option<&str>,
+    next_end: Option<&str>,
+) {
+    if let Some(next_start) = next_start {
+        let should_replace =
+            preview_range.start.as_deref().is_none_or(|current| next_start < current);
+        if should_replace {
+            preview_range.start = Some(next_start.to_string());
+        }
+    }
+    if let Some(next_end) = next_end {
+        let should_replace = preview_range.end.as_deref().is_none_or(|current| next_end > current);
+        if should_replace {
+            preview_range.end = Some(next_end.to_string());
+        }
+    }
+}
+
+fn file_report_kind(path_match: TakeoutPathMatch) -> String {
+    path_match.recognized_kind.unwrap_or(path_match.family).to_string()
+}
+
+fn file_report_from_match(
+    classified_file: ClassifiedTakeoutFile<'_>,
+    status: &str,
+    records: usize,
+    reason_detail: Option<String>,
+) -> TakeoutFileReport {
+    TakeoutFileReport {
+        path: classified_file.file.path.clone(),
+        kind: file_report_kind(classified_file.path_match),
+        status: status.to_string(),
+        records,
+        classification: match classified_file.path_match.disposition {
+            TakeoutPathDisposition::WillImport => "will-import",
+            TakeoutPathDisposition::KnownIgnored => "known-but-ignored",
+            TakeoutPathDisposition::NeedsReview => "needs-review",
+        }
+        .to_string(),
+        reason_code: Some(classified_file.path_match.reason_code.to_string()),
+        reason_detail,
+        detected_locale: classified_file.path_match.locale.map(ToString::to_string),
+    }
 }

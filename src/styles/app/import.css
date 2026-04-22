@@ -20,7 +20,7 @@
  */
 /* ═══ IMPORT ═══ */
 .import-container {
-  max-width: 800px;
+  max-width: 980px;
 }
 
 .import-source-stack {
@@ -83,6 +83,20 @@
   flex-wrap: wrap;
   gap: var(--space-3);
   margin-top: var(--space-4);
+}
+
+.import-scope-note {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 50%, var(--bg-elevated));
+}
+
+.import-scope-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: var(--space-1);
 }
 
 .import-source-summary {
@@ -189,6 +203,23 @@
   margin-bottom: var(--space-4);
 }
 
+.import-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.preview-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.preview-group-copy {
+  margin-top: var(--space-2);
+}
+
 .inline-note-list {
   display: grid;
   gap: var(--space-2);
@@ -226,6 +257,18 @@
   border-bottom: 1px solid var(--bg-elevated);
 }
 
+.file-item--stacked {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.file-item__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .file-status {
   font-size: 12px;
 }
@@ -234,6 +277,24 @@
 }
 .file-status.warn {
   color: var(--warning);
+}
+.file-status.muted {
+  color: var(--text-faint);
+}
+
+.file-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-left: calc(var(--space-3) + 12px);
+}
+
+.import-batch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-4);
 }
 
 .wizard-actions {

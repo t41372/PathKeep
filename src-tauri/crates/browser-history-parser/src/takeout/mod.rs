@@ -44,13 +44,34 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub use source::{inspect_history, recognize_payload};
+pub use source::{classify_payload_path, inspect_history, recognize_payload};
 
 pub const KIND_JSONL: &str = "jsonl";
 pub const KIND_BROWSER_JSON: &str = "browser-json";
 pub const KIND_TYPED_URL_JSON: &str = "typed-url-json";
 pub const KIND_SESSION_JSON: &str = "session-json";
 pub const KIND_INDEX: &str = "takeout-index";
+
+/// High-level import disposition for one Takeout file path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TakeoutPathDisposition {
+    /// Dedicated Chrome history payload that PathKeep should import into canonical visits.
+    WillImport,
+    /// Known file that PathKeep intentionally keeps out of the current Chrome-first import scope.
+    KnownIgnored,
+    /// History-adjacent file that deserves user review because it might look importable.
+    NeedsReview,
+}
+
+/// Classification result for one Takeout file path before parsing starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TakeoutPathMatch {
+    pub family: &'static str,
+    pub recognized_kind: Option<&'static str>,
+    pub locale: Option<&'static str>,
+    pub disposition: TakeoutPathDisposition,
+    pub reason_code: &'static str,
+}
 
 /// Controls which non-canonical payloads are accumulated during Takeout streaming.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +134,8 @@ pub struct TakeoutPayloadStreamReport {
     pub counts: TakeoutPayloadCounts,
     pub record_count: usize,
     pub skipped_missing_visit_time: usize,
+    pub earliest_visit_iso: Option<String>,
+    pub latest_visit_iso: Option<String>,
 }
 
 /// Full Takeout payload report used by preview/read-only consumers.

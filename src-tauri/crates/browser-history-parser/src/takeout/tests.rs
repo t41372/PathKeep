@@ -25,6 +25,28 @@ fn inspect_history_reports_supported_takeout_payloads() {
 }
 
 #[test]
+fn classify_payload_path_handles_localized_history_and_review_only_paths() {
+    let english = classify_payload_path("Chrome/History.json");
+    assert_eq!(english.recognized_kind, Some(KIND_BROWSER_JSON));
+    assert_eq!(english.locale, Some("en"));
+    assert_eq!(english.disposition, TakeoutPathDisposition::WillImport);
+
+    let german = classify_payload_path("Chrome/Verlauf.json");
+    assert_eq!(german.recognized_kind, Some(KIND_BROWSER_JSON));
+    assert_eq!(german.locale, Some("de"));
+    assert_eq!(german.disposition, TakeoutPathDisposition::WillImport);
+
+    let activity = classify_payload_path("My Activity/Chrome/MyActivity.json");
+    assert_eq!(activity.recognized_kind, None);
+    assert_eq!(activity.disposition, TakeoutPathDisposition::NeedsReview);
+    assert_eq!(activity.reason_code, "chrome-activity-outside-scope");
+
+    let ignored = classify_payload_path("Google Play Store/Installs.json");
+    assert_eq!(ignored.recognized_kind, None);
+    assert_eq!(ignored.disposition, TakeoutPathDisposition::KnownIgnored);
+}
+
+#[test]
 fn parse_payload_extracts_browser_history_records() {
     let report = parse_payload(
         "BrowserHistory.json",

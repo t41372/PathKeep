@@ -35,28 +35,44 @@ pub fn inspect_takeout(
         dry_run: request.dry_run,
         ..TakeoutInspection::default()
     };
+    let mut found_importable_payload = false;
 
     for file in files {
-        let Some(kind) = recognize_takeout_file(&file.path) else {
-            inspection.quarantined_files.push(TakeoutFileReport {
-                path: file.path,
-                kind: "unknown".to_string(),
-                status: "quarantine".to_string(),
-                records: 0,
-            });
-            continue;
-        };
+        let classified_file = classify_takeout_file(&file);
+        merge_detected_locale(&mut inspection.detected_locale, classified_file.path_match.locale);
 
-        let mut report = TakeoutFileReport {
-            path: file.path.clone(),
-            kind: kind.to_string(),
-            status: "recognized".to_string(),
-            records: 0,
+        if classified_file.path_match.disposition == TakeoutPathDisposition::NeedsReview {
+            inspection.quarantined_files.push(file_report_from_match(
+                classified_file,
+                "needs-review",
+                0,
+                None,
+            ));
+            continue;
+        }
+
+        let Some(kind) = classified_file.path_match.recognized_kind else {
+            inspection.recognized_files.push(file_report_from_match(
+                classified_file,
+                "ignored",
+                0,
+                None,
+            ));
+            continue;
         };
 
         if kind == KIND_INDEX {
-            inspection.recognized_files.push(report);
+            inspection.recognized_files.push(file_report_from_match(
+                classified_file,
+                "ignored",
+                0,
+                None,
+            ));
             continue;
+        }
+
+        if classified_file.path_match.disposition == TakeoutPathDisposition::WillImport {
+            found_importable_payload = true;
         }
 
         let bytes = if file.from_zip {
@@ -72,13 +88,25 @@ pub fn inspect_takeout(
             PREVIEW_LIMIT.saturating_sub(inspection.preview_entries.len()),
         ) {
             Ok(payload) => {
-                report.records = payload.record_count;
-                report.status = if payload.skipped_missing_visit_time > 0 {
-                    "previewed-with-skips".to_string()
+                let status = if payload.skipped_missing_visit_time > 0 {
+                    "previewed-with-skips"
                 } else {
-                    "previewed".to_string()
+                    "previewed"
                 };
+                let report =
+                    file_report_from_match(classified_file, status, payload.record_count, None);
                 inspection.candidate_items += payload.candidate_items;
+                let mut preview_range = PreviewRangeSummary {
+                    start: inspection.preview_range_start.take(),
+                    end: inspection.preview_range_end.take(),
+                };
+                merge_preview_range(
+                    &mut preview_range,
+                    payload.earliest_visit_iso.as_deref(),
+                    payload.latest_visit_iso.as_deref(),
+                );
+                inspection.preview_range_start = preview_range.start;
+                inspection.preview_range_end = preview_range.end;
                 if payload.skipped_missing_visit_time > 0 {
                     inspection.notes.push(format!(
                         "Skipped {} records from {} because they were missing a visit timestamp.",
@@ -88,17 +116,24 @@ pub fn inspect_takeout(
                 for record in payload.records {
                     inspection.preview_entries.push(preview_entry(&record, "candidate"));
                 }
+                inspection.recognized_files.push(report);
             }
             Err(error) => {
-                report.status = "parse-error".to_string();
+                let mut report = file_report_from_match(
+                    classified_file,
+                    "parse-error",
+                    0,
+                    Some(error.to_string()),
+                );
+                report.classification = "parse-error".to_string();
+                report.reason_code = Some("parse-error".to_string());
                 inspection.notes.push(format!("Could not parse {}: {}", file.path, error));
+                inspection.recognized_files.push(report);
             }
         }
-
-        inspection.recognized_files.push(report);
     }
 
-    if inspection.recognized_files.is_empty() {
+    if !found_importable_payload {
         inspection.notes.push(
             "No directly importable history files were detected. Dry-run still captured the archive structure."
                 .to_string(),
@@ -158,6 +193,8 @@ fn preview_payload_stream(
         preview_limit,
         records: Vec::new(),
         candidate_items: 0,
+        earliest_visit_iso: None,
+        latest_visit_iso: None,
     };
     let report = stream_payload_with_options(
         source_path,
@@ -180,6 +217,8 @@ fn preview_payload_stream(
         candidate_items: consumer.candidate_items,
         record_count: report.record_count,
         skipped_missing_visit_time: report.skipped_missing_visit_time,
+        earliest_visit_iso: report.earliest_visit_iso,
+        latest_visit_iso: report.latest_visit_iso,
     })
 }
 
@@ -220,6 +259,8 @@ struct PreviewPayload {
     candidate_items: usize,
     record_count: usize,
     skipped_missing_visit_time: usize,
+    earliest_visit_iso: Option<String>,
+    latest_visit_iso: Option<String>,
 }
 
 #[derive(Debug)]
@@ -228,6 +269,8 @@ struct TakeoutPreviewCollector {
     preview_limit: usize,
     records: Vec<ParsedTakeoutRecord>,
     candidate_items: usize,
+    earliest_visit_iso: Option<String>,
+    latest_visit_iso: Option<String>,
 }
 
 impl HistoryBatchConsumer for TakeoutPreviewCollector {
@@ -240,6 +283,20 @@ impl HistoryBatchConsumer for TakeoutPreviewCollector {
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
         self.candidate_items += batch.len();
         for visit in batch {
+            let should_update_start = self
+                .earliest_visit_iso
+                .as_deref()
+                .is_none_or(|current| visit.visit_time_iso.as_str() < current);
+            if should_update_start {
+                self.earliest_visit_iso = Some(visit.visit_time_iso.clone());
+            }
+            let should_update_end = self
+                .latest_visit_iso
+                .as_deref()
+                .is_none_or(|current| visit.visit_time_iso.as_str() > current);
+            if should_update_end {
+                self.latest_visit_iso = Some(visit.visit_time_iso.clone());
+            }
             if self.records.len() < self.preview_limit {
                 self.records.push(ParsedTakeoutRecord {
                     source_path: self.source_path.clone(),
@@ -280,6 +337,10 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
 /// Classifies a file path into the supported Takeout payload family, if any.
 pub(super) fn recognize_takeout_file(path: &str) -> Option<String> {
     recognize_takeout_payload(path).map(ToString::to_string)
+}
+
+pub(super) fn classify_takeout_file(file: &TakeoutFile) -> ClassifiedTakeoutFile<'_> {
+    ClassifiedTakeoutFile { file, path_match: classify_takeout_payload_path(&file.path) }
 }
 
 /// Reads one zip entry into memory so inspection/import can parse it.

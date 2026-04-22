@@ -101,6 +101,18 @@ export function ImportSelectStep({
           : t('import.browserPreparationHint')}
       </p>
 
+      {method === 'takeout' ? (
+        <div className="import-scope-note">
+          <span className="mono-kicker">{t('import.takeoutScopeTitle')}</span>
+          <p className="dim">{t('import.takeoutScopeBody')}</p>
+          <ul className="import-scope-list dim">
+            <li>{t('import.takeoutScopeImportable')}</li>
+            <li>{t('import.takeoutScopeIgnored')}</li>
+            <li>{t('import.takeoutScopeReview')}</li>
+          </ul>
+        </div>
+      ) : null}
+
       <div className="wizard-title">{t('import.selectTitle')}</div>
       <div className="wizard-description dim">
         {method === 'takeout'

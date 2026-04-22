@@ -35,9 +35,17 @@ import type {
 } from '../../lib/types'
 import { ImportSelectStep } from './select-step'
 import {
+  countTakeoutFilesByClassification,
+  formatTakeoutLocaleLabel,
+  formatTakeoutPreviewRange,
+  groupTakeoutFileReports,
   type ImportMethod,
   type ImportWizardStepDefinition,
   localizedImportProgressDetail,
+  takeoutFileGroupBodyKey,
+  takeoutFileGroupTitleKey,
+  takeoutFileKindLabel,
+  takeoutFileReasonLabel,
   type WizardStep,
 } from './shared'
 
@@ -99,6 +107,22 @@ export function ImportWizardPanel({
   onStepChange,
 }: ImportWizardPanelProps) {
   const { t } = useI18n()
+  const previewFiles = inspection
+    ? [...inspection.recognizedFiles, ...inspection.quarantinedFiles]
+    : []
+  const previewGroups = groupTakeoutFileReports(previewFiles)
+  const willImportFileCount = countTakeoutFilesByClassification(
+    previewFiles,
+    'will-import',
+  )
+  const needsReviewFileCount = countTakeoutFilesByClassification(
+    previewFiles,
+    'needs-review',
+  )
+  const ignoredFileCount = countTakeoutFilesByClassification(
+    previewFiles,
+    'known-but-ignored',
+  )
 
   return (
     <div className="import-container">
@@ -186,91 +210,111 @@ export function ImportWizardPanel({
                 </div>
                 <div className="preview-stat">
                   <div className="preview-stat-label">
-                    {t('import.duplicates')}
+                    {t('import.timeRange')}
                   </div>
                   <div className="preview-stat-value mono">
-                    {inspection.duplicateItems.toLocaleString(language)}
+                    {formatTakeoutPreviewRange(
+                      inspection.previewRangeStart,
+                      inspection.previewRangeEnd,
+                      language,
+                      t,
+                    )}
                   </div>
                 </div>
                 <div className="preview-stat">
                   <div className="preview-stat-label">
-                    {t('import.newRecords')}
+                    {t('import.importableFiles')}
                   </div>
                   <div className="preview-stat-value mono accent">
-                    {(
-                      inspection.candidateItems - inspection.duplicateItems
-                    ).toLocaleString(language)}
+                    {willImportFileCount.toLocaleString(language)}
+                  </div>
+                </div>
+                <div className="preview-stat">
+                  <div className="preview-stat-label">
+                    {t('import.reviewNeededFiles')}
+                  </div>
+                  <div className="preview-stat-value mono">
+                    {needsReviewFileCount.toLocaleString(language)}
                   </div>
                 </div>
               </div>
 
-              {inspection.recognizedFiles.length > 0 && (
-                <div className="preview-files">
-                  <div
-                    className="panel-header"
-                    style={{ marginTop: 'var(--space-4)' }}
-                  >
-                    <span className="panel-title">
-                      {t('import.detectedFiles')}
-                    </span>
-                  </div>
-                  {inspection.recognizedFiles.map((file) => (
-                    <div key={file.path} className="file-item">
-                      <span
-                        className="file-status ok"
-                        aria-label={t('common.statusSuccess')}
-                      >
-                        ✓
-                      </span>
-                      <span
-                        className="file-name mono"
-                        title={file.path}
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {file.path}
-                      </span>
-                      <span className="file-detail dim">
-                        {file.records.toLocaleString(language)} · {file.kind}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="import-preview-meta">
+                <span className="status-badge">
+                  {t('import.detectedLocaleLabel')}:{' '}
+                  {formatTakeoutLocaleLabel(inspection.detectedLocale, t)}
+                </span>
+                <span className="mono-support">
+                  {t('import.ignoredFilesInline', {
+                    count: ignoredFileCount.toLocaleString(language),
+                  })}
+                </span>
+              </div>
 
-              {inspection.quarantinedFiles.length > 0 && (
-                <div className="preview-files">
-                  <div
-                    className="panel-header"
-                    style={{ marginTop: 'var(--space-4)' }}
-                  >
-                    <span className="panel-title">
-                      {t('import.quarantinedFiles')}
-                    </span>
-                  </div>
-                  {inspection.quarantinedFiles.map((file) => (
-                    <div key={file.path} className="file-item">
-                      <span
-                        className="file-status warn"
-                        aria-label={t('common.warning')}
+              {previewGroups.length > 0 && (
+                <div className="preview-groups">
+                  {previewGroups.map((group) => (
+                    <div key={group.classification} className="preview-files">
+                      <div
+                        className="panel-header"
+                        style={{ marginTop: 'var(--space-4)' }}
                       >
-                        ⚠
-                      </span>
-                      <span
-                        className="file-name mono"
-                        title={file.path}
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {file.path}
-                      </span>
-                      <span className="file-detail dim">{file.status}</span>
+                        <span className="panel-title">
+                          {t(takeoutFileGroupTitleKey(group.classification))}
+                        </span>
+                      </div>
+                      <p className="dim preview-group-copy">
+                        {t(takeoutFileGroupBodyKey(group.classification))}
+                      </p>
+                      {group.files.map((file) => (
+                        <div
+                          key={file.path}
+                          className="file-item file-item--stacked"
+                        >
+                          <div className="file-item__main">
+                            <span
+                              className={`file-status ${
+                                group.classification === 'will-import'
+                                  ? 'ok'
+                                  : group.classification === 'known-but-ignored'
+                                    ? 'muted'
+                                    : 'warn'
+                              }`}
+                              aria-label={t('import.fileDispositionLabel')}
+                            >
+                              {group.classification === 'will-import'
+                                ? '✓'
+                                : group.classification === 'known-but-ignored'
+                                  ? '·'
+                                  : '⚠'}
+                            </span>
+                            <span
+                              className="file-name mono"
+                              title={file.path}
+                              style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {file.path}
+                            </span>
+                          </div>
+                          <div className="file-detail dim">
+                            <span>{takeoutFileKindLabel(file, t)}</span>
+                            {file.records > 0 ? (
+                              <span>
+                                {t('import.fileRecordsLabel', {
+                                  count: file.records.toLocaleString(language),
+                                })}
+                              </span>
+                            ) : null}
+                            {file.reasonCode || file.reasonDetail ? (
+                              <span>{takeoutFileReasonLabel(file, t)}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -323,25 +367,29 @@ export function ImportWizardPanel({
                     </div>
                     <div className="manifest-field">
                       <span className="field-label">
-                        {t('import.confirmSummaryDuplicates')}
+                        {t('import.confirmSummaryReview')}
                       </span>
                       <span className="field-value mono">
-                        {inspection.duplicateItems.toLocaleString(language)}
+                        {needsReviewFileCount.toLocaleString(language)}
                       </span>
                     </div>
                     <div className="manifest-field">
                       <span className="field-label">
-                        {t('import.confirmSummaryFiles')}
+                        {t('import.confirmSummaryIgnored')}
                       </span>
                       <span className="field-value mono">
-                        {inspection.recognizedFiles.length.toLocaleString(
-                          language,
-                        )}
+                        {ignoredFileCount.toLocaleString(language)}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
+
+              {willImportFileCount === 0 ? (
+                <p className="dim" style={{ marginTop: 'var(--space-3)' }}>
+                  {t('import.noImportableFilesNotice')}
+                </p>
+              ) : null}
 
               <div className="wizard-actions">
                 <button
@@ -358,7 +406,8 @@ export function ImportWizardPanel({
                   onClick={() => {
                     void onImport()
                   }}
-                  disabled={importing}
+                  disabled={importing || willImportFileCount === 0}
+                  aria-disabled={importing || willImportFileCount === 0}
                 >
                   {t('import.confirmImport')}
                 </button>

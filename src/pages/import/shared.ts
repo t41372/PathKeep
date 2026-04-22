@@ -25,6 +25,7 @@ import type {
   ImportBatchDetail,
   ImportBatchOverview,
   ImportProgressEvent,
+  TakeoutFileReport,
   TakeoutInspection,
 } from '../../lib/types'
 
@@ -46,6 +47,17 @@ export type WizardStep = 'select' | 'scan' | 'preview' | 'confirm' | 'done'
 export interface ImportWizardStepDefinition {
   key: WizardStep
   label: string
+}
+
+export type TakeoutFileClassification =
+  | 'will-import'
+  | 'known-but-ignored'
+  | 'needs-review'
+  | 'parse-error'
+
+export interface TakeoutFileGroup {
+  classification: TakeoutFileClassification
+  files: TakeoutFileReport[]
 }
 
 /**
@@ -164,7 +176,13 @@ export function buildImportWorkflowSteps(args: {
           : ('pending' as const),
       summary: t('import.workflowPreviewSummary'),
       reason: t('import.workflowPreviewReason'),
-      files: inspection?.recognizedFiles.map((file) => file.path),
+      files: inspection?.recognizedFiles
+        .filter(
+          (file) =>
+            normalizeTakeoutFileClassification(file.classification) ===
+            'will-import',
+        )
+        .map((file) => file.path),
     },
     {
       id: 'manual',
@@ -238,5 +256,180 @@ export function localizedImportProgressDetail(
       return t('import.importProgressCompleteDetail')
     default:
       return progress.detail
+  }
+}
+
+export function groupTakeoutFileReports(
+  reports: TakeoutFileReport[],
+): TakeoutFileGroup[] {
+  const groups = new Map<TakeoutFileClassification, TakeoutFileReport[]>()
+
+  for (const report of reports) {
+    const classification = normalizeTakeoutFileClassification(
+      report.classification,
+    )
+    const existing = groups.get(classification) ?? []
+    existing.push(report)
+    groups.set(classification, existing)
+  }
+
+  return (
+    ['will-import', 'needs-review', 'parse-error', 'known-but-ignored'] as const
+  )
+    .map((classification) => ({
+      classification,
+      files: [...(groups.get(classification) ?? [])].sort((left, right) =>
+        left.path.localeCompare(right.path),
+      ),
+    }))
+    .filter((group) => group.files.length > 0)
+}
+
+export function countTakeoutFilesByClassification(
+  reports: TakeoutFileReport[],
+  classification: TakeoutFileClassification,
+) {
+  return reports.filter(
+    (report) =>
+      normalizeTakeoutFileClassification(report.classification) ===
+      classification,
+  ).length
+}
+
+export function takeoutFileGroupTitleKey(
+  classification: TakeoutFileClassification,
+) {
+  switch (classification) {
+    case 'will-import':
+      return 'import.groupWillImportTitle'
+    case 'known-but-ignored':
+      return 'import.groupIgnoredTitle'
+    case 'needs-review':
+      return 'import.groupNeedsReviewTitle'
+    case 'parse-error':
+      return 'import.groupParseErrorTitle'
+  }
+}
+
+export function takeoutFileGroupBodyKey(
+  classification: TakeoutFileClassification,
+) {
+  switch (classification) {
+    case 'will-import':
+      return 'import.groupWillImportBody'
+    case 'known-but-ignored':
+      return 'import.groupIgnoredBody'
+    case 'needs-review':
+      return 'import.groupNeedsReviewBody'
+    case 'parse-error':
+      return 'import.groupParseErrorBody'
+  }
+}
+
+export function takeoutFileKindLabel(
+  report: TakeoutFileReport,
+  t: ImportTranslate,
+) {
+  switch (report.kind) {
+    case 'jsonl':
+      return t('import.kindJsonl')
+    case 'browser-json':
+      return t('import.kindBrowserHistory')
+    case 'typed-url-json':
+      return t('import.kindTypedUrl')
+    case 'session-json':
+      return t('import.kindSession')
+    case 'takeout-index':
+      return t('import.kindTakeoutIndex')
+    case 'chrome-activity':
+      return t('import.kindChromeActivity')
+    case 'chrome-supporting-file':
+      return t('import.kindChromeSupportingFile')
+    case 'unknown-history-like':
+      return t('import.kindHistoryLikeFile')
+    case 'outside-scope':
+      return t('import.kindOutsideScope')
+    default:
+      return report.kind
+  }
+}
+
+export function takeoutFileReasonLabel(
+  report: TakeoutFileReport,
+  t: ImportTranslate,
+) {
+  switch (report.reasonCode) {
+    case 'chrome-history-json':
+      return t('import.reasonChromeHistoryJson')
+    case 'jsonl-history-fixture':
+      return t('import.reasonJsonlHistoryFixture')
+    case 'source-evidence-only':
+      return t('import.reasonSourceEvidenceOnly')
+    case 'takeout-index':
+      return t('import.reasonTakeoutIndex')
+    case 'chrome-activity-outside-scope':
+      return t('import.reasonChromeActivityOutsideScope')
+    case 'activity-outside-scope':
+      return t('import.reasonActivityOutsideScope')
+    case 'outside-chrome-scope':
+      return t('import.reasonOutsideChromeScope')
+    case 'chrome-supporting-file':
+      return t('import.reasonChromeSupportingFile')
+    case 'unrecognized-history-file':
+      return t('import.reasonUnrecognizedHistoryFile')
+    case 'parse-error':
+      return report.reasonDetail ?? t('import.reasonParseError')
+    default:
+      return report.reasonDetail ?? ''
+  }
+}
+
+export function formatTakeoutLocaleLabel(
+  locale: string | null | undefined,
+  t: ImportTranslate,
+) {
+  switch (locale) {
+    case 'en':
+      return t('import.localeEnglish')
+    case 'de':
+      return t('import.localeGerman')
+    case 'mixed':
+      return t('import.localeMixed')
+    default:
+      return t('import.localeUnknown')
+  }
+}
+
+export function formatTakeoutPreviewRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  language: string,
+  t: ImportTranslate,
+) {
+  if (!start || !end) {
+    return t('import.rangeUnavailable')
+  }
+
+  const formatter = new Intl.DateTimeFormat(language, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+  return `${formatter.format(new Date(start))} - ${formatter.format(
+    new Date(end),
+  )}`
+}
+
+function normalizeTakeoutFileClassification(
+  classification: string | null | undefined,
+): TakeoutFileClassification {
+  switch (classification) {
+    case 'will-import':
+    case 'known-but-ignored':
+    case 'needs-review':
+    case 'parse-error':
+      return classification
+    default:
+      return 'known-but-ignored'
   }
 }

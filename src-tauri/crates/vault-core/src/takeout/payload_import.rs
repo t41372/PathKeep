@@ -227,10 +227,11 @@ pub(super) fn import_supported_payload(
     run_id: i64,
     batch_id: i64,
     source_profile_id: i64,
-    source_path: &str,
+    classified_file: ClassifiedTakeoutFile<'_>,
     kind: &str,
     bytes: &[u8],
 ) -> Result<ImportedPayload> {
+    let source_path = &classified_file.file.path;
     let mut consumer = TakeoutArchiveChunkConsumer::new(
         paths,
         archive,
@@ -261,16 +262,18 @@ pub(super) fn import_supported_payload(
     Ok(ImportedPayload {
         stats,
         record_count: report.record_count,
-        recognized_file: TakeoutFileReport {
-            path: source_path.to_string(),
-            kind: kind.to_string(),
-            status: if report.skipped_missing_visit_time > 0 {
-                "previewed-with-skips".to_string()
+        recognized_file: file_report_from_match(
+            classified_file,
+            if report.skipped_missing_visit_time > 0 {
+                "previewed-with-skips"
             } else {
-                "previewed".to_string()
+                "previewed"
             },
-            records: report.record_count,
-        },
+            report.record_count,
+            None,
+        ),
+        earliest_visit_iso: report.earliest_visit_iso.clone(),
+        latest_visit_iso: report.latest_visit_iso.clone(),
         source_evidence_plan: build_takeout_source_evidence_plan(
             source_profile_id,
             run_id,

@@ -177,9 +177,13 @@ describe('trust flows/import flows', () => {
       recognizedFiles: [
         {
           path: '/tmp/takeout/BrowserHistory.json',
-          kind: 'browser-history',
-          status: 'recognized',
+          kind: 'browser-json',
+          status: 'previewed',
           records: 1,
+          classification: 'will-import',
+          reasonCode: 'chrome-history-json',
+          reasonDetail: null,
+          detectedLocale: 'en',
         },
       ],
       quarantinedFiles: [],
@@ -197,6 +201,9 @@ describe('trust flows/import flows', () => {
       importedItems: 0,
       duplicateItems: 0,
       notes: ['Preview ready.'],
+      detectedLocale: 'en',
+      previewRangeStart: '2026-04-20T10:00:00.000Z',
+      previewRangeEnd: '2026-04-20T10:00:00.000Z',
       importBatch: null,
     } satisfies Awaited<ReturnType<typeof backend.inspectTakeout>>
 
@@ -230,6 +237,9 @@ describe('trust flows/import flows', () => {
       recognizedFiles: previewInspection.recognizedFiles,
       quarantinedFiles: [],
       notes: ['Imported successfully.'],
+      detectedLocale: 'en',
+      previewRangeStart: '2026-04-20T10:00:00.000Z',
+      previewRangeEnd: '2026-04-20T10:00:00.000Z',
     }
 
     Object.defineProperty(window, 'requestAnimationFrame', {
@@ -392,6 +402,9 @@ describe('trust flows/import flows', () => {
         recognizedFiles: [],
         quarantinedFiles: [],
         notes: [],
+        detectedLocale: 'en',
+        previewRangeStart: '2026-04-10T10:04:00.000Z',
+        previewRangeEnd: '2026-04-10T10:04:00.000Z',
       },
     }
     vi.spyOn(backend, 'previewImportBatch').mockImplementation((batchId) => {
@@ -463,6 +476,9 @@ describe('trust flows/import flows', () => {
       recognizedFiles: [],
       quarantinedFiles: [],
       notes: [],
+      detectedLocale: 'en',
+      previewRangeStart: '2026-04-10T10:04:00.000Z',
+      previewRangeEnd: '2026-04-10T10:04:00.000Z',
     })
     const openPathSpy = vi
       .spyOn(backend, 'openPathInFileManager')

@@ -44,6 +44,7 @@
 - 2026-04-22 Takeout streaming follow-up landed: `browser-history-parser::takeout` is now split into focused submodules and exposes payload-level streaming. `vault-core::takeout::payload_import` now consumes that streamed contract, so Takeout import can write canonical URL/visit rows while a BrowserHistory payload is still being parsed instead of waiting for one giant payload report first.
 - 2026-04-22 inspection follow-up landed: `vault-core::takeout::inspect_takeout` also switched to the payload-level streamed Takeout contract. Dry-run preview now caps rows directly from streamed visits and explicitly disables source-evidence accumulation, so inspection no longer materializes a full payload report or keeps native evidence blobs in memory just to show preview rows.
 - 2026-04-22 source-evidence follow-up landed: Takeout payload streaming now has an explicit source-evidence chunk sink. `vault-core::takeout::payload_import` routes those chunks through `archive::source_evidence_builder`, which spills oversized native evidence into `staging/source-evidence-spool/` before a single payload can accumulate one giant in-memory evidence batch.
+- 2026-04-22 Chrome-first truth follow-up landed: `browser-history-parser::takeout` no longer treats any path containing `browser` / `history` as implicitly importable. The boundary now uses locale-aware path dispatch for dedicated Chrome history payloads (`BrowserHistory.json`, `History.json`, `Verlauf.json`), keeps typed-url / session companions as source-evidence-only, and marks Chrome-related `My Activity` files as review-needed instead of silently ingesting them. `vault-core::takeout::{inspect,import_flow}` now surface additive file classification (`will-import / known-but-ignored / needs-review / parse-error`), detected locale, and preview time range so the frontend can explain why a real Google Takeout does or does not import.
 
 ### Slice 3 — Intelligence runtime queue boundary
 
@@ -62,6 +63,7 @@
 
 - Split `intelligence/mod.rs` by schema/bootstrap, rebuild stages, read models, and explanation / host-artifact surfaces.
 - Do not reopen route, payload, or frontend grammar decisions already accepted in M6-M13.
+- 2026-04-22 landed: the first `intelligence/mod.rs` cut extracted the route-facing overview/read-model layer into `intelligence_{overview,summary,domain,outputs}.rs`. `/intelligence` staged overview composition, digest/stable-source/search-effectiveness reads, domain/discovery/on-this-day surfaces, and export payload builders now have distinct owners while preserving the existing public query surface and runtime-loading contract.
 
 ### Slice 6 — AI and worker follow-through
 

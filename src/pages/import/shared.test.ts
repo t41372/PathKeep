@@ -27,7 +27,9 @@ import type {
 } from '../../lib/types'
 import {
   buildImportWorkflowSteps,
+  countTakeoutFilesByClassification,
   deriveActiveImportBatchDetail,
+  groupTakeoutFileReports,
   parseImportBatchId,
   resolveSelectedImportBatchId,
 } from './shared'
@@ -73,6 +75,9 @@ const selectedBatchDetail: ImportBatchDetail = {
   recognizedFiles: [],
   quarantinedFiles: [],
   notes: [],
+  detectedLocale: 'en',
+  previewRangeStart: '2026-04-21T09:00:00.000Z',
+  previewRangeEnd: '2026-04-21T11:00:00.000Z',
 }
 
 const importResult: TakeoutInspection = {
@@ -85,6 +90,9 @@ const importResult: TakeoutInspection = {
   importedItems: 4,
   duplicateItems: 1,
   notes: [],
+  detectedLocale: 'en',
+  previewRangeStart: '2026-04-21T09:00:00.000Z',
+  previewRangeEnd: '2026-04-21T11:00:00.000Z',
   importBatch: {
     ...recentBatches[1],
     id: 3,
@@ -135,9 +143,13 @@ describe('Import shared helpers', () => {
         recognizedFiles: [
           {
             path: '/tmp/BrowserHistory.json',
-            kind: 'browser-history',
-            status: 'recognized',
+            kind: 'browser-json',
+            status: 'previewed',
             records: 4,
+            classification: 'will-import',
+            reasonCode: 'chrome-history-json',
+            reasonDetail: null,
+            detectedLocale: 'en',
           },
         ],
       },
@@ -164,5 +176,40 @@ describe('Import shared helpers', () => {
       id: 'finish',
       status: 'complete',
     })
+  })
+
+  test('groups file reports by import disposition', () => {
+    const groups = groupTakeoutFileReports([
+      {
+        path: '/tmp/BrowserHistory.json',
+        kind: 'browser-json',
+        status: 'previewed',
+        records: 4,
+        classification: 'will-import',
+        reasonCode: 'chrome-history-json',
+        reasonDetail: null,
+        detectedLocale: 'en',
+      },
+      {
+        path: '/tmp/My Activity.json',
+        kind: 'chrome-activity',
+        status: 'needs-review',
+        records: 1,
+        classification: 'needs-review',
+        reasonCode: 'chrome-activity-outside-scope',
+        reasonDetail: null,
+        detectedLocale: 'en',
+      },
+    ])
+
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toMatchObject({ classification: 'will-import' })
+    expect(groups[1]).toMatchObject({ classification: 'needs-review' })
+    expect(
+      countTakeoutFilesByClassification(
+        groups.flatMap((group) => group.files),
+        'needs-review',
+      ),
+    ).toBe(1)
   })
 })

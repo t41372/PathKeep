@@ -452,8 +452,8 @@ fn inspect_takeout_reports_parse_errors_for_recognized_files() {
 #[test]
 fn recognize_and_parse_takeout_payloads() {
     assert_eq!(recognize_takeout_file("BrowserHistory.json"), Some("browser-json".to_string()));
-    assert_eq!(recognize_takeout_file("browser-export.json"), Some("browser-json".to_string()));
-    assert_eq!(recognize_takeout_file("watch-history.json"), Some("browser-json".to_string()));
+    assert_eq!(recognize_takeout_file("Chrome/History.json"), Some("browser-json".to_string()));
+    assert_eq!(recognize_takeout_file("Chrome/Verlauf.json"), Some("browser-json".to_string()));
     assert_eq!(recognize_takeout_file("entries.jsonl"), Some("jsonl".to_string()));
     assert_eq!(recognize_takeout_file("archive_browser.html"), Some("takeout-index".to_string()));
     assert_eq!(recognize_takeout_file("notes.txt"), None);
@@ -493,8 +493,8 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
         &TakeoutRequest { source_path: unknown_source.display().to_string(), dry_run: true },
     )
     .expect("inspect unknown");
-    assert!(unknown_inspection.recognized_files.is_empty());
-    assert_eq!(unknown_inspection.quarantined_files.len(), 1);
+    assert_eq!(unknown_inspection.recognized_files.len(), 1);
+    assert!(unknown_inspection.quarantined_files.is_empty());
     assert!(unknown_inspection.notes.iter().any(|note| note.contains("No directly importable")));
 
     quarantine_file(&paths, &unknown_source, &unknown_file.display().to_string())
@@ -523,8 +523,8 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
     )
     .expect("inspect zip");
     assert_eq!(zip_inspection.candidate_items, 1);
-    assert_eq!(zip_inspection.recognized_files.len(), 2);
-    assert_eq!(zip_inspection.quarantined_files.len(), 1);
+    assert_eq!(zip_inspection.recognized_files.len(), 3);
+    assert!(zip_inspection.quarantined_files.is_empty());
 
     quarantine_takeout_file(
         &paths,
@@ -692,12 +692,12 @@ fn import_takeout_quarantines_unknown_files_and_skips_index_entries() {
 
     assert_eq!(inspection.imported_items, 1);
     assert!(inspection.notes.is_empty());
-    assert!(paths.quarantine_dir.join("mixed-takeout").join("notes.txt").exists());
+    assert!(!paths.quarantine_dir.join("mixed-takeout").join("notes.txt").exists());
     assert!(
         inspection
             .recognized_files
             .iter()
-            .any(|file| file.path.ends_with("archive_browser.html") && file.status == "recognized")
+            .any(|file| file.path.ends_with("archive_browser.html") && file.status == "ignored")
     );
 }
 
@@ -864,11 +864,7 @@ fn import_takeout_quarantines_unknown_zip_entries() {
     .expect("import zipped takeout");
 
     assert_eq!(inspection.imported_items, 1);
-    assert_eq!(
-        fs::read_to_string(paths.quarantine_dir.join("takeout").join("nested").join("notes.txt"))
-            .expect("read quarantined zip entry"),
-        "quarantine me"
-    );
+    assert!(!paths.quarantine_dir.join("takeout").join("nested").join("notes.txt").exists());
 }
 
 #[test]

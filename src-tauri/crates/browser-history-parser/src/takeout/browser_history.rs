@@ -121,6 +121,8 @@ struct BrowserHistoryAccumulator<'a> {
     record_count: usize,
     observed_record_count: usize,
     skipped_missing_visit_time: usize,
+    earliest_visit_micros: Option<i64>,
+    latest_visit_micros: Option<i64>,
 }
 
 impl<'a> BrowserHistoryAccumulator<'a> {
@@ -147,6 +149,8 @@ impl<'a> BrowserHistoryAccumulator<'a> {
             record_count: 0,
             observed_record_count: 0,
             skipped_missing_visit_time: 0,
+            earliest_visit_micros: None,
+            latest_visit_micros: None,
         }
     }
 
@@ -168,6 +172,14 @@ impl<'a> BrowserHistoryAccumulator<'a> {
         match parse_browser_record(self.source_path, ordinal as i64, record)? {
             BrowserRecordOutcome::Parsed(record) => {
                 self.record_count += 1;
+                self.earliest_visit_micros =
+                    Some(self.earliest_visit_micros.map_or(record.visit_time_micros, |current| {
+                        current.min(record.visit_time_micros)
+                    }));
+                self.latest_visit_micros =
+                    Some(self.latest_visit_micros.map_or(record.visit_time_micros, |current| {
+                        current.max(record.visit_time_micros)
+                    }));
                 self.seen_url_ids.insert(record.source_url_id);
                 self.pending_urls
                     .entry(record.source_url_id)
@@ -291,6 +303,8 @@ impl<'a> BrowserHistoryAccumulator<'a> {
             },
             record_count: self.record_count,
             skipped_missing_visit_time: self.skipped_missing_visit_time,
+            earliest_visit_iso: self.earliest_visit_micros.map(chrome_time_to_rfc3339),
+            latest_visit_iso: self.latest_visit_micros.map(chrome_time_to_rfc3339),
         })
     }
 }

@@ -112,17 +112,20 @@
 - GUI wizard 流程：
   1. 拖入 Takeout 的 zip 或解壓後的資料夾。
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
-  3. 已知格式（如 `BrowserHistory.json`）進入 importer。
-  4. 未知文件進入 quarantine（隱離區），不會被導入，在 UI 中顯示原因和文件內容摘要，讓用戶決定如何處理。
-  5. 用戶確認後，才正式寫入 archive。
+  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。
+  4. 已知但刻意不導入的檔案（例如 typed URL / session companion、Takeout index、其他 Google product export）必須明確標示為 `known-but-ignored`，而不是混進 quarantine 噪音。
+  5. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（例如 Chrome 相關 `My Activity`）要標成 `needs-review`，不能直接猜成 browser history。
+  6. 真正未支援或 parse 失敗的 payload 才進入 review / quarantine follow-through，並在 UI 中顯示原因和檔案摘要。
+  7. 用戶確認後，才正式寫入 archive。
+- path recognition 不能再只靠檔名 substring；parser 必須走 locale-aware path dispatch，至少覆蓋目前已驗到的 English / German Chrome Takeout 目錄與檔名變體。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
-- dry-run / preview 必須回報 candidate item 數量、preview entries、warnings、quarantine 結果，以及可回看的 audit artifact 路徑。
+- dry-run / preview 必須回報 candidate item 數量、preview entries、preview time range、detected locale、以及依 `will-import / known-but-ignored / needs-review / parse-error` 分組的 file report。batch review 仍要保留可回看的 audit artifact 路徑。
 - import / onboarding finalization 的 progress surface 必須持續回報 typed phase、current/total、percent、detail 與近期 log lines；post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
-- Import review surface 應把 preview、recent batch detail、revert / restore、doctor report 與 repair CTA 放在同一條 trust workflow 裡，避免使用者切頁後失去驗證上下文。
+- Import review surface 應把 `new import wizard`、grouped scan report、recent batch detail、revert / restore、doctor report 與 repair CTA 放在同一條 trust workflow 裡，避免使用者切頁後失去驗證上下文。
 - 提供詳細的操作指南：怎麼從 Google Takeout 請求導出、怎麼下載、怎麼找到歷史紀錄文件。
 
 ### 瀏覽器直接導入

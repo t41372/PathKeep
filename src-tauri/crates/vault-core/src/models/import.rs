@@ -18,6 +18,10 @@ pub struct TakeoutFileReport {
     pub kind: String,
     pub status: String,
     pub records: usize,
+    pub classification: String,
+    pub reason_code: Option<String>,
+    pub reason_detail: Option<String>,
+    pub detected_locale: Option<String>,
 }
 
 /// One preview visit shown before or after a Takeout import.
@@ -61,6 +65,9 @@ pub struct ImportBatchDetail {
     pub recognized_files: Vec<TakeoutFileReport>,
     pub quarantined_files: Vec<TakeoutFileReport>,
     pub notes: Vec<String>,
+    pub detected_locale: Option<String>,
+    pub preview_range_start: Option<String>,
+    pub preview_range_end: Option<String>,
 }
 
 /// Full inspection/import payload returned by the Takeout flow.
@@ -77,6 +84,9 @@ pub struct TakeoutInspection {
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub import_batch: Option<ImportBatchOverview>,
     pub notes: Vec<String>,
+    pub detected_locale: Option<String>,
+    pub preview_range_start: Option<String>,
+    pub preview_range_end: Option<String>,
 }
 
 /// Progress event streamed while a Takeout import is running.

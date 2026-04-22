@@ -76,6 +76,9 @@ pub fn revert_import_batch(
             recognized_files: &existing.recognized_files,
             quarantined_files: &existing.quarantined_files,
             notes: &notes,
+            detected_locale: existing.detected_locale.as_deref(),
+            preview_range_start: existing.preview_range_start.as_deref(),
+            preview_range_end: existing.preview_range_end.as_deref(),
             reverted_at: Some(reverted_at),
         },
     )?;
@@ -154,6 +157,9 @@ pub fn restore_import_batch(
             recognized_files: &existing.recognized_files,
             quarantined_files: &existing.quarantined_files,
             notes: &notes,
+            detected_locale: existing.detected_locale.as_deref(),
+            preview_range_start: existing.preview_range_start.as_deref(),
+            preview_range_end: existing.preview_range_end.as_deref(),
             reverted_at: None,
         },
     )?;
@@ -224,6 +230,9 @@ pub(super) fn create_import_batch(
         "recognizedFiles": [],
         "quarantinedFiles": [],
         "notes": [],
+        "detectedLocale": null,
+        "previewRangeStart": null,
+        "previewRangeEnd": null,
     }))?;
     archive.execute(
         "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, status, summary_json)
@@ -250,6 +259,9 @@ pub(super) fn finalize_import_batch(
             recognized_files: &inspection.recognized_files,
             quarantined_files: &inspection.quarantined_files,
             notes: &inspection.notes,
+            detected_locale: inspection.detected_locale.as_deref(),
+            preview_range_start: inspection.preview_range_start.as_deref(),
+            preview_range_end: inspection.preview_range_end.as_deref(),
             reverted_at: None,
         },
     )?;
@@ -367,6 +379,9 @@ fn update_batch_summary(archive: &Connection, update: BatchSummaryUpdate<'_>) ->
         "recognizedFiles": update.recognized_files,
         "quarantinedFiles": update.quarantined_files,
         "notes": update.notes,
+        "detectedLocale": update.detected_locale,
+        "previewRangeStart": update.preview_range_start,
+        "previewRangeEnd": update.preview_range_end,
     }))?;
     archive.execute(
         "UPDATE import_batches SET status = ?1, summary_json = ?2, reverted_at = COALESCE(?3, reverted_at) WHERE id = ?4",

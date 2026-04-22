@@ -256,17 +256,25 @@ export function buildMockTakeoutInspection(
   const recognizedFiles = [
     {
       path: `${sourcePath}/Takeout/Chrome/BrowserHistory.json`,
-      kind: 'browser-history',
-      status: dryRun ? 'preview' : 'imported',
+      kind: 'browser-json',
+      status: dryRun ? 'previewed' : 'imported',
       records: previewEntries.length,
+      classification: 'will-import',
+      reasonCode: 'chrome-history-json',
+      reasonDetail: null,
+      detectedLocale: 'en',
     },
   ]
   const quarantinedFiles = [
     {
-      path: `${sourcePath}/Takeout/Chrome/unsupported.csv`,
-      kind: 'unknown',
-      status: 'quarantined',
+      path: `${sourcePath}/Takeout/My Activity/Chrome/MyActivity.json`,
+      kind: 'chrome-activity',
+      status: 'needs-review',
       records: 1,
+      classification: 'needs-review',
+      reasonCode: 'chrome-activity-outside-scope',
+      reasonDetail: null,
+      detectedLocale: 'en',
     },
   ]
   const notes = dryRun
@@ -288,6 +296,9 @@ export function buildMockTakeoutInspection(
       importedItems: 0,
       duplicateItems: 1,
       notes,
+      detectedLocale: 'en',
+      previewRangeStart: previewEntries[0].visitedAt,
+      previewRangeEnd: previewEntries[1].visitedAt,
       importBatch: null,
     }
   }
@@ -337,6 +348,9 @@ export function buildMockTakeoutInspection(
     recognizedFiles,
     quarantinedFiles,
     notes,
+    detectedLocale: 'en',
+    previewRangeStart: previewEntries[0].visitedAt,
+    previewRangeEnd: previewEntries[1].visitedAt,
   }
 
   return {
