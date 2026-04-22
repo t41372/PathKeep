@@ -19,6 +19,10 @@
 //!   writes, but zipped sources are still read entry-by-entry into memory.
 
 use super::*;
+use browser_history_parser::{
+    HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamHistoryError,
+    takeout::{TakeoutStreamOptions, stream_payload_with_options},
+};
 
 /// Inspects a Takeout source and builds a preview-only import report.
 pub fn inspect_takeout(
@@ -61,15 +65,20 @@ pub fn inspect_takeout(
             fs::read(&file.path)?
         };
 
-        match collect_records_from_payload(&file.path, &kind, &bytes) {
+        match preview_payload_stream(
+            &file.path,
+            &kind,
+            &bytes,
+            PREVIEW_LIMIT.saturating_sub(inspection.preview_entries.len()),
+        ) {
             Ok(payload) => {
-                report.records = payload.report.record_count;
+                report.records = payload.record_count;
                 report.status = if payload.skipped_missing_visit_time > 0 {
                     "previewed-with-skips".to_string()
                 } else {
                     "previewed".to_string()
                 };
-                inspection.candidate_items += payload.records.len();
+                inspection.candidate_items += payload.candidate_items;
                 if payload.skipped_missing_visit_time > 0 {
                     inspection.notes.push(format!(
                         "Skipped {} records from {} because they were missing a visit timestamp.",
@@ -77,9 +86,7 @@ pub fn inspect_takeout(
                     ));
                 }
                 for record in payload.records {
-                    if inspection.preview_entries.len() < PREVIEW_LIMIT {
-                        inspection.preview_entries.push(preview_entry(&record, "candidate"));
-                    }
+                    inspection.preview_entries.push(preview_entry(&record, "candidate"));
                 }
             }
             Err(error) => {
@@ -128,6 +135,7 @@ fn preview_entry(record: &ParsedTakeoutRecord, status: &str) -> TakeoutPreviewEn
 }
 
 /// Parses one recognized Takeout payload into preview rows plus parser provenance.
+#[cfg(test)]
 pub(super) fn collect_records_from_payload(
     source_path: &str,
     kind: &str,
@@ -135,14 +143,45 @@ pub(super) fn collect_records_from_payload(
 ) -> Result<CollectedPayload> {
     let report = parse_payload_report(source_path, kind, bytes)?;
     let records = preview_records_from_report(source_path, &report);
-    Ok(CollectedPayload {
+    Ok(CollectedPayload { skipped_missing_visit_time: report.skipped_missing_visit_time, records })
+}
+
+/// Streams one payload into capped preview rows without accumulating source evidence.
+fn preview_payload_stream(
+    source_path: &str,
+    kind: &str,
+    bytes: &[u8],
+    preview_limit: usize,
+) -> Result<PreviewPayload> {
+    let mut consumer = TakeoutPreviewCollector {
+        source_path: source_path.to_string(),
+        preview_limit,
+        records: Vec::new(),
+        candidate_items: 0,
+    };
+    let report = stream_payload_with_options(
+        source_path,
+        kind,
+        bytes,
+        PREVIEW_LIMIT,
+        TakeoutStreamOptions { collect_source_evidence: false },
+        &mut consumer,
+    )
+    .map_err(|error| match error {
+        StreamHistoryError::Parse(error) => anyhow::Error::new(error),
+        StreamHistoryError::Consumer(error) => match error {},
+    })
+    .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))?;
+    Ok(PreviewPayload {
+        records: consumer.records,
+        candidate_items: consumer.candidate_items,
+        record_count: report.record_count,
         skipped_missing_visit_time: report.skipped_missing_visit_time,
-        records,
-        report,
     })
 }
 
 /// Parses one recognized Takeout payload without allocating inspection preview rows.
+#[cfg(test)]
 pub(super) fn parse_payload_report(
     source_path: &str,
     kind: &str,
@@ -153,6 +192,7 @@ pub(super) fn parse_payload_report(
 }
 
 /// Builds the lightweight preview rows used by inspect/review surfaces from a parser report.
+#[cfg(test)]
 fn preview_records_from_report(
     source_path: &str,
     report: &TakeoutPayloadReport,
@@ -169,6 +209,46 @@ fn preview_records_from_report(
             source_visit_id: visit.source_visit_id,
         })
         .collect()
+}
+
+#[derive(Debug)]
+struct PreviewPayload {
+    records: Vec<ParsedTakeoutRecord>,
+    candidate_items: usize,
+    record_count: usize,
+    skipped_missing_visit_time: usize,
+}
+
+#[derive(Debug)]
+struct TakeoutPreviewCollector {
+    source_path: String,
+    preview_limit: usize,
+    records: Vec<ParsedTakeoutRecord>,
+    candidate_items: usize,
+}
+
+impl HistoryBatchConsumer for TakeoutPreviewCollector {
+    type Error = std::convert::Infallible;
+
+    fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        self.candidate_items += batch.len();
+        for visit in batch {
+            if self.records.len() < self.preview_limit {
+                self.records.push(ParsedTakeoutRecord {
+                    source_path: self.source_path.clone(),
+                    url: visit.url,
+                    title: visit.title,
+                    visited_at: visit.visit_time_iso,
+                    source_visit_id: visit.source_visit_id,
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Enumerates all file candidates contained in a Takeout directory or zip source.

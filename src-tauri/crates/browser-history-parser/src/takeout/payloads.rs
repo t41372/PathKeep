@@ -8,7 +8,8 @@
 
 use super::{
     KIND_BROWSER_JSON, KIND_INDEX, KIND_JSONL, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
-    TakeoutPayloadCounts, TakeoutPayloadStreamReport, browser_history, json_stream,
+    TakeoutPayloadCounts, TakeoutPayloadStreamReport, TakeoutStreamOptions, browser_history,
+    json_stream,
 };
 use crate::{
     ParseError,
@@ -27,6 +28,7 @@ pub(super) fn stream_payload<C>(
     kind: &str,
     bytes: &[u8],
     chunk_size: usize,
+    options: TakeoutStreamOptions,
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
@@ -40,14 +42,27 @@ where
                 kind,
                 bytes,
                 chunk_size,
+                options,
                 consumer,
             )
         }
         KIND_TYPED_URL_JSON => {
-            stream_native_only_payload::<C>(source_path, kind, bytes, "takeout-typed-url")
+            stream_native_only_payload::<C>(
+                source_path,
+                kind,
+                bytes,
+                "takeout-typed-url",
+                options,
+            )
         }
         KIND_SESSION_JSON => {
-            stream_native_only_payload::<C>(source_path, kind, bytes, "takeout-session")
+            stream_native_only_payload::<C>(
+                source_path,
+                kind,
+                bytes,
+                "takeout-session",
+                options,
+            )
         }
         KIND_INDEX => Ok(empty_stream_report(source_path, kind, vec![ParserWarning {
             code: "index-only".to_string(),
@@ -65,6 +80,7 @@ fn stream_native_only_payload<C>(
     kind: &str,
     bytes: &[u8],
     entity_kind: &str,
+    options: TakeoutStreamOptions,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
     C: HistoryBatchConsumer,
@@ -79,16 +95,18 @@ where
             if let Some(object) = record.as_object() {
                 observed_columns.extend(object.keys().cloned());
             }
-            native_entities.push(NativeEntity {
-                entity_kind: entity_kind.to_string(),
-                native_primary_key: native_primary_key(&record, ordinal as i64),
-                parent_native_primary_key: None,
-                payload_json: record.to_string(),
-                metadata: BTreeMap::from([
-                    ("sourcePath".to_string(), source_path.to_string()),
-                    ("payloadKind".to_string(), kind.to_string()),
-                ]),
-            });
+            if options.collect_source_evidence {
+                native_entities.push(NativeEntity {
+                    entity_kind: entity_kind.to_string(),
+                    native_primary_key: native_primary_key(&record, ordinal as i64),
+                    parent_native_primary_key: None,
+                    payload_json: record.to_string(),
+                    metadata: BTreeMap::from([
+                        ("sourcePath".to_string(), source_path.to_string()),
+                        ("payloadKind".to_string(), kind.to_string()),
+                    ]),
+                });
+            }
             Ok::<(), std::convert::Infallible>(())
         },
     )

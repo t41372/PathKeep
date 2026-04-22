@@ -13,7 +13,8 @@
 //! - Native-only typed-url/session payload handling.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_JSONL, TakeoutPayloadCounts, TakeoutPayloadStreamReport, json_stream,
+    KIND_BROWSER_JSON, KIND_JSONL, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
+    TakeoutStreamOptions, json_stream,
 };
 use crate::{
     ParseError,
@@ -37,6 +38,7 @@ pub(super) fn stream_browser_history_payload<C>(
     kind: &str,
     bytes: &[u8],
     chunk_size: usize,
+    options: TakeoutStreamOptions,
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
@@ -44,7 +46,7 @@ where
     C::Error: std::fmt::Display,
 {
     let chunk_size = chunk_size.max(1);
-    let mut accumulator = BrowserHistoryAccumulator::new(source_path, kind, chunk_size);
+    let mut accumulator = BrowserHistoryAccumulator::new(source_path, kind, chunk_size, options);
 
     if kind == KIND_JSONL {
         let reader = BufReader::new(bytes);
@@ -107,6 +109,7 @@ struct BrowserHistoryAccumulator<'a> {
     source_path: &'a str,
     kind: &'a str,
     chunk_size: usize,
+    options: TakeoutStreamOptions,
     pending_urls: BTreeMap<i64, ParsedUrl>,
     pending_visits: Vec<ParsedVisit>,
     observed_columns: BTreeSet<String>,
@@ -120,11 +123,17 @@ struct BrowserHistoryAccumulator<'a> {
 
 impl<'a> BrowserHistoryAccumulator<'a> {
     /// Initializes a streaming accumulator for one browser-history payload.
-    fn new(source_path: &'a str, kind: &'a str, chunk_size: usize) -> Self {
+    fn new(
+        source_path: &'a str,
+        kind: &'a str,
+        chunk_size: usize,
+        options: TakeoutStreamOptions,
+    ) -> Self {
         Self {
             source_path,
             kind,
             chunk_size,
+            options,
             pending_urls: BTreeMap::new(),
             pending_visits: Vec::new(),
             observed_columns: BTreeSet::new(),
@@ -161,8 +170,10 @@ impl<'a> BrowserHistoryAccumulator<'a> {
                     .and_modify(|existing| merge_url_state(existing, &record))
                     .or_insert_with(|| parsed_url_from_record(&record));
                 self.pending_visits.push(parsed_visit_from_record(&record));
-                self.native_entities.push(native_entity_from_record(self.kind, &record));
-                self.typed_evidence.context.extend(context_evidence_from_record(&record));
+                if self.options.collect_source_evidence {
+                    self.native_entities.push(native_entity_from_record(self.kind, &record));
+                    self.typed_evidence.context.extend(context_evidence_from_record(&record));
+                }
                 if self.pending_visits.len() >= self.chunk_size {
                     self.flush(consumer)?;
                 }

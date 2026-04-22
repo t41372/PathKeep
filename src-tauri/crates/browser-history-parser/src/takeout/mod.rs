@@ -49,6 +49,19 @@ pub const KIND_TYPED_URL_JSON: &str = "typed-url-json";
 pub const KIND_SESSION_JSON: &str = "session-json";
 pub const KIND_INDEX: &str = "takeout-index";
 
+/// Controls which non-canonical payloads are accumulated during Takeout streaming.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakeoutStreamOptions {
+    /// Keeps typed evidence and native entities for later cold source-evidence persistence.
+    pub collect_source_evidence: bool,
+}
+
+impl Default for TakeoutStreamOptions {
+    fn default() -> Self {
+        Self { collect_source_evidence: true }
+    }
+}
+
 /// Describes the canonical row counts emitted from one Takeout payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct TakeoutPayloadCounts {
@@ -137,7 +150,14 @@ where
             continue;
         }
         let bytes = source::read_takeout_file(path, &file)?;
-        reports.push(stream_payload(&file.path, kind, &bytes, chunk_size, consumer)?);
+        reports.push(stream_payload_with_options(
+            &file.path,
+            kind,
+            &bytes,
+            chunk_size,
+            TakeoutStreamOptions::default(),
+            consumer,
+        )?);
     }
     Ok(merge_stream_reports(inspection, reports))
 }
@@ -196,7 +216,33 @@ where
     C: HistoryBatchConsumer,
     C::Error: std::fmt::Display,
 {
-    payloads::stream_payload(source_path, kind, bytes, chunk_size, consumer)
+    stream_payload_with_options(
+        source_path,
+        kind,
+        bytes,
+        chunk_size,
+        TakeoutStreamOptions::default(),
+        consumer,
+    )
+}
+
+/// Streams one recognized Takeout payload with explicit source-evidence options.
+///
+/// Inspection flows use this to skip source-native evidence accumulation when
+/// they only need candidate counts and capped preview rows.
+pub fn stream_payload_with_options<C>(
+    source_path: &str,
+    kind: &str,
+    bytes: &[u8],
+    chunk_size: usize,
+    options: TakeoutStreamOptions,
+    consumer: &mut C,
+) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+    C::Error: std::fmt::Display,
+{
+    payloads::stream_payload(source_path, kind, bytes, chunk_size, options, consumer)
 }
 
 /// Collector used to preserve the old `parse_*` API on top of streamed rows.

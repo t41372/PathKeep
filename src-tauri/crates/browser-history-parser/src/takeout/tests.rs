@@ -90,6 +90,45 @@ fn stream_payload_batches_browser_history_rows() {
 }
 
 #[test]
+fn stream_payload_with_options_can_skip_source_evidence_accumulation() {
+    #[derive(Default)]
+    struct CountingConsumer {
+        visits: usize,
+    }
+
+    impl HistoryBatchConsumer for CountingConsumer {
+        type Error = std::convert::Infallible;
+
+        fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visits += batch.len();
+            Ok(())
+        }
+    }
+
+    let mut consumer = CountingConsumer::default();
+    let report = stream_payload_with_options(
+        "BrowserHistory.json",
+        KIND_BROWSER_JSON,
+        br#"{"BrowserHistory":[
+            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"alpha"},
+            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
+        ]}"#,
+        10,
+        TakeoutStreamOptions { collect_source_evidence: false },
+        &mut consumer,
+    )
+    .expect("stream payload without evidence");
+
+    assert_eq!(consumer.visits, 2);
+    assert!(report.history.typed_evidence.context.is_empty());
+    assert!(report.history.native_entities.is_empty());
+}
+
+#[test]
 fn parse_payload_preserves_typed_url_and_session_payloads_as_native_entities() {
     let typed = parse_payload(
         "TypedUrl.json",

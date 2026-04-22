@@ -50,9 +50,12 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
-    KIND_INDEX, TakeoutPayloadReport, TakeoutPayloadStreamReport,
-    parse_payload as parse_takeout_payload, recognize_payload as recognize_takeout_payload,
+    KIND_INDEX, TakeoutPayloadStreamReport, recognize_payload as recognize_takeout_payload,
     stream_payload as stream_takeout_payload,
+};
+#[cfg(test)]
+use browser_history_parser::takeout::{
+    TakeoutPayloadReport, parse_payload as parse_takeout_payload,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde_json::{Value, json};
@@ -120,10 +123,10 @@ struct ImportedPayload {
     source_evidence_plan: TakeoutSourceEvidencePlan,
 }
 
-/// Holds parsed payload rows together with the parser-side report for one file.
+/// Holds preview rows plus the minimal parser metadata needed by inspection tests.
+#[cfg(test)]
 #[derive(Debug)]
 struct CollectedPayload {
-    report: TakeoutPayloadReport,
     records: Vec<ParsedTakeoutRecord>,
     skipped_missing_visit_time: usize,
 }

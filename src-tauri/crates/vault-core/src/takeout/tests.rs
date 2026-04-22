@@ -99,6 +99,28 @@ fn inspect_takeout_collects_preview_rows() {
 }
 
 #[test]
+fn inspect_takeout_streams_browser_history_json_payloads() {
+    let dir = tempdir().expect("tempdir");
+    let source = write_takeout_browser_json_fixture(dir.path(), "takeout-browser-json");
+    let inspection = inspect_takeout(
+        &sample_paths(dir.path()),
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
+    )
+    .expect("inspect browser history json");
+
+    assert_eq!(inspection.source_path, source.display().to_string());
+    assert!(inspection.dry_run);
+    assert_eq!(inspection.candidate_items, 2);
+    assert_eq!(inspection.preview_entries.len(), 2);
+    assert_eq!(inspection.preview_entries[0].url, "https://example.com/one");
+    assert_eq!(inspection.preview_entries[1].url, "https://example.com/two");
+    assert_eq!(inspection.recognized_files.len(), 1);
+    assert_eq!(inspection.recognized_files[0].kind, "browser-json");
+    assert_eq!(inspection.recognized_files[0].records, 2);
+    assert!(inspection.notes.is_empty());
+}
+
+#[test]
 fn inspect_takeout_caps_preview_entries_at_preview_limit() {
     let dir = tempdir().expect("tempdir");
     let lines = (0..=PREVIEW_LIMIT)
