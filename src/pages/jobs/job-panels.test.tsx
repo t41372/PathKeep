@@ -24,7 +24,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import type { AiQueueJob, IntelligenceJobOverview } from '../../lib/types'
-import { JobPanel, RuntimeJobPanel, aiJobStateLabel } from './job-panels'
+import { aiJobStateLabel } from './job-panel-helpers'
+import { JobPanel, RuntimeJobPanel } from './job-panels'
 
 const jobsT = createNamespaceTranslator('en', 'jobs')
 const settingsT = createNamespaceTranslator('en', 'settings')

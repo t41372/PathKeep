@@ -30,40 +30,12 @@ import {
 import { summarizeRuntimeJob } from '../../lib/intelligence-presentation'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { AiQueueJob, IntelligenceJobOverview } from '../../lib/types'
-
-export type JobsTranslator = (
-  key: string,
-  vars?: Record<string, string | number>,
-) => string
+import { aiJobStateLabel, type JobsTranslator } from './job-panel-helpers'
 
 type Translator = (
   key: string,
   vars?: Record<string, string | number>,
 ) => string
-
-/**
- * Keeps AI queue state labels close to the recent-jobs panel that renders them.
- */
-export function aiJobStateLabel(state: string, jobsT: JobsTranslator) {
-  switch (state) {
-    case 'queued':
-      return jobsT('jobStateQueued')
-    case 'running':
-      return jobsT('jobStateRunning')
-    case 'succeeded':
-      return jobsT('jobStateSucceeded')
-    case 'failed':
-      return jobsT('jobStateFailed')
-    case 'cancelled':
-      return jobsT('jobStateCancelled')
-    case 'paused':
-      return jobsT('jobStatePaused')
-    case 'stale':
-      return jobsT('jobStateStale')
-    default:
-      return state
-  }
-}
 
 interface JobPanelProps {
   action: string | null
