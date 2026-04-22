@@ -49,6 +49,7 @@
 - semantic index 的 operational metadata 與 intelligence runtime state 不再回寫 canonical archive；它們進 `derived/history-intelligence.sqlite`，與 hot archive facts 隔離。
 - 目前的 LanceDB 依賴鏈會經由 `tantivy 0.24.2` transitively 拉入 `lru 0.12.x`。RustSec `RUSTSEC-2026-0002` 影響的是 `IterMut`; PathKeep 目前只經由 tantivy `StoreReader` 使用 cache 的 `get` / `put` / `len` / `peek_lru` 路徑，因此暫時保留 allowlist，待上游提供兼容升級。
 - 2026-04-21 follow-up：`rustls-webpki` 已升到 `0.103.13`，先前為 `0.103.10` 留下的 `RUSTSEC-2026-0098` / `RUSTSEC-2026-0099` supply-chain allowlist 已移除；目前的 security allowlist 只保留仍存在於實際依賴圖中的 advisories。
+- 2026-04-22 follow-up：`core2 0.4.0` 先前只以 cargo-audit `yanked` warning 出現，現在已升格成 `RUSTSEC-2026-0105` unmaintained advisory。它仍只經由 `libsodium-sys-stable -> libflate` 出現在 Stronghold build 依賴鏈裡；PathKeep 的 owned code surface 不直接依賴 `core2`，而 upstream 目前也尚未提供可直接替換的 maintained path，因此 allowlist 轉為 advisory 形式並保留 provenance。
 
 2026-04-10 backend size audit note：
 

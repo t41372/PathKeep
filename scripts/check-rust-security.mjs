@@ -100,12 +100,16 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2026-0097',
     "rand 0.7/0.8/0.9 is currently only present through transitive LanceDB/DataFusion, Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
   ],
+  [
+    'RUSTSEC-2026-0105',
+    'core2 0.4.0 is only pulled transitively through libsodium-sys-stable/libflate in the Stronghold build dependency chain; PathKeep does not depend on it directly and upstream has not published a maintained replacement in that stack yet.',
+  ],
 ])
 
 const allowedNonAdvisoryWarnings = new Map([
   [
     'yanked:core2@0.4.0',
-    'core2 0.4.0 is only pulled transitively through libsodium-sys-stable/libflate in the Stronghold build dependency chain; PathKeep does not depend on it directly and upstream has not published a replacement in that stack yet.',
+    'core2 0.4.0 is only pulled transitively through libsodium-sys-stable/libflate in the Stronghold build dependency chain; PathKeep does not depend on it directly and upstream has not published a maintained replacement in that stack yet.',
   ],
 ])
 
