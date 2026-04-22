@@ -27,9 +27,12 @@ import {
 } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import type { IntelligencePublicSnapshot } from '../../lib/core-intelligence'
+import {
+  dayInsightsHref,
+  domainInsightsHref,
+} from '../../lib/core-intelligence/routes'
 import { formatDateTime } from '../../lib/format'
 import type { ResolvedLanguage } from '../../lib/i18n'
-import { dayInsightsHref, domainInsightsHref } from '../../lib/intelligence'
 import {
   buildDigestMetricItems,
   type Translate,

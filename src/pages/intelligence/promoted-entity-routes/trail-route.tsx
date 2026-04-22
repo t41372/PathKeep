@@ -15,9 +15,9 @@ import {
   compareSetInsightsHref,
   dayInsightsHref,
   domainInsightsHref,
-  evidenceHref,
   sessionInsightsHref,
-} from '../../../lib/intelligence'
+} from '../../../lib/core-intelligence/routes'
+import { evidenceHref } from '../../../lib/intelligence-links'
 import { useIntelligenceRouteState } from '../route-state'
 import { IntelligenceSectionBody } from '../sections/section-body'
 import {

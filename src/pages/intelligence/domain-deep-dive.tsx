@@ -33,10 +33,10 @@ import {
   compareSetInsightsHref,
   dayInsightsHref,
   domainInsightsHref,
-  evidenceHref,
   queryFamilyInsightsHref,
   trailInsightsHref,
-} from '../../lib/intelligence'
+} from '../../lib/core-intelligence/routes'
+import { evidenceHref } from '../../lib/intelligence-links'
 import {
   formatDomainPagePath,
   intelligenceCategoryLabel,

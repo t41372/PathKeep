@@ -17,7 +17,7 @@ import {
   type RefindScoreFactor,
   type TrailSummary,
 } from '../../../lib/core-intelligence'
-import { trailInsightsHref } from '../../../lib/intelligence'
+import { trailInsightsHref } from '../../../lib/core-intelligence/routes'
 
 export function ScopeCallout({ body, title }: { body: string; title: string }) {
   return <StatusCallout tone="info" title={title} body={body} />

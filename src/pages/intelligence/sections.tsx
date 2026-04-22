@@ -34,7 +34,7 @@ import {
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../lib/i18n'
-import { evidenceHref } from '../../lib/intelligence'
+import { evidenceHref } from '../../lib/intelligence-links'
 import { storageGrowthEvidence } from '../../lib/storage-analytics'
 import type { DashboardSnapshot } from '../../lib/types'
 import { IntelligenceSectionBody } from './sections/section-body'

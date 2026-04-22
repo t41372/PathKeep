@@ -28,7 +28,7 @@ import { ExplainabilityPanel } from '../../../../components/intelligence/explain
 import { IntelligenceSectionMeta } from '../../../../components/intelligence/section-meta'
 import { useAsyncData, type DateRange } from '../../../../lib/core-intelligence'
 import * as api from '../../../../lib/core-intelligence/api'
-import { reopenedInvestigationHref } from '../../../../lib/intelligence'
+import { reopenedInvestigationHref } from '../../../../lib/core-intelligence/routes'
 import { IntelligenceSectionBody } from '../section-body'
 import type { T } from '../shared'
 import { isSearchBackedReopenedInvestigation } from './heuristics'

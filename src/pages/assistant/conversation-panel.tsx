@@ -25,7 +25,7 @@ import { Link } from 'react-router-dom'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { formatDateTime } from '../../lib/format'
-import { evidenceHref } from '../../lib/intelligence'
+import { evidenceHref } from '../../lib/intelligence-links'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { AiAssistantResponse } from '../../lib/types'
 

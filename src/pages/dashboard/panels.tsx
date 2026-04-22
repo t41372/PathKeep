@@ -22,12 +22,15 @@ import { Link } from 'react-router-dom'
 import { BrowsingRhythmCard } from '../../components/intelligence/browsing-rhythm-card'
 import { Skeleton } from '../../components/primitives/skeleton'
 import { browserRetentionMeta } from '../../lib/browser-retention'
+import {
+  dayInsightsHref,
+  domainDayInsightsHref,
+} from '../../lib/core-intelligence/routes'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { BrowserProfile, DashboardSnapshot } from '../../lib/types'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
-import { dayInsightsHref, domainDayInsightsHref } from '../../lib/intelligence'
 import { runStatusKey, runTypeKey } from '../../lib/trust-review'
 import type { DashboardStatItem, DashboardStorageSegment } from './helpers'
 import { browserIconClass, browserIconLetter } from './helpers'

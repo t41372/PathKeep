@@ -11,7 +11,7 @@ import {
   type TimeRangePreset,
 } from '../../../lib/core-intelligence'
 import type { ResolvedLanguage } from '../../../lib/i18n'
-import { domainDayInsightsHref } from '../../../lib/intelligence'
+import { domainDayInsightsHref } from '../../../lib/core-intelligence/routes'
 import { IntelligenceSectionBody } from './section-body'
 import type { T } from './shared'
 

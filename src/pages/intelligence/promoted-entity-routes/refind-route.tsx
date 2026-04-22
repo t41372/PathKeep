@@ -7,12 +7,12 @@ import { IntelligenceSectionMeta } from '../../../components/intelligence/sectio
 import { TimeRangeSelector } from '../../../components/intelligence/time-range-selector'
 import { useAsyncData } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
-import { useI18n } from '../../../lib/i18n/hooks'
 import {
   dayInsightsHref,
   domainInsightsHref,
-  evidenceHref,
-} from '../../../lib/intelligence'
+} from '../../../lib/core-intelligence/routes'
+import { useI18n } from '../../../lib/i18n/hooks'
+import { evidenceHref } from '../../../lib/intelligence-links'
 import { useIntelligenceRouteState } from '../route-state'
 import { IntelligenceSectionBody } from '../sections/section-body'
 import { normalizeRefindFactors, useScopeCallout } from './helpers'

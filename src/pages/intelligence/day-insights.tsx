@@ -26,10 +26,10 @@ import * as api from '../../lib/core-intelligence/api'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
   domainDayInsightsHref,
-  evidenceHref,
   queryFamilyInsightsHref,
   refindInsightsHref,
-} from '../../lib/intelligence'
+} from '../../lib/core-intelligence/routes'
+import { evidenceHref } from '../../lib/intelligence-links'
 import {
   profileIdLabel,
   useProfileScope,

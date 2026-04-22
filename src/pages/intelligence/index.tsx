@@ -20,7 +20,6 @@ import { useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { peekIntelligencePrimaryOverview } from '../../lib/core-intelligence'
-import { useI18n } from '../../lib/i18n/hooks'
 import {
   compareSetInsightsHref,
   dayInsightsHref,
@@ -28,7 +27,8 @@ import {
   queryFamilyInsightsHref,
   refindInsightsHref,
   trailInsightsHref,
-} from '../../lib/intelligence'
+} from '../../lib/core-intelligence/routes'
+import { useI18n } from '../../lib/i18n/hooks'
 import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'

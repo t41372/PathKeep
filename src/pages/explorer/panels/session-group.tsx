@@ -26,7 +26,7 @@ import type {
   SessionVisit,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
-import { sessionInsightsHref } from '../../../lib/intelligence'
+import { sessionInsightsHref } from '../../../lib/core-intelligence/routes'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import type { ExplorerVisitSelection, Translator } from '../types'
 

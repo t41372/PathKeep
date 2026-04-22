@@ -9,13 +9,13 @@ import {
   singleDayDateRange,
 } from '../../../lib/core-intelligence'
 import * as api from '../../../lib/core-intelligence/api'
-import { formatDateTime } from '../../../lib/format'
-import { useI18n } from '../../../lib/i18n/hooks'
 import {
   dayInsightsHref,
   domainInsightsHref,
-  evidenceHref,
-} from '../../../lib/intelligence'
+} from '../../../lib/core-intelligence/routes'
+import { formatDateTime } from '../../../lib/format'
+import { useI18n } from '../../../lib/i18n/hooks'
+import { evidenceHref } from '../../../lib/intelligence-links'
 import { useIntelligenceRouteState } from '../route-state'
 import { IntelligenceSectionBody } from '../sections/section-body'
 import { localDateKeyFromIso, useScopeCallout } from './helpers'

@@ -26,11 +26,11 @@ import type {
   DateRange,
   IntelligenceEmbedCardPayload,
 } from '../../lib/core-intelligence'
-import { useI18n } from '../../lib/i18n'
 import {
   insightEntityReferenceHref,
   insightEntityReferenceLabel,
-} from '../../lib/intelligence'
+} from '../../lib/core-intelligence/routes'
+import { useI18n } from '../../lib/i18n'
 import type { Translate } from './external-outputs-shared'
 
 interface OutputTargetLinksProps {

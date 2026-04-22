@@ -19,13 +19,13 @@ import {
   localDateKeyFromIso,
   singleDayDateRange,
 } from '../../../lib/core-intelligence'
-import { formatDateTime } from '../../../lib/format'
-import { type ResolvedLanguage } from '../../../lib/i18n'
 import {
   domainInsightsHref,
-  evidenceHref,
   visitDayInsightsHref,
-} from '../../../lib/intelligence'
+} from '../../../lib/core-intelligence/routes'
+import { formatDateTime } from '../../../lib/format'
+import { type ResolvedLanguage } from '../../../lib/i18n'
+import { evidenceHref } from '../../../lib/intelligence-links'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import { NavigationTracer } from './navigation-tracer'
 import type { ExplorerVisitSelection, Translator } from '../types'

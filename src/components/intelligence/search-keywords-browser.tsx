@@ -23,7 +23,7 @@ import {
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../lib/i18n'
-import { evidenceHref } from '../../lib/intelligence'
+import { evidenceHref } from '../../lib/intelligence-links'
 
 type Translate = (
   key: string,

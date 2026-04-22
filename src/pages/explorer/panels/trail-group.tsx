@@ -25,7 +25,7 @@ import type {
   TrailMember,
 } from '../../../lib/core-intelligence/types'
 import type { ResolvedLanguage } from '../../../lib/i18n'
-import { trailInsightsHref } from '../../../lib/intelligence'
+import { trailInsightsHref } from '../../../lib/core-intelligence/routes'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import type { ExplorerVisitSelection, Translator } from '../types'
 
