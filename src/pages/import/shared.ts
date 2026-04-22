@@ -246,11 +246,17 @@ export function localizedImportProgressDetail(
         files: progress.total.toLocaleString(language),
       })
     case 'import-file':
-      return t('import.importProgressImportDetail', {
-        current: progress.current.toLocaleString(language),
-        total: progress.total.toLocaleString(language),
-        source: progress.sourcePath ?? '',
-      })
+      return progress.progressPercent === null
+        ? t('import.importProgressImportActiveDetail', {
+            current: progress.current.toLocaleString(language),
+            total: progress.total.toLocaleString(language),
+            source: progress.sourcePath ?? '',
+          })
+        : t('import.importProgressImportDetail', {
+            current: progress.current.toLocaleString(language),
+            total: progress.total.toLocaleString(language),
+            source: progress.sourcePath ?? '',
+          })
     case 'finalize':
       return t('import.importProgressFinalizeDetail')
     case 'complete':
@@ -258,6 +264,21 @@ export function localizedImportProgressDetail(
     default:
       return progress.detail
   }
+}
+
+export function localizedImportProgressLabel(
+  progress: ImportProgressEvent,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  language: string,
+) {
+  if (progress.phase === 'import-file' && progress.progressPercent === null) {
+    return t('import.importProgressActiveLabel', {
+      current: progress.current.toLocaleString(language),
+      total: progress.total.toLocaleString(language),
+    })
+  }
+
+  return `${progress.current.toLocaleString(language)} / ${progress.total.toLocaleString(language)}`
 }
 
 export function groupTakeoutFileReports(

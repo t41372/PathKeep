@@ -203,6 +203,15 @@
   );
 }
 
+.busy-overlay__progress-track--indeterminate {
+  position: relative;
+}
+
+.busy-overlay__progress-fill--indeterminate {
+  width: 36%;
+  animation: busy-overlay-progress-sweep 1.1s ease-in-out infinite;
+}
+
 .busy-overlay__steps {
   display: grid;
   gap: 6px;
@@ -258,6 +267,16 @@
   50% {
     transform: scale(1);
     opacity: 1;
+  }
+}
+
+@keyframes busy-overlay-progress-sweep {
+  0% {
+    transform: translateX(-105%);
+  }
+
+  100% {
+    transform: translateX(285%);
   }
 }
 

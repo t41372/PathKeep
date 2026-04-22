@@ -137,6 +137,12 @@
   font-weight: 600;
 }
 
+.browsing-rhythm-card__range-hint {
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
 .browsing-rhythm-card__empty {
   display: flex;
   align-items: center;

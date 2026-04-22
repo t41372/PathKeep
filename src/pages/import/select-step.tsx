@@ -95,47 +95,47 @@ export function ImportSelectStep({
           </div>
         </button>
       </div>
-      <p className="dim" style={{ marginTop: 'var(--space-2)' }}>
-        {method === 'takeout'
-          ? t('import.takeoutPreparationHint')
-          : t('import.browserPreparationHint')}
-      </p>
+      {method === 'browser' ? (
+        <p className="dim" style={{ marginTop: 'var(--space-2)' }}>
+          {t('import.browserPreparationHint')}
+        </p>
+      ) : null}
 
       {method === 'takeout' ? (
-        <div className="import-guide-grid">
-          <div className="import-guide-card">
-            <span className="mono-kicker">{t('import.takeoutScopeTitle')}</span>
+        <div className="import-guide-shell">
+          <div className="import-guide-card import-guide-card--hero">
+            <span className="mono-kicker">{t('import.takeoutGuideTitle')}</span>
             <p className="dashboard-next-action">
               {t('import.takeoutScopeBody')}
             </p>
-            <ul className="import-scope-list dim">
-              <li>{t('import.takeoutScopeImportable')}</li>
-              <li>{t('import.takeoutGuideSupportedExample')}</li>
-            </ul>
+            <p className="dim">{t('import.takeoutPreparationHint')}</p>
           </div>
-          <div className="import-guide-card">
-            <span className="mono-kicker">{t('import.takeoutGuideTitle')}</span>
-            <p className="dashboard-next-action">
-              {t('import.takeoutGuideBody')}
-            </p>
-            <ol className="import-guide-list dim">
-              <li>{t('import.takeoutGuideStepOne')}</li>
-              <li>{t('import.takeoutGuideStepTwo')}</li>
-              <li>{t('import.takeoutGuideStepThree')}</li>
-            </ol>
+          <div className="import-guide-grid">
+            <div className="import-guide-card" data-tone="ok">
+              <span className="mono-kicker">
+                {t('import.takeoutScopeTitle')}
+              </span>
+              <ul className="import-scope-list dim">
+                <li>{t('import.takeoutScopeImportable')}</li>
+                <li>{t('import.takeoutGuideSupportedExample')}</li>
+              </ul>
+            </div>
+            <div className="import-guide-card" data-tone="warn">
+              <span className="mono-kicker">
+                {t('import.takeoutUnsupportedTitle')}
+              </span>
+              <ul className="import-scope-list dim">
+                <li>{t('import.takeoutScopeIgnored')}</li>
+                <li>{t('import.takeoutScopeReview')}</li>
+                <li>{t('import.takeoutGuideUnsupportedExample')}</li>
+              </ul>
+            </div>
           </div>
-          <div className="import-guide-card">
-            <span className="mono-kicker">
-              {t('import.takeoutUnsupportedTitle')}
-            </span>
-            <p className="dashboard-next-action">
-              {t('import.takeoutGuideUnsupportedExample')}
-            </p>
-            <ul className="import-scope-list dim">
-              <li>{t('import.takeoutScopeIgnored')}</li>
-              <li>{t('import.takeoutScopeReview')}</li>
-            </ul>
-          </div>
+          <ol className="import-guide-list import-guide-list--steps dim">
+            <li>{t('import.takeoutGuideStepOne')}</li>
+            <li>{t('import.takeoutGuideStepTwo')}</li>
+            <li>{t('import.takeoutGuideStepThree')}</li>
+          </ol>
         </div>
       ) : null}
 

@@ -563,6 +563,42 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
 }
 
 #[test]
+fn takeout_import_progress_marks_active_single_file_work_as_indeterminate() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_direct_browser_history_json_file(dir.path(), "歷史記錄.json");
+    let mut events = Vec::new();
+    let imported = import_takeout_with_progress(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+        |event| events.push(event),
+    )
+    .expect("import with progress");
+
+    assert_eq!(imported.imported_items, 2);
+    let active = events
+        .iter()
+        .find(|event| event.phase == "import-file" && event.progress_percent.is_none())
+        .expect("active file progress event");
+    assert_eq!(active.current, 1);
+    assert_eq!(active.total, 1);
+    assert_eq!(active.source_path.as_deref(), Some(source.to_string_lossy().as_ref()));
+    assert!(active.detail.contains("(1/1)"));
+
+    let complete =
+        events.iter().rev().find(|event| event.phase == "complete").expect("complete event");
+    assert_eq!(complete.progress_percent, Some(100.0));
+}
+
+#[test]
 fn recognize_and_parse_takeout_payloads() {
     assert_eq!(recognize_takeout_file("BrowserHistory.json"), Some("browser-json".to_string()));
     assert_eq!(recognize_takeout_file("Chrome/History.json"), Some("browser-json".to_string()));

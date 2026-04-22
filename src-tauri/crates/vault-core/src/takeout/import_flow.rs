@@ -96,10 +96,10 @@ where
     emit_import_progress(
         &mut report_progress,
         "prepare",
-        "Preparing import",
         format!("Scanning {} payload(s) before archive write.", planned_files.max(1)),
         0,
         planned_files.max(1),
+        progress_percent_from_counts(0, planned_files.max(1)),
         Some(request.source_path.clone()),
         &progress_log_lines,
     );
@@ -151,14 +151,14 @@ where
             emit_import_progress(
                 &mut report_progress,
                 "import-file",
-                "Importing browser history",
                 format!(
                     "Processing {} ({imported_file_count}/{})",
                     file.path,
                     planned_files.max(1)
                 ),
-                imported_file_count.saturating_sub(1),
+                imported_file_count,
                 planned_files.max(1),
+                None,
                 Some(file.path.clone()),
                 &progress_log_lines,
             );
@@ -230,10 +230,10 @@ where
             emit_import_progress(
                 &mut report_progress,
                 "import-file",
-                "Importing browser history",
                 format!("Imported {} ({imported_file_count}/{})", file.path, planned_files.max(1)),
                 imported_file_count,
                 planned_files.max(1),
+                progress_percent_from_counts(imported_file_count, planned_files.max(1)),
                 Some(file.path.clone()),
                 &progress_log_lines,
             );
@@ -261,10 +261,10 @@ where
     emit_import_progress(
         &mut report_progress,
         "finalize",
-        "Finalizing import",
         "Refreshing keyword recall and batch review metadata.".to_string(),
         planned_files.max(1),
         planned_files.max(1),
+        progress_percent_from_counts(planned_files.max(1), planned_files.max(1)),
         Some(request.source_path.clone()),
         &progress_log_lines,
     );
@@ -305,11 +305,11 @@ where
     emit_import_progress(
         &mut report_progress,
         "complete",
-        "Import complete",
         "Takeout review is ready and follow-up rebuild work can continue in the background."
             .to_string(),
         planned_files.max(1),
         planned_files.max(1),
+        progress_percent_from_counts(planned_files.max(1), planned_files.max(1)),
         Some(request.source_path.clone()),
         &progress_log_lines,
     );
@@ -320,24 +320,20 @@ where
 fn emit_import_progress(
     report_progress: &mut impl FnMut(ImportProgressEvent),
     phase: &str,
-    label: &str,
     detail: String,
     current: usize,
     total: usize,
+    progress_percent: Option<f32>,
     source_path: Option<String>,
     log_lines: &[String],
 ) {
     report_progress(ImportProgressEvent {
         phase: phase.to_string(),
-        label: label.to_string(),
+        label: progress_label_for_phase(phase).to_string(),
         detail,
         current,
         total,
-        progress_percent: if total == 0 {
-            None
-        } else {
-            Some(((current as f32 / total as f32) * 100.0).min(100.0))
-        },
+        progress_percent,
         log_lines: log_lines
             .iter()
             .rev()
@@ -349,6 +345,20 @@ fn emit_import_progress(
             .collect(),
         source_path,
     });
+}
+
+fn progress_percent_from_counts(current: usize, total: usize) -> Option<f32> {
+    if total == 0 { None } else { Some(((current as f32 / total as f32) * 100.0).min(100.0)) }
+}
+
+fn progress_label_for_phase(phase: &str) -> &'static str {
+    match phase {
+        "prepare" => "Preparing import",
+        "import-file" => "Importing browser history",
+        "finalize" => "Finalizing import",
+        "complete" => "Import complete",
+        _ => "Importing browser history",
+    }
 }
 
 /// Creates the running import ledger row before archive writes begin.

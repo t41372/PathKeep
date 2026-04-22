@@ -44,6 +44,7 @@ import {
   type ImportMethod,
   type ImportWizardStepDefinition,
   localizedImportProgressDetail,
+  localizedImportProgressLabel,
   takeoutFileGroupBodyKey,
   takeoutFileGroupTitleKey,
   takeoutFileKindLabel,
@@ -467,13 +468,10 @@ export function ImportWizardPanel({
                 }
                 progressLabel={
                   importProgress
-                    ? `${importProgress.current.toLocaleString(language)} / ${importProgress.total.toLocaleString(language)}`
+                    ? localizedImportProgressLabel(importProgress, t, language)
                     : `4 / ${wizardSteps.length.toLocaleString(language)}`
                 }
-                progressValue={
-                  importProgress?.progressPercent ??
-                  (4 / wizardSteps.length) * 100
-                }
+                progressValue={importProgress?.progressPercent ?? null}
                 steps={wizardSteps
                   .slice(2)
                   .map((wizardStep) => wizardStep.label)}
@@ -484,10 +482,11 @@ export function ImportWizardPanel({
 
           {step === 'done' && importResult && (
             <>
-              <div className="wizard-title">{t('import.completeTitle')}</div>
-              <div className="wizard-description dim">
-                {t('import.completeBody')}
-              </div>
+              <StatusCallout
+                tone="success"
+                title={t('import.completeTitle')}
+                body={t('import.completeBody')}
+              />
               <div className="preview-stats">
                 <div className="preview-stat">
                   <div className="preview-stat-label">

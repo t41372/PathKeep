@@ -206,11 +206,11 @@ describe('intelligence surfaces', () => {
     await waitFor(() =>
       expect(yearLabel).toHaveTextContent(String(currentYear)),
     )
-    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeDisabled()
-    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeEnabled()
+    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeEnabled()
+    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeDisabled()
     expect(getDayInsightsSpy).not.toHaveBeenCalled()
 
-    await user.click(screen.getByTestId('browsing-rhythm-year-next'))
+    await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
     await waitFor(() =>
       expect(getDiscoveryTrendSpy).toHaveBeenLastCalledWith(
         { start: '2025-01-01', end: '2025-12-31' },
@@ -222,10 +222,15 @@ describe('intelligence surfaces', () => {
     expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeEnabled()
     expect(screen.getByTestId('browsing-rhythm-year-next')).toBeEnabled()
     expect(
+      screen.getByText(
+        'Data in this year currently runs from Apr 18, 2025 to Apr 18, 2025',
+      ),
+    ).toBeVisible()
+    expect(
       screen.getByTestId('browsing-rhythm-current-year-shortcut'),
     ).toBeVisible()
 
-    await user.click(screen.getByTestId('browsing-rhythm-year-next'))
+    await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
     await waitFor(() =>
       expect(getDiscoveryTrendSpy).toHaveBeenLastCalledWith(
         { start: '2024-01-01', end: '2024-12-31' },
@@ -234,8 +239,8 @@ describe('intelligence surfaces', () => {
       ),
     )
     expect(yearLabel).toHaveTextContent('2024')
-    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeEnabled()
-    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeDisabled()
+    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeDisabled()
+    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeEnabled()
 
     await user.click(
       await screen.findByRole('button', {
@@ -318,7 +323,7 @@ describe('intelligence surfaces', () => {
       screen.queryByTestId('browsing-rhythm-current-year-shortcut'),
     ).not.toBeInTheDocument()
 
-    await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
+    await user.click(screen.getByTestId('browsing-rhythm-year-next'))
     expect(yearLabel).toHaveTextContent(String(currentYear + 1))
     expect(
       screen.getByTestId('browsing-rhythm-current-year-shortcut'),
@@ -373,7 +378,7 @@ describe('intelligence surfaces', () => {
     const yearLabel = await screen.findByTestId('browsing-rhythm-year-label')
     expect(yearLabel).toHaveTextContent(String(currentYear))
 
-    await user.click(screen.getByTestId('browsing-rhythm-year-next'))
+    await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
     expect(yearLabel).toHaveTextContent(String(currentYear - 1))
     expect(screen.getByTestId('browsing-rhythm-summary')).toHaveTextContent(
       `0 visits in ${currentYear - 1}`,

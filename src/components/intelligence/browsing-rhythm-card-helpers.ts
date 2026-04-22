@@ -237,7 +237,7 @@ function localeFromLanguage(language: string) {
   return 'en-US'
 }
 
-function formatDisplayDate(dateKey: string, language: string) {
+export function formatDisplayDate(dateKey: string, language: string) {
   return new Intl.DateTimeFormat(localeFromLanguage(language), {
     dateStyle: 'medium',
   }).format(parseDateKey(dateKey))

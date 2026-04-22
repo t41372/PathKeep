@@ -62,4 +62,23 @@ describe('BusyOverlay', () => {
         .closest('.busy-overlay__step'),
     ).toHaveClass('busy-overlay__step--pending')
   })
+
+  test('renders an indeterminate progress track when work is active but percent is unknown', () => {
+    const { container } = render(
+      <BusyOverlay
+        label="Importing browser history"
+        detail="Writing file 1 of 1: /tmp/History.json"
+        progressLabel="File 1 of 1"
+        progressValue={null}
+      />,
+    )
+
+    expect(
+      container.querySelector('.busy-overlay__progress-track--indeterminate'),
+    ).toBeTruthy()
+    expect(
+      container.querySelector('.busy-overlay__progress-fill--indeterminate'),
+    ).toBeTruthy()
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument()
+  })
 })

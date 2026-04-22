@@ -65,15 +65,15 @@ export function BrowsingRhythmYearControls({
             >
               <button
                 aria-label={t('rhythmPreviousYearAria', {
-                  year: newerYear ?? selectedYear,
+                  year: olderYear ?? selectedYear,
                 })}
                 className="browsing-rhythm-card__year-button"
                 data-testid="browsing-rhythm-year-previous"
-                disabled={newerYear === null}
+                disabled={olderYear === null}
                 type="button"
                 onClick={() => {
-                  if (newerYear !== null) {
-                    onSelectYear(newerYear)
+                  if (olderYear !== null) {
+                    onSelectYear(olderYear)
                   }
                 }}
               >
@@ -93,15 +93,15 @@ export function BrowsingRhythmYearControls({
               </div>
               <button
                 aria-label={t('rhythmNextYearAria', {
-                  year: olderYear ?? selectedYear,
+                  year: newerYear ?? selectedYear,
                 })}
                 className="browsing-rhythm-card__year-button"
                 data-testid="browsing-rhythm-year-next"
-                disabled={olderYear === null}
+                disabled={newerYear === null}
                 type="button"
                 onClick={() => {
-                  if (olderYear !== null) {
-                    onSelectYear(olderYear)
+                  if (newerYear !== null) {
+                    onSelectYear(newerYear)
                   }
                 }}
               >

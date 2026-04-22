@@ -226,7 +226,7 @@
 - queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
 - source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
-- Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。
+- Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。year pager 必須遵守時間直覺：左箭頭看更早的年份、右箭頭看較新的年份；若選中的年份只覆蓋部分日期，卡片還要直接顯示該年份內實際有資料的起訖範圍。
 - `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。點日格後的 primary workflow 現在是進 `/intelligence/day/:date`；若 overview 保留任何 inline preview，也只能是 secondary information。
 - `/intelligence` 頂部固定提供 `Insight Access` strip：使用者可直接輸入本地日曆日或 domain，打開完整 day/domain insights route。這條 strip 必須吃 shared href grammar，而不是再長出另一套局部 state / fetch story。
 - M7 起，active intelligence entity 也必須統一吃 shared entity contract：`query family`、`refind page`、`session`、`trail` 正式有 first-class shared insights route；`reopened investigation`、`habit`、`stable source`、`friction`、`multi-browser diff`、`compare set` 等 surface 也都必須解析到單一 shared destination，而不是各自拼 `/explorer` deep-link。

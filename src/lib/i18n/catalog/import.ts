@@ -30,26 +30,26 @@ export const importNamespaceCatalog = {
     archiveNotInitialized: 'Archive not set up yet',
     archiveNotInitializedBody:
       'Set up your archive first, then come back to import history data.',
-    trustTitle: 'Import with review',
+    trustTitle: 'Import browser history',
     trustBody:
-      'PathKeep only imports dedicated Chrome history payloads in this pass. Everything else is either ignored on purpose or held for review.',
+      'PathKeep imports the dedicated Chrome history export in this flow. Other Takeout files stay out of browsing history unless a future format is explicitly supported.',
     takeoutMethodTitle: 'Google Takeout',
     takeoutMethodBody: 'Import from a Google data export',
     browserMethodTitle: 'Browser Direct',
     browserMethodBody: 'Import from a local browser database',
     goToSetup: 'Go to setup',
     takeoutPreparationHint:
-      'Download the Chrome export from Google Takeout first. PathKeep accepts the zip, the extracted folder, or the history JSON file itself.',
-    takeoutScopeTitle: 'What PathKeep imports now',
+      'Export Chrome in Google Takeout. You can choose the zip, the extracted folder, or the history JSON file itself here.',
+    takeoutScopeTitle: 'Supported in this flow',
     takeoutScopeBody:
-      'Use a dedicated Chrome history JSON payload. The file name can vary by language, but the content starts with Browser History entries.',
+      'PathKeep imports the dedicated Chrome history JSON file. The filename can vary by language, but the payload starts with Browser History records.',
     takeoutScopeImportable:
-      'A dedicated Chrome history JSON payload is supported, whether it comes from a zip, a folder, or a single JSON file.',
+      'Choose the zip, the extracted folder, or the history JSON file itself.',
     takeoutScopeIgnored:
-      'My Activity JSON, My Activity HTML, typed URL companions, session companions, and unrelated Google exports stay out of browser history.',
+      'My Activity JSON, My Activity HTML, typed URL, session, and other Google exports are not imported as browsing history.',
     takeoutScopeReview:
-      'If the export looks ambiguous, PathKeep marks it for review instead of guessing.',
-    takeoutGuideTitle: 'Before you scan',
+      'If a file looks related but ambiguous, PathKeep stops and asks you to review it.',
+    takeoutGuideTitle: 'Get the right export',
     takeoutGuideBody: 'Run this quick check first.',
     takeoutGuideStepOne: 'In Google Takeout, export Chrome.',
     takeoutGuideStepTwo:
@@ -57,10 +57,10 @@ export const importNamespaceCatalog = {
     takeoutGuideStepThree:
       'You can select the zip, the extracted folder, or that JSON file directly in PathKeep.',
     takeoutGuideSupportedExample:
-      'Typical examples include BrowserHistory.json, History.json, and other localized file names with the same payload structure.',
-    takeoutUnsupportedTitle: 'Not supported in this build',
+      'Typical examples include BrowserHistory.json, History.json, Verlauf.json, and localized names with the same payload structure.',
+    takeoutUnsupportedTitle: 'Not imported here',
     takeoutGuideUnsupportedExample:
-      'My Activity JSON and My Activity HTML are not imported in this build.',
+      'Chrome My Activity JSON and HTML exports are not imported here.',
     browserPreparationHint:
       "Find your browser's History file. It's usually in the browser's profile folder. Close the browser first for best results.",
     stepUpload: 'Upload',
@@ -94,16 +94,16 @@ export const importNamespaceCatalog = {
       '{count} file(s) are known but intentionally ignored in this pass.',
     groupWillImportTitle: 'Will import',
     groupWillImportBody:
-      'These files map to the dedicated Chrome history payloads PathKeep imports today.',
+      'These files will become browsing history visits in your archive.',
     groupIgnoredTitle: 'Known but ignored',
     groupIgnoredBody:
-      'These files were recognized, but PathKeep keeps them out of canonical history in this Chrome-first pass.',
+      'These files belong to the export, but they are not imported as browsing history.',
     groupNeedsReviewTitle: 'Needs review',
     groupNeedsReviewBody:
-      'These files look history-related enough that PathKeep will not guess. Review them before treating them as browser history.',
+      'These files look history-related, but PathKeep needs your review before treating them as browsing history.',
     groupParseErrorTitle: 'Parse errors',
     groupParseErrorBody:
-      'These files matched a supported family, but parsing failed and needs attention before you trust the import result.',
+      'These files matched a supported format, but parsing failed before the import could use them.',
     kindJsonl: 'JSONL history file',
     kindBrowserHistory: 'Chrome history payload',
     kindTypedUrl: 'Typed URL companion',
@@ -116,13 +116,13 @@ export const importNamespaceCatalog = {
     reasonChromeHistoryJson:
       'Dedicated Chrome history export. PathKeep will import visits from this file.',
     reasonJsonlHistoryFixture:
-      'Imported through the legacy JSONL compatibility path. Useful for existing fixtures and manual exports, but not a standard Google Takeout history file.',
+      'This file uses the older JSONL history format. PathKeep can import it, but it is not the standard Google Takeout Chrome history export.',
     reasonSourceEvidenceOnly:
-      'Used as supporting evidence only. PathKeep keeps it out of canonical visit history.',
+      'Kept as supporting evidence only. It does not create browsing history visits.',
     reasonTakeoutIndex:
       'Export manifest only. Helpful for review, but it does not contain history rows to import.',
     reasonChromeActivityOutsideScope:
-      'Chrome-related My Activity is broader than browser history. PathKeep leaves it out until that contract is designed explicitly.',
+      'Chrome My Activity covers more than browsing history, so it stays out of this import flow.',
     reasonChromeMyActivityJson:
       'This is a Chrome My Activity JSON export, not the dedicated browser-history JSON PathKeep imports in this build.',
     reasonChromeMyActivityHtml:
@@ -150,22 +150,26 @@ export const importNamespaceCatalog = {
     confirmImport: 'Confirm import →',
     importingTitle: 'Step 4: Importing...',
     importingProgressDetail: '{records} records · {files} files',
+    importProgressActiveLabel: 'File {current} of {total}',
     importProgressPrepareDetail:
       'Checking {files} import payloads before writing archive rows.',
-    importProgressImportDetail: 'Processing {current} / {total}: {source}',
+    importProgressImportActiveDetail:
+      'Writing file {current} of {total}: {source}',
+    importProgressImportDetail: 'Finished file {current} of {total}: {source}',
     importProgressFinalizeDetail:
-      'Refreshing keyword recall and import-review metadata.',
+      'Updating search recall and import review data.',
     importProgressCompleteDetail:
       'Import review is ready. Follow-up rebuild work continues in Background Jobs.',
     importingBody: 'Writing records to the archive. This may take a moment.',
     completeTitle: 'Step 5: Import Complete',
-    completeBody: 'Records have been written to the archive.',
+    completeBody:
+      'Records have been written to the archive. Review this import below.',
     imported: 'Imported',
     duplicatesSkipped: 'Duplicates Skipped',
     importAnother: 'Import another',
     workflowLabel: 'Why PathKeep previews first',
     workflowCollapsedHint:
-      'PathKeep scans first, lets you review the result, and only writes to the archive after you confirm.',
+      'Scan first. Review the result. Import only after you confirm.',
     showWorkflow: 'Show details',
     hideWorkflow: 'Hide details',
     workflowPreviewTitle: '1. Preview',
@@ -219,7 +223,7 @@ export const importNamespaceCatalog = {
     historyToolsBody:
       'Open older batches, restore or undo them, and run a health check when you need it.',
     historyToolsCollapsedHint:
-      'Older import batches and maintenance tools stay here so the import flow can keep the first screen focused.',
+      'Older batches and repair tools stay here when you need them.',
     showHistoryTools: 'Show history',
     hideHistoryTools: 'Hide history',
     recentBatches: 'Recent imports',
@@ -274,36 +278,37 @@ export const importNamespaceCatalog = {
   'zh-CN': {
     archiveNotInitialized: '还没有设置存档',
     archiveNotInitializedBody: '请先完成初始设置，然后回来导入历史数据。',
-    trustTitle: '安全的导入流程',
+    trustTitle: '导入浏览历史',
     trustBody:
-      '这次只正式导入专门的 Chrome 历史导出。其他 Takeout 文件会被明确标成忽略或待复核，而不是偷偷混进浏览记录。',
+      '这个流程只导入专门的 Chrome 历史导出。其他 Takeout 文件不会写入浏览历史，除非后续明确支持。',
     takeoutMethodTitle: 'Google Takeout',
     takeoutMethodBody: '从 Google 数据导出导入',
     browserMethodTitle: '浏览器直接导入',
     browserMethodBody: '从本地浏览器数据库导入',
     goToSetup: '前往设置',
     takeoutPreparationHint:
-      '请先从 Google Takeout 下载 Chrome 导出。PathKeep 支持直接选择 zip、解压后的文件夹，或单个历史 JSON 文件。',
-    takeoutScopeTitle: '当前支持的导入类型',
+      '请先在 Google Takeout 里导出 Chrome。这里可以直接选择 zip、解压后的文件夹，或历史 JSON 文件本身。',
+    takeoutScopeTitle: '这个流程支持什么',
     takeoutScopeBody:
-      '请选择专门的 Chrome 历史 JSON payload。文件名可能因语言而不同，但内容会以 Browser History 记录开头。',
+      'PathKeep 导入的是专门的 Chrome 历史 JSON。文件名可能因语言而不同，但内容会以 Browser History 记录开头。',
     takeoutScopeImportable:
-      '只要内容是专门的 Chrome 历史 JSON，来自 zip、文件夹或单个 JSON 文件都可以导入。',
+      '可以直接选择 zip、解压后的文件夹，或历史 JSON 文件本身。',
     takeoutScopeIgnored:
       'My Activity JSON、My Activity HTML、Typed URL、Session 和其他 Google 产品导出都不会写入浏览历史。',
     takeoutScopeReview:
-      '如果导出内容不够明确，PathKeep 会标成待复核，而不是猜测导入。',
-    takeoutGuideTitle: '扫描前先检查',
+      '如果文件看起来相关但不够明确，PathKeep 会停下来让你复核。',
+    takeoutGuideTitle: '先拿到正确的导出',
     takeoutGuideBody: '开始前先确认这三件事。',
     takeoutGuideStepOne: '在 Google Takeout 里导出 Chrome。',
     takeoutGuideStepTwo:
       '打开 zip 或文件夹，确认里面有一个专门的 Chrome 历史 JSON 文件。',
     takeoutGuideStepThree:
       '你可以在 PathKeep 里直接选择 zip、文件夹，或那个 JSON 文件本身。',
-    takeoutGuideSupportedExample: '当前支持：专门的 Chrome 历史 payload。',
-    takeoutUnsupportedTitle: '这一版还不支持',
+    takeoutGuideSupportedExample:
+      '常见文件名包括 BrowserHistory.json、History.json、Verlauf.json，以及其他同结构的本地化名称。',
+    takeoutUnsupportedTitle: '这里不会导入',
     takeoutGuideUnsupportedExample:
-      'My Activity JSON 和 My Activity HTML 这一版不会导入。',
+      'Chrome My Activity JSON 和 HTML 导出不会在这里导入。',
     browserPreparationHint:
       '找到浏览器的 History 文件，通常在浏览器的个人资料文件夹中。建议先关闭浏览器再操作。',
     stepUpload: '上传',
@@ -334,16 +339,14 @@ export const importNamespaceCatalog = {
     timeRangeLabel: '时间范围',
     ignoredFilesInline: '这次有 {count} 个文件属于已知但刻意忽略的范围。',
     groupWillImportTitle: '会导入',
-    groupWillImportBody: '这些文件属于当前正式支持的 Chrome 历史 payload。',
+    groupWillImportBody: '这些文件会写入你的浏览历史存档。',
     groupIgnoredTitle: '已知但忽略',
-    groupIgnoredBody:
-      '这些文件我们认得出来，但在当前 Chrome-first 方案里不会写入浏览历史。',
+    groupIgnoredBody: '这些文件属于导出的一部分，但不会作为浏览历史导入。',
     groupNeedsReviewTitle: '需要人工复核',
     groupNeedsReviewBody:
-      '这些文件看起来和历史记录有关，但 PathKeep 现在不会猜测处理方式。',
+      '这些文件看起来和历史有关，但 PathKeep 需要你先确认后再决定。',
     groupParseErrorTitle: '解析失败',
-    groupParseErrorBody:
-      '这些文件命中了支持的家族，但解析失败，需要先处理再信任导入结果。',
+    groupParseErrorBody: '这些文件命中了支持的格式，但在导入前解析失败了。',
     kindJsonl: 'JSONL 历史文件',
     kindBrowserHistory: 'Chrome 历史 payload',
     kindTypedUrl: 'Typed URL 辅助文件',
@@ -356,13 +359,12 @@ export const importNamespaceCatalog = {
     reasonChromeHistoryJson:
       '这是专门的 Chrome 历史导出，PathKeep 会从中导入访问记录。',
     reasonJsonlHistoryFixture:
-      '这是旧版 JSONL 兼容导入路径，适合现有夹具或手工导出，但不是标准的 Google Takeout 历史文件。',
-    reasonSourceEvidenceOnly:
-      '只作为辅助证据保留，不会写入规范化的浏览访问历史。',
+      '这是较早的 JSONL 历史格式。PathKeep 可以导入，但它不是标准的 Google Takeout Chrome 历史导出。',
+    reasonSourceEvidenceOnly: '只保留为辅助证据，不会生成浏览历史访问记录。',
     reasonTakeoutIndex:
       '这是导出清单页，可用于核对，但不包含可导入的历史记录。',
     reasonChromeActivityOutsideScope:
-      'Chrome 相关 My Activity 的范围比浏览历史更宽，这一版先不直接导入。',
+      'Chrome My Activity 覆盖的内容比浏览历史更宽，所以不会走这个导入流程。',
     reasonChromeMyActivityJson:
       '这是 Chrome My Activity JSON 导出，不是这一版 PathKeep 支持的专门浏览历史 JSON。',
     reasonChromeMyActivityHtml:
@@ -388,18 +390,21 @@ export const importNamespaceCatalog = {
     confirmImport: '确认导入 →',
     importingTitle: '第 4 步：导入中…',
     importingProgressDetail: '{records} 条记录 · {files} 个文件',
+    importProgressActiveLabel: '第 {current} / {total} 个文件',
     importProgressPrepareDetail: '正在检查 {files} 个待导入文件。',
-    importProgressImportDetail: '正在处理 {current} / {total}：{source}',
-    importProgressFinalizeDetail: '正在刷新关键词检索和批次复核信息。',
+    importProgressImportActiveDetail:
+      '正在写入第 {current} / {total} 个文件：{source}',
+    importProgressImportDetail: '已完成第 {current} / {total} 个文件：{source}',
+    importProgressFinalizeDetail: '正在更新搜索检索和导入复核数据。',
     importProgressCompleteDetail: '导入复核已就绪，后续重建会在后台继续进行。',
     importingBody: '正在写入记录，请稍候。',
     completeTitle: '第 5 步：完成',
-    completeBody: '记录已写入存档。',
+    completeBody: '记录已写入存档。下面可以继续核对这次导入。',
     imported: '已导入',
     duplicatesSkipped: '跳过重复',
     importAnother: '继续导入',
     workflowLabel: '为什么要先预览',
-    workflowCollapsedHint: 'PathKeep 会先扫描、再让你确认，最后才写入存档。',
+    workflowCollapsedHint: '先扫描，再核对，确认后才会写入存档。',
     showWorkflow: '查看细节',
     hideWorkflow: '隐藏细节',
     workflowPreviewTitle: '1. 预览',
@@ -439,8 +444,7 @@ export const importNamespaceCatalog = {
     historyToolsTitle: '导入记录与维护工具',
     historyToolsBody:
       '需要时再展开这里，查看旧批次、撤销或恢复，以及运行健康检查。',
-    historyToolsCollapsedHint:
-      '旧批次和维护工具放在这里，避免一进入页面就抢走导入流程的注意力。',
+    historyToolsCollapsedHint: '旧批次和修复工具放在这里，需要时再展开。',
     showHistoryTools: '显示记录',
     hideHistoryTools: '隐藏记录',
     recentBatches: '最近导入',
@@ -490,36 +494,37 @@ export const importNamespaceCatalog = {
   'zh-TW': {
     archiveNotInitialized: '還沒有設定封存',
     archiveNotInitializedBody: '請先完成初始設定，再回來匯入歷史資料。',
-    trustTitle: '安全的匯入流程',
+    trustTitle: '匯入瀏覽歷史',
     trustBody:
-      '這次只正式匯入專門的 Chrome 歷史匯出。其他 Takeout 檔案會被明確標成忽略或待複核，不會偷偷混進瀏覽紀錄。',
+      '這個流程只匯入專門的 Chrome 歷史匯出。其他 Takeout 檔案不會寫入瀏覽歷史，除非後續明確支援。',
     takeoutMethodTitle: 'Google Takeout',
     takeoutMethodBody: '從 Google 資料匯出檔匯入',
     browserMethodTitle: '瀏覽器直接匯入',
     browserMethodBody: '從本機瀏覽器資料庫匯入',
     goToSetup: '前往設定',
     takeoutPreparationHint:
-      '請先從 Google Takeout 下載 Chrome 匯出。PathKeep 支援直接選 zip、解壓後的資料夾，或單一歷史 JSON 檔。',
-    takeoutScopeTitle: '目前支援的匯入類型',
+      '請先在 Google Takeout 裡匯出 Chrome。這裡可以直接選 zip、解壓後的資料夾，或歷史 JSON 檔本身。',
+    takeoutScopeTitle: '這個流程支援什麼',
     takeoutScopeBody:
-      '請選擇專門的 Chrome 歷史 JSON payload。檔名可能因語言不同而改變，但內容會以 Browser History 紀錄開頭。',
+      'PathKeep 匯入的是專門的 Chrome 歷史 JSON。檔名可能因語言不同而改變，但內容會以 Browser History 紀錄開頭。',
     takeoutScopeImportable:
-      '只要內容是專門的 Chrome 歷史 JSON，來自 zip、資料夾或單一 JSON 檔都可以匯入。',
+      '可以直接選 zip、解壓後的資料夾，或歷史 JSON 檔本身。',
     takeoutScopeIgnored:
       'My Activity JSON、My Activity HTML、Typed URL、Session 與其他 Google 產品匯出都不會寫入瀏覽歷史。',
     takeoutScopeReview:
-      '如果匯出內容不夠明確，PathKeep 會標成待複核，而不是猜測匯入。',
-    takeoutGuideTitle: '掃描前先檢查',
+      '如果檔案看起來相關但不夠明確，PathKeep 會停下來讓你複核。',
+    takeoutGuideTitle: '先拿到正確的匯出',
     takeoutGuideBody: '開始前先確認這三件事。',
     takeoutGuideStepOne: '在 Google Takeout 裡匯出 Chrome。',
     takeoutGuideStepTwo:
       '打開 zip 或資料夾，確認裡面有一個專門的 Chrome 歷史 JSON 檔。',
     takeoutGuideStepThree:
       '你可以在 PathKeep 裡直接選 zip、資料夾，或那個 JSON 檔本身。',
-    takeoutGuideSupportedExample: '目前支援：專門的 Chrome 歷史 payload。',
-    takeoutUnsupportedTitle: '這一版還不支援',
+    takeoutGuideSupportedExample:
+      '常見檔名包括 BrowserHistory.json、History.json、Verlauf.json，以及其他同結構的在地化名稱。',
+    takeoutUnsupportedTitle: '這裡不會匯入',
     takeoutGuideUnsupportedExample:
-      'My Activity JSON 和 My Activity HTML 這一版不會匯入。',
+      'Chrome My Activity JSON 和 HTML 匯出不會在這裡匯入。',
     browserPreparationHint:
       '找到瀏覽器的 History 檔案，通常在瀏覽器的設定檔資料夾中。建議先關閉瀏覽器再操作。',
     stepUpload: '上傳',
@@ -550,16 +555,14 @@ export const importNamespaceCatalog = {
     timeRangeLabel: '時間範圍',
     ignoredFilesInline: '這次有 {count} 個檔案屬於已知但刻意忽略的範圍。',
     groupWillImportTitle: '會匯入',
-    groupWillImportBody: '這些檔案屬於目前正式支援的 Chrome 歷史 payload。',
+    groupWillImportBody: '這些檔案會寫入你的瀏覽歷史封存。',
     groupIgnoredTitle: '已知但忽略',
-    groupIgnoredBody:
-      '這些檔案我們認得出來，但在目前 Chrome-first 方案裡不會寫入瀏覽歷史。',
+    groupIgnoredBody: '這些檔案屬於匯出的一部分，但不會作為瀏覽歷史匯入。',
     groupNeedsReviewTitle: '需要人工複核',
     groupNeedsReviewBody:
-      '這些檔案看起來和歷史紀錄有關，但 PathKeep 現在不會猜測處理方式。',
+      '這些檔案看起來和歷史有關，但 PathKeep 需要你先確認後再決定。',
     groupParseErrorTitle: '解析失敗',
-    groupParseErrorBody:
-      '這些檔案命中了支援的家族，但解析失敗，需要先處理再信任匯入結果。',
+    groupParseErrorBody: '這些檔案命中了支援的格式，但在匯入前解析失敗了。',
     kindJsonl: 'JSONL 歷史檔案',
     kindBrowserHistory: 'Chrome 歷史 payload',
     kindTypedUrl: 'Typed URL 輔助檔',
@@ -572,13 +575,12 @@ export const importNamespaceCatalog = {
     reasonChromeHistoryJson:
       '這是專門的 Chrome 歷史匯出，PathKeep 會從中匯入造訪紀錄。',
     reasonJsonlHistoryFixture:
-      '這是舊版 JSONL 相容匯入路徑，適合現有測試夾具或手動匯出，但不是標準的 Google Takeout 歷史檔。',
-    reasonSourceEvidenceOnly:
-      '只作為輔助證據保留，不會寫入規範化的瀏覽造訪歷史。',
+      '這是較早的 JSONL 歷史格式。PathKeep 可以匯入，但它不是標準的 Google Takeout Chrome 歷史匯出。',
+    reasonSourceEvidenceOnly: '只保留為輔助證據，不會生成瀏覽歷史造訪紀錄。',
     reasonTakeoutIndex:
       '這是匯出清單頁，可用來核對，但不包含可匯入的歷史紀錄。',
     reasonChromeActivityOutsideScope:
-      'Chrome 相關 My Activity 的範圍比瀏覽歷史更寬，這一版先不直接匯入。',
+      'Chrome My Activity 涵蓋的內容比瀏覽歷史更寬，所以不會走這個匯入流程。',
     reasonChromeMyActivityJson:
       '這是 Chrome My Activity JSON 匯出，不是這一版 PathKeep 支援的專門瀏覽歷史 JSON。',
     reasonChromeMyActivityHtml:
@@ -604,19 +606,22 @@ export const importNamespaceCatalog = {
     confirmImport: '確認匯入 →',
     importingTitle: '第 4 步：匯入中…',
     importingProgressDetail: '{records} 筆紀錄 · {files} 個檔案',
+    importProgressActiveLabel: '第 {current} / {total} 個檔案',
     importProgressPrepareDetail: '正在檢查 {files} 個待匯入檔案。',
-    importProgressImportDetail: '正在處理 {current} / {total}：{source}',
-    importProgressFinalizeDetail: '正在刷新關鍵字檢索和批次複核資訊。',
+    importProgressImportActiveDetail:
+      '正在寫入第 {current} / {total} 個檔案：{source}',
+    importProgressImportDetail: '已完成第 {current} / {total} 個檔案：{source}',
+    importProgressFinalizeDetail: '正在更新搜尋檢索和匯入複核資料。',
     importProgressCompleteDetail:
       '匯入複核已就緒，後續重建會在背景工作中繼續進行。',
     importingBody: '正在寫入紀錄，請稍候。',
     completeTitle: '第 5 步：完成',
-    completeBody: '紀錄已寫入封存。',
+    completeBody: '紀錄已寫入封存。下面可以繼續核對這次匯入。',
     imported: '已匯入',
     duplicatesSkipped: '略過重複',
     importAnother: '繼續匯入',
     workflowLabel: '為什麼要先預覽',
-    workflowCollapsedHint: 'PathKeep 會先掃描、再讓你確認，最後才寫入封存。',
+    workflowCollapsedHint: '先掃描，再核對，確認後才會寫入封存。',
     showWorkflow: '查看細節',
     hideWorkflow: '隱藏細節',
     workflowPreviewTitle: '1. 預覽',
@@ -656,8 +661,7 @@ export const importNamespaceCatalog = {
     historyToolsTitle: '匯入紀錄與維護工具',
     historyToolsBody:
       '需要時再展開這裡，查看舊批次、撤銷或恢復，以及執行健康檢查。',
-    historyToolsCollapsedHint:
-      '舊批次和維護工具收在這裡，避免一進頁面就搶走匯入流程的注意力。',
+    historyToolsCollapsedHint: '舊批次和修復工具收在這裡，需要時再展開。',
     showHistoryTools: '顯示紀錄',
     hideHistoryTools: '隱藏紀錄',
     recentBatches: '最近匯入',

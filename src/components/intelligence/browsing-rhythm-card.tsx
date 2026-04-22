@@ -30,6 +30,7 @@ import {
 } from './browsing-rhythm-calendar'
 import {
   buildCalendarWeeks,
+  formatDisplayDate,
   buildMonthLabels,
   buildVisitSummary,
   buildYearOptions,
@@ -177,6 +178,31 @@ export function BrowsingRhythmCard({
       totalVisits,
     ],
   )
+  const visibleRangeHint = useMemo(() => {
+    if (mode !== 'year') {
+      return null
+    }
+
+    const occupiedDays = calendarDays.filter((cell) => cell.totalVisits > 0)
+    if (occupiedDays.length === 0) {
+      return null
+    }
+
+    const start = occupiedDays[0]?.dateKey ?? null
+    const end = occupiedDays[occupiedDays.length - 1]?.dateKey ?? null
+    if (!start || !end) {
+      return null
+    }
+
+    if (start === `${selectedYear}-01-01` && end === `${selectedYear}-12-31`) {
+      return null
+    }
+
+    return t('rhythmVisibleRange', {
+      start: formatDisplayDate(start, language),
+      end: formatDisplayDate(end, language),
+    })
+  }, [calendarDays, language, mode, selectedYear, t])
   const selectedDateOverride =
     selectedDateState?.scopeKey === selectionScopeKey
       ? selectedDateState.dateKey
@@ -306,6 +332,11 @@ export function BrowsingRhythmCard({
           >
             {visitSummary}
           </p>
+          {visibleRangeHint ? (
+            <p className="browsing-rhythm-card__range-hint">
+              {visibleRangeHint}
+            </p>
+          ) : null}
           <BrowsingRhythmCalendarGrid
             calendarWeeks={calendarWeeks}
             maxVisits={maxVisits}

@@ -48,6 +48,7 @@ export function BusyOverlay({
     Number.isNaN(progressValue)
       ? null
       : Math.max(0, Math.min(100, Math.round(progressValue)))
+  const showProgress = Boolean(progressLabel) || normalizedProgress !== null
 
   return (
     <div className="busy-overlay" role="status" aria-live="polite">
@@ -64,7 +65,7 @@ export function BusyOverlay({
           {detail ? (
             <span className="busy-overlay__detail">{detail}</span>
           ) : null}
-          {progressLabel || normalizedProgress !== null ? (
+          {showProgress ? (
             <div className="busy-overlay__progress">
               <div className="busy-overlay__progress-meta">
                 {progressLabel ? (
@@ -80,17 +81,27 @@ export function BusyOverlay({
                   </span>
                 ) : null}
               </div>
-              {normalizedProgress !== null ? (
-                <div
-                  className="busy-overlay__progress-track"
-                  aria-hidden="true"
-                >
-                  <span
-                    className="busy-overlay__progress-fill"
-                    style={{ width: `${Math.max(normalizedProgress, 4)}%` }}
-                  />
-                </div>
-              ) : null}
+              <div
+                className={`busy-overlay__progress-track${
+                  normalizedProgress === null
+                    ? ' busy-overlay__progress-track--indeterminate'
+                    : ''
+                }`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`busy-overlay__progress-fill${
+                    normalizedProgress === null
+                      ? ' busy-overlay__progress-fill--indeterminate'
+                      : ''
+                  }`}
+                  style={
+                    normalizedProgress === null
+                      ? undefined
+                      : { width: `${Math.max(normalizedProgress, 4)}%` }
+                  }
+                />
+              </div>
             </div>
           ) : null}
           {steps?.length ? (

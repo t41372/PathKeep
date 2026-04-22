@@ -283,8 +283,10 @@ export function ImportPage() {
       })
       const result = await backend.importTakeout({ sourcePath, dryRun: false })
       setImportResult(result)
-      await refreshAppData()
       setStep('done')
+      void refreshAppData().catch((nextError) => {
+        reportActionError(nextError)
+      })
       if (result.importBatch) {
         selectBatchId(result.importBatch.id)
         try {
@@ -313,6 +315,7 @@ export function ImportPage() {
     setStep('select')
     setInspection(null)
     setImportResult(null)
+    setImportProgress(null)
     setSourcePath('')
   }
 

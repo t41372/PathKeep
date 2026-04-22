@@ -319,7 +319,7 @@ describe('trust flows/import flows', () => {
           detail: 'Processing /tmp/takeout/BrowserHistory.json (1/1)',
           current: 1,
           total: 1,
-          progressPercent: 100,
+          progressPercent: null,
           logLines: [
             'Importing browser-history from /tmp/takeout/BrowserHistory.json.',
           ],
@@ -330,10 +330,11 @@ describe('trust flows/import flows', () => {
       await waitFor(() =>
         expect(
           screen.getAllByText(
-            'Processing 1 / 1: /tmp/takeout/BrowserHistory.json',
+            'Writing file 1 of 1: /tmp/takeout/BrowserHistory.json',
           ).length,
         ).toBeGreaterThan(0),
       )
+      expect(screen.getByText('File 1 of 1')).toBeVisible()
 
       await act(async () => {
         resolveImport?.(importedInspection)

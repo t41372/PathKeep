@@ -29,19 +29,21 @@
 }
 
 .import-methods {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-5);
 }
 
 .import-card {
-  flex: 1;
   border: 1px solid var(--border);
   padding: var(--space-4);
   background: var(--bg);
   cursor: pointer;
-  text-align: center;
+  text-align: left;
   transition: all var(--transition);
+  display: grid;
+  gap: var(--space-2);
 }
 
 .import-card:hover {
@@ -54,7 +56,6 @@
 
 .import-card-icon {
   font-size: 24px;
-  margin-bottom: var(--space-2);
 }
 .import-card-title {
   font-size: 13px;
@@ -87,18 +88,37 @@
 
 .import-guide-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
-.import-guide-card {
+.import-guide-shell {
+  display: grid;
+  gap: var(--space-3);
   margin-top: var(--space-4);
+}
+
+.import-guide-card {
   padding: var(--space-4);
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   background: var(--bg-elevated);
   align-self: start;
   display: grid;
   gap: var(--space-2);
+}
+
+.import-guide-card--hero {
+  padding: var(--space-5);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 60%, var(--bg-elevated));
+}
+
+.import-guide-card[data-tone='ok'] {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
+}
+
+.import-guide-card[data-tone='warn'] {
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--border));
 }
 
 .import-scope-list {
@@ -113,6 +133,36 @@
   padding-left: 1.25rem;
   display: grid;
   gap: var(--space-2);
+}
+
+.import-guide-list--steps {
+  list-style: none;
+  padding-left: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  counter-reset: import-guide-step;
+}
+
+.import-guide-list--steps li {
+  counter-increment: import-guide-step;
+  display: grid;
+  gap: var(--space-2);
+  min-height: 100%;
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 76%, transparent);
+}
+
+.import-guide-list--steps li::before {
+  content: counter(import-guide-step);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, var(--border));
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .import-source-summary {
@@ -353,11 +403,15 @@
 
 @media (max-width: 900px) {
   .import-methods {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .import-guide-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .import-guide-list--steps {
+    grid-template-columns: 1fr;
   }
 
   .preview-stats {
