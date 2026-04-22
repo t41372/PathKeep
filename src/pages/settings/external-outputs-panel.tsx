@@ -19,15 +19,10 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import {
   copyReviewValue,
-  ReviewCodePreview,
-  ReviewSection,
-  ReviewTargetLinksRow,
   type ReviewCopyFeedback,
-  type ReviewTargetLink,
 } from '../../components/review'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -37,42 +32,25 @@ import {
   getIntelligenceWidgetSnapshot,
   useAsyncData,
   useTimeRange,
-  type DateRange,
-  type IntelligenceEmbedCardPayload,
-  type IntelligencePublicSnapshot,
-  type IntelligenceWidgetSnapshot,
 } from '../../lib/core-intelligence'
-import { formatDateTime } from '../../lib/format'
-import { createNamespaceTranslator } from '../../lib/i18n/catalog'
 import { useI18n } from '../../lib/i18n/hooks'
 import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
-import {
-  dayInsightsHref,
-  domainInsightsHref,
-  insightEntityReferenceLabel,
-  insightEntityReferenceHref,
-} from '../../lib/intelligence'
 import { SettingsExternalOutputLocalHostPanel } from './external-output-local-host-panel'
-
-type OutputTab = 'embed' | 'widget' | 'public'
-type Translate = (key: string, vars?: Record<string, string | number>) => string
+import { ExternalOutputsEmbedTab } from './external-outputs-embed-tab'
+import { ExternalOutputsPublicTab } from './external-outputs-public-tab'
+import {
+  type ExternalOutputsPayload,
+  type OutputTab,
+  prettyJson,
+} from './external-outputs-shared'
+import { ExternalOutputsWidgetTab } from './external-outputs-widget-tab'
 
 interface SettingsExternalOutputsPanelProps {
   initialized: boolean
   unlocked: boolean
-}
-
-interface ExternalOutputsPayload {
-  embedCards: IntelligenceEmbedCardPayload[]
-  widgetSnapshot: IntelligenceWidgetSnapshot
-  publicSnapshot: IntelligencePublicSnapshot
-}
-
-function prettyJson(value: unknown) {
-  return JSON.stringify(value, null, 2)
 }
 
 /**
@@ -267,7 +245,7 @@ export function SettingsExternalOutputsPanel({
             ) : (
               <div className="settings-result-list">
                 {activeTab === 'embed' ? (
-                  <EmbedCardsTab
+                  <ExternalOutputsEmbedTab
                     activeProfileId={activeProfileId}
                     cards={outputs.data.embedCards}
                     copyFeedback={copyFeedback}
@@ -281,7 +259,7 @@ export function SettingsExternalOutputsPanel({
                 ) : null}
 
                 {activeTab === 'widget' ? (
-                  <WidgetSnapshotTab
+                  <ExternalOutputsWidgetTab
                     activeProfileId={activeProfileId}
                     copyFeedback={copyFeedback}
                     copyLabel={commonT('copyAction')}
@@ -297,7 +275,7 @@ export function SettingsExternalOutputsPanel({
                 ) : null}
 
                 {activeTab === 'public' ? (
-                  <PublicSnapshotTab
+                  <ExternalOutputsPublicTab
                     activeProfileId={activeProfileId}
                     copyFeedback={copyFeedback}
                     copyLabel={commonT('copyAction')}
@@ -322,455 +300,5 @@ export function SettingsExternalOutputsPanel({
         ) : null}
       </div>
     </div>
-  )
-}
-
-function EmbedCardsTab({
-  activeProfileId,
-  cards,
-  copyFeedback,
-  copyLabel,
-  commonT,
-  dateRange,
-  json,
-  onCopy,
-  t,
-}: {
-  activeProfileId: string | null
-  cards: IntelligenceEmbedCardPayload[]
-  copyFeedback: ReviewCopyFeedback | null
-  copyLabel: string
-  commonT: Translate
-  dateRange: DateRange
-  json: string
-  onCopy: (key: string, payload: string) => void
-  t: Translate
-}) {
-  return (
-    <>
-      <ReviewSection title={t('externalOutputsEmbedPreviewTitle')}>
-        {cards.length > 0 ? (
-          <div className="settings-output-card-grid">
-            {cards.map((card) => (
-              <article key={card.cardId} className="settings-output-card">
-                <div className="settings-output-card__header">
-                  <div>
-                    {card.eyebrow ? (
-                      <p className="mono-kicker">{card.eyebrow}</p>
-                    ) : null}
-                    <h3>{card.title}</h3>
-                  </div>
-                  {card.internalOnly ? (
-                    <span className="panel-badge">
-                      {t('externalOutputsTrustedOnlyBadge')}
-                    </span>
-                  ) : null}
-                </div>
-                <p>{card.body}</p>
-                {card.metricLabel && card.metricValue ? (
-                  <div className="config-row">
-                    <span className="config-label mono">
-                      {card.metricLabel}
-                    </span>
-                    <span className="config-value mono">
-                      {card.metricValue}
-                    </span>
-                  </div>
-                ) : null}
-                <OutputTargetLinks
-                  activeProfileId={activeProfileId}
-                  card={card}
-                  dateRange={dateRange}
-                  t={t}
-                />
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p>{t('externalOutputsEmbedEmpty')}</p>
-        )}
-      </ReviewSection>
-
-      <ReviewCodePreview
-        copyFeedback={copyFeedback}
-        copyKey="embed"
-        copyLabel={copyLabel}
-        code={json}
-        errorMessage={t('externalOutputsCopyFailed')}
-        onCopy={onCopy}
-        successMessage={commonT('copiedNotice')}
-        title={t('externalOutputsJsonTitle')}
-      />
-    </>
-  )
-}
-
-function WidgetSnapshotTab({
-  activeProfileId,
-  copyFeedback,
-  copyLabel,
-  commonT,
-  json,
-  language,
-  onCopy,
-  snapshot,
-  t,
-  trustedCards,
-  intelligenceT,
-}: {
-  activeProfileId: string | null
-  copyFeedback: ReviewCopyFeedback | null
-  copyLabel: string
-  commonT: Translate
-  json: string
-  language: ReturnType<typeof useI18n>['language']
-  onCopy: (key: string, payload: string) => void
-  snapshot: IntelligenceWidgetSnapshot
-  t: Translate
-  trustedCards: boolean
-  intelligenceT: Translate
-}) {
-  return (
-    <>
-      <ReviewSection
-        headerMeta={
-          <span className="mono">
-            {formatDateTime(snapshot.generatedAt, language) ??
-              snapshot.generatedAt}
-          </span>
-        }
-        title={t('externalOutputsWidgetPreviewTitle')}
-      >
-        <p className="dashboard-next-action">
-          {t('externalOutputsWindowLabel', {
-            start: snapshot.dateRange.start,
-            end: snapshot.dateRange.end,
-          })}
-        </p>
-
-        {trustedCards ? (
-          <StatusCallout
-            tone="warning"
-            title={t('externalOutputsWidgetTrustedTitle')}
-            body={t('externalOutputsWidgetTrustedBody')}
-          />
-        ) : null}
-
-        <IntelligenceMetricGrid
-          className="digest-cards settings-output-digest-grid"
-          items={[
-            {
-              label: intelligenceT('digestVisits'),
-              value:
-                snapshot.digestSummary.totalVisits.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestSearches'),
-              value:
-                snapshot.digestSummary.totalSearches.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestNewSites'),
-              value:
-                snapshot.digestSummary.newDomains.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestDeepRead'),
-              value:
-                snapshot.digestSummary.deepReadPages.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestRefind'),
-              value:
-                snapshot.digestSummary.refindPages.value.toLocaleString(
-                  language,
-                ),
-            },
-          ]}
-        />
-
-        <div className="settings-output-card-grid">
-          {snapshot.highlights.map((card) => (
-            <article key={card.cardId} className="settings-output-card">
-              <div className="settings-output-card__header">
-                <div>
-                  {card.eyebrow ? (
-                    <p className="mono-kicker">{card.eyebrow}</p>
-                  ) : null}
-                  <h3>{card.title}</h3>
-                </div>
-                {card.internalOnly ? (
-                  <span className="panel-badge">
-                    {t('externalOutputsTrustedOnlyBadge')}
-                  </span>
-                ) : null}
-              </div>
-              <p>{card.body}</p>
-              <OutputTargetLinks
-                activeProfileId={activeProfileId}
-                card={card}
-                dateRange={snapshot.dateRange}
-                t={t}
-              />
-            </article>
-          ))}
-        </div>
-
-        {snapshot.notes.length > 0 ? (
-          <div className="inline-note-list">
-            {snapshot.notes.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </div>
-        ) : null}
-      </ReviewSection>
-
-      <ReviewCodePreview
-        copyFeedback={copyFeedback}
-        copyKey="widget"
-        copyLabel={copyLabel}
-        code={json}
-        errorMessage={t('externalOutputsCopyFailed')}
-        onCopy={onCopy}
-        successMessage={commonT('copiedNotice')}
-        title={t('externalOutputsJsonTitle')}
-      />
-    </>
-  )
-}
-
-function PublicSnapshotTab({
-  activeProfileId,
-  copyFeedback,
-  copyLabel,
-  commonT,
-  json,
-  language,
-  onCopy,
-  snapshot,
-  t,
-  intelligenceT,
-}: {
-  activeProfileId: string | null
-  copyFeedback: ReviewCopyFeedback | null
-  copyLabel: string
-  commonT: Translate
-  json: string
-  language: ReturnType<typeof useI18n>['language']
-  onCopy: (key: string, payload: string) => void
-  snapshot: IntelligencePublicSnapshot
-  t: Translate
-  intelligenceT: Translate
-}) {
-  return (
-    <>
-      <ReviewSection
-        headerMeta={
-          <span className="mono">
-            {formatDateTime(snapshot.generatedAt, language) ??
-              snapshot.generatedAt}
-          </span>
-        }
-        title={t('externalOutputsPublicPreviewTitle')}
-      >
-        <StatusCallout
-          tone="info"
-          title={t('externalOutputsPublicRedactedTitle')}
-          body={t('externalOutputsPublicRedactedBody')}
-        />
-
-        <p className="dashboard-next-action">
-          {t('externalOutputsWindowLabel', {
-            start: snapshot.dateRange.start,
-            end: snapshot.dateRange.end,
-          })}
-        </p>
-
-        <IntelligenceMetricGrid
-          className="digest-cards settings-output-digest-grid"
-          items={[
-            {
-              label: intelligenceT('digestVisits'),
-              value:
-                snapshot.digestSummary.totalVisits.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestSearches'),
-              value:
-                snapshot.digestSummary.totalSearches.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestNewSites'),
-              value:
-                snapshot.digestSummary.newDomains.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestDeepRead'),
-              value:
-                snapshot.digestSummary.deepReadPages.value.toLocaleString(
-                  language,
-                ),
-            },
-            {
-              label: intelligenceT('digestRefind'),
-              value:
-                snapshot.digestSummary.refindPages.value.toLocaleString(
-                  language,
-                ),
-            },
-          ]}
-        />
-
-        <div className="settings-field-grid">
-          <div className="result-row result-row--active">
-            <div className="result-row__header">
-              <strong>{t('externalOutputsTopDomains')}</strong>
-            </div>
-            <div className="settings-output-chip-list">
-              {snapshot.topDomains.map((domain) => (
-                <Link
-                  key={domain}
-                  className="chip-button"
-                  to={domainInsightsHref({
-                    domain,
-                    dateRange: snapshot.dateRange,
-                    preset: 'custom',
-                    profileId: activeProfileId,
-                  })}
-                >
-                  {domain}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          <div className="result-row result-row--active">
-            <div className="result-row__header">
-              <strong>{t('externalOutputsSearchEngines')}</strong>
-            </div>
-            {snapshot.searchEngines.length > 0 ? (
-              snapshot.searchEngines.map((engine) => (
-                <div key={engine.searchEngine} className="config-row">
-                  <span className="config-label">
-                    {engine.displayName ?? engine.searchEngine}
-                  </span>
-                  <span className="config-value mono">
-                    {engine.searchCount.toLocaleString(language)}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p>{t('externalOutputsNoSearchEngines')}</p>
-            )}
-          </div>
-
-          <div className="result-row result-row--active">
-            <div className="result-row__header">
-              <strong>{t('externalOutputsDiscoveryTrend')}</strong>
-            </div>
-            {snapshot.discoveryTrend.points.length > 0 ? (
-              snapshot.discoveryTrend.points.map((point) => (
-                <div key={point.dateKey} className="config-row">
-                  <Link
-                    className="config-label mono intelligence-link"
-                    to={dayInsightsHref(point.dateKey, activeProfileId)}
-                  >
-                    {point.dateKey}
-                  </Link>
-                  <span className="config-value mono">
-                    {point.discoveryRate.toFixed(2)}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p>{t('externalOutputsNoDiscoveryTrend')}</p>
-            )}
-          </div>
-        </div>
-
-        {snapshot.notes.length > 0 ? (
-          <div className="inline-note-list">
-            {snapshot.notes.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </div>
-        ) : null}
-      </ReviewSection>
-
-      <ReviewCodePreview
-        copyFeedback={copyFeedback}
-        copyKey="public"
-        copyLabel={copyLabel}
-        code={json}
-        errorMessage={t('externalOutputsCopyFailed')}
-        onCopy={onCopy}
-        successMessage={commonT('copiedNotice')}
-        title={t('externalOutputsJsonTitle')}
-      />
-    </>
-  )
-}
-
-function OutputTargetLinks({
-  activeProfileId,
-  card,
-  dateRange,
-  t,
-}: {
-  activeProfileId: string | null
-  card: IntelligenceEmbedCardPayload
-  dateRange: DateRange
-  t: Translate
-}) {
-  const { language } = useI18n()
-  const intelligenceT = createNamespaceTranslator(
-    language === 'zh-CN' || language === 'zh-TW' ? language : 'en',
-    'intelligence',
-  )
-  const primaryHref = card.primaryTarget
-    ? insightEntityReferenceHref(card.primaryTarget, {
-        dateRange,
-        preset: 'custom',
-        profileId: activeProfileId,
-      })
-    : null
-  const secondaryTargets = card.secondaryTargets ?? []
-
-  if (!primaryHref && secondaryTargets.length === 0 && !card.href) {
-    return null
-  }
-
-  return (
-    <ReviewTargetLinksRow
-      fallback={card.href ? <span className="mono">{card.href}</span> : null}
-      label={t('externalOutputsHref')}
-      primaryHref={primaryHref}
-      primaryLabel={t('externalOutputsOpenInsights')}
-      secondaryLinks={secondaryTargets.map<ReviewTargetLink>(
-        (target, index) => ({
-          href: insightEntityReferenceHref(target, {
-            dateRange,
-            preset: 'custom',
-            profileId: activeProfileId,
-          }),
-          key: `${card.cardId}:${target.kind}:${index}`,
-          label: insightEntityReferenceLabel(target, intelligenceT),
-        }),
-      )}
-    />
   )
 }
