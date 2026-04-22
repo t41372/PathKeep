@@ -21,11 +21,18 @@
 //! - Import intentionally bypasses preview-row allocation and consumes parser
 //!   reports directly so large payloads do not carry an extra visit-sized
 //!   allocation just for import execution.
-//! - Source-evidence plans take ownership of the parsed history instead of
-//!   cloning it, keeping per-file memory bounded to one parser report.
+//! - Source-evidence now streams into a bounded builder while canonical rows
+//!   are still being parsed, so one Takeout payload no longer retains one full
+//!   native-evidence batch before spill-to-disk can start.
 
 use super::*;
-use browser_history_parser::{HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamHistoryError};
+use browser_history_parser::{
+    HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamHistoryError,
+    takeout::{
+        TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer, TakeoutStreamOptions,
+        stream_payload_with_sink as stream_takeout_payload_with_sink,
+    },
+};
 
 const TAKEOUT_IMPORT_STREAM_CHUNK_SIZE: usize = 10_000;
 
@@ -41,12 +48,14 @@ struct TakeoutArchiveChunkConsumer<'a> {
     source_profile_id: i64,
     source_path: &'a str,
     url_id_map: std::collections::BTreeMap<i64, i64>,
+    source_evidence: DeferredSourceEvidenceBuilder,
     stats: ImportStats,
 }
 
 impl<'a> TakeoutArchiveChunkConsumer<'a> {
     /// Creates a new archive-bound consumer for one Takeout payload import.
     fn new(
+        paths: &ProjectPaths,
         archive: &'a Transaction<'a>,
         run_id: i64,
         batch_id: i64,
@@ -60,14 +69,20 @@ impl<'a> TakeoutArchiveChunkConsumer<'a> {
             source_profile_id,
             source_path,
             url_id_map: std::collections::BTreeMap::new(),
+            source_evidence: DeferredSourceEvidenceBuilder::new(paths, source_path),
             stats: ImportStats::default(),
         }
     }
 
-    /// Returns the final import counters for this payload.
-    fn finish(mut self, skipped_items: usize) -> ImportStats {
+    /// Returns the final import counters and deferred evidence payload for this file.
+    fn finish(
+        mut self,
+        skipped_items: usize,
+    ) -> Result<(ImportStats, DeferredSourceEvidencePayload, SourceEvidenceCounts)> {
         self.stats.skipped_items = skipped_items;
-        self.stats
+        let source_evidence_counts = self.source_evidence.counts();
+        let deferred_source_evidence_payload = self.source_evidence.finish()?;
+        Ok((self.stats, deferred_source_evidence_payload, source_evidence_counts))
     }
 }
 
@@ -196,6 +211,15 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
     }
 }
 
+impl TakeoutSourceEvidenceConsumer<anyhow::Error> for TakeoutArchiveChunkConsumer<'_> {
+    fn source_evidence(&mut self, chunk: TakeoutSourceEvidenceChunk) -> Result<(), anyhow::Error> {
+        self.source_evidence.push(SourceEvidencePayload {
+            typed_evidence: chunk.typed_evidence,
+            native_entities: chunk.native_entities,
+        })
+    }
+}
+
 /// Imports one recognized payload into canonical archive rows plus source-evidence plans.
 pub(super) fn import_supported_payload(
     paths: &ProjectPaths,
@@ -207,13 +231,23 @@ pub(super) fn import_supported_payload(
     kind: &str,
     bytes: &[u8],
 ) -> Result<ImportedPayload> {
-    let mut consumer =
-        TakeoutArchiveChunkConsumer::new(archive, run_id, batch_id, source_profile_id, source_path);
-    let report = stream_takeout_payload(
+    let mut consumer = TakeoutArchiveChunkConsumer::new(
+        paths,
+        archive,
+        run_id,
+        batch_id,
+        source_profile_id,
+        source_path,
+    );
+    let report = stream_takeout_payload_with_sink(
         source_path,
         kind,
         bytes,
         TAKEOUT_IMPORT_STREAM_CHUNK_SIZE,
+        TakeoutStreamOptions {
+            collect_source_evidence: true,
+            retain_report_source_evidence: false,
+        },
         &mut consumer,
     )
     .map_err(|error| match error {
@@ -221,7 +255,8 @@ pub(super) fn import_supported_payload(
         StreamHistoryError::Consumer(error) => error,
     })
     .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))?;
-    let stats = consumer.finish(report.skipped_missing_visit_time);
+    let (stats, deferred_source_evidence_payload, source_evidence_counts) =
+        consumer.finish(report.skipped_missing_visit_time)?;
 
     Ok(ImportedPayload {
         stats,
@@ -237,43 +272,40 @@ pub(super) fn import_supported_payload(
             records: report.record_count,
         },
         source_evidence_plan: build_takeout_source_evidence_plan(
-            paths,
             source_profile_id,
             run_id,
             source_path,
             report,
+            deferred_source_evidence_payload,
+            source_evidence_counts,
         )?,
     })
 }
 
 /// Builds the cold source-evidence plan corresponding to one imported payload.
 fn build_takeout_source_evidence_plan(
-    paths: &ProjectPaths,
     source_profile_id: i64,
     run_id: i64,
     source_path: &str,
     report: TakeoutPayloadStreamReport,
+    source_evidence_payload: DeferredSourceEvidencePayload,
+    source_evidence_counts: SourceEvidenceCounts,
 ) -> Result<TakeoutSourceEvidencePlan> {
     let TakeoutPayloadStreamReport { kind, history, counts, .. } = report;
     let browser_history_parser::StreamedHistory {
         schema_observation,
         capability_snapshot,
-        typed_evidence,
-        native_entities,
         warnings,
         ..
     } = history;
     let observation_json = serde_json::to_string(&schema_observation)?;
-    let source_evidence_payload = SourceEvidencePayload { typed_evidence, native_entities };
-    let coverage_stats_json = coverage_stats_json_from_parts(
+    let coverage_stats_json = coverage_stats_json_from_counts(
         counts.urls,
         counts.visits,
         counts.downloads,
         counts.search_terms,
-        &source_evidence_payload,
+        &source_evidence_counts,
     );
-    let deferred_source_evidence_payload =
-        defer_source_evidence_payload(paths, source_path, source_evidence_payload)?;
     Ok(TakeoutSourceEvidencePlan {
         source_batch: SourceBatchInput {
             source_profile_id,
@@ -295,7 +327,7 @@ fn build_takeout_source_evidence_plan(
             notes_json: Some(serde_json::to_string(&warnings)?),
         },
         schema_observation,
-        source_evidence_payload: deferred_source_evidence_payload,
+        source_evidence_payload,
     })
 }
 

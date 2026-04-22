@@ -14,7 +14,7 @@
 
 use super::{
     KIND_BROWSER_JSON, KIND_JSONL, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
-    TakeoutStreamOptions, json_stream,
+    TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer, TakeoutStreamOptions, json_stream,
 };
 use crate::{
     ParseError,
@@ -42,7 +42,7 @@ pub(super) fn stream_browser_history_payload<C>(
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
-    C: HistoryBatchConsumer,
+    C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
     C::Error: std::fmt::Display,
 {
     let chunk_size = chunk_size.max(1);
@@ -114,8 +114,10 @@ struct BrowserHistoryAccumulator<'a> {
     pending_visits: Vec<ParsedVisit>,
     observed_columns: BTreeSet<String>,
     seen_url_ids: BTreeSet<i64>,
-    typed_evidence: TypedEvidenceBatch,
-    native_entities: Vec<NativeEntity>,
+    pending_source_evidence: TakeoutSourceEvidenceChunk,
+    report_typed_evidence: TypedEvidenceBatch,
+    report_native_entities: Vec<NativeEntity>,
+    context_evidence_count: usize,
     record_count: usize,
     observed_record_count: usize,
     skipped_missing_visit_time: usize,
@@ -138,8 +140,10 @@ impl<'a> BrowserHistoryAccumulator<'a> {
             pending_visits: Vec::new(),
             observed_columns: BTreeSet::new(),
             seen_url_ids: BTreeSet::new(),
-            typed_evidence: TypedEvidenceBatch::default(),
-            native_entities: Vec::new(),
+            pending_source_evidence: TakeoutSourceEvidenceChunk::default(),
+            report_typed_evidence: TypedEvidenceBatch::default(),
+            report_native_entities: Vec::new(),
+            context_evidence_count: 0,
             record_count: 0,
             observed_record_count: 0,
             skipped_missing_visit_time: 0,
@@ -154,7 +158,7 @@ impl<'a> BrowserHistoryAccumulator<'a> {
         consumer: &mut C,
     ) -> Result<(), StreamHistoryError<C::Error>>
     where
-        C: HistoryBatchConsumer,
+        C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
     {
         self.observed_record_count += 1;
         if let Some(object) = record.as_object() {
@@ -171,8 +175,15 @@ impl<'a> BrowserHistoryAccumulator<'a> {
                     .or_insert_with(|| parsed_url_from_record(&record));
                 self.pending_visits.push(parsed_visit_from_record(&record));
                 if self.options.collect_source_evidence {
-                    self.native_entities.push(native_entity_from_record(self.kind, &record));
-                    self.typed_evidence.context.extend(context_evidence_from_record(&record));
+                    let native_entity = native_entity_from_record(self.kind, &record);
+                    let context_evidence = context_evidence_from_record(&record);
+                    self.context_evidence_count += context_evidence.len();
+                    if self.options.retain_report_source_evidence {
+                        self.report_native_entities.push(native_entity.clone());
+                        self.report_typed_evidence.context.extend(context_evidence.iter().cloned());
+                    }
+                    self.pending_source_evidence.native_entities.push(native_entity);
+                    self.pending_source_evidence.typed_evidence.context.extend(context_evidence);
                 }
                 if self.pending_visits.len() >= self.chunk_size {
                     self.flush(consumer)?;
@@ -187,7 +198,7 @@ impl<'a> BrowserHistoryAccumulator<'a> {
     /// Flushes pending URL/visit rows into the caller-provided consumer.
     fn flush<C>(&mut self, consumer: &mut C) -> Result<(), StreamHistoryError<C::Error>>
     where
-        C: HistoryBatchConsumer,
+        C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
     {
         if !self.pending_urls.is_empty() {
             consumer
@@ -200,6 +211,11 @@ impl<'a> BrowserHistoryAccumulator<'a> {
                 .visits(std::mem::take(&mut self.pending_visits))
                 .map_err(StreamHistoryError::Consumer)?;
         }
+        if !self.pending_source_evidence.is_empty() {
+            consumer
+                .source_evidence(std::mem::take(&mut self.pending_source_evidence))
+                .map_err(StreamHistoryError::Consumer)?;
+        }
         Ok(())
     }
 
@@ -209,7 +225,7 @@ impl<'a> BrowserHistoryAccumulator<'a> {
         consumer: &mut C,
     ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
     where
-        C: HistoryBatchConsumer,
+        C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
     {
         self.flush(consumer)?;
         let warnings = if self.skipped_missing_visit_time > 0 {
@@ -259,13 +275,13 @@ impl<'a> BrowserHistoryAccumulator<'a> {
                     CapabilityCoverage {
                         key: "context.takeout.browser_history".to_string(),
                         available: true,
-                        populated_rows: self.typed_evidence.context.len(),
+                        populated_rows: self.context_evidence_count,
                         total_rows: self.record_count,
                         notes: vec!["Takeout Browser History metadata".to_string()],
                     },
                 ]),
-                typed_evidence: self.typed_evidence,
-                native_entities: self.native_entities,
+                typed_evidence: self.report_typed_evidence,
+                native_entities: self.report_native_entities,
                 warnings,
             },
             counts: TakeoutPayloadCounts {

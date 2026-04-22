@@ -35,6 +35,7 @@ mod run_support;
 mod schema;
 mod search_projection;
 mod source_evidence;
+mod source_evidence_builder;
 
 pub(crate) use self::artifacts::{
     SnapshotArtifact, collect_schema_payload, create_snapshot_artifact,
@@ -63,8 +64,12 @@ pub(crate) use self::search_projection::rebuild_search_projection;
 pub use self::source_evidence::open_source_evidence_connection;
 pub(crate) use self::source_evidence::{
     DeferredSourceEvidencePayload, SourceBatchInput, SourceEvidencePayload,
-    coverage_stats_json_from_parts, defer_source_evidence_payload, record_schema_observation,
-    take_source_evidence_payload, upsert_source_batch,
+    defer_source_evidence_payload, record_schema_observation, take_source_evidence_payload,
+    upsert_source_batch,
+};
+pub(crate) use self::source_evidence_builder::{
+    DeferredSourceEvidenceBuilder, SourceEvidenceCounts, coverage_stats_json_from_counts,
+    coverage_stats_json_from_parts,
 };
 pub use self::{
     doctor::{doctor, repair_health_issues},

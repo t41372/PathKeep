@@ -118,12 +118,75 @@ fn stream_payload_with_options_can_skip_source_evidence_accumulation() {
             {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
         ]}"#,
         10,
-        TakeoutStreamOptions { collect_source_evidence: false },
+        TakeoutStreamOptions {
+            collect_source_evidence: false,
+            retain_report_source_evidence: false,
+        },
         &mut consumer,
     )
     .expect("stream payload without evidence");
 
     assert_eq!(consumer.visits, 2);
+    assert!(report.history.typed_evidence.context.is_empty());
+    assert!(report.history.native_entities.is_empty());
+}
+
+#[test]
+fn stream_payload_with_sink_moves_source_evidence_out_of_the_report() {
+    #[derive(Default)]
+    struct RecordingSinkConsumer {
+        visits: usize,
+        source_chunks: usize,
+        context_rows: usize,
+        native_entities: usize,
+    }
+
+    impl HistoryBatchConsumer for RecordingSinkConsumer {
+        type Error = std::convert::Infallible;
+
+        fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visits += batch.len();
+            Ok(())
+        }
+    }
+
+    impl TakeoutSourceEvidenceConsumer<std::convert::Infallible> for RecordingSinkConsumer {
+        fn source_evidence(
+            &mut self,
+            chunk: TakeoutSourceEvidenceChunk,
+        ) -> Result<(), std::convert::Infallible> {
+            self.source_chunks += 1;
+            self.context_rows += chunk.typed_evidence.context.len();
+            self.native_entities += chunk.native_entities.len();
+            Ok(())
+        }
+    }
+
+    let mut consumer = RecordingSinkConsumer::default();
+    let report = stream_payload_with_sink(
+        "BrowserHistory.json",
+        KIND_BROWSER_JSON,
+        br#"{"BrowserHistory":[
+            {"titleUrl":"https://example.com/one","pageTitle":"One","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"alpha"},
+            {"titleUrl":"https://example.com/two","pageTitle":"Two","visitedAt":"2026-04-01T11:00:00+00:00","client_id":"beta"}
+        ]}"#,
+        1,
+        TakeoutStreamOptions {
+            collect_source_evidence: true,
+            retain_report_source_evidence: false,
+        },
+        &mut consumer,
+    )
+    .expect("stream payload with source-evidence sink");
+
+    assert_eq!(consumer.visits, 2);
+    assert_eq!(consumer.context_rows, 2);
+    assert_eq!(consumer.native_entities, 2);
+    assert_eq!(consumer.source_chunks, 2);
     assert!(report.history.typed_evidence.context.is_empty());
     assert!(report.history.native_entities.is_empty());
 }

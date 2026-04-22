@@ -34,11 +34,11 @@ mod tests;
 
 use crate::{
     archive::{
-        DeferredSourceEvidencePayload, SourceBatchInput, SourceEvidencePayload,
-        coverage_stats_json_from_parts, create_schema, defer_source_evidence_payload,
-        open_archive_connection, open_source_evidence_connection, rebuild_search_projection,
-        record_schema_observation, stats_with_archive_totals, upsert_source_batch,
-        visit_event_fingerprint,
+        DeferredSourceEvidenceBuilder, DeferredSourceEvidencePayload, SourceBatchInput,
+        SourceEvidenceCounts, SourceEvidencePayload, coverage_stats_json_from_counts,
+        create_schema, open_archive_connection, open_source_evidence_connection,
+        rebuild_search_projection, record_schema_observation, stats_with_archive_totals,
+        upsert_source_batch, visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -51,7 +51,6 @@ use crate::{
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
     KIND_INDEX, TakeoutPayloadStreamReport, recognize_payload as recognize_takeout_payload,
-    stream_payload as stream_takeout_payload,
 };
 #[cfg(test)]
 use browser_history_parser::takeout::{

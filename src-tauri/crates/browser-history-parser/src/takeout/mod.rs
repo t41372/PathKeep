@@ -19,9 +19,11 @@
 //!
 //! ## Performance notes
 //! - Payload streaming keeps canonical URL/visit rows chunked for import flows,
-//!   but Takeout source-native evidence still accumulates until the parser has
-//!   finished one payload. Downstream archive code is responsible for spilling
-//!   that deferred evidence out of memory when needed.
+//!   and can now hand source-native evidence chunks to downstream import code
+//!   before one payload has fully materialized.
+//! - Read-only preview/report helpers can still retain a full payload report,
+//!   but import flows should disable report-side source-evidence retention so
+//!   payload-sized native blobs do not stay in RAM unnecessarily.
 
 mod browser_history;
 mod json_stream;
@@ -34,8 +36,9 @@ mod tests;
 use crate::{
     ParseError,
     types::{
-        ChromiumHistory, HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamHistoryError,
-        StreamedHistory,
+        ChromiumHistory, HistoryBatchConsumer, NativeEntity, ParsedDownload, ParsedFavicon,
+        ParsedSearchTerm, ParsedUrl, ParsedVisit, StreamHistoryError, StreamedHistory,
+        TypedEvidenceBatch,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -54,12 +57,42 @@ pub const KIND_INDEX: &str = "takeout-index";
 pub struct TakeoutStreamOptions {
     /// Keeps typed evidence and native entities for later cold source-evidence persistence.
     pub collect_source_evidence: bool,
+    /// Retains source-evidence vectors in the returned parser report.
+    ///
+    /// Read-only callers keep this enabled so they can inspect the full parser
+    /// output. Import flows should disable it and rely on streamed chunks
+    /// instead so a single payload does not retain one giant native blob batch.
+    pub retain_report_source_evidence: bool,
 }
 
 impl Default for TakeoutStreamOptions {
     fn default() -> Self {
-        Self { collect_source_evidence: true }
+        Self { collect_source_evidence: true, retain_report_source_evidence: true }
     }
+}
+
+/// One streamed slice of Takeout source-native evidence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TakeoutSourceEvidenceChunk {
+    pub typed_evidence: TypedEvidenceBatch,
+    pub native_entities: Vec<NativeEntity>,
+}
+
+impl TakeoutSourceEvidenceChunk {
+    /// Returns `true` when no evidence rows are present in this chunk.
+    pub fn is_empty(&self) -> bool {
+        self.typed_evidence.search.is_empty()
+            && self.typed_evidence.navigation.is_empty()
+            && self.typed_evidence.engagement.is_empty()
+            && self.typed_evidence.context.is_empty()
+            && self.native_entities.is_empty()
+    }
+}
+
+/// Consumer for streamed Takeout source-native evidence chunks.
+pub trait TakeoutSourceEvidenceConsumer<E> {
+    /// Receives one chunk of typed evidence and native entities while a payload is still parsing.
+    fn source_evidence(&mut self, chunk: TakeoutSourceEvidenceChunk) -> Result<(), E>;
 }
 
 /// Describes the canonical row counts emitted from one Takeout payload.
@@ -142,6 +175,7 @@ where
 {
     let inspection = inspect_history(path)?;
     let mut reports = Vec::new();
+    let mut adapter = CanonicalOnlyTakeoutConsumer { inner: consumer };
     for file in source::gather_takeout_files(path)? {
         let Some(kind) = recognize_payload(&file.path) else {
             continue;
@@ -156,7 +190,7 @@ where
             &bytes,
             chunk_size,
             TakeoutStreamOptions::default(),
-            consumer,
+            &mut adapter,
         )?);
     }
     Ok(merge_stream_reports(inspection, reports))
@@ -242,6 +276,27 @@ where
     C: HistoryBatchConsumer,
     C::Error: std::fmt::Display,
 {
+    let mut adapter = CanonicalOnlyTakeoutConsumer { inner: consumer };
+    payloads::stream_payload(source_path, kind, bytes, chunk_size, options, &mut adapter)
+}
+
+/// Streams one recognized Takeout payload and forwards source-evidence chunks to the consumer.
+///
+/// Import flows use this path so canonical URL/visit rows and source-native
+/// evidence can both move forward while the payload is still parsing, without
+/// retaining a second full evidence batch in the returned report.
+pub fn stream_payload_with_sink<C>(
+    source_path: &str,
+    kind: &str,
+    bytes: &[u8],
+    chunk_size: usize,
+    options: TakeoutStreamOptions,
+    consumer: &mut C,
+) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
+    C::Error: std::fmt::Display,
+{
     payloads::stream_payload(source_path, kind, bytes, chunk_size, options, consumer)
 }
 
@@ -250,6 +305,47 @@ where
 struct TakeoutHistoryCollector {
     urls: std::collections::BTreeMap<i64, ParsedUrl>,
     visits: Vec<ParsedVisit>,
+}
+
+/// Adapter used by read-only callers that only need canonical row batches.
+struct CanonicalOnlyTakeoutConsumer<'a, C> {
+    inner: &'a mut C,
+}
+
+impl<C> HistoryBatchConsumer for CanonicalOnlyTakeoutConsumer<'_, C>
+where
+    C: HistoryBatchConsumer,
+{
+    type Error = C::Error;
+
+    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+        self.inner.urls(batch)
+    }
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        self.inner.visits(batch)
+    }
+
+    fn downloads(&mut self, batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+        self.inner.downloads(batch)
+    }
+
+    fn search_terms(&mut self, batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+        self.inner.search_terms(batch)
+    }
+
+    fn favicons(&mut self, batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
+        self.inner.favicons(batch)
+    }
+}
+
+impl<C> TakeoutSourceEvidenceConsumer<C::Error> for CanonicalOnlyTakeoutConsumer<'_, C>
+where
+    C: HistoryBatchConsumer,
+{
+    fn source_evidence(&mut self, _chunk: TakeoutSourceEvidenceChunk) -> Result<(), C::Error> {
+        Ok(())
+    }
 }
 
 impl HistoryBatchConsumer for TakeoutHistoryCollector {

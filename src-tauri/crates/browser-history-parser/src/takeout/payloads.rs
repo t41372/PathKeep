@@ -8,8 +8,8 @@
 
 use super::{
     KIND_BROWSER_JSON, KIND_INDEX, KIND_JSONL, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
-    TakeoutPayloadCounts, TakeoutPayloadStreamReport, TakeoutStreamOptions, browser_history,
-    json_stream,
+    TakeoutPayloadCounts, TakeoutPayloadStreamReport, TakeoutSourceEvidenceChunk,
+    TakeoutSourceEvidenceConsumer, TakeoutStreamOptions, browser_history, json_stream,
 };
 use crate::{
     ParseError,
@@ -32,7 +32,7 @@ pub(super) fn stream_payload<C>(
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
-    C: HistoryBatchConsumer,
+    C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
     C::Error: std::fmt::Display,
 {
     match kind {
@@ -51,8 +51,10 @@ where
                 source_path,
                 kind,
                 bytes,
+                chunk_size,
                 "takeout-typed-url",
                 options,
+                consumer,
             )
         }
         KIND_SESSION_JSON => {
@@ -60,8 +62,10 @@ where
                 source_path,
                 kind,
                 bytes,
+                chunk_size,
                 "takeout-session",
                 options,
+                consumer,
             )
         }
         KIND_INDEX => Ok(empty_stream_report(source_path, kind, vec![ParserWarning {
@@ -79,14 +83,18 @@ fn stream_native_only_payload<C>(
     source_path: &str,
     kind: &str,
     bytes: &[u8],
+    chunk_size: usize,
     entity_kind: &str,
     options: TakeoutStreamOptions,
+    consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
-    C: HistoryBatchConsumer,
+    C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
 {
     let mut observed_columns = BTreeSet::new();
     let mut native_entities = Vec::new();
+    let mut pending_native_entities = Vec::new();
+    let chunk_size = chunk_size.max(1);
     let record_count = json_stream::stream_payload_records(
         bytes,
         source_path,
@@ -96,7 +104,7 @@ where
                 observed_columns.extend(object.keys().cloned());
             }
             if options.collect_source_evidence {
-                native_entities.push(NativeEntity {
+                let entity = NativeEntity {
                     entity_kind: entity_kind.to_string(),
                     native_primary_key: native_primary_key(&record, ordinal as i64),
                     parent_native_primary_key: None,
@@ -105,15 +113,35 @@ where
                         ("sourcePath".to_string(), source_path.to_string()),
                         ("payloadKind".to_string(), kind.to_string()),
                     ]),
-                });
+                };
+                if options.retain_report_source_evidence {
+                    native_entities.push(entity.clone());
+                }
+                pending_native_entities.push(entity);
+                if pending_native_entities.len() >= chunk_size {
+                    flush_source_evidence_chunk(
+                        consumer,
+                        TakeoutSourceEvidenceChunk {
+                            typed_evidence: TypedEvidenceBatch::default(),
+                            native_entities: std::mem::take(&mut pending_native_entities),
+                        },
+                    )?;
+                }
             }
-            Ok::<(), std::convert::Infallible>(())
+            Ok::<(), StreamHistoryError<C::Error>>(())
         },
     )
     .map_err(|error| match error {
         json_stream::JsonRecordStreamError::Parse(error) => StreamHistoryError::Parse(error),
-        json_stream::JsonRecordStreamError::Callback(never) => match never {},
+        json_stream::JsonRecordStreamError::Callback(error) => error,
     })?;
+    flush_source_evidence_chunk(
+        consumer,
+        TakeoutSourceEvidenceChunk {
+            typed_evidence: TypedEvidenceBatch::default(),
+            native_entities: pending_native_entities,
+        },
+    )?;
 
     let capability_key = match kind {
         KIND_TYPED_URL_JSON => "context.takeout.typed_url",
@@ -159,6 +187,19 @@ where
         record_count,
         skipped_missing_visit_time: 0,
     })
+}
+
+fn flush_source_evidence_chunk<C>(
+    consumer: &mut C,
+    chunk: TakeoutSourceEvidenceChunk,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
+{
+    if chunk.is_empty() {
+        return Ok(());
+    }
+    consumer.source_evidence(chunk).map_err(StreamHistoryError::Consumer)
 }
 
 fn empty_stream_report(

@@ -164,7 +164,10 @@ fn preview_payload_stream(
         kind,
         bytes,
         PREVIEW_LIMIT,
-        TakeoutStreamOptions { collect_source_evidence: false },
+        TakeoutStreamOptions {
+            collect_source_evidence: false,
+            retain_report_source_evidence: false,
+        },
         &mut consumer,
     )
     .map_err(|error| match error {

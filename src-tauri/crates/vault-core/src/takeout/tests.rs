@@ -781,6 +781,60 @@ fn import_takeout_persists_source_evidence_for_all_recognized_payloads() {
 }
 
 #[test]
+fn import_takeout_spools_large_streamed_source_evidence_chunks() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let large_blob = "x".repeat(300_000);
+    let source = dir.path().join("spooled-takeout");
+    fs::create_dir_all(&source).expect("create spooled source");
+    fs::write(
+        source.join("BrowserHistory.json"),
+        format!(
+            r#"{{"BrowserHistory":[{{"titleUrl":"https://example.com/huge","pageTitle":"Huge","visitedAt":"2026-04-01T10:00:00+00:00","client_id":"{}"}}]}}"#,
+            large_blob
+        ),
+    )
+    .expect("write large browser history");
+
+    let inspection = import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+    )
+    .expect("import spooled takeout");
+    assert_eq!(inspection.imported_items, 1);
+
+    let source_evidence =
+        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let context_rows: i64 = source_evidence
+        .query_row(
+            "SELECT COUNT(*) FROM visit_context_evidence WHERE context_key = 'context.takeout.client_id'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count takeout context rows");
+    assert_eq!(context_rows, 1);
+    let payload_bytes: i64 = source_evidence
+        .query_row(
+            "SELECT LENGTH(payload_json) FROM native_entities WHERE entity_kind = 'takeout-browser-history'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load native entity payload length");
+    assert!(payload_bytes > 300_000);
+
+    let spool_dir = paths.staging_dir.join("source-evidence-spool");
+    assert_eq!(fs::read_dir(&spool_dir).expect("read spool dir").count(), 0);
+}
+
+#[test]
 fn import_takeout_quarantines_unknown_zip_entries() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());

@@ -43,6 +43,7 @@
 - 2026-04-22 bounded-memory follow-up landed: deferred cold source-evidence payloads now spill to temporary files under `staging/source-evidence-spool/` once they exceed the in-memory threshold, so backup/import flows no longer need to hold every post-commit native payload in RAM until the cold archive write begins. `snapshot_restore` preview also switched from parser materialization to direct checkpoint row counts, and checkpoint replay now resolves the owning profile id from the checkpoint directory when one backup run covered multiple profiles.
 - 2026-04-22 Takeout streaming follow-up landed: `browser-history-parser::takeout` is now split into focused submodules and exposes payload-level streaming. `vault-core::takeout::payload_import` now consumes that streamed contract, so Takeout import can write canonical URL/visit rows while a BrowserHistory payload is still being parsed instead of waiting for one giant payload report first.
 - 2026-04-22 inspection follow-up landed: `vault-core::takeout::inspect_takeout` also switched to the payload-level streamed Takeout contract. Dry-run preview now caps rows directly from streamed visits and explicitly disables source-evidence accumulation, so inspection no longer materializes a full payload report or keeps native evidence blobs in memory just to show preview rows.
+- 2026-04-22 source-evidence follow-up landed: Takeout payload streaming now has an explicit source-evidence chunk sink. `vault-core::takeout::payload_import` routes those chunks through `archive::source_evidence_builder`, which spills oversized native evidence into `staging/source-evidence-spool/` before a single payload can accumulate one giant in-memory evidence batch.
 
 ### Slice 3 — Intelligence runtime queue boundary
 
@@ -54,7 +55,7 @@
 - Split `archive/mod.rs` into backup execution, canonical ingest helpers, checkpoint / manifest helpers, and retention/recoverability helpers.
 - Preserve canonical archive behavior, run-ledger semantics, and existing `archive::*` public surface.
 - 2026-04-21 follow-up landed: backup execution plus manifest/checkpoint helpers are now out of `archive/mod.rs`, so the remaining archive-side work is no longer file-size triage.
-- Remaining risk after the 2026-04-22 Takeout inspection cut: canonical Takeout import and dry-run preview no longer wait for one full payload report, but payload-level source-native evidence still accumulates within a single Takeout import payload before it can spill to disk. The next slice should therefore focus on that remaining import-side source-evidence retention hotspot or another measured backend hotspot, rather than revisiting already-streamed canonical write/preview paths.
+- Remaining risk after the 2026-04-22 Takeout source-evidence cut: the Takeout import boundary has now been pushed onto bounded canonical-write, bounded preview, and bounded cold-evidence paths. The next slice should therefore shift to `intelligence_runtime.rs` queue/recovery/runtime-snapshot ownership or another measured backend hotspot, rather than revisiting already-streamed archive/takeout import paths.
 
 ### Slice 5 — Core Intelligence domain boundary
 

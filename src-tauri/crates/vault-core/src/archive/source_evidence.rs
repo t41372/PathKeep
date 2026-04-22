@@ -40,8 +40,11 @@ use browser_history_parser::{
 };
 use rusqlite::{Connection, Transaction, params};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::{fs, time::Duration as StdDuration};
+use std::{
+    fs,
+    io::{BufRead, BufReader},
+    time::Duration as StdDuration,
+};
 use tempfile::{Builder as TempFileBuilder, TempPath};
 
 const SOURCE_EVIDENCE_SCHEMA_SQL: &str = r#"
@@ -147,7 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_native_entities_batch_kind
   ON native_entities(source_batch_id, entity_kind);
 "#;
 
-const SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES: usize = 512 * 1024;
+pub(crate) const SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES: usize = 512 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SourceBatchInput {
@@ -180,6 +183,7 @@ pub(crate) struct SourceEvidencePayload {
 pub(crate) enum DeferredSourceEvidencePayload {
     InMemory(SourceEvidencePayload),
     SpoolFile(TempPath),
+    ChunkFile(TempPath),
 }
 
 impl DeferredSourceEvidencePayload {
@@ -209,6 +213,34 @@ impl DeferredSourceEvidencePayload {
                         format!("reading deferred source-evidence {}", path.display())
                     })?;
                 persist_source_evidence(transaction, source_batch_id, source_profile_id, &payload)
+            }
+            Self::ChunkFile(path) => {
+                let file = fs::File::open(path).with_context(|| {
+                    format!("opening deferred source-evidence chunk file {}", path.display())
+                })?;
+                let reader = BufReader::new(file);
+                for line in reader.lines() {
+                    let line = line.with_context(|| {
+                        format!("reading deferred source-evidence chunk {}", path.display())
+                    })?;
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let payload: SourceEvidencePayload =
+                        serde_json::from_str(&line).with_context(|| {
+                            format!(
+                                "deserializing deferred source-evidence chunk {}",
+                                path.display()
+                            )
+                        })?;
+                    persist_source_evidence(
+                        transaction,
+                        source_batch_id,
+                        source_profile_id,
+                        &payload,
+                    )?;
+                }
+                Ok(())
             }
         }
     }
@@ -430,7 +462,7 @@ pub(crate) fn persist_source_evidence(
     Ok(())
 }
 
-fn approx_source_evidence_payload_bytes(payload: &SourceEvidencePayload) -> usize {
+pub(crate) fn approx_source_evidence_payload_bytes(payload: &SourceEvidencePayload) -> usize {
     payload
         .typed_evidence
         .search
@@ -523,30 +555,4 @@ fn spool_file_prefix(label: &str) -> String {
         prefix = "source-evidence".to_string();
     }
     format!("pathkeep-{prefix}-")
-}
-
-/// Builds coverage stats JSON from canonical row counts plus the deferred cold payload.
-///
-/// Streamed ingest uses this path because it no longer keeps a full
-/// `ParsedHistory` value alive once canonical row batches have already been
-/// written.
-pub(crate) fn coverage_stats_json_from_parts(
-    urls: usize,
-    visits: usize,
-    downloads: usize,
-    search_terms: usize,
-    payload: &SourceEvidencePayload,
-) -> String {
-    json!({
-        "urls": urls,
-        "visits": visits,
-        "downloads": downloads,
-        "searchTerms": search_terms,
-        "searchEvidence": payload.typed_evidence.search.len(),
-        "navigationEvidence": payload.typed_evidence.navigation.len(),
-        "engagementEvidence": payload.typed_evidence.engagement.len(),
-        "contextEvidence": payload.typed_evidence.context.len(),
-        "nativeEntities": payload.native_entities.len(),
-    })
-    .to_string()
 }
