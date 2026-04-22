@@ -221,9 +221,7 @@ export function ImportReviewPanels({
             <p className="dashboard-next-action">
               {t('import.selectedBatchBody')}
             </p>
-            {loadingBatch ? (
-              <p className="dim">{t('common.loading')}</p>
-            ) : activeBatchDetail ? (
+            {activeBatchDetail ? (
               <>
                 <ImportBatchReview
                   auditPathActions={{
@@ -281,6 +279,8 @@ export function ImportReviewPanels({
                   </button>
                 </div>
               </>
+            ) : loadingBatch ? (
+              <p className="dim">{t('common.loading')}</p>
             ) : (
               <p className="dim">{t('import.noImportBatches')}</p>
             )}

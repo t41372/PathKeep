@@ -14,43 +14,39 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import {
-  copyReviewValue,
-  type ReviewCopyFeedback,
-} from '../../components/review'
-import { StatusCallout } from '../../components/primitives/status-callout'
+import { copyReviewValue } from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
   BrowserProfile,
-  HealthReport,
-  ImportBatchDetail,
-  ImportBatchOverview,
   ImportProgressEvent,
   TakeoutInspection,
 } from '../../lib/types'
 import { ImportReviewPanels } from './review-panels'
 import {
+  buildImportWorkflowSteps,
   type ImportMethod,
   type ImportWizardStepDefinition,
   type WizardStep,
 } from './shared'
+import { useImportReviewState } from './use-import-review-state'
 import { ImportWorkflowPanel } from './workflow-panel'
 
 /**
  * Renders the import route.
  *
- * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Import expectations in the design docs.
+ * This route should keep its deep links, loading states, trust copy, and
+ * repair affordances aligned with the Import expectations in the design docs.
  */
 export function ImportPage() {
   const { refreshAppData, snapshot } = useShellData()
   const { language, t } = useI18n()
-  const [searchParams, setSearchParams] = useSearchParams()
   const [method, setMethod] = useState<ImportMethod>('takeout')
   const [step, setStep] = useState<WizardStep>('select')
   const [sourcePath, setSourcePath] = useState('')
@@ -66,15 +62,6 @@ export function ImportPage() {
   const [importResult, setImportResult] = useState<TakeoutInspection | null>(
     null,
   )
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
-  const [selectedBatchDetail, setSelectedBatchDetail] =
-    useState<ImportBatchDetail | null>(null)
-  const [loadingBatch, setLoadingBatch] = useState(false)
-  const [healthReport, setHealthReport] = useState<HealthReport | null>(null)
-  const [repairNotice, setRepairNotice] = useState<string | null>(null)
-  const [supportCopyFeedback, setSupportCopyFeedback] =
-    useState<ReviewCopyFeedback | null>(null)
 
   const wizardSteps: ImportWizardStepDefinition[] = [
     { key: 'select', label: t('import.stepUpload') },
@@ -83,17 +70,10 @@ export function ImportPage() {
     { key: 'confirm', label: t('import.stepConfirm') },
     { key: 'done', label: t('import.stepImport') },
   ]
-
   const stepIndex = wizardSteps.findIndex(
     (wizardStep) => wizardStep.key === step,
   )
   const recentImportBatches = snapshot?.recentImportBatches
-  const batchIdFromParams = (() => {
-    const raw = searchParams.get('batch')
-    if (!raw) return null
-    const parsed = Number.parseInt(raw, 10)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-  })()
   const detectedBrowserProfiles = useMemo(
     () =>
       [...(snapshot?.browserProfiles ?? [])]
@@ -112,77 +92,29 @@ export function ImportPage() {
       ) ?? null,
     [detectedBrowserProfiles, selectedBrowserProfileId],
   )
-
-  useEffect(() => {
-    const recentBatches = recentImportBatches ?? []
-    if (!recentBatches.length) {
-      setSelectedBatchId(null)
-      setSelectedBatchDetail(null)
-      return
-    }
-
-    const requestedBatchId =
-      batchIdFromParams &&
-      recentBatches.some((batch) => batch.id === batchIdFromParams)
-        ? batchIdFromParams
-        : null
-
-    setSelectedBatchId(
-      (current) => requestedBatchId ?? current ?? recentBatches[0]?.id ?? null,
-    )
-  }, [batchIdFromParams, recentImportBatches])
-
-  useEffect(() => {
-    if (!selectedBatchId) return
-    const currentBatch = searchParams.get('batch')
-    if (currentBatch === String(selectedBatchId)) return
-    const nextParams = new URLSearchParams(searchParams)
-    nextParams.set('batch', String(selectedBatchId))
-    setSearchParams(nextParams, { replace: true })
-  }, [searchParams, selectedBatchId, setSearchParams])
-
-  useEffect(() => {
-    if (!selectedBatchId) {
-      setSelectedBatchDetail(null)
-      return
-    }
-
-    let cancelled = false
-    /**
-     * Loads batch.
-     *
-     * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
-     */
-    const loadBatch = async () => {
-      setSelectedBatchDetail(null)
-      setActionError(null)
-      setLoadingBatch(true)
-      try {
-        const detail = await backend.previewImportBatch(selectedBatchId)
-        if (!cancelled) {
-          setSelectedBatchDetail(detail)
-        }
-      } catch (nextError) {
-        if (!cancelled) {
-          setSelectedBatchDetail(null)
-          setActionError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('common.unavailable'),
-          )
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingBatch(false)
-        }
-      }
-    }
-
-    void loadBatch()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedBatchId, t])
+  const {
+    actionError,
+    activeBatchDetail,
+    clearActionError,
+    handleBatchMutation,
+    handleRepairHealth,
+    handleRunDoctor,
+    handleSupportPathCopy,
+    handleSupportPathOpen,
+    healthReport,
+    loadingBatch,
+    repairNotice,
+    reportActionError,
+    selectBatchId,
+    selectedBatchId,
+    setLoadedBatchDetail,
+    supportCopyFeedback,
+  } = useImportReviewState({
+    importResult,
+    recentImportBatches,
+    refreshAppData,
+    t,
+  })
 
   useEffect(() => {
     if (method !== 'browser') return
@@ -193,86 +125,29 @@ export function ImportPage() {
     setSourcePath(firstProfile.historyPath)
   }, [detectedBrowserProfiles, method, selectedBrowserProfileId, sourcePath])
 
-  const activeBatchDetail = useMemo(
-    () =>
-      selectedBatchDetail ??
-      (importResult?.importBatch
-        ? {
-            batch: importResult.importBatch,
-            previewEntries: importResult.previewEntries,
-            recognizedFiles: importResult.recognizedFiles,
-            quarantinedFiles: importResult.quarantinedFiles,
-            notes: importResult.notes,
-          }
-        : null),
-    [importResult, selectedBatchDetail],
-  )
-
   const workflowSteps = useMemo(
-    () => [
-      {
-        id: 'preview',
-        title: t('import.workflowPreviewTitle'),
-        status:
-          step === 'preview' || step === 'confirm' || step === 'done'
-            ? ('complete' as const)
-            : ('pending' as const),
-        summary: t('import.workflowPreviewSummary'),
-        reason: t('import.workflowPreviewReason'),
-        files: inspection?.recognizedFiles.map((file) => file.path),
-      },
-      {
-        id: 'manual',
-        title: t('import.workflowManualTitle'),
-        status:
-          inspection !== null ? ('complete' as const) : ('pending' as const),
-        summary: t('import.workflowManualSummary'),
-        reason: t('import.workflowManualReason'),
-        checklist: [
-          t('import.manualLocateStep'),
-          t('import.manualInspectStep'),
-          t('import.manualContinueStep'),
-        ],
-      },
-      {
-        id: 'execute',
-        title: t('import.workflowExecuteTitle'),
-        status: step === 'done' ? ('complete' as const) : ('pending' as const),
-        summary: t('import.workflowExecuteSummary'),
-        reason: t('import.workflowExecuteReason'),
-      },
-      {
-        id: 'verify',
-        title: t('import.workflowVerifyTitle'),
-        status:
-          activeBatchDetail !== null || importResult !== null
-            ? ('complete' as const)
-            : ('pending' as const),
-        summary: t('import.workflowVerifySummary'),
-        reason: t('import.workflowVerifyReason'),
-      },
-      {
-        id: 'finish',
-        title: t('import.workflowFinishTitle'),
-        status:
-          activeBatchDetail !== null && healthReport !== null
-            ? ('complete' as const)
-            : ('pending' as const),
-        summary: t('import.workflowFinishSummary'),
-        reason: t('import.workflowFinishReason'),
-      },
-    ],
+    () =>
+      buildImportWorkflowSteps({
+        activeBatchDetail,
+        healthReport,
+        importResult,
+        inspection,
+        step,
+        t,
+      }),
     [activeBatchDetail, healthReport, importResult, inspection, step, t],
   )
 
   /**
    * Handles scan.
    *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   * Keeping this as a named declaration makes the Import surface easier to
+   * review and test than burying the behavior inside another anonymous
+   * callback.
    */
   async function handleScan() {
     if (!sourcePath.trim()) return
-    setActionError(null)
+    clearActionError()
     setStep('scan')
     try {
       await waitForNextPaint()
@@ -281,11 +156,7 @@ export function ImportPage() {
       setImportResult(null)
       setStep('preview')
     } catch (nextError) {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
+      reportActionError(nextError)
       setStep('select')
     }
   }
@@ -305,7 +176,7 @@ export function ImportPage() {
     setSourcePath(nextPath)
     setInspection(null)
     setImportResult(null)
-    setActionError(null)
+    clearActionError()
     setStep('select')
     setSelectedBrowserProfileId(options?.browserProfileId ?? null)
   }
@@ -323,7 +194,7 @@ export function ImportPage() {
     setStep('select')
     setInspection(null)
     setImportResult(null)
-    setActionError(null)
+    clearActionError()
     setManualPathExpanded(false)
     if (nextMethod === 'browser') {
       const firstProfile = detectedBrowserProfiles[0]
@@ -345,7 +216,9 @@ export function ImportPage() {
   /**
    * Handles select browser profile.
    *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   * Keeping this as a named declaration makes the Import surface easier to
+   * review and test than burying the behavior inside another anonymous
+   * callback.
    */
   function handleSelectBrowserProfile(profile: BrowserProfile) {
     if (!profile.historyPath) return
@@ -357,10 +230,12 @@ export function ImportPage() {
   /**
    * Handles browse source.
    *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   * Keeping this as a named declaration makes the Import surface easier to
+   * review and test than burying the behavior inside another anonymous
+   * callback.
    */
   async function handleBrowseSource(options: { directory: boolean }) {
-    setActionError(null)
+    clearActionError()
     try {
       const { open } = await import('@tauri-apps/plugin-dialog')
       const selected = await open({
@@ -378,10 +253,10 @@ export function ImportPage() {
         setManualPathExpanded(false)
       }
     } catch (nextError) {
-      setActionError(
+      reportActionError(
         nextError instanceof Error
-          ? nextError.message
-          : t('import.filePickerUnavailable'),
+          ? nextError
+          : new Error(t('import.filePickerUnavailable')),
       )
     }
   }
@@ -389,11 +264,13 @@ export function ImportPage() {
   /**
    * Handles import.
    *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
+   * Keeping this as a named declaration makes the Import surface easier to
+   * review and test than burying the behavior inside another anonymous
+   * callback.
    */
   async function handleImport() {
     if (!sourcePath.trim()) return
-    setActionError(null)
+    clearActionError()
     setImporting(true)
     setImportProgress(null)
     setStep('confirm')
@@ -408,134 +285,23 @@ export function ImportPage() {
       await refreshAppData()
       setStep('done')
       if (result.importBatch) {
-        setSelectedBatchId(result.importBatch.id)
+        selectBatchId(result.importBatch.id)
         try {
-          setSelectedBatchDetail(
+          setLoadedBatchDetail(
             await backend.previewImportBatch(result.importBatch.id),
           )
         } catch (nextError) {
-          setSelectedBatchDetail(null)
-          setActionError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('common.unavailable'),
-          )
+          setLoadedBatchDetail(null)
+          reportActionError(nextError)
         }
       }
     } catch (nextError) {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
+      reportActionError(nextError)
       setStep('preview')
     } finally {
       unsubscribe()
       setImporting(false)
     }
-  }
-
-  /**
-   * Handles run doctor.
-   *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  async function handleRunDoctor() {
-    setActionError(null)
-    try {
-      const report = await backend.doctor()
-      setHealthReport(report)
-      setRepairNotice(null)
-    } catch (nextError) {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    }
-  }
-
-  /**
-   * Handles repair health.
-   *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  async function handleRepairHealth() {
-    setActionError(null)
-    try {
-      const report = await backend.repairHealth()
-      setRepairNotice(
-        t('import.repairSummary', {
-          derivedRows: report.clearedDerivedRows,
-          visibilityRows: report.repairedVisibilityRows,
-          importAudits: report.repairedImportAudits,
-        }),
-      )
-      const nextHealthReport = await backend.doctor()
-      setHealthReport(nextHealthReport)
-    } catch (nextError) {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    }
-  }
-
-  /**
-   * Handles batch mutation.
-   *
-   * Keeping this as a named declaration makes the Import surface easier to review and test than burying the behavior inside another anonymous callback.
-   */
-  async function handleBatchMutation(
-    batch: ImportBatchOverview,
-    action: 'revert' | 'restore',
-  ) {
-    const message =
-      action === 'revert'
-        ? t('import.revertConfirm')
-        : t('import.restoreConfirm')
-
-    if (typeof window !== 'undefined' && 'confirm' in window) {
-      if (!window.confirm(message)) {
-        return
-      }
-    }
-
-    setActionError(null)
-    try {
-      const detail =
-        action === 'revert'
-          ? await backend.revertImportBatch(batch.id)
-          : await backend.restoreImportBatch(batch.id)
-      await refreshAppData()
-      setSelectedBatchId(detail.batch.id)
-      setSelectedBatchDetail(detail)
-    } catch (nextError) {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    }
-  }
-
-  /**
-   * Copies one review-path value through the shared review grammar so follow-through
-   * surfaces keep the same feedback behavior as the rest of the app.
-   */
-  async function handleSupportPathCopy(key: string, value: string) {
-    await copyReviewValue(value, {
-      key,
-      onFeedback: setSupportCopyFeedback,
-    })
-  }
-
-  /**
-   * Opens a reviewed support path through the host file manager.
-   */
-  function handleSupportPathOpen(path: string) {
-    void backend.openPathInFileManager(path)
   }
 
   /**
@@ -621,7 +387,7 @@ export function ImportPage() {
         onOpenPath={handleSupportPathOpen}
         onRepairHealth={handleRepairHealth}
         onRunDoctor={handleRunDoctor}
-        onSelectBatch={setSelectedBatchId}
+        onSelectBatch={selectBatchId}
       />
     </section>
   )
