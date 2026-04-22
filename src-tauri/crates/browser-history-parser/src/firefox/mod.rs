@@ -6,14 +6,16 @@
 
 use crate::{
     ParseError, ParsedHistory,
-    observation::{capability_snapshot, capture_native_rows, inspect_schema},
+    observation::{capability_snapshot, capture_native_row, capture_native_rows, inspect_schema},
     types::{
-        CapabilityCoverage, ContextEvidence, DatabaseInspection, NavigationEvidence, ParsedUrl,
-        ParsedVisit, ParserWarning, TypedEvidenceBatch,
+        CapabilityCoverage, ContextEvidence, DatabaseInspection, HistoryBatchConsumer,
+        NavigationEvidence, ParsedUrl, ParsedVisit, ParserWarning, StreamHistoryError,
+        StreamedHistory, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, Row, params};
+use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
@@ -44,6 +46,30 @@ JOIN moz_places
 WHERE moz_historyvisits.id > ?1
 ORDER BY moz_historyvisits.id ASC
 "#;
+
+#[derive(Debug, Default)]
+struct FirefoxHistoryCollector {
+    urls: Vec<ParsedUrl>,
+    visits: Vec<ParsedVisit>,
+}
+
+impl HistoryBatchConsumer for FirefoxHistoryCollector {
+    type Error = Infallible;
+
+    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+        self.urls.extend(batch);
+        Ok(())
+    }
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        self.visits.extend(batch);
+        Ok(())
+    }
+}
+
+fn stream_sql<T, E>(result: Result<T, rusqlite::Error>) -> Result<T, StreamHistoryError<E>> {
+    result.map_err(ParseError::from).map_err(StreamHistoryError::Parse)
+}
 
 /// Inspects a Firefox `places.sqlite` file and reports required-table coverage.
 pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
@@ -79,34 +105,108 @@ pub fn parse_history(
     after_visit_id: i64,
     after_url_last_visit_ms: i64,
 ) -> Result<ParsedHistory, ParseError> {
+    let mut collector = FirefoxHistoryCollector::default();
+    let streamed =
+        stream_history(path, after_visit_id, after_url_last_visit_ms, 10_000, &mut collector)
+            .map_err(|error| match error {
+                StreamHistoryError::Parse(error) => error,
+                StreamHistoryError::Consumer(never) => match never {},
+            })?;
+    Ok(ParsedHistory {
+        inspection: streamed.inspection,
+        schema_observation: streamed.schema_observation,
+        capability_snapshot: streamed.capability_snapshot,
+        urls: collector.urls,
+        visits: collector.visits,
+        downloads: Vec::new(),
+        search_terms: Vec::new(),
+        favicons: Vec::new(),
+        typed_evidence: streamed.typed_evidence,
+        native_entities: streamed.native_entities,
+        warnings: streamed.warnings,
+    })
+}
+
+/// Streams Firefox URL and visit rows into a caller-provided batch consumer.
+pub fn stream_history<C>(
+    path: &Path,
+    after_visit_id: i64,
+    after_url_last_visit_ms: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["moz_places", "moz_historyvisits"])?;
     validate_required_tables(&inspection)?;
 
     let connection = open_readonly(path)?;
-    let urls = parse_urls(&connection, after_url_last_visit_ms)?;
-    let visits = parse_visits(&connection, after_visit_id)?;
-    let typed_evidence = build_typed_evidence(&visits);
-    let capability_snapshot = build_capability_snapshot(&typed_evidence, &visits);
-    let mut native_entities = capture_native_rows(
-        &connection,
-        r#"SELECT * FROM moz_places
-           WHERE COALESCE(last_visit_date, 0) >= ?1
-           ORDER BY COALESCE(last_visit_date, 0) ASC"#,
-        &[&unix_ms_to_firefox_time(after_url_last_visit_ms)],
-        "firefox-place-row",
-        "id",
-        None,
-    )?;
-    native_entities.extend(capture_native_rows(
-        &connection,
-        "SELECT * FROM moz_historyvisits WHERE id > ?1 ORDER BY id ASC",
-        &[&after_visit_id],
-        "firefox-historyvisit-row",
-        "id",
-        Some("place_id"),
-    )?);
+    let chunk_size = chunk_size.max(1);
+    let warnings = inspection.warnings.clone();
+    let mut visit_count = 0usize;
+    let mut typed_evidence = TypedEvidenceBatch::default();
+    let mut native_entities = Vec::new();
+
+    {
+        let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
+        let column_names =
+            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        let mut rows =
+            stream_sql(statement.query(params![unix_ms_to_firefox_time(after_url_last_visit_ms)]))?;
+        let mut batch = Vec::with_capacity(chunk_size);
+        while let Some(row) = stream_sql(rows.next())? {
+            batch.push(stream_sql(parsed_url_from_row(row))?);
+            native_entities.push(stream_sql(capture_native_row(
+                row,
+                &column_names,
+                "firefox-place-row",
+                "id",
+                None,
+            ))?);
+            if batch.len() >= chunk_size {
+                consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+            }
+        }
+        if !batch.is_empty() {
+            consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+
+    {
+        let mut statement = stream_sql(connection.prepare(VISITS_SQL))?;
+        let column_names =
+            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
+        let mut batch = Vec::with_capacity(chunk_size);
+        while let Some(row) = stream_sql(rows.next())? {
+            let visit = stream_sql(parsed_visit_from_row(row))?;
+            visit_count += 1;
+            if let Some(evidence) = navigation_evidence_for_visit(&visit) {
+                typed_evidence.navigation.push(evidence)
+            }
+            typed_evidence.context.push(context_evidence_for_visit(&visit));
+            native_entities.push(stream_sql(capture_native_row(
+                row,
+                &column_names,
+                "firefox-historyvisit-row",
+                "id",
+                Some("place_id"),
+            ))?);
+            batch.push(visit);
+            if batch.len() >= chunk_size {
+                consumer
+                    .visits(std::mem::take(&mut batch))
+                    .map_err(StreamHistoryError::Consumer)?;
+            }
+        }
+        if !batch.is_empty() {
+            consumer.visits(batch).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+
     for optional_table in
         ["moz_inputhistory", "moz_places_metadata", "moz_places_metadata_search_queries"]
     {
@@ -124,18 +224,14 @@ pub fn parse_history(
         }
     }
 
-    Ok(ParsedHistory {
-        inspection: inspection.clone(),
+    let capability_snapshot = build_capability_snapshot(&typed_evidence, visit_count);
+    Ok(StreamedHistory {
+        inspection,
         schema_observation,
         capability_snapshot,
-        urls,
-        visits,
-        downloads: Vec::new(),
-        search_terms: Vec::new(),
-        favicons: Vec::new(),
         typed_evidence,
         native_entities,
-        warnings: inspection.warnings,
+        warnings,
     })
 }
 
@@ -156,27 +252,6 @@ pub fn firefox_time_to_iso(value: i64) -> String {
         .single()
         .unwrap_or_else(|| Utc.timestamp_opt(0, 0).single().expect("unix epoch"))
         .to_rfc3339()
-}
-
-fn parse_urls(
-    connection: &Connection,
-    after_url_last_visit_ms: i64,
-) -> Result<Vec<ParsedUrl>, ParseError> {
-    let mut statement = connection.prepare(URLS_SQL)?;
-    let rows = statement.query_map(
-        params![unix_ms_to_firefox_time(after_url_last_visit_ms)],
-        parsed_url_from_row,
-    )?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
-fn parse_visits(
-    connection: &Connection,
-    after_visit_id: i64,
-) -> Result<Vec<ParsedVisit>, ParseError> {
-    let mut statement = connection.prepare(VISITS_SQL)?;
-    let rows = statement.query_map(params![after_visit_id], parsed_visit_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 fn open_readonly(path: &Path) -> Result<Connection, ParseError> {
@@ -229,52 +304,54 @@ fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     })
 }
 
-fn build_typed_evidence(visits: &[ParsedVisit]) -> TypedEvidenceBatch {
-    let navigation = visits
-        .iter()
-        .filter(|visit| visit.from_visit.is_some() || visit.transition.is_some())
-        .map(|visit| NavigationEvidence {
-            source_visit_id: visit.source_visit_id,
-            edge_kind: "visit-navigation".to_string(),
-            target_visit_id: visit.from_visit,
-            target_url: None,
-            transition: visit.transition,
-            source_field: "moz_historyvisits.from_visit/visit_type".to_string(),
-        })
-        .collect::<Vec<_>>();
-    let context = visits
-        .iter()
-        .map(|visit| ContextEvidence {
-            source_visit_id: Some(visit.source_visit_id),
-            source_url_id: Some(visit.source_url_id),
-            context_key: "context.app_id".to_string(),
-            value_json: "\"firefox\"".to_string(),
-            source_field: "derived.firefox-family".to_string(),
-        })
-        .collect::<Vec<_>>();
-    TypedEvidenceBatch { search: Vec::new(), navigation, engagement: Vec::new(), context }
-}
-
 fn build_capability_snapshot(
     typed_evidence: &TypedEvidenceBatch,
-    visits: &[ParsedVisit],
+    visit_count: usize,
 ) -> crate::types::CapabilitySnapshot {
     capability_snapshot(vec![
         CapabilityCoverage {
             key: "nav.from_visit".to_string(),
-            available: visits.iter().any(|visit| visit.from_visit.is_some()),
-            populated_rows: visits.iter().filter(|visit| visit.from_visit.is_some()).count(),
-            total_rows: visits.len(),
+            available: typed_evidence
+                .navigation
+                .iter()
+                .any(|evidence| evidence.target_visit_id.is_some()),
+            populated_rows: typed_evidence
+                .navigation
+                .iter()
+                .filter(|evidence| evidence.target_visit_id.is_some())
+                .count(),
+            total_rows: visit_count,
             notes: vec!["Firefox moz_historyvisits.from_visit".to_string()],
         },
         CapabilityCoverage {
             key: "nav.transition".to_string(),
-            available: visits.iter().any(|visit| visit.transition.is_some()),
+            available: !typed_evidence.navigation.is_empty(),
             populated_rows: typed_evidence.navigation.len(),
-            total_rows: visits.len(),
+            total_rows: visit_count,
             notes: vec!["Firefox moz_historyvisits.visit_type".to_string()],
         },
     ])
+}
+
+fn navigation_evidence_for_visit(visit: &ParsedVisit) -> Option<NavigationEvidence> {
+    (visit.from_visit.is_some() || visit.transition.is_some()).then(|| NavigationEvidence {
+        source_visit_id: visit.source_visit_id,
+        edge_kind: "visit-navigation".to_string(),
+        target_visit_id: visit.from_visit,
+        target_url: None,
+        transition: visit.transition,
+        source_field: "moz_historyvisits.from_visit/visit_type".to_string(),
+    })
+}
+
+fn context_evidence_for_visit(visit: &ParsedVisit) -> ContextEvidence {
+    ContextEvidence {
+        source_visit_id: Some(visit.source_visit_id),
+        source_url_id: Some(visit.source_url_id),
+        context_key: "context.app_id".to_string(),
+        value_json: "\"firefox\"".to_string(),
+        source_field: "derived.firefox-family".to_string(),
+    }
 }
 
 #[cfg(test)]

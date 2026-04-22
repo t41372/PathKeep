@@ -21,11 +21,11 @@
 > 2026-04-20 search activity note：使用者又插單 `WORK-CI-R`，要求先修 Search Activity keyword truth、shared keyword browser 與 search-engine domain deep-dive。這個 block 已獨立完成並 append 到 `CHANGELOG.md`，不折回 M13 reuse scope；BACKLOG 目前仍只保留 blocked 的 `WORK-CI-N`。
 > 2026-04-20 desktop truth-pass closeout：`WORK-CI-N` 已完成並 append 到 `CHANGELOG.md`。這輪先修掉前端 shipped blocker（remote glyph font、glyph a11y、Settings 分組 i18n），再補 shared entity CTA 的 HashRouter grammar，最後透過重打 current-host release `.app` 解掉 stale frontend drift。最新 Computer Use 驗到 build label `6412ad59+`、Chrome `Yi-Ting` re-import + `000000` 加密（未寫入鑰匙圈）、`rememberDatabaseKeyInKeyring: false` config truth、`/intelligence` 無 raw glyph ids、以及 domain deep-dive → Explorer evidence CTA 正常落到 `#/explorer?...`。BACKLOG 現在再次只剩 `STATUS.md` 上的 M13 active blocks，沒有額外 pending 的 desktop-truth follow-up。
 > 2026-04-21 backend track note：使用者明確要求新增平行的後端 hotspot 拆分軌道。`WORK-BE-A` 已直接進入 `STATUS.md` 與 `docs/plan/backend-hotspot-decomposition.md`；這不是取消 `WORK-M13-B`，而是把 frontend reuse 與 backend decomposition 分開推進。
-> 2026-04-22 backend follow-up note：Takeout import / batch review boundary的文件尺寸已收斂到 repo 硬限制內，execute path 也已拿掉雙重 inspection/import 解析；`archive/mod.rs` 也已再拆到 `406` 行，而且 backup/takeout 在 canonical commit 後已不再保留第二份完整 `ParsedHistory` 只為了寫 cold source evidence。最新 follow-up 又把 Chromium live-backup path 改成 chunked canonical ingest，所以剩餘 backend risk 已更明確地收斂到 Firefox / Safari / Takeout 仍 full-batch materialize，以及 cold-evidence 仍未完全 streaming/spooled 的部分。
+> 2026-04-22 backend follow-up note：Takeout import / batch review boundary的文件尺寸已收斂到 repo 硬限制內，execute path 也已拿掉雙重 inspection/import 解析；`archive/mod.rs` 也已再拆到 `406` 行，而且 backup/takeout 在 canonical commit 後已不再保留第二份完整 `ParsedHistory` 只為了寫 cold source evidence。最新 follow-up 又把 Chromium / Firefox / Safari live-backup path 全部切成 streamed canonical ingest，所以剩餘 backend risk 已更明確地收斂到 Takeout / restore-preview 仍 full-batch materialize，以及 cold-evidence 仍未完全 streaming/spooled 的部分。
 
 - [ ] **WORK-BE-B** — Import Streaming Contract And Remaining Archive/Takeout Hotspot Split
   - 依賴：`WORK-BE-A`
-  - 目標：把 parser → import/archive 的 collect-then-ingest contract 進一步改成可分批/可流式的寫入邊界，先完成剩餘 parser family（Firefox / Safari / Takeout）與 cold-evidence bounded-memory contract，再處理對應的 import/test support hotspot。
+  - 目標：把 parser → import/archive 的 collect-then-ingest contract 進一步改成可分批/可流式的寫入邊界，先完成 Takeout / restore-preview 與 cold-evidence bounded-memory contract，再處理對應的 import/test support hotspot。
   - 契約：維持現有 Tauri command、worker CLI、serde payload、canonical schema、import batch audit 與 rollback semantics 穩定；不得因為拆分而把一次性大導入重新拉回主線程或額外製造全量內存峰值。
   - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 

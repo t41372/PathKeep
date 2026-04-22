@@ -38,7 +38,8 @@ use self::{
 use super::*;
 use browser_history_parser::{
     ChromiumReadCursor, HistoryBatchConsumer, HistoryDatabaseSet, ParsedDownload, ParsedFavicon,
-    ParsedSearchTerm, ParsedUrl, ParsedVisit, StreamHistoryError, chromium,
+    ParsedSearchTerm, ParsedUrl, ParsedVisit, StreamHistoryError, StreamedHistory, chromium,
+    firefox, safari,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -60,10 +61,10 @@ pub(super) struct SourceEvidencePlan {
     source_evidence_payload: SourceEvidencePayload,
 }
 
-const CHROMIUM_STREAM_CHUNK_SIZE: usize = 10_000;
+const ARCHIVE_STREAM_CHUNK_SIZE: usize = 10_000;
 
 #[derive(Debug, Default)]
-struct ChromiumStreamProgress {
+struct ArchiveStreamProgress {
     url_id_map: HashMap<i64, i64>,
     url_bounds: HashMap<i64, UrlVisitBounds>,
     new_urls: usize,
@@ -80,15 +81,15 @@ struct ChromiumStreamProgress {
     last_favicon_marker: Option<i64>,
 }
 
-struct ChromiumChunkConsumer<'a> {
+struct ArchiveChunkConsumer<'a> {
     archive: &'a Transaction<'a>,
     run_id: i64,
     source_profile_id: i64,
     profile: &'a crate::models::BrowserProfile,
-    progress: ChromiumStreamProgress,
+    progress: ArchiveStreamProgress,
 }
 
-impl<'a> ChromiumChunkConsumer<'a> {
+impl<'a> ArchiveChunkConsumer<'a> {
     fn new(
         archive: &'a Transaction<'a>,
         run_id: i64,
@@ -100,11 +101,11 @@ impl<'a> ChromiumChunkConsumer<'a> {
             run_id,
             source_profile_id,
             profile,
-            progress: ChromiumStreamProgress::default(),
+            progress: ArchiveStreamProgress::default(),
         }
     }
 
-    fn finish(mut self) -> Result<ChromiumStreamProgress> {
+    fn finish(mut self) -> Result<ArchiveStreamProgress> {
         for (url_id, bounds) in self.progress.url_bounds.drain() {
             sync_url_bounds(self.archive, url_id, &bounds)?;
         }
@@ -112,7 +113,7 @@ impl<'a> ChromiumChunkConsumer<'a> {
     }
 }
 
-impl HistoryBatchConsumer for ChromiumChunkConsumer<'_> {
+impl HistoryBatchConsumer for ArchiveChunkConsumer<'_> {
     type Error = anyhow::Error;
 
     fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
@@ -133,7 +134,7 @@ impl HistoryBatchConsumer for ChromiumChunkConsumer<'_> {
                 self.progress.new_urls += 1;
             }
             self.progress.url_count += 1;
-            let url_marker = unix_micros_to_chrome_time(url.last_visit_ms.saturating_mul(1_000));
+            let url_marker = url_last_visit_marker(self.profile, &url);
             self.progress.last_url_marker =
                 Some(self.progress.last_url_marker.unwrap_or_default().max(url_marker));
         }
@@ -214,8 +215,7 @@ impl HistoryBatchConsumer for ChromiumChunkConsumer<'_> {
                 &favicon,
                 &payload.hash,
             )?;
-            let favicon_marker =
-                unix_micros_to_chrome_time(favicon.last_updated_ms.saturating_mul(1_000));
+            let favicon_marker = favicon_last_updated_marker(self.profile, &favicon);
             self.progress.last_favicon_marker =
                 Some(self.progress.last_favicon_marker.unwrap_or_default().max(favicon_marker));
         }
@@ -276,8 +276,27 @@ pub(super) fn collect_skipped_profiles(
     warnings
 }
 
+fn url_last_visit_marker(profile: &crate::models::BrowserProfile, url: &ParsedUrl) -> i64 {
+    if profile.browser_family == "chromium" {
+        unix_micros_to_chrome_time(url.last_visit_ms.saturating_mul(1_000))
+    } else {
+        url.last_visit_ms
+    }
+}
+
+fn favicon_last_updated_marker(
+    profile: &crate::models::BrowserProfile,
+    favicon: &ParsedFavicon,
+) -> i64 {
+    if profile.browser_family == "chromium" {
+        unix_micros_to_chrome_time(favicon.last_updated_ms.saturating_mul(1_000))
+    } else {
+        favicon.last_updated_ms
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn process_chromium_profile_snapshot_streamed(
+fn process_streamed_profile_snapshot(
     archive: &Transaction<'_>,
     run_id: i64,
     paths: &ProjectPaths,
@@ -289,34 +308,9 @@ fn process_chromium_profile_snapshot_streamed(
     snapshot_artifacts: &mut Vec<SnapshotArtifact>,
     source_evidence_plans: &mut Vec<SourceEvidencePlan>,
     allow_checkpoint: bool,
+    streamed: StreamedHistory,
+    progress: ArchiveStreamProgress,
 ) -> Result<BackupProfileSummary> {
-    let mut consumer =
-        ChromiumChunkConsumer::new(archive, run_id, source_profile_id, &snapshot.profile);
-    let streamed = chromium::stream_history(
-        &HistoryDatabaseSet {
-            history_path: snapshot.history_path.clone(),
-            favicons_path: if config.capture_favicons {
-                snapshot.favicons_path.clone()
-            } else {
-                None
-            },
-        },
-        ChromiumReadCursor {
-            after_visit_id: watermark.last_visit_id,
-            after_url_last_visit_time: watermark.last_url_last_visit_time,
-            after_download_id: watermark.last_download_id,
-            after_favicon_last_updated: watermark.last_favicon_last_updated,
-        },
-        CHROMIUM_STREAM_CHUNK_SIZE,
-        &mut consumer,
-    )
-    .map_err(|error| match error {
-        StreamHistoryError::Parse(error) => anyhow::Error::new(error),
-        StreamHistoryError::Consumer(error) => error,
-    })
-    .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
-    let progress = consumer.finish()?;
-
     let mut summary = BackupProfileSummary {
         profile_id: snapshot.profile.profile_id.clone(),
         notes: streamed.warnings.iter().map(|warning| warning.message.clone()).collect(),
@@ -439,20 +433,68 @@ pub(super) fn process_profile_snapshot(
     } else {
         Watermark::default()
     };
-    if snapshot.profile.browser_family == "chromium" {
-        return process_chromium_profile_snapshot_streamed(
-            archive,
-            run_id,
-            paths,
-            config,
-            snapshot,
-            source_profile_id,
-            &schema_hash,
-            &watermark,
-            snapshot_artifacts,
-            source_evidence_plans,
-            allow_checkpoint,
-        );
+    match snapshot.profile.browser_family.as_str() {
+        "chromium" | "firefox" | "safari" => {
+            let mut consumer =
+                ArchiveChunkConsumer::new(archive, run_id, source_profile_id, &snapshot.profile);
+            let streamed = match snapshot.profile.browser_family.as_str() {
+                "chromium" => chromium::stream_history(
+                    &HistoryDatabaseSet {
+                        history_path: snapshot.history_path.clone(),
+                        favicons_path: if config.capture_favicons {
+                            snapshot.favicons_path.clone()
+                        } else {
+                            None
+                        },
+                    },
+                    ChromiumReadCursor {
+                        after_visit_id: watermark.last_visit_id,
+                        after_url_last_visit_time: watermark.last_url_last_visit_time,
+                        after_download_id: watermark.last_download_id,
+                        after_favicon_last_updated: watermark.last_favicon_last_updated,
+                    },
+                    ARCHIVE_STREAM_CHUNK_SIZE,
+                    &mut consumer,
+                ),
+                "firefox" => firefox::stream_history(
+                    &snapshot.history_path,
+                    watermark.last_visit_id,
+                    watermark.last_url_last_visit_time,
+                    ARCHIVE_STREAM_CHUNK_SIZE,
+                    &mut consumer,
+                ),
+                "safari" => safari::stream_history(
+                    &snapshot.history_path,
+                    watermark.last_visit_id,
+                    watermark.last_url_last_visit_time,
+                    ARCHIVE_STREAM_CHUNK_SIZE,
+                    &mut consumer,
+                ),
+                _ => unreachable!(),
+            }
+            .map_err(|error| match error {
+                StreamHistoryError::Parse(error) => anyhow::Error::new(error),
+                StreamHistoryError::Consumer(error) => error,
+            })
+            .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;
+            let progress = consumer.finish()?;
+            return process_streamed_profile_snapshot(
+                archive,
+                run_id,
+                paths,
+                config,
+                snapshot,
+                source_profile_id,
+                &schema_hash,
+                &watermark,
+                snapshot_artifacts,
+                source_evidence_plans,
+                allow_checkpoint,
+                streamed,
+                progress,
+            );
+        }
+        _ => {}
     }
     let parsed_snapshot = parse_profile_snapshot(snapshot, config, &watermark)
         .with_context(|| format!("parsing {} staging copy", snapshot.profile.browser_name))?;

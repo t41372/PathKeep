@@ -6,14 +6,15 @@
 
 use crate::{
     ParseError, ParsedHistory,
-    observation::{capability_snapshot, capture_native_rows, inspect_schema},
+    observation::{capability_snapshot, capture_native_row, capture_native_rows, inspect_schema},
     types::{
-        CapabilityCoverage, DatabaseInspection, ParsedUrl, ParsedVisit, ParserWarning,
-        TypedEvidenceBatch,
+        CapabilityCoverage, DatabaseInspection, HistoryBatchConsumer, ParsedUrl, ParsedVisit,
+        ParserWarning, StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, Row, params};
+use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
@@ -67,6 +68,30 @@ ORDER BY history_visits.id ASC
 "#;
 const SAFARI_UNIX_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
 
+#[derive(Debug, Default)]
+struct SafariHistoryCollector {
+    urls: Vec<ParsedUrl>,
+    visits: Vec<ParsedVisit>,
+}
+
+impl HistoryBatchConsumer for SafariHistoryCollector {
+    type Error = Infallible;
+
+    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+        self.urls.extend(batch);
+        Ok(())
+    }
+
+    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        self.visits.extend(batch);
+        Ok(())
+    }
+}
+
+fn stream_sql<T, E>(result: Result<T, rusqlite::Error>) -> Result<T, StreamHistoryError<E>> {
+    result.map_err(ParseError::from).map_err(StreamHistoryError::Parse)
+}
+
 /// Inspects a Safari `History.db` file and reports required-table coverage.
 pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     let connection = open_readonly(path)?;
@@ -101,43 +126,104 @@ pub fn parse_history(
     after_visit_id: i64,
     after_url_last_visit_ms: i64,
 ) -> Result<ParsedHistory, ParseError> {
+    let mut collector = SafariHistoryCollector::default();
+    let streamed =
+        stream_history(path, after_visit_id, after_url_last_visit_ms, 10_000, &mut collector)
+            .map_err(|error| match error {
+                StreamHistoryError::Parse(error) => error,
+                StreamHistoryError::Consumer(never) => match never {},
+            })?;
+    Ok(ParsedHistory {
+        inspection: streamed.inspection,
+        schema_observation: streamed.schema_observation,
+        capability_snapshot: streamed.capability_snapshot,
+        urls: collector.urls,
+        visits: collector.visits,
+        downloads: Vec::new(),
+        search_terms: Vec::new(),
+        favicons: Vec::new(),
+        typed_evidence: streamed.typed_evidence,
+        native_entities: streamed.native_entities,
+        warnings: streamed.warnings,
+    })
+}
+
+/// Streams Safari URL and visit rows into a caller-provided batch consumer.
+pub fn stream_history<C>(
+    path: &Path,
+    after_visit_id: i64,
+    after_url_last_visit_ms: i64,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["history_items", "history_visits"])?;
     validate_required_tables(&inspection)?;
 
     let connection = open_readonly(path)?;
-    let urls = parse_urls(&connection, after_url_last_visit_ms)?;
-    let visits = parse_visits(&connection, after_visit_id)?;
+    let chunk_size = chunk_size.max(1);
+    let warnings = inspection.warnings.clone();
+    let mut visit_count = 0usize;
     let typed_evidence = TypedEvidenceBatch::default();
-    let capability_snapshot = capability_snapshot(vec![CapabilityCoverage {
-        key: "canonical.history_visits".to_string(),
-        available: !visits.is_empty(),
-        populated_rows: visits.len(),
-        total_rows: visits.len(),
-        notes: vec!["Safari History.db baseline".to_string()],
-    }]);
-    let mut native_entities = capture_native_rows(
-        &connection,
-        r#"SELECT * FROM history_items
-           WHERE EXISTS (
-             SELECT 1
-             FROM history_visits
-             WHERE history_visits.history_item = history_items.id
-           )"#,
-        &[],
-        "safari-history-item-row",
-        "id",
-        None,
-    )?;
-    native_entities.extend(capture_native_rows(
-        &connection,
-        "SELECT * FROM history_visits WHERE id > ?1 ORDER BY id ASC",
-        &[&after_visit_id],
-        "safari-history-visit-row",
-        "id",
-        Some("history_item"),
-    )?);
+    let mut native_entities = Vec::new();
+
+    {
+        let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
+        let column_names =
+            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        let mut rows =
+            stream_sql(statement.query(params![unix_ms_to_safari_time(after_url_last_visit_ms)]))?;
+        let mut batch = Vec::with_capacity(chunk_size);
+        while let Some(row) = stream_sql(rows.next())? {
+            batch.push(stream_sql(parsed_url_from_row(row))?);
+            native_entities.push(stream_sql(capture_native_row(
+                row,
+                &column_names,
+                "safari-history-item-row",
+                "id",
+                None,
+            ))?);
+            if batch.len() >= chunk_size {
+                consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+            }
+        }
+        if !batch.is_empty() {
+            consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+
+    {
+        let mut statement = stream_sql(connection.prepare(VISITS_SQL))?;
+        let column_names =
+            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
+        let mut batch = Vec::with_capacity(chunk_size);
+        while let Some(row) = stream_sql(rows.next())? {
+            let visit = stream_sql(parsed_visit_from_row(row))?;
+            visit_count += 1;
+            native_entities.push(stream_sql(capture_native_row(
+                row,
+                &column_names,
+                "safari-history-visit-row",
+                "id",
+                Some("history_item"),
+            ))?);
+            batch.push(visit);
+            if batch.len() >= chunk_size {
+                consumer
+                    .visits(std::mem::take(&mut batch))
+                    .map_err(StreamHistoryError::Consumer)?;
+            }
+        }
+        if !batch.is_empty() {
+            consumer.visits(batch).map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+
     for optional_table in ["history_tombstones", "history_tags", "history_items_to_tags"] {
         if inspection.table_names.iter().any(|existing| existing == optional_table) {
             let sql = format!("SELECT * FROM {optional_table}");
@@ -153,18 +239,20 @@ pub fn parse_history(
         }
     }
 
-    Ok(ParsedHistory {
-        inspection: inspection.clone(),
+    let capability_snapshot = capability_snapshot(vec![CapabilityCoverage {
+        key: "canonical.history_visits".to_string(),
+        available: visit_count > 0,
+        populated_rows: visit_count,
+        total_rows: visit_count,
+        notes: vec!["Safari History.db baseline".to_string()],
+    }]);
+    Ok(StreamedHistory {
+        inspection,
         schema_observation,
         capability_snapshot,
-        urls,
-        visits,
-        downloads: Vec::new(),
-        search_terms: Vec::new(),
-        favicons: Vec::new(),
         typed_evidence,
         native_entities,
-        warnings: inspection.warnings,
+        warnings,
     })
 }
 
@@ -185,25 +273,6 @@ pub fn safari_time_to_iso(value: f64) -> String {
         .single()
         .unwrap_or_else(|| Utc.timestamp_opt(0, 0).single().expect("unix epoch"))
         .to_rfc3339()
-}
-
-fn parse_urls(
-    connection: &Connection,
-    after_url_last_visit_ms: i64,
-) -> Result<Vec<ParsedUrl>, ParseError> {
-    let mut statement = connection.prepare(URLS_SQL)?;
-    let rows = statement
-        .query_map(params![unix_ms_to_safari_time(after_url_last_visit_ms)], parsed_url_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-}
-
-fn parse_visits(
-    connection: &Connection,
-    after_visit_id: i64,
-) -> Result<Vec<ParsedVisit>, ParseError> {
-    let mut statement = connection.prepare(VISITS_SQL)?;
-    let rows = statement.query_map(params![after_visit_id], parsed_visit_from_row)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 fn open_readonly(path: &Path) -> Result<Connection, ParseError> {
