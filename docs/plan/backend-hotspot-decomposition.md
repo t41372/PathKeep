@@ -49,6 +49,7 @@
 
 - Split `intelligence_runtime.rs` into queue writes, recovery, runtime snapshot reads, and module/plugin runtime ownership.
 - Preserve the `IntelligenceRuntimeSnapshot` contract and job ids / job-type semantics.
+- 2026-04-22 landed: `src-tauri/crates/vault-core/src/intelligence_runtime.rs` is now `intelligence_runtime/{mod,enqueue,claims,job_control,recovery,snapshot,tests_queue,tests_runtime}.rs`. Queue writes, compare-and-set claims, lease recovery, runtime snapshot reads, and runtime regression coverage now have distinct owners while preserving `load_intelligence_runtime`, retry/cancel controls, and worker claim semantics.
 
 ### Slice 4 — Core archive ingest boundary
 
