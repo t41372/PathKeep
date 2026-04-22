@@ -398,6 +398,15 @@ fn recognize_and_parse_takeout_payloads() {
     .expect("collect");
     assert_eq!(records.records.len(), 1);
     assert_eq!(records.records[0].title.as_deref(), Some("Example"));
+
+    let report = parse_payload_report(
+        "fixture.json",
+        "browser-json",
+        br#"{"BrowserHistory":[{"titleUrl":"https://example.com","pageTitle":"Example","visitedAt":"2026-04-01T10:00:00+00:00"}]}"#,
+    )
+    .expect("parse report");
+    assert_eq!(report.record_count, 1);
+    assert_eq!(report.history.visits.len(), 1);
 }
 
 #[test]

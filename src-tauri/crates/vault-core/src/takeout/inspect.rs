@@ -133,9 +133,31 @@ pub(super) fn collect_records_from_payload(
     kind: &str,
     bytes: &[u8],
 ) -> Result<CollectedPayload> {
-    let report = parse_takeout_payload(source_path, kind, bytes)
-        .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))?;
-    let records = report
+    let report = parse_payload_report(source_path, kind, bytes)?;
+    let records = preview_records_from_report(source_path, &report);
+    Ok(CollectedPayload {
+        skipped_missing_visit_time: report.skipped_missing_visit_time,
+        records,
+        report,
+    })
+}
+
+/// Parses one recognized Takeout payload without allocating inspection preview rows.
+pub(super) fn parse_payload_report(
+    source_path: &str,
+    kind: &str,
+    bytes: &[u8],
+) -> Result<TakeoutPayloadReport> {
+    parse_takeout_payload(source_path, kind, bytes)
+        .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))
+}
+
+/// Builds the lightweight preview rows used by inspect/review surfaces from a parser report.
+fn preview_records_from_report(
+    source_path: &str,
+    report: &TakeoutPayloadReport,
+) -> Vec<ParsedTakeoutRecord> {
+    report
         .history
         .visits
         .iter()
@@ -146,12 +168,7 @@ pub(super) fn collect_records_from_payload(
             visited_at: visit.visit_time_iso.clone(),
             source_visit_id: visit.source_visit_id,
         })
-        .collect();
-    Ok(CollectedPayload {
-        skipped_missing_visit_time: report.skipped_missing_visit_time,
-        records,
-        report,
-    })
+        .collect()
 }
 
 /// Enumerates all file candidates contained in a Takeout directory or zip source.

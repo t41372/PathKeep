@@ -10,14 +10,14 @@
 
 ## Current hotspot snapshot
 
-| File                                                      | Current line count | Primary risk                                                                     |
-| --------------------------------------------------------- | -----------------: | -------------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module        |
-| `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together     |
-| `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed  |
+| File                                                      | Current line count | Primary risk                                                                              |
+| --------------------------------------------------------- | -----------------: | ----------------------------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module                 |
+| `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together              |
+| `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together          |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed           |
 | `src-tauri/crates/vault-core/src/archive/mod.rs`          |               1299 | Backup execution, manifest/checkpoint helpers, retention, and recoverability remain mixed |
-| `src-tauri/crates/vault-core/src/takeout/import_flow.rs`  |                639 | Takeout execution path is isolated now, but import batching / rollback detail still over the 600-line limit |
+| `src-tauri/crates/vault-core/src/takeout/batches.rs`      |                629 | Takeout batch review, audit artifact repair, revert, and restore logic remain mixed       |
 
 ## Sequencing
 
@@ -27,6 +27,7 @@
 - Keep Tauri command names, worker entrypoints, serde payloads, audit artifact format, and import-batch behavior unchanged.
 - Use this slice to establish the doc-comment standard for newly split backend modules.
 - 2026-04-21 landed: `src-tauri/crates/vault-core/src/takeout.rs` is now `takeout/{mod,inspect,import_flow,batches,tests}.rs`, and the targeted Takeout Rust regression suite passed after the split.
+- 2026-04-21 follow-up landed: import execution no longer goes through the inspection preview helper. `takeout/import_flow.rs` now delegates payload parsing/writes to `takeout/payload_import.rs`, so import avoids allocating a second visit-sized preview vector and source-evidence plans take ownership of the parsed history instead of cloning it.
 
 ### Slice 2 — Parser and ingest streaming boundary
 

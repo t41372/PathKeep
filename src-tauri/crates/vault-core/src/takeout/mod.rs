@@ -26,6 +26,7 @@
 mod batches;
 mod import_flow;
 mod inspect;
+mod payload_import;
 
 #[cfg(test)]
 mod tests;
@@ -77,8 +78,9 @@ pub(crate) use self::batches::ensure_import_batch_audit_artifact;
 use self::{
     batches::load_import_batch_record,
     inspect::{
-        collect_records_from_payload, gather_takeout_files, preview_entry_from_payload,
-        quarantine_file, quarantine_takeout_file, read_zip_entry, recognize_takeout_file,
+        collect_records_from_payload, gather_takeout_files, parse_payload_report,
+        preview_entry_from_payload, quarantine_file, quarantine_takeout_file, read_zip_entry,
+        recognize_takeout_file,
     },
 };
 
