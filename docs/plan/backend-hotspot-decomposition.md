@@ -10,13 +10,12 @@
 
 ## Current hotspot snapshot
 
-| File                                                      | Current line count | Primary risk                                                                           |
-| --------------------------------------------------------- | -----------------: | -------------------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`     |              11043 | Schema + rebuild + read models + explainability collapsed into one module              |
-| `src-tauri/crates/vault-core/src/intelligence_runtime.rs` |               2222 | Queue schema, recovery, runtime snapshot, module/plugin state mixed together           |
-| `src-tauri/crates/vault-core/src/ai.rs`                   |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed together       |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`       |               1636 | AI queue execution, deterministic queue execution, query pass-through all mixed        |
-| `src-tauri/crates/vault-core/src/deterministic.rs`        |               1528 | URL normalization, query extraction, tokenization, and taxonomy rules still co-located |
+| File                                                  | Current line count | Primary risk                                                                 |
+| ----------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               7703 | Structural rebuild internals and many query/read-model helpers still mixed   |
+| `src-tauri/crates/vault-core/src/ai.rs`               |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed      |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`   |               1636 | AI queue execution, deterministic queue execution, query pass-through mixed  |
+| `src-tauri/crates/vault-core/src/deterministic.rs`    |               1528 | URL normalization, query extraction, tokenization, taxonomy rules co-located |
 
 ## Sequencing
 
@@ -66,6 +65,7 @@
 - Do not reopen route, payload, or frontend grammar decisions already accepted in M6-M13.
 - 2026-04-22 landed: the first `intelligence/mod.rs` cut extracted the route-facing overview/read-model layer into `intelligence_{overview,summary,domain,outputs}.rs`. `/intelligence` staged overview composition, digest/stable-source/search-effectiveness reads, domain/discovery/on-this-day surfaces, and export payload builders now have distinct owners while preserving the existing public query surface and runtime-loading contract.
 - 2026-04-22 follow-up landed: the next cut extracted `intelligence_{refind,explain,explain_helpers}.rs`, so refind detail payloads, `explain_entity`, and explanation-only helper loaders now have dedicated owners too. The remaining `intelligence/mod.rs` hotspot is now concentrated around schema/bootstrap plus rebuild-stage ownership rather than route-facing explanation code.
+- 2026-04-22 schema/rebuild follow-up landed: the next cut extracted `intelligence_{schema,schema_sql,rebuild}.rs`, so schema bootstrap, derived-state clear, public rebuild entrypoints, legacy scoped fallback, and runtime-ready module updates no longer live inside `intelligence/mod.rs`. The parent module is now down to `7703` lines, and the remaining hotspot is concentrated around structural rebuild internals plus query/read-model helper clusters rather than top-level orchestration.
 
 ### Slice 6 — AI and worker follow-through
 

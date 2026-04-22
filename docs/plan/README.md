@@ -73,6 +73,8 @@
 > **2026-04-22 intelligence read-model note**：同一天的下一個 execution slice 又把 `src-tauri/crates/vault-core/src/intelligence/mod.rs` 的 route-facing read-model layer 抽成 `intelligence_{overview,summary,domain,outputs}.rs`。`/intelligence` staged overview、digest/stable-source/search-effectiveness、domain/deep-dive/discovery/on-this-day、以及 embed/widget/public snapshot payload 現在都有明確 owner；`intelligence/mod.rs` 本體也先從 `11043` 行降到 `9761` 行，接下來的 backend giant-file focus 更集中在 explain 與 rebuild 路徑。
 >
 > **2026-04-22 intelligence explain note**：同一天的再下一個 execution slice 又把 `intelligence/mod.rs` 的 refind/detail/explain surfaces 拆成 `intelligence_{refind,explain,explain_helpers}.rs`。refind page detail、`explain_entity` 與 explanation-only visit-id / entity-id helper 現在都各有 owner，`intelligence/mod.rs` 因而再降到 `8848` 行；剩餘真正的 giant-file 風險更明確地只剩 schema/bootstrap 與 rebuild-stage orchestration。
+>
+> **2026-04-22 intelligence rebuild note**：同一天的後續 execution slice 又把 `intelligence/mod.rs` 的 schema/bootstrap 與 rebuild orchestration 抽成 `intelligence_{schema,schema_sql,rebuild}.rs`。migration/bootstrap、derived-state clear、public rebuild entrypoints、legacy scoped fallback、以及 runtime-ready update ownership 現在都有獨立 module owner；`intelligence/mod.rs` 也因此再降到 `7703` 行，剩餘 backend giant-file 風險更集中在 structural rebuild internals 與 query/read-model helpers。
 
 ---
 
