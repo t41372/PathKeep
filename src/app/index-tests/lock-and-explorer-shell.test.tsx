@@ -180,10 +180,18 @@ describe('App shell', () => {
     )
     await waitFor(() =>
       expect(
-        screen.getByRole('spinbutton', {
-          name: 'Page number',
-        }),
-      ).toHaveValue(3),
+        screen
+          .getAllByRole('spinbutton', {
+            name: 'Page number',
+          })
+          .every(
+            (input) =>
+              Number(
+                input.getAttribute('value') ??
+                  (input as HTMLInputElement).value,
+              ) === 3,
+          ),
+      ).toBe(true),
     )
     await waitFor(() =>
       expect(document.querySelectorAll('.record-item')).toHaveLength(50),
@@ -193,42 +201,60 @@ describe('App shell', () => {
     expect(scrollContainer).toBeInstanceOf(HTMLElement)
     expectHtmlElement(scrollContainer).scrollTop = 240
 
-    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    await user.click(screen.getAllByRole('button', { name: 'Next page' })[0])
     await waitFor(() =>
       expect(router.state.location.search).toContain('page=4'),
     )
     await waitFor(() =>
       expect(
-        screen.getByRole('spinbutton', {
-          name: 'Page number',
-        }),
-      ).toHaveValue(4),
+        screen
+          .getAllByRole('spinbutton', {
+            name: 'Page number',
+          })
+          .every(
+            (input) =>
+              Number(
+                input.getAttribute('value') ??
+                  (input as HTMLInputElement).value,
+              ) === 4,
+          ),
+      ).toBe(true),
     )
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Go' })).toBeEnabled(),
+      expect(screen.getAllByRole('button', { name: 'Go' })[0]).toBeEnabled(),
     )
     expect(expectHtmlElement(scrollContainer).scrollTop).toBe(240)
 
-    const pageInput = screen.getByRole('spinbutton', {
+    const pageInput = screen.getAllByRole('spinbutton', {
       name: 'Page number',
-    })
+    })[0]
     fireEvent.change(pageInput, { target: { value: '8' } })
-    await user.click(screen.getByRole('button', { name: 'Go' }))
+    await user.click(screen.getAllByRole('button', { name: 'Go' })[0])
 
     await waitFor(() =>
       expect(router.state.location.search).toContain('page=8'),
     )
     await waitFor(() =>
       expect(
-        screen.getByRole('spinbutton', {
-          name: 'Page number',
-        }),
-      ).toHaveValue(8),
+        screen
+          .getAllByRole('spinbutton', {
+            name: 'Page number',
+          })
+          .every(
+            (input) =>
+              Number(
+                input.getAttribute('value') ??
+                  (input as HTMLInputElement).value,
+              ) === 8,
+          ),
+      ).toBe(true),
     )
     await waitFor(() =>
       expect(document.querySelectorAll('.record-item')).toHaveLength(25),
     )
-    expect(screen.getByRole('button', { name: 'Last page' })).toBeDisabled()
+    expect(
+      screen.getAllByRole('button', { name: 'Last page' })[0],
+    ).toBeDisabled()
   })
 
   test('submitting the topbar search navigates into explorer without crashing', async () => {
