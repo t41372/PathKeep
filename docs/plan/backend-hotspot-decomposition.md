@@ -10,14 +10,13 @@
 
 ## Current hotspot snapshot
 
-| File                                                              | Current line count | Primary risk                                                                 |
-| ----------------------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`             |               2583 | Export surface, core record types, and regression suite still co-located     |
-| `src-tauri/crates/vault-core/src/deterministic.rs`                |               1528 | URL normalization, query extraction, tokenization, taxonomy rules co-located |
-| `src-tauri/crates/vault-core/src/models/core_intelligence.rs`     |               1175 | DTO families for multiple surfaces still co-located                          |
-| `src-tauri/crates/vault-core/src/remote.rs`                       |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed               |
-| `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` |               1091 | Search-engine rules, normalization, and override glue still co-located       |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`               |                124 | Thin façade after queue/runtime and read-surface splits                      |
+| File                                                              | Current line count | Primary risk                                                             |
+| ----------------------------------------------------------------- | -----------------: | ------------------------------------------------------------------------ |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`             |               2583 | Export surface, core record types, and regression suite still co-located |
+| `src-tauri/crates/vault-core/src/models/core_intelligence.rs`     |               1175 | DTO families for multiple surfaces still co-located                      |
+| `src-tauri/crates/vault-core/src/remote.rs`                       |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed           |
+| `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` |               1091 | Search-engine rules, normalization, and override glue still co-located   |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`               |                124 | Thin façade after queue/runtime and read-surface splits                  |
 
 ## Sequencing
 
@@ -81,6 +80,13 @@
 - 2026-04-22 AI follow-through landed: `vault-core/src/ai.rs` is now a `199`-line façade with `ai/{control,provider,indexing,ledger,search,read_model}.rs` owning provider probes, semantic index builds, run-ledger bookkeeping, semantic search, and assistant tool orchestration. The remaining backend hotspot map no longer treats `ai.rs` as a first-order mega-file; the next real owners to revisit are `intelligence/mod.rs`, `deterministic.rs`, and the still-mixed DTO / remote helper surfaces.
 - 2026-04-22 worker read-surface follow-through landed: `vault-worker/src/intelligence.rs` is now down to `124` lines after moving route-level and section-level passthroughs into `intelligence/{route_queries,section_queries}.rs`. The worker-side hotspot is no longer a mixed mega-file; further worker cleanup is now optional follow-up rather than the next stop-ship backend risk.
 - With the `intelligence/mod.rs` helper-cluster cut now landed, `WORK-BE-B` is effectively complete. The next backend block should shift to the remaining oversized support files (`deterministic.rs`, `models/core_intelligence.rs`, `remote.rs`, `site_dictionary.rs`) plus the still-embedded `intelligence/mod.rs` regression suite, rather than revisiting worker or AI boundaries that now already have dedicated owners.
+
+### Slice 7 — Deterministic and support-file cleanup
+
+- Split remaining oversized support files without reopening Tauri command, worker, serde, or Core Intelligence route contracts.
+- Treat `deterministic.rs` first because site-dictionary classification consumes its taxonomy, URL normalization, query extraction, and tokenization helpers.
+- 2026-04-23 deterministic slice landed: `src-tauri/crates/vault-core/src/deterministic.rs` is now `deterministic/{mod,types,url,text,rules,classification,tests}.rs`. The public `crate::deterministic::*` façade stayed stable, the taxonomy version / rule-pack semantics stayed unchanged, and the largest new owner is `rules.rs` at `535` lines.
+- Next support-file order: `intelligence/site_dictionary.rs`, then `models/core_intelligence.rs`, then `remote.rs`, then the still-embedded `intelligence/mod.rs` regression suite / support-type split.
 
 ## Non-negotiable invariants
 

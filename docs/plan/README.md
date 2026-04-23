@@ -88,6 +88,8 @@
 
 > **2026-04-22 backend helper-cluster closeout note**：`WORK-BE-B` 現在也已把 `intelligence/mod.rs` 的 residual helper clusters 抽成 `intelligence_{shared,visit_records,visit_derive,daily_rollup_state,daily_rollups,core_persist}.rs`。shared date/query heuristics、visit-derived stage、daily-rollup stage、以及 scoped full-rebuild persistence 現在都已有 focused owner，`intelligence/mod.rs` 因而進一步降到 `2583` 行，只剩 exported surface、core record types、batch cursors、常數與 regression suite；下一個 active backend block 已切到 `WORK-BE-C`，focus 改成剩餘 oversized support files 與 `intelligence/mod.rs` 內嵌 regression suite。
 
+> **2026-04-23 deterministic boundary note**：`WORK-BE-C` 的第一個 execution slice 已把 `src-tauri/crates/vault-core/src/deterministic.rs` 拆成 `deterministic/{mod,types,url,text,rules,classification,tests}.rs`。`crate::deterministic::*` public façade、taxonomy version、URL normalization、query extraction、tokenization 與 built-in rule semantics 都維持不變；下一個 backend support hotspot 改成 `intelligence/site_dictionary.rs`。
+
 ---
 
 ## 先看哪裡
