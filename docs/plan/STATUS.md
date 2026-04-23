@@ -43,6 +43,8 @@
     `docs/architecture/tech-stack.md`
   - 目標：把 `intelligence/mod.rs` 剩餘的 query/read-model helper clusters、host-artifact ownership，以及 `vault-worker/src/intelligence.rs` / `src-tauri/crates/vault-core/src/ai.rs` 的 mixed orchestration 再往外拆，讓 backend giant-file 風險從 core intelligence parent module 正式轉移到更小的明確 owner。
   - 契約：維持現有 Tauri command、worker CLI、serde payload、Core Intelligence query ids / rebuild semantics、`IntelligenceRuntimeSnapshot` 與 off-main-thread background task contract 穩定；不得因為 giant-file 拆分而重開已接受的 `/intelligence` route / payload grammar。
+  - 2026-04-22 progress：第一個 execution slice 已把 `intelligence/mod.rs` 的 read-model 半邊拆成 `intelligence_{sessions,navigation,search_metrics,search_queries}.rs`，並把 domain-only helper (`get_domain_trend`、`load_domain_visits`、`build_domain_flows`、`path_from_url`) 收回 `intelligence_domain.rs`。這讓 parent module 再從 `5561` 行降到 `4508` 行，且所有新文件都留在 `600` 行硬限制內；既有 Tauri command、worker caller、query payload 與 overview/refind composition contract 都維持不變。
+  - 2026-04-22 worker follow-through：同一天的下一個 execution slice 也已把 `src-tauri/crates/vault-worker/src/intelligence.rs` 從單個 `1636` 行 giant-file 拆成薄 façade `intelligence.rs` (`789` 行) 加上 `intelligence/{ai_queue,runtime}.rs`。AI queue / assistant / semantic-search orchestration 與 deterministic runtime queue / retry / cancel / snapshot ownership 現在都有明確 owner；`archive_flows` 仍沿用同一組 `maybe_spawn_*` helpers，`vault-worker` 的 public export surface 也維持不變。`WORK-BE-B` 的剩餘 focus 因此更明確地收斂到 residual query passthrough clustering 與 `src-tauri/crates/vault-core/src/ai.rs`。
   - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 
 - [ ] **WORK-M13-B** — Shared Support / Workflow Composition Extraction

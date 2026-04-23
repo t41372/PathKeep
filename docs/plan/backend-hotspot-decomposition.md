@@ -12,9 +12,9 @@
 
 | File                                                  | Current line count | Primary risk                                                                 |
 | ----------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               5561 | Query/read-model helper clusters still mixed after structural owner splits    |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               4508 | Remaining helper clusters still mixed after structural and read-model splits |
 | `src-tauri/crates/vault-core/src/ai.rs`               |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed      |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`   |               1636 | AI queue execution, deterministic queue execution, query pass-through mixed  |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`   |                789 | Residual query pass-through still mixed after queue/runtime split            |
 | `src-tauri/crates/vault-core/src/deterministic.rs`    |               1528 | URL normalization, query extraction, tokenization, taxonomy rules co-located |
 
 ## Sequencing
@@ -67,12 +67,14 @@
 - 2026-04-22 follow-up landed: the next cut extracted `intelligence_{refind,explain,explain_helpers}.rs`, so refind detail payloads, `explain_entity`, and explanation-only helper loaders now have dedicated owners too. The remaining `intelligence/mod.rs` hotspot is now concentrated around schema/bootstrap plus rebuild-stage ownership rather than route-facing explanation code.
 - 2026-04-22 schema/rebuild follow-up landed: the next cut extracted `intelligence_{schema,schema_sql,rebuild}.rs`, so schema bootstrap, derived-state clear, public rebuild entrypoints, legacy scoped fallback, and runtime-ready module updates no longer live inside `intelligence/mod.rs`. The parent module dropped to `7703` lines, and the remaining hotspot was concentrated around structural rebuild internals plus query/read-model helper clusters rather than top-level orchestration.
 - 2026-04-22 structural follow-up landed: the next cut extracted `intelligence_structural_{state,build,aggregates,persist,stream,stage}.rs`, giving structural rebuild state machines, streamed replay, write-side replacements, and stage orchestration distinct owners. `intelligence/mod.rs` is now down to `5561` lines, and every newly created structural module is back under the repo's `600`-line hard stop.
+- 2026-04-22 read-model follow-up landed: the next cut extracted `intelligence_{sessions,navigation,search_metrics,search_queries}.rs` and moved domain-only helpers into `intelligence_domain.rs`. Session/trail detail reads, navigation-path reconstruction, search engine/rule/concept surfaces, and recent-search/query-family reads now have distinct owners, which brings `intelligence/mod.rs` down to `4508` lines without changing Tauri/worker/query contracts.
 
 ### Slice 6 — AI and worker follow-through
 
 - Split `ai.rs`, `ai_queue.rs`, and `vault-worker/src/intelligence.rs` after the archive/intelligence core boundaries are clearer.
 - Treat `remote.rs`, `models/core_intelligence.rs`, and dev-only bridge surfaces as follow-up cleanup, not first blockers.
-- As of 2026-04-22, this is now the main remaining backend hotspot after the `intelligence/mod.rs` structural split; the next active block should treat worker passthrough/orchestration and `ai.rs` mixed ownership as first-order cleanup, not optional polish.
+- As of 2026-04-22, this is now the main remaining backend hotspot after the `intelligence/mod.rs` structural split; the next active block should treat worker passthrough clustering and `ai.rs` mixed ownership as first-order cleanup, not optional polish.
+- 2026-04-22 worker follow-through landed: `vault-worker/src/intelligence.rs` is now a `789`-line façade with `intelligence/{ai_queue,runtime}.rs` owning queue/search/assistant orchestration and deterministic runtime control. The remaining worker-side hotspot is no longer queue execution itself; it is the still-mixed read-surface passthrough layer that sits above those dedicated owners.
 
 ## Non-negotiable invariants
 

@@ -24,17 +24,17 @@
 //!   never materializes visit-level rows for charting.
 
 use super::{
-    build_domain_flows, collapse_date_key, date_range_bounds, display_name_for_domain,
-    ensure_core_intelligence_schema, load_domain_visits, local_date_key,
-    local_datetime_from_millis, path_from_url,
+    VisitRecord, collapse_date_key, date_range_bounds, display_name_for_domain,
+    ensure_core_intelligence_schema, local_date_key, local_datetime_from_millis,
 };
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
     models::{
         AppConfig, ArrivalBreakdown, CategoryFilteredDateRangeRequest, DiscoveryTrend,
-        DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainPageStat, DomainTrend,
-        DomainTrendPoint, DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell,
+        DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat, DomainPageStat,
+        DomainTrend, DomainTrendPoint, DomainTrendRequest, OnThisDayEntry, RhythmHeatmap,
+        RhythmHeatmapCell,
     },
 };
 use anyhow::Result;
@@ -311,7 +311,8 @@ pub(crate) fn get_on_this_day_with_connection(
         .collect())
 }
 
-fn get_domain_trend(
+/// Returns one domain's day-level visit trend for the requested date window.
+pub fn get_domain_trend(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -335,4 +336,111 @@ fn get_domain_trend(
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(DomainTrend { registrable_domain: request.registrable_domain.clone(), points })
+}
+
+/// Loads the bounded canonical visit slice for one registrable domain and one
+/// date window.
+pub(super) fn load_domain_visits(
+    connection: &Connection,
+    domain: &str,
+    profile_id: Option<&str>,
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<Vec<VisitRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT visits.id, visit_derived_facts.profile_id, visits.source_profile_id, CAST(visits.source_visit_id AS INTEGER),
+                urls.id, urls.url, urls.title, visits.visit_time_ms, visits.from_visit, visits.transition_type,
+                visits.external_referrer_url, visit_derived_facts.canonical_url, visit_derived_facts.registrable_domain,
+                visit_derived_facts.domain_category, visit_derived_facts.page_category, visit_derived_facts.search_engine,
+                visit_derived_facts.search_query, visit_derived_facts.is_new_domain, visit_derived_facts.is_search_event,
+                visit_derived_facts.evidence_tier, visit_derived_facts.taxonomy_source, visit_derived_facts.taxonomy_pack,
+                visit_derived_facts.taxonomy_version, visit_derived_facts.session_id, visit_derived_facts.trail_id
+         FROM visit_derived_facts
+         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+         JOIN archive.urls AS urls ON urls.id = visits.url_id
+         WHERE visit_derived_facts.registrable_domain = ?1
+           AND visits.reverted_at IS NULL
+           AND (?2 IS NULL OR visit_derived_facts.profile_id = ?2)
+           AND visits.visit_time_ms >= ?3
+           AND visits.visit_time_ms < ?4
+         ORDER BY visits.visit_time_ms ASC, visits.id ASC",
+    )?;
+    statement
+        .query_map(params![domain, profile_id, start_ms, end_ms], |row| {
+            Ok(VisitRecord {
+                visit_id: row.get(0)?,
+                profile_id: row.get(1)?,
+                source_profile_id: row.get(2)?,
+                source_visit_id: row.get(3)?,
+                source_url_id: row.get(4)?,
+                url: row.get(5)?,
+                title: row.get(6)?,
+                visit_time_ms: row.get(7)?,
+                from_visit: row.get(8)?,
+                transition_type: row.get(9)?,
+                external_referrer_url: row.get(10)?,
+                canonical_url: row.get(11)?,
+                registrable_domain: row.get(12)?,
+                domain_category: row.get(13)?,
+                page_category: row.get(14)?,
+                search_engine: row.get(15)?,
+                search_query: row.get(16)?,
+                is_new_domain: row.get::<_, i64>(17)? != 0,
+                is_search_event: row.get::<_, i64>(18)? != 0,
+                evidence_tier: row.get(19)?,
+                taxonomy_source: row.get(20)?,
+                taxonomy_pack: row.get(21)?,
+                taxonomy_version: row.get(22)?,
+                display_name: display_name_for_domain(domain),
+                session_id: row.get(23)?,
+                trail_id: row.get(24)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// Summarizes cross-domain flows into and out of the current domain within one
+/// ordered visit slice.
+pub(super) fn build_domain_flows(
+    visits: &[VisitRecord],
+) -> (Vec<DomainFlowStat>, Vec<DomainFlowStat>) {
+    let mut referrers = HashMap::<String, i64>::new();
+    let mut exits = HashMap::<String, i64>::new();
+    for pair in visits.windows(2) {
+        let left = &pair[0];
+        let right = &pair[1];
+        if left.session_id != right.session_id {
+            continue;
+        }
+        if left.registrable_domain != right.registrable_domain {
+            *referrers.entry(left.registrable_domain.clone()).or_default() += 1;
+            *exits.entry(right.registrable_domain.clone()).or_default() += 1;
+        }
+    }
+    let map_to_stats = |input: HashMap<String, i64>| {
+        let mut stats = input
+            .into_iter()
+            .map(|(domain, count)| DomainFlowStat {
+                display_name: display_name_for_domain(&domain),
+                domain,
+                count,
+            })
+            .collect::<Vec<_>>();
+        stats.sort_by(|left, right| {
+            right.count.cmp(&left.count).then_with(|| left.domain.cmp(&right.domain))
+        });
+        stats.truncate(10);
+        stats
+    };
+    (map_to_stats(referrers), map_to_stats(exits))
+}
+
+/// Extracts the URL path portion used by the domain detail top-pages summary.
+pub(super) fn path_from_url(url: &str) -> String {
+    url.split("://")
+        .nth(1)
+        .and_then(|value| value.split_once('/'))
+        .map(|(_, path)| format!("/{}", path))
+        .unwrap_or_else(|| "/".to_string())
 }

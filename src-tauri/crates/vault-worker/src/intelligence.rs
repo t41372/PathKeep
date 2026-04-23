@@ -1,47 +1,42 @@
 //! Intelligence, queue, and derived-state worker flows.
 //!
-//! This module owns the worker-side orchestration for optional AI and
-//! deterministic intelligence features:
+//! ## Responsibilities
+//! - expose the worker-facing AI queue, deterministic rebuild, and read-model helpers
+//! - keep shared worker counters and section-meta helpers in one place
+//! - re-export focused owner modules so `vault-worker` stays a thin facade
 //!
-//! - provider connection tests and runtime resolution
-//! - semantic search / assistant execution
-//! - persisted AI queue draining, replay, cancel, and heartbeat
-//! - insights rebuild/load/explain entrypoints
-//! - enrichment/intelligence runtime controls surfaced in Settings
+//! ## Not responsible for
+//! - canonical archive schema or deterministic rebuild algorithms
+//! - Tauri command naming and desktop IPC payload design
+//! - platform adapters, keyring plumbing, or archive ingest orchestration
 //!
-//! The core product rule is that intelligence is additive. Failures here should
-//! not rewrite canonical archive facts, and background queue work must keep its
-//! run/job trace explicit so the UI can stay honest about stale, queued, or
-//! degraded states.
+//! ## Dependencies
+//! - `crate::context` for unlocked config access
+//! - `vault_core::intelligence` for deterministic read-model and rebuild logic
+//! - child modules `ai_queue` and `runtime` for heavy worker orchestration
+//!
+//! ## Performance notes
+//! - section helpers only read enough runtime metadata to label surfaces honestly
+//! - background worker counts stay in shared atomics so the worker never fans out
+//!   unbounded concurrency on a 4-core host
 
-use crate::context::{
-    ai_archive_connection, load_unlocked_config, provider_config_for_request,
-    queue_failure_from_error, resolve_provider_runtime, search_response_with_resolution_note,
-    selected_embedding_provider_runtime, selected_llm_provider_runtime,
-    selected_optional_embedding_runtime, tokio_runtime,
-};
-use crate::job_runtime::{BackgroundJobControl, maybe_spawn_worker_pool};
-use anyhow::{Context, Result};
+mod ai_queue;
+mod runtime;
+
+use crate::context::load_unlocked_config;
+use anyhow::Result;
 use chrono::Local;
-use serde_json::json;
-use std::{
-    sync::{Arc, atomic::AtomicUsize},
-    time::Duration,
-};
+use std::sync::atomic::AtomicUsize;
 use vault_core::{
-    ActivityMix, ActivityMixTrend, AiAssistantRequest, AiAssistantResponse, AiIndexReport,
-    AiIndexRequest, AiIntegrationPreview, AiProviderConnectionTestReport,
-    AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest,
-    AiSearchResponse, AppConfig, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
-    CompareSet, CompareSetDetail, CompareSetDetailRequest, CoreIntelligencePrimaryOverview,
-    CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
-    CoreIntelligenceSecondaryOverview, CoreIntelligenceSectionResult,
-    CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest, DigestSummary, DiscoveryTrend,
-    DomainDeepDive, DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
-    EntityExplanationRequest, Explanation, FrictionSignal, GranularityDateRangeRequest,
-    HabitPattern, HubPage, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview, IntelligenceLocalHostRequest,
-    IntelligencePublicSnapshot, IntelligenceRuntimeSnapshot, IntelligenceWidgetSnapshot,
+    ActivityMix, ActivityMixTrend, AppConfig, BreadthIndex, BrowserDiff,
+    CategoryFilteredDateRangeRequest, CompareSet, CompareSetDetail, CompareSetDetailRequest,
+    CoreIntelligencePrimaryOverview, CoreIntelligenceSecondaryOverview,
+    CoreIntelligenceSectionResult, CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest,
+    DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
+    DomainTrendRequest, EngineRanking, EntityExplanationRequest, Explanation, FrictionSignal,
+    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceEmbedCardPayload,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview,
+    IntelligenceLocalHostRequest, IntelligencePublicSnapshot, IntelligenceWidgetSnapshot,
     InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
     PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetail, QueryFamilyDetailRequest,
     QueryFamilyResult, RefindExplanation, RefindPage, RefindPageDetail, RefindPageDetailRequest,
@@ -49,678 +44,30 @@ use vault_core::{
     SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchEngineRule,
     SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult, SearchTrailQueryRequest,
     SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
-    TopSitesRequest, TrailDetail, TrailListResult, ai_queue, answer_history_question_with_control,
-    build_ai_index_with_control, build_core_intelligence_section_meta, cancel_intelligence_job,
-    execute_enrichment_job_by_id, intelligence, intelligence_job_stop_requested,
-    intelligence_runtime::{
-        DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
-        claim_core_intelligence_job, enqueue_deterministic_rebuild_job,
-        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
-        mark_running_intelligence_job_cancelled, next_queued_enrichment_job,
-        next_queued_intelligence_job, update_intelligence_job_artifact,
-    },
-    load_assistant_run_response, load_intelligence_runtime, preview_ai_integrations,
-    retry_intelligence_job, semantic_search_history, test_provider_connection,
+    TopSitesRequest, TrailDetail, TrailListResult, build_core_intelligence_section_meta,
+    intelligence,
+};
+
+pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
+pub use self::ai_queue::{
+    ask_ai_assistant, build_ai_index_now, cancel_ai_job, load_ai_assistant_job, load_ai_queue,
+    preview_ai_integration_files, replay_ai_job, run_ai_queue_jobs, search_ai_history,
+    test_ai_provider_connection_report,
+};
+pub(crate) use self::runtime::maybe_spawn_intelligence_queue_drain;
+pub use self::runtime::{
+    cancel_intelligence_job_now, load_intelligence_runtime_snapshot,
+    queue_core_intelligence_rebuild, retry_intelligence_job_now, run_core_intelligence_now,
 };
 
 static AI_QUEUE_ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
 static INTELLIGENCE_PRIORITY_WORKERS: AtomicUsize = AtomicUsize::new(0);
 static INTELLIGENCE_ENRICHMENT_WORKERS: AtomicUsize = AtomicUsize::new(0);
 
-fn start_ai_job_control(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    job_id: i64,
-) -> Arc<BackgroundJobControl> {
-    let paths = paths.clone();
-    let config = config.clone();
-    let session_database_key = session_database_key.map(ToOwned::to_owned);
-    Arc::new(BackgroundJobControl::spawn(
-        Duration::from_millis(500),
-        Duration::from_secs(30),
-        {
-            let paths = paths.clone();
-            let config = config.clone();
-            let session_database_key = session_database_key.clone();
-            move || {
-                let connection =
-                    ai_archive_connection(&paths, &config, session_database_key.as_deref())?;
-                ai_queue::heartbeat_ai_job(&connection, job_id)
-            }
-        },
-        move || {
-            let connection =
-                ai_archive_connection(&paths, &config, session_database_key.as_deref())?;
-            ai_queue::ai_job_stop_requested(&connection, job_id)
-        },
-    ))
-}
-
-/// Completes one claimed index job and writes the queue outcome back to SQLite.
-pub(crate) fn complete_claimed_index_job(
-    connection: &rusqlite::Connection,
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    claimed: ai_queue::StoredAiJob,
-    request: &AiIndexRequest,
-) -> Result<AiIndexReport> {
-    let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
-    let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
-    let result = tokio_runtime()?.block_on(build_ai_index_with_control(
-        paths,
-        config,
-        session_database_key,
-        &provider,
-        request,
-        Some(run_control.clone()),
-    ));
-    run_control.shutdown();
-
-    match result {
-        Ok(mut report) => {
-            report.job_id = Some(claimed.id);
-            let summary = format!(
-                "Indexed {} new / {} updated row(s).",
-                report.indexed_items, report.updated_items
-            );
-            let cancelled = if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
-                true
-            } else {
-                !ai_queue::mark_ai_job_succeeded(
-                    connection,
-                    claimed.id,
-                    report.run_id,
-                    Some(summary.as_str()),
-                )?
-            };
-            if cancelled {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
-                    claimed.id,
-                    Some("Index build cancelled from the UI."),
-                )?;
-            }
-            Ok(report)
-        }
-        Err(error) => {
-            let failure = queue_failure_from_error(&error);
-            if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
-                    claimed.id,
-                    Some("Index build cancelled from the UI."),
-                )?;
-            } else {
-                ai_queue::mark_ai_job_failed(
-                    connection,
-                    claimed.id,
-                    None,
-                    &failure,
-                    config.ai.job_queue_paused,
-                )?;
-            }
-            Err(error)
-        }
-    }
-}
-
-/// Completes one claimed assistant job and persists the response trace.
-pub(crate) fn complete_claimed_assistant_job(
-    connection: &rusqlite::Connection,
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    claimed: ai_queue::StoredAiJob,
-    _request: &AiAssistantRequest,
-) -> Result<AiAssistantResponse> {
-    let ai_queue::AiJobPayload::Assistant { payload } = claimed.payload.clone() else {
-        anyhow::bail!("AI job {} did not contain an assistant payload.", claimed.id);
-    };
-    let llm_provider = selected_llm_provider_runtime(config, Some(&payload.llm_provider_id))?;
-    let embedding_provider = payload
-        .embedding_provider_id
-        .as_deref()
-        .map(|provider_id| selected_embedding_provider_runtime(config, Some(provider_id)))
-        .transpose()?;
-    let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
-    let result = tokio_runtime()?.block_on(answer_history_question_with_control(
-        paths,
-        config,
-        session_database_key,
-        &llm_provider,
-        embedding_provider.as_ref(),
-        &payload.request,
-        Some(run_control.clone()),
-    ));
-    run_control.shutdown();
-
-    match result {
-        Ok(mut response) => {
-            response.job_id = Some(claimed.id);
-            let summary = format!("Answered with {} citation(s).", response.citations.len());
-            let cancelled = if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
-                true
-            } else {
-                !ai_queue::mark_ai_job_succeeded(
-                    connection,
-                    claimed.id,
-                    response.run_id,
-                    Some(summary.as_str()),
-                )?
-            };
-            if cancelled {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
-                    claimed.id,
-                    Some("Assistant run cancelled from the UI."),
-                )?;
-            }
-            Ok(response)
-        }
-        Err(error) => {
-            let failure = queue_failure_from_error(&error);
-            if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
-                    claimed.id,
-                    Some("Assistant run cancelled from the UI."),
-                )?;
-            } else {
-                ai_queue::mark_ai_job_failed(
-                    connection,
-                    claimed.id,
-                    None,
-                    &failure,
-                    config.ai.job_queue_paused,
-                )?;
-            }
-            Err(error)
-        }
-    }
-}
-
-/// Claims a queued assistant job by id and executes it.
-pub(crate) fn execute_assistant_job(
-    connection: &rusqlite::Connection,
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    job_id: i64,
-    request: &AiAssistantRequest,
-) -> Result<AiAssistantResponse> {
-    let claimed = ai_queue::claim_ai_job_by_id(connection, job_id, 300)?
-        .with_context(|| format!("AI assistant job {job_id} is not ready to run"))?;
-    complete_claimed_assistant_job(
-        connection,
-        paths,
-        config,
-        session_database_key,
-        claimed,
-        request,
-    )
-}
-
-pub(crate) fn maybe_spawn_ai_queue_drain(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    queued_jobs: u32,
-) {
-    if config.ai.job_queue_paused || queued_jobs == 0 {
-        return;
-    }
-    spawn_ai_queue_drain(
-        paths.clone(),
-        config.ai.job_queue_concurrency.max(1) as usize,
-        session_database_key.map(ToOwned::to_owned),
-    );
-}
-
-pub(crate) fn maybe_spawn_intelligence_queue_drain(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    queued_jobs: usize,
-) {
-    if config.ai.job_queue_paused || queued_jobs == 0 {
-        return;
-    }
-    spawn_intelligence_queue_drain(
-        paths.clone(),
-        config.ai.job_queue_concurrency.max(1) as usize,
-        session_database_key.map(ToOwned::to_owned),
-    );
-}
-
-fn spawn_ai_queue_drain(
-    paths: vault_core::ProjectPaths,
-    desired_workers: usize,
-    session_database_key: Option<String>,
-) {
-    maybe_spawn_worker_pool(
-        "pathkeep-ai-queue",
-        &AI_QUEUE_ACTIVE_WORKERS,
-        desired_workers,
-        move || {
-            loop {
-                let config = match load_unlocked_config(&paths) {
-                    Ok(config) => config,
-                    Err(error) => {
-                        eprintln!("PathKeep could not load AI queue config: {error:#}");
-                        break;
-                    }
-                };
-                if !config.initialized || config.ai.job_queue_paused {
-                    break;
-                }
-                let connection =
-                    match ai_archive_connection(&paths, &config, session_database_key.as_deref()) {
-                        Ok(connection) => connection,
-                        Err(error) => {
-                            eprintln!(
-                                "PathKeep could not open the archive for AI queue work: {error:#}"
-                            );
-                            break;
-                        }
-                    };
-                let Some(job) = (match ai_queue::claim_next_ai_job(&connection, 300) {
-                    Ok(job) => job,
-                    Err(error) => {
-                        eprintln!("PathKeep could not claim the next AI queue job: {error:#}");
-                        break;
-                    }
-                }) else {
-                    break;
-                };
-                match job.payload.clone() {
-                    ai_queue::AiJobPayload::Index { request } => {
-                        let _ = complete_claimed_index_job(
-                            &connection,
-                            &paths,
-                            &config,
-                            session_database_key.as_deref(),
-                            job,
-                            &request,
-                        );
-                    }
-                    ai_queue::AiJobPayload::Assistant { payload } => {
-                        let _ = complete_claimed_assistant_job(
-                            &connection,
-                            &paths,
-                            &config,
-                            session_database_key.as_deref(),
-                            job,
-                            &payload.request,
-                        );
-                    }
-                }
-            }
-        },
-    );
-}
-
-fn spawn_intelligence_queue_drain(
-    paths: vault_core::ProjectPaths,
-    desired_workers: usize,
-    session_database_key: Option<String>,
-) {
-    maybe_spawn_worker_pool("pathkeep-intelligence-priority", &INTELLIGENCE_PRIORITY_WORKERS, 1, {
-        let paths = paths.clone();
-        let session_database_key = session_database_key.clone();
-        move || {
-            loop {
-                let config = match load_unlocked_config(&paths) {
-                    Ok(config) => config,
-                    Err(error) => {
-                        eprintln!("PathKeep could not load intelligence queue config: {error:#}");
-                        break;
-                    }
-                };
-                if !config.initialized || config.ai.job_queue_paused {
-                    break;
-                }
-                let connection = match ai_archive_connection(
-                    &paths,
-                    &config,
-                    session_database_key.as_deref(),
-                ) {
-                    Ok(connection) => connection,
-                    Err(error) => {
-                        eprintln!(
-                            "PathKeep could not open the archive for intelligence queue work: {error:#}"
-                        );
-                        break;
-                    }
-                };
-                let Some(job) = (match next_queued_intelligence_job(&connection) {
-                    Ok(job) => job,
-                    Err(error) => {
-                        eprintln!(
-                            "PathKeep could not load the next intelligence queue job: {error:#}"
-                        );
-                        break;
-                    }
-                }) else {
-                    break;
-                };
-
-                let _ = execute_core_intelligence_job(
-                    &paths,
-                    &config,
-                    session_database_key.as_deref(),
-                    job.id,
-                    &job.job_type,
-                );
-            }
-        }
-    });
-
-    let enrichment_workers = desired_workers.saturating_sub(1);
-    if enrichment_workers == 0 {
-        return;
-    }
-    maybe_spawn_worker_pool(
-        "pathkeep-intelligence-enrichment",
-        &INTELLIGENCE_ENRICHMENT_WORKERS,
-        enrichment_workers,
-        move || {
-            loop {
-                let config = match load_unlocked_config(&paths) {
-                    Ok(config) => config,
-                    Err(error) => {
-                        eprintln!("PathKeep could not load intelligence queue config: {error:#}");
-                        break;
-                    }
-                };
-                if !config.initialized || config.ai.job_queue_paused {
-                    break;
-                }
-                let connection = match ai_archive_connection(
-                    &paths,
-                    &config,
-                    session_database_key.as_deref(),
-                ) {
-                    Ok(connection) => connection,
-                    Err(error) => {
-                        eprintln!(
-                            "PathKeep could not open the archive for intelligence queue work: {error:#}"
-                        );
-                        break;
-                    }
-                };
-                let Some(job_id) = (match next_queued_enrichment_job(&connection) {
-                    Ok(job) => job,
-                    Err(error) => {
-                        eprintln!(
-                            "PathKeep could not load the next queued enrichment job: {error:#}"
-                        );
-                        break;
-                    }
-                }) else {
-                    break;
-                };
-                let _ = execute_enrichment_job_by_id(&paths, &connection, job_id);
-            }
-        },
-    );
-}
-
-/// Loads the persisted AI queue status for the current archive.
-pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let status = vault_core::ai_queue_status(&paths, &config, session_database_key)?;
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, status.queued);
-    Ok(status)
-}
-
-/// Drains queued AI jobs up to the requested limit.
-pub fn run_ai_queue_jobs(
-    session_database_key: Option<&str>,
-    max_jobs: Option<u32>,
-) -> Result<AiQueueStatus> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    if config.ai.job_queue_paused {
-        return vault_core::ai_queue_status(&paths, &config, session_database_key);
-    }
-
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let limit = max_jobs.unwrap_or(config.ai.job_queue_concurrency.max(1));
-    for _ in 0..limit {
-        let Some(job) = ai_queue::claim_next_ai_job(&connection, 300)? else {
-            break;
-        };
-        match job.payload.clone() {
-            ai_queue::AiJobPayload::Index { request } => {
-                let _ = complete_claimed_index_job(
-                    &connection,
-                    &paths,
-                    &config,
-                    session_database_key,
-                    job,
-                    &request,
-                );
-            }
-            ai_queue::AiJobPayload::Assistant { payload } => {
-                let _ = complete_claimed_assistant_job(
-                    &connection,
-                    &paths,
-                    &config,
-                    session_database_key,
-                    job,
-                    &payload.request,
-                );
-            }
-        }
-    }
-
-    vault_core::ai_queue_status(&paths, &config, session_database_key)
-}
-
-/// Marks one AI job as replayable again.
-pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let job = ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)?;
-    maybe_spawn_ai_queue_drain(
-        &paths,
-        &config,
-        session_database_key,
-        if job.state == "queued" { 1 } else { 0 },
-    );
-    Ok(job)
-}
-
-/// Cancels one queued/retryable AI job.
-pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    ai_queue::cancel_ai_job(&connection, job_id)
-}
-
-/// Queues and, when allowed, immediately runs an AI index build.
-pub fn build_ai_index_now(
-    session_database_key: Option<&str>,
-    request: &AiIndexRequest,
-) -> Result<AiIndexReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let provider_config = provider_config_for_request(
-        &config,
-        request.provider_id.as_deref(),
-        AiProviderPurpose::Embedding,
-    )?;
-    let queued_request =
-        AiIndexRequest { provider_id: Some(provider_config.id.clone()), ..request.clone() };
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let queued =
-        ai_queue::enqueue_index_job(&connection, &queued_request, config.ai.job_queue_paused)?;
-
-    if config.ai.job_queue_paused {
-        return Ok(AiIndexReport {
-            job_id: Some(queued.id),
-            run_id: None,
-            provider_id: provider_config.id,
-            model: provider_config.default_model,
-            indexed_items: 0,
-            updated_items: 0,
-            skipped_items: 0,
-            removed_items: 0,
-            last_indexed_at: chrono::Utc::now().to_rfc3339(),
-            notes: vec![format!(
-                "Queued AI index job {}. Resume the AI queue to process it.",
-                queued.id
-            )],
-        });
-    }
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
-    Ok(AiIndexReport {
-        job_id: Some(queued.id),
-        run_id: None,
-        provider_id: provider_config.id,
-        model: provider_config.default_model,
-        indexed_items: 0,
-        updated_items: 0,
-        skipped_items: 0,
-        removed_items: 0,
-        last_indexed_at: chrono::Utc::now().to_rfc3339(),
-        notes: vec![format!(
-            "Queued AI index job {}. PathKeep is processing it in the background.",
-            queued.id
-        )],
-    })
-}
-
-/// Runs semantic search, falling back to lexical search when semantic runtime is unavailable.
-pub fn search_ai_history(
-    session_database_key: Option<&str>,
-    request: &AiSearchRequest,
-) -> Result<AiSearchResponse> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let embedding_provider = match selected_optional_embedding_runtime(&config) {
-        Ok(provider) => provider,
-        Err(error) => {
-            let lexical =
-                run_semantic_search(&paths, &config, session_database_key, None, request)?;
-            return Ok(search_response_with_resolution_note(lexical, Some(error)));
-        }
-    };
-    run_semantic_search(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
-}
-
-/// Executes one semantic-search request using the optional embedding provider when available.
-fn run_semantic_search(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    embedding_provider: Option<&vault_core::AiProviderRuntime>,
-    request: &AiSearchRequest,
-) -> Result<AiSearchResponse> {
-    tokio_runtime()?.block_on(semantic_search_history(
-        paths,
-        config,
-        session_database_key,
-        embedding_provider,
-        request,
-    ))
-}
-
-/// Queues and, when allowed, immediately runs one assistant request.
-pub fn ask_ai_assistant(
-    session_database_key: Option<&str>,
-    request: &AiAssistantRequest,
-) -> Result<AiAssistantResponse> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let llm_provider = provider_config_for_request(&config, None, AiProviderPurpose::Llm)?;
-    let embedding_provider = config.ai.embedding_provider_id.clone();
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let queued = ai_queue::enqueue_assistant_job(
-        &connection,
-        request,
-        &llm_provider.id,
-        embedding_provider.as_deref(),
-        config.ai.job_queue_paused,
-    )?;
-
-    if config.ai.job_queue_paused {
-        return Ok(AiAssistantResponse {
-            state: "queued".to_string(),
-            answer: String::new(),
-            job_id: Some(queued.id),
-            run_id: None,
-            provider_id: llm_provider.id,
-            embedding_provider_id: embedding_provider
-                .unwrap_or_else(|| "lexical-fallback".to_string()),
-            citations: Vec::new(),
-            notes: vec![format!(
-                "The AI queue is paused. Assistant request queued as job {}. Resume or drain the queue to finish it.",
-                queued.id
-            )],
-        });
-    }
-
-    execute_assistant_job(&connection, &paths, &config, session_database_key, queued.id, request)
-}
-
-/// Loads the current state for one assistant job, including the persisted run trace when ready.
-pub fn load_ai_assistant_job(
-    session_database_key: Option<&str>,
-    job_id: i64,
-) -> Result<AiAssistantResponse> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let job = ai_queue::load_ai_job(&connection, job_id)?;
-    let Some(run_id) = job.run_id else {
-        let (provider_id, embedding_provider_id) =
-            match ai_queue::load_ai_job_payload(&connection, job_id)? {
-                ai_queue::AiJobPayload::Assistant { payload } => (
-                    payload.llm_provider_id,
-                    payload.embedding_provider_id.unwrap_or_else(|| "lexical-fallback".to_string()),
-                ),
-                _ => (
-                    config.ai.llm_provider_id.clone().unwrap_or_default(),
-                    config
-                        .ai
-                        .embedding_provider_id
-                        .clone()
-                        .unwrap_or_else(|| "lexical-fallback".to_string()),
-                ),
-            };
-        return Ok(AiAssistantResponse {
-            state: job.state,
-            answer: String::new(),
-            job_id: Some(job.id),
-            run_id: None,
-            provider_id,
-            embedding_provider_id,
-            citations: Vec::new(),
-            notes: job
-                .summary
-                .map(|summary| vec![summary])
-                .unwrap_or_else(|| vec!["Assistant job has not finished yet.".to_string()]),
-        });
-    };
-    let mut response = load_assistant_run_response(&paths, &config, session_database_key, run_id)?;
-    response.job_id = Some(job.id);
-    response.state = job.state;
-    Ok(response)
-}
-
-/// Builds the MCP/skill/manual integration preview files.
-pub fn preview_ai_integration_files() -> Result<AiIntegrationPreview> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    preview_ai_integrations(&paths, &config)
-}
-
+/// Opens the unlocked project context required by deterministic intelligence reads.
+///
+/// The worker uses this helper so every read-model wrapper resolves paths and config
+/// the same way, without each function reimplementing archive bootstrap logic.
 fn with_core_intelligence<R>(
     _session_database_key: Option<&str>,
     f: impl FnOnce(&vault_core::ProjectPaths, &AppConfig) -> Result<R>,
@@ -730,6 +77,11 @@ fn with_core_intelligence<R>(
     f(&paths, &config)
 }
 
+/// Wraps one Core Intelligence section payload with the persisted runtime metadata.
+///
+/// The UI needs the section payload and its freshness/empty-state context together.
+/// Centralizing that composition here prevents every worker wrapper from drifting on
+/// `section_id`, window semantics, or what qualifies as an empty dataset.
 fn with_core_intelligence_section<R>(
     session_database_key: Option<&str>,
     section_id: &str,
@@ -751,178 +103,6 @@ fn with_core_intelligence_section<R>(
     })
 }
 
-/// Runs a Core Intelligence rebuild immediately.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn run_core_intelligence_now(
-    session_database_key: Option<&str>,
-    request: &CoreIntelligenceRebuildRequest,
-) -> Result<CoreIntelligenceRebuildReport> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::run_core_intelligence(paths, config, session_database_key, request)
-    })
-}
-
-/// Queues one manual Core Intelligence rebuild so heavy work can stay off the foreground UI thread.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn queue_core_intelligence_rebuild(
-    session_database_key: Option<&str>,
-    request: &CoreIntelligenceRebuildRequest,
-) -> Result<CoreIntelligenceQueueReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let job_id = enqueue_deterministic_rebuild_job(
-        &connection,
-        request,
-        "User requested a Core Intelligence rebuild from the UI.",
-    )?;
-    let state = connection
-        .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
-            row.get::<_, String>(0)
-        })
-        .unwrap_or_else(|_| "queued".to_string());
-    maybe_spawn_intelligence_queue_drain(&paths, &config, session_database_key, 1);
-    Ok(CoreIntelligenceQueueReport {
-        job_id,
-        state: state.clone(),
-        notes: vec![if config.ai.job_queue_paused {
-            format!("Queued Core Intelligence job {} while the runtime queue is paused.", job_id)
-        } else if state == "running" {
-            format!("Core Intelligence job {} is already running in the background.", job_id)
-        } else {
-            format!(
-                "Queued Core Intelligence job {}. PathKeep is processing it in the background.",
-                job_id
-            )
-        }],
-    })
-}
-
-fn execute_core_intelligence_job(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    job_id: i64,
-    job_type: &str,
-) -> Result<bool> {
-    let connection = ai_archive_connection(paths, config, session_database_key)?;
-    let Some(payload) = claim_core_intelligence_job(&connection, job_id)? else {
-        return Ok(false);
-    };
-    if payload.job_type != job_type {
-        return Ok(false);
-    }
-    let initial_profile =
-        payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
-    let job_label = match job_type {
-        VISIT_DERIVE_JOB_TYPE => "visit-derived facts refresh",
-        DAILY_ROLLUP_JOB_TYPE => "daily rollup refresh",
-        STRUCTURAL_REBUILD_JOB_TYPE => "structural entity rebuild",
-        _ => "Core Intelligence rebuild",
-    };
-    let cancel_requested = |detail: &str| -> Result<()> {
-        if intelligence_job_stop_requested(&connection, job_id)? {
-            let _ =
-                mark_running_intelligence_job_cancelled(&connection, job_id, "cancelled from UI");
-            anyhow::bail!(detail.to_string());
-        }
-        Ok(())
-    };
-    cancel_requested(&format!("{job_label} was cancelled before work started."))?;
-    let _ = update_intelligence_job_artifact(
-        &connection,
-        job_id,
-        &json!({
-            "kind": job_type,
-            "phase": "queued",
-            "detail": format!("Preparing a {job_label} for {initial_profile}."),
-            "progressPercent": 0.0
-        }),
-    );
-    match intelligence::run_core_intelligence_job_type_with_progress(
-        paths,
-        config,
-        session_database_key,
-        job_type,
-        &payload.request,
-        |progress| {
-            cancel_requested(&format!(
-                "{job_label} was cancelled while progress was being reported."
-            ))?;
-            let artifact = json!({
-                "kind": job_type,
-                "phase": progress.phase,
-                "detail": progress.detail,
-                "processedItems": progress.processed_items,
-                "totalItems": progress.total_items,
-                "progressPercent": progress.progress_percent,
-            });
-            let _ = update_intelligence_job_artifact(&connection, job_id, &artifact);
-            cancel_requested(&format!(
-                "{job_label} was cancelled after the latest progress update."
-            ))?;
-            Ok(())
-        },
-    ) {
-        Ok(report) => {
-            if intelligence_job_stop_requested(&connection, job_id)? {
-                let _ = mark_running_intelligence_job_cancelled(
-                    &connection,
-                    job_id,
-                    "cancelled from UI",
-                );
-                return Ok(true);
-            }
-            if !mark_intelligence_job_succeeded(
-                &connection,
-                job_id,
-                &json!({
-                    "kind": job_type,
-                    "phase": "completed",
-                    "detail": format!(
-                        "{} finished with {} visits processed.",
-                        job_label,
-                        report.processed_visits,
-                    ),
-                    "processedItems": report.processed_visits,
-                    "totalItems": report.processed_visits,
-                    "progressPercent": 100.0,
-                    "processedVisits": report.processed_visits,
-                    "sessionCount": report.sessions,
-                    "trailCount": report.search_trails,
-                    "queryFamilyCount": report.query_families,
-                    "refindPageCount": report.refind_pages,
-                    "executionMode": report.execution_mode,
-                    "affectedProfiles": report.affected_profiles,
-                    "dirtyVisitCount": report.dirty_visit_count,
-                    "dirtyDateKeys": report.dirty_date_keys,
-                    "fallbackReason": report.fallback_reason,
-                    "notes": report.notes,
-                }),
-            )? {
-                let _ = mark_running_intelligence_job_cancelled(
-                    &connection,
-                    job_id,
-                    "cancelled from UI",
-                );
-            }
-            Ok(true)
-        }
-        Err(error) => {
-            if error.to_string().contains("cancelled") {
-                let _ = mark_running_intelligence_job_cancelled(
-                    &connection,
-                    job_id,
-                    "cancelled from UI",
-                );
-                return Ok(true);
-            }
-            mark_intelligence_job_failed(&connection, job_id, &error.to_string())?;
-            Err(error)
-        }
-    }
-}
-
 /// Loads one paginated sessions list.
 pub fn get_sessions(
     session_database_key: Option<&str>,
@@ -933,7 +113,7 @@ pub fn get_sessions(
     })
 }
 
-/// Loads one session detail read model.
+/// Loads the detail read model for one browsing session.
 pub fn get_session_detail(
     session_database_key: Option<&str>,
     session_id: &str,
@@ -953,12 +133,14 @@ pub fn get_search_trails(
     })
 }
 
+/// Loads the detail read model for one search trail.
 pub fn get_trail_detail(session_database_key: Option<&str>, trail_id: &str) -> Result<TrailDetail> {
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::get_trail_detail(paths, config, session_database_key, trail_id)
     })
 }
 
+/// Loads the navigation path centered on one canonical visit id.
 pub fn get_navigation_path(
     session_database_key: Option<&str>,
     visit_id: i64,
@@ -968,6 +150,7 @@ pub fn get_navigation_path(
     })
 }
 
+/// Loads the hub-page list used by Dashboard and Intelligence summaries.
 pub fn get_hub_pages(
     session_database_key: Option<&str>,
     request: &TopSitesRequest,
@@ -977,6 +160,7 @@ pub fn get_hub_pages(
     })
 }
 
+/// Loads the section-wrapped search-engine ranking surface.
 pub fn get_search_engine_ranking(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -992,6 +176,7 @@ pub fn get_search_engine_ranking(
     )
 }
 
+/// Lists the Settings-owned search-engine override rules.
 pub fn list_search_engine_rules(
     session_database_key: Option<&str>,
 ) -> Result<Vec<SearchEngineRule>> {
@@ -1000,6 +185,7 @@ pub fn list_search_engine_rules(
     })
 }
 
+/// Upserts one Settings-owned search-engine override rule and returns the new rule set.
 pub fn upsert_search_engine_rule(
     session_database_key: Option<&str>,
     input: &SearchEngineRuleInput,
@@ -1014,6 +200,7 @@ pub fn upsert_search_engine_rule(
     })
 }
 
+/// Deletes one Settings-owned search-engine override rule and returns the remaining rules.
 pub fn delete_search_engine_rule(
     session_database_key: Option<&str>,
     rule_id: &str,
@@ -1028,6 +215,7 @@ pub fn delete_search_engine_rule(
     })
 }
 
+/// Loads the primary overview payload that seeds the `/intelligence` route shell.
 pub fn get_intelligence_primary_overview(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1042,6 +230,7 @@ pub fn get_intelligence_primary_overview(
     })
 }
 
+/// Loads the ranked top-search-concepts section payload.
 pub fn get_top_search_concepts(
     session_database_key: Option<&str>,
     request: &TopSearchConceptsRequest,
@@ -1057,6 +246,7 @@ pub fn get_top_search_concepts(
     )
 }
 
+/// Loads the paginated search-query table used by the search activity surface.
 pub fn get_search_queries(
     session_database_key: Option<&str>,
     request: &SearchQueryListRequest,
@@ -1072,6 +262,7 @@ pub fn get_search_queries(
     )
 }
 
+/// Loads the paginated query-family list used by the search activity surface.
 pub fn get_query_families(
     session_database_key: Option<&str>,
     request: &PagedDateRangeRequest,
@@ -1087,6 +278,7 @@ pub fn get_query_families(
     )
 }
 
+/// Loads one query-family detail payload and its freshness metadata.
 pub fn get_query_family_detail(
     session_database_key: Option<&str>,
     request: &QueryFamilyDetailRequest,
@@ -1102,6 +294,7 @@ pub fn get_query_family_detail(
     )
 }
 
+/// Loads the section-wrapped top-sites list.
 pub fn get_top_sites(
     session_database_key: Option<&str>,
     request: &TopSitesRequest,
@@ -1115,6 +308,7 @@ pub fn get_top_sites(
     )
 }
 
+/// Loads the day-bucket trend for one registrable domain.
 pub fn get_domain_trend(
     session_database_key: Option<&str>,
     request: &DomainTrendRequest,
@@ -1124,6 +318,7 @@ pub fn get_domain_trend(
     })
 }
 
+/// Loads the section-wrapped refind pages list.
 pub fn get_refind_pages(
     session_database_key: Option<&str>,
     request: &RefindPagesRequest,
@@ -1139,6 +334,7 @@ pub fn get_refind_pages(
     )
 }
 
+/// Loads one refind-page detail payload and its freshness metadata.
 pub fn get_refind_page_detail(
     session_database_key: Option<&str>,
     request: &RefindPageDetailRequest,
@@ -1158,6 +354,7 @@ pub fn get_refind_page_detail(
     )
 }
 
+/// Explains why one canonical refind page qualifies as refind-worthy.
 pub fn explain_refind(
     session_database_key: Option<&str>,
     request: &vault_core::ExplainRefindRequest,
@@ -1167,6 +364,7 @@ pub fn explain_refind(
     })
 }
 
+/// Explains one deterministic Core Intelligence entity with evidence-backed metadata.
 pub fn explain_entity(
     session_database_key: Option<&str>,
     request: &EntityExplanationRequest,
@@ -1176,6 +374,7 @@ pub fn explain_entity(
     })
 }
 
+/// Loads the section-wrapped activity-mix payload.
 pub fn get_activity_mix(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1191,6 +390,7 @@ pub fn get_activity_mix(
     )
 }
 
+/// Loads the trend companion for the activity-mix chart.
 pub fn get_activity_mix_trend(
     session_database_key: Option<&str>,
     request: &GranularityDateRangeRequest,
@@ -1200,6 +400,7 @@ pub fn get_activity_mix_trend(
     })
 }
 
+/// Loads the section-wrapped digest summary payload.
 pub fn get_digest_summary(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1221,6 +422,7 @@ pub fn get_digest_summary(
     )
 }
 
+/// Loads the section-wrapped stable-sources payload.
 pub fn get_stable_sources(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1236,6 +438,7 @@ pub fn get_stable_sources(
     )
 }
 
+/// Loads the section-wrapped search-effectiveness payload.
 pub fn get_search_effectiveness(
     session_database_key: Option<&str>,
     request: &SearchEffectivenessRequest,
@@ -1255,6 +458,7 @@ pub fn get_search_effectiveness(
     )
 }
 
+/// Loads the section-wrapped friction-signals payload.
 pub fn get_friction_signals(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1270,6 +474,7 @@ pub fn get_friction_signals(
     )
 }
 
+/// Loads the section-wrapped reopened-investigations payload.
 pub fn get_reopened_investigations(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1285,6 +490,7 @@ pub fn get_reopened_investigations(
     )
 }
 
+/// Loads the section-wrapped domain deep-dive payload.
 pub fn get_domain_deep_dive(
     session_database_key: Option<&str>,
     request: &DomainDeepDiveRequest,
@@ -1308,6 +514,7 @@ pub fn get_domain_deep_dive(
     )
 }
 
+/// Loads the section-wrapped single-day insights payload.
 pub fn get_day_insights(
     session_database_key: Option<&str>,
     request: &DayInsightsRequest,
@@ -1337,6 +544,7 @@ pub fn get_day_insights(
     )
 }
 
+/// Loads the section-wrapped calendar heatmap payload.
 pub fn get_browsing_rhythm(
     session_database_key: Option<&str>,
     request: &CategoryFilteredDateRangeRequest,
@@ -1352,6 +560,7 @@ pub fn get_browsing_rhythm(
     )
 }
 
+/// Loads the section-wrapped discovery trend payload.
 pub fn get_discovery_trend(
     session_database_key: Option<&str>,
     request: &GranularityDateRangeRequest,
@@ -1367,6 +576,7 @@ pub fn get_discovery_trend(
     )
 }
 
+/// Loads the section-wrapped "On This Day" payload for the current local calendar day.
 pub fn get_on_this_day(
     session_database_key: Option<&str>,
     profile_id: Option<&str>,
@@ -1384,6 +594,7 @@ pub fn get_on_this_day(
     )
 }
 
+/// Builds the trusted embed-card payload set from deterministic intelligence surfaces.
 pub fn get_intelligence_embed_cards(
     session_database_key: Option<&str>,
     request: &IntelligenceEmbedCardsRequest,
@@ -1393,6 +604,7 @@ pub fn get_intelligence_embed_cards(
     })
 }
 
+/// Builds the Settings-facing widget snapshot payload.
 pub fn get_intelligence_widget_snapshot(
     session_database_key: Option<&str>,
     request: &IntelligenceEmbedCardsRequest,
@@ -1402,6 +614,7 @@ pub fn get_intelligence_widget_snapshot(
     })
 }
 
+/// Builds the redacted public snapshot payload.
 pub fn get_intelligence_public_snapshot(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1411,6 +624,7 @@ pub fn get_intelligence_public_snapshot(
     })
 }
 
+/// Builds the local-host artifact preview for external-output review.
 pub fn preview_intelligence_local_host(
     session_database_key: Option<&str>,
     request: &IntelligenceLocalHostRequest,
@@ -1420,6 +634,7 @@ pub fn preview_intelligence_local_host(
     })
 }
 
+/// Builds the local-host artifact set after the user confirms the preview.
 pub fn build_intelligence_local_host(
     session_database_key: Option<&str>,
     request: &IntelligenceLocalHostRequest,
@@ -1429,6 +644,7 @@ pub fn build_intelligence_local_host(
     })
 }
 
+/// Loads the section-wrapped breadth-index payload.
 pub fn get_breadth_index(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1444,6 +660,7 @@ pub fn get_breadth_index(
     )
 }
 
+/// Loads the section-wrapped habit-pattern list.
 pub fn get_habit_patterns(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1459,6 +676,7 @@ pub fn get_habit_patterns(
     )
 }
 
+/// Loads the section-wrapped interrupted-habits list.
 pub fn get_interrupted_habits(
     session_database_key: Option<&str>,
     request: &ProfileScopedRequest,
@@ -1476,6 +694,7 @@ pub fn get_interrupted_habits(
     )
 }
 
+/// Loads the section-wrapped path-flow payload.
 pub fn get_path_flows(
     session_database_key: Option<&str>,
     request: &PathFlowRequest,
@@ -1489,6 +708,7 @@ pub fn get_path_flows(
     )
 }
 
+/// Loads the section-wrapped observed-interactions payload.
 pub fn get_observed_interactions(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1504,6 +724,7 @@ pub fn get_observed_interactions(
     )
 }
 
+/// Loads the section-wrapped compare-set list.
 pub fn get_compare_sets(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1519,6 +740,7 @@ pub fn get_compare_sets(
     )
 }
 
+/// Loads one compare-set detail payload and its freshness metadata.
 pub fn get_compare_set_detail(
     session_database_key: Option<&str>,
     request: &CompareSetDetailRequest,
@@ -1534,6 +756,7 @@ pub fn get_compare_set_detail(
     )
 }
 
+/// Loads the section-wrapped multi-browser diff payload.
 pub fn get_multi_browser_diff(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1549,6 +772,7 @@ pub fn get_multi_browser_diff(
     )
 }
 
+/// Loads the secondary overview payload used below the route shell fold.
 pub fn get_intelligence_secondary_overview(
     session_database_key: Option<&str>,
     request: &ScopedDateRangeRequest,
@@ -1561,76 +785,4 @@ pub fn get_intelligence_secondary_overview(
             request,
         )
     })
-}
-
-/// Loads the Settings-facing intelligence runtime snapshot.
-pub fn load_intelligence_runtime_snapshot(
-    session_database_key: Option<&str>,
-) -> Result<IntelligenceRuntimeSnapshot> {
-    let paths = vault_core::project_paths()?;
-    let mut config = vault_core::load_config(&paths)?;
-    crate::context::hydrate_derived_config_state(&mut config);
-    let snapshot = load_intelligence_runtime(&paths, &config, session_database_key)?;
-    maybe_spawn_intelligence_queue_drain(
-        &paths,
-        &config,
-        session_database_key,
-        snapshot.queue.queued,
-    );
-    Ok(snapshot)
-}
-
-/// Retries one enrichment/intelligence runtime job.
-pub fn retry_intelligence_job_now(
-    session_database_key: Option<&str>,
-    job_id: i64,
-) -> Result<IntelligenceRuntimeSnapshot> {
-    let paths = vault_core::project_paths()?;
-    let mut config = vault_core::load_config(&paths)?;
-    crate::context::hydrate_derived_config_state(&mut config);
-    retry_intelligence_job(&paths, &config, session_database_key, job_id)?;
-    let snapshot = load_intelligence_runtime(&paths, &config, session_database_key)?;
-    maybe_spawn_intelligence_queue_drain(
-        &paths,
-        &config,
-        session_database_key,
-        snapshot.queue.queued,
-    );
-    Ok(snapshot)
-}
-
-/// Cancels one queued enrichment/intelligence runtime job.
-pub fn cancel_intelligence_job_now(
-    session_database_key: Option<&str>,
-    job_id: i64,
-) -> Result<IntelligenceRuntimeSnapshot> {
-    let paths = vault_core::project_paths()?;
-    let mut config = vault_core::load_config(&paths)?;
-    crate::context::hydrate_derived_config_state(&mut config);
-    cancel_intelligence_job(&paths, &config, session_database_key, job_id)
-}
-
-/// Checks whether one configured AI provider can be contacted successfully.
-pub fn test_ai_provider_connection_report(
-    _session_database_key: Option<&str>,
-    request: &AiProviderConnectionTestRequest,
-) -> Result<AiProviderConnectionTestReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let provider_config =
-        provider_config_for_request(&config, Some(&request.provider_id), request.purpose.clone())?;
-
-    match resolve_provider_runtime(
-        match request.purpose {
-            AiProviderPurpose::Embedding => &config.ai.embedding_providers,
-            AiProviderPurpose::Llm => &config.ai.llm_providers,
-        },
-        &request.provider_id,
-        request.purpose.clone(),
-    ) {
-        Ok(provider) => tokio_runtime()?.block_on(test_provider_connection(&provider)),
-        Err(error) => {
-            Ok(vault_core::provider_connection_failure_report(&provider_config, &error.to_string()))
-        }
-    }
 }

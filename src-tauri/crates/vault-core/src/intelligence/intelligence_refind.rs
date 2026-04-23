@@ -25,7 +25,7 @@
 
 use super::{
     date_range_bounds, display_name_for_domain, ensure_core_intelligence_schema,
-    rfc3339_from_millis,
+    intelligence_sessions::trail_summary_from_row, rfc3339_from_millis,
 };
 use crate::{
     archive::open_intelligence_connection,
@@ -329,10 +329,10 @@ fn load_refind_related_trails(
     statement
         .query_map(
             rusqlite::params_from_iter(trail_ids.iter().map(|value| value as &dyn rusqlite::ToSql)),
-            super::trail_summary_from_row,
+            trail_summary_from_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .map(|items| items.into_iter().take(8).collect())
+        .map(|items| items.into_iter().take(8).collect::<Vec<_>>())
         .map_err(Into::into)
 }
 
