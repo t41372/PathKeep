@@ -12,7 +12,7 @@
 
 | File                                                              | Current line count | Primary risk                                                                 |
 | ----------------------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`             |               4508 | Remaining helper clusters still mixed after structural and read-model splits |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`             |               2583 | Export surface, core record types, and regression suite still co-located     |
 | `src-tauri/crates/vault-core/src/deterministic.rs`                |               1528 | URL normalization, query extraction, tokenization, taxonomy rules co-located |
 | `src-tauri/crates/vault-core/src/models/core_intelligence.rs`     |               1175 | DTO families for multiple surfaces still co-located                          |
 | `src-tauri/crates/vault-core/src/remote.rs`                       |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed               |
@@ -70,6 +70,7 @@
 - 2026-04-22 schema/rebuild follow-up landed: the next cut extracted `intelligence_{schema,schema_sql,rebuild}.rs`, so schema bootstrap, derived-state clear, public rebuild entrypoints, legacy scoped fallback, and runtime-ready module updates no longer live inside `intelligence/mod.rs`. The parent module dropped to `7703` lines, and the remaining hotspot was concentrated around structural rebuild internals plus query/read-model helper clusters rather than top-level orchestration.
 - 2026-04-22 structural follow-up landed: the next cut extracted `intelligence_structural_{state,build,aggregates,persist,stream,stage}.rs`, giving structural rebuild state machines, streamed replay, write-side replacements, and stage orchestration distinct owners. `intelligence/mod.rs` is now down to `5561` lines, and every newly created structural module is back under the repo's `600`-line hard stop.
 - 2026-04-22 read-model follow-up landed: the next cut extracted `intelligence_{sessions,navigation,search_metrics,search_queries}.rs` and moved domain-only helpers into `intelligence_domain.rs`. Session/trail detail reads, navigation-path reconstruction, search engine/rule/concept surfaces, and recent-search/query-family reads now have distinct owners, which brings `intelligence/mod.rs` down to `4508` lines without changing Tauri/worker/query contracts.
+- 2026-04-22 helper-cluster follow-up landed: the next cut extracted `intelligence_{shared,visit_records,visit_derive,daily_rollup_state,daily_rollups,core_persist}.rs`. Shared date/query heuristics, visit-derived replay, daily-rollup replay, and scoped full-rebuild persistence now have dedicated owners, which brings `intelligence/mod.rs` down to `2583` lines and leaves the parent focused on exported surface, core record types, cursors, constants, and the still-embedded regression suite.
 
 ### Slice 6 — AI and worker follow-through
 
@@ -79,6 +80,7 @@
 - 2026-04-22 worker follow-through landed: `vault-worker/src/intelligence.rs` is now a `789`-line façade with `intelligence/{ai_queue,runtime}.rs` owning queue/search/assistant orchestration and deterministic runtime control. The remaining worker-side hotspot is no longer queue execution itself; it is the still-mixed read-surface passthrough layer that sits above those dedicated owners.
 - 2026-04-22 AI follow-through landed: `vault-core/src/ai.rs` is now a `199`-line façade with `ai/{control,provider,indexing,ledger,search,read_model}.rs` owning provider probes, semantic index builds, run-ledger bookkeeping, semantic search, and assistant tool orchestration. The remaining backend hotspot map no longer treats `ai.rs` as a first-order mega-file; the next real owners to revisit are `intelligence/mod.rs`, `deterministic.rs`, and the still-mixed DTO / remote helper surfaces.
 - 2026-04-22 worker read-surface follow-through landed: `vault-worker/src/intelligence.rs` is now down to `124` lines after moving route-level and section-level passthroughs into `intelligence/{route_queries,section_queries}.rs`. The worker-side hotspot is no longer a mixed mega-file; further worker cleanup is now optional follow-up rather than the next stop-ship backend risk.
+- With the `intelligence/mod.rs` helper-cluster cut now landed, `WORK-BE-B` is effectively complete. The next backend block should shift to the remaining oversized support files (`deterministic.rs`, `models/core_intelligence.rs`, `remote.rs`, `site_dictionary.rs`) plus the still-embedded `intelligence/mod.rs` regression suite, rather than revisiting worker or AI boundaries that now already have dedicated owners.
 
 ## Non-negotiable invariants
 

@@ -22,8 +22,9 @@
 //!   light Rust-side math.
 
 use super::{
-    collapse_date_key, date_range_bounds, display_name_for_domain, display_name_for_search_engine,
-    ensure_core_intelligence_schema, previous_date_range, rfc3339_from_millis,
+    build_kpi, collapse_date_key, date_range_bounds, display_name_for_domain,
+    display_name_for_search_engine, ensure_core_intelligence_schema, previous_date_range,
+    rfc3339_from_millis,
 };
 use crate::{
     archive::open_intelligence_connection,
@@ -31,8 +32,8 @@ use crate::{
     models::{
         ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, AppConfig, CategoryChangeEntry,
         CategoryMixEntry, DateRange, DigestSummary, EngineEffectiveness, FrictionSignal,
-        GranularityDateRangeRequest, HardTopic, KpiMetric, ReopenedInvestigation,
-        ScopedDateRangeRequest, SearchEffectiveness, SearchEffectivenessRequest, StableSource,
+        GranularityDateRangeRequest, HardTopic, ReopenedInvestigation, ScopedDateRangeRequest,
+        SearchEffectiveness, SearchEffectivenessRequest, StableSource,
     },
 };
 use anyhow::Result;
@@ -493,25 +494,4 @@ fn count_deep_dive_sessions(
             |row| row.get(0),
         )
         .map_err(Into::into)
-}
-
-fn build_kpi(current: i64, previous: i64) -> KpiMetric {
-    let trend = if current > previous {
-        "up"
-    } else if current < previous {
-        "down"
-    } else {
-        "flat"
-    };
-    let change_percent = if previous == 0 {
-        None
-    } else {
-        Some(((current - previous) as f32 / previous as f32) * 100.0)
-    };
-    KpiMetric {
-        value: current,
-        previous_value: Some(previous),
-        change_percent,
-        trend: trend.to_string(),
-    }
 }

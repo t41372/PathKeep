@@ -804,3 +804,17 @@
   - 2026-04-21：更新 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md) 與 [`docs/plan/README.md`](README.md)，正式補齊 M13 single-source map、remaining hotspot priority、`PG-RD-UX-016`，以及「runtime-boundary review grammar 掛回 `src/components/review/`」的 source-of-truth。
   - 這輪 inventory 也同步把後續順序固定為：shell-data owner、Security / Import workflow follow-through、Dashboard fallback owner、`Browsing Rhythm` layering；不再讓 M13 退化成單純的 Settings split 或 transport 專案。
   - 驗收：source docs、inventory map、`TODO: M13` 與 extraction priority 存在
+
+- [x] **WORK-BE-B** — Core Intelligence Domain Boundary And Worker Follow-Through
+  - 讀先：
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/tech-stack.md`
+  - 目標：把 `intelligence/mod.rs` 剩餘的 query/read-model helper clusters、host-artifact ownership，以及 `vault-worker/src/intelligence.rs` / `src-tauri/crates/vault-core/src/ai.rs` 的 mixed orchestration 再往外拆，讓 backend giant-file 風險從 core intelligence parent module 正式轉移到更小的明確 owner。
+  - 契約：維持現有 Tauri command、worker CLI、serde payload、Core Intelligence query ids / rebuild semantics、`IntelligenceRuntimeSnapshot` 與 off-main-thread background task contract 穩定；不得因為 giant-file 拆分而重開已接受的 `/intelligence` route / payload grammar。
+  - 2026-04-22：`WORK-BE-B` 先後把 `intelligence/mod.rs` 的 session/navigation/search read-model layer 抽成 `intelligence_{sessions,navigation,search_metrics,search_queries}.rs`，再把 `vault-worker/src/intelligence.rs` 的 queue/runtime/read-surface ownership 收進 `intelligence/{ai_queue,runtime,route_queries,section_queries}.rs`，並把 `src-tauri/crates/vault-core/src/ai.rs` 拆成 `ai/{control,provider,indexing,ledger,search,read_model}.rs`。
+  - 同一天的 helper-cluster closeout 又把 `intelligence/mod.rs` 的 residual internal owner 抽成 `intelligence_{shared,visit_records,visit_derive,daily_rollup_state,daily_rollups,core_persist}.rs`。shared date/query heuristics、visit-derived stage、daily-rollup stage、以及 scoped full-rebuild persistence 現在都有 focused owner；`intelligence/mod.rs` 因而從 `4508` 行再降到 `2583` 行，只剩 exported surface、core record types、batch cursors、常數與 regression suite。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把 `WORK-BE-B` closeout truth 與 `WORK-BE-C` next-hop 寫回 source-of-truth。
+  - 驗收：relevant targeted Rust regressions、`bun run check`、`bun run build`

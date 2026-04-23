@@ -86,6 +86,8 @@
 
 > **2026-04-22 worker read-surface note**：同一個 `WORK-BE-B` block 的後續 execution slice 又把 `src-tauri/crates/vault-worker/src/intelligence.rs` 的 residual query passthrough 拆成 `intelligence/{route_queries,section_queries}.rs`。worker parent file 現在只剩 shared helper + re-export façade (`124` 行)，route-first entity reads 與 section-style wrappers 各自有明確 owner；既有 worker export surface 與 frontend consumer contract 仍維持不變。
 
+> **2026-04-22 backend helper-cluster closeout note**：`WORK-BE-B` 現在也已把 `intelligence/mod.rs` 的 residual helper clusters 抽成 `intelligence_{shared,visit_records,visit_derive,daily_rollup_state,daily_rollups,core_persist}.rs`。shared date/query heuristics、visit-derived stage、daily-rollup stage、以及 scoped full-rebuild persistence 現在都已有 focused owner，`intelligence/mod.rs` 因而進一步降到 `2583` 行，只剩 exported surface、core record types、batch cursors、常數與 regression suite；下一個 active backend block 已切到 `WORK-BE-C`，focus 改成剩餘 oversized support files 與 `intelligence/mod.rs` 內嵌 regression suite。
+
 ---
 
 ## 先看哪裡
