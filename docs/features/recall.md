@@ -32,6 +32,8 @@
 - **分頁加載**：列表和搜尋結果走 cursor-based pagination，永遠只加載一頁。UI 必須在結果列表上方與底部分頁列都直接顯示「當前頁 / 總頁數」，提供第一頁 / 上一頁 / 下一頁 / 最後一頁、跳頁與每頁筆數控制（例如 25 / 50 / 100 / 200），避免用戶在跳頁時失去定位。每頁筆數選擇屬於 Explorer 偏好，離開頁面或重啟 app 後都要保留。
 - **時間軸不觸發全表掃描**：拖動時的密度可視化來自聚合表，點擊展開某一天才查詢該天的具體記錄。
 - **搜尋走 FTS5 索引**：全文搜尋不走 `LIKE`，走 FTS5 倒排索引，查詢速度不隨數據量線性增長。
+- **Favicon 不進主列表 payload**：Explorer 的主 `query_history` response 只回 row metadata；列表先用 placeholder reveal，再以 page-scoped batched lookup 補 icon，避免 favicon bytes / base64 序列化卡住首屏與翻頁。
+- **Favicon 導入去重**：新導入的 favicon image bytes 必須在 ingest 階段去重存放，避免同一張 icon 在 archive 裡被重複寫入多次，拖高磁盤與後續 recall payload 成本。
 - `WORK-M4-G` 已將 Explorer day-one keyword recall 收斂到 canonical `history_search` FTS5 projection，索引欄位為 URL、title 與 normalized search term；regex mode 仍維持 post-filter 邊界。
 
 ### 搜尋與篩選
@@ -73,6 +75,7 @@
 **預設顯示：**
 
 - Favicon + 頁面標題（若該 history row 沒有已保存的 icon payload，UI 顯示 deterministic placeholder，不顯示 broken image）
+- 列表中的 favicon 允許在 row 已經顯示後再批量補齊；icon hydration 不能阻塞首屏 skeleton 消失或翻頁後的 row reveal。
 - URL（可展開/摺疊長 URL）
 - 訪問時間
 - 來源瀏覽器 / Profile 標識

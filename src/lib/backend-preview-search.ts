@@ -27,6 +27,8 @@ import type { MockBackendState } from './backend-preview-state'
 import type {
   AiSearchRequest,
   AiSearchResponse,
+  HistoryFaviconLookupEntry,
+  HistoryFaviconLookupResult,
   HistoryQuery,
   HistoryQueryResponse,
 } from './types'
@@ -271,7 +273,10 @@ export function filterMockHistory(
 
   return {
     total: filteredItems.length,
-    items,
+    items: items.map((item) => ({
+      ...item,
+      favicon: null,
+    })),
     page,
     pageSize: limit,
     pageCount,
@@ -282,6 +287,37 @@ export function filterMockHistory(
         ? encodeMockHistoryCursor(items[items.length - 1])
         : null,
   }
+}
+
+/**
+ * Resolves lazy Explorer favicon requests against the preview fixture surface.
+ *
+ * The preview backend intentionally keeps main history rows icon-free so route
+ * tests exercise the same post-reveal icon hydration path as the desktop app.
+ */
+export function loadMockHistoryFavicons(
+  state: MockBackendState,
+  entries: HistoryFaviconLookupEntry[],
+): HistoryFaviconLookupResult[] {
+  const seen = new Set<string>()
+
+  return entries.flatMap((entry) => {
+    const cacheKey = `${entry.profileId}\n${entry.url}`
+    if (seen.has(cacheKey)) {
+      return []
+    }
+    seen.add(cacheKey)
+
+    const matchedItem = state.history.items.find(
+      (item) => item.profileId === entry.profileId && item.url === entry.url,
+    )
+
+    return {
+      profileId: entry.profileId,
+      url: entry.url,
+      favicon: matchedItem?.favicon ?? null,
+    }
+  })
 }
 
 /**

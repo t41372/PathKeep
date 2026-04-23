@@ -23,15 +23,15 @@
 
 ## Draft Domains
 
-| Domain     | Read model                                          | Mutating / Preview                                                                | Artifact                                           |
-| ---------- | --------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `app`      | `app.snapshot`, `app.build_info`, `app.lock_status` | `app.lock.configure`, `app.lock.lock`, `app.lock.unlock`                          | -                                                  |
-| `archive`  | `archive.status`, `explorer.query_history`          | `archive.backup.preview`, `archive.backup.execute`                                | `artifacts.list_for_run`, `artifacts.get_manifest` |
-| `import`   | `import.list_batches`                               | `archive.import.preview`, `archive.import.execute`                                | `artifacts.get_preview_bundle`                     |
-| `rollback` | `audit.get_run_detail`                              | `archive.rollback.preview`, `archive.rollback.execute`                            | `artifacts.list_for_run`                           |
-| `schedule` | `schedule.get_status`                               | `schedule.install.preview`, `schedule.install.execute`, `schedule.install.remove` | `artifacts.get_preview_bundle`                     |
-| `security` | `security.get_status`                               | `security.rekey.preview`, `security.rekey.execute`                                | `artifacts.list_for_run`                           |
-| `doctor`   | `audit.list_runs`                                   | `jobs.start_doctor`                                                               | `artifacts.get_doctor_report`                      |
+| Domain     | Read model                                                                   | Mutating / Preview                                                                | Artifact                                           |
+| ---------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `app`      | `app.snapshot`, `app.build_info`, `app.lock_status`                          | `app.lock.configure`, `app.lock.lock`, `app.lock.unlock`                          | -                                                  |
+| `archive`  | `archive.status`, `explorer.query_history`, `explorer.load_history_favicons` | `archive.backup.preview`, `archive.backup.execute`                                | `artifacts.list_for_run`, `artifacts.get_manifest` |
+| `import`   | `import.list_batches`                                                        | `archive.import.preview`, `archive.import.execute`                                | `artifacts.get_preview_bundle`                     |
+| `rollback` | `audit.get_run_detail`                                                       | `archive.rollback.preview`, `archive.rollback.execute`                            | `artifacts.list_for_run`                           |
+| `schedule` | `schedule.get_status`                                                        | `schedule.install.preview`, `schedule.install.execute`, `schedule.install.remove` | `artifacts.get_preview_bundle`                     |
+| `security` | `security.get_status`                                                        | `security.rekey.preview`, `security.rekey.execute`                                | `artifacts.list_for_run`                           |
+| `doctor`   | `audit.list_runs`                                                            | `jobs.start_doctor`                                                               | `artifacts.get_doctor_report`                      |
 
 ---
 

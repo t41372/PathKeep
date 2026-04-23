@@ -31,11 +31,11 @@ pub use self::{
     archive_flows::{
         audit_run_detail, clear_derived_intelligence, dashboard_snapshot, doctor_report,
         export_query, import_takeout_source, import_takeout_source_with_progress,
-        inspect_takeout_source, preview_import_batch_detail, preview_remote_backup_bundle,
-        preview_retention_plan, preview_snapshot_restore_plan, query_history, repair_health,
-        restore_import_batch_detail, revert_import_batch_detail, run_backup_now,
-        run_backup_now_with_progress, run_retention_plan, run_snapshot_restore_plan,
-        upload_remote_backup_bundle, verify_remote_backup_bundle,
+        inspect_takeout_source, load_history_favicons, preview_import_batch_detail,
+        preview_remote_backup_bundle, preview_retention_plan, preview_snapshot_restore_plan,
+        query_history, repair_health, restore_import_batch_detail, revert_import_batch_detail,
+        run_backup_now, run_backup_now_with_progress, run_retention_plan,
+        run_snapshot_restore_plan, upload_remote_backup_bundle, verify_remote_backup_bundle,
     },
     cli::run_worker_cli,
     intelligence::{

@@ -13,6 +13,59 @@
 //! engine.
 
 use super::*;
+use std::collections::HashSet;
+
+const LOAD_HISTORY_FAVICON_SQL: &str = r#"
+SELECT
+  (
+    SELECT favicon_candidates.image_data
+    FROM (
+      SELECT
+        COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
+        0 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      LEFT JOIN favicon_blobs
+        ON favicon_blobs.blob_hash = favicons.image_blob_hash
+      WHERE favicons.source_profile_id = source_profiles.id
+        AND favicons.page_url = ?2
+        AND (
+          favicons.image_blob_hash IS NOT NULL
+          OR favicons.image_data IS NOT NULL
+        )
+      UNION ALL
+      SELECT
+        COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
+        1 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      LEFT JOIN favicon_blobs
+        ON favicon_blobs.blob_hash = favicons.image_blob_hash
+      WHERE favicons.source_profile_id != source_profiles.id
+        AND favicons.page_url = ?2
+        AND (
+          favicons.image_blob_hash IS NOT NULL
+          OR favicons.image_data IS NOT NULL
+        )
+    ) AS favicon_candidates
+    ORDER BY
+      favicon_candidates.match_priority ASC,
+      favicon_candidates.last_updated_ms DESC,
+      favicon_candidates.width DESC,
+      favicon_candidates.height DESC,
+      favicon_candidates.id DESC
+    LIMIT 1
+  ) AS favicon_image_data
+FROM source_profiles
+WHERE source_profiles.profile_key = ?1
+LIMIT 1
+"#;
 
 /// Queries visible history rows with pagination, FTS, and regex support.
 pub fn list_history(
@@ -107,6 +160,49 @@ pub fn list_history(
         cursor_id,
         q,
     )
+}
+
+/// Loads favicon payloads for already-visible Explorer rows after the main
+/// history page has rendered.
+pub fn load_history_favicons(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    entries: Vec<HistoryFaviconLookupEntry>,
+) -> Result<Vec<HistoryFaviconLookupResult>> {
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let connection = open_archive_connection(paths, config, key)?;
+    let mut statement = connection.prepare(LOAD_HISTORY_FAVICON_SQL)?;
+    let mut seen = HashSet::new();
+    let mut results = Vec::with_capacity(entries.len());
+
+    for entry in entries {
+        let cache_key = format!("{}\n{}", entry.profile_id, entry.url);
+        if !seen.insert(cache_key) {
+            continue;
+        }
+
+        let image_data = statement
+            .query_row(params![&entry.profile_id, &entry.url], |row| {
+                row.get::<_, Option<Vec<u8>>>(0)
+            })
+            .optional()?
+            .flatten();
+
+        results.push(HistoryFaviconLookupResult {
+            profile_id: entry.profile_id,
+            url: entry.url,
+            favicon: image_data
+                .as_deref()
+                .and_then(image_data_to_data_url)
+                .map(|data_url| HistoryFavicon { data_url }),
+        });
+    }
+
+    Ok(results)
 }
 
 /// Re-queries history until all visible matches are collected for export.
@@ -470,11 +566,7 @@ pub(super) fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryE
         domain: url_domain(&url),
         url,
         title: row.get(3)?,
-        favicon: row
-            .get::<_, Option<Vec<u8>>>(9)?
-            .as_deref()
-            .and_then(image_data_to_data_url)
-            .map(|data_url| HistoryFavicon { data_url }),
+        favicon: None,
         visited_at: row.get(4).map(|ms: i64| {
             DateTime::<Utc>::from_timestamp_millis(ms).unwrap_or_else(Utc::now).to_rfc3339()
         })?,

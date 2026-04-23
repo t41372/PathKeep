@@ -35,6 +35,8 @@ const MIGRATION_007_VISIBLE_PROFILE_TIME_INDEX_SQL: &str =
     include_str!("../migrations/007_visible_profile_time_index.sql");
 const MIGRATION_008_FAVICON_PAGE_LOOKUP_SQL: &str =
     include_str!("../migrations/008_favicon_page_lookup.sql");
+const MIGRATION_009_FAVICON_BLOB_DEDUP_SQL: &str =
+    include_str!("../migrations/009_favicon_blob_dedup.sql");
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -71,6 +73,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 6, sql: MIGRATION_006_SOURCE_EVIDENCE_PROVENANCE_SQL },
     MigrationSpec { version: 7, sql: MIGRATION_007_VISIBLE_PROFILE_TIME_INDEX_SQL },
     MigrationSpec { version: 8, sql: MIGRATION_008_FAVICON_PAGE_LOOKUP_SQL },
+    MigrationSpec { version: 9, sql: MIGRATION_009_FAVICON_BLOB_DEDUP_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -296,13 +299,15 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 8);
+        assert_eq!(current_version(&connection).expect("schema version"), 9);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
         assert!(has_table(&connection, "import_batches"));
+        assert!(has_table(&connection, "favicon_blobs"));
         assert!(has_index(&connection, "idx_visits_visible_profile_time_id"));
         assert!(has_index(&connection, "idx_favicons_page_lookup"));
+        assert!(has_index(&connection, "idx_favicons_blob_hash"));
         assert!(!has_table(&connection, "history_search"));
         let legacy_surface_count: i64 = connection
             .query_row(
@@ -326,7 +331,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 8);
+        assert_eq!(count, 9);
     }
 
     #[test]
@@ -354,7 +359,7 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 8);
+        assert_eq!(current_version(&connection).expect("migrated version"), 9);
     }
 
     #[test]
@@ -383,7 +388,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 8);
+                assert_eq!(join.join().expect("thread join"), 9);
             }
         });
 

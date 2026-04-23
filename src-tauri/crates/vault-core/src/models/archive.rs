@@ -252,6 +252,23 @@ pub struct HistoryFavicon {
     pub data_url: String,
 }
 
+/// One batch favicon lookup entry used by Explorer's post-reveal icon hydration path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFaviconLookupEntry {
+    pub profile_id: String,
+    pub url: String,
+}
+
+/// One resolved favicon payload returned by the lazy Explorer icon lookup command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFaviconLookupResult {
+    pub profile_id: String,
+    pub url: String,
+    pub favicon: Option<HistoryFavicon>,
+}
+
 /// One visible visit row returned by archive recall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

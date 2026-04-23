@@ -120,10 +120,22 @@ fn seed_chrome_fixture(root: &Path) -> PathBuf {
         .expect("insert favicon");
     favicons
         .execute(
+            "INSERT INTO favicons (id, url, icon_type) VALUES (2, 'https://example.com/app-icon.ico', 1)",
+            [],
+        )
+        .expect("insert duplicate favicon");
+    favicons
+        .execute(
             "INSERT INTO icon_mapping (page_url, icon_id) VALUES ('https://example.com/archive', 1)",
             [],
         )
         .expect("insert icon mapping");
+    favicons
+        .execute(
+            "INSERT INTO icon_mapping (page_url, icon_id) VALUES ('https://example.com/archive', 2)",
+            [],
+        )
+        .expect("insert duplicate icon mapping");
     favicons
         .execute(
             "INSERT INTO favicon_bitmaps (icon_id, width, height, last_updated, image_data)
@@ -131,6 +143,13 @@ fn seed_chrome_fixture(root: &Path) -> PathBuf {
             [second_visit],
         )
         .expect("insert favicon bitmap");
+    favicons
+        .execute(
+            "INSERT INTO favicon_bitmaps (icon_id, width, height, last_updated, image_data)
+             VALUES (2, 16, 16, ?1, X'89504E470D0A1A0A01')",
+            [second_visit],
+        )
+        .expect("insert duplicate favicon bitmap");
 
     chrome_root
 }
@@ -271,9 +290,37 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     )
     .expect("list history");
     assert_eq!(history.total, 2);
-    assert!(history.items.iter().all(|entry| {
+    assert!(history.items.iter().all(|entry| entry.favicon.is_none()));
+
+    let loaded_favicons = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        history
+            .items
+            .iter()
+            .map(|entry| HistoryFaviconLookupEntry {
+                profile_id: entry.profile_id.clone(),
+                url: entry.url.clone(),
+            })
+            .collect(),
+    )
+    .expect("load history favicons");
+    assert!(loaded_favicons.iter().all(|entry| {
         entry.favicon.as_ref().is_some_and(|favicon| favicon.data_url.starts_with("data:image/"))
     }));
+
+    let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+    let favicon_blob_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM favicon_blobs", [], |row| row.get(0))
+        .expect("favicon blob count");
+    let favicon_reference_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM favicons WHERE image_blob_hash IS NOT NULL", [], |row| {
+            row.get(0)
+        })
+        .expect("favicon reference count");
+    assert_eq!(favicon_blob_count, 1);
+    assert_eq!(favicon_reference_count, 2);
 
     let search_term_history = list_history(
         &paths,
@@ -413,8 +460,19 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         HistoryQuery { page: Some(1), limit: Some(1), ..HistoryQuery::default() },
     )
     .expect("cross-profile favicon history page");
+    assert!(cross_profile_favicon.items[0].favicon.is_none());
+    let cross_profile_favicon_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: cross_profile_favicon.items[0].profile_id.clone(),
+            url: cross_profile_favicon.items[0].url.clone(),
+        }],
+    )
+    .expect("cross-profile favicon lookup");
     assert!(
-        cross_profile_favicon.items[0].favicon.is_some(),
+        cross_profile_favicon_lookup[0].favicon.is_some(),
         "expected favicon lookup to fall back across source profiles for the same page URL"
     );
 
@@ -472,33 +530,43 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     let mut favicon_statement = connection
         .prepare(
             "EXPLAIN QUERY PLAN
-             SELECT visits.id,
+             SELECT
                     (
                       SELECT favicon_candidates.image_data
                       FROM (
                         SELECT
-                          favicons.image_data,
+                          COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
                           0 AS match_priority,
                           favicons.last_updated_ms,
                           favicons.width,
                           favicons.height,
                           favicons.id
                         FROM favicons
+                        LEFT JOIN favicon_blobs
+                          ON favicon_blobs.blob_hash = favicons.image_blob_hash
                         WHERE favicons.source_profile_id = source_profiles.id
-                          AND favicons.page_url = urls.url
-                          AND favicons.image_data IS NOT NULL
+                          AND favicons.page_url = ?2
+                          AND (
+                            favicons.image_blob_hash IS NOT NULL
+                            OR favicons.image_data IS NOT NULL
+                          )
                         UNION ALL
                         SELECT
-                          favicons.image_data,
+                          COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
                           1 AS match_priority,
                           favicons.last_updated_ms,
                           favicons.width,
                           favicons.height,
                           favicons.id
                         FROM favicons
+                        LEFT JOIN favicon_blobs
+                          ON favicon_blobs.blob_hash = favicons.image_blob_hash
                         WHERE favicons.source_profile_id != source_profiles.id
-                          AND favicons.page_url = urls.url
-                          AND favicons.image_data IS NOT NULL
+                          AND favicons.page_url = ?2
+                          AND (
+                            favicons.image_blob_hash IS NOT NULL
+                            OR favicons.image_data IS NOT NULL
+                          )
                       ) AS favicon_candidates
                       ORDER BY
                         favicon_candidates.match_priority ASC,
@@ -509,15 +577,15 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
                       LIMIT 1
                     ) AS favicon_image_data
              FROM visits
-             JOIN urls ON urls.id = visits.url_id
              JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             JOIN urls ON urls.id = visits.url_id
              WHERE visits.reverted_at IS NULL
              ORDER BY visits.visit_time_ms DESC, visits.id DESC
              LIMIT 150",
         )
         .expect("prepare favicon query plan");
     let favicon_plan = favicon_statement
-        .query_map([], |row| row.get::<_, String>(3))
+        .query_map(["chrome:Default", "https://example.com/archive"], |row| row.get::<_, String>(3))
         .expect("query favicon plan rows")
         .collect::<rusqlite::Result<Vec<_>>>()
         .expect("collect favicon query plan");

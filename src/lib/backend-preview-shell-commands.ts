@@ -33,7 +33,11 @@ import {
   syncMockAppLockState,
   validateMockAppLockConfig,
 } from './backend-preview-state'
-import { filterMockHistory, uniqueUrlCount } from './backend-preview-search'
+import {
+  filterMockHistory,
+  loadMockHistoryFavicons,
+  uniqueUrlCount,
+} from './backend-preview-search'
 import {
   buildMockAuditRunDetail,
   buildMockDashboardSnapshot,
@@ -282,6 +286,12 @@ export function handlePreviewShellCommand<T>(
     }
     case 'query_history':
       return filterMockHistory(state, args?.query as HistoryQuery) as T
+    case 'load_history_favicons':
+      return loadMockHistoryFavicons(
+        state,
+        (args?.entries as { profileId: string; url: string }[] | undefined) ??
+          [],
+      ) as T
     case 'load_dashboard_snapshot':
       return buildMockDashboardSnapshot(state) as T
     case 'load_audit_run_detail':

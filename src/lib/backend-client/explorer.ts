@@ -13,7 +13,12 @@
  * - This layer should stay typed, boring, and free of user-facing copy so routes can keep ownership of UX decisions.
  */
 
-import type { HistoryQuery, HistoryQueryResponse } from '../types'
+import type {
+  HistoryFaviconLookupEntry,
+  HistoryFaviconLookupResult,
+  HistoryQuery,
+  HistoryQueryResponse,
+} from '../types'
 import { call } from './shared'
 
 /**
@@ -24,4 +29,6 @@ import { call } from './shared'
 export const explorerClient = {
   queryHistory: (query: HistoryQuery) =>
     call<HistoryQueryResponse>('query_history', { query }),
+  loadHistoryFavicons: (entries: HistoryFaviconLookupEntry[]) =>
+    call<HistoryFaviconLookupResult[]>('load_history_favicons', { entries }),
 }

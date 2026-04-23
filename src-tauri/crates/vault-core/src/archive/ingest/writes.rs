@@ -304,6 +304,21 @@ pub(super) fn insert_favicon(
     favicon: &ParsedFavicon,
     payload_hash: &str,
 ) -> Result<usize> {
+    let image_blob_hash = favicon.image_data.as_deref().map(sha256_hex);
+    if let (Some(blob_hash), Some(image_data)) =
+        (image_blob_hash.as_deref(), favicon.image_data.as_deref())
+    {
+        archive.execute(
+            "INSERT OR IGNORE INTO favicon_blobs (
+               blob_hash,
+               image_data,
+               recorded_at
+             )
+             VALUES (?1, ?2, ?3)",
+            params![blob_hash, image_data, now_rfc3339(),],
+        )?;
+    }
+
     archive
         .execute(
             "INSERT OR IGNORE INTO favicons (
@@ -315,12 +330,13 @@ pub(super) fn insert_favicon(
            last_updated_ms,
            last_updated_iso,
            image_data,
+           image_blob_hash,
            source_profile_id,
            created_by_run_id,
            payload_hash,
            recorded_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 favicon.page_url,
                 favicon.icon_url,
@@ -329,7 +345,8 @@ pub(super) fn insert_favicon(
                 favicon.height,
                 favicon.last_updated_ms,
                 favicon.last_updated_iso,
-                favicon.image_data,
+                Option::<Vec<u8>>::None,
+                image_blob_hash,
                 source_profile_id,
                 run_id,
                 payload_hash,

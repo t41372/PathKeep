@@ -110,6 +110,7 @@ fn run_app() -> Result<()> {
             unlock_app_session,
             run_backup_now,
             query_history,
+            load_history_favicons,
             load_dashboard_snapshot,
             load_audit_run_detail,
             export_history,

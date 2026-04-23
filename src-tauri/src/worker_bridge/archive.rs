@@ -98,6 +98,16 @@ pub(crate) fn query_history_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads favicon payloads for already-visible Explorer rows after the primary
+/// history query has painted.
+pub(crate) fn load_history_favicons_impl(
+    entries: Vec<vault_core::HistoryFaviconLookupEntry>,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, String> {
+    worker_result(vault_worker::load_history_favicons(session_database_key, entries))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads the dashboard snapshot for the current archive.
 pub(crate) fn dashboard_snapshot_impl(
     session_database_key: Option<&str>,

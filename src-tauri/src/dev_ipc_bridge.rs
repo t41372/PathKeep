@@ -31,14 +31,14 @@ use vault_core::{
     AiSearchRequest, AppConfig, AppUpdateInstallRequest, CategoryFilteredDateRangeRequest,
     CompareSetDetailRequest, CoreIntelligenceRebuildRequest, DayInsightsRequest,
     DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
-    ExportRequest, FrontendErrorReportRequest, GranularityDateRangeRequest, HistoryQuery,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
-    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
-    RefindPagesRequest, RetentionPruneRequest, S3CredentialInput, SchedulePlan,
-    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
-    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
-    SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
-    UnlockAppSessionRequest,
+    ExportRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
+    HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
+    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
+    S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
+    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
+    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
+    TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -94,6 +94,12 @@ struct RunBackupPayload {
 #[serde(rename_all = "camelCase")]
 struct QueryHistoryPayload {
     query: HistoryQuery,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryFaviconPayload {
+    entries: Vec<HistoryFaviconLookupEntry>,
 }
 
 #[derive(Deserialize)]
@@ -410,6 +416,13 @@ async fn dispatch_command(
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
             json_value!(worker_bridge::query_history_impl(
                 payload.query,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "load_history_favicons" => {
+            let payload = parse_payload::<HistoryFaviconPayload>(payload)?;
+            json_value!(worker_bridge::load_history_favicons_impl(
+                payload.entries,
                 session_key(&state.session).as_deref()
             )?)
         }

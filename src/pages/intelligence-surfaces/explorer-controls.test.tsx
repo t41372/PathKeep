@@ -188,6 +188,86 @@ describe('intelligence surfaces', () => {
     expect((await screen.findAllByText('Alpha')).length).toBeGreaterThan(0)
   })
 
+  test('renders history rows before lazy favicon payloads resolve', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    let resolveFavicons:
+      | ((
+          value: Awaited<ReturnType<typeof backend.loadHistoryFavicons>>,
+        ) => void)
+      | undefined
+
+    vi.spyOn(backend, 'queryHistory').mockResolvedValue({
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      pageCount: 1,
+      hasPrevious: false,
+      hasNext: false,
+      nextCursor: null,
+      items: [
+        {
+          id: 1,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/alpha',
+          title: 'Alpha',
+          domain: 'example.com',
+          visitedAt: '2026-04-17T10:00:00Z',
+          visitTime: Date.parse('2026-04-17T10:00:00Z'),
+          transition: null,
+          favicon: null,
+          sourceVisitId: 1,
+        },
+      ],
+    })
+    const faviconSpy = vi
+      .spyOn(backend, 'loadHistoryFavicons')
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveFavicons = resolve
+          }),
+      )
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    expect((await screen.findAllByText('Alpha')).length).toBeGreaterThan(0)
+    await waitFor(() =>
+      expect(faviconSpy).toHaveBeenCalledWith([
+        {
+          profileId: 'chrome:Default',
+          url: 'https://example.com/alpha',
+        },
+      ]),
+    )
+    expect(document.querySelector('.favicon-image')).toBeNull()
+
+    expect(resolveFavicons).toBeDefined()
+    if (!resolveFavicons) {
+      throw new Error('expected favicon resolver to be captured')
+    }
+    resolveFavicons([
+      {
+        profileId: 'chrome:Default',
+        url: 'https://example.com/alpha',
+        favicon: {
+          dataUrl: 'data:image/png;base64,AQI=',
+        },
+      },
+    ])
+
+    await waitFor(() =>
+      expect(document.querySelector('.favicon-image')).toHaveAttribute(
+        'src',
+        'data:image/png;base64,AQI=',
+      ),
+    )
+  })
+
   test('shows the current page count and lets users change explorer rows per page', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()

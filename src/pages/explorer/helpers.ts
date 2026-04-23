@@ -30,6 +30,8 @@ export const explorerPageSizeStorageKey = 'pathkeep.explorer.page-size'
 export const defaultKeywordPageSize = 50
 export const keywordPageSizeOptions = [25, 50, 100, 200] as const
 export const semanticPageSize = 8
+
+export type ExplorerPrefetchDirection = 'forward' | 'backward' | 'neutral'
 const sensitiveQueryParamPattern =
   /\b(token|code|state|email|callbackUrl|session|otp|nonce|auth|password)=([^&\s]+)/gi
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
@@ -158,6 +160,71 @@ export function persistKeywordPageSize(pageSize: number) {
     explorerPageSizeStorageKey,
     String(normalizedPageSize),
   )
+}
+
+/**
+ * Builds the ordered page list Explorer should warm in the background.
+ *
+ * Direction-aware ordering matters for rapid paging because the first useful
+ * page to fetch is usually the next boundary page in the direction the user is
+ * already moving, not a symmetric page behind them.
+ */
+export function buildHistoryPrefetchPages(
+  currentPage: number,
+  pageCount: number,
+  prefetchPages: number,
+  direction: ExplorerPrefetchDirection,
+) {
+  if (prefetchPages <= 0 || pageCount <= 1) {
+    return [] as number[]
+  }
+
+  const pages: number[] = []
+  const pushForward = (offset: number) => {
+    const page = currentPage + offset
+    if (page <= pageCount) {
+      pages.push(page)
+    }
+  }
+  const pushBackward = (offset: number) => {
+    const page = currentPage - offset
+    if (page >= 1) {
+      pages.push(page)
+    }
+  }
+
+  if (direction === 'forward') {
+    for (let offset = 1; offset <= prefetchPages; offset += 1) {
+      pushForward(offset)
+    }
+    for (let offset = 1; offset <= prefetchPages; offset += 1) {
+      pushBackward(offset)
+    }
+    return pages
+  }
+
+  if (direction === 'backward') {
+    for (let offset = 1; offset <= prefetchPages; offset += 1) {
+      pushBackward(offset)
+    }
+    for (let offset = 1; offset <= prefetchPages; offset += 1) {
+      pushForward(offset)
+    }
+    return pages
+  }
+
+  for (let offset = 1; offset <= prefetchPages; offset += 1) {
+    pushBackward(offset)
+    pushForward(offset)
+  }
+  return pages
+}
+
+/**
+ * Builds the stable cache key used by Explorer's lazy favicon hydration path.
+ */
+export function historyFaviconLookupKey(profileId: string, url: string) {
+  return `${profileId}\n${url}`
 }
 
 function compactMiddle(text: string, maxLength: number) {

@@ -73,7 +73,7 @@ pub(crate) use self::source_evidence_builder::{
 };
 pub use self::{
     doctor::{doctor, repair_health_issues},
-    history::{export_history, list_history},
+    history::{export_history, list_history, load_history_favicons},
     maintenance::{
         preview_retention, preview_snapshot_restore, rekey_archive, run_retention_prune,
         run_snapshot_restore,
@@ -91,9 +91,9 @@ use crate::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat, ExportRequest,
         ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry, HistoryFavicon,
-        HistoryQuery, HistoryQueryResponse, RetentionBucket, RetentionPreview,
-        RetentionPruneRequest, RetentionPruneResult, SnapshotRestorePreview,
-        SnapshotRestoreRequest, StorageSummary,
+        HistoryFaviconLookupEntry, HistoryFaviconLookupResult, HistoryQuery, HistoryQueryResponse,
+        RetentionBucket, RetentionPreview, RetentionPruneRequest, RetentionPruneResult,
+        SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
     },
     utils::{
         file_sha256_hex, image_data_to_data_url, now_rfc3339, sha256_hex,
@@ -123,42 +123,7 @@ SELECT
   visits.visit_duration_ms,
   visits.transition_type,
   visits.source_visit_id,
-  visits.app_id,
-  (
-    SELECT favicon_candidates.image_data
-    FROM (
-      SELECT
-        favicons.image_data,
-        0 AS match_priority,
-        favicons.last_updated_ms,
-        favicons.width,
-        favicons.height,
-        favicons.id
-      FROM favicons
-      WHERE favicons.source_profile_id = source_profiles.id
-        AND favicons.page_url = urls.url
-        AND favicons.image_data IS NOT NULL
-      UNION ALL
-      SELECT
-        favicons.image_data,
-        1 AS match_priority,
-        favicons.last_updated_ms,
-        favicons.width,
-        favicons.height,
-        favicons.id
-      FROM favicons
-      WHERE favicons.source_profile_id != source_profiles.id
-        AND favicons.page_url = urls.url
-        AND favicons.image_data IS NOT NULL
-    ) AS favicon_candidates
-    ORDER BY
-      favicon_candidates.match_priority ASC,
-      favicon_candidates.last_updated_ms DESC,
-      favicon_candidates.width DESC,
-      favicon_candidates.height DESC,
-      favicon_candidates.id DESC
-    LIMIT 1
-  ) AS favicon_image_data
+  visits.app_id
 FROM visits
 JOIN urls
   ON urls.id = visits.url_id
@@ -223,42 +188,7 @@ SELECT
   visits.visit_duration_ms,
   visits.transition_type,
   visits.source_visit_id,
-  visits.app_id,
-  (
-    SELECT favicon_candidates.image_data
-    FROM (
-      SELECT
-        favicons.image_data,
-        0 AS match_priority,
-        favicons.last_updated_ms,
-        favicons.width,
-        favicons.height,
-        favicons.id
-      FROM favicons
-      WHERE favicons.source_profile_id = source_profiles.id
-        AND favicons.page_url = urls.url
-        AND favicons.image_data IS NOT NULL
-      UNION ALL
-      SELECT
-        favicons.image_data,
-        1 AS match_priority,
-        favicons.last_updated_ms,
-        favicons.width,
-        favicons.height,
-        favicons.id
-      FROM favicons
-      WHERE favicons.source_profile_id != source_profiles.id
-        AND favicons.page_url = urls.url
-        AND favicons.image_data IS NOT NULL
-    ) AS favicon_candidates
-    ORDER BY
-      favicon_candidates.match_priority ASC,
-      favicon_candidates.last_updated_ms DESC,
-      favicon_candidates.width DESC,
-      favicon_candidates.height DESC,
-      favicon_candidates.id DESC
-    LIMIT 1
-  ) AS favicon_image_data
+  visits.app_id
 FROM visits
 JOIN urls
   ON urls.id = visits.url_id

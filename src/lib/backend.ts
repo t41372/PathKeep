@@ -214,6 +214,10 @@ export const backend = {
     call<BackupReport>('run_backup_now', { dueOnly }),
   queryHistory: (query: HistoryQuery) =>
     call<HistoryQueryResponse>('query_history', { query }),
+  loadHistoryFavicons: (entries: { profileId: string; url: string }[]) =>
+    call<
+      { profileId: string; url: string; favicon?: { dataUrl: string } | null }[]
+    >('load_history_favicons', { entries }),
   loadDashboardSnapshot: () =>
     call<DashboardSnapshot>('load_dashboard_snapshot'),
   loadAuditRunDetail: (runId: number) =>

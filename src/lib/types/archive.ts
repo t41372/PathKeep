@@ -297,6 +297,32 @@ export interface HistoryEntry {
 }
 
 /**
+ * Defines one batch favicon lookup entry for Explorer rows that have already
+ * rendered without blocking on image payloads.
+ *
+ * The lookup stays URL/profile-scoped so the UI can hydrate icons after first
+ * paint without re-encoding favicon bytes inside the main history query.
+ */
+export interface HistoryFaviconLookupEntry {
+  profileId: string
+  url: string
+}
+
+/**
+ * Defines one resolved favicon payload returned by the lazy Explorer icon path.
+ *
+ * Returning the requested URL/profile pair keeps the response deterministic and
+ * lets the client cache icon lookups without inventing a second identity model.
+ */
+export interface HistoryFaviconLookupResult {
+  profileId: string
+  url: string
+  favicon?: {
+    dataUrl: string
+  } | null
+}
+
+/**
  * Describes a response payload in this front-end contract.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.

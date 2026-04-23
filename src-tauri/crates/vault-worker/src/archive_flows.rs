@@ -193,6 +193,17 @@ pub fn query_history(
     list_history(&paths, &config, session_database_key, query)
 }
 
+/// Loads favicon payloads for already-visible Explorer rows without blocking the
+/// main history query path on image bytes.
+pub fn load_history_favicons(
+    session_database_key: Option<&str>,
+    entries: Vec<vault_core::HistoryFaviconLookupEntry>,
+) -> Result<Vec<vault_core::HistoryFaviconLookupResult>> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::load_history_favicons(&paths, &config, session_database_key, entries)
+}
+
 /// Loads the dashboard snapshot read model for the current unlocked session.
 pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<DashboardSnapshot> {
     let paths = vault_core::project_paths()?;

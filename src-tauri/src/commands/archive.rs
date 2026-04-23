@@ -116,6 +116,21 @@ pub(crate) async fn query_history(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads favicon payloads for already-visible Explorer rows after the primary
+/// page content has rendered.
+pub(crate) async fn load_history_favicons(
+    entries: Vec<vault_core::HistoryFaviconLookupEntry>,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("load_history_favicons", move || {
+        worker_bridge::load_history_favicons_impl(entries, session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads the dashboard summary shown on the archive home surface.
 pub(crate) fn load_dashboard_snapshot(
     state: State<'_, SessionState>,

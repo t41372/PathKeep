@@ -29,17 +29,21 @@ import {
 import { backend } from '../../../lib/backend-client'
 import { normalizeExplorerBackgroundPrefetchPages } from '../../../lib/explorer-preferences'
 import { waitForNextPaint } from '../../../lib/wait-for-next-paint'
+import {
+  buildHistoryPrefetchPages,
+  type ExplorerPrefetchDirection,
+} from '../helpers'
 import type {
   AiProviderConnectionTestReport,
   ExportFormat,
   ExportResult,
 } from '../../../lib/types'
-import { loadRecentSearches } from '../helpers'
 import type {
   ExplorerMode,
   ExplorerViewMode,
   RecentSearchEntry,
 } from '../types'
+import { loadRecentSearches } from '../helpers'
 
 /**
  * Collects the inputs needed by `UseExplorerData`.
@@ -136,6 +140,7 @@ export function useExplorerData({
     >(),
   )
   const historyPrefetchSequenceRef = useRef<string | null>(null)
+  const lastLoadedHistoryPageRef = useRef<number | null>(null)
   const [queryState, setQueryState] = useState({
     requestKey: null as string | null,
     results: null as Awaited<ReturnType<typeof backend.queryHistory>> | null,
@@ -270,6 +275,7 @@ export function useExplorerData({
     pageCount: number,
     nextCacheToken: number,
     nextBackgroundPrefetchPages: number,
+    direction: ExplorerPrefetchDirection,
   ) {
     const prefetchPages = normalizeExplorerBackgroundPrefetchPages(
       nextBackgroundPrefetchPages,
@@ -280,19 +286,12 @@ export function useExplorerData({
 
     const sequenceKey = buildHistoryRequestKey(query, nextCacheToken)
     historyPrefetchSequenceRef.current = sequenceKey
-    const scheduledPages: number[] = []
-
-    for (let offset = 1; offset <= prefetchPages; offset += 1) {
-      const previousPage = currentPage - offset
-      if (previousPage >= 1) {
-        scheduledPages.push(previousPage)
-      }
-
-      const followingPage = currentPage + offset
-      if (followingPage <= pageCount) {
-        scheduledPages.push(followingPage)
-      }
-    }
+    const scheduledPages = buildHistoryPrefetchPages(
+      currentPage,
+      pageCount,
+      prefetchPages,
+      direction,
+    )
 
     void (async () => {
       for (const page of scheduledPages) {
@@ -329,6 +328,15 @@ export function useExplorerData({
      */
     const loadResults = async () => {
       const request = historyRequestRef.current
+      const requestedPage = request.currentQuery.page ?? 1
+      const prefetchDirection: ExplorerPrefetchDirection =
+        lastLoadedHistoryPageRef.current === null
+          ? 'neutral'
+          : requestedPage > lastLoadedHistoryPageRef.current
+            ? 'forward'
+            : requestedPage < lastLoadedHistoryPageRef.current
+              ? 'backward'
+              : 'neutral'
       const nextRequestKey = buildHistoryRequestKey(
         request.currentQuery,
         request.cacheToken,
@@ -353,7 +361,9 @@ export function useExplorerData({
           cachedResults.pageCount,
           request.cacheToken,
           request.backgroundPrefetchPages,
+          prefetchDirection,
         )
+        lastLoadedHistoryPageRef.current = cachedResults.page
         return
       }
       const inflightPrefetch = historyPrefetchRef.current.get(nextRequestKey)
@@ -394,7 +404,9 @@ export function useExplorerData({
           response.pageCount,
           request.cacheToken,
           request.backgroundPrefetchPages,
+          prefetchDirection,
         )
+        lastLoadedHistoryPageRef.current = response.page
       } catch (error) {
         if (cancelled) return
         setQueryState({

@@ -67,6 +67,7 @@ export const backend = {
   unlockAppSession: appClient.unlockAppSession,
   runBackupNow: archiveClient.runBackupNow,
   queryHistory: explorerClient.queryHistory,
+  loadHistoryFavicons: explorerClient.loadHistoryFavicons,
   loadDashboardSnapshot: dashboardClient.getSnapshot,
   loadAuditRunDetail: auditClient.getRunDetail,
   exportHistory: archiveClient.exportHistory,
