@@ -110,6 +110,13 @@ describe('intelligence surfaces settings core sections', () => {
       createEmptyRuntimeSnapshot(),
     )
     const shellValue = createShellValue(snapshot, dashboard)
+    shellValue.saveConfig = vi.fn().mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        explorerBackgroundPrefetchPages: 0,
+      },
+    })
     shellValue.buildInfo = {
       productName: 'PathKeep',
       version: '0.9.0',
@@ -151,6 +158,11 @@ describe('intelligence surfaces settings core sections', () => {
         name: settingsT('interfaceLanguage'),
       }),
     ).toHaveValue(snapshot.config.preferredLanguage)
+    expect(
+      within(generalPanel).getByRole('combobox', {
+        name: settingsT('explorerBackgroundPrefetchPages'),
+      }),
+    ).toHaveValue(String(snapshot.config.explorerBackgroundPrefetchPages))
     expect(within(generalPanel).getByText('0.9.0')).toBeVisible()
     expect(within(generalPanel).getByText('abc1234')).toBeVisible()
     expect(
@@ -175,6 +187,20 @@ describe('intelligence surfaces settings core sections', () => {
     )
     expect(openPathSpy).toHaveBeenLastCalledWith(
       '/tmp/pathkeep/crash/frontend.log',
+    )
+
+    await user.selectOptions(
+      within(generalPanel).getByRole('combobox', {
+        name: settingsT('explorerBackgroundPrefetchPages'),
+      }),
+      '0',
+    )
+    await waitFor(() =>
+      expect(shellValue.saveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          explorerBackgroundPrefetchPages: 0,
+        }),
+      ),
     )
   })
 

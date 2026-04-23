@@ -34,6 +34,7 @@ import {
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
+import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import type {
   CoreIntelligenceSectionMeta,
   CoreIntelligenceSectionResult,
@@ -65,6 +66,7 @@ const baseConfig: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
   appLock: {
     enabled: false,
     idleTimeoutMinutes: 5,

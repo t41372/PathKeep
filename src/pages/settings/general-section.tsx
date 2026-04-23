@@ -18,6 +18,10 @@ import {
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { Glyph } from '../../components/ui'
 import {
+  explorerBackgroundPrefetchPageOptions,
+  normalizeExplorerBackgroundPrefetchPages,
+} from '../../lib/explorer-preferences'
+import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
 } from '../../lib/build-info'
@@ -34,8 +38,10 @@ import type { SettingsSectionNavItem } from './section-nav-items'
  */
 export interface GeneralSectionProps {
   buildInfo: AppBuildInfo | null
+  explorerBackgroundPrefetchPages: number
   navItem: SettingsSectionNavItem
   onCopyPath: (key: string, value: string) => Promise<void>
+  onExplorerBackgroundPrefetchPagesChange: (pages: number) => Promise<void>
   saving: boolean
   snapshot: AppSnapshot
   supportCopyFeedback: ReviewCopyFeedback | null
@@ -51,8 +57,10 @@ export interface GeneralSectionProps {
  */
 export function GeneralSection({
   buildInfo,
+  explorerBackgroundPrefetchPages,
   navItem,
   onCopyPath,
+  onExplorerBackgroundPrefetchPagesChange,
   saving,
   snapshot,
   supportCopyFeedback,
@@ -102,6 +110,37 @@ export function GeneralSection({
             {languageLabel(language, language)}
           </span>
         </div>
+        <div className="config-row">
+          <span className="config-label">
+            {t('settings.explorerBackgroundPrefetchPages')}
+          </span>
+          <select
+            aria-label={t('settings.explorerBackgroundPrefetchPages')}
+            className="settings-select"
+            disabled={saving}
+            value={normalizeExplorerBackgroundPrefetchPages(
+              explorerBackgroundPrefetchPages,
+            )}
+            onChange={(event) => {
+              void onExplorerBackgroundPrefetchPagesChange(
+                Number.parseInt(event.target.value, 10),
+              )
+            }}
+          >
+            {explorerBackgroundPrefetchPageOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 0
+                  ? t('settings.explorerBackgroundPrefetchDisabled')
+                  : t('settings.explorerBackgroundPrefetchOption', {
+                      count: option,
+                    })}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="dashboard-next-action">
+          {t('settings.explorerBackgroundPrefetchBody')}
+        </p>
         <ReviewPathActionRow
           copyFeedback={supportCopyFeedback}
           copyKey="settings:app-root"

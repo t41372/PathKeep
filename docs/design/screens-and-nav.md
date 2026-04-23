@@ -127,7 +127,7 @@
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Explorer 的 time view 必須同時在上方 timeline / summary、結果列表上方、與底部分頁列明確顯示「當前頁 / 總頁數」；列表上方與底部分頁列都要承接第一頁 / 上一頁 / 下一頁 / 最後一頁、跳頁與每頁筆數控制，避免使用者只看到 loaded count 卻不知道自己在整個結果集的哪裡。
 - Explorer 的 time-view detail rail 必須 sticky 在可視區內，而不是跟著左側長列表一起被拉成整列高度；使用者在頁面底部選到某筆記錄時，不應再為了看 detail 被迫捲回頁首。
-- Explorer 的翻頁與每頁筆數切換只能刷新結果，不得把 `workspace-scroll` 強制拉回頁面頂端；用戶在列表底部操作分頁後，視角要留在原位。每頁筆數屬於 persisted route preference，離開 Explorer 或重啟 app 後仍要保留；前後相鄰頁可在背景預取，但不得讓預取或 favicon 補齊阻塞當前頁面的首屏 skeleton / content reveal。
+- Explorer 的翻頁與每頁筆數切換只能刷新結果，不得把 `workspace-scroll` 強制拉回頁面頂端；用戶在列表底部操作分頁後，視角要留在原位。每頁筆數屬於 persisted route preference，離開 Explorer 或重啟 app 後仍要保留；前後相鄰頁可在背景預取，但不得讓預取或 favicon 補齊阻塞當前頁面的首屏 skeleton / content reveal。背景預取跨度必須在 Settings > General 暴露為可調整的 bounded preference，避免 route 內硬編碼固定窗口。
 - Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、`browser-snippet-v1` 本地宿主的 preview / execute / verify、plugin enable / disable、derived rebuild / clear、以及 search-engine rule editor（built-in read-only + custom CRUD），並回鏈到 Audit run 驗證最新 growth signal。
 - Settings external outputs 現在優先根據 trusted payload 內的 structured entity targets 產生 `Open insights` links；`public snapshot` 則必須維持 redacted，不得帶出 internal reusable IDs。
 

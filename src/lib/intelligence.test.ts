@@ -15,6 +15,7 @@
 
 import { describe, expect, test } from 'vitest'
 import type { DateRange } from './core-intelligence'
+import { defaultExplorerBackgroundPrefetchPages } from './explorer-preferences'
 import {
   compareSetInsightsHref,
   dayInsightsHref,
@@ -58,6 +59,7 @@ const config: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
   appLock: {
     enabled: false,
     idleTimeoutMinutes: 5,

@@ -25,6 +25,7 @@ import {
   READABLE_CONTENT_REFETCH_PLUGIN_ID,
   resolveEnrichmentSettings,
 } from './enrichment'
+import { normalizeExplorerBackgroundPrefetchPages } from './explorer-preferences'
 import {
   mockHistory,
   mockIntelligenceRuntime,
@@ -138,6 +139,9 @@ export function normalizeMockConfig(
 ): AppConfig {
   return {
     ...config,
+    explorerBackgroundPrefetchPages: normalizeExplorerBackgroundPrefetchPages(
+      config.explorerBackgroundPrefetchPages,
+    ),
     appLock: {
       ...config.appLock,
       idleTimeoutMinutes: Math.min(

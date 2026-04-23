@@ -135,8 +135,14 @@ export function SettingsPage() {
         <div className="settings-group__label">{t('settings.groupCore')}</div>
         <GeneralSection
           buildInfo={buildInfo}
+          explorerBackgroundPrefetchPages={
+            routeState.general.explorerBackgroundPrefetchPages
+          }
           navItem={settingsSection('general')}
           onCopyPath={routeState.general.onCopyPath}
+          onExplorerBackgroundPrefetchPagesChange={
+            routeState.general.onExplorerBackgroundPrefetchPagesChange
+          }
           onLanguageChange={routeState.general.onLanguageChange}
           onOpenPath={routeState.general.onOpenPath}
           saving={routeState.general.saving}

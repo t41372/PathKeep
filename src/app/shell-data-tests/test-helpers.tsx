@@ -27,6 +27,7 @@ import { render } from '@testing-library/react'
 import { vi, expect } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
+import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { subscribeToBackupProgress } from '../../lib/ipc/backup-progress'
 import { I18nContext, type I18nContextValue } from '../../lib/i18n/context'
 import {
@@ -54,6 +55,7 @@ const baseConfig: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
   appLock: {
     enabled: false,
     idleTimeoutMinutes: 5,

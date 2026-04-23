@@ -20,6 +20,7 @@
  */
 
 import { describe, expect, test } from 'vitest'
+import { defaultExplorerBackgroundPrefetchPages } from '../lib/explorer-preferences'
 import { createTranslator } from '../lib/i18n'
 import type {
   AppSnapshot,
@@ -80,6 +81,7 @@ function buildSnapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
       gitEnabled: true,
       rememberDatabaseKeyInKeyring: false,
       appAutostart: false,
+      explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
       appLock: {
         enabled: false,
         idleTimeoutMinutes: 5,

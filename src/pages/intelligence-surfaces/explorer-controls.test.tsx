@@ -362,9 +362,60 @@ describe('intelligence surfaces', () => {
     ).toHaveValue('200')
   })
 
+  test('prefetches as many adjacent pages as the current config allows', async () => {
+    const { snapshot } = await seedArchiveState()
+    snapshot.config.explorerBackgroundPrefetchPages = 2
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((query) =>
+        Promise.resolve({
+          total: 250,
+          page: query.page ?? 1,
+          pageSize: query.limit ?? 50,
+          pageCount: 5,
+          hasPrevious: (query.page ?? 1) > 1,
+          hasNext: (query.page ?? 1) < 5,
+          nextCursor: null,
+          items: [
+            {
+              id: (query.page ?? 1) * 10,
+              profileId: 'chrome:Default',
+              url: `https://example.com/page-${query.page ?? 1}`,
+              title: `Page ${(query.page ?? 1).toString()}`,
+              domain: 'example.com',
+              visitedAt: '2026-04-17T10:00:00Z',
+              visitTime: Date.parse('2026-04-17T10:00:00Z'),
+              transition: null,
+              favicon: null,
+              sourceVisitId: (query.page ?? 1) * 10,
+            },
+          ],
+        }),
+      )
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    expect((await screen.findAllByText('Page 1')).length).toBeGreaterThan(0)
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 2, limit: 50 }),
+      ),
+    )
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 3, limit: 50 }),
+      ),
+    )
+  })
+
   test('reuses the prefetched adjacent page when users move one page forward', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
+    snapshot.config.explorerBackgroundPrefetchPages = 1
     const explorerT = createNamespaceTranslator('en', 'explorer')
     const querySpy = vi
       .spyOn(backend, 'queryHistory')

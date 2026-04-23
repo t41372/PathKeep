@@ -26,6 +26,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { backend } from '../../lib/backend-client'
+import { normalizeExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { useI18n } from '../../lib/i18n'
 import type {
   AppConfig,
@@ -222,6 +223,29 @@ export function useSettingsSupportState({
     }
   }
 
+  async function handleExplorerBackgroundPrefetchPagesChange(
+    nextPages: number,
+  ) {
+    if (!snapshot) {
+      return
+    }
+
+    const normalizedPages = normalizeExplorerBackgroundPrefetchPages(nextPages)
+    if (normalizedPages === snapshot.config.explorerBackgroundPrefetchPages) {
+      return
+    }
+
+    setSaving(true)
+    try {
+      await saveConfig({
+        ...snapshot.config,
+        explorerBackgroundPrefetchPages: normalizedPages,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function refreshRetentionPreview() {
     try {
       const preview = await backend.previewRetentionPrune()
@@ -373,9 +397,14 @@ export function useSettingsSupportState({
     supportState,
     supportStateLoaded,
     general: {
+      explorerBackgroundPrefetchPages:
+        snapshot?.config.explorerBackgroundPrefetchPages ??
+        normalizeExplorerBackgroundPrefetchPages(undefined),
       saving,
       supportCopyFeedback,
       onCopyPath: handleSupportPathCopy,
+      onExplorerBackgroundPrefetchPagesChange:
+        handleExplorerBackgroundPrefetchPagesChange,
       onLanguageChange: handleLanguageChange,
       onOpenPath: handleSupportPathOpen,
     },

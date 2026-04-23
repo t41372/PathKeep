@@ -22,6 +22,7 @@ import { PermissionGate } from '../../components/primitives/permission-gate'
 import { SkeletonExplorer } from '../../components/primitives/skeleton'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
+import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { useI18n } from '../../lib/i18n'
 import {
   aiStatusMeta,
@@ -174,6 +175,9 @@ export function ExplorerPage() {
     setSelectedId,
   } = useExplorerData({
     archiveReady,
+    backgroundPrefetchPages:
+      snapshot?.config.explorerBackgroundPrefetchPages ??
+      defaultExplorerBackgroundPrefetchPages,
     cacheToken: refreshKey,
     currentQuery,
     embeddingProviderId: embeddingProvider?.id ?? null,

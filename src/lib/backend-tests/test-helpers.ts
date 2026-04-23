@@ -20,6 +20,7 @@
  * - These fixtures are tiny immutable literals reused by tests, so sharing them avoids repeated giant object declarations without affecting runtime behavior.
  */
 
+import { defaultExplorerBackgroundPrefetchPages } from '../explorer-preferences'
 import type { AppConfig, SchedulePlan } from '../types'
 
 /**
@@ -40,6 +41,7 @@ export const previewConfigFixture: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
   appLock: {
     enabled: false,
     idleTimeoutMinutes: 5,

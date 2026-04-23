@@ -24,6 +24,7 @@
 import { expect, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
+import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { createNamespaceTranslator, createTranslator } from '../../lib/i18n'
 import type { AppConfig } from '../../lib/types'
 
@@ -49,6 +50,7 @@ const initializedConfig: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
   appLock: {
     enabled: false,
     idleTimeoutMinutes: 5,

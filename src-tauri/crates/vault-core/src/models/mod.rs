@@ -148,11 +148,13 @@ mod tests {
         config.enrichment.plugins.clear();
         config.ai.enrichment_plugins.clear();
         config.deterministic.modules.clear();
+        config.explorer_background_prefetch_pages = 99;
         normalize_app_config(&mut config);
 
         assert_eq!(config.enrichment.plugins.len(), 2);
         assert_eq!(config.ai.enrichment_plugins.len(), 2);
         assert_eq!(config.deterministic.modules.len(), 8);
         assert!(config.ai.enrichment_enabled);
+        assert_eq!(config.explorer_background_prefetch_pages, 10);
     }
 }

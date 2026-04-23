@@ -37,6 +37,7 @@ import {
   type ResolvedLanguage,
 } from '../../lib/i18n'
 import { I18nContext, type I18nContextValue } from '../../lib/i18n/context'
+import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
 import type { AppConfig, AppSnapshot, DashboardSnapshot } from '../../lib/types'
 
@@ -52,6 +53,7 @@ const config: AppConfig = {
   gitEnabled: true,
   rememberDatabaseKeyInKeyring: false,
   appAutostart: false,
+  explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
   appLock: {
     enabled: false,
     idleTimeoutMinutes: 5,

@@ -27,6 +27,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
+import { normalizeExplorerBackgroundPrefetchPages } from '../../../lib/explorer-preferences'
 import { waitForNextPaint } from '../../../lib/wait-for-next-paint'
 import type {
   AiProviderConnectionTestReport,
@@ -47,6 +48,7 @@ import type {
  */
 interface UseExplorerDataOptions {
   archiveReady: boolean
+  backgroundPrefetchPages: number
   cacheToken: number
   currentQuery: Parameters<typeof backend.queryHistory>[0]
   embeddingProviderId: string | null
@@ -88,6 +90,7 @@ interface QueueJobRequest {
  */
 export function useExplorerData({
   archiveReady,
+  backgroundPrefetchPages,
   cacheToken,
   currentQuery,
   embeddingProviderId,
@@ -106,6 +109,9 @@ export function useExplorerData({
   start,
 }: UseExplorerDataOptions) {
   const historyRequestRef = useRef({
+    backgroundPrefetchPages: normalizeExplorerBackgroundPrefetchPages(
+      backgroundPrefetchPages,
+    ),
     cacheToken,
     currentQuery,
     end,
@@ -129,6 +135,7 @@ export function useExplorerData({
       Promise<Awaited<ReturnType<typeof backend.queryHistory>>>
     >(),
   )
+  const historyPrefetchSequenceRef = useRef<string | null>(null)
   const [queryState, setQueryState] = useState({
     requestKey: null as string | null,
     results: null as Awaited<ReturnType<typeof backend.queryHistory>> | null,
@@ -154,6 +161,9 @@ export function useExplorerData({
   const [actionError, setActionError] = useState<string | null>(null)
 
   historyRequestRef.current = {
+    backgroundPrefetchPages: normalizeExplorerBackgroundPrefetchPages(
+      backgroundPrefetchPages,
+    ),
     cacheToken,
     currentQuery,
     end,
@@ -192,7 +202,11 @@ export function useExplorerData({
     const cache = historyCacheRef.current
     cache.delete(key)
     cache.set(key, results)
-    while (cache.size > 6) {
+    const cacheLimit = Math.max(
+      6,
+      historyRequestRef.current.backgroundPrefetchPages * 2 + 2,
+    )
+    while (cache.size > cacheLimit) {
       const oldestKey = cache.keys().next().value
       if (!oldestKey) {
         break
@@ -209,11 +223,14 @@ export function useExplorerData({
     nextCacheToken: number,
   ) {
     const key = buildHistoryRequestKey(query, nextCacheToken)
-    if (
-      historyCacheRef.current.has(key) ||
-      historyPrefetchRef.current.has(key)
-    ) {
-      return
+    const cached = historyCacheRef.current.get(key)
+    if (cached) {
+      return Promise.resolve(cached)
+    }
+
+    const inflightRequest = historyPrefetchRef.current.get(key)
+    if (inflightRequest) {
+      return inflightRequest
     }
 
     const request = backend
@@ -227,6 +244,7 @@ export function useExplorerData({
       })
 
     historyPrefetchRef.current.set(key, request)
+    return request
   })
 
   /**
@@ -242,6 +260,57 @@ export function useExplorerData({
       page: page <= 1 ? null : page,
     }
   }
+
+  /**
+   * Schedules a bounded background warmup for nearby Explorer pages.
+   */
+  const prefetchHistoryWindow = useEffectEvent(function prefetchHistoryWindow(
+    query: Parameters<typeof backend.queryHistory>[0],
+    currentPage: number,
+    pageCount: number,
+    nextCacheToken: number,
+    nextBackgroundPrefetchPages: number,
+  ) {
+    const prefetchPages = normalizeExplorerBackgroundPrefetchPages(
+      nextBackgroundPrefetchPages,
+    )
+    if (prefetchPages <= 0) {
+      return
+    }
+
+    const sequenceKey = buildHistoryRequestKey(query, nextCacheToken)
+    historyPrefetchSequenceRef.current = sequenceKey
+    const scheduledPages: number[] = []
+
+    for (let offset = 1; offset <= prefetchPages; offset += 1) {
+      const previousPage = currentPage - offset
+      if (previousPage >= 1) {
+        scheduledPages.push(previousPage)
+      }
+
+      const followingPage = currentPage + offset
+      if (followingPage <= pageCount) {
+        scheduledPages.push(followingPage)
+      }
+    }
+
+    void (async () => {
+      for (const page of scheduledPages) {
+        if (historyPrefetchSequenceRef.current !== sequenceKey) {
+          return
+        }
+
+        try {
+          await prefetchHistoryPage(
+            buildPagedHistoryQuery(query, page),
+            nextCacheToken,
+          )
+        } catch {
+          return
+        }
+      }
+    })()
+  })
 
   useEffect(() => {
     if (!archiveReady || historyBlockedByInvalidRegex || view !== 'time') {
@@ -278,20 +347,13 @@ export function useExplorerData({
               : (cachedResults.items[0]?.id ?? null),
           )
         })
-
-        const currentPage = cachedResults.page
-        if (cachedResults.hasPrevious) {
-          prefetchHistoryPage(
-            buildPagedHistoryQuery(request.currentQuery, currentPage - 1),
-            request.cacheToken,
-          )
-        }
-        if (cachedResults.hasNext) {
-          prefetchHistoryPage(
-            buildPagedHistoryQuery(request.currentQuery, currentPage + 1),
-            request.cacheToken,
-          )
-        }
+        prefetchHistoryWindow(
+          request.currentQuery,
+          cachedResults.page,
+          cachedResults.pageCount,
+          request.cacheToken,
+          request.backgroundPrefetchPages,
+        )
         return
       }
       const inflightPrefetch = historyPrefetchRef.current.get(nextRequestKey)
@@ -316,18 +378,6 @@ export function useExplorerData({
           sort: request.currentQuery.sort ?? 'newest',
         })
         request.setRecentSearches(loadRecentSearches())
-        if (response.hasPrevious) {
-          prefetchHistoryPage(
-            buildPagedHistoryQuery(request.currentQuery, response.page - 1),
-            request.cacheToken,
-          )
-        }
-        if (response.hasNext) {
-          prefetchHistoryPage(
-            buildPagedHistoryQuery(request.currentQuery, response.page + 1),
-            request.cacheToken,
-          )
-        }
         await waitForNextPaint()
         if (cancelled) return
         startTransition(() => {
@@ -338,6 +388,13 @@ export function useExplorerData({
               : (response.items[0]?.id ?? null),
           )
         })
+        prefetchHistoryWindow(
+          request.currentQuery,
+          response.page,
+          response.pageCount,
+          request.cacheToken,
+          request.backgroundPrefetchPages,
+        )
       } catch (error) {
         if (cancelled) return
         setQueryState({
@@ -351,6 +408,7 @@ export function useExplorerData({
     void loadResults()
     return () => {
       cancelled = true
+      historyPrefetchSequenceRef.current = null
     }
   }, [archiveReady, historyBlockedByInvalidRegex, requestKey, view])
 

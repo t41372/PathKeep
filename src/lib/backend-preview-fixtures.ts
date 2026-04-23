@@ -22,6 +22,7 @@
  */
 
 import { defaultEnrichmentSettings } from './enrichment'
+import { defaultExplorerBackgroundPrefetchPages } from './explorer-preferences'
 import type {
   AppBuildInfo,
   AppSnapshot,
@@ -102,6 +103,7 @@ export const mockSnapshot: AppSnapshot = {
     gitEnabled: true,
     rememberDatabaseKeyInKeyring: false,
     appAutostart: false,
+    explorerBackgroundPrefetchPages: defaultExplorerBackgroundPrefetchPages,
     appLock: {
       enabled: false,
       idleTimeoutMinutes: 5,

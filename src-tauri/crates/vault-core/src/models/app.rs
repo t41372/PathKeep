@@ -13,12 +13,17 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 
+const DEFAULT_EXPLORER_BACKGROUND_PREFETCH_PAGES: u64 = 5;
+const MAX_EXPLORER_BACKGROUND_PREFETCH_PAGES: u64 = 10;
+
 /// Repairs config payloads so newly added runtime defaults are always present.
 pub fn normalize_app_config(config: &mut AppConfig) {
     config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);
     config.ai.enrichment_plugins =
         merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
     config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
+    config.explorer_background_prefetch_pages =
+        config.explorer_background_prefetch_pages.min(MAX_EXPLORER_BACKGROUND_PREFETCH_PAGES);
 }
 
 /// User language selection persisted in config.
@@ -131,6 +136,7 @@ pub struct AppConfig {
     pub git_enabled: bool,
     pub remember_database_key_in_keyring: bool,
     pub app_autostart: bool,
+    pub explorer_background_prefetch_pages: u64,
     pub app_lock: AppLockConfig,
     pub analytics: AnalyticsConfig,
     pub remote_backup: RemoteBackupConfig,
@@ -154,6 +160,7 @@ impl Default for AppConfig {
             git_enabled: true,
             remember_database_key_in_keyring: false,
             app_autostart: false,
+            explorer_background_prefetch_pages: DEFAULT_EXPLORER_BACKGROUND_PREFETCH_PAGES,
             app_lock: AppLockConfig::default(),
             analytics: AnalyticsConfig::default(),
             remote_backup: RemoteBackupConfig::default(),

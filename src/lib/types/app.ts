@@ -139,6 +139,7 @@ export interface AppConfig {
   gitEnabled: boolean
   rememberDatabaseKeyInKeyring: boolean
   appAutostart: boolean
+  explorerBackgroundPrefetchPages: number
   appLock: AppLockConfig
   analytics: AnalyticsConfig
   remoteBackup: RemoteBackupConfig
