@@ -39,6 +39,7 @@ import {
 describe('intelligence surfaces', () => {
   beforeEach(() => {
     resetIntelligenceSurfaceHarness()
+    window.localStorage.removeItem('pathkeep.explorer.page-size')
   })
 
   test('clears both explorer date bounds in a single interaction', async () => {
@@ -109,17 +110,82 @@ describe('intelligence surfaces', () => {
     })
 
     expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
-    await waitFor(() => expect(querySpy).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ q: null, limit: 50 }),
+      ),
+    )
+    const baselineCallCount = querySpy.mock.calls.length
 
     await user.type(
       screen.getByLabelText(explorerT('filterKeywordAria')),
       'sqlite',
     )
 
-    expect(querySpy).toHaveBeenCalledTimes(1)
+    expect(querySpy.mock.calls.length).toBe(baselineCallCount)
 
     await new Promise((resolve) => window.setTimeout(resolve, 220))
-    await waitFor(() => expect(querySpy).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ q: 'sqlite', limit: 50 }),
+      ),
+    )
+  })
+
+  test('renders explorer chrome and a results skeleton before the first query settles', async () => {
+    const { snapshot } = await seedArchiveState()
+    const explorerT = createNamespaceTranslator('en', 'explorer')
+    const commonT = createNamespaceTranslator('en', 'common')
+
+    let resolveInitialQuery:
+      | ((value: Awaited<ReturnType<typeof backend.queryHistory>>) => void)
+      | undefined
+
+    vi.spyOn(backend, 'queryHistory').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveInitialQuery = resolve
+        }),
+    )
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
+    expect(screen.getByLabelText(explorerT('filterKeywordAria'))).toBeVisible()
+    expect(
+      await screen.findByTestId('explorer-results-skeleton'),
+    ).toHaveAttribute('aria-label', commonT('loadingExplorerResults'))
+
+    await waitFor(() => expect(resolveInitialQuery).toBeDefined())
+    resolveInitialQuery?.({
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      pageCount: 1,
+      hasPrevious: false,
+      hasNext: false,
+      nextCursor: null,
+      items: [
+        {
+          id: 1,
+          profileId: 'chrome:Default',
+          url: 'https://example.com/alpha',
+          title: 'Alpha',
+          domain: 'example.com',
+          visitedAt: '2026-04-17T10:00:00Z',
+          visitTime: Date.parse('2026-04-17T10:00:00Z'),
+          transition: null,
+          favicon: null,
+          sourceVisitId: 1,
+        },
+      ],
+    })
+
+    expect((await screen.findAllByText('Alpha')).length).toBeGreaterThan(0)
   })
 
   test('shows the current page count and lets users change explorer rows per page', async () => {
@@ -178,20 +244,23 @@ describe('intelligence surfaces', () => {
       2,
     )
     expect(
+      screen.getAllByRole('button', { name: explorerT('firstPage') }).length,
+    ).toBe(2)
+    expect(
       screen.getAllByText('Showing 2 of 240 results on this page').length,
     ).toBeGreaterThan(2)
     await waitFor(() =>
-      expect(querySpy).toHaveBeenLastCalledWith(
+      expect(querySpy).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 50 }),
       ),
     )
 
     await user.click(
-      screen.getByRole('button', { name: explorerT('nextPage') }),
+      screen.getAllByRole('button', { name: explorerT('nextPage') })[0],
     )
 
     await waitFor(() =>
-      expect(querySpy).toHaveBeenLastCalledWith(
+      expect(querySpy).toHaveBeenCalledWith(
         expect.objectContaining({ page: 2, limit: 50 }),
       ),
     )
@@ -200,15 +269,15 @@ describe('intelligence surfaces', () => {
     )
     expect(scrollToSpy).not.toHaveBeenCalled()
 
-    const pageSizeSelect = screen.getByRole('combobox', {
+    const pageSizeSelect = screen.getAllByRole('combobox', {
       name: explorerT('pageSizeLabel'),
-    })
+    })[0]
     await waitFor(() => expect(pageSizeSelect).not.toBeDisabled())
 
     await user.selectOptions(pageSizeSelect, '100')
 
     await waitFor(() =>
-      expect(querySpy).toHaveBeenLastCalledWith(
+      expect(querySpy).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 100 }),
       ),
     )
@@ -216,6 +285,142 @@ describe('intelligence surfaces', () => {
       2,
     )
     expect(scrollToSpy).not.toHaveBeenCalled()
+  })
+
+  test('persists the explorer page size across route remounts', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const explorerT = createNamespaceTranslator('en', 'explorer')
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((query) =>
+        Promise.resolve({
+          total: 400,
+          page: query.page ?? 1,
+          pageSize: query.limit ?? 50,
+          pageCount: Math.ceil(400 / (query.limit ?? 50)),
+          hasPrevious: (query.page ?? 1) > 1,
+          hasNext: (query.page ?? 1) < Math.ceil(400 / (query.limit ?? 50)),
+          nextCursor: null,
+          items: [
+            {
+              id: 1,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/alpha',
+              title: 'Alpha',
+              domain: 'example.com',
+              visitedAt: '2026-04-17T10:00:00Z',
+              visitTime: Date.parse('2026-04-17T10:00:00Z'),
+              transition: null,
+              favicon: null,
+              sourceVisitId: 1,
+            },
+          ],
+        }),
+      )
+
+    const firstRender = renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    const firstPageSizeSelect = (
+      await screen.findAllByRole('combobox', {
+        name: explorerT('pageSizeLabel'),
+      })
+    )[0]
+    await waitFor(() => expect(firstPageSizeSelect).not.toBeDisabled())
+    await user.selectOptions(firstPageSizeSelect, '200')
+
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 200 }),
+      ),
+    )
+    firstRender.unmount()
+
+    querySpy.mockClear()
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 200 }),
+      ),
+    )
+    expect(
+      (
+        await screen.findAllByRole('combobox', {
+          name: explorerT('pageSizeLabel'),
+        })
+      )[0],
+    ).toHaveValue('200')
+  })
+
+  test('reuses the prefetched adjacent page when users move one page forward', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const explorerT = createNamespaceTranslator('en', 'explorer')
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((query) =>
+        Promise.resolve({
+          total: 120,
+          page: query.page ?? 1,
+          pageSize: query.limit ?? 50,
+          pageCount: 3,
+          hasPrevious: (query.page ?? 1) > 1,
+          hasNext: (query.page ?? 1) < 3,
+          nextCursor: null,
+          items: [
+            {
+              id: (query.page ?? 1) * 10,
+              profileId: 'chrome:Default',
+              url: `https://example.com/page-${query.page ?? 1}`,
+              title: `Page ${(query.page ?? 1).toString()}`,
+              domain: 'example.com',
+              visitedAt: '2026-04-17T10:00:00Z',
+              visitTime: Date.parse('2026-04-17T10:00:00Z'),
+              transition: null,
+              favicon: null,
+              sourceVisitId: (query.page ?? 1) * 10,
+            },
+          ],
+        }),
+      )
+
+    renderSurface(<ExplorerPage />, {
+      language: 'en',
+      route: '/explorer',
+      snapshot,
+    })
+
+    expect((await screen.findAllByText('Page 1')).length).toBeGreaterThan(0)
+    await waitFor(() =>
+      expect(querySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 2, limit: 50 }),
+      ),
+    )
+    const callCountBeforeNavigation = querySpy.mock.calls.length
+
+    await user.click(
+      screen.getAllByRole('button', { name: explorerT('nextPage') })[0],
+    )
+
+    expect((await screen.findAllByText('Page 2')).length).toBeGreaterThan(0)
+    const followupCalls = querySpy.mock.calls.slice(callCountBeforeNavigation)
+    expect(followupCalls).toHaveLength(1)
+    expect(followupCalls[0]?.[0]).toEqual(
+      expect.objectContaining({ page: 3, limit: 50 }),
+    )
+    expect(
+      screen.queryByTestId('explorer-results-skeleton'),
+    ).not.toBeInTheDocument()
   })
 
   test('keeps explorer controls visible while page navigation stages a results skeleton', async () => {
@@ -295,11 +500,11 @@ describe('intelligence surfaces', () => {
     )
 
     await user.click(
-      screen.getByRole('button', { name: explorerT('nextPage') }),
+      screen.getAllByRole('button', { name: explorerT('nextPage') })[0],
     )
 
     await waitFor(() =>
-      expect(querySpy).toHaveBeenLastCalledWith(
+      expect(querySpy).toHaveBeenCalledWith(
         expect.objectContaining({ page: 2, limit: 50 }),
       ),
     )
@@ -310,7 +515,7 @@ describe('intelligence surfaces', () => {
       commonT('loadingExplorerResults'),
     )
     expect(
-      screen.getByRole('combobox', { name: explorerT('pageSizeLabel') }),
+      screen.getAllByRole('combobox', { name: explorerT('pageSizeLabel') })[0],
     ).toBeDisabled()
 
     expect(resolvePageTwo).toBeDefined()

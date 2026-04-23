@@ -32,6 +32,8 @@ import {
   defaultKeywordPageSize,
   keywordPageSizeOptions,
   loadRecentSearches,
+  loadStoredKeywordPageSize,
+  persistKeywordPageSize,
   recentSearchesStorageKey,
   toLocalDateString,
 } from '../helpers'
@@ -73,6 +75,9 @@ export function useExplorerUrlState({
   selectedProfileIds,
 }: UseExplorerUrlStateOptions) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [storedPageSize, setStoredPageSize] = useState(
+    loadStoredKeywordPageSize,
+  )
   const [recentSearches, setRecentSearches] =
     useState<RecentSearchEntry[]>(loadRecentSearches)
   const {
@@ -83,7 +88,7 @@ export function useExplorerUrlState({
     explicitPage,
     explicitProfileId,
     mode,
-    pageSize,
+    pageSize: routePageSize,
     profileId,
     rawQuery,
     regexMode,
@@ -92,6 +97,7 @@ export function useExplorerUrlState({
     start,
     view,
   } = deriveExplorerUrlParamState(searchParams, activeProfileId)
+  const pageSize = searchParams.get('pageSize') ? routePageSize : storedPageSize
   const [queryInput, setQueryInput] = useState(rawQuery)
   const deferredQuery = useDeferredValue(rawQuery)
   const [semanticCursorTrail, setSemanticCursorTrail] = useState<
@@ -398,6 +404,9 @@ export function useExplorerUrlState({
     )
       ? nextPageSize
       : defaultKeywordPageSize
+
+    persistKeywordPageSize(normalizedPageSize)
+    setStoredPageSize(normalizedPageSize)
 
     const next = new URLSearchParams(searchParams)
     if (normalizedPageSize === defaultKeywordPageSize) {

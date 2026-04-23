@@ -64,6 +64,126 @@ interface ExplorerResultsPanelProps {
   selectedEntry: HistoryQueryResponse['items'][number] | null
 }
 
+interface ExplorerHistoryPaginationControlsProps {
+  controlsDisabled: boolean
+  explorerT: Translator
+  handleFirstHistoryPage: () => void
+  handleHistoryPageJump: (historyPageCount: number) => void
+  handleLastHistoryPage: (historyPageCount: number) => void
+  handleNextHistoryPage: () => void
+  handlePreviousHistoryPage: () => void
+  historyPageCount: number
+  historyPageInput: string
+  historyPageSize: number
+  onHistoryPageInputChange: (value: string) => void
+  onHistoryPageSizeChange: (value: number) => void
+  results: HistoryQueryResponse | null
+}
+
+function ExplorerHistoryPaginationControls({
+  controlsDisabled,
+  explorerT,
+  handleFirstHistoryPage,
+  handleHistoryPageJump,
+  handleLastHistoryPage,
+  handleNextHistoryPage,
+  handlePreviousHistoryPage,
+  historyPageCount,
+  historyPageInput,
+  historyPageSize,
+  onHistoryPageInputChange,
+  onHistoryPageSizeChange,
+  results,
+}: ExplorerHistoryPaginationControlsProps) {
+  return (
+    <div className="record-group-pagination__controls">
+      <div className="record-group-pagination__nav">
+        <button
+          className="btn-secondary"
+          type="button"
+          onClick={handleFirstHistoryPage}
+          disabled={controlsDisabled || !results?.hasPrevious}
+        >
+          {explorerT('firstPage')}
+        </button>
+        <button
+          className="btn-secondary"
+          type="button"
+          onClick={handlePreviousHistoryPage}
+          disabled={controlsDisabled || !results?.hasPrevious}
+        >
+          {explorerT('previousPage')}
+        </button>
+        <button
+          className="btn-secondary"
+          type="button"
+          onClick={handleNextHistoryPage}
+          disabled={controlsDisabled || !results?.hasNext}
+        >
+          {explorerT('nextPage')}
+        </button>
+        <button
+          className="btn-secondary"
+          type="button"
+          onClick={() => handleLastHistoryPage(historyPageCount)}
+          disabled={controlsDisabled || !results?.hasNext}
+        >
+          {explorerT('lastPage')}
+        </button>
+      </div>
+      <div className="record-group-pagination__jump">
+        <label className="history-page-jump">
+          <span className="history-page-jump__label">
+            {explorerT('pageNumberLabel')}
+          </span>
+          <input
+            className="history-page-jump__input"
+            disabled={controlsDisabled}
+            inputMode="numeric"
+            min={1}
+            type="number"
+            value={historyPageInput}
+            onChange={(event) => onHistoryPageInputChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                handleHistoryPageJump(historyPageCount)
+              }
+            }}
+          />
+        </label>
+        <button
+          className="btn-secondary"
+          disabled={controlsDisabled}
+          type="button"
+          onClick={() => handleHistoryPageJump(historyPageCount)}
+        >
+          {explorerT('jumpToPage')}
+        </button>
+        <label className="history-page-jump">
+          <span className="history-page-jump__label">
+            {explorerT('pageSizeLabel')}
+          </span>
+          <select
+            className="history-page-size__select"
+            disabled={controlsDisabled}
+            value={historyPageSize}
+            onChange={(event) =>
+              onHistoryPageSizeChange(Number(event.target.value))
+            }
+          >
+            {keywordPageSizeOptions.map((option) => (
+              <option key={option} value={option}>
+                {explorerT('pageSizeOption', { count: option })}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Renders the explorer results panel.
  *
@@ -138,6 +258,21 @@ export function ExplorerResultsPanel({
                 </>
               )}
             </div>
+            <ExplorerHistoryPaginationControls
+              controlsDisabled={controlsDisabled}
+              explorerT={explorerT}
+              handleFirstHistoryPage={handleFirstHistoryPage}
+              handleHistoryPageJump={handleHistoryPageJump}
+              handleLastHistoryPage={handleLastHistoryPage}
+              handleNextHistoryPage={handleNextHistoryPage}
+              handlePreviousHistoryPage={handlePreviousHistoryPage}
+              historyPageCount={historyPageCount}
+              historyPageInput={historyPageInput}
+              historyPageSize={historyPageSize}
+              onHistoryPageInputChange={onHistoryPageInputChange}
+              onHistoryPageSizeChange={onHistoryPageSizeChange}
+              results={results}
+            />
           </div>
           {loading ? (
             <div
@@ -228,93 +363,21 @@ export function ExplorerResultsPanel({
                 </>
               )}
             </div>
-            <div className="record-group-pagination__controls">
-              <div className="record-group-pagination__nav">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={handleFirstHistoryPage}
-                  disabled={controlsDisabled || !results?.hasPrevious}
-                >
-                  {explorerT('firstPage')}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={handlePreviousHistoryPage}
-                  disabled={controlsDisabled || !results?.hasPrevious}
-                >
-                  {explorerT('previousPage')}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={handleNextHistoryPage}
-                  disabled={controlsDisabled || !results?.hasNext}
-                >
-                  {explorerT('nextPage')}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => handleLastHistoryPage(historyPageCount)}
-                  disabled={controlsDisabled || !results?.hasNext}
-                >
-                  {explorerT('lastPage')}
-                </button>
-              </div>
-              <div className="record-group-pagination__jump">
-                <label className="history-page-jump">
-                  <span className="history-page-jump__label">
-                    {explorerT('pageNumberLabel')}
-                  </span>
-                  <input
-                    className="history-page-jump__input"
-                    disabled={controlsDisabled}
-                    inputMode="numeric"
-                    min={1}
-                    type="number"
-                    value={historyPageInput}
-                    onChange={(event) =>
-                      onHistoryPageInputChange(event.target.value)
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        handleHistoryPageJump(historyPageCount)
-                      }
-                    }}
-                  />
-                </label>
-                <button
-                  className="btn-secondary"
-                  disabled={controlsDisabled}
-                  type="button"
-                  onClick={() => handleHistoryPageJump(historyPageCount)}
-                >
-                  {explorerT('jumpToPage')}
-                </button>
-                <label className="history-page-jump">
-                  <span className="history-page-jump__label">
-                    {explorerT('pageSizeLabel')}
-                  </span>
-                  <select
-                    className="history-page-size__select"
-                    disabled={controlsDisabled}
-                    value={historyPageSize}
-                    onChange={(event) =>
-                      onHistoryPageSizeChange(Number(event.target.value))
-                    }
-                  >
-                    {keywordPageSizeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {explorerT('pageSizeOption', { count: option })}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
+            <ExplorerHistoryPaginationControls
+              controlsDisabled={controlsDisabled}
+              explorerT={explorerT}
+              handleFirstHistoryPage={handleFirstHistoryPage}
+              handleHistoryPageJump={handleHistoryPageJump}
+              handleLastHistoryPage={handleLastHistoryPage}
+              handleNextHistoryPage={handleNextHistoryPage}
+              handlePreviousHistoryPage={handlePreviousHistoryPage}
+              historyPageCount={historyPageCount}
+              historyPageInput={historyPageInput}
+              historyPageSize={historyPageSize}
+              onHistoryPageInputChange={onHistoryPageInputChange}
+              onHistoryPageSizeChange={onHistoryPageSizeChange}
+              results={results}
+            />
           </div>
         </div>
       </div>

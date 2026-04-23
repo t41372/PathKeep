@@ -154,6 +154,7 @@ export function ExplorerPage() {
   )
   const {
     actionError,
+    cachedHistoryResults,
     copyFeedback,
     exportResult,
     handleCopyExportPath,
@@ -173,6 +174,7 @@ export function ExplorerPage() {
     setSelectedId,
   } = useExplorerData({
     archiveReady,
+    cacheToken: refreshKey,
     currentQuery,
     embeddingProviderId: embeddingProvider?.id ?? null,
     end,
@@ -194,7 +196,7 @@ export function ExplorerPage() {
     archiveReady &&
     (historyBlockedByInvalidRegex || queryState.requestKey === requestKey)
       ? queryState.results
-      : null
+      : cachedHistoryResults
   const semanticResults =
     archiveReady && semanticState.requestKey === semanticRequestKey
       ? semanticState.results
@@ -216,7 +218,8 @@ export function ExplorerPage() {
   const loading =
     archiveReady &&
     !historyBlockedByInvalidRegex &&
-    queryState.requestKey !== requestKey
+    queryState.requestKey !== requestKey &&
+    !cachedHistoryResults
   const stagedResults =
     archiveReady && !historyBlockedByInvalidRegex && view === 'time'
       ? queryState.results

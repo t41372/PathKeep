@@ -125,16 +125,38 @@ SELECT
   visits.source_visit_id,
   visits.app_id,
   (
-    SELECT favicons.image_data
-    FROM favicons
-    WHERE favicons.source_profile_id = source_profiles.id
-      AND favicons.page_url = urls.url
-      AND favicons.image_data IS NOT NULL
+    SELECT favicon_candidates.image_data
+    FROM (
+      SELECT
+        favicons.image_data,
+        0 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      WHERE favicons.source_profile_id = source_profiles.id
+        AND favicons.page_url = urls.url
+        AND favicons.image_data IS NOT NULL
+      UNION ALL
+      SELECT
+        favicons.image_data,
+        1 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      WHERE favicons.source_profile_id != source_profiles.id
+        AND favicons.page_url = urls.url
+        AND favicons.image_data IS NOT NULL
+    ) AS favicon_candidates
     ORDER BY
-      favicons.last_updated_ms DESC,
-      favicons.width DESC,
-      favicons.height DESC,
-      favicons.id DESC
+      favicon_candidates.match_priority ASC,
+      favicon_candidates.last_updated_ms DESC,
+      favicon_candidates.width DESC,
+      favicon_candidates.height DESC,
+      favicon_candidates.id DESC
     LIMIT 1
   ) AS favicon_image_data
 FROM visits
@@ -172,6 +194,7 @@ ORDER BY
   CASE WHEN :sort != 'oldest' THEN visits.visit_time_ms END DESC,
   CASE WHEN :sort != 'oldest' THEN visits.id END DESC
 LIMIT :pageLimit
+OFFSET :pageOffset
 "#;
 
 const COUNT_HISTORY_SQL: &str = r#"
@@ -202,16 +225,38 @@ SELECT
   visits.source_visit_id,
   visits.app_id,
   (
-    SELECT favicons.image_data
-    FROM favicons
-    WHERE favicons.source_profile_id = source_profiles.id
-      AND favicons.page_url = urls.url
-      AND favicons.image_data IS NOT NULL
+    SELECT favicon_candidates.image_data
+    FROM (
+      SELECT
+        favicons.image_data,
+        0 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      WHERE favicons.source_profile_id = source_profiles.id
+        AND favicons.page_url = urls.url
+        AND favicons.image_data IS NOT NULL
+      UNION ALL
+      SELECT
+        favicons.image_data,
+        1 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      WHERE favicons.source_profile_id != source_profiles.id
+        AND favicons.page_url = urls.url
+        AND favicons.image_data IS NOT NULL
+    ) AS favicon_candidates
     ORDER BY
-      favicons.last_updated_ms DESC,
-      favicons.width DESC,
-      favicons.height DESC,
-      favicons.id DESC
+      favicon_candidates.match_priority ASC,
+      favicon_candidates.last_updated_ms DESC,
+      favicon_candidates.width DESC,
+      favicon_candidates.height DESC,
+      favicon_candidates.id DESC
     LIMIT 1
   ) AS favicon_image_data
 FROM visits
@@ -251,6 +296,7 @@ ORDER BY
   CASE WHEN :sort != 'oldest' THEN visits.visit_time_ms END DESC,
   CASE WHEN :sort != 'oldest' THEN visits.id END DESC
 LIMIT :pageLimit
+OFFSET :pageOffset
 "#;
 
 const COUNT_HISTORY_FTS_SQL: &str = r#"

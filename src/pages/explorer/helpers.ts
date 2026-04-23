@@ -26,6 +26,7 @@ import type { KeyboardEvent } from 'react'
 import type { RecentSearchEntry } from './types'
 
 export const recentSearchesStorageKey = 'pathkeep.explorer.recent-searches'
+export const explorerPageSizeStorageKey = 'pathkeep.explorer.page-size'
 export const defaultKeywordPageSize = 50
 export const keywordPageSizeOptions = [25, 50, 100, 200] as const
 export const semanticPageSize = 8
@@ -130,6 +131,33 @@ export function parseKeywordPageSize(value: string | null) {
   )
     ? parsed
     : defaultKeywordPageSize
+}
+
+export function loadStoredKeywordPageSize() {
+  if (typeof window === 'undefined') {
+    return defaultKeywordPageSize
+  }
+
+  return parseKeywordPageSize(
+    window.localStorage.getItem(explorerPageSizeStorageKey),
+  )
+}
+
+export function persistKeywordPageSize(pageSize: number) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const normalizedPageSize = keywordPageSizeOptions.includes(
+    pageSize as (typeof keywordPageSizeOptions)[number],
+  )
+    ? pageSize
+    : defaultKeywordPageSize
+
+  window.localStorage.setItem(
+    explorerPageSizeStorageKey,
+    String(normalizedPageSize),
+  )
 }
 
 function compactMiddle(text: string, maxLength: number) {

@@ -357,6 +357,67 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     assert_eq!(second_page.items.len(), 1);
     assert!(second_page.next_cursor.is_none());
 
+    let explicit_second_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { limit: Some(1), page: Some(2), ..HistoryQuery::default() },
+    )
+    .expect("explicit second history page");
+    assert_eq!(explicit_second_page.total, 2);
+    assert_eq!(explicit_second_page.page, 2);
+    assert_eq!(explicit_second_page.page_count, 2);
+    assert_eq!(explicit_second_page.items.len(), 1);
+    assert!(explicit_second_page.has_previous);
+    assert!(!explicit_second_page.has_next);
+    assert!(explicit_second_page.next_cursor.is_none());
+
+    let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+    connection
+        .execute(
+            "INSERT INTO source_profiles (
+               id,
+               browser_kind,
+               browser_version,
+               profile_name,
+               profile_path,
+               discovered_at,
+               enabled,
+               profile_key,
+               user_name,
+               updated_at,
+               browser_family,
+               browser_product
+             )
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 1, ?6, NULL, ?5, ?7, ?8)",
+            params![
+                2_i64,
+                "takeout",
+                "Imported",
+                "/tmp/imported-profile",
+                now_rfc3339(),
+                "takeout::browser-history",
+                "chromium",
+                "Takeout",
+            ],
+        )
+        .expect("insert imported source profile");
+    connection
+        .execute("UPDATE visits SET source_profile_id = 2 WHERE id = 2", [])
+        .expect("reassign visit profile");
+
+    let cross_profile_favicon = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { page: Some(1), limit: Some(1), ..HistoryQuery::default() },
+    )
+    .expect("cross-profile favicon history page");
+    assert!(
+        cross_profile_favicon.items[0].favicon.is_some(),
+        "expected favicon lookup to fall back across source profiles for the same page URL"
+    );
+
     let paged_export = export_history(
         &paths,
         &config,
@@ -413,16 +474,38 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
             "EXPLAIN QUERY PLAN
              SELECT visits.id,
                     (
-                      SELECT favicons.image_data
-                      FROM favicons
-                      WHERE favicons.source_profile_id = source_profiles.id
-                        AND favicons.page_url = urls.url
-                        AND favicons.image_data IS NOT NULL
+                      SELECT favicon_candidates.image_data
+                      FROM (
+                        SELECT
+                          favicons.image_data,
+                          0 AS match_priority,
+                          favicons.last_updated_ms,
+                          favicons.width,
+                          favicons.height,
+                          favicons.id
+                        FROM favicons
+                        WHERE favicons.source_profile_id = source_profiles.id
+                          AND favicons.page_url = urls.url
+                          AND favicons.image_data IS NOT NULL
+                        UNION ALL
+                        SELECT
+                          favicons.image_data,
+                          1 AS match_priority,
+                          favicons.last_updated_ms,
+                          favicons.width,
+                          favicons.height,
+                          favicons.id
+                        FROM favicons
+                        WHERE favicons.source_profile_id != source_profiles.id
+                          AND favicons.page_url = urls.url
+                          AND favicons.image_data IS NOT NULL
+                      ) AS favicon_candidates
                       ORDER BY
-                        favicons.last_updated_ms DESC,
-                        favicons.width DESC,
-                        favicons.height DESC,
-                        favicons.id DESC
+                        favicon_candidates.match_priority ASC,
+                        favicon_candidates.last_updated_ms DESC,
+                        favicon_candidates.width DESC,
+                        favicon_candidates.height DESC,
+                        favicon_candidates.id DESC
                       LIMIT 1
                     ) AS favicon_image_data
              FROM visits
@@ -441,6 +524,10 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     assert!(
         favicon_plan.iter().any(|detail| detail.contains("idx_favicons_recall_lookup")),
         "unexpected favicon query plan: {favicon_plan:?}"
+    );
+    assert!(
+        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_page_lookup")),
+        "favicon fallback query is not using the cross-profile page lookup index: {favicon_plan:?}"
     );
     assert!(
         !favicon_plan.iter().any(|detail| detail.contains("SCAN favicons")),

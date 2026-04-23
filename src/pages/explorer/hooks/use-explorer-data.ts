@@ -16,6 +16,7 @@
 import {
   startTransition,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type Dispatch,
@@ -46,6 +47,7 @@ import type {
  */
 interface UseExplorerDataOptions {
   archiveReady: boolean
+  cacheToken: number
   currentQuery: Parameters<typeof backend.queryHistory>[0]
   embeddingProviderId: string | null
   end: string | null
@@ -86,6 +88,7 @@ interface QueueJobRequest {
  */
 export function useExplorerData({
   archiveReady,
+  cacheToken,
   currentQuery,
   embeddingProviderId,
   end,
@@ -103,6 +106,7 @@ export function useExplorerData({
   start,
 }: UseExplorerDataOptions) {
   const historyRequestRef = useRef({
+    cacheToken,
     currentQuery,
     end,
     mode,
@@ -116,6 +120,15 @@ export function useExplorerData({
     semanticQuery,
     semanticRecallDegradedTitle: labels.semanticRecallDegradedTitle,
   })
+  const historyCacheRef = useRef(
+    new Map<string, Awaited<ReturnType<typeof backend.queryHistory>>>(),
+  )
+  const historyPrefetchRef = useRef(
+    new Map<
+      string,
+      Promise<Awaited<ReturnType<typeof backend.queryHistory>>>
+    >(),
+  )
   const [queryState, setQueryState] = useState({
     requestKey: null as string | null,
     results: null as Awaited<ReturnType<typeof backend.queryHistory>> | null,
@@ -141,6 +154,7 @@ export function useExplorerData({
   const [actionError, setActionError] = useState<string | null>(null)
 
   historyRequestRef.current = {
+    cacheToken,
     currentQuery,
     end,
     mode,
@@ -153,6 +167,80 @@ export function useExplorerData({
   semanticRequestRef.current = {
     semanticQuery,
     semanticRecallDegradedTitle: labels.semanticRecallDegradedTitle,
+  }
+
+  /**
+   * Builds the stable cache key used for the current Explorer history query.
+   */
+  function buildHistoryRequestKey(
+    query: Parameters<typeof backend.queryHistory>[0],
+    nextCacheToken: number,
+  ) {
+    return JSON.stringify({
+      currentQuery: query,
+      refreshKey: nextCacheToken,
+    })
+  }
+
+  /**
+   * Retains a small bounded cache of current and adjacent Explorer pages.
+   */
+  function storeHistoryCache(
+    key: string,
+    results: Awaited<ReturnType<typeof backend.queryHistory>>,
+  ) {
+    const cache = historyCacheRef.current
+    cache.delete(key)
+    cache.set(key, results)
+    while (cache.size > 6) {
+      const oldestKey = cache.keys().next().value
+      if (!oldestKey) {
+        break
+      }
+      cache.delete(oldestKey)
+    }
+  }
+
+  /**
+   * Reuses cached pages or prefetches one adjacent page without blocking the current render path.
+   */
+  const prefetchHistoryPage = useEffectEvent(function prefetchHistoryPage(
+    query: Parameters<typeof backend.queryHistory>[0],
+    nextCacheToken: number,
+  ) {
+    const key = buildHistoryRequestKey(query, nextCacheToken)
+    if (
+      historyCacheRef.current.has(key) ||
+      historyPrefetchRef.current.has(key)
+    ) {
+      return
+    }
+
+    const request = backend
+      .queryHistory(query)
+      .then((response) => {
+        storeHistoryCache(key, response)
+        return response
+      })
+      .finally(() => {
+        historyPrefetchRef.current.delete(key)
+      })
+
+    historyPrefetchRef.current.set(key, request)
+  })
+
+  /**
+   * Builds a page-pinned history query that matches the URL grammar Explorer uses for navigation.
+   */
+  function buildPagedHistoryQuery(
+    query: Parameters<typeof backend.queryHistory>[0],
+    page: number,
+  ) {
+    return {
+      ...query,
+      cursor: null,
+      page: page <= 1 ? null : page,
+    }
   }
 
   useEffect(() => {
@@ -172,9 +260,49 @@ export function useExplorerData({
      */
     const loadResults = async () => {
       const request = historyRequestRef.current
+      const nextRequestKey = buildHistoryRequestKey(
+        request.currentQuery,
+        request.cacheToken,
+      )
+      const cachedResults = historyCacheRef.current.get(nextRequestKey)
+      if (cachedResults) {
+        startTransition(() => {
+          setQueryState({
+            requestKey: nextRequestKey,
+            results: cachedResults,
+            error: null,
+          })
+          setSelectedId((current) =>
+            cachedResults.items.some((item) => item.id === current)
+              ? current
+              : (cachedResults.items[0]?.id ?? null),
+          )
+        })
+
+        const currentPage = cachedResults.page
+        if (cachedResults.hasPrevious) {
+          prefetchHistoryPage(
+            buildPagedHistoryQuery(request.currentQuery, currentPage - 1),
+            request.cacheToken,
+          )
+        }
+        if (cachedResults.hasNext) {
+          prefetchHistoryPage(
+            buildPagedHistoryQuery(request.currentQuery, currentPage + 1),
+            request.cacheToken,
+          )
+        }
+        return
+      }
+      const inflightPrefetch = historyPrefetchRef.current.get(nextRequestKey)
       try {
-        const response = await backend.queryHistory(request.currentQuery)
+        await waitForNextPaint()
         if (cancelled) return
+        const response = inflightPrefetch
+          ? await inflightPrefetch
+          : await backend.queryHistory(request.currentQuery)
+        if (cancelled) return
+        storeHistoryCache(nextRequestKey, response)
         request.persistRecentSearch({
           q: request.currentQuery.q,
           mode: request.mode,
@@ -188,6 +316,18 @@ export function useExplorerData({
           sort: request.currentQuery.sort ?? 'newest',
         })
         request.setRecentSearches(loadRecentSearches())
+        if (response.hasPrevious) {
+          prefetchHistoryPage(
+            buildPagedHistoryQuery(request.currentQuery, response.page - 1),
+            request.cacheToken,
+          )
+        }
+        if (response.hasNext) {
+          prefetchHistoryPage(
+            buildPagedHistoryQuery(request.currentQuery, response.page + 1),
+            request.cacheToken,
+          )
+        }
         await waitForNextPaint()
         if (cancelled) return
         startTransition(() => {
@@ -401,6 +541,7 @@ export function useExplorerData({
 
   return {
     actionError,
+    cachedHistoryResults: historyCacheRef.current.get(requestKey) ?? null,
     copyFeedback,
     exportResult,
     handleCopyExportPath,

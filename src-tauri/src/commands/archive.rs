@@ -103,11 +103,15 @@ pub(crate) async fn run_backup_now(
 #[cfg(not(test))]
 #[tauri::command]
 /// Queries visible history facts from the canonical archive.
-pub(crate) fn query_history(
+pub(crate) async fn query_history(
     query: vault_core::HistoryQuery,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HistoryQueryResponse, String> {
-    worker_bridge::query_history_impl(query, state.get_key().as_deref())
+    let session_database_key = state.get_key();
+    run_blocking_command("query_history", move || {
+        worker_bridge::query_history_impl(query, session_database_key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]

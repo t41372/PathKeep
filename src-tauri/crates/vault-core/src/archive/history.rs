@@ -255,6 +255,7 @@ fn list_history_with_regex(
             ":cursorVisitTime": Option::<i64>::None,
             ":cursorId": Option::<i64>::None,
             ":pageLimit": -1i64,
+            ":pageOffset": 0i64,
         },
         history_entry_from_row,
     )?;
@@ -330,11 +331,9 @@ fn list_history_with_fts(
     let normalized_page_count = page_count(total, limit_usize);
     let page = requested_page.unwrap_or(1).min(normalized_page_count);
     let start_index = page.saturating_sub(1) * limit_usize;
-    let page_limit = if requested_page.is_some() {
-        i64::try_from(page.saturating_mul(limit_usize).saturating_add(1)).unwrap_or(i64::MAX)
-    } else {
-        i64::from(limit) + 1
-    };
+    let page_limit = if requested_page.is_some() { i64::from(limit) } else { i64::from(limit) + 1 };
+    let page_offset =
+        if requested_page.is_some() { i64::try_from(start_index).unwrap_or(i64::MAX) } else { 0 };
     let rows = statement.query_map(
         named_params! {
             ":ftsQuery": fts_query,
@@ -347,15 +346,12 @@ fn list_history_with_fts(
             ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_visit_time) },
             ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_id) },
             ":pageLimit": page_limit,
+            ":pageOffset": page_offset,
         },
         history_entry_from_row,
     )?;
     let items = if requested_page.is_some() {
         rows.collect::<rusqlite::Result<Vec<_>>>()?
-            .into_iter()
-            .skip(start_index)
-            .take(limit_usize)
-            .collect::<Vec<_>>()
     } else {
         let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         if window_items.len() > limit_usize {
@@ -417,11 +413,9 @@ fn list_history_with_sql(
     let normalized_page_count = page_count(total, limit_usize);
     let page = requested_page.unwrap_or(1).min(normalized_page_count);
     let start_index = page.saturating_sub(1) * limit_usize;
-    let page_limit = if requested_page.is_some() {
-        i64::try_from(page.saturating_mul(limit_usize).saturating_add(1)).unwrap_or(i64::MAX)
-    } else {
-        i64::from(limit) + 1
-    };
+    let page_limit = if requested_page.is_some() { i64::from(limit) } else { i64::from(limit) + 1 };
+    let page_offset =
+        if requested_page.is_some() { i64::try_from(start_index).unwrap_or(i64::MAX) } else { 0 };
     let rows = statement.query_map(
         named_params! {
             ":profileId": profile_id,
@@ -434,15 +428,12 @@ fn list_history_with_sql(
             ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_visit_time) },
             ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_id) },
             ":pageLimit": page_limit,
+            ":pageOffset": page_offset,
         },
         history_entry_from_row,
     )?;
     let items = if requested_page.is_some() {
         rows.collect::<rusqlite::Result<Vec<_>>>()?
-            .into_iter()
-            .skip(start_index)
-            .take(limit_usize)
-            .collect::<Vec<_>>()
     } else {
         let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         if window_items.len() > limit_usize {
