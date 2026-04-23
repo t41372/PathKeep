@@ -23,14 +23,20 @@
 //! - Scoped debug rebuilds explicitly stay on the fallback full-recompute path
 //!   and do not advance incremental checkpoints.
 
+use super::intelligence_structural_aggregates::{
+    build_habit_patterns, build_path_flows, build_refind_pages, build_reopened_investigations,
+    build_source_effectiveness,
+};
+use super::intelligence_structural_build::{
+    build_query_families, build_search_trails, build_sessions,
+};
+use super::intelligence_structural_stage::execute_structural_stage;
 use super::{
     CORE_PHASES, CoreIntelligenceProgress, DailyRollupBundle, StageRunResult, build_daily_rollups,
-    build_habit_patterns, build_path_flows, build_profile_state, build_query_families,
-    build_refind_pages, build_reopened_investigations, build_search_trails, build_sessions,
-    build_source_effectiveness, clear_core_tables_for_job_kind, delete_stage_checkpoints,
-    ensure_core_intelligence_schema, execute_daily_rollup_stage, execute_structural_stage,
-    execute_visit_derive_stage, list_core_intelligence_profiles, load_profile_source_watermark,
-    load_visible_visits, merge_rollups, persist_core_state_for_job_kind,
+    build_profile_state, clear_core_tables_for_job_kind, delete_stage_checkpoints,
+    ensure_core_intelligence_schema, execute_daily_rollup_stage, execute_visit_derive_stage,
+    list_core_intelligence_profiles, load_profile_source_watermark, load_visible_visits,
+    merge_rollups, persist_core_state_for_job_kind,
 };
 use crate::{
     archive::open_intelligence_connection,

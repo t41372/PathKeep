@@ -763,6 +763,20 @@
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,core-intelligence-desktop-truth-audit.md,core-intelligence-progress.md,core-intelligence-handoff.md}`](STATUS.md)，把 stale-bundle blocker closeout、latest rerun evidence、以及 M13 再次回到 active focus 寫回 source-of-truth。
   - 驗收：`bunx vitest run src/components/intelligence/entity-actions.test.tsx src/pages/explorer/panels/privacy-redaction.test.tsx src/index-html.test.ts src/App.helpers.test.tsx src/pages/intelligence-surfaces.test.tsx`、`bun run check`、`bun run build`
 
+- [x] **WORK-BE-A** — Backend Hotspot Decomposition And Import Boundary Split
+  - 讀先：
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/tech-stack.md`
+  - 目標：把 2026-04-21 backend 架構審查轉成可執行的拆分軌道，先處理 `takeout` / parser / archive ingest 這條大數據量風險最高的 import boundary，再往 intelligence runtime 與 core intelligence hotspot 推進。
+  - 契約：維持現有 Tauri command、worker CLI、serde payload、audit artifact 與 canonical schema 語義穩定；不得把 frontend M13 reuse block 的未提交改動捲進來；所有新建或整段重寫的 backend 模塊都必須帶完整 file header 與 declaration-level doc comments。
+  - 2026-04-21 到 2026-04-22：`takeout` boundary 已拆成 focused owners，Takeout execute / preview / source-evidence path 也已切進 streamed or bounded-memory contract；`archive/mod.rs` 已把 ingest、backup、manifest/support helper 全部下沉到 focused submodules，live backup parser family 也已改成 streamed canonical ingest。後續又把 `intelligence_runtime.rs` 拆成 queue / claims / recovery / snapshot owners，並把 `intelligence/mod.rs` 的 overview / summary / domain / outputs、refind / explain、schema / bootstrap / rebuild orchestration 逐步抽成 focused modules。
+  - 2026-04-22 structural closeout：最新 execution slice 再把 structural rebuild internals 拆成 `intelligence_structural_{state,build,aggregates,persist,stream,stage}.rs`，把 streamed replay、write-side replacements、aggregate builders、shared state machines 與 stage orchestration 正式分開。`intelligence/mod.rs` 因此從最初的 `11043` 行降到 `5561` 行，且所有新建 structural modules 都回到 `600` 行硬限制內。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把 `WORK-BE-A` closeout truth 與 `WORK-BE-B` next-hop 寫回 source-of-truth。
+  - 驗收：relevant targeted Rust regressions、`bun run check`、`bun run build`
+
 - [x] **WORK-PERF-B** — Archive / Import Main-Thread Freeze Repair
   - 讀先：
     `docs/features/archive.md`
