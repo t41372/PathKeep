@@ -82,6 +82,8 @@
 
 > **2026-04-22 worker boundary note**：`WORK-BE-B` 的後續 execution slice 也已把 `src-tauri/crates/vault-worker/src/intelligence.rs` 從 `1636` 行 giant-file 拆成薄 façade `intelligence.rs` (`789` 行) 與 `intelligence/{ai_queue,runtime}.rs`。AI queue / assistant / semantic-search orchestration，還有 deterministic runtime queue / retry / cancel / snapshot ownership，現在都不再混在同一個 parent module 裡；既有 worker export surface 與 `archive_flows` 使用的 `maybe_spawn_*` background helpers 都維持不變。
 
+> **2026-04-22 AI boundary note**：同一個 `WORK-BE-B` block 的下一刀也已把 `src-tauri/crates/vault-core/src/ai.rs` 從 `2116` 行 giant-file 拆成薄 façade `ai.rs` (`199` 行) 與 `ai/{control,provider,indexing,ledger,search,read_model}.rs`。provider probe / validation、semantic index build + ledger、semantic search、assistant tool orchestration 現在都有獨立 owner；既有 worker caller、assistant run payload、semantic search payload、與 read-model contract 都維持不變。
+
 ---
 
 ## 先看哪裡

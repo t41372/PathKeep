@@ -10,12 +10,14 @@
 
 ## Current hotspot snapshot
 
-| File                                                  | Current line count | Primary risk                                                                 |
-| ----------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               4508 | Remaining helper clusters still mixed after structural and read-model splits |
-| `src-tauri/crates/vault-core/src/ai.rs`               |               2116 | Provider validation, indexing, semantic search, assistant, ledger mixed      |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`   |                789 | Residual query pass-through still mixed after queue/runtime split            |
-| `src-tauri/crates/vault-core/src/deterministic.rs`    |               1528 | URL normalization, query extraction, tokenization, taxonomy rules co-located |
+| File                                                              | Current line count | Primary risk                                                                 |
+| ----------------------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`             |               4508 | Remaining helper clusters still mixed after structural and read-model splits |
+| `src-tauri/crates/vault-core/src/deterministic.rs`                |               1528 | URL normalization, query extraction, tokenization, taxonomy rules co-located |
+| `src-tauri/crates/vault-core/src/models/core_intelligence.rs`     |               1175 | DTO families for multiple surfaces still co-located                          |
+| `src-tauri/crates/vault-core/src/remote.rs`                       |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed               |
+| `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` |               1091 | Search-engine rules, normalization, and override glue still co-located       |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`               |                788 | Residual query pass-through still mixed after queue/runtime split            |
 
 ## Sequencing
 
@@ -75,6 +77,7 @@
 - Treat `remote.rs`, `models/core_intelligence.rs`, and dev-only bridge surfaces as follow-up cleanup, not first blockers.
 - As of 2026-04-22, this is now the main remaining backend hotspot after the `intelligence/mod.rs` structural split; the next active block should treat worker passthrough clustering and `ai.rs` mixed ownership as first-order cleanup, not optional polish.
 - 2026-04-22 worker follow-through landed: `vault-worker/src/intelligence.rs` is now a `789`-line façade with `intelligence/{ai_queue,runtime}.rs` owning queue/search/assistant orchestration and deterministic runtime control. The remaining worker-side hotspot is no longer queue execution itself; it is the still-mixed read-surface passthrough layer that sits above those dedicated owners.
+- 2026-04-22 AI follow-through landed: `vault-core/src/ai.rs` is now a `199`-line façade with `ai/{control,provider,indexing,ledger,search,read_model}.rs` owning provider probes, semantic index builds, run-ledger bookkeeping, semantic search, and assistant tool orchestration. The remaining backend hotspot map no longer treats `ai.rs` as a first-order mega-file; the next real owners to revisit are `intelligence/mod.rs`, `deterministic.rs`, and the still-mixed DTO / remote helper surfaces.
 
 ## Non-negotiable invariants
 
