@@ -84,6 +84,8 @@
 
 > **2026-04-22 AI boundary note**：同一個 `WORK-BE-B` block 的下一刀也已把 `src-tauri/crates/vault-core/src/ai.rs` 從 `2116` 行 giant-file 拆成薄 façade `ai.rs` (`199` 行) 與 `ai/{control,provider,indexing,ledger,search,read_model}.rs`。provider probe / validation、semantic index build + ledger、semantic search、assistant tool orchestration 現在都有獨立 owner；既有 worker caller、assistant run payload、semantic search payload、與 read-model contract 都維持不變。
 
+> **2026-04-22 worker read-surface note**：同一個 `WORK-BE-B` block 的後續 execution slice 又把 `src-tauri/crates/vault-worker/src/intelligence.rs` 的 residual query passthrough 拆成 `intelligence/{route_queries,section_queries}.rs`。worker parent file 現在只剩 shared helper + re-export façade (`124` 行)，route-first entity reads 與 section-style wrappers 各自有明確 owner；既有 worker export surface 與 frontend consumer contract 仍維持不變。
+
 ---
 
 ## 先看哪裡
