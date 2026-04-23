@@ -15,6 +15,8 @@ use directories::UserDirs;
 use serde::Serialize;
 #[cfg(not(any(test, coverage)))]
 use std::process::Command;
+#[cfg(not(any(test, coverage)))]
+use std::process::Output;
 use std::{
     collections::BTreeMap,
     fs,
@@ -97,8 +99,10 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
         message: if bootstrap.success {
             "LaunchAgent installed and bootstrapped.".to_string()
         } else {
-            "LaunchAgent files were written, but launchctl bootstrap did not report success."
-                .to_string()
+            format!(
+                "LaunchAgent files were written, but launchctl bootstrap did not report success: {}",
+                bootstrap.status_description
+            )
         },
     })
 }
@@ -494,6 +498,21 @@ struct LaunchctlOutcome {
 }
 
 #[cfg(not(any(test, coverage)))]
+fn describe_launchctl_output(action: &str, target: &str, output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => format!("{action} {target}: {:?}", output.status),
+        (false, true) => format!("{action} {target}: {:?}; stdout: {stdout}", output.status),
+        (true, false) => format!("{action} {target}: {:?}; stderr: {stderr}", output.status),
+        (false, false) => {
+            format!("{action} {target}: {:?}; stdout: {stdout}; stderr: {stderr}", output.status)
+        }
+    }
+}
+
+#[cfg(not(any(test, coverage)))]
 fn launch_agents_dir() -> Result<PathBuf> {
     if let Some(path) = launch_agents_dir_override() {
         return Ok(path);
@@ -521,11 +540,14 @@ fn scheduler_uid() -> Result<String> {
 #[cfg(not(any(test, coverage)))]
 fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
     let _ = bootout_launch_agent(uid, label);
-    let status = Command::new("launchctl")
+    let output = Command::new("launchctl")
         .args(["bootstrap", &format!("gui/{uid}"), plist_path])
-        .status()
+        .output()
         .context("bootstrapping launch agent")?;
-    Ok(LaunchctlOutcome { success: status.success(), status_description: format!("{status:?}") })
+    Ok(LaunchctlOutcome {
+        success: output.status.success(),
+        status_description: describe_launchctl_output("bootstrap", plist_path, &output),
+    })
 }
 
 #[cfg(any(test, coverage))]
@@ -539,13 +561,13 @@ fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<La
 
 #[cfg(not(any(test, coverage)))]
 fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
-    let status = Command::new("launchctl")
+    let output = Command::new("launchctl")
         .args(["bootout", &format!("gui/{uid}"), label])
-        .status()
+        .output()
         .context("unloading launch agent")?;
     Ok(LaunchctlOutcome {
-        success: status.success(),
-        status_description: format!("bootout {label}: {status:?}"),
+        success: output.status.success(),
+        status_description: describe_launchctl_output("bootout", label, &output),
     })
 }
 

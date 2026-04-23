@@ -18,6 +18,7 @@ export default defineConfig([
     'reports',
     '.stryker-tmp',
     'src-tauri/target',
+    'src-tauri/**/target',
     'var',
     'test-results',
   ]),
