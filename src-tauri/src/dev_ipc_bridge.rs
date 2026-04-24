@@ -9,23 +9,15 @@
 //! not part of the production transport contract.
 
 use crate::{
-    PRODUCT_DISPLAY_NAME, file_manager,
+    file_manager,
     session::{SessionState, session_key},
     updater, worker_bridge,
 };
 use anyhow::{Context, Result};
-use axum::{
-    Router,
-    body::Bytes,
-    extract::{Path, State},
-    http::{HeaderValue, Method, StatusCode},
-    routing::{get, post},
-};
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::net::{Ipv4Addr, SocketAddr};
 use tauri::AppHandle;
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
@@ -40,9 +32,13 @@ use vault_core::{
 };
 use vault_worker::RekeyRequest;
 
+mod config;
 mod payloads;
+mod router;
 
+use config::{bridge_enabled, resolve_bridge_config_from_env};
 use payloads::*;
+use router::build_router;
 
 /// Env var flag that enables the localhost dev IPC bridge.
 pub(crate) const DEV_IPC_BRIDGE_ENABLED_ENV: &str = "PATHKEEP_ENABLE_DEV_IPC_BRIDGE";
@@ -58,12 +54,6 @@ struct DevIpcBridgeState {
     app: Option<AppHandle>,
     session: SessionState,
     port: u16,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DevIpcBridgeConfig {
-    port: u16,
-    allowed_origins: Vec<String>,
 }
 
 /// Starts the localhost dev bridge when the feature flag and env vars allow it.
@@ -102,52 +92,6 @@ pub(crate) fn maybe_launch(app: AppHandle, session: SessionState) -> Result<()> 
         config.port
     );
     Ok(())
-}
-
-async fn bridge_health(
-    State(state): State<DevIpcBridgeState>,
-) -> Result<axum::Json<Value>, (StatusCode, axum::Json<Value>)> {
-    Ok(axum::Json(json!({
-        "ok": true,
-        "productName": PRODUCT_DISPLAY_NAME,
-        "runtime": "browser-desktop-bridge",
-        "port": state.port,
-    })))
-}
-
-async fn bridge_invoke(
-    State(state): State<DevIpcBridgeState>,
-    Path(command): Path<String>,
-    body: Bytes,
-) -> Result<axum::Json<Value>, (StatusCode, axum::Json<Value>)> {
-    let payload = if body.is_empty() {
-        Value::Object(Default::default())
-    } else {
-        serde_json::from_slice(&body)
-            .map_err(|error| bad_request(format!("Invalid JSON payload: {error}")))?
-    };
-
-    dispatch_command(&state, &command, payload).await.map(axum::Json).map_err(internal_error)
-}
-
-fn build_router(state: DevIpcBridgeState, config: &DevIpcBridgeConfig) -> Result<Router> {
-    let allowed_origins = config
-        .allowed_origins
-        .iter()
-        .map(|origin| HeaderValue::from_str(origin))
-        .collect::<Result<Vec<_>, _>>()
-        .context("parsing PathKeep dev IPC allowed origins")?;
-
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers(Any)
-        .allow_origin(AllowOrigin::list(allowed_origins));
-
-    Ok(Router::new()
-        .route("/health", get(bridge_health))
-        .route("/commands/{command}", post(bridge_invoke))
-        .layer(cors)
-        .with_state(state))
 }
 
 async fn dispatch_command(
@@ -860,64 +804,10 @@ fn to_json_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
-fn bad_request(message: String) -> (StatusCode, axum::Json<Value>) {
-    (StatusCode::BAD_REQUEST, axum::Json(json!({ "error": message })))
-}
-
-fn internal_error(message: String) -> (StatusCode, axum::Json<Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(json!({ "error": message })))
-}
-
-fn bridge_enabled() -> bool {
-    matches!(
-        std::env::var(DEV_IPC_BRIDGE_ENABLED_ENV),
-        Ok(value)
-            if matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-    )
-}
-
-fn resolve_bridge_config_from_env() -> Result<DevIpcBridgeConfig> {
-    let port = match std::env::var(DEV_IPC_BRIDGE_PORT_ENV) {
-        Ok(value) => value
-            .trim()
-            .parse::<u16>()
-            .with_context(|| format!("parsing {DEV_IPC_BRIDGE_PORT_ENV} as u16"))?,
-        Err(_) => DEFAULT_DEV_IPC_BRIDGE_PORT,
-    };
-
-    let allowed_origins = std::env::var(DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV)
-        .unwrap_or_else(|_| "http://127.0.0.1:1420,http://localhost:1420".to_string())
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-
-    Ok(DevIpcBridgeConfig { port, allowed_origins })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn resolves_bridge_config_from_env_with_defaults() {
-        unsafe {
-            std::env::remove_var(DEV_IPC_BRIDGE_PORT_ENV);
-            std::env::remove_var(DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV);
-        }
-
-        let config = resolve_bridge_config_from_env().expect("resolve config");
-
-        assert_eq!(config.port, DEFAULT_DEV_IPC_BRIDGE_PORT);
-        assert_eq!(
-            config.allowed_origins,
-            vec!["http://127.0.0.1:1420".to_string(), "http://localhost:1420".to_string()]
-        );
-    }
+    use serde_json::{Value, json};
 
     #[tokio::test]
     async fn dispatch_command_handles_session_round_trip_without_tauri_app() {

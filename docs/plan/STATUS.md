@@ -44,7 +44,7 @@
     `docs/architecture/tech-stack.md`
   - 目標：處理後端 progress audit 暴露的下一個真 hotspot：`src-tauri/src/dev_ipc_bridge.rs` 超過 1000 行，且 `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` 仍有大量 command façade declaration-level rustdoc gaps。優先把 dev-only localhost bridge 的 payload DTO、router/dispatch table、command adapters 拆成 focused owners，並補齊 command / worker bridge 檔頭與 declaration comments。
   - 契約：維持現有 Tauri command names、devtools-bridge command strings、request/response payload shape、worker export surface、feature-gated + env-gated localhost-only 安全邊界，以及 `run_blocking_command` off-main-thread contract；不得把 dev automation mirror 擴寫成產品 remote-control API。
-  - 2026-04-23 progress：dev-only bridge payload DTO 已拆到 `src-tauri/src/dev_ipc_bridge/payloads.rs`，保留 camelCase JSON shape 與所有 command string；`src-tauri/src/dev_ipc_bridge.rs` 目前降到 `961` 行。下一步仍需處理 router / dispatch owner 邊界，以及 `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` declaration-level rustdoc gaps。
+  - 2026-04-23 progress：dev-only bridge payload DTO 已拆到 `src-tauri/src/dev_ipc_bridge/payloads.rs`，保留 camelCase JSON shape 與所有 command string；router / CORS / health / HTTP error envelope 已拆到 `dev_ipc_bridge/router.rs`，env parsing 已拆到 `dev_ipc_bridge/config.rs`，`src-tauri/src/dev_ipc_bridge.rs` 目前降到 `851` 行。下一步仍需處理 dispatch owner 邊界，以及 `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` declaration-level rustdoc gaps。
   - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 
 - [x] **WORK-BE-C** — Remaining Backend Hotspot Decomposition Beyond Core Intelligence Parent
