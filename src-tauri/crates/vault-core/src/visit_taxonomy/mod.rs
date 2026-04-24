@@ -1,8 +1,8 @@
-//! Deterministic visit analysis and taxonomy.
+//! Rule-based visit taxonomy and URL analysis.
 //!
 //! ## Responsibilities
-//! - Expose the stable deterministic analysis API consumed by Core
-//!   Intelligence and site-dictionary rebuild code.
+//! - Expose the stable visit-taxonomy API consumed by Core Intelligence and
+//!   site-dictionary rebuild code.
 //! - Keep URL normalization, text tokenization, taxonomy rule packs, and visit
 //!   classification in focused owner modules.
 //! - Preserve the non-LLM taxonomy contract used by derived-state rebuilds.
@@ -14,7 +14,7 @@
 //!
 //! ## Dependencies
 //! - `reqwest::Url` and `publicsuffix` for bounded URL/domain parsing.
-//! - Internal taxonomy rule packs frozen by the deterministic insight contract.
+//! - Internal taxonomy rule packs frozen by the Core Intelligence contract.
 //!
 //! ## Performance notes
 //! - All analysis is per-visit and allocation-bounded; callers remain
@@ -31,9 +31,9 @@ mod url;
 pub use self::classification::analyze_visit;
 pub use self::text::tokenize_text;
 pub use self::types::{
-    DeterministicVisitAnalysis, DomainCategory, EvidenceTier, InteractionKind, NormalizedVisitUrl,
-    PageCategory, TaxonomyClassification, TaxonomyDecisionSource, TaxonomyOverride,
-    TaxonomyOverrideTarget, VisitAnalysisInput, VisitEvidenceAssessment,
+    DomainCategory, EvidenceTier, InteractionKind, NormalizedVisitUrl, PageCategory,
+    TaxonomyClassification, TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget,
+    VisitAnalysisInput, VisitEvidenceAssessment, VisitTaxonomyAnalysis,
 };
 pub use self::url::{
     extract_search_query_from_url, normalize_visit_url, registrable_domain_for_host,

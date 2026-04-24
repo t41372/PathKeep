@@ -30,9 +30,9 @@
 
 ## 2026-04-10 開始實作註記
 
-- `vault-core::deterministic` 已新增第一版 URL normalization / search-query extraction foundation，先把 tracking-param filtering、常見 multi-label registrable-domain heuristic 與 CJK query fixture 帶進 repo，避免後續仍把 query parser 繼續散落在 `insights.rs`。
+- `vault-core::visit_taxonomy` 已新增第一版 URL normalization / search-query extraction foundation，先把 tracking-param filtering、常見 multi-label registrable-domain heuristic 與 CJK query fixture 帶進 repo，避免後續仍把 query parser 繼續散落在 `insights.rs`。
 - 這個 baseline **刻意不引入新的 external registrable-domain / tokenizer dependency**；在 `PG-RD-AI-010` 完成 license / bundle-size / supply-chain review 前，先以 checked-in heuristic + fixture 誠實前進，而不是偷渡未審核 runtime wheel。
-- 2026-04-10 continued：`vault-core::deterministic` 現在也負責 `tier_a/tier_b/tier_c` evidence assessment、taxonomy v2 precedence、China Mainland / US core packs、user override、script-aware tokenization 與 unknown-domain review baseline；`insights.rs` 已開始持久化 `domain_category` / `page_category` / `interaction_kind` / `evidence_tier` / taxonomy trace，且移除 deterministic importance 對 `duration_ms` 的依賴。
+- 2026-04-10 continued：`vault-core::visit_taxonomy` 現在也負責 `tier_a/tier_b/tier_c` evidence assessment、taxonomy v2 precedence、China Mainland / US core packs、user override、script-aware tokenization 與 unknown-domain review baseline；`insights.rs` 已開始持久化 `domain_category` / `page_category` / `interaction_kind` / `evidence_tier` / taxonomy trace，且移除 deterministic importance 對 `duration_ms` 的依賴。
 - 2026-04-10 closeout：first-party-only enrichment runtime、dual built-in plugin defaults、Settings / Insights queue review 與 retry / cancel operability 已補齊，`WORK-M5-A` 因此不再卡在「plugin runtime / queue family 尚未誠實落地」。
 - `PG-RD-AI-010` 仍保持 open：目前 shipping runtime 明確只用 checked-in heuristic rule packs，不 bundle external registrable-domain / tokenizer / language-ID / optional model assets；若要升級成 runtime dependency，必須先補完 license、bundle-size、supply-chain 與 fallback/removal review。
 

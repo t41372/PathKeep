@@ -1,16 +1,16 @@
-//! Site Dictionary and deterministic URL/query normalization helpers.
+//! Site Dictionary and visit-taxonomy normalization helpers.
 //!
 //! Core Intelligence uses one shared site-dictionary layer so session/trail/
 //! rollup queries stay consistent about canonical URLs, registrable domains,
 //! search-engine detection, and display aliases.
 
 use crate::{
-    deterministic::{
+    models::{SearchEngineRule, SearchEngineRuleInput},
+    utils::now_rfc3339,
+    visit_taxonomy::{
         DomainCategory, InteractionKind, PageCategory, TaxonomyOverride, TaxonomyOverrideTarget,
         VisitAnalysisInput, analyze_visit,
     },
-    models::{SearchEngineRule, SearchEngineRuleInput},
-    utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -598,7 +598,7 @@ pub(crate) fn classify_visit(
             parsed.host_str().map(|value| value.trim_end_matches('.').to_ascii_lowercase())
         })
         .unwrap_or_default();
-    let registrable_domain_hint = crate::deterministic::registrable_domain_for_host(&host);
+    let registrable_domain_hint = crate::visit_taxonomy::registrable_domain_for_host(&host);
     let taxonomy_overrides =
         overrides.iter().filter_map(SiteDictionaryOverride::taxonomy_override).collect::<Vec<_>>();
     let analysis = analyze_visit(

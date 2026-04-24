@@ -1,8 +1,8 @@
-//! Text normalization and tokenizer helpers for deterministic analysis.
+//! Text normalization and tokenizer helpers for visit taxonomy.
 //!
 //! ## Responsibilities
 //! - Normalize whitespace consistently before query and title matching.
-//! - Tokenize Latin, CJK, kana, and Hangul text for deterministic grouping.
+//! - Tokenize Latin, CJK, kana, and Hangul text for stable grouping.
 //! - Keep low-value Latin stop words out of lexicon matching inputs.
 //!
 //! ## Not responsible for
@@ -22,7 +22,7 @@ const LATIN_STOP_WORDS: &[&str] = &[
     "when", "where", "about", "http", "https", "www", "com", "org", "net", "html",
 ];
 
-/// Tokenizes text for deterministic grouping and similarity checks.
+/// Tokenizes text for stable grouping and similarity checks.
 pub fn tokenize_text(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut word = String::new();

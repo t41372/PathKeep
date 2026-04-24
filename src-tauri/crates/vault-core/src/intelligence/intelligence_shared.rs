@@ -230,7 +230,7 @@ fn query_domain_candidate(query: &str) -> Option<String> {
         return None;
     }
 
-    Some(crate::deterministic::registrable_domain_for_host(&host))
+    Some(crate::visit_taxonomy::registrable_domain_for_host(&host))
 }
 
 fn is_cjk_like(ch: char) -> bool {

@@ -1,9 +1,9 @@
 //! Incremental Core Intelligence checkpoint helpers.
 //!
-//! These helpers keep the deterministic rebuild stages honest about whether a
+//! These helpers keep the Core Intelligence rebuild stages honest about whether a
 //! queued job can stay incremental or must fall back to a scoped full refresh.
 
-use crate::{deterministic::taxonomy_version, intelligence_catalog::RebuildMode};
+use crate::{intelligence_catalog::RebuildMode, visit_taxonomy::taxonomy_version};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeSet;

@@ -1,4 +1,4 @@
-//! Built-in deterministic taxonomy rule packs.
+//! Built-in visit-taxonomy rule packs.
 //!
 //! ## Responsibilities
 //! - Own the static exact-domain, host/path, and lexicon rule packs.
@@ -11,7 +11,7 @@
 //! - Persisting taxonomy decisions.
 //!
 //! ## Dependencies
-//! - Public deterministic taxonomy enums from `types`.
+//! - Public visit-taxonomy enums from `types`.
 //!
 //! ## Performance notes
 //! - Rule packs are static slices. Matching cost is bounded by the number of

@@ -1,7 +1,7 @@
-//! Public deterministic analysis types.
+//! Public visit-taxonomy analysis types.
 //!
 //! ## Responsibilities
-//! - Define the stable structs and enums exported by `crate::deterministic`.
+//! - Define the stable structs and enums exported by `crate::visit_taxonomy`.
 //! - Keep serialized category identifiers next to their canonical enum values.
 //! - Preserve the taxonomy version contract used by persisted derived rows.
 //!
@@ -19,12 +19,12 @@
 
 pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v1";
 
-/// Returns the current deterministic taxonomy baseline version.
+/// Returns the current visit-taxonomy baseline version.
 pub(crate) const fn taxonomy_version() -> &'static str {
     TAXONOMY_VERSION
 }
 
-/// URL normalized for deterministic analysis and taxonomy matching.
+/// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedVisitUrl {
     pub canonical_url: String,
@@ -38,7 +38,7 @@ pub struct NormalizedVisitUrl {
     pub is_search_results: bool,
 }
 
-/// Strength of deterministic evidence supporting a derived interpretation.
+/// Strength of local evidence supporting a derived interpretation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvidenceTier {
     TierA,
@@ -66,7 +66,7 @@ pub struct VisitEvidenceAssessment {
     pub reasons: Vec<String>,
 }
 
-/// High-level domain taxonomy used by deterministic insights.
+/// High-level domain taxonomy used by Core Intelligence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DomainCategory {
     Ai,
@@ -111,7 +111,7 @@ impl DomainCategory {
     }
 }
 
-/// High-level page taxonomy used by deterministic insights.
+/// High-level page taxonomy used by Core Intelligence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageCategory {
     ArticlePage,
@@ -154,7 +154,7 @@ impl PageCategory {
     }
 }
 
-/// High-level interaction taxonomy used by deterministic insights.
+/// High-level interaction taxonomy used by Core Intelligence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InteractionKind {
     Compare,
@@ -187,7 +187,7 @@ impl InteractionKind {
     }
 }
 
-/// Source of the final deterministic taxonomy decision.
+/// Source of the final visit-taxonomy decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TaxonomyDecisionSource {
     UserOverride,
@@ -214,7 +214,7 @@ impl TaxonomyDecisionSource {
     }
 }
 
-/// Final deterministic taxonomy classification for one visit.
+/// Final rule-based taxonomy classification for one visit.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaxonomyClassification {
     pub domain_category: DomainCategory,
@@ -228,7 +228,7 @@ pub struct TaxonomyClassification {
     pub reasons: Vec<String>,
 }
 
-/// Provides the explicit unknown fallback used when no deterministic rule applies.
+/// Provides the explicit unknown fallback used when no visit-taxonomy rule applies.
 impl Default for TaxonomyClassification {
     fn default() -> Self {
         Self {
@@ -245,7 +245,7 @@ impl Default for TaxonomyClassification {
     }
 }
 
-/// Target type for one deterministic taxonomy override rule.
+/// Target type for one visit-taxonomy override rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaxonomyOverrideTarget {
     ExactDomain,
@@ -264,7 +264,7 @@ pub struct TaxonomyOverride {
     pub note: Option<String>,
 }
 
-/// Raw visit fields needed for deterministic analysis.
+/// Raw visit fields needed for visit-taxonomy analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisitAnalysisInput<'a> {
     pub url: &'a str,
@@ -275,9 +275,9 @@ pub struct VisitAnalysisInput<'a> {
     pub from_visit: Option<i64>,
 }
 
-/// Full deterministic analysis output for one visit.
+/// Full visit-taxonomy analysis output for one visit.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeterministicVisitAnalysis {
+pub struct VisitTaxonomyAnalysis {
     pub normalized_url: Option<NormalizedVisitUrl>,
     pub evidence: VisitEvidenceAssessment,
     pub taxonomy: TaxonomyClassification,

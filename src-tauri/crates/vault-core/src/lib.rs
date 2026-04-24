@@ -1,8 +1,8 @@
 //! Canonical backend domain crate for PathKeep.
 //!
 //! `vault-core` owns the source-of-truth backend rules: archive schema and
-//! recoverability, browser/profile read models, optional AI and deterministic
-//! intelligence, remote backup verification, and the shared serde models that
+//! recoverability, browser/profile read models, optional AI and Core
+//! Intelligence, remote backup verification, and the shared serde models that
 //! the desktop shell consumes.
 //!
 //! What this crate does not own:
@@ -20,7 +20,6 @@ pub mod archive;
 mod browser_retention;
 pub mod chrome;
 pub mod config;
-pub mod deterministic;
 pub mod diagnostics;
 mod enrichment;
 pub mod git_audit;
@@ -33,6 +32,7 @@ pub mod models;
 pub mod remote;
 pub mod takeout;
 pub mod utils;
+pub mod visit_taxonomy;
 
 pub use ai::{
     AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, ai_index_status,

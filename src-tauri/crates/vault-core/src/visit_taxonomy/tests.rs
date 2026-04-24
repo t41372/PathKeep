@@ -1,4 +1,4 @@
-//! Regression coverage for deterministic analysis contracts.
+//! Regression coverage for visit-taxonomy analysis contracts.
 //!
 //! ## Responsibilities
 //! - Lock URL normalization, query extraction, evidence tiers, and taxonomy
@@ -12,7 +12,7 @@
 //! - Benchmarking archive-scale streaming behavior.
 //!
 //! ## Dependencies
-//! - Public `crate::deterministic` exports re-exported by the module façade.
+//! - Public `crate::visit_taxonomy` exports re-exported by the module façade.
 //!
 //! ## Performance notes
 //! - Tests use single-visit fixtures and do not allocate large archive-shaped

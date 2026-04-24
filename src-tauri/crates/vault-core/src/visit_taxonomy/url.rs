@@ -1,7 +1,7 @@
 //! URL normalization and registrable-domain helpers.
 //!
 //! ## Responsibilities
-//! - Normalize visit URLs into deterministic matching records.
+//! - Normalize visit URLs into stable matching records.
 //! - Strip tracking parameters while preserving semantic query parameters.
 //! - Derive registrable domains and subdomains for taxonomy matching.
 //!
@@ -31,7 +31,7 @@ const COMMON_MULTI_LABEL_PUBLIC_SUFFIXES: &[&str] = &[
 ];
 static PUBLIC_SUFFIX_LIST: LazyLock<IcannList> = LazyLock::new(IcannList::default);
 
-/// Normalizes a raw visit URL into a deterministic matching form.
+/// Normalizes a raw visit URL into a stable matching form.
 pub fn normalize_visit_url(raw_url: &str) -> Option<NormalizedVisitUrl> {
     let mut parsed = Url::parse(raw_url).ok()?;
     let host = parsed.host_str()?.trim().trim_end_matches('.').to_ascii_lowercase();
@@ -117,7 +117,7 @@ pub(super) fn host_matches_suffix(host: &str, suffix: &str) -> bool {
     host == suffix || host.ends_with(&format!(".{suffix}"))
 }
 
-/// Provides a deterministic fallback when PSL data is too broad for known hosts.
+/// Provides a stable fallback when PSL data is too broad for known hosts.
 fn fallback_registrable_domain_for_host(host: &str) -> String {
     let segments = host.split('.').collect::<Vec<_>>();
     if segments.len() <= 2 {

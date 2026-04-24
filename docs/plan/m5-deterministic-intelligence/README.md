@@ -53,7 +53,7 @@
 
 ### 2026-04-10 foundation progress
 
-- `vault-core::deterministic` 現在已提供 URL normalization、registrable-domain / subdomain extraction、search parser、script-aware tokenization、evidence tiers、taxonomy v2 precedence、China Mainland / US core packs 與 user override baseline。
+- `vault-core::visit_taxonomy` 現在已提供 URL normalization、registrable-domain / subdomain extraction、search parser、script-aware tokenization、evidence tiers、taxonomy v2 precedence、China Mainland / US core packs 與 user override baseline。
 - `vault-core::insights` 已開始把 taxonomy / evidence trace 持久化到 `visit_insight_features`，並把 deterministic importance score 從 `duration_ms` 移開。
 - `WORK-M5-A` closeout 同步把 first-party-only enrichment runtime、dual built-in plugin defaults、Settings / Insights queue review surface、retry / cancel guard 與 browser preview/runtime fixture 一起簽收；下一個 focus 轉到 `WORK-M5-B` 的 query groups / threads / reference pages。
 - `PG-RD-AI-010` 尚未完成，因此 runtime 仍只允許 checked-in heuristic packs；任何 external tokenizer / registrable-domain / language-ID / optional model asset 仍不得進 shipping bundle。

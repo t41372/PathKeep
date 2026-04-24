@@ -2,7 +2,7 @@
 //!
 //! ## Responsibilities
 //! - Combine normalized URLs, canonical search facts, titles, and overrides into
-//!   one deterministic visit analysis result.
+//!   one visit-taxonomy analysis result.
 //! - Apply user overrides before static taxonomy packs.
 //! - Keep rule matching separate from the rule-pack definitions themselves.
 //!
@@ -25,18 +25,18 @@ use super::{
     rules::{HostPathRule, RULE_PACKS, TaxonomyRule, TaxonomyRulePack},
     text::{normalize_whitespace, tokenize_text},
     types::{
-        DeterministicVisitAnalysis, EvidenceTier, NormalizedVisitUrl, TAXONOMY_VERSION,
-        TaxonomyClassification, TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget,
-        VisitAnalysisInput, VisitEvidenceAssessment,
+        EvidenceTier, NormalizedVisitUrl, TAXONOMY_VERSION, TaxonomyClassification,
+        TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget, VisitAnalysisInput,
+        VisitEvidenceAssessment, VisitTaxonomyAnalysis,
     },
     url::{host_matches_suffix, normalize_visit_url},
 };
 
-/// Produces deterministic evidence and taxonomy analysis for one visit.
+/// Produces local evidence and taxonomy analysis for one visit.
 pub fn analyze_visit(
     input: VisitAnalysisInput<'_>,
     overrides: &[TaxonomyOverride],
-) -> DeterministicVisitAnalysis {
+) -> VisitTaxonomyAnalysis {
     let normalized_url = normalize_visit_url(input.url);
     let query = input
         .query
@@ -57,10 +57,10 @@ pub fn analyze_visit(
         query.as_deref(),
         overrides,
     );
-    DeterministicVisitAnalysis { normalized_url, evidence, taxonomy }
+    VisitTaxonomyAnalysis { normalized_url, evidence, taxonomy }
 }
 
-/// Scores the deterministic evidence strength for one normalized visit.
+/// Scores local evidence strength for one normalized visit.
 fn assess_visit_evidence(
     normalized_url: Option<&NormalizedVisitUrl>,
     title: Option<&str>,
