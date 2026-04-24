@@ -139,6 +139,7 @@ describe('i18n helpers', () => {
 
     expect(english('featureBackupDesc')).toContain('Google Chrome')
     expect(english('featureBackupDesc')).toContain('ChatGPT Atlas')
+    expect(english('featureBackupDesc')).toContain('Perplexity Comet')
     expect(english('featureBackupDesc')).toContain('Safari')
     expect(english('featureBackupDesc')).not.toContain('Edge')
     expect(english('featureBackupDesc')).not.toContain('Brave')
@@ -147,12 +148,14 @@ describe('i18n helpers', () => {
 
     expect(simplified('featureBackupDesc')).toContain('Google Chrome')
     expect(simplified('featureBackupDesc')).toContain('ChatGPT Atlas')
+    expect(simplified('featureBackupDesc')).toContain('Perplexity Comet')
     expect(simplified('featureBackupDesc')).toContain('Safari')
     expect(simplified('featureBackupDesc')).not.toContain('Edge')
     expect(simplified('firefoxSafariInfo')).toContain('公开支持承诺')
 
     expect(traditional('featureBackupDesc')).toContain('Google Chrome')
     expect(traditional('featureBackupDesc')).toContain('ChatGPT Atlas')
+    expect(traditional('featureBackupDesc')).toContain('Perplexity Comet')
     expect(traditional('featureBackupDesc')).toContain('Safari')
     expect(traditional('featureBackupDesc')).not.toContain('Edge')
     expect(traditional('firefoxSafariInfo')).toContain('公開支援承諾')

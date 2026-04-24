@@ -376,6 +376,86 @@ describe('trust flows/import flows', () => {
     )
   })
 
+  test('shows Perplexity Comet as a validated Browser Direct profile', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const chromeProfile = snapshot.browserProfiles.find(
+      (profile) => profile.profileId === 'chrome:Default',
+    )
+    expect(chromeProfile).toBeDefined()
+    const cometProfile = {
+      ...chromeProfile!,
+      profileId: 'comet:Default',
+      profileName: 'Default',
+      browserName: 'Perplexity Comet',
+      profilePath: '/Users/test/Library/Application Support/Comet/Default',
+      historyPath:
+        '/Users/test/Library/Application Support/Comet/Default/History',
+      faviconsPath:
+        '/Users/test/Library/Application Support/Comet/Default/Favicons',
+    }
+    const snapshotWithComet = {
+      ...snapshot,
+      browserProfiles: [...snapshot.browserProfiles, cometProfile],
+    }
+    const inspectBrowserSpy = vi
+      .spyOn(backend, 'inspectBrowserHistory')
+      .mockResolvedValue({
+        dryRun: true,
+        sourcePath: cometProfile.historyPath,
+        recognizedFiles: [
+          {
+            path: cometProfile.historyPath,
+            kind: 'chromium-history-db',
+            status: 'previewed',
+            records: 1,
+            classification: 'will-import',
+            reasonCode: 'chromium-history-sqlite',
+            reasonDetail: null,
+            detectedLocale: null,
+          },
+        ],
+        quarantinedFiles: [],
+        previewEntries: [],
+        candidateItems: 1,
+        importedItems: 0,
+        duplicateItems: 0,
+        notes: ['Comet preview ready.'],
+        detectedLocale: null,
+        previewRangeStart: '2026-04-24T10:00:00.000Z',
+        previewRangeEnd: '2026-04-24T10:00:00.000Z',
+        importBatch: null,
+      })
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot: snapshotWithComet,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Perplexity Comet · Default/i,
+      }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+
+    await waitFor(() =>
+      expect(inspectBrowserSpy).toHaveBeenCalledWith({
+        sourcePath: cometProfile.historyPath,
+        dryRun: true,
+        browserFamily: cometProfile.browserFamily,
+        profileId: cometProfile.profileId,
+        browserName: cometProfile.browserName,
+        profileName: cometProfile.profileName,
+      }),
+    )
+  })
+
   test('opens macOS Full Disk Access settings from the Safari access warning', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()

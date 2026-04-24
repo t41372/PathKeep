@@ -19,6 +19,8 @@ This section tracks implementation coverage, not the public support promise. The
   - Brave
   - Vivaldi
   - Arc
+  - ChatGPT Atlas
+  - Perplexity Comet
   - Opera
   - Opera GX
 - Firefox-family desktop browsers:

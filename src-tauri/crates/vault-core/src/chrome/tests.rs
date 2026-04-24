@@ -305,6 +305,44 @@ fn atlas_discovery_uses_chromium_parser_family_and_host_profile_root() {
 }
 
 #[test]
+fn comet_discovery_uses_chromium_parser_family_and_app_support_profile_root() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_home = std::env::var_os("HOME");
+    let comet_root = dir.path().join("Library/Application Support/Comet");
+    let profile_dir = comet_root.join("Default");
+    fs::create_dir_all(&profile_dir).expect("create comet profile");
+    fs::write(profile_dir.join("History"), b"history").expect("write comet history");
+    fs::write(profile_dir.join("Favicons"), b"favicons").expect("write comet favicons");
+    fs::write(comet_root.join("Last Version"), "145.2.7632.5934").expect("write comet version");
+    fs::write(
+        comet_root.join("Local State"),
+        r#"{"profile":{"info_cache":{"Default":{"name":"Comet Default","user_name":"comet@example.test"}}}}"#,
+    )
+    .expect("write comet local state");
+
+    let definition = CHROMIUM_BROWSERS
+        .iter()
+        .copied()
+        .find(|definition| definition.key == "comet")
+        .expect("comet definition");
+    unsafe {
+        std::env::set_var("HOME", dir.path());
+    }
+    let profiles = discover_chromium_profiles(definition).expect("discover comet");
+    restore_test_env_var("HOME", original_home.as_deref());
+
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].profile_id, "comet:Default");
+    assert_eq!(profiles[0].profile_name, "Comet Default");
+    assert_eq!(profiles[0].browser_family, "chromium");
+    assert_eq!(profiles[0].browser_name, "Perplexity Comet");
+    assert_eq!(profiles[0].browser_version.as_deref(), Some("145.2.7632.5934"));
+    assert_eq!(profiles[0].history_file_name, "History");
+    assert!(profiles[0].favicons_path.is_some());
+}
+
+#[test]
 fn browser_location_helpers_cover_supported_browser_matrices_and_overrides() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -314,10 +352,10 @@ fn browser_location_helpers_cover_supported_browser_matrices_and_overrides() {
     for definition in CHROMIUM_BROWSERS {
         let (mac, linux, windows) = chromium_relative_paths(definition.key);
         assert!(!mac.is_empty());
-        if definition.key != "atlas" {
+        if !matches!(definition.key, "atlas" | "comet") {
             assert!(!linux.is_empty());
         }
-        if !matches!(definition.key, "arc" | "atlas") {
+        if !matches!(definition.key, "arc" | "atlas" | "comet") {
             assert!(!windows.is_empty());
         }
     }

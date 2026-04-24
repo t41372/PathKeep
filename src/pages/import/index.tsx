@@ -46,7 +46,9 @@ function isValidatedBrowserDirectProfile(profile: BrowserProfile) {
     profile.browserFamily === 'safari' ||
     browserName === 'google chrome' ||
     browserName === 'chatgpt atlas' ||
+    browserName === 'perplexity comet' ||
     profile.profileId.startsWith('atlas:') ||
+    profile.profileId.startsWith('comet:') ||
     profile.profileId.startsWith('chrome:')
   )
 }

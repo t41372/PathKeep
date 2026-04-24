@@ -29,6 +29,7 @@ type BrowserIconKey =
   | 'brave'
   | 'chrome'
   | 'chromium'
+  | 'comet'
   | 'edge'
   | 'edge-dev'
   | 'firefox'
@@ -50,6 +51,7 @@ export const supportedBrowsers = [
   { key: 'vivaldi', name: 'Vivaldi' },
   { key: 'arc', name: 'Arc' },
   { key: 'atlas', name: 'ChatGPT Atlas' },
+  { key: 'comet', name: 'Perplexity Comet' },
   { key: 'opera', name: 'Opera' },
   { key: 'opera-gx', name: 'Opera GX' },
   { key: 'firefox', name: 'Firefox' },
@@ -250,6 +252,25 @@ function renderBrowserIcon(key: BrowserIconKey): ReactNode {
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="1.7"
+          />
+        </>
+      )
+    case 'comet':
+      return (
+        <>
+          <circle cx="12" cy="12" r="9.5" fill="#101828" />
+          <path
+            d="M7.2 7.4h4.8c2.8 0 4.8 1.8 4.8 4.4s-2 4.4-4.8 4.4H7.2Z"
+            fill="none"
+            stroke="#20d3c2"
+            strokeLinejoin="round"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M11.9 7.4v9M7.2 11.8h9.4M12.2 16.2l4.3 3.2"
+            stroke="#f8fafc"
+            strokeLinecap="round"
+            strokeWidth="1.6"
           />
         </>
       )

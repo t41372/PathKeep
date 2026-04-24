@@ -26,7 +26,7 @@
 
 ## Browser Support Promise
 
-- `Validated now`: Google Chrome; ChatGPT Atlas on macOS, including Browser Direct local `History` import; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.
+- `Validated now`: Google Chrome; ChatGPT Atlas on macOS, including Browser Direct local `History` import; Perplexity Comet on macOS, including Browser Direct local `History` import; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.
 - `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
 - Promotion into README / onboarding / release docs follows [../../architecture/browser-support-and-adapter-playbook.md](../../architecture/browser-support-and-adapter-playbook.md), not just the broadest internal implementation surface.
 
@@ -37,6 +37,7 @@
 - install app bundle and confirm first-run onboarding succeeds
 - verify first backup on Google Chrome
 - verify ChatGPT Atlas Browser Direct `History` preview / execute / re-import dedupe / revert / restore against the validated macOS `com.openai.atlas/browser-data/host` layout; record schema coverage, aggregate counts, and time range only
+- verify Perplexity Comet Browser Direct `History` preview / execute / re-import dedupe / revert / restore against the validated macOS `~/Library/Application Support/Comet` layout; record schema coverage, aggregate counts, and time range only
 - verify Safari stays visible with needs-access guidance when Full Disk Access is missing
 - verify Safari baseline backup succeeds after Full Disk Access is granted
 - verify Safari Browser Direct `History.db` preview / execute / re-import dedupe / revert / restore after Full Disk Access is granted; record aggregate counts and time range only
@@ -56,6 +57,7 @@ Known limitations:
 
 - Safari baseline support and Browser Direct local `History.db` import still depend on Full Disk Access
 - ChatGPT Atlas support is only validated for the macOS browser-history profile layout; Atlas workspace data, chats, tabs, bookmarks, suggestions, and Windows / Linux locations are not promised
+- Perplexity Comet support is only validated for the macOS browser-history profile layout; Comet AI memory, Perplexity account/workspace data, chats, tabs, bookmarks, suggestions, and Windows / Linux locations are not promised
 
 ### Windows
 

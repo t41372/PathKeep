@@ -358,6 +358,7 @@ fn browser_family_for_profile(browser_kind: &str) -> String {
 fn browser_name_for_profile(browser_kind: &str) -> String {
     match browser_kind {
         "atlas" => "ChatGPT Atlas".to_string(),
+        "comet" => "Perplexity Comet".to_string(),
         "edge" => "Microsoft Edge".to_string(),
         "brave" => "Brave".to_string(),
         "vivaldi" => "Vivaldi".to_string(),

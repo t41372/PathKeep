@@ -23,12 +23,13 @@ import {
 
 describe('browser icons', () => {
   test('maps every supported browser to a packaged icon and falls back safely', () => {
-    expect(supportedBrowsers).toHaveLength(15)
+    expect(supportedBrowsers).toHaveLength(16)
     expect(new Set(supportedBrowsers.map((browser) => browser.name)).size).toBe(
       supportedBrowsers.length,
     )
     expect(browserIconKeyForName('Google Chrome')).toBe('chrome')
     expect(browserIconKeyForName('ChatGPT Atlas')).toBe('atlas')
+    expect(browserIconKeyForName('Perplexity Comet')).toBe('comet')
     expect(browserIconKeyForName('Microsoft Edge Dev')).toBe('edge-dev')
     expect(browserIconKeyForName('Safari')).toBe('safari')
     expect(browserIconKeyForName('Unknown Browser')).toBe('generic')
@@ -57,6 +58,9 @@ describe('browser icons', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('img', { name: 'ChatGPT Atlas icon' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: 'Perplexity Comet icon' }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('img', { name: 'Unknown Browser icon' }),

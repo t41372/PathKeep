@@ -38,6 +38,20 @@
 > 2026-04-24 backend command-mirror closeout：`WORK-BE-E` 已完成。dev-only bridge 現在由 `dev_ipc_bridge/{config,router,payloads,dispatch}` 分別 owning env parsing、HTTP/CORS/error envelope、camelCase DTO、以及 command dispatch；parent `src-tauri/src/dev_ipc_bridge.rs` 降到 `94` 行，dispatch owner 為 `764` 行，command strings / payload shape / worker export surface / localhost-only feature+env gate 均維持不變。`BACKLOG.md` 目前沒有可提升的未阻塞 work block。
 > 2026-04-24 Safari Browser Direct stop-ship closeout：使用者明確指出 `/import` 的 Browser Direct Safari `History.db` 被送進 Takeout parser，這輪插單已以 `WORK-IMPORT-SAFARI-A` 收口並 append 到 `CHANGELOG.md`。新 truth 是 Browser Direct local DB 改走 `inspect_browser_history` / `import_browser_history`，Safari `History.db` 支援 preview / execute / re-import dedupe / import batch revert+restore / source-evidence + capability snapshot；Takeout command surface 保持不變。這是 user-directed import stop-ship block，不覆寫已完成的 `WORK-BE-E` 後端 command-mirror closeout。
 > 2026-04-24 ChatGPT Atlas Browser Direct closeout：使用者要求把 ChatGPT Atlas 導入提高到 Chrome 完成度。這輪插單已以 `WORK-IMPORT-ATLAS-A` 收口：Atlas 現在是 Chromium-family adapter，macOS discovery root 為 `com.openai.atlas/browser-data/host/<profile>`，Browser Direct 走既有 `inspect_browser_history` / `import_browser_history`，UI / icon / i18n / public support truth 已補齊。current archive 驗證用本機 Atlas profile 完成 preview / import / re-import dedupe / revert / restore，最終 Atlas batch 已 restore 並保持可見；validation artifact 只記 schema / aggregate counts / time range，不記私人 URL / title。
+> 2026-04-24 Perplexity Comet Browser Direct closeout：使用者要求把 Perplexity Comet 導入提高到 Chrome 完成度。這輪插單已以 `WORK-IMPORT-COMET-A` 收口：Comet 現在是 Chromium-family adapter，macOS discovery root 為 `~/Library/Application Support/Comet/<profile>`，Browser Direct 走既有 `inspect_browser_history` / `import_browser_history`，UI / icon / i18n / public support truth 已補齊。current archive 驗證用本機 Comet profile 完成 preview / import / re-import dedupe / revert / restore，最終 Comet 主 import batch 已 restore 並保持可見；validation artifact 只記 schema / aggregate counts / time range，不記私人 URL / title。
+
+- [x] **WORK-IMPORT-COMET-A** — Perplexity Comet Browser Direct Import Completion
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/browser-support-and-adapter-playbook.md`
+    `docs/architecture/desktop-command-surface.md`
+    `TESTING.md`
+    `docs/plan/m4-full-polish/release-readiness-runbook.md`
+  - 目標：把 Perplexity Comet 當成 Chromium-family browser adapter 接入 discovery、backup metadata、Browser Direct import、Import route validated list、icon/i18n/support copy，並用 current archive 做完整 live validation。
+  - 契約：不新增 parser family、不新增 Tauri command、不新增 `BrowserHistoryImportRequest` 欄位；Comet 只支援 macOS `~/Library/Application Support/Comet/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Comet AI memory、Perplexity account / workspace data、chats、tabs、bookmarks 或 suggestions。
+  - 2026-04-24 closeout：`vault-core::chrome` 新增 `comet` browser definition 與 macOS App Support root；Browser Direct / backup source-profile metadata 保留 `Perplexity Comet` product；Import route validated filter、`browser-icons`、onboarding support copy、i18n tests 與 Import route tests 已同步。
+  - current archive validation：本機 Comet profile dry-run preview `587` candidates，首次 import `587` / duplicate `0`，re-import imported `0` / duplicate `587`，revert 後 batch visible `0`，restore 後 visible `587`；`source_profiles.browser_product = Perplexity Comet`，source-evidence batches / native entities 存在，import-batch audit artifact 存在。最終 live archive state 保持 Comet 主 import batch restored / visible。
+  - 驗收：targeted Rust / Vitest slices、`bun run check`、`bun run build`
 
 - [x] **WORK-IMPORT-ATLAS-A** — ChatGPT Atlas Browser Direct Import Completion
   - 讀先：

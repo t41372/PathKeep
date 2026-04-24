@@ -150,6 +150,7 @@ pub(super) fn chromium_relative_paths(
             Vec::new(),
             Vec::new(),
         ),
+        "comet" => (vec!["Library/Application Support/Comet"], Vec::new(), Vec::new()),
         "opera" => (
             vec!["Library/Application Support/com.operasoftware.Opera"],
             vec![".config/opera"],

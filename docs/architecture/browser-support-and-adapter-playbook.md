@@ -17,6 +17,12 @@
   - Public promise: allowed only for the validated macOS Browser Direct / backup layout
   - Validation evidence required: local Atlas `History` Browser Direct preview / import / re-import / revert / restore, plus source-profile and source-evidence checks
   - Explicitly out of scope: Atlas workspace data, chats, tabs, bookmarks, suggestions, and unvalidated Windows / Linux locations
+- `Perplexity Comet` on macOS
+  - Discovery: shipping for `~/Library/Application Support/Comet/<profile>`
+  - Parser / ingest: shipping via the Chromium family pipeline for browser history data only
+  - Public promise: allowed only for the validated macOS Browser Direct / backup layout
+  - Validation evidence required: local Comet `History` Browser Direct preview / import / re-import / revert / restore, plus source-profile and source-evidence checks
+  - Explicitly out of scope: Comet AI memory, Perplexity account/workspace data, chats, tabs, bookmarks, suggestions, and unvalidated Windows / Linux locations
 - `Safari` on macOS
   - Discovery: shipping
   - Parser / ingest: shipping as history-only baseline for backup and Browser Direct local `History.db` import
@@ -91,6 +97,7 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 - Browser Direct local database import must use `inspect_browser_history` / `import_browser_history`, not Takeout commands. It must stage a SQLite snapshot, run `PRAGMA quick_check`, create an import batch, preserve source evidence, refresh search projection, and reuse import-batch revert / restore.
 - Browser Direct support parity means end-to-end reliability within the source's real capabilities. Safari must not fabricate Chrome-only Favicons, downloads, or keyword-search sidecars.
 - ChatGPT Atlas support is a Chromium-family adapter with a narrower source boundary: PathKeep reads `<profile>/History` and Chromium sidecars such as `<profile>/Favicons` from the validated `com.openai.atlas/browser-data/host` macOS profile root. It must not inspect or import Atlas workspace, chat, tab, bookmark, or suggestion data.
+- Perplexity Comet support is a Chromium-family adapter with a narrower source boundary: PathKeep reads `<profile>/History` and Chromium sidecars such as `<profile>/Favicons` from the validated `~/Library/Application Support/Comet` macOS profile root. It must not inspect or import Comet AI memory, Perplexity account/workspace data, chats, tabs, bookmarks, or suggestion data.
 
 ### 5. UI And Copy
 
@@ -128,6 +135,11 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
   - macOS discovery finds profiles under `~/Library/Application Support/com.openai.atlas/browser-data/host`
   - Browser Direct local `History` preview / import / re-import / revert / restore succeeds through the Chromium parser path
   - source profile metadata preserves `ChatGPT Atlas` instead of collapsing the profile into generic Chrome
+  - local validation records schema coverage, aggregate counts, and time ranges only; private URLs and titles must not be copied into docs or chat
+- `Perplexity Comet`
+  - macOS discovery finds profiles under `~/Library/Application Support/Comet`
+  - Browser Direct local `History` preview / import / re-import / revert / restore succeeds through the Chromium parser path
+  - source profile metadata preserves `Perplexity Comet` instead of collapsing the profile into generic Chrome
   - local validation records schema coverage, aggregate counts, and time ranges only; private URLs and titles must not be copied into docs or chat
 - `Safari`
   - profile remains visible when `History.db` is unreadable

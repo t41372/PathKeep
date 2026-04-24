@@ -12,7 +12,7 @@ This is the contributor-facing release runbook. The implementation-level source 
 
 ## Browser Support Promise
 
-- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Validated now`: Google Chrome; ChatGPT Atlas on macOS; Perplexity Comet on macOS; Safari baseline on macOS after Full Disk Access is granted.
 - `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
 - Promotion into README / onboarding / release claims requires the gate in [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md).
 

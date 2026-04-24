@@ -5,7 +5,7 @@
 >
 > **狀態註記（2026-04-07）**：`WORK-M2-A` 已完成。現有基線包含 Google Takeout dry-run / preview / quarantine / import / revert / restore、Firefox 正式 ingest、Safari history-only baseline ingest + Full Disk Access guidance，以及 doctor / repair 對 import artifact、visibility、derived state 的修復。剩餘 PME UI / trust copy / reusable guidance component 收斂到 `M2-TX`。
 >
-> **2026-04-13 truth-pass 註記**：這裡記錄的是 M2 已經落地的 implementation coverage，而不是今天的 public promise。Firefox 與其他 adapter 仍保留實作；但 README / onboarding / release docs 現在只公開承諾 Google Chrome 與 macOS Safari baseline，直到有獨立 promotion evidence。
+> **2026-04-13 truth-pass 註記；2026-04-24 Atlas / Comet promotion follow-up**：這裡記錄的是 M2 已經落地的 implementation coverage，而不是今天的 public promise。Firefox 與其他 adapter 仍保留實作；README / onboarding / release docs 現在只公開承諾 Google Chrome、macOS ChatGPT Atlas browser-history profile、macOS Perplexity Comet browser-history profile、與授權 Full Disk Access 後的 macOS Safari baseline，直到有獨立 promotion evidence 才能再提升其他 adapter。
 
 ---
 

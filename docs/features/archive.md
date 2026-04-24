@@ -11,9 +11,10 @@
 ### 需求要點
 
 - 支援自動發現本機安裝的瀏覽器和 profiles。
-  - 對外公開承諾目前只包含 `Google Chrome`、macOS 上的 `ChatGPT Atlas` browser-history profile，以及 macOS 上已授權 Full Disk Access 的 `Safari` 基礎支持。
+  - 對外公開承諾目前只包含 `Google Chrome`、macOS 上的 `ChatGPT Atlas` browser-history profile、macOS 上的 `Perplexity Comet` browser-history profile，以及 macOS 上已授權 Full Disk Access 的 `Safari` 基礎支持。
   - `Google Chrome` 的 `Favicons` sidecar 屬正式 backup 範圍；Explorer row / detail 目前會顯示 archive 中已保存的 exact-page favicon。
   - `ChatGPT Atlas` 只承諾 browser-history profile：`~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Atlas workspace data、chats、tabs、bookmarks 或 suggestions。
+  - `Perplexity Comet` 只承諾 browser-history profile：`~/Library/Application Support/Comet/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Comet AI memory、Perplexity account / workspace data、chats、tabs、bookmarks 或 suggestions。
   - Safari 為基礎支持：profile 會被偵測並保留在 UI 中；若缺少 Full Disk Access，必須顯示 needs-access guidance，而不是把 profile 靜默隱藏。
   - Safari richer favicon coverage 仍保持 deferred follow-up；day-one archive / Explorer truth 只承諾 Safari history baseline，不假裝 `History.db` 已自帶完整 icon payload。
   - Firefox 與其他 Chromium / Firefox-family adapter 可以繼續保留實作與 discovery，但在補齊獨立驗證 evidence 前，不應被寫進 README / onboarding / release docs 的 public support promise。
@@ -136,9 +137,11 @@
 
 - 同樣走 Preview/Manual/Execute 流程。
 - `/import` 的 Browser Direct 入口必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
-- Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome、macOS ChatGPT Atlas browser history profile、與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
+- Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome、macOS ChatGPT Atlas browser history profile、macOS Perplexity Comet browser history profile、與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
 - ChatGPT Atlas 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，profile identity 使用 `atlas:<raw-profile-dir>`，parser / source-evidence / import-batch rollback flow 全部重用 Chromium Browser Direct 路徑，但 `source_profiles.browser_product` 與 UI 顯示必須保留 `ChatGPT Atlas`。
 - ChatGPT Atlas Browser Direct 導入範圍只包含 `<profile>/History` 與 Chromium sidecars such as `<profile>/Favicons`；不讀 Atlas workspace、chat、tab、bookmark、suggestion 或其他 app-state 資料。
+- Perplexity Comet 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，profile identity 使用 `comet:<raw-profile-dir>`，parser / source-evidence / import-batch rollback flow 全部重用 Chromium Browser Direct 路徑，但 `source_profiles.browser_product` 與 UI 顯示必須保留 `Perplexity Comet`。
+- Perplexity Comet Browser Direct 導入範圍只包含 `<profile>/History` 與 Chromium sidecars such as `<profile>/Favicons`；不讀 Comet AI memory、Perplexity account / workspace data、chat、tab、bookmark、suggestion 或其他 app-state 資料。
 - Safari local `History.db` 導入必須包含 staging snapshot、`PRAGMA quick_check`、schema detection、preview rows、canonical URL / visit 寫入、import batch、source evidence / capability snapshot、search projection refresh、re-import dedupe，以及 import batch revert / restore。
 - Safari 只承諾 `History.db` 能提供的 history baseline 與 source-native evidence。不得偽造 Chrome 才有的 Favicons sidecar、downloads、或 keyword-search sidecar。
 - Safari 缺少 Full Disk Access 時，detected profile 必須保留在 UI 中並顯示 needs-access guidance，且提供直達 macOS Full Disk Access 設定的 action；手動選取不可讀 `History.db` 時，錯誤訊息也必須指出 Full Disk Access 並提供同一個設定 action，而不是 generic parse failure。

@@ -42,6 +42,17 @@ fn atlas_browser_history_request(source: &Path, dry_run: bool) -> BrowserHistory
     }
 }
 
+fn comet_browser_history_request(source: &Path, dry_run: bool) -> BrowserHistoryImportRequest {
+    BrowserHistoryImportRequest {
+        source_path: source.display().to_string(),
+        dry_run,
+        browser_family: Some("chromium".to_string()),
+        profile_id: Some("comet:Default".to_string()),
+        browser_name: Some("Perplexity Comet".to_string()),
+        profile_name: Some("Default".to_string()),
+    }
+}
+
 fn write_safari_history_db(dir: &Path) -> PathBuf {
     let source = dir.join("History.db");
     let connection = Connection::open(&source).expect("open safari db");
@@ -305,6 +316,64 @@ fn import_browser_history_preserves_chatgpt_atlas_product_and_review_contract() 
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
     let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore atlas");
+    assert_eq!(restored.batch.status, "imported");
+    assert_eq!(restored.batch.visible_items, 1);
+}
+
+#[test]
+fn import_browser_history_preserves_perplexity_comet_product_and_review_contract() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_chromium_history_db(dir.path());
+    let request = comet_browser_history_request(&source, false);
+    let first = import_browser_history(&paths, &config, None, &request).expect("import comet");
+    let batch = first.import_batch.clone().expect("import batch");
+
+    assert_eq!(batch.source_kind, "browser-history");
+    assert_eq!(batch.profile_id, "comet:Default");
+    assert_eq!(first.imported_items, 1);
+    assert_eq!(first.duplicate_items, 0);
+    assert_eq!(first.recognized_files[0].kind, "chromium-history-db");
+
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let (profile_family, profile_product): (String, String) = archive
+        .query_row(
+            "SELECT browser_family, browser_product
+               FROM source_profiles
+              WHERE profile_key = 'comet:Default'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load comet profile");
+    assert_eq!(profile_family, "chromium");
+    assert_eq!(profile_product, "Perplexity Comet");
+    drop(archive);
+
+    let source_evidence =
+        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_batches: i64 = source_evidence
+        .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+        .expect("source batch count");
+    let native_rows: i64 = source_evidence
+        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .expect("native evidence count");
+    assert_eq!(source_batches, 1);
+    assert!(native_rows >= 2);
+
+    let second = import_browser_history(&paths, &config, None, &request).expect("re-import comet");
+    assert_eq!(second.imported_items, 0);
+    assert_eq!(second.duplicate_items, 1);
+
+    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert comet");
+    assert_eq!(reverted.batch.status, "reverted");
+    assert_eq!(reverted.batch.visible_items, 0);
+    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore comet");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 1);
 }

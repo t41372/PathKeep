@@ -4,7 +4,7 @@
 >
 > **狀態註記（2026-04-07）**：`WORK-M2-A` 與 `WORK-M2-B` 都已完成，Google Takeout import / rollback / restore、Firefox 正式支持、Safari baseline support、doctor / repair、trust UX、namespace-based i18n 與跨平台 guidance 都已落地。M3 接手 optional intelligence。
 >
-> **2026-04-13 truth-pass 註記**：Firefox-family 與額外 Chromium-family adapter 的實作仍保留，但 public promise 已收斂為 Google Chrome 與 macOS Safari baseline。README / onboarding / release docs 只有在補齊獨立 promotion evidence 後，才可重新把其他 adapter 升級成公開承諾。
+> **2026-04-13 truth-pass 註記；2026-04-24 Atlas / Comet promotion follow-up**：Firefox-family 與額外 Chromium-family adapter 的實作仍保留；public promise 以 [browser-support-and-adapter-playbook.md](../../architecture/browser-support-and-adapter-playbook.md) 的 validated matrix 為準。目前已提升為公開承諾的是 Google Chrome、macOS ChatGPT Atlas browser-history profile、macOS Perplexity Comet browser-history profile、以及授權 Full Disk Access 後的 macOS Safari baseline。README / onboarding / release docs 只有在補齊獨立 promotion evidence 後，才可重新把其他 adapter 升級成公開承諾。
 
 ---
 

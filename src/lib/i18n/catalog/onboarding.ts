@@ -49,7 +49,7 @@ export const onboardingNamespaceCatalog = {
     welcomeTagline2: 'Back it up. Search it. Learn from it.',
     featureBackupTitle: 'AUTOMATIC BACKUP',
     featureBackupDesc:
-      'Start with Google Chrome and ChatGPT Atlas on macOS today, plus Safari after Full Disk Access is granted. Other browser adapters may appear in setup before they become public support commitments.',
+      'Start with Google Chrome, ChatGPT Atlas on macOS, and Perplexity Comet on macOS today, plus Safari after Full Disk Access is granted. Other browser adapters may appear in setup before they become public support commitments.',
     featureSearchTitle: 'POWERFUL SEARCH',
     featureSearchDesc:
       'Search across your entire history, even years back. Find any page you ever visited by keyword or natural language.',
@@ -75,7 +75,7 @@ export const onboardingNamespaceCatalog = {
       'Safari needs Full Disk Access permission. Open System Settings → Privacy & Security → Full Disk Access.',
     cannotReadHint: "Can't read {fileName} yet. Check file permissions.",
     firefoxSafariInfo:
-      'Google Chrome and ChatGPT Atlas on macOS are part of the validated setup path today. Safari joins that path on macOS after Full Disk Access is granted. Firefox-family and other adapters may appear here before they become public support commitments.',
+      'Google Chrome, ChatGPT Atlas on macOS, and Perplexity Comet on macOS are part of the validated setup path today. Safari joins that path on macOS after Full Disk Access is granted. Firefox-family and other adapters may appear here before they become public support commitments.',
     backButton: '← Back',
     continueButton: 'Continue →',
     storageTitle: 'Where Your Data Lives',
@@ -185,7 +185,7 @@ export const onboardingNamespaceCatalog = {
     welcomeTagline2: '备份它，搜索它，从中发现规律。',
     featureBackupTitle: '自动备份',
     featureBackupDesc:
-      '当前先以 Google Chrome 和 macOS 上的 ChatGPT Atlas 作为已验证路径；在 macOS 上授予完全磁盘访问权限后，也可验证 Safari 的基础备份。其他浏览器适配器可能会先出现在设置里，但还不算公开支持承诺。',
+      '当前先以 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet 作为已验证路径；在 macOS 上授予完全磁盘访问权限后，也可验证 Safari 的基础备份。其他浏览器适配器可能会先出现在设置里，但还不算公开支持承诺。',
     featureSearchTitle: '强大的搜索',
     featureSearchDesc:
       '搜索你所有的浏览历史，哪怕是几年前访问的页面，也能通过关键词或自然语言找到。',
@@ -211,7 +211,7 @@ export const onboardingNamespaceCatalog = {
       'Safari 需要完全磁盘访问权限。打开系统设置 → 隐私与安全性 → 完全磁盘访问权限。',
     cannotReadHint: '暂时无法读取 {fileName}，请检查文件权限。',
     firefoxSafariInfo:
-      '当前公开验证的设置路径是 Google Chrome 和 macOS 上的 ChatGPT Atlas；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。Firefox 系和其他适配器可能会先显示在这里，但还不算公开支持承诺。',
+      '当前公开验证的设置路径是 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。Firefox 系和其他适配器可能会先显示在这里，但还不算公开支持承诺。',
     backButton: '← 返回',
     continueButton: '继续 →',
     storageTitle: '数据存储位置',
@@ -317,7 +317,7 @@ export const onboardingNamespaceCatalog = {
     welcomeTagline2: '備份它，搜尋它，從中發現規律。',
     featureBackupTitle: '自動備份',
     featureBackupDesc:
-      '目前先以 Google Chrome 和 macOS 上的 ChatGPT Atlas 作為已驗證路徑；在 macOS 上授予完整磁碟取用權限後，也可驗證 Safari 的基礎備份。其他瀏覽器 adapter 可能會先出現在設定裡，但還不算公開支援承諾。',
+      '目前先以 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet 作為已驗證路徑；在 macOS 上授予完整磁碟取用權限後，也可驗證 Safari 的基礎備份。其他瀏覽器 adapter 可能會先出現在設定裡，但還不算公開支援承諾。',
     featureSearchTitle: '強大的搜尋',
     featureSearchDesc:
       '搜尋你所有的瀏覽歷史，即使是好幾年前看過的頁面，也能透過關鍵字或自然語言找到。',
@@ -343,7 +343,7 @@ export const onboardingNamespaceCatalog = {
       'Safari 需要完整磁碟取用權限。前往系統設定 → 隱私權與安全性 → 完整磁碟取用權限。',
     cannotReadHint: '暫時無法讀取 {fileName}，請確認檔案權限。',
     firefoxSafariInfo:
-      '目前公開驗證的設定路徑是 Google Chrome 和 macOS 上的 ChatGPT Atlas；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。Firefox 系與其他 adapter 可能會先顯示在這裡，但還不算公開支援承諾。',
+      '目前公開驗證的設定路徑是 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。Firefox 系與其他 adapter 可能會先顯示在這裡，但還不算公開支援承諾。',
     backButton: '← 返回',
     continueButton: '繼續 →',
     storageTitle: '資料儲存位置',
