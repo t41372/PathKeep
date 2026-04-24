@@ -17,7 +17,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
@@ -31,7 +30,6 @@ import {
   useProfileScope,
 } from '../../lib/profile-scope-context'
 import { hasSafariAccessIssue } from '../../lib/platform-guidance'
-import type { SecurityStatus } from '../../lib/types'
 import {
   buildDashboardStats,
   buildDashboardStorageSegments,
@@ -48,6 +46,7 @@ import {
   DashboardStorageFootprintPanel,
   DashboardTrustActionsPanel,
 } from './panels'
+import { useDashboardArchiveAccessFallback } from './route-fallback-access'
 import { DashboardRouteFallback } from './route-fallback'
 import { resolveDashboardRouteFallback } from './route-fallback-state'
 import { DashboardZeroState } from './zero-state'
@@ -79,10 +78,12 @@ export function DashboardPage() {
   const [onThisDayEntries, setOnThisDayEntries] = useState<OnThisDayEntry[]>([])
   const [onThisDayLoading, setOnThisDayLoading] = useState(false)
   const [onThisDayError, setOnThisDayError] = useState<string | null>(null)
-  const [archiveAccessFallback, setArchiveAccessFallback] = useState<Pick<
-    SecurityStatus,
-    'initialized' | 'encrypted' | 'unlocked'
-  > | null>(null)
+  const archiveAccessFallback = useDashboardArchiveAccessFallback({
+    dashboard,
+    error,
+    refreshKey,
+    snapshot,
+  })
   const backgroundQueueCount =
     runtimeStatus.aiQueue && runtimeStatus.intelligence
       ? runtimeStatus.aiQueue.queued +
@@ -131,35 +132,6 @@ export function DashboardPage() {
       cancelled = true
     }
   }, [activeProfileId, intelligenceT, refreshKey, snapshot?.config.initialized])
-
-  useEffect(() => {
-    if (!error || dashboard || snapshot) {
-      setArchiveAccessFallback(null)
-      return
-    }
-
-    let cancelled = false
-
-    void backend
-      .securityStatus()
-      .then((status) => {
-        if (cancelled) return
-        setArchiveAccessFallback({
-          initialized: status.initialized,
-          encrypted: status.encrypted,
-          unlocked: status.unlocked,
-        })
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setArchiveAccessFallback(null)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [dashboard, error, refreshKey, snapshot])
 
   const fallbackState = resolveDashboardRouteFallback({
     archiveAccessFallback,

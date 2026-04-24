@@ -18,16 +18,47 @@
  * - Focused render and pure-helper tests avoid mounting the full Dashboard route for every fallback branch.
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, renderHook, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { backend } from '../../lib/backend-client'
 import { createTranslator } from '../../lib/i18n'
+import type { AppSnapshot, SecurityStatus } from '../../lib/types'
+import {
+  shouldProbeDashboardArchiveAccessFallback,
+  toDashboardArchiveAccessFallback,
+  useDashboardArchiveAccessFallback,
+} from './route-fallback-access'
 import { DashboardRouteFallback } from './route-fallback'
 import { resolveDashboardRouteFallback } from './route-fallback-state'
 
 const t = createTranslator('en')
 
+const securityStatus: SecurityStatus = {
+  initialized: true,
+  mode: 'encrypted',
+  encrypted: true,
+  unlocked: false,
+  databasePath: '/tmp/pathkeep/archive.sqlite',
+  strongholdPath: '/tmp/pathkeep/vault.hold',
+  rememberDatabaseKeyInKeyring: true,
+  keyringStatus: {
+    available: true,
+    backend: 'Test keyring',
+    storedSecret: false,
+  },
+  lastSuccessfulBackupAt: null,
+  lastRekeyAt: null,
+  lastRekeyRunId: null,
+  lastRekeySnapshotPath: null,
+  warnings: [],
+}
+
 describe('dashboard route fallback', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   test('resolves loading before any dashboard snapshot is ready', () => {
     expect(
       resolveDashboardRouteFallback({
@@ -94,5 +125,84 @@ describe('dashboard route fallback', () => {
     expect(
       screen.getByRole('link', { name: t('archiveUnlockAction') }),
     ).toHaveAttribute('href', '/security#unlock-archive')
+  })
+
+  test('keeps archive-access probing limited to bootstrap error states', () => {
+    expect(
+      shouldProbeDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: 'database key required',
+        snapshot: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldProbeDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: null,
+        snapshot: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldProbeDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: 'database key required',
+        snapshot: {} as AppSnapshot,
+      }),
+    ).toBe(false)
+  })
+
+  test('narrows Security status to the Dashboard fallback fields', () => {
+    expect(toDashboardArchiveAccessFallback(securityStatus)).toEqual({
+      encrypted: true,
+      initialized: true,
+      unlocked: false,
+    })
+  })
+
+  test('loads archive-access fallback through the hook and clears failed probes', async () => {
+    const securityStatusSpy = vi
+      .spyOn(backend, 'securityStatus')
+      .mockResolvedValueOnce(securityStatus)
+      .mockRejectedValueOnce(new Error('security unavailable'))
+    const initialHookProps: { error: string | null; refreshKey: number } = {
+      error: 'database key required',
+      refreshKey: 0,
+    }
+    const { rerender, result } = renderHook(
+      ({ error, refreshKey }: { error: string | null; refreshKey: number }) =>
+        useDashboardArchiveAccessFallback({
+          dashboard: null,
+          error,
+          refreshKey,
+          snapshot: null,
+        }),
+      {
+        initialProps: initialHookProps,
+      },
+    )
+
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        encrypted: true,
+        initialized: true,
+        unlocked: false,
+      }),
+    )
+
+    rerender({
+      error: 'database key required',
+      refreshKey: 1,
+    })
+
+    await waitFor(() => expect(result.current).toBeNull())
+    expect(securityStatusSpy).toHaveBeenCalledTimes(2)
+
+    rerender({
+      error: null,
+      refreshKey: 2,
+    })
+
+    await waitFor(() => expect(result.current).toBeNull())
+    expect(securityStatusSpy).toHaveBeenCalledTimes(2)
   })
 })
