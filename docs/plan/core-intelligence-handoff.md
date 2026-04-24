@@ -151,7 +151,7 @@ New backend ownership root:
 - [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/intelligence/mod.rs)
 - [`src-tauri/crates/vault-core/src/intelligence_catalog.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/intelligence_catalog.rs)
 - [`src-tauri/crates/vault-core/src/intelligence/site_dictionary/mod.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/intelligence/site_dictionary/mod.rs)
-- [`src-tauri/crates/vault-core/src/models/core_intelligence.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/models/core_intelligence.rs)
+- [`src-tauri/crates/vault-core/src/models/core_intelligence/mod.rs`](/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/src-tauri/crates/vault-core/src/models/core_intelligence/mod.rs)
 
 Key supporting rewires:
 

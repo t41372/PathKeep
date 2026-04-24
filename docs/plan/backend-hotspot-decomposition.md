@@ -10,12 +10,11 @@
 
 ## Current hotspot snapshot
 
-| File                                                          | Current line count | Primary risk                                                             |
-| ------------------------------------------------------------- | -----------------: | ------------------------------------------------------------------------ |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`         |               2583 | Export surface, core record types, and regression suite still co-located |
-| `src-tauri/crates/vault-core/src/models/core_intelligence.rs` |               1175 | DTO families for multiple surfaces still co-located                      |
-| `src-tauri/crates/vault-core/src/remote.rs`                   |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed           |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`           |                124 | Thin façade after queue/runtime and read-surface splits                  |
+| File                                                  | Current line count | Primary risk                                                             |
+| ----------------------------------------------------- | -----------------: | ------------------------------------------------------------------------ |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               2583 | Export surface, core record types, and regression suite still co-located |
+| `src-tauri/crates/vault-core/src/remote.rs`           |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed           |
+| `src-tauri/crates/vault-worker/src/intelligence.rs`   |                124 | Thin façade after queue/runtime and read-surface splits                  |
 
 ## Sequencing
 
@@ -86,7 +85,8 @@
 - Treat the old `deterministic` module first because site-dictionary classification consumes its taxonomy, URL normalization, query extraction, and tokenization helpers.
 - 2026-04-23 visit-taxonomy slice landed: the old `deterministic` module is now `src-tauri/crates/vault-core/src/visit_taxonomy/{mod,types,url,text,rules,classification,tests}.rs`. The public `crate::visit_taxonomy::*` façade stayed stable, the taxonomy version / rule-pack semantics stayed unchanged, and the largest new owner is `rules.rs` at `535` lines.
 - 2026-04-23 site-dictionary slice landed: `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` is now `site_dictionary/{mod,types,overrides,search_rules,classification,tests}.rs`. Search-engine rule persistence, user overrides, and per-visit classification now have separate owners, and the largest new owner is `search_rules.rs` at `436` lines.
-- Next support-file order: `models/core_intelligence.rs`, then `remote.rs`, then the still-embedded `intelligence/mod.rs` regression suite / support-type split.
+- 2026-04-23 Core Intelligence DTO slice landed: `src-tauri/crates/vault-core/src/models/core_intelligence.rs` is now `models/core_intelligence/{mod,shared,requests,reads,analytics,overview,exports,tests}.rs`. Request payloads, section envelopes, read rows, advanced analytics, overview batches, and trusted-output bundles now have separate owners, and the largest new owner is `analytics.rs` at `376` lines.
+- Next support-file order: `remote.rs`, then the still-embedded `intelligence/mod.rs` regression suite / support-type split.
 
 ## Non-negotiable invariants
 

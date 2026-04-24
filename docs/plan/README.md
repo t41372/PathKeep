@@ -92,6 +92,8 @@
 
 > **2026-04-23 site-dictionary boundary note**：`WORK-BE-C` 的下一個 execution slice 已把 `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` 拆成 `site_dictionary/{mod,types,overrides,search_rules,classification,tests}.rs`。Settings search-rule DTO、override schema、search-query extraction、display-name fallback 與 visit classification semantics 都維持不變；下一個 backend support hotspot 改成 `models/core_intelligence.rs`。
 
+> **2026-04-23 Core Intelligence DTO boundary note**：`WORK-BE-C` 的下一個 execution slice 已把 `src-tauri/crates/vault-core/src/models/core_intelligence.rs` 拆成 `models/core_intelligence/{mod,shared,requests,reads,analytics,overview,exports,tests}.rs`。Tauri / worker / frontend-facing serde shape、request aliases、section-window enum tags 與 `vault_core::*` re-export surface 都維持不變；下一個 backend support hotspot 改成 `remote.rs`。
+
 ---
 
 ## 先看哪裡
