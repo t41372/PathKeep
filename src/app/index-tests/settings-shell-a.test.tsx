@@ -28,6 +28,7 @@ import App from '../index'
 import { appRoutes } from '../router'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
+import { createNamespaceTranslator } from '../../lib/i18n'
 import {
   commonT,
   expectHtmlElement,
@@ -36,6 +37,8 @@ import {
   seedArchiveRun,
   settingsT,
 } from './test-helpers'
+
+const navigationT = createNamespaceTranslator('en', 'navigation')
 
 describe('App shell', () => {
   beforeEach(() => {
@@ -75,6 +78,19 @@ describe('App shell', () => {
 
   test('walks the maintenance remote backup PME and derived-state controls', async () => {
     await seedArchiveRun()
+    const seededSnapshot = await backend.getAppSnapshot()
+    await backend.saveConfig({
+      ...seededSnapshot.config,
+      remoteBackup: {
+        ...seededSnapshot.config.remoteBackup,
+        enabled: true,
+        bucket: 'example-bucket',
+      },
+    })
+    await backend.storeS3Credentials({
+      accessKeyId: 'preview-key',
+      secretAccessKey: 'preview-secret',
+    })
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/maintenance'],
@@ -83,6 +99,12 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     const maintenancePage = await screen.findByTestId('maintenance-page')
+    const nav = within(maintenancePage).getByRole('navigation', {
+      name: navigationT('maintenanceLabel'),
+    })
+    expect(
+      within(nav).getByRole('link', { name: settingsT('remoteBackup') }),
+    ).toHaveAttribute('href', '#/maintenance#settings-remote')
     const remotePanel = expectHtmlElement(
       document.getElementById('settings-remote'),
     )
@@ -104,32 +126,29 @@ describe('App shell', () => {
     expect(
       within(remotePanel).getByText(commonT('common.previewTab')),
     ).toBeVisible()
-    await user.clear(
-      within(remotePanel).getByLabelText(settingsT('bucketLabel')),
-    )
-    await user.type(
-      within(remotePanel).getByLabelText(settingsT('bucketLabel')),
-      'example-bucket',
-    )
-    await user.click(
-      within(remotePanel).getByRole('button', {
+    expect(
+      within(remotePanel).getByText(settingsT('remoteMaintenanceConfigTitle')),
+    ).toBeVisible()
+    expect(within(remotePanel).getByText('example-bucket')).toBeVisible()
+    expect(
+      within(remotePanel).getByRole('link', {
+        name: settingsT('remoteMaintenanceEditSettings'),
+      }),
+    ).toHaveAttribute('href', '/settings#settings-remote')
+    expect(
+      within(remotePanel).queryByLabelText(settingsT('bucketLabel')),
+    ).not.toBeInTheDocument()
+    expect(
+      within(remotePanel).queryByLabelText(settingsT('accessKeyId')),
+    ).not.toBeInTheDocument()
+    expect(
+      within(remotePanel).queryByLabelText(settingsT('secretAccessKey')),
+    ).not.toBeInTheDocument()
+    expect(
+      within(remotePanel).queryByRole('button', {
         name: settingsT('saveRemoteSettings'),
       }),
-    )
-
-    await user.type(
-      within(remotePanel).getByLabelText(settingsT('accessKeyId')),
-      'preview-key',
-    )
-    await user.type(
-      within(remotePanel).getByLabelText(settingsT('secretAccessKey')),
-      'preview-secret',
-    )
-    await user.click(
-      within(remotePanel).getByRole('button', {
-        name: settingsT('storeRemoteCredentials'),
-      }),
-    )
+    ).not.toBeInTheDocument()
 
     await waitFor(() => {
       expect(

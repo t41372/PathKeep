@@ -165,13 +165,13 @@ describe('intelligence surfaces settings core sections', () => {
     })
     expect(
       within(nav).getByRole('link', { name: settingsT('general') }),
-    ).toHaveAttribute('href', '#settings-general')
+    ).toHaveAttribute('href', '#/settings#settings-general')
     expect(
       within(nav).getByRole('link', { name: settingsT('browserProfiles') }),
-    ).toHaveAttribute('href', '#settings-profiles')
+    ).toHaveAttribute('href', '#/settings#settings-profiles')
     expect(
       within(nav).getByRole('link', { name: settingsT('remoteBackup') }),
-    ).toHaveAttribute('href', '#settings-remote')
+    ).toHaveAttribute('href', '#/settings#settings-remote')
 
     const generalPanel = document.getElementById('settings-general')
     if (!(generalPanel instanceof HTMLElement)) {

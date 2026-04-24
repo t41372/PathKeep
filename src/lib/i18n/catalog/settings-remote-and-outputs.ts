@@ -31,6 +31,10 @@ export const settingsRemoteAndOutputsNamespace = {
     remotePreferencesTitle: 'Saved cloud backup configuration',
     remotePreferencesBody:
       'Keep bucket, endpoint, upload-after-backup, and credential storage here. Preview, upload, and verify the backup from Maintenance.',
+    remoteMaintenanceConfigTitle: 'Using saved cloud backup configuration',
+    remoteMaintenanceConfigBody:
+      'Maintenance only runs the preview, upload, and verification workflow. Edit bucket, endpoint, auto-upload, or credentials from Settings.',
+    remoteMaintenanceEditSettings: 'Edit in Settings',
     remoteEnabled: 'Enable cloud backup',
     bucketLabel: 'Bucket',
     regionLabel: 'Region',
@@ -224,6 +228,10 @@ export const settingsRemoteAndOutputsNamespace = {
     remotePreferencesTitle: '已保存的云端备份配置',
     remotePreferencesBody:
       '这里保留 bucket、endpoint、备份后自动上传和凭证保存设置。预览、上传和验证备份请到维护页。',
+    remoteMaintenanceConfigTitle: '使用已保存的云端备份配置',
+    remoteMaintenanceConfigBody:
+      '维护页只负责预览、上传和验证流程。Bucket、endpoint、自动上传和凭证请回到设置里修改。',
+    remoteMaintenanceEditSettings: '去设置修改',
     remoteEnabled: '启用云端备份',
     bucketLabel: 'Bucket',
     regionLabel: 'Region',
@@ -404,6 +412,10 @@ export const settingsRemoteAndOutputsNamespace = {
     remotePreferencesTitle: '已保存的雲端備份設定',
     remotePreferencesBody:
       '這裡保留 bucket、endpoint、備份後自動上傳和憑證保存設定。預覽、上傳和驗證備份請到維護頁。',
+    remoteMaintenanceConfigTitle: '使用已保存的雲端備份設定',
+    remoteMaintenanceConfigBody:
+      '維護頁只負責預覽、上傳和驗證流程。Bucket、endpoint、自動上傳和憑證請回到設定裡修改。',
+    remoteMaintenanceEditSettings: '去設定修改',
     remoteEnabled: '啟用雲端備份',
     bucketLabel: 'Bucket',
     regionLabel: 'Region',

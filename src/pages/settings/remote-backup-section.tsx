@@ -4,12 +4,12 @@
  * @module pages/settings
  *
  * ## 職責
- * - 顯示 remote backup config、credential review、PME tabs、execute result 與 verify checklist。
- * - 把 save / preview / execute / verify / credential actions 交回 route-owned handlers。
+ * - 顯示 remote backup saved-config summary、PME tabs、execute result 與 verify checklist。
+ * - 把 preview / execute / verify actions 交回 route-owned handlers。
  * - 維持 remote backup 的 preview-first honesty，不在 section 內繞過 PME。
  *
  * ## 不負責
- * - 不直接儲存 remote config 或 credentials。
+ * - 不直接編輯或儲存 remote config / credentials；那些 persistent preferences 屬於 `/settings`。
  * - 不觸發 archive export 以外的 side effects。
  * - 不改變 S3-compatible backend contract。
  *
@@ -21,6 +21,7 @@
  * - 本模組只渲染 route 已載入的 preview/result payload，不自行新增背景查詢。
  */
 
+import { Link } from 'react-router-dom'
 import {
   PmeTabBar,
   ReviewSection,
@@ -88,31 +89,53 @@ export function RemoteBackupSection({
 }: RemoteBackupSectionProps) {
   const { t } = useI18n()
   const {
-    accessKeyId,
     action,
     configured,
     currentDraft,
     latestRemoteBundlePath,
     preview,
     result,
-    secretAccessKey,
     tab,
     verification,
-    onAccessKeyIdChange,
-    onClearCredentials,
-    onDraftChange,
     onExecute,
     onPreview,
-    onSaveConfig,
-    onSecretAccessKeyChange,
     onSetTab,
-    onStoreCredentials,
     onVerify,
   } = state
 
   if (!currentDraft) {
     return null
   }
+  const configRows = [
+    {
+      label: t('settings.remoteEnabled'),
+      value: currentDraft.enabled ? t('common.yes') : t('common.no'),
+    },
+    {
+      label: t('settings.bucketLabel'),
+      value: currentDraft.bucket || t('common.notAvailable'),
+    },
+    {
+      label: t('settings.regionLabel'),
+      value: currentDraft.region || t('common.notAvailable'),
+    },
+    {
+      label: t('settings.endpointLabel'),
+      value: currentDraft.endpoint || t('common.notAvailable'),
+    },
+    {
+      label: t('settings.prefixLabel'),
+      value: currentDraft.prefix || t('common.notAvailable'),
+    },
+    {
+      label: t('settings.pathStyleLabel'),
+      value: currentDraft.pathStyle ? t('common.yes') : t('common.no'),
+    },
+    {
+      label: t('settings.uploadAfterBackup'),
+      value: currentDraft.uploadAfterBackup ? t('common.yes') : t('common.no'),
+    },
+  ]
 
   return (
     <div className="panel panel--optional" id={navItem.id}>
@@ -126,98 +149,25 @@ export function RemoteBackupSection({
       <div className="panel-body settings-remote-grid">
         <StatusCallout
           tone={configured ? 'info' : 'warning'}
-          title={t('settings.remoteBackupSummary')}
-          body={t('settings.remoteBackupBody')}
+          title={t('settings.remoteMaintenanceConfigTitle')}
+          body={t('settings.remoteMaintenanceConfigBody')}
+          actions={
+            <Link className="btn-secondary" to="/settings#settings-remote">
+              {t('settings.remoteMaintenanceEditSettings')}
+            </Link>
+          }
         />
 
-        <div className="settings-field-grid">
-          <label className="checkbox-row">
-            <input
-              aria-label={t('settings.remoteEnabled')}
-              checked={currentDraft.enabled}
-              type="checkbox"
-              onChange={(event) =>
-                onDraftChange({ enabled: event.target.checked })
-              }
-            />
-            <span>{t('settings.remoteEnabled')}</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              aria-label={t('settings.pathStyleLabel')}
-              checked={currentDraft.pathStyle}
-              type="checkbox"
-              onChange={(event) =>
-                onDraftChange({ pathStyle: event.target.checked })
-              }
-            />
-            <span>{t('settings.pathStyleLabel')}</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              aria-label={t('settings.uploadAfterBackup')}
-              checked={currentDraft.uploadAfterBackup}
-              type="checkbox"
-              onChange={(event) =>
-                onDraftChange({ uploadAfterBackup: event.target.checked })
-              }
-            />
-            <span>{t('settings.uploadAfterBackup')}</span>
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.bucketLabel')}</span>
-            <input
-              aria-label={t('settings.bucketLabel')}
-              value={currentDraft.bucket}
-              onChange={(event) =>
-                onDraftChange({ bucket: event.target.value })
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.regionLabel')}</span>
-            <input
-              aria-label={t('settings.regionLabel')}
-              value={currentDraft.region}
-              onChange={(event) =>
-                onDraftChange({ region: event.target.value })
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.endpointLabel')}</span>
-            <input
-              aria-label={t('settings.endpointLabel')}
-              placeholder={t('settings.endpointPlaceholder')}
-              value={currentDraft.endpoint ?? ''}
-              onChange={(event) =>
-                onDraftChange({ endpoint: event.target.value || null })
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.prefixLabel')}</span>
-            <input
-              aria-label={t('settings.prefixLabel')}
-              value={currentDraft.prefix}
-              onChange={(event) =>
-                onDraftChange({ prefix: event.target.value })
-              }
-            />
-          </label>
+        <div className="settings-field-grid settings-field-grid--readonly">
+          {configRows.map((row) => (
+            <div className="config-row" key={row.label}>
+              <span className="config-label">{row.label}</span>
+              <span className="config-value mono">{row.value}</span>
+            </div>
+          ))}
         </div>
 
         <div className="settings-action-row">
-          <button
-            className="btn-secondary"
-            type="button"
-            disabled={Boolean(action)}
-            onClick={() => {
-              void onSaveConfig()
-            }}
-          >
-            {t('settings.saveRemoteSettings')}
-          </button>
           <button
             className="btn-secondary"
             type="button"
@@ -250,7 +200,7 @@ export function RemoteBackupSection({
           </button>
         </div>
 
-        <div className="settings-remote-columns">
+        <div className="settings-field-grid settings-field-grid--readonly">
           <div className="field-stack">
             <span>{t('settings.credentialsStatus')}</span>
             <strong>
@@ -267,54 +217,6 @@ export function RemoteBackupSection({
               <span className="dim mono">{lastUploadedObjectKey}</span>
             ) : null}
             {lastError ? <span className="dim">{lastError}</span> : null}
-          </div>
-
-          <div className="settings-field-grid">
-            <label className="field-stack">
-              <span>{t('settings.accessKeyId')}</span>
-              <input
-                aria-label={t('settings.accessKeyId')}
-                value={accessKeyId}
-                onChange={(event) => onAccessKeyIdChange(event.target.value)}
-              />
-            </label>
-            <label className="field-stack">
-              <span>{t('settings.secretAccessKey')}</span>
-              <input
-                aria-label={t('settings.secretAccessKey')}
-                type="password"
-                value={secretAccessKey}
-                onChange={(event) =>
-                  onSecretAccessKeyChange(event.target.value)
-                }
-              />
-            </label>
-            <div className="settings-action-row">
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={
-                  Boolean(action) ||
-                  !accessKeyId.trim() ||
-                  !secretAccessKey.trim()
-                }
-                onClick={() => {
-                  void onStoreCredentials()
-                }}
-              >
-                {t('settings.storeRemoteCredentials')}
-              </button>
-              <button
-                className="btn-danger"
-                type="button"
-                disabled={Boolean(action) || !credentialsSaved}
-                onClick={() => {
-                  void onClearCredentials()
-                }}
-              >
-                {t('settings.clearRemoteCredentials')}
-              </button>
-            </div>
           </div>
         </div>
 

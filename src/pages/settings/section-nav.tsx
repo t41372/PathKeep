@@ -19,6 +19,7 @@
  * - 本模組只渲染少量 anchors，不做資料查詢或重計算。
  */
 
+import { useLocation } from 'react-router-dom'
 import { Glyph } from '../../components/ui'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
@@ -37,6 +38,8 @@ export interface SettingsSectionNavProps {
  * primary affordance so users do not need to memorize symbols before editing preferences.
  */
 export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
+  const location = useLocation()
+
   return (
     <nav className="settings-nav" aria-label={label}>
       {items.map((item) => (
@@ -44,7 +47,7 @@ export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
           key={item.key}
           aria-label={item.label}
           className="settings-nav__link"
-          href={`#${item.id}`}
+          href={`#${location.pathname}${location.search}#${item.id}`}
           title={item.label}
         >
           <Glyph icon={item.icon} filled />
