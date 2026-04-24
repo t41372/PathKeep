@@ -34,6 +34,17 @@
 > 2026-04-21 backend track note：使用者明確要求並行開啟後端 hotspot 拆分，不等 `WORK-M13-B` front-end reuse 收束。這輪新增 `WORK-BE-A` 作為 user-directed parallel block；frontend reuse 與 backend decomposition 分開推進，彼此都不得覆寫對方未提交中的工作樹。
 > 2026-04-22 backend closeout：`WORK-BE-A` 已完成。這輪把 import boundary 真正收進 bounded-memory / streamed contract，並完成 `intelligence_runtime` 與 `intelligence/mod.rs` 的第三輪 giant-file 拆分；最新 execution slice 又把 structural rebuild internals 拆成 `intelligence_structural_{state,build,aggregates,persist,stream,stage}.rs`，讓 `intelligence/mod.rs` 再降到 `5561` 行，且所有新文件都回到 `600` 行硬限制內。下一輪 backend active current-focus 轉到 `WORK-BE-B`，專門收剩餘 query/read-model helper clusters，以及 `vault-worker/src/intelligence.rs` / `ai.rs` 的 follow-through。
 > 2026-04-23 M13-B closeout：`WORK-M13-B` 已完成 shell runtime owner、Security workflow owner、Dashboard fallback owner、Browsing Rhythm state owner、以及 Import workflow follow-through；最後的 legacy `PathRow` 候選經 repo search 確認已無 active component / consumer，實際 owner 是 `ReviewPathActionRow`。`BACKLOG.md` 目前沒有可提升的未阻塞 work block。
+> 2026-04-23 backend progress audit：live tree scan 證明後端主戰場已大幅拆完，但不能宣稱整個 backend「屎山優化完成」。production Rust 仍有 `src-tauri/src/dev_ipc_bridge.rs` (`1141` 行) 超過 1000 行、`host_artifacts.rs` / `browser-history-parser::chromium` / `vault-platform::scheduler` 等 800-1000 行 follow-up 候選，且 command / worker-bridge intelligence façade 還沒有達到原本 declaration-level rustdoc 標準。這輪先完成 `WORK-BE-D`，把 `vault-core/src/ai_queue.rs` 內嵌 regression suite 下沉到 `ai_queue/tests.rs`，runtime module 降到 `768` 行；下一個 active current-focus 轉到 `WORK-BE-E`。
+
+- [ ] **WORK-BE-E** — Command Facade Rustdoc And Dev Bridge Boundary
+  - 讀先：
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/tech-stack.md`
+  - 目標：處理後端 progress audit 暴露的下一個真 hotspot：`src-tauri/src/dev_ipc_bridge.rs` 超過 1000 行，且 `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` 仍有大量 command façade declaration-level rustdoc gaps。優先把 dev-only localhost bridge 的 payload DTO、router/dispatch table、command adapters 拆成 focused owners，並補齊 command / worker bridge 檔頭與 declaration comments。
+  - 契約：維持現有 Tauri command names、devtools-bridge command strings、request/response payload shape、worker export surface、feature-gated + env-gated localhost-only 安全邊界，以及 `run_blocking_command` off-main-thread contract；不得把 dev automation mirror 擴寫成產品 remote-control API。
+  - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 
 - [x] **WORK-BE-C** — Remaining Backend Hotspot Decomposition Beyond Core Intelligence Parent
   - 讀先：

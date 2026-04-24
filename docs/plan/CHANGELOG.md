@@ -847,3 +847,16 @@
   - 最後的 legacy `PathRow` retirement 候選經 repo search 確認已無 active component / consumer；path/copy/open grammar 的實際 single source 是 `src/components/review/support-actions.tsx` 的 `ReviewPathActionRow`，因此這項以 stale-planning cleanup 收口，而不是新增無意義代碼。
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md}`](STATUS.md) 與 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)，把 M13-B closeout、剩餘 hotspot 歸零、以及 BACKLOG 暫無可提升 block 寫回 source-of-truth。
   - 驗收：focused Vitest slices、`git diff --check`、`bun run check`、`bun run build`
+
+- [x] **WORK-BE-D** — Backend Completion Audit And AI Queue Test Boundary
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：深度審查 backend hotspot 軌道是否真的完成，對照 live Rust line counts、doc-comment coverage、active plan/backlog truth、recent commits 與 current quality gate，再落一個可獨立提交的後端 follow-up slice。
+  - 契約：只做 review-backed 的窄切片；不改 Tauri command name、worker export surface、serde payload、AI queue schema / lifecycle semantics、或前端 IPC contract。
+  - 2026-04-23：live scan 確認 `WORK-BE-A/B/C` 已經把 `intelligence/mod.rs`、`ai.rs`、`remote.rs`、`models/core_intelligence`、`site_dictionary`、`takeout` 與 archive ingest 這批主 giant-file 戰場大幅收口，但不能宣稱整個 backend 已完成。production Rust 仍有 `src-tauri/src/dev_ipc_bridge.rs` (`1141` 行) 超過 1000 行，且 command / worker-bridge intelligence façade 還有 declaration-level rustdoc gaps。
+  - 這輪 code slice 把 `src-tauri/crates/vault-core/src/ai_queue.rs` 內嵌 queue lifecycle regression suite 下沉到 [`src-tauri/crates/vault-core/src/ai_queue/tests.rs`](../../src-tauri/crates/vault-core/src/ai_queue/tests.rs)，讓 runtime module 從 `1019` 行降到 `768` 行；新 test owner 帶檔頭責任說明與 test-level doc comments，既有 queue tests / schema / payload / worker caller contract 維持不變。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把「backend 主戰役完成但全域未完成」的 truth、`WORK-BE-D` closeout，以及下一個 active block `WORK-BE-E` 寫回 source-of-truth。
+  - 驗收：pre-slice `bun run check`、post-slice targeted Rust / full check / build gates

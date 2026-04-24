@@ -100,6 +100,8 @@
 >
 > **2026-04-23 M13 closeout note**：`WORK-M13-B` 已完成。M13-B 先後收 shell runtime polling owner、Security workflow owner、Dashboard fallback owner、Browsing Rhythm state owner，以及 Import workflow follow-through；legacy `PathRow` 經 repo search 確認已退場，path/copy/open grammar 由 `ReviewPathActionRow` 承接。`STATUS.md` / `BACKLOG.md` 目前沒有可提升的未阻塞 work block。
 
+> **2026-04-23 backend progress-audit note**：live tree scan 確認 `WORK-BE-A/B/C` 已把後端主 giant-file 戰役大幅收口，但不能宣稱整個 backend 已完成。這輪 `WORK-BE-D` 先把 `vault-core/src/ai_queue.rs` 的內嵌 regression suite 下沉到 `ai_queue/tests.rs`，讓 runtime module 從 `1019` 行降到 `768` 行；下一個 active block 已切到 `WORK-BE-E`，處理 `src-tauri/src/dev_ipc_bridge.rs` (`1141` 行) 與 command / worker-bridge intelligence façade rustdoc gaps。
+
 ---
 
 ## 先看哪裡
