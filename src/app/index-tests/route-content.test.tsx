@@ -72,7 +72,17 @@ describe('App shell', () => {
     {
       entry: '/settings',
       pageTestId: 'settings-page',
-      sentinel: settingsT('aiProvider'),
+      sentinel: settingsT('preferencesOverview'),
+    },
+    {
+      entry: '/maintenance',
+      pageTestId: 'maintenance-page',
+      sentinel: settingsT('maintenanceTitle'),
+    },
+    {
+      entry: '/integrations',
+      pageTestId: 'integrations-page',
+      sentinel: settingsT('integrationsTitle'),
     },
   ])(
     'renders route $entry with live data-backed content',
@@ -92,7 +102,7 @@ describe('App shell', () => {
 
       await waitFor(() => {
         const page = screen.getByTestId(pageTestId)
-        expect(within(page).getByText(sentinel)).toBeVisible()
+        expect(within(page).getAllByText(sentinel)[0]).toBeVisible()
       })
     },
   )

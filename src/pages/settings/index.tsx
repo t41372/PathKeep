@@ -30,20 +30,15 @@ import { useI18n } from '../../lib/i18n'
 import { AnalyticsSection } from './analytics-section'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppLockSection } from './app-lock-section'
-import { DerivedStateSection } from './derived-state-section'
-import { SettingsExternalOutputsPanel } from './external-outputs-panel'
 import { GeneralSection } from './general-section'
-import { PlatformSection } from './platform-section'
 import { ProfileSelectionSection } from './profile-selection-section'
-import { RemoteBackupSection } from './remote-backup-section'
-import { RetentionSection } from './retention-section'
+import { RemoteBackupPreferencesSection } from './remote-backup-preferences-section'
 import {
   createSettingsSectionNavItems,
   getSettingsSectionNavItem,
   type SettingsSectionKey,
 } from './section-nav-items'
 import { SettingsSectionNav } from './section-nav'
-import { UpdaterSection } from './updater-section'
 import { useSettingsRouteState } from './use-settings-route-state'
 
 /**
@@ -72,6 +67,9 @@ export function SettingsPage() {
     buildInfo,
     clearAppLockPasscode,
     dashboard,
+    enableAiIntegrationPreview: false,
+    enableDerivedRuntime: false,
+    enableRetentionPreview: false,
     lockAppSession,
     refreshAppData,
     refreshKey,
@@ -80,7 +78,14 @@ export function SettingsPage() {
     setLanguagePreference,
     snapshot,
   })
-  const settingsSectionNavItems = createSettingsSectionNavItems(t)
+  const settingsSectionNavItems = createSettingsSectionNavItems(t, [
+    'general',
+    'profiles',
+    'analytics',
+    'applock',
+    'ai',
+    'remote',
+  ])
   const settingsSection = (key: SettingsSectionKey) =>
     getSettingsSectionNavItem(settingsSectionNavItems, key)
 
@@ -131,29 +136,50 @@ export function SettingsPage() {
         label={t('navigation.settingsLabel')}
       />
 
+      <div className="settings-overview" aria-labelledby="settings-overview">
+        <div className="settings-overview__intro">
+          <h2 id="settings-overview">{t('settings.preferencesOverview')}</h2>
+          <p>{t('settings.preferencesOverviewBody')}</p>
+        </div>
+        <div className="settings-advanced-grid">
+          <Link className="settings-workflow-link-card" to="/maintenance">
+            <span className="settings-workflow-link-card__title">
+              {t('settings.openMaintenance')}
+            </span>
+            <span>{t('settings.openMaintenanceBody')}</span>
+          </Link>
+          <Link className="settings-workflow-link-card" to="/integrations">
+            <span className="settings-workflow-link-card__title">
+              {t('settings.openIntegrations')}
+            </span>
+            <span>{t('settings.openIntegrationsBody')}</span>
+          </Link>
+        </div>
+      </div>
+
       <div className="settings-group">
         <div className="settings-group__label">{t('settings.groupCore')}</div>
         <GeneralSection
-          buildInfo={buildInfo}
           explorerBackgroundPrefetchPages={
             routeState.general.explorerBackgroundPrefetchPages
           }
           navItem={settingsSection('general')}
-          onCopyPath={routeState.general.onCopyPath}
           onExplorerBackgroundPrefetchPagesChange={
             routeState.general.onExplorerBackgroundPrefetchPagesChange
           }
           onLanguageChange={routeState.general.onLanguageChange}
-          onOpenPath={routeState.general.onOpenPath}
           saving={routeState.general.saving}
           snapshot={snapshot}
-          supportCopyFeedback={routeState.general.supportCopyFeedback}
+        />
+        <ProfileSelectionSection
+          navItem={settingsSection('profiles')}
+          state={routeState.profiles}
         />
       </div>
 
       <div className="settings-group">
         <div className="settings-group__label">
-          {t('settings.groupDataUpdates')}
+          {t('settings.groupPrivacyAccess')}
         </div>
         <AnalyticsSection
           analyticsAction={routeState.analytics.action}
@@ -166,27 +192,9 @@ export function SettingsPage() {
           onAnalyticsEnabledChange={routeState.analytics.onEnabledChange}
           onSaveAnalyticsConsent={routeState.analytics.onSave}
         />
-        <UpdaterSection
-          navItem={settingsSection('updater')}
-          state={routeState.updater}
-        />
-        <RetentionSection
-          navItem={settingsSection('retention')}
-          state={routeState.retention}
-        />
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupSecurityAccess')}
-        </div>
         <AppLockSection
           navItem={settingsSection('applock')}
           state={routeState.appLock}
-        />
-        <ProfileSelectionSection
-          navItem={settingsSection('profiles')}
-          state={routeState.profiles}
         />
       </div>
 
@@ -198,22 +206,13 @@ export function SettingsPage() {
           navItem={settingsSection('ai')}
           state={routeState.ai}
         />
-        <SettingsExternalOutputsPanel
-          initialized={snapshot.config.initialized}
-          unlocked={snapshot.archiveStatus.unlocked}
-        />
-        <DerivedStateSection
-          navItem={settingsSection('derived')}
-          snapshot={snapshot}
-          state={routeState.derived}
-        />
       </div>
 
       <div className="settings-group">
         <div className="settings-group__label">
           {t('settings.groupBackupSync')}
         </div>
-        <RemoteBackupSection
+        <RemoteBackupPreferencesSection
           credentialsSaved={snapshot.config.remoteBackup.credentialsSaved}
           lastError={snapshot.config.remoteBackup.lastError ?? null}
           lastUploadedAt={snapshot.config.remoteBackup.lastUploadedAt ?? null}
@@ -222,17 +221,6 @@ export function SettingsPage() {
           }
           navItem={settingsSection('remote')}
           state={routeState.remote}
-        />
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupPlatform')}
-        </div>
-        <PlatformSection
-          navItem={settingsSection('platform')}
-          snapshot={snapshot}
-          supportState={routeState.supportState}
         />
       </div>
     </section>

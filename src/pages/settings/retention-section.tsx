@@ -160,14 +160,25 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
           />
         )}
 
-        {preview?.warnings.map((warning) => (
-          <div className="warning-box" key={warning}>
-            <div className="warning-icon">
-              <Glyph icon="warning" filled />
+        {preview?.warnings.map((warning) => {
+          const localizedWarning =
+            warning ===
+            'Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.'
+              ? t('settings.retentionSnapshotPruneWarning')
+              : warning ===
+                  'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.'
+                ? t('settings.retentionExportPruneWarning')
+                : warning
+
+          return (
+            <div className="warning-box" key={warning}>
+              <div className="warning-icon">
+                <Glyph icon="warning" filled />
+              </div>
+              <div className="warning-text">{localizedWarning}</div>
             </div>
-            <div className="warning-text">{warning}</div>
-          </div>
-        ))}
+          )
+        })}
 
         <div className="wizard-actions">
           <button

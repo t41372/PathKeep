@@ -41,7 +41,9 @@ export type AppRouteId =
   | 'audit'
   | 'jobs'
   | 'schedule'
+  | 'integrations'
   | 'security'
+  | 'maintenance'
   | 'settings'
   | 'onboarding'
 
@@ -172,6 +174,24 @@ const appShellScreens: AppScreen[] = [
     subtitleKey: 'navigation.settingsSubtitle',
     icon: '⚙',
     href: '/settings',
+    section: 'SYSTEM',
+  },
+  {
+    id: 'integrations',
+    labelKey: 'navigation.integrationsLabel',
+    titleKey: 'navigation.integrationsTitle',
+    subtitleKey: 'navigation.integrationsSubtitle',
+    icon: '⧉',
+    href: '/integrations',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'maintenance',
+    labelKey: 'navigation.maintenanceLabel',
+    titleKey: 'navigation.maintenanceTitle',
+    subtitleKey: 'navigation.maintenanceSubtitle',
+    icon: '◇',
+    href: '/maintenance',
     section: 'SYSTEM',
   },
 ]
@@ -360,12 +380,28 @@ const appRouteChildren: RouteObject[] = [
     handle: withHandle(appShellScreens[7]),
   },
   {
+    path: 'integrations',
+    lazy: async () => {
+      const module = await import('../pages/integrations')
+      return { Component: module.IntegrationsPage }
+    },
+    handle: withHandle(appShellScreens[10]),
+  },
+  {
     path: 'security',
     lazy: async () => {
       const module = await import('../pages/security')
       return { Component: module.SecurityPage }
     },
     handle: withHandle(appShellScreens[8]),
+  },
+  {
+    path: 'maintenance',
+    lazy: async () => {
+      const module = await import('../pages/maintenance')
+      return { Component: module.MaintenancePage }
+    },
+    handle: withHandle(appShellScreens[11]),
   },
   {
     path: 'settings',

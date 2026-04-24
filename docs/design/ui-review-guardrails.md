@@ -36,7 +36,7 @@
    - 理由：要承接 `Summary / Artifacts / Warnings` 與 open / copy path，屬 review surface。
 4. **Jobs 的主要 queue / recovery review surface**
    - 例如 hero card、queue family overview、需要看 phase / heartbeat / recovery note 的大面板。
-5. **Settings 裡的 external-output / trusted local host / remote backup verify 類 review surface**
+5. **Maintenance / Integrations 裡的 artifact、cleanup、remote backup verify 類 review surface**
    - 前提：它承載的是 artifact review / payload review / verify 結果，不是單純宣傳或摘要。
 
 除此之外：
@@ -69,6 +69,7 @@
 - header / title / key actions 應盡量固定在卡片內可見區，不要一滾就消失。
 - 滾動應發生在「內容區」，不是把整個頁面拉成超長瀑布。
 - 內滾動不是偷藏內容：必須保留可見的溢出暗示，讓人知道下面還有東西。
+- raw JSON / code / generated artifact preview 一律預設收合或放在明確的 `View JSON/code` control 後；展開後仍必須限高並在 code block 內滾動，不能把整個 Settings / Maintenance / Integrations route 撐成一面 raw payload 牆。
 
 審查時直接擋下這些做法：
 

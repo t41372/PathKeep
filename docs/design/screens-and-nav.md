@@ -23,7 +23,9 @@
 | **Security**           | 加密設定、keyring、rekey、密碼警告                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **App Lock**           | App 級鎖定畫面：啟動時與閒置逾時後出現；macOS 可用 Touch ID 解鎖當前 session，其餘平台維持 truthful capability / degradation；鎖定時所有資料存取完全阻斷                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | **Schedule Setup**     | 排程預覽 → 手動安裝/自動安裝 → 狀態監控                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Settings**           | 通用設定、analytics consent、manual update check / install、AI provider 管理、remote backup PME、manual external-output review / copy-export、trusted local host install / verify、derived-state controls（含 search-engine rule editor）、MCP 開關、數據目錄、archive / audit path、版本與 git commit 信息                                                                                                                                                                                                                                                                                                                               |
+| **Integrations**       | 外部輸出、trusted local host artifact、MCP / skill generated artifact review、payload / code review。這裡只負責手動檢查與產物交付，不承接 AI provider credential 設定                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Maintenance**        | app updates、retention cleanup、derived-state rebuild / clear、remote backup PME、support diagnostics、crash / log paths、platform troubleshooting。這裡承接會執行、清理、重建或排障的 workflow，不再塞在 Settings 主頁                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Settings**           | 持久偏好設定：language、Explorer background prefetch、browser profile selection、analytics consent、App Lock preferences、AI provider / API-key configuration、remote backup saved configuration / credentials。Settings 不是控制塔；長工作流導向 Maintenance / Integrations / Jobs / Security / Schedule / Import / Audit 的 canonical route                                                                                                                                                                                                                                                                                             |
 
 ---
 
@@ -38,7 +40,7 @@
 ### 目前 export 尚未明確覆蓋
 
 - Onboarding wizard 的逐步狀態、empty / error / resume-later 細節
-- Import / rollback / doctor repair / rekey / remote backup 的 PME step-by-step 畫面
+- Import / rollback / doctor repair / rekey / remote backup / maintenance cleanup 的 PME step-by-step 畫面
 - Audit run detail、Schedule verify / mismatch、Security recovery / warning 變體
 - Explorer / Assistant / Intelligence 的 loading / empty / disabled / failed / explainability 狀態
 - keyboard-only walkthrough、reduced-motion fallback、長字串 i18n wrapping 等非靜態視覺驗收
@@ -50,29 +52,29 @@
 - `On This Day` 與其他 evidence surface 以使用者目前系統 timezone 的本地日曆日判斷，不再用 raw UTC slice 假裝是「今天」；`On This Day` 只回看過去幾年的同一天，不得把當前年份今天的紀錄混進去，而且現在只屬於 Dashboard，不再佔用 `/intelligence` 的 route chrome。
 - keyboard-only walkthrough、reduced-motion fallback、locale-length wrapping 已是 trust-critical acceptance contract；剩餘的全站 accessibility review 與 release-level polish 留在 M4。
 - route metadata、sidebar section label、topbar title / subtitle、loading / skeleton label、empty / error / disabled state，以及 browser preview honesty copy 都屬於正式 i18n surface；不能因為 prototype 沒畫到文字細節就留下英文硬編碼。
-- Settings 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。
-- Settings 現在也是 `embed cards` / `widget snapshot` / `public snapshot` 的第一個正式 consumer surface：使用者可在這裡手動 preview、切換 shared profile scope 與 local time window、複製 raw payload；同一塊 surface 也會 preview / build / verify 第一個 trusted local host `browser-snippet-v1`，固定寫到 `app_root/integrations/core-intelligence/browser-snippet-v1/` 的 `index.html` / `bundle.json`。目前仍不會直接安裝 OS widget，也不會發布 localhost/public host API。
+- Maintenance 的 remote backup 現在以 `Preview / Manual / Execute / Verify` tabs 呈現：Preview 顯示 bundle path / object key / upload URL，Manual 保留 curl command 與 retention guidance，Execute 顯示 upload result，Verify 則列出 checksum / required-entry / restore-readiness checks。Settings 只保留 saved configuration / credentials 的 preference surface，並提供進入 Maintenance 的入口。
+- Integrations 現在是 `embed cards` / `widget snapshot` / `public snapshot` 的正式 consumer surface：使用者可在這裡手動 preview、切換 shared profile scope 與 local time window、複製 raw payload；同一塊 surface 也會 preview / build / verify 第一個 trusted local host `browser-snippet-v1`，固定寫到 `app_root/integrations/core-intelligence/browser-snippet-v1/` 的 `index.html` / `bundle.json`。目前仍不會直接安裝 OS widget，也不會發布 localhost/public host API。raw JSON / code 必須預設收合，並具備 bounded internal scroll。
 - `/intelligence`、`/intelligence/day/:date` 與 `/intelligence/domain/:domain` 的 deterministic section 現在都會共用 compact evidence / freshness badge + floating review panel：顯示 generated-at、active scope / window、owning modules、source tables、是否包含 enrichment，以及 stale / disabled / degraded reason；這是 review chrome，不是 mutation surface。
 - section title 與 compact evidence / freshness badge 必須共用同一個 header row。badge 是 inline-end review chrome，不得獨占一整行、也不得把 hover / focus 命中區擴成整張卡的空白 header。
-- Settings 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 queue、freshness、derived tables、storage impact，以及 rebuild / clear controls；plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
+- Maintenance 的 enrichment / derived-state panel 是正式 review surface，而不是 debug affordance。它必須顯示 freshness、derived tables、storage impact，以及 rebuild / clear controls；runtime queue detail 只 deep-link 到 `/jobs`，不能在 Maintenance 重新複製 recent job wall。plugin / module 的內部版本標記只留在 diagnostics / runtime trace，不佔主產品 review chrome。
 - `refind` overview/day/detail route 現在也共用同一套 workbench shell：title / description / factor presentation / entity-first CTA grammar 不得再由各頁各自手寫。
 - Explorer `session` / `trail` grouped view 與 promoted route member list 現在共用同一套 workbench row primitive；expand header 仍維持 browse-first canonical surface，不可偷渡成直接導頁。
-- Settings external outputs 與 trusted local host review 現在共用同一套 review row / code preview / target-link grammar；後續若要再擴到 Jobs / Import / Audit，必須沿用這批 primitive，而不是再長一套新 shell。
-- M11 之後，neutral review primitive 不再只屬於 intelligence subtree：Settings、Schedule、Audit 與 Jobs 也正式共用同一套 `review-surface`、PME tab、generated-artifact viewer 與 verify checklist grammar；剩餘 general diagnostics / support actions / Import follow-through 漂移改由 M12 追蹤。
-- M12 之後，Settings general diagnostics / App Lock、Audit manifest / artifact review、Import selected-batch audit path、Schedule detected-file / audit quick jump、Security / Lock config path，以及 Explorer export path 現在都共用同一套 review-layer support-action / clipboard grammar；M13 又把 Jobs plugin / module runtime boundary summary 收回同一個 review owner，新增 shared `runtime-boundary-card` grammar 給 Jobs 與 Settings derived runtime review 共用，而 dev-bridge / worker parity 仍維持 subordinate inventory。
+- Integrations external outputs 與 trusted local host review 現在共用同一套 review row / code preview / target-link grammar；後續若要再擴到 Jobs / Import / Audit，必須沿用這批 primitive，而不是再長一套新 shell。
+- M11 之後，neutral review primitive 不再只屬於 intelligence subtree：Settings、Maintenance、Integrations、Schedule、Audit 與 Jobs 也正式共用同一套 `review-surface`、PME tab、generated-artifact viewer 與 verify checklist grammar；剩餘 support actions / Import follow-through 漂移改由 M12 追蹤。
+- M12 之後，Maintenance general diagnostics、Settings App Lock、Audit manifest / artifact review、Import selected-batch audit path、Schedule detected-file / audit quick jump、Security / Lock config path，以及 Explorer export path 現在都共用同一套 review-layer support-action / clipboard grammar；M13 又把 Jobs plugin / module runtime boundary summary 收回同一個 review owner，新增 shared `runtime-boundary-card` grammar 給 Jobs 與 Maintenance derived runtime review 共用，而 dev-bridge / worker parity 仍維持 subordinate inventory。
 - Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
-- Settings 的 general diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
+- Maintenance 的 diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。storage analytics 的 top-level summary 先固定為 `core history` / `other data` 兩個 bucket，detail 再在卡內展開。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
 - Intelligence 首屏只有 **執行摘要 / 時段概覽 / 瀏覽節奏** 可以佔滿主內容欄寬；其餘卡片一律留在 half-width row 或 secondary grid，並遵守限高 + 卡片內滾動。
 - Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。卡片頂部固定顯示 visit-based summary line：Dashboard 用 calendar-year wording，`/intelligence` overview 則按目前實際選定的單日 / 整月 / 整年 / date span 顯示 exact-range wording。`/intelligence` overview 與 Dashboard 的這張卡現在採 **preview-first**：點某一天後，先在卡片下方 lazy-load 當天摘要 / 全寬 24 小時分布 / 全寬重點網站列 / proportion bar 活動構成；只有使用者再按明確的 `查看詳情` CTA，才進 `/intelligence/day/:date` 的完整 day insights route。這是 `Browsing Rhythm` 卡片的特例，不可外溢成其他 day entry surface 的通則。
 - Dashboard 也正式共用同一套 `Browsing Rhythm` 真實日期日曆熱力圖，但固定以**單一 calendar year** 呈現。若 archive 內有多個年份，卡片必須顯示當前查看年份，並以 bounded pager 在「最早有資料的年份」到 `max(當前年份, 最晚有資料的年份)` 的**連續年份帶**之間前後翻頁；左箭頭代表更早的年份、右箭頭代表較新的年份，中間空白年份仍要顯示空熱力圖，而當前年份永遠要存在並提供明確的 `回到當前年份` 捷徑。若目前年份只覆蓋部分日期，卡片也必須直接顯示這個年份裡實際有資料的起訖範圍，避免把 partial year 誤讀成資料遺失。不得翻到這條連續年份帶之外的年份。這張卡不受 `/intelligence` route time scope 影響。
 - `/intelligence` 頂部現在固定有一條精簡的 `Insight Access` strip：可直接用本地日曆日或 domain 打開完整 insights route。這條 strip 是 entity-first entry，不是另一套獨立 fetch surface。
-- `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Settings 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
+- `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Integrations 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
-- Settings 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
+- Maintenance 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
 - Schedule 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
@@ -89,16 +91,16 @@
 
 ### M1 導航與 deep-link 規則
 
-- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule）、`SYSTEM`（Security / Settings）；Onboarding 是 utility route，不常駐 sidebar。
+- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule / Integrations）、`SYSTEM`（Security / Settings / Maintenance）；Onboarding 是 utility route，不常駐 sidebar。
 - 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`、`pageSize`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Import recent batch review 允許 `/import?batch=<id>` deep-link；Audit / Dashboard 可以直接把使用者帶回指定 batch 的 review surface。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
 - Onboarding shell header 必須有明確的 `Exit setup` 動作；離開後保留目前已選的 storage / profile / security 決策，避免把使用者困在 setup route。
-- Schedule / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings 也要能透過 callout / quick action 直接跳回這些修復頁，而不是把排障資訊藏在單一路由裡。
+- Schedule / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings、Maintenance、Integrations 也要能透過 callout / quick action 直接跳回 canonical 修復頁，而不是把排障資訊藏在單一路由裡。
 - Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態、background-work strip 與 theme toggle 在不捲動主內容區的情況下也要可見。
-- Settings 擁有 day-one 語言切換與平台 troubleshooting；Schedule 擁有 platform-specific Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。
+- Settings 擁有 day-one 語言切換與持久偏好；Maintenance 擁有平台 troubleshooting、updates、cleanup、derived rebuild / clear 與 support diagnostics；Schedule 擁有 platform-specific Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。
 - 共享 profile scope 存在於 shell chrome，而不是散落在各頁各自記憶；Explorer 若未指定 page-specific `profileId`，必須明講自己目前沿用 shared scope。
 
 ### M3 Intelligence deep-link 規則
@@ -118,18 +120,18 @@
 - Explorer 的 `session` / `trail` grouped view 仍是 browse-first canonical surface，但現在必須額外提供明確的 `Open session insights` / `Open trail insights` CTA；expand header 本身不應直接變成導頁。
 - promoted route files、front-end Core Intelligence API，以及 Tauri command / worker bridge intelligence facade 現在都已按 ownership split；後續若要繼續拆 mixed helper / dev mirror / worker pass-through，必須走 M11 inventory，而不是回頭改 public contract。
 - `reopened investigation`、`habit`、`stable source`、`friction`、`multi-browser diff` 這類 active entity 不再允許各自決定 destination：domain-based surface 一律走 `domain insights`；`compare set` 改為自己的 first-class insights route；path-flow 只有在 step 可穩定解析為 registrable domain 時才提供 shared CTA，且要帶上 `focusType=path-flow` / `focusId=<flowId>`。
-- Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Intelligence；錯誤或 disabled 狀態下還要能跳到 Settings / queue controls，而不是只剩靜態說明。
+- Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Intelligence；錯誤或 disabled 狀態下還要能跳到 Settings / Jobs / Maintenance / Integrations 的 canonical controls，而不是只剩靜態說明。
 - shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
-- Intelligence section cards、day insights 與 domain deep dive 的 evidence / freshness badge / floating panel 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Settings / Jobs，而不是在分析頁面就地長出 mutation controls。
+- Intelligence section cards、day insights 與 domain deep dive 的 evidence / freshness badge / floating panel 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Maintenance / Jobs，而不是在分析頁面就地長出 mutation controls。
 - route-level metric strip、`query-family-card`、compare-set page rows、以及 trusted output structured target label 現在也屬 shared composition contract；這些 UI 不應再由 overview / promoted route / Settings 各自手寫。
 - Explorer 的 `semantic` / `hybrid` surface，以及 Assistant、Intelligence 的 AI status panel，都必須顯示 provider / model、queue counts、index state，並提供 test provider、refresh queue、rebuild / clear index、open settings 這類 controls；keyword-first Explorer 不應被 optional AI 面板壓過主工作流。
 - Explorer 的 time view 必須同時在上方 timeline / summary、結果列表上方、與底部分頁列明確顯示「當前頁 / 總頁數」；列表上方與底部分頁列都要承接第一頁 / 上一頁 / 下一頁 / 最後一頁、跳頁與每頁筆數控制，避免使用者只看到 loaded count 卻不知道自己在整個結果集的哪裡。
 - Explorer 的 time-view detail rail 必須 sticky 在可視區內，而不是跟著左側長列表一起被拉成整列高度；使用者在頁面底部選到某筆記錄時，不應再為了看 detail 被迫捲回頁首。
 - Explorer 的翻頁與每頁筆數切換只能刷新結果，不得把 `workspace-scroll` 強制拉回頁面頂端；用戶在列表底部操作分頁後，視角要留在原位。每頁筆數屬於 persisted route preference，離開 Explorer 或重啟 app 後仍要保留；前後相鄰頁可在背景預取，但不得讓預取或 favicon 補齊阻塞當前頁面的首屏 skeleton / content reveal。背景預取跨度必須在 Settings > General 暴露為可調整的 bounded preference，避免 route 內硬編碼固定窗口。
-- Settings 是 M4-A 起的 remote backup、manual external-output review、與 derived-state 控制塔：從這裡可以完成 remote upload 的 PME、credential review、bundle verification、`embed/widget/public snapshot` 的手動 preview / copy-export、`browser-snippet-v1` 本地宿主的 preview / execute / verify、plugin enable / disable、derived rebuild / clear、以及 search-engine rule editor（built-in read-only + custom CRUD），並回鏈到 Audit run 驗證最新 growth signal。
-- Settings external outputs 現在優先根據 trusted payload 內的 structured entity targets 產生 `Open insights` links；`public snapshot` 則必須維持 redacted，不得帶出 internal reusable IDs。
+- Settings 不再是 M4-A 起那種 remote backup / external-output / derived-state 控制塔。新的 ownership 是：`/settings` 只保留持久偏好；`/maintenance` 承接 remote backup PME、retention cleanup、updates、derived rebuild / clear、search-engine rule editor（built-in read-only + custom CRUD）與 diagnostics；`/integrations` 承接 `embed/widget/public snapshot` 手動 preview / copy-export、`browser-snippet-v1` 本地宿主 preview / execute / verify、MCP / skill generated artifact review。Queue retry / cancel / recent job detail 一律導回 `/jobs`。
+- Integrations external outputs 現在優先根據 trusted payload 內的 structured entity targets 產生 `Open insights` links；`public snapshot` 則必須維持 redacted，不得帶出 internal reusable IDs。
 
 ### App Lock 畫面與導航規則
 
@@ -143,7 +145,7 @@
 - 若平台不是 macOS，lock screen 繼續顯示 generic biometric honesty copy，不假裝有 native parity。
 - 鎖定狀態下不僅 UI 隱藏，後端 query 與 MCP history query 也必須被阻擋 — 避免透過 dev tools / MCP 繞過。
 - Settings 的 App Lock panel：enable / disable toggle、idle timeout duration、biometric toggle、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
-- Settings 另外新增兩個正式 review surface：analytics consent（explicit opt-in、payload boundary、endpoint honesty）與 manual update check / install（release availability、notes、install progress、restart CTA）。
+- Settings 另外保留 analytics consent（explicit opt-in、payload boundary、endpoint honesty）作為持久偏好；manual update check / install（release availability、notes、install progress、restart CTA）屬於 Maintenance。
 - App Lock 與 archive encryption 是**獨立的兩層保護**：App Lock 保護 UI session，encryption 保護資料庫檔案。兩者可獨立啟用。
 - 設計規格 → `docs/features/archive.md` §8
 

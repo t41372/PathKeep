@@ -56,12 +56,12 @@
 
 ### MCP Server
 
-- 在設定中手動開啟。
+- 在 Settings 的 AI provider / integration preferences 中手動開啟。
 - App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時啟動本地 MCP server。
 - 提供搜尋、檢索歷史紀錄的 MCP tools；若 session 之後被 App Lock 鎖住，history query 相關 tool 必須回傳 locked refusal，而不是繞過 UI 直接讀 archive。
 - 安全考量：只綁定 localhost，不對外暴露，並且必須尊重 visibility、lock state 與 capability gating。
 - 若沒有 embedding provider，但使用者仍明確啟用 AI + MCP，read-only recall 仍可在 lexical mode 下運作；consent / capability copy 必須明講 semantic recall 目前不可用。
-- Settings 的 integration preview 是 preview-only surface：要顯示 command、MCP JSON、skill markdown、consent summary、scope boundary 與 audit trace，供使用者手動複製；不能假裝已經自動安裝到外部工具。
+- Integrations 的 generated-artifact review 是 preview-only surface：要顯示 command、MCP JSON、skill markdown、consent summary、scope boundary 與 audit trace，供使用者手動複製；不能假裝已經自動安裝到外部工具。Settings 只保留 provider / API key / capability preferences。
 - 每一次 MCP search 都必須寫入 dedicated `mcp_query` run，而不是混進 backup / assistant / generic utility run。
 
 ### AI IDE Skill
@@ -205,8 +205,8 @@
 
 - Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant group，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
 - storage analytics 的 top-level summary 現在固定先分成兩個 bucket：`core history`（canonical archive + source evidence）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。更細的 breakdown 再在卡片內展開，而不是先讓使用者背四個內部 slice 名稱。
-- Settings 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、live queue / recent job review、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
-- shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Insights 才知道 background queue 還在跑什麼。
+- Maintenance 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。runtime queue / recent job review 不在 Maintenance 內複製，必須 deep-link 到 Jobs。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
+- shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Intelligence 才知道 background queue 還在跑什麼。
 - `/intelligence` route entry 不得再一次 fan-out 二十多條 foreground IPC request。accepted shipping contract 是 route-level staged overview：先批次載入 runtime digest、digest summary、首屏可見卡片與其 section metadata，再在 first paint / idle 後補 secondary grid 與較低優先 detail。
 - sidebar、Dashboard 與 `/intelligence` 的 runtime digest 必須共享同一份 shell-level runtime polling source；不能讓 `loadAiQueueStatus` / `loadIntelligenceRuntime` 因多個 route/surface 同時掛載而被重複輪詢。
 - long-running derived-data job 不能只顯示抽象的 `running`。deterministic rebuild 至少要持續更新 phase、heartbeat 與 coarse progress（例如目前在哪個 phase、已處理幾筆 / 總筆數），讓 Jobs 頁和 shell footer 都能分辨「仍在前進」與「疑似卡死」。
@@ -215,7 +215,7 @@
 - M5-A 起正式 shipping 的 built-in enrichment plugin 有兩個：`title-normalization`（local-only，版本 `m5-v1`）與 `readable-content-refetch`（network-backed，版本 `m4-v1`）。兩者都屬 derived-state runtime，不可改寫 canonical archive facts。
 - `title-normalization` 預設啟用，負責把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label。停用後，deterministic insights 仍可用，但必須誠實回退到 raw title / URL structural signals。
 - `readable-content-refetch` 預設啟用、freshness window 7 天，也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。
-- built-in enrichment runtime 目前仍是 first-party only：Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
+- built-in enrichment runtime 目前仍是 first-party only：Maintenance / Jobs / Intelligence 可以 review 內建 runtime state，retry / cancel 的 canonical runtime queue surface 是 Jobs；third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
 - 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`source_effectiveness`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
@@ -338,6 +338,6 @@
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
 - v1 invalidation contract 先以 honest stale detection + manual rebuild 落地：import / rollback / visibility change / approved enrichment freshness 改變時，UI 必須把 index state 標成 stale。是否自動 re-enqueue rebuild 屬後續 work，不可假裝 day-one 已完成。
 - queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。
-- M5-A 起的 queue/runtime surface 現在必須在 archive 解鎖且 queue 未暫停時自動背景執行：AI index job、retry/replay 後的 AI queue，以及 deterministic / enrichment runtime job 都不能再卡住前台 UI。Settings / Insights 仍保留 review / retry / cancel controls，而 dedicated Jobs 頁則作為 always-on log / progress / recovery surface。
+- M5-A 起的 queue/runtime surface 現在必須在 archive 解鎖且 queue 未暫停時自動背景執行：AI index job、retry/replay 後的 AI queue，以及 deterministic / enrichment runtime job 都不能再卡住前台 UI。Maintenance / Intelligence 只保留摘要或 rebuild / clear 入口，而 dedicated Jobs 頁則作為 always-on log / retry / cancel / progress / recovery surface。
 - deterministic rebuild 屬於 baseline intelligence，可選 enrichment 只是在後面補更多證據。兩者同時排隊時，deterministic rebuild 必須先跑，避免使用者看到 queue 很忙，但無 AI 的 Insights 仍然完全不可用。
 - automatic post-backup/import deterministic refresh 仍不得重新把 network enrichment 塞回 inline backup critical path；backup 只負責 enqueue 與啟動 background rebuild，後續 readable-content 類工作必須留在 queue 裡獨立處理。

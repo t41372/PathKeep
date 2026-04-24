@@ -32,7 +32,7 @@ import { I18nContext } from '../../lib/i18n/context'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import { ProfileScopeContext } from '../../lib/profile-scope-context'
 import type { AppSnapshot } from '../../lib/types'
-import { SettingsPage } from '../settings'
+import { IntegrationsPage } from '../integrations'
 import { createLocalHostPreview } from './local-host-fixtures'
 import {
   createEmptyRuntimeSnapshot,
@@ -223,10 +223,10 @@ describe('intelligence surfaces', () => {
       .spyOn(coreIntelligenceApi, 'previewIntelligenceLocalHost')
       .mockResolvedValue(createLocalHostPreview('en'))
 
-    renderSurface(<SettingsPage />, {
+    renderSurface(<IntegrationsPage />, {
       dashboard,
       language: 'en',
-      route: '/settings',
+      route: '/integrations',
       snapshot,
     })
 
@@ -327,10 +327,10 @@ describe('intelligence surfaces', () => {
         createEmptyRuntimeSnapshot(),
       )
 
-      renderSurface(<SettingsPage />, {
+      renderSurface(<IntegrationsPage />, {
         dashboard,
         language: 'en',
-        route: '/settings',
+        route: '/integrations',
         snapshot,
       })
 
@@ -452,7 +452,7 @@ describe('intelligence surfaces', () => {
       )
 
       return (
-        <MemoryRouter initialEntries={['/settings']}>
+        <MemoryRouter initialEntries={['/integrations']}>
           <I18nContext.Provider value={createI18nValue('en')}>
             <ProfileScopeContext.Provider
               value={{ activeProfileId, setActiveProfileId }}
@@ -466,7 +466,7 @@ describe('intelligence surfaces', () => {
                 >
                   {settingsT('externalOutputsScopedTitle')}
                 </button>
-                <SettingsPage />
+                <IntegrationsPage />
               </ShellDataContext.Provider>
             </ProfileScopeContext.Provider>
           </I18nContext.Provider>

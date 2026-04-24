@@ -84,6 +84,7 @@ export function ReviewCodePreview({
   copyFeedback,
   copyKey,
   copyLabel,
+  defaultOpen = true,
   errorMessage,
   onCopy,
   successMessage,
@@ -95,31 +96,43 @@ export function ReviewCodePreview({
   copyFeedback: ReviewCopyFeedback | null
   copyKey: string
   copyLabel: string
+  defaultOpen?: boolean
   errorMessage: string
   onCopy: (key: string, payload: string) => void
   successMessage: string
   title: ReactNode
   titleMeta?: ReactNode
 }) {
+  const codePanel = (
+    <>
+      <pre className="code-block">
+        <code>{code}</code>
+      </pre>
+      <div className="code-actions">
+        <button
+          className="btn-tiny"
+          type="button"
+          onClick={() => {
+            void onCopy(copyKey, code)
+          }}
+        >
+          {copyLabel}
+        </button>
+        {actions}
+      </div>
+    </>
+  )
+
   return (
     <ReviewSection headerMeta={titleMeta} title={title}>
-      <div className="code-panel">
-        <pre className="code-block">
-          <code>{code}</code>
-        </pre>
-        <div className="code-actions">
-          <button
-            className="btn-tiny"
-            type="button"
-            onClick={() => {
-              void onCopy(copyKey, code)
-            }}
-          >
-            {copyLabel}
-          </button>
-          {actions}
-        </div>
-      </div>
+      {defaultOpen ? (
+        <div className="code-panel">{codePanel}</div>
+      ) : (
+        <details className="code-panel">
+          <summary className="code-panel__summary">{title}</summary>
+          {codePanel}
+        </details>
+      )}
       <ReviewCopyStatus
         copyFeedback={copyFeedback}
         copyKey={copyKey}

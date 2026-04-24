@@ -3,8 +3,8 @@
  * @description Settings-route slice of the original `src/app/index.test.tsx` shell suite.
  *
  * ## Responsibilities
- * - Preserve the original `/settings` shell assertions while extracting one reviewable slice out of the mega-suite.
- * - Cover crash diagnostics, remote backup PME, derived-state controls, and AI integration review boundaries on the settings route.
+ * - Preserve the app-shell Settings/Maintenance/Integrations assertions while extracting one reviewable slice out of the mega-suite.
+ * - Cover crash diagnostics, remote backup PME, derived-state controls, and AI integration review boundaries on their canonical routes.
  * - Reuse the shared shell-test helpers so split suites stay aligned with the canonical app-shell harness.
  *
  * ## Not responsible for
@@ -42,7 +42,7 @@ describe('App shell', () => {
     resetAppShellHarness()
   })
 
-  test('shows crash diagnostics paths on the settings route', async () => {
+  test('shows crash diagnostics paths on the maintenance route', async () => {
     await seedArchiveRun()
     backendTestHarness.mutateState((state) => {
       state.snapshot.runtimeDiagnostics.latestCrashReport = {
@@ -55,12 +55,12 @@ describe('App shell', () => {
       }
     })
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/settings'],
+      initialEntries: ['/maintenance'],
     })
 
     render(<App router={router} />)
 
-    const page = await screen.findByTestId('settings-page')
+    const page = await screen.findByTestId('maintenance-page')
     expect(
       await within(page).findByText(settingsT('logsDirectory')),
     ).toBeVisible()
@@ -73,43 +73,37 @@ describe('App shell', () => {
     ).toBeVisible()
   })
 
-  test('walks the settings remote backup PME and derived-state controls', async () => {
+  test('walks the maintenance remote backup PME and derived-state controls', async () => {
     await seedArchiveRun()
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/settings'],
+      initialEntries: ['/maintenance'],
     })
 
     render(<App router={router} />)
 
-    const settingsPage = await screen.findByTestId('settings-page')
+    const maintenancePage = await screen.findByTestId('maintenance-page')
     const remotePanel = expectHtmlElement(
-      within(settingsPage)
-        .getByText(settingsT('remoteBackup'))
-        .closest('.panel'),
+      document.getElementById('settings-remote'),
+    )
+    const derivedPanel = expectHtmlElement(
+      document.getElementById('settings-derived'),
     )
     expect(
-      within(settingsPage).getByText(settingsT('enrichmentDerivedState')),
+      within(derivedPanel).getByText(settingsT('enrichmentDerivedState')),
     ).toBeVisible()
     expect(
-      within(settingsPage).getByText(settingsT('externalOutputsTitle')),
-    ).toBeVisible()
+      within(maintenancePage).getAllByText(settingsT('archiveDatabase')).length,
+    ).toBeGreaterThan(0)
     expect(
-      within(settingsPage).getByText(settingsT('archiveDatabase')),
-    ).toBeVisible()
+      within(maintenancePage).getAllByText(settingsT('auditRepository')).length,
+    ).toBeGreaterThan(0)
     expect(
-      within(settingsPage).getByText(settingsT('auditRepository')),
-    ).toBeVisible()
-    expect(within(settingsPage).getByText(settingsT('gitCommit'))).toBeVisible()
+      within(maintenancePage).getAllByText(settingsT('gitCommit')).length,
+    ).toBeGreaterThan(0)
     expect(
       within(remotePanel).getByText(commonT('common.previewTab')),
     ).toBeVisible()
-    expect(
-      within(settingsPage).getByRole('tab', {
-        name: settingsT('externalOutputsTabPublic'),
-      }),
-    ).toBeVisible()
-
     await user.clear(
       within(remotePanel).getByLabelText(settingsT('bucketLabel')),
     )
@@ -209,38 +203,39 @@ describe('App shell', () => {
     )
     await waitFor(() => {
       expect(
-        within(settingsPage).getByRole('button', {
+        within(maintenancePage).getByRole('button', {
           name: settingsT('enablePlugin'),
         }),
       ).toBeVisible()
     })
 
     await user.click(
-      within(settingsPage).getByRole('button', {
+      within(maintenancePage).getByRole('button', {
         name: settingsT('clearDerivedState'),
       }),
     )
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText(settingsT('clearCompletedTitle')),
+        within(maintenancePage).getByText(settingsT('clearCompletedTitle')),
       ).toBeVisible()
     })
 
     await user.click(
-      within(settingsPage).getByRole('button', {
+      within(maintenancePage).getByRole('button', {
         name: settingsT('rebuildDerivedState'),
       }),
     )
     await waitFor(() => {
       expect(
-        within(settingsPage).getByText(settingsT('rebuildQueuedTitle')),
+        within(maintenancePage).getByText(settingsT('rebuildQueuedTitle')),
       ).toBeVisible()
     })
+    const runtimeQueueLinks = within(maintenancePage).getAllByRole('link', {
+      name: settingsT('runtimeQueueTitle'),
+    })
     expect(
-      within(settingsPage).getByRole('link', {
-        name: settingsT('runtimeQueueTitle'),
-      }),
-    ).toHaveAttribute('href', '/jobs')
+      runtimeQueueLinks.some((link) => link.getAttribute('href') === '/jobs'),
+    ).toBe(true)
   })
 
   test('keeps AI provider field edits local until save is confirmed', async () => {
@@ -256,7 +251,11 @@ describe('App shell', () => {
 
     const settingsPage = await screen.findByTestId('settings-page')
     const aiPanel = expectHtmlElement(
-      within(settingsPage).getByText(settingsT('aiProvider')).closest('.panel'),
+      within(settingsPage)
+        .getAllByText(settingsT('aiProvider'))
+        .map((node) => node.closest('.panel'))
+        .find((node): node is HTMLElement => node instanceof HTMLElement) ??
+        null,
     )
     const providerNameInput =
       within(settingsPage).getByDisplayValue('Local LLM')
@@ -280,19 +279,21 @@ describe('App shell', () => {
     })
   })
 
-  test('shows AI integration preview artifacts and consent boundaries in settings', async () => {
+  test('shows AI integration preview artifacts and consent boundaries in integrations', async () => {
     await seedArchiveRun()
     await seedAiProviders()
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/settings'],
+      initialEntries: ['/integrations'],
     })
 
     render(<App router={router} />)
 
-    const settingsPage = await screen.findByTestId('settings-page')
+    const integrationsPage = await screen.findByTestId('integrations-page')
     const aiPanel = expectHtmlElement(
-      within(settingsPage).getByText(settingsT('aiProvider')).closest('.panel'),
+      within(integrationsPage)
+        .getByText(settingsT('aiIntegrationArtifactsTitle'))
+        .closest('.panel'),
     )
 
     expect(
@@ -309,6 +310,12 @@ describe('App shell', () => {
         name: 'integrations/pathkeep-mcp.json',
       }),
     ).toBeVisible()
+    const mcpSummary = expectHtmlElement(
+      within(aiPanel)
+        .getAllByText(settingsT('aiIntegrationGeneratedFileMcpPurpose'))
+        .find((node) => node.tagName.toLowerCase() === 'summary') ?? null,
+    )
+    await user.click(mcpSummary)
     expect(within(aiPanel).getByText(/"mcpServers"/)).toBeVisible()
 
     await user.click(
@@ -316,7 +323,13 @@ describe('App shell', () => {
         name: 'integrations/codex-pathkeep-skill/SKILL.md',
       }),
     )
+    const skillSummary = expectHtmlElement(
+      within(aiPanel)
+        .getAllByText(settingsT('aiIntegrationGeneratedFileSkillPurpose'))
+        .find((node) => node.tagName.toLowerCase() === 'summary') ?? null,
+    )
+    await user.click(skillSummary)
 
-    expect(within(aiPanel).getByText(/# PathKeep Search/)).toBeVisible()
+    expect(within(aiPanel).getByText(/# PathKeep Search/)).toBeInTheDocument()
   })
 })

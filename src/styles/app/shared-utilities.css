@@ -212,8 +212,15 @@
   padding: var(--space-4);
 }
 
+.code-panel__summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+}
+
 .code-panel pre {
   margin: 0;
+  max-height: min(42vh, 520px);
   overflow: auto;
   padding: var(--space-4);
   background: var(--bg);

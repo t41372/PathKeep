@@ -98,6 +98,19 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
   },
 }
 
+const defaultSettingsSectionOrder: SettingsSectionKey[] = [
+  'general',
+  'analytics',
+  'updater',
+  'retention',
+  'applock',
+  'profiles',
+  'ai',
+  'derived',
+  'remote',
+  'platform',
+]
+
 /**
  * Describes one Settings section anchor as rendered in the sticky nav.
  *
@@ -119,18 +132,17 @@ export interface SettingsSectionNavItem {
  */
 export function createSettingsSectionNavItems(
   translate: (key: string) => string,
+  keys: SettingsSectionKey[] = defaultSettingsSectionOrder,
 ): SettingsSectionNavItem[] {
-  return (
-    Object.entries(settingsSectionSpecs) as [
-      SettingsSectionKey,
-      SettingsSectionSpec,
-    ][]
-  ).map(([key, spec]) => ({
-    key,
-    id: spec.id,
-    icon: spec.icon,
-    label: translate(spec.labelKey),
-  }))
+  return keys.map((key) => {
+    const spec = settingsSectionSpecs[key]
+    return {
+      key,
+      id: spec.id,
+      icon: spec.icon,
+      label: translate(spec.labelKey),
+    }
+  })
 }
 
 /**

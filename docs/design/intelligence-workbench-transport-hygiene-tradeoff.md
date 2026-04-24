@@ -2,7 +2,7 @@
 
 > **狀態：Accepted**
 > **日期：2026-04-19**
-> **範圍：** `refind` shared workbench chrome、Explorer grouped workbench rows、Settings external-output/local-host review chrome、promoted route split、front-end Core Intelligence API split、以及 Tauri command / worker bridge intelligence facade split
+> **範圍：** `refind` shared workbench chrome、Explorer grouped workbench rows、Integrations external-output/local-host review chrome、promoted route split、front-end Core Intelligence API split、以及 Tauri command / worker bridge intelligence facade split
 > **關聯文檔：**
 >
 > - [screens-and-nav.md](screens-and-nav.md)
@@ -17,7 +17,7 @@
 
 M9 已把 route-level shared composition 收斂到 single source，但 repo 仍有兩類明顯 drift：
 
-1. `refind`、Explorer session/trail grouped view、以及 Settings external-output / local-host review surface 還留著 consumer-local workbench rows / review chrome
+1. `refind`、Explorer session/trail grouped view、以及 Integrations external-output / local-host review surface 還留著 consumer-local workbench rows / review chrome
 2. `src/pages/intelligence/promoted-entity-routes.tsx`、`src/lib/core-intelligence/api.ts`、`src-tauri/src/{commands,worker_bridge}/intelligence.rs` 仍是 ownership 混雜的大檔，後續維護成本高
 
 這些問題的共同點是：
@@ -42,7 +42,7 @@ M9 已把 route-level shared composition 收斂到 single source，但 repo 仍�
 
 **做法**
 
-- 保留 `refind` / Explorer / Settings 各自 hand-roll workbench shell
+- 保留 `refind` / Explorer / Integrations 各自 hand-roll workbench shell
 - 保留前端 / Rust intelligence glue 大檔，只在需要時追加函數
 
 **缺點**
@@ -100,7 +100,7 @@ M9 已把 route-level shared composition 收斂到 single source，但 repo 仍�
 - `refind` summary/factor shell：overview、day insights、dedicated refind route 共用同一套 workbench module
 - Explorer `session` / `trail` grouped card 與 member row primitive
 - promoted route member rows 沿用 shared workbench row，不再各寫一份 keyboard / click glue
-- Settings external-output / trusted local host review row、code preview、target-link grammar 共用同一套 workbench primitive
+- Integrations external-output / trusted local host review row、code preview、target-link grammar 共用同一套 workbench primitive
 
 ### 4.2 本輪正式接受的 transport hygiene boundary
 

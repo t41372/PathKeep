@@ -22,11 +22,8 @@
  */
 
 import type { ComponentProps } from 'react'
-import {
-  GeneratedArtifactViewer,
-  ReviewSection,
-  type ReviewCopyFeedback,
-} from '../../components/review'
+import { Link } from 'react-router-dom'
+import type { ReviewCopyFeedback } from '../../components/review'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { Glyph } from '../../components/ui'
@@ -102,11 +99,8 @@ export function AiProvidersSection({
     aiApiKeys,
     aiStatus,
     configDirty,
-    copyFeedback,
     currentSettings,
     indexMeta,
-    integrationError,
-    integrationPreview,
     noProviders,
     persistedProviderIds,
     providerTranslations,
@@ -114,8 +108,6 @@ export function AiProvidersSection({
     onAddProvider,
     onApiKeyChange,
     onClearAiApiKey,
-    onCopyIntegrationValue,
-    onOpenPath,
     onRemoveProvider,
     onResetAiConfig,
     onSaveAiApiKey,
@@ -336,74 +328,25 @@ export function AiProvidersSection({
             <div className="result-row__header">
               <strong>{t('settings.aiIndexWarning')}</strong>
             </div>
-            <p>{aiStatus.warning}</p>
+            <p>
+              {aiStatus.warning ===
+              'Select an embedding provider in Settings before enabling semantic retrieval.'
+                ? t('settings.aiIndexWarningEmbeddingMissing')
+                : aiStatus.warning}
+            </p>
           </div>
         ) : null}
 
-        <div className="settings-result-list">
-          {integrationError ? (
-            <StatusCallout
-              tone="warning"
-              title={t('settings.aiIntegrationUnavailable')}
-              body={integrationError}
-            />
-          ) : integrationPreview ? (
-            <>
-              <StatusCallout
-                tone={
-                  integrationPreview.warnings.length > 0 ? 'warning' : 'info'
-                }
-                title={t('settings.aiIntegrationReview')}
-                body={integrationPreview.consentSummary}
-              />
-              <ReviewSection title={t('settings.aiMcpCommand')}>
-                <div className="code-panel">
-                  <pre>{integrationPreview.mcpCommand}</pre>
-                </div>
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiCapabilityNotes')}>
-                {integrationPreview.capabilityNotes.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiScopeBoundary')}>
-                {integrationPreview.scopeBoundary.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiAuditTrace')}>
-                {integrationPreview.auditTrace.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiGeneratedFiles')}>
-                {integrationPreview.generatedFiles.length > 0 ? (
-                  <GeneratedArtifactViewer
-                    copyFeedback={copyFeedback}
-                    copyLabel={t('common.copyAction')}
-                    copyPathLabel={t('common.copyAction')}
-                    errorMessage={t('audit.copyFailed')}
-                    files={integrationPreview.generatedFiles}
-                    onCopy={(key, value) => {
-                      void onCopyIntegrationValue(key, value)
-                    }}
-                    onOpenPath={onOpenPath}
-                    openPathLabel={t('common.openPath')}
-                    successMessage={t('common.copiedNotice')}
-                  />
-                ) : null}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiManualSteps')}>
-                {integrationPreview.manualSteps.map((step) => (
-                  <p key={step}>{step}</p>
-                ))}
-                {integrationPreview.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-              </ReviewSection>
-            </>
-          ) : null}
-        </div>
+        <StatusCallout
+          tone="info"
+          title={t('settings.aiArtifactsMovedTitle')}
+          body={t('settings.aiArtifactsMovedBody')}
+          actions={
+            <Link className="btn-secondary" to="/integrations">
+              {t('navigation.integrationsLabel')}
+            </Link>
+          }
+        />
       </div>
     </div>
   )

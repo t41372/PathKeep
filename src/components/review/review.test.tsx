@@ -95,6 +95,18 @@ describe('shared review primitives', () => {
       />,
     )
 
+    expect(screen.getByText('alpha')).not.toBeVisible()
+    const alphaSummary = screen
+      .getAllByText('Alpha file')
+      .find((node) => node.tagName.toLowerCase() === 'summary')
+    expect(alphaSummary?.closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByText('alpha').closest('.code-panel')).toBeInstanceOf(
+      HTMLDetailsElement,
+    )
+    if (!(alphaSummary instanceof HTMLElement)) {
+      throw new Error('Expected alpha summary to be present')
+    }
+    await user.click(alphaSummary)
     expect(screen.getByText('alpha')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'b.txt' }))
     expect(screen.getByText('beta')).toBeVisible()

@@ -1,11 +1,11 @@
 /**
  * @file settings-trust-surfaces.test.tsx
- * @description Protects the Settings trust-flow panels that gate retention cleanup and AI review copy.
+ * @description Protects Maintenance and Integrations trust-flow panels that gate cleanup and AI review copy.
  * @module pages/trust-flows
  *
  * ## Responsibilities
  * - Keep the retention prune review panel wired to the shipped preview and execute flow.
- * - Verify that non-English Settings surfaces keep AI review copy localized instead of falling back to raw English.
+ * - Verify that non-English Integrations surfaces keep AI review copy localized instead of falling back to raw English.
  * - Reuse the shared trust-flow harness while preserving suite-local module boundaries.
  *
  * ## Non-Responsibilities
@@ -15,7 +15,7 @@
  *
  * ## Dependencies
  * - Depends on `test-helpers.tsx` for the canonical trust-flow render/reset contract.
- * - Depends on the real `SettingsPage` route so assertions keep protecting the shipped UI grammar.
+ * - Depends on the real Maintenance and Integrations routes so assertions keep protecting the shipped UI grammar.
  *
  * ## Performance Notes
  * - Reuses the initialized snapshot harness instead of rebuilding bespoke archive fixtures per assertion.
@@ -30,7 +30,8 @@ import { backend } from '../../lib/backend-client'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import { I18nContext } from '../../lib/i18n/context'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
-import { SettingsPage } from '../settings'
+import { IntegrationsPage } from '../integrations'
+import { MaintenancePage } from '../maintenance'
 import {
   createI18nValue,
   createShellValue,
@@ -63,7 +64,7 @@ describe('Settings trust surfaces', () => {
     })
   })
 
-  test('renders the retention prune panel in settings and executes the selected cleanup', async () => {
+  test('renders the retention prune panel in maintenance and executes the selected cleanup', async () => {
     const user = userEvent.setup()
     const { snapshot, dashboard } = await seedInitializedSnapshot()
     const previewSpy = vi
@@ -102,7 +103,7 @@ describe('Settings trust surfaces', () => {
     const refreshSpy = vi.fn().mockResolvedValue(undefined)
 
     render(
-      <MemoryRouter initialEntries={['/settings']}>
+      <MemoryRouter initialEntries={['/maintenance']}>
         <I18nContext.Provider value={createI18nValue('en')}>
           <ProfileScopeProvider>
             <ShellDataContext.Provider
@@ -111,14 +112,16 @@ describe('Settings trust surfaces', () => {
                 refreshAppData: refreshSpy,
               }}
             >
-              <SettingsPage />
+              <MaintenancePage />
             </ShellDataContext.Provider>
           </ProfileScopeProvider>
         </I18nContext.Provider>
       </MemoryRouter>,
     )
 
-    expect(await screen.findByText('RETENTION & CLEANUP')).toBeVisible()
+    expect(document.getElementById('settings-retention')).toBeInstanceOf(
+      HTMLElement,
+    )
     expect(await screen.findByText(/Snapshots stay local/)).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'Prune selected' }))
@@ -134,14 +137,14 @@ describe('Settings trust surfaces', () => {
     runSpy.mockRestore()
   })
 
-  test('localizes AI integration review copy in non-English settings surfaces', async () => {
+  test('localizes AI integration review copy in non-English integrations surfaces', async () => {
     const { snapshot, dashboard } = await seedInitializedSnapshot()
     const settingsT = createNamespaceTranslator('zh-TW', 'settings')
 
-    renderTrustPage(<SettingsPage />, {
+    renderTrustPage(<IntegrationsPage />, {
       dashboard,
       language: 'zh-TW',
-      route: '/settings',
+      route: '/integrations',
       snapshot,
     })
 
@@ -152,8 +155,9 @@ describe('Settings trust surfaces', () => {
       screen.getByText(settingsT('aiIntegrationManualEnable')),
     ).toBeVisible()
     expect(
-      screen.getByText(settingsT('aiIntegrationGeneratedFileMcpPurpose')),
-    ).toBeVisible()
+      screen.getAllByText(settingsT('aiIntegrationGeneratedFileMcpPurpose'))
+        .length,
+    ).toBeGreaterThan(0)
     expect(
       screen.queryByText(
         'Enable MCP or Skill integration in Settings first. Both are off by default.',

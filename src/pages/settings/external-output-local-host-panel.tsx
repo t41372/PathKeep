@@ -168,7 +168,7 @@ export function SettingsExternalOutputLocalHostPanel({
               type="button"
               onClick={() => preview.refresh()}
             >
-              {t('refresh')}
+              {commonT('refreshAction')}
             </button>
           }
         />

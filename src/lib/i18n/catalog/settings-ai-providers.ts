@@ -41,6 +41,9 @@ export const settingsAiProvidersNamespace = {
       'Add a chat provider to use the AI assistant and a embedding provider for smart search. Click "Add chat provider" below to get started with a preset.',
     aiDraftBoundaryBody:
       'Changes are saved only when you click Save. API keys are stored separately.',
+    aiArtifactsMovedTitle: 'Generated artifacts live in Integrations',
+    aiArtifactsMovedBody:
+      'Provider settings stay here. MCP commands, skill files, and local-host payload review now live on the Integrations page.',
     aiProviderName: 'Name',
     aiProviderId: 'ID',
     aiRequestFormat: 'API format',
@@ -72,7 +75,17 @@ export const settingsAiProvidersNamespace = {
     aiSemanticMetadata: 'SQLite metadata',
     aiEstimatedTokens: 'Estimated tokens',
     aiIndexWarning: 'Current index warning',
+    aiIndexWarningEmbeddingMissing:
+      'Select an embedding provider in Settings before enabling semantic retrieval.',
     aiIntegrationUnavailable: 'Integration preview unavailable',
+    aiIntegrationArtifactsTitle: 'AI integration artifacts',
+    aiIntegrationArtifactsSummaryTitle:
+      'Review generated files before using them externally',
+    aiIntegrationArtifactsSummaryBody:
+      'PathKeep can prepare MCP and skill snippets, but it never installs them into external tools automatically. Review the contents and copy only what you trust.',
+    aiIntegrationLoadingTitle: 'Preparing integration preview',
+    aiIntegrationLoadingBody:
+      'Generated files and commands appear here after the local preview finishes loading.',
     aiIntegrationReview: 'EXTERNAL AI INTEGRATIONS',
     aiMcpCommand: 'MCP command',
     aiCapabilityNotes: 'Capability notes',
@@ -139,6 +152,9 @@ export const settingsAiProvidersNamespace = {
     aiGettingStartedBody:
       '添加对话模型可以使用 AI 助手，添加向量模型可以使用智能搜索。点击下方「添加对话模型」按钮，选择一个预设开始。',
     aiDraftBoundaryBody: '更改只在点击保存后生效。API 密钥需要单独保存。',
+    aiArtifactsMovedTitle: '生成产物已移到集成页',
+    aiArtifactsMovedBody:
+      '这里保留服务设置。MCP 命令、skill 文件和本地宿主载荷复核现在由集成页负责。',
     aiProviderName: '名称',
     aiProviderId: 'ID',
     aiRequestFormat: 'API 格式',
@@ -170,7 +186,15 @@ export const settingsAiProvidersNamespace = {
     aiSemanticMetadata: 'SQLite 元数据',
     aiEstimatedTokens: '预估 tokens',
     aiIndexWarning: '当前索引警告',
+    aiIndexWarningEmbeddingMissing:
+      '请先在设置里选择向量模型，再启用语义检索。',
     aiIntegrationUnavailable: '集成预览不可用',
+    aiIntegrationArtifactsTitle: 'AI 集成产物',
+    aiIntegrationArtifactsSummaryTitle: '使用前先检查生成文件',
+    aiIntegrationArtifactsSummaryBody:
+      'PathKeep 可以准备 MCP 和 skill 片段，但不会自动安装到外部工具。请先检查内容，再只复制你信任的部分。',
+    aiIntegrationLoadingTitle: '正在准备集成预览',
+    aiIntegrationLoadingBody: '本地预览加载完成后，这里会显示生成文件和命令。',
     aiIntegrationReview: '外部 AI 集成',
     aiMcpCommand: 'MCP 命令',
     aiCapabilityNotes: '能力说明',
@@ -179,11 +203,11 @@ export const settingsAiProvidersNamespace = {
     aiGeneratedFiles: '生成文件',
     aiManualSteps: '手动步骤',
     aiIntegrationConsentSummary:
-      '外部 AI 集成保持 local-first 且必须显式开启。只有你在设置里打开 AI 与 MCP 后，PathKeep 才会暴露 localhost MCP 工具，而且当前应用会话必须保持已解锁。',
+      '外部 AI 集成保持本地优先且必须显式开启。只有你在设置里打开 AI 与 MCP 后，PathKeep 才会暴露本机 MCP 工具，而且当前应用会话必须保持已解锁。',
     aiIntegrationManualEnable:
       '先在设置里开启 MCP 或 Skill 集成，两者默认都关闭。',
     aiIntegrationManualStoreKey:
-      '如果 archive 已加密，请把数据库密钥存进系统钥匙串，这样后台任务和 MCP 查询才能解锁 archive。',
+      '如果存档已加密，请把数据库密钥存进系统钥匙串，这样后台任务和 MCP 查询才能解锁存档。',
     aiIntegrationManualCopyJson:
       '把生成好的 MCP JSON 复制到本地 MCP client 配置里，然后重启那个 client。',
     aiIntegrationManualCopySkill:
@@ -199,19 +223,19 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityEmbeddingEnabled:
       '建立语义索引后，语义检索会使用当前已配置的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:
-      '目前还没有选择 embedding provider，所以 MCP 和外部助手会回退到词法召回，但仍然遵守 archive 可见性和 App Lock。',
+      '目前还没有选择向量模型，所以 MCP 和外部助手会回退到词法召回，但仍然遵守存档可见性和 App Lock。',
     aiIntegrationScopeVisibleOnly:
-      '查询只能看到当前仍然可见的 archive 事实。即使旧 embedding 行还在，已回滚的访问记录也会保持隐藏。',
+      '查询只能看到当前仍然可见的存档事实。即使旧向量索引行还在，已回滚的访问记录也会保持隐藏。',
     aiIntegrationScopeLock:
-      '如果 App Lock 再次锁住会话，MCP 搜索会返回 locked refusal，而不是绕过 UI 直接读取 archive。',
+      '如果 App Lock 再次锁住会话，MCP 搜索会返回锁定拒绝，而不是绕过 UI 直接读取存档。',
     aiIntegrationScopeLocalhost:
-      'MCP surface 只在 localhost 可用，不会把 archive 发布到远程 PathKeep 服务。',
+      'MCP 只在本机可用，不会把存档发布到远程 PathKeep 服务。',
     aiIntegrationAuditMcp:
-      '每一次 MCP 请求都会在统一 archive ledger 里记录成独立的 `mcp_query` run。',
+      '每一次 MCP 请求都会在统一存档账本里记录成独立的 `mcp_query` 运行。',
     aiIntegrationAuditAssistant:
       '助手回答会把 provider snapshot、retrieval provider 和 citations 一起保存在 `ai_assistant_runs` 里。',
     aiIntegrationAuditDerivedPath:
-      '派生 AI 状态保存在 archive 旁边的 {path}，可以单独清理或重建，而不会碰 canonical visits。',
+      '派生 AI 状态保存在存档旁边的 {path}，可以单独清理或重建，而不会碰规范访问记录。',
     aiIntegrationWarningDisabled:
       '当前设置里 MCP 和 skill integration 都处于关闭状态。',
     aiIntegrationGeneratedFileMcpPurpose:
@@ -237,6 +261,9 @@ export const settingsAiProvidersNamespace = {
     aiGettingStartedBody:
       '新增對話模型可以使用 AI 助手，新增向量模型可以使用智慧搜尋。點選下方「新增對話模型」按鈕，選擇一個預設開始。',
     aiDraftBoundaryBody: '變更只在點擊儲存後生效。API 金鑰需要另外儲存。',
+    aiArtifactsMovedTitle: '生成產物已移到整合頁',
+    aiArtifactsMovedBody:
+      '這裡保留服務設定。MCP 命令、skill 檔案和本地宿主載荷複核現在由整合頁負責。',
     aiProviderName: '名稱',
     aiProviderId: 'ID',
     aiRequestFormat: 'API 格式',
@@ -268,7 +295,15 @@ export const settingsAiProvidersNamespace = {
     aiSemanticMetadata: 'SQLite 中繼資料',
     aiEstimatedTokens: '預估 tokens',
     aiIndexWarning: '目前索引警告',
+    aiIndexWarningEmbeddingMissing:
+      '請先在設定裡選擇向量模型，再啟用語義檢索。',
     aiIntegrationUnavailable: '整合預覽無法使用',
+    aiIntegrationArtifactsTitle: 'AI 整合產物',
+    aiIntegrationArtifactsSummaryTitle: '使用前先檢查生成檔案',
+    aiIntegrationArtifactsSummaryBody:
+      'PathKeep 可以準備 MCP 和 skill 片段，但不會自動安裝到外部工具。請先檢查內容，再只複製你信任的部分。',
+    aiIntegrationLoadingTitle: '正在準備整合預覽',
+    aiIntegrationLoadingBody: '本地預覽載入完成後，這裡會顯示生成檔案和命令。',
     aiIntegrationReview: '外部 AI 整合',
     aiMcpCommand: 'MCP 指令',
     aiCapabilityNotes: '能力說明',
@@ -277,11 +312,11 @@ export const settingsAiProvidersNamespace = {
     aiGeneratedFiles: '產生的檔案',
     aiManualSteps: '手動步驟',
     aiIntegrationConsentSummary:
-      '外部 AI 整合維持 local-first 且必須明確開啟。只有你在設定裡打開 AI 與 MCP 後，PathKeep 才會提供 localhost MCP 工具，而且目前的 app session 必須保持已解鎖。',
+      '外部 AI 整合維持本地優先且必須明確開啟。只有你在設定裡打開 AI 與 MCP 後，PathKeep 才會提供本機 MCP 工具，而且目前的應用工作階段必須保持已解鎖。',
     aiIntegrationManualEnable:
       '先在設定裡開啟 MCP 或 Skill integration，兩者預設都關閉。',
     aiIntegrationManualStoreKey:
-      '如果 archive 已加密，請把資料庫金鑰存進系統鑰匙圈，這樣背景工作和 MCP 查詢才能解鎖 archive。',
+      '如果封存已加密，請把資料庫金鑰存進系統鑰匙圈，這樣背景工作和 MCP 查詢才能解鎖封存。',
     aiIntegrationManualCopyJson:
       '把產生好的 MCP JSON 複製到本機 MCP client 設定裡，然後重新啟動那個 client。',
     aiIntegrationManualCopySkill:
@@ -297,19 +332,19 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityEmbeddingEnabled:
       '建立語義索引後，語義檢索會使用目前已設定的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:
-      '目前尚未選擇 embedding provider，所以 MCP 和外部助手會回退到詞彙召回，但仍然遵守 archive 可見性與 App Lock。',
+      '目前尚未選擇向量模型，所以 MCP 和外部助手會回退到詞彙召回，但仍然遵守封存可見性與 App Lock。',
     aiIntegrationScopeVisibleOnly:
-      '查詢只能看到目前仍可見的 archive 事實。即使舊的 embedding row 仍存在，已回滾的造訪紀錄也會維持隱藏。',
+      '查詢只能看到目前仍可見的封存事實。即使舊的向量索引列仍存在，已回滾的造訪紀錄也會維持隱藏。',
     aiIntegrationScopeLock:
-      '如果 App Lock 再次鎖住 session，MCP 搜尋會回傳 locked refusal，而不是繞過 UI 直接讀取 archive。',
+      '如果 App Lock 再次鎖住工作階段，MCP 搜尋會回傳鎖定拒絕，而不是繞過 UI 直接讀取封存。',
     aiIntegrationScopeLocalhost:
-      'MCP surface 只在 localhost 可用，不會把 archive 發布到遠端 PathKeep 服務。',
+      'MCP 只在本機可用，不會把封存發布到遠端 PathKeep 服務。',
     aiIntegrationAuditMcp:
-      '每一次 MCP request 都會在統一 archive ledger 裡記成獨立的 `mcp_query` run。',
+      '每一次 MCP 請求都會在統一封存帳本裡記成獨立的 `mcp_query` 執行。',
     aiIntegrationAuditAssistant:
       '助手回答會把 provider snapshot、retrieval provider 與 citations 一起保存在 `ai_assistant_runs` 裡。',
     aiIntegrationAuditDerivedPath:
-      '衍生 AI 狀態保存在 archive 旁邊的 {path}，可以單獨清除或重建，而不會碰 canonical visits。',
+      '衍生 AI 狀態保存在封存旁邊的 {path}，可以單獨清除或重建，而不會碰規範造訪紀錄。',
     aiIntegrationWarningDisabled:
       '目前設定裡 MCP 和 skill integration 都處於關閉狀態。',
     aiIntegrationGeneratedFileMcpPurpose:

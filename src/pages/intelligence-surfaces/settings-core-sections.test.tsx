@@ -79,13 +79,47 @@ describe('intelligence surfaces settings core sections', () => {
     })
 
     expect(await screen.findByText(settingsT('groupCore'))).toBeVisible()
-    expect(screen.getByText(settingsT('groupDataUpdates'))).toBeVisible()
-    expect(screen.getByText(settingsT('groupSecurityAccess'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupPrivacyAccess'))).toBeVisible()
     expect(screen.getByText(settingsT('groupIntelligence'))).toBeVisible()
     expect(screen.getByText(settingsT('groupBackupSync'))).toBeVisible()
-    expect(screen.getByText(settingsT('groupPlatform'))).toBeVisible()
     expect(screen.queryByText(/^CORE$/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^DATA & UPDATES$/)).not.toBeInTheDocument()
+  })
+
+  test('keeps settings preference-only and links advanced workflows out to their owners', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+
+    renderSurface(<SettingsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/settings',
+      snapshot,
+    })
+
+    await screen.findByTestId('settings-page')
+    expect(document.getElementById('settings-updater')).not.toBeInTheDocument()
+    expect(
+      document.getElementById('settings-retention'),
+    ).not.toBeInTheDocument()
+    expect(document.getElementById('settings-derived')).not.toBeInTheDocument()
+    expect(
+      document.getElementById('settings-external-outputs'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen
+        .getAllByRole('link', {
+          name: new RegExp(settingsT('openMaintenance')),
+        })
+        .some((link) => link.getAttribute('href') === '/maintenance'),
+    ).toBe(true)
+    expect(
+      screen
+        .getAllByRole('link', {
+          name: new RegExp(settingsT('openIntegrations')),
+        })
+        .some((link) => link.getAttribute('href') === '/integrations'),
+    ).toBe(true)
   })
 
   test('renders settings nav anchors and keeps extracted general section actions wired to the route owner', async () => {
@@ -95,17 +129,6 @@ describe('intelligence surfaces settings core sections', () => {
     const navigationT = createNamespaceTranslator('en', 'navigation')
     const settingsT = createNamespaceTranslator('en', 'settings')
 
-    snapshot.runtimeDiagnostics.latestCrashReport = {
-      source: 'frontend',
-      recordedAt: '2026-04-18T10:15:00Z',
-      fatal: false,
-      message: 'Renderer stalled while collecting logs.',
-      path: '/tmp/pathkeep/crash/frontend.log',
-    }
-
-    const openPathSpy = vi
-      .spyOn(backend, 'openPathInFileManager')
-      .mockResolvedValue('/tmp/pathkeep/crash/frontend.log')
     vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
       createEmptyRuntimeSnapshot(),
     )
@@ -117,13 +140,6 @@ describe('intelligence surfaces settings core sections', () => {
         explorerBackgroundPrefetchPages: 0,
       },
     })
-    shellValue.buildInfo = {
-      productName: 'PathKeep',
-      version: '0.9.0',
-      gitCommitShort: 'abc1234',
-      gitCommitFull: 'abc123456789',
-      gitDirty: false,
-    }
 
     renderSurface(<SettingsPage />, {
       dashboard,
@@ -143,10 +159,11 @@ describe('intelligence surfaces settings core sections', () => {
       within(nav).getByRole('link', { name: settingsT('analyticsTitle') }),
     ).toHaveAttribute('href', '#settings-analytics')
     expect(
-      within(nav).getByRole('link', {
-        name: settingsT('platformTroubleshooting'),
-      }),
-    ).toHaveAttribute('href', '#settings-platform')
+      within(nav).getByRole('link', { name: settingsT('browserProfiles') }),
+    ).toHaveAttribute('href', '#settings-profiles')
+    expect(
+      within(nav).getByRole('link', { name: settingsT('remoteBackup') }),
+    ).toHaveAttribute('href', '#settings-remote')
 
     const generalPanel = document.getElementById('settings-general')
     if (!(generalPanel instanceof HTMLElement)) {
@@ -163,31 +180,7 @@ describe('intelligence surfaces settings core sections', () => {
         name: settingsT('explorerBackgroundPrefetchPages'),
       }),
     ).toHaveValue(String(snapshot.config.explorerBackgroundPrefetchPages))
-    expect(within(generalPanel).getByText('0.9.0')).toBeVisible()
-    expect(within(generalPanel).getByText('abc1234')).toBeVisible()
-    expect(
-      within(generalPanel).getByRole('button', {
-        name: settingsT('openCrashReport'),
-      }),
-    ).toBeVisible()
-
-    await user.click(
-      within(generalPanel).getAllByRole('button', {
-        name: commonT('copyAction'),
-      })[0],
-    )
-    expect(
-      await within(generalPanel).findByText(commonT('copiedNotice')),
-    ).toBeVisible()
-
-    await user.click(
-      within(generalPanel).getByRole('button', {
-        name: settingsT('openCrashReport'),
-      }),
-    )
-    expect(openPathSpy).toHaveBeenLastCalledWith(
-      '/tmp/pathkeep/crash/frontend.log',
-    )
+    expect(screen.queryByText(commonT('rescanAction'))).not.toBeInTheDocument()
 
     await user.selectOptions(
       within(generalPanel).getByRole('combobox', {

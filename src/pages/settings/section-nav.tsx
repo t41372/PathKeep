@@ -3,7 +3,7 @@
  *
  * ## 職責
  * - 渲染 sticky section nav，讓 route 內的 jump links 和 panel anchor 維持一致。
- * - 顯示 compact icon-only chrome，同時保留可存取的 section label。
+ * - 顯示 compact text-labeled chrome，同時保留可存取的 section label。
  * - 消費外部傳入的 descriptor list，而不是自行維護第二套 ids 或標籤。
  *
  * ## 不負責
@@ -31,11 +31,10 @@ export interface SettingsSectionNavProps {
 }
 
 /**
- * Renders the sticky icon-only Settings section nav with translated labels.
+ * Renders the sticky Settings section nav with translated visible labels.
  *
- * Each link keeps its accessible name while the visual chrome stays compact,
- * which lets us preserve the in-flight nav redesign without hiding meaning
- * from keyboard or assistive-technology users.
+ * Each link keeps its icon as a quick anchor, but the visible label is the
+ * primary affordance so users do not need to memorize symbols before editing preferences.
  */
 export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
   return (
@@ -49,6 +48,7 @@ export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
           title={item.label}
         >
           <Glyph icon={item.icon} filled />
+          <span className="settings-nav__label">{item.label}</span>
         </a>
       ))}
     </nav>

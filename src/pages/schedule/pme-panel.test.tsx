@@ -87,7 +87,7 @@ describe('schedule pme panel', () => {
       />,
     )
     expect(screen.getByText(t('schedule.previewBoundary'))).toBeVisible()
-    expect(screen.getByText('LaunchAgent plist')).toBeVisible()
+    expect(screen.getAllByText('LaunchAgent plist')[0]).toBeVisible()
 
     rerender(
       <SchedulePmePanel

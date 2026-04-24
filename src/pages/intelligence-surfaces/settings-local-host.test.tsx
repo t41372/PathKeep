@@ -27,7 +27,7 @@ import { backend } from '../../lib/backend-client'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { IntelligenceLocalHostBuildResult } from '../../lib/core-intelligence/types'
 import { createNamespaceTranslator } from '../../lib/i18n'
-import { SettingsPage } from '../settings'
+import { IntegrationsPage } from '../integrations'
 import { createLocalHostPreview } from './local-host-fixtures'
 import {
   createEmptyRuntimeSnapshot,
@@ -112,10 +112,10 @@ describe('intelligence surfaces', () => {
       .spyOn(backend, 'openPathInFileManager')
       .mockResolvedValue(previewPayload.artifactRoot)
 
-    renderSurface(<SettingsPage />, {
+    renderSurface(<IntegrationsPage />, {
       dashboard,
       language: 'en',
-      route: '/settings',
+      route: '/integrations',
       snapshot,
     })
 
@@ -179,6 +179,7 @@ describe('intelligence surfaces', () => {
   test('localizes trusted local-host manual review copy in non-English settings surfaces', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
     const settingsT = createNamespaceTranslator('zh-TW', 'settings')
+    const commonT = createNamespaceTranslator('zh-TW', 'common')
 
     vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
       createEmptyRuntimeSnapshot(),
@@ -228,24 +229,32 @@ describe('intelligence surfaces', () => {
       'previewIntelligenceLocalHost',
     ).mockResolvedValue(createLocalHostPreview('en'))
 
-    renderSurface(<SettingsPage />, {
+    renderSurface(<IntegrationsPage />, {
       dashboard,
       language: 'zh-TW',
-      route: '/settings',
+      route: '/integrations',
       snapshot,
     })
 
     const panel = await screen.findByTestId('settings-external-outputs')
+    expect(
+      within(panel).getByRole('button', {
+        name: commonT('refreshAction'),
+      }),
+    ).toBeVisible()
+    expect(
+      within(panel).queryByText('settings.refresh'),
+    ).not.toBeInTheDocument()
     expect(
       await within(panel).findByText(
         settingsT('externalOutputsLocalHostManualReview'),
       ),
     ).toBeVisible()
     expect(
-      within(panel).getByText(
+      within(panel).getAllByText(
         settingsT('externalOutputsLocalHostPurposeEntry'),
-      ),
-    ).toBeVisible()
+      ).length,
+    ).toBeGreaterThan(0)
     expect(
       within(panel).queryByText(
         'Review index.html and bundle.json before handing this folder to another trusted local tool.',

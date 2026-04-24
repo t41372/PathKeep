@@ -29,7 +29,7 @@ Jobs 不是 debug page。
 
 - sidebar footer background strip
 - Insights 頂部 runtime digest
-- Settings derived-state panel
+- Maintenance derived-state panel
 
 一起形成同一套 queue grammar。
 

@@ -88,3 +88,102 @@ export function buildDigestMetricItems(
     },
   ]
 }
+
+/**
+ * Converts known backend-authored card titles into locale-owned UI copy while
+ * leaving user/domain data and unknown future card titles untouched.
+ */
+export function localizeOutputCardTitle(title: string, t: Translate): string {
+  const onThisDayMatch = title.match(/^On This Day · (\d{4})$/)
+  if (onThisDayMatch) {
+    return t('externalOutputsCardOnThisDayTitle', {
+      year: onThisDayMatch[1],
+    })
+  }
+
+  switch (title) {
+    case 'Visits':
+      return t('externalOutputsCardVisitsTitle')
+    case 'Searches':
+      return t('externalOutputsCardSearchesTitle')
+    default:
+      return title
+  }
+}
+
+/**
+ * Converts known backend-authored badge copy into locale-owned UI copy.
+ */
+export function localizeOutputCardEyebrow(
+  eyebrow: string | null,
+  t: Translate,
+): string | null {
+  switch (eyebrow?.trim().toUpperCase()) {
+    case 'TOP SITE':
+      return t('externalOutputsCardTopSiteEyebrow')
+    case 'REFIND':
+      return t('externalOutputsCardRefindEyebrow')
+    case 'STABLE SOURCE':
+      return t('externalOutputsCardStableSourceEyebrow')
+    default:
+      return eyebrow
+  }
+}
+
+/**
+ * Converts known backend-authored card bodies into locale-owned UI copy so
+ * integrations can show a human preview before exposing raw payloads.
+ */
+export function localizeOutputCardBody(body: string, t: Translate): string {
+  if (body === 'Total visits in the selected intelligence window.') {
+    return t('externalOutputsCardTotalVisitsBody')
+  }
+  if (
+    body === 'Total search events observed in the selected intelligence window.'
+  ) {
+    return t('externalOutputsCardTotalSearchesBody')
+  }
+
+  const topDomainMatch = body.match(
+    /^(.+) was one of the most frequently visited domains in this window\.$/,
+  )
+  if (topDomainMatch) {
+    return t('externalOutputsCardTopDomainBody', {
+      domain: topDomainMatch[1],
+    })
+  }
+
+  const refindMatch = body.match(
+    /^This page kept resurfacing across ([0-9]+) days and ([0-9]+) trails\.$/,
+  )
+  if (refindMatch) {
+    return t('externalOutputsCardRefindBody', {
+      days: refindMatch[1],
+      trails: refindMatch[2],
+    })
+  }
+
+  const sourceMatch = body.match(
+    /^(.+) often resolves trails as a (.+) source\.$/,
+  )
+  if (sourceMatch) {
+    const source =
+      sourceMatch[2] === 'reference'
+        ? t('externalOutputsCardSourceReference')
+        : sourceMatch[2]
+
+    return t('externalOutputsCardSourceBody', {
+      domain: sourceMatch[1],
+      source,
+    })
+  }
+
+  const browsingMatch = body.match(/^Mostly browsing (.+)$/)
+  if (browsingMatch) {
+    return t('externalOutputsCardMostlyBrowsingBody', {
+      domain: browsingMatch[1],
+    })
+  }
+
+  return body
+}

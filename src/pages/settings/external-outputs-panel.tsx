@@ -3,10 +3,10 @@
  *
  * Why this file exists:
  * - `embed cards`, `widget snapshot`, and `public snapshot` now have a real
- *   front-end consumer surface in Settings instead of living only as backend
+ *   front-end consumer surface in Integrations instead of living only as backend
  *   payload-provider commands.
- * - Keeping this panel out of `settings/index.tsx` preserves the route's role
- *   as a control tower without turning it into another unreadable mega-file.
+ * - Keeping this panel out of `settings/index.tsx` preserves Settings as
+ *   preferences while Integrations owns payload/artifact review.
  *
  * Main declarations:
  * - `SettingsExternalOutputsPanel`
@@ -54,7 +54,7 @@ interface SettingsExternalOutputsPanelProps {
 }
 
 /**
- * Renders the Settings review/export surface for manual Core Intelligence
+ * Renders the Integrations review/export surface for manual Core Intelligence
  * output consumption.
  */
 export function SettingsExternalOutputsPanel({
@@ -140,7 +140,7 @@ export function SettingsExternalOutputsPanel({
               disabled={!ready || outputs.loading}
               onClick={() => outputs.refresh()}
             >
-              {t('refresh')}
+              {commonT('refreshAction')}
             </button>
           }
         />
@@ -238,7 +238,7 @@ export function SettingsExternalOutputsPanel({
                     type="button"
                     onClick={() => outputs.refresh()}
                   >
-                    {t('refresh')}
+                    {commonT('refreshAction')}
                   </button>
                 }
               />

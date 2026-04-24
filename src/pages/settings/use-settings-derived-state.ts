@@ -51,6 +51,7 @@ import {
 
 interface UseSettingsDerivedStateArgs {
   dashboard: DashboardSnapshot | null
+  enabled?: boolean
   refreshAppData: () => Promise<void>
   refreshKey: number
   saveConfig: (config: AppConfig) => Promise<AppSnapshot>
@@ -62,6 +63,7 @@ interface UseSettingsDerivedStateArgs {
  */
 export function useSettingsDerivedState({
   dashboard,
+  enabled = true,
   refreshAppData,
   refreshKey,
   saveConfig,
@@ -111,6 +113,14 @@ export function useSettingsDerivedState({
     let cancelled = false
 
     const loadRuntime = async () => {
+      if (!enabled) {
+        setIntelligenceRuntime(null)
+        setIntelligenceRuntimeError(null)
+        setRebuildQueueReport(null)
+        setClearReport(null)
+        return
+      }
+
       try {
         const runtime = await backend.loadIntelligenceRuntime()
         if (!cancelled) {
@@ -131,12 +141,16 @@ export function useSettingsDerivedState({
     return () => {
       cancelled = true
     }
-  }, [refreshKey, snapshot?.config.initialized, t])
+  }, [enabled, refreshKey, snapshot?.config.initialized, t])
 
   useEffect(() => {
     let cancelled = false
 
-    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+    if (
+      !enabled ||
+      !snapshot?.config.initialized ||
+      !snapshot.archiveStatus.unlocked
+    ) {
       setSearchEngineRules([])
       setSearchEngineRuleDraft(null)
       setSearchEngineRuleError(null)
@@ -173,6 +187,7 @@ export function useSettingsDerivedState({
     }
   }, [
     refreshKey,
+    enabled,
     snapshot?.archiveStatus.unlocked,
     snapshot?.config.initialized,
     t,
@@ -192,6 +207,10 @@ export function useSettingsDerivedState({
   }, [searchEngineRuleDraft])
 
   async function handleRebuildDerivedState() {
+    if (!enabled) {
+      return
+    }
+
     setDerivedAction(t('settings.rebuildingDerivedState'))
     try {
       const report = await queueCoreIntelligenceRebuild({ fullRebuild: true })
@@ -205,6 +224,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleClearDerivedState() {
+    if (!enabled) {
+      return
+    }
+
     setDerivedAction(t('settings.clearingDerivedState'))
     try {
       const report = await backend.clearDerivedIntelligence()
@@ -218,10 +241,18 @@ export function useSettingsDerivedState({
   }
 
   function handleStartSearchEngineRule() {
+    if (!enabled) {
+      return
+    }
+
     setSearchEngineRuleDraft(buildSearchEngineRuleDraft())
   }
 
   function handleEditSearchEngineRule(rule: SearchEngineRule) {
+    if (!enabled) {
+      return
+    }
+
     setSearchEngineRuleDraft(buildSearchEngineRuleDraft(rule))
   }
 
@@ -238,6 +269,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleSaveSearchEngineRule() {
+    if (!enabled) {
+      return
+    }
+
     if (!searchEngineRuleDraft || !searchEngineRuleDraftValid) {
       return
     }
@@ -265,6 +300,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleDeleteSearchEngineRule(ruleId: string) {
+    if (!enabled) {
+      return
+    }
+
     setDerivedAction(settingsNs('searchRulesDeleting'))
     try {
       const rules = await backend.deleteSearchEngineRule(ruleId)
@@ -288,6 +327,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleRetryIntelligenceRuntimeJob(jobId: number) {
+    if (!enabled) {
+      return
+    }
+
     setDerivedAction(settingsNs('retryRuntimeJob'))
     try {
       const runtime = await backend.retryIntelligenceJob(jobId)
@@ -299,6 +342,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleCancelIntelligenceRuntimeJob(jobId: number) {
+    if (!enabled) {
+      return
+    }
+
     setDerivedAction(settingsNs('cancelRuntimeJob'))
     try {
       const runtime = await backend.cancelIntelligenceJob(jobId)
@@ -310,6 +357,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleEnrichmentPluginToggle(pluginId: string) {
+    if (!enabled) {
+      return
+    }
+
     if (!snapshot) {
       return
     }
@@ -343,6 +394,10 @@ export function useSettingsDerivedState({
   }
 
   async function handleDeterministicModuleToggle(moduleId: string) {
+    if (!enabled) {
+      return
+    }
+
     if (!snapshot) {
       return
     }

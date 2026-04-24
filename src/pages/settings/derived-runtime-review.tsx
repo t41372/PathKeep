@@ -40,7 +40,6 @@ import {
   enrichmentPluginBoundaryLabel,
   enrichmentPluginDescription,
   enrichmentPluginLabel,
-  intelligenceRuntimeJobStateLabel,
 } from '../../lib/intelligence-runtime'
 import type {
   AppSnapshot,
@@ -49,6 +48,83 @@ import type {
   IntelligenceRuntimeSnapshot,
 } from '../../lib/types'
 import type { CoreIntelligenceQueueReport } from '../../lib/core-intelligence/types'
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string
+
+function localizeDeterministicRuntimeNote(
+  note: string,
+  settingsNs: Translate,
+): string {
+  const profilePatterns: Array<[RegExp, string]> = [
+    [
+      /^No visible visits remained for (.+); cleared visit-derived facts\.$/,
+      'deterministicModuleNoVisibleVisitsClearedVisitFacts',
+    ],
+    [
+      /^Visit-derived facts for (.+) were already up to date\.$/,
+      'deterministicModuleVisitFactsUpToDate',
+    ],
+    [
+      /^Incrementally refreshed visit-derived facts for (.+)\.$/,
+      'deterministicModuleVisitFactsRefreshed',
+    ],
+    [
+      /^Rebuilt visit-derived facts for (.+) with a scoped full refresh\.$/,
+      'deterministicModuleVisitFactsRebuilt',
+    ],
+    [
+      /^No visible visits remained for (.+); cleared daily rollups\.$/,
+      'deterministicModuleNoVisibleVisitsClearedDailyRollups',
+    ],
+    [
+      /^Daily rollups for (.+) were already up to date\.$/,
+      'deterministicModuleDailyRollupsUpToDate',
+    ],
+    [
+      /^Refreshed dirty daily rollups for (.+)\.$/,
+      'deterministicModuleDailyRollupsRefreshed',
+    ],
+    [
+      /^Rebuilt all daily rollups for (.+)\.$/,
+      'deterministicModuleDailyRollupsRebuilt',
+    ],
+    [
+      /^No visible visits remained for (.+); cleared structural entities\.$/,
+      'deterministicModuleNoVisibleVisitsClearedStructural',
+    ],
+    [
+      /^Structural entities for (.+) were already up to date\.$/,
+      'deterministicModuleStructuralUpToDate',
+    ],
+    [
+      /^Rebuilt structural tail entities for (.+)\.$/,
+      'deterministicModuleStructuralTailRebuilt',
+    ],
+    [
+      /^Rebuilt all structural entities for (.+)\.$/,
+      'deterministicModuleStructuralRebuilt',
+    ],
+  ]
+
+  for (const [pattern, key] of profilePatterns) {
+    const match = note.match(pattern)
+    if (match) {
+      return settingsNs(key, { profile: match[1] })
+    }
+  }
+
+  if (note === 'Manual full rebuild requested for daily rollups.') {
+    return settingsNs('deterministicModuleDailyRollupsManualRebuild')
+  }
+  if (
+    note ===
+    'Archive visibility regressed or source counters moved backwards for daily rollups.'
+  ) {
+    return settingsNs('deterministicModuleDailyRollupsVisibilityRegressed')
+  }
+
+  return note
+}
 
 /**
  * Props for the extracted runtime review surface.
@@ -78,10 +154,8 @@ export function DerivedRuntimeReview({
   intelligenceRuntimeError,
   rebuildQueueReport,
   snapshot,
-  onCancelRuntimeJob,
   onDeterministicModuleToggle,
   onEnrichmentPluginToggle,
-  onRetryRuntimeJob,
 }: DerivedRuntimeReviewProps) {
   const { language, t, ns } = useI18n()
   const commonNs = ns('common')
@@ -235,7 +309,10 @@ export function DerivedRuntimeReview({
               ? [
                   {
                     label: settingsNs('deterministicModuleStaleReason'),
-                    value: module.runtime.staleReason,
+                    value: localizeDeterministicRuntimeNote(
+                      module.runtime.staleReason,
+                      settingsNs,
+                    ),
                   },
                 ]
               : []),
@@ -248,7 +325,7 @@ export function DerivedRuntimeReview({
                     className="mono-support"
                     key={`${module.state.id}-${note}`}
                   >
-                    {note}
+                    {localizeDeterministicRuntimeNote(note, settingsNs)}
                   </p>
                 ))}
               </div>
@@ -353,58 +430,12 @@ export function DerivedRuntimeReview({
       <div className="settings-result-list">
         <div className="result-row">
           <div className="result-row__header">
-            <strong>{settingsNs('runtimeRecentJobs')}</strong>
+            <strong>{settingsNs('runtimeQueueDetailsTitle')}</strong>
+            <Link className="btn-tiny" to="/jobs">
+              {settingsNs('runtimeQueueTitle')}
+            </Link>
           </div>
-          {intelligenceRuntime?.recentJobs.length ? (
-            intelligenceRuntime.recentJobs.map((job) => (
-              <div className="result-row" key={job.id}>
-                <div className="result-row__header">
-                  <strong>
-                    {enrichmentPluginLabel(
-                      job.pluginId ?? job.jobType,
-                      settingsNs,
-                    )}
-                  </strong>
-                  <span className="mono">
-                    {intelligenceRuntimeJobStateLabel(job.state, settingsNs)}
-                  </span>
-                </div>
-                <p>
-                  {job.title ?? job.url ?? job.jobType} ·{' '}
-                  {settingsNs('runtimeJobAttempt', { attempt: job.attempt })}
-                </p>
-                {job.lastError ? <p>{job.lastError}</p> : null}
-                <div className="settings-action-row">
-                  {job.retryable ? (
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      disabled={Boolean(action)}
-                      onClick={() => {
-                        void onRetryRuntimeJob(job.id)
-                      }}
-                    >
-                      {settingsNs('retryRuntimeJob')}
-                    </button>
-                  ) : null}
-                  {job.cancellable ? (
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      disabled={Boolean(action)}
-                      onClick={() => {
-                        void onCancelRuntimeJob(job.id)
-                      }}
-                    >
-                      {settingsNs('cancelRuntimeJob')}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          ) : (
-            <p>{settingsNs('runtimeNoJobs')}</p>
-          )}
+          <p>{settingsNs('runtimeQueueDetailsBody')}</p>
         </div>
       </div>
 

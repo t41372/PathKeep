@@ -39,6 +39,9 @@ interface UseSettingsRouteStateArgs {
   buildInfo: AppBuildInfo | null
   clearAppLockPasscode: () => Promise<AppLockStatus>
   dashboard: DashboardSnapshot | null
+  enableAiIntegrationPreview?: boolean
+  enableDerivedRuntime?: boolean
+  enableRetentionPreview?: boolean
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   refreshAppData: () => Promise<void>
   refreshKey: number
@@ -61,6 +64,7 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
   const supportState = useSettingsSupportState({
     appLockStatus: args.appLockStatus,
     clearAppLockPasscode: args.clearAppLockPasscode,
+    enableRetentionPreview: args.enableRetentionPreview,
     lockAppSession: args.lockAppSession,
     refreshAppData: args.refreshAppData,
     refreshKey: args.refreshKey,
@@ -75,12 +79,14 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
     snapshot: args.snapshot,
   })
   const aiState = useSettingsAiState({
+    enableIntegrationPreview: args.enableAiIntegrationPreview,
     refreshAppData: args.refreshAppData,
     saveConfig: args.saveConfig,
     snapshot: args.snapshot,
   })
   const derivedState = useSettingsDerivedState({
     dashboard: args.dashboard,
+    enabled: args.enableDerivedRuntime,
     refreshAppData: args.refreshAppData,
     refreshKey: args.refreshKey,
     saveConfig: args.saveConfig,

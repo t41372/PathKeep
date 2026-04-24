@@ -107,6 +107,36 @@ export const settingsDerivedAndRuntimeNamespace = {
     deterministicModuleDependsOn: 'Depends on',
     deterministicModuleTables: 'Derived tables',
     deterministicModuleLastBuilt: 'Last built',
+    deterministicModuleRebuiltTailNote:
+      'Rebuilt structural tail entities for {profile}.',
+    deterministicModuleNoVisibleVisitsClearedVisitFacts:
+      'No visible visits remained for {profile}; cleared visit-derived facts.',
+    deterministicModuleVisitFactsUpToDate:
+      'Visit-derived facts for {profile} were already up to date.',
+    deterministicModuleVisitFactsRefreshed:
+      'Incrementally refreshed visit-derived facts for {profile}.',
+    deterministicModuleVisitFactsRebuilt:
+      'Rebuilt visit-derived facts for {profile} with a scoped full refresh.',
+    deterministicModuleNoVisibleVisitsClearedDailyRollups:
+      'No visible visits remained for {profile}; cleared daily rollups.',
+    deterministicModuleDailyRollupsUpToDate:
+      'Daily rollups for {profile} were already up to date.',
+    deterministicModuleDailyRollupsRefreshed:
+      'Refreshed dirty daily rollups for {profile}.',
+    deterministicModuleDailyRollupsRebuilt:
+      'Rebuilt all daily rollups for {profile}.',
+    deterministicModuleDailyRollupsManualRebuild:
+      'Manual full rebuild requested for daily rollups.',
+    deterministicModuleDailyRollupsVisibilityRegressed:
+      'Archive visibility regressed or source counters moved backwards for daily rollups.',
+    deterministicModuleNoVisibleVisitsClearedStructural:
+      'No visible visits remained for {profile}; cleared structural entities.',
+    deterministicModuleStructuralUpToDate:
+      'Structural entities for {profile} were already up to date.',
+    deterministicModuleStructuralTailRebuilt:
+      'Rebuilt structural tail entities for {profile}.',
+    deterministicModuleStructuralRebuilt:
+      'Rebuilt all structural entities for {profile}.',
     deterministicModuleStaleReason: 'Stale reason',
     deterministicModuleReady: 'Ready',
     deterministicModuleStale: 'Stale',
@@ -132,6 +162,9 @@ export const settingsDerivedAndRuntimeNamespace = {
     disablePlugin: 'Disable',
     enablePlugin: 'Enable',
     runtimeRecentJobs: 'Recent runtime jobs',
+    runtimeQueueDetailsTitle: 'Runtime job details live in Background Jobs',
+    runtimeQueueDetailsBody:
+      'Maintenance shows module and plugin settings plus rebuild controls. Retry, cancel, logs, and recent job walls stay on the Jobs page.',
     runtimeNoJobs:
       'Recent queue activity will appear here after a deterministic refresh.',
     deterministicRebuildJobLabel: 'Deterministic rebuild',
@@ -252,13 +285,38 @@ export const settingsDerivedAndRuntimeNamespace = {
       '解释哪些搜索轨迹会重新打开问题、收敛，或带来有用的后续结果。',
     domainDeepDiveModule: '域名深挖',
     domainDeepDiveModuleDescription:
-      '维护域名节奏、习惯和 path flow 等更深入的 deterministic review surface。',
+      '维护域名节奏、习惯和路径流等更深入的确定性复核界面。',
     deterministicModuleFallbackDescription:
-      '在依赖这个结果之前，先检查保存下来的模块 trace。',
+      '在依赖这个结果之前，先检查保存下来的模块跟踪记录。',
     deterministicModuleVersion: '模块版本',
     deterministicModuleDependsOn: '依赖',
     deterministicModuleTables: '派生数据表',
     deterministicModuleLastBuilt: '上次构建',
+    deterministicModuleRebuiltTailNote: '已为 {profile} 重建结构化尾部实体。',
+    deterministicModuleNoVisibleVisitsClearedVisitFacts:
+      '{profile} 没有剩余可见访问，已清除访问派生事实。',
+    deterministicModuleVisitFactsUpToDate:
+      '{profile} 的访问派生事实已经是最新。',
+    deterministicModuleVisitFactsRefreshed:
+      '已为 {profile} 增量刷新访问派生事实。',
+    deterministicModuleVisitFactsRebuilt:
+      '已为 {profile} 用限定范围的完整刷新重建访问派生事实。',
+    deterministicModuleNoVisibleVisitsClearedDailyRollups:
+      '{profile} 没有剩余可见访问，已清除每日汇总。',
+    deterministicModuleDailyRollupsUpToDate: '{profile} 的每日汇总已经是最新。',
+    deterministicModuleDailyRollupsRefreshed:
+      '已为 {profile} 刷新变更过的每日汇总。',
+    deterministicModuleDailyRollupsRebuilt: '已为 {profile} 重建全部每日汇总。',
+    deterministicModuleDailyRollupsManualRebuild:
+      '已请求手动完整重建每日汇总。',
+    deterministicModuleDailyRollupsVisibilityRegressed:
+      '存档可见性回退，或每日汇总的来源计数出现倒退。',
+    deterministicModuleNoVisibleVisitsClearedStructural:
+      '{profile} 没有剩余可见访问，已清除结构化实体。',
+    deterministicModuleStructuralUpToDate: '{profile} 的结构化实体已经是最新。',
+    deterministicModuleStructuralTailRebuilt:
+      '已为 {profile} 重建结构化尾部实体。',
+    deterministicModuleStructuralRebuilt: '已为 {profile} 重建全部结构化实体。',
     deterministicModuleStaleReason: '过期原因',
     deterministicModuleReady: '已就绪',
     deterministicModuleStale: '已过期',
@@ -283,14 +341,16 @@ export const settingsDerivedAndRuntimeNamespace = {
     disablePlugin: '关闭',
     enablePlugin: '开启',
     runtimeRecentJobs: '最近运行任务',
+    runtimeQueueDetailsTitle: '运行任务详情在后台任务页',
+    runtimeQueueDetailsBody:
+      '维护页只显示模块 / 插件设置和重建控制。重试、取消、日志和最近任务列表统一留在后台任务页。',
     runtimeNoJobs: '下一次确定性刷新后，这里会显示最近的队列活动。',
     deterministicRebuildJobLabel: '确定性重建',
     runtimeJobAttempt: '第 {attempt} 次尝试',
     retryRuntimeJob: '重试',
     cancelRuntimeJob: '取消',
     runtimeUnavailableTitle: '无法加载运行状态',
-    runtimeUnavailableBody:
-      'PathKeep 目前无法加载增强运行时的 review surface。',
+    runtimeUnavailableBody: 'PathKeep 目前无法加载增强运行时复核界面。',
     runtimeStateQueued: '排队中',
     runtimeStateRunning: '运行中',
     runtimeStateSucceeded: '已完成',
@@ -401,13 +461,38 @@ export const settingsDerivedAndRuntimeNamespace = {
       '解釋哪些搜尋軌跡會重新打開問題、收斂，或帶來有用的後續結果。',
     domainDeepDiveModule: '網域深挖',
     domainDeepDiveModuleDescription:
-      '維護網域節奏、習慣與 path flow 等更深入的 deterministic review surface。',
+      '維護網域節奏、習慣與路徑流等更深入的確定性複核介面。',
     deterministicModuleFallbackDescription:
-      '在依賴這個結果之前，先檢查保存下來的模組 trace。',
+      '在依賴這個結果之前，先檢查保存下來的模組追蹤記錄。',
     deterministicModuleVersion: '模組版本',
     deterministicModuleDependsOn: '依賴',
     deterministicModuleTables: '衍生資料表',
     deterministicModuleLastBuilt: '上次建置',
+    deterministicModuleRebuiltTailNote: '已為 {profile} 重建結構化尾端實體。',
+    deterministicModuleNoVisibleVisitsClearedVisitFacts:
+      '{profile} 沒有剩餘可見造訪，已清除造訪衍生事實。',
+    deterministicModuleVisitFactsUpToDate:
+      '{profile} 的造訪衍生事實已經是最新。',
+    deterministicModuleVisitFactsRefreshed:
+      '已為 {profile} 增量刷新造訪衍生事實。',
+    deterministicModuleVisitFactsRebuilt:
+      '已為 {profile} 用限定範圍的完整刷新重建造訪衍生事實。',
+    deterministicModuleNoVisibleVisitsClearedDailyRollups:
+      '{profile} 沒有剩餘可見造訪，已清除每日彙總。',
+    deterministicModuleDailyRollupsUpToDate: '{profile} 的每日彙總已經是最新。',
+    deterministicModuleDailyRollupsRefreshed:
+      '已為 {profile} 刷新變更過的每日彙總。',
+    deterministicModuleDailyRollupsRebuilt: '已為 {profile} 重建全部每日彙總。',
+    deterministicModuleDailyRollupsManualRebuild:
+      '已要求手動完整重建每日彙總。',
+    deterministicModuleDailyRollupsVisibilityRegressed:
+      '封存可見性回退，或每日彙總的來源計數出現倒退。',
+    deterministicModuleNoVisibleVisitsClearedStructural:
+      '{profile} 沒有剩餘可見造訪，已清除結構化實體。',
+    deterministicModuleStructuralUpToDate: '{profile} 的結構化實體已經是最新。',
+    deterministicModuleStructuralTailRebuilt:
+      '已為 {profile} 重建結構化尾端實體。',
+    deterministicModuleStructuralRebuilt: '已為 {profile} 重建全部結構化實體。',
     deterministicModuleStaleReason: '過期原因',
     deterministicModuleReady: '已就緒',
     deterministicModuleStale: '已過期',
@@ -432,14 +517,16 @@ export const settingsDerivedAndRuntimeNamespace = {
     disablePlugin: '關閉',
     enablePlugin: '開啟',
     runtimeRecentJobs: '最近執行工作',
+    runtimeQueueDetailsTitle: '執行工作詳情在背景工作頁',
+    runtimeQueueDetailsBody:
+      '維護頁只顯示模組 / 外掛設定和重建控制。重試、取消、日誌和最近工作列表統一留在背景工作頁。',
     runtimeNoJobs: '下一次確定性重新整理後，這裡會顯示最近的佇列活動。',
     deterministicRebuildJobLabel: '確定性重建',
     runtimeJobAttempt: '第 {attempt} 次嘗試',
     retryRuntimeJob: '重試',
     cancelRuntimeJob: '取消',
     runtimeUnavailableTitle: '無法載入執行狀態',
-    runtimeUnavailableBody:
-      'PathKeep 目前無法載入增強 runtime 的 review surface。',
+    runtimeUnavailableBody: 'PathKeep 目前無法載入增強執行狀態複核介面。',
     runtimeStateQueued: '排隊中',
     runtimeStateRunning: '執行中',
     runtimeStateSucceeded: '已完成',

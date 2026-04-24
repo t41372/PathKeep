@@ -30,6 +30,9 @@ import { formatDateTime } from '../../lib/format'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import {
   buildDigestMetricItems,
+  localizeOutputCardBody,
+  localizeOutputCardEyebrow,
+  localizeOutputCardTitle,
   type Translate,
 } from './external-outputs-shared'
 import { OutputTargetLinks } from './external-outputs-target-links'
@@ -105,9 +108,11 @@ export function ExternalOutputsWidgetTab({
               <div className="settings-output-card__header">
                 <div>
                   {card.eyebrow ? (
-                    <p className="mono-kicker">{card.eyebrow}</p>
+                    <p className="mono-kicker">
+                      {localizeOutputCardEyebrow(card.eyebrow, t)}
+                    </p>
                   ) : null}
-                  <h3>{card.title}</h3>
+                  <h3>{localizeOutputCardTitle(card.title, t)}</h3>
                 </div>
                 {card.internalOnly ? (
                   <span className="panel-badge">
@@ -115,7 +120,7 @@ export function ExternalOutputsWidgetTab({
                   </span>
                 ) : null}
               </div>
-              <p>{card.body}</p>
+              <p>{localizeOutputCardBody(card.body, t)}</p>
               <OutputTargetLinks
                 activeProfileId={activeProfileId}
                 card={card}
@@ -140,6 +145,7 @@ export function ExternalOutputsWidgetTab({
         copyKey="widget"
         copyLabel={copyLabel}
         code={json}
+        defaultOpen={false}
         errorMessage={t('externalOutputsCopyFailed')}
         onCopy={onCopy}
         successMessage={commonT('copiedNotice')}

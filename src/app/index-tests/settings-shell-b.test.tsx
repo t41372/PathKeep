@@ -42,7 +42,7 @@ describe('App shell', () => {
     resetAppShellHarness()
   })
 
-  test('saves analytics consent and runs the updater review flow from settings', async () => {
+  test('saves analytics consent in settings and runs updater review from maintenance', async () => {
     await seedArchiveRun()
     const user = userEvent.setup()
     const saveConfigSpy = vi.spyOn(backend, 'saveConfig')
@@ -85,16 +85,8 @@ describe('App shell', () => {
 
     const settingsPage = await screen.findByTestId('settings-page')
     const analyticsPanel = expectHtmlElement(
-      within(settingsPage)
-        .getByText(settingsT('analyticsTitle'))
-        .closest('.panel'),
+      document.getElementById('settings-analytics'),
     )
-    const updatePanel = expectHtmlElement(
-      within(settingsPage)
-        .getByText(settingsT('updateTitle'))
-        .closest('.panel'),
-    )
-
     await user.click(
       within(analyticsPanel).getByRole('checkbox', {
         name: settingsT('analyticsEnabled'),
@@ -104,6 +96,20 @@ describe('App shell', () => {
       within(analyticsPanel).getByRole('button', {
         name: settingsT('analyticsSave'),
       }),
+    )
+
+    const maintenanceLink = expectHtmlElement(
+      within(settingsPage)
+        .getAllByRole('link', {
+          name: new RegExp(settingsT('openMaintenance')),
+        })
+        .find((link) => link.getAttribute('href') === '/maintenance') ?? null,
+    )
+    await user.click(maintenanceLink)
+
+    await screen.findByTestId('maintenance-page')
+    const updatePanel = expectHtmlElement(
+      document.getElementById('settings-updater'),
     )
 
     await waitFor(() => {
@@ -153,16 +159,14 @@ describe('App shell', () => {
     )
 
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/settings'],
+      initialEntries: ['/maintenance'],
     })
 
     render(<App router={router} />)
 
-    const settingsPage = await screen.findByTestId('settings-page')
+    await screen.findByTestId('maintenance-page')
     const updatePanel = expectHtmlElement(
-      within(settingsPage)
-        .getByText(settingsT('updateTitle'))
-        .closest('.panel'),
+      document.getElementById('settings-updater'),
     )
     const checkButton = within(updatePanel).getByRole('button', {
       name: settingsT('updateCheckNow'),

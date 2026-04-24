@@ -41,6 +41,7 @@ import { buildRetentionSelection, type SupportState } from './helpers'
 interface UseSettingsSupportStateArgs {
   appLockStatus: AppLockStatus | null
   clearAppLockPasscode: () => Promise<AppLockStatus>
+  enableRetentionPreview?: boolean
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   refreshAppData: () => Promise<void>
   refreshKey: number
@@ -63,6 +64,7 @@ interface UseSettingsSupportStateArgs {
 export function useSettingsSupportState({
   appLockStatus,
   clearAppLockPasscode,
+  enableRetentionPreview = true,
   lockAppSession,
   refreshAppData,
   refreshKey,
@@ -109,6 +111,7 @@ export function useSettingsSupportState({
     0,
   )
   const retentionNeedsUnlock =
+    enableRetentionPreview &&
     supportState.securityStatus?.encrypted === true &&
     supportState.securityStatus.unlocked === false
   const appLockConfigDirty =
@@ -164,6 +167,15 @@ export function useSettingsSupportState({
     let cancelled = false
 
     const loadRetentionPreview = async () => {
+      if (!enableRetentionPreview) {
+        setRetentionPreview(null)
+        setRetentionSelection({})
+        setRetentionResult(null)
+        setRetentionAction(null)
+        setRetentionError(null)
+        return
+      }
+
       try {
         const preview = await backend.previewRetentionPrune()
         if (!cancelled) {
@@ -187,7 +199,7 @@ export function useSettingsSupportState({
     return () => {
       cancelled = true
     }
-  }, [refreshKey, snapshot?.config.initialized, t])
+  }, [enableRetentionPreview, refreshKey, snapshot?.config.initialized, t])
 
   async function handleSupportPathCopy(key: string, value: string) {
     await copyReviewValue(value, {
@@ -247,6 +259,10 @@ export function useSettingsSupportState({
   }
 
   async function refreshRetentionPreview() {
+    if (!enableRetentionPreview) {
+      return
+    }
+
     try {
       const preview = await backend.previewRetentionPrune()
       setRetentionPreview(preview)
@@ -270,6 +286,10 @@ export function useSettingsSupportState({
   }
 
   async function handleRetentionPrune() {
+    if (!enableRetentionPreview) {
+      return
+    }
+
     if (selectedRetentionBuckets.length === 0) {
       setRetentionError(t('settings.retentionNothingSelected'))
       return

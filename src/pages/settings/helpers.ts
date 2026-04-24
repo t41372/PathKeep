@@ -466,16 +466,30 @@ function localizeAiIntegrationLine(
 function localizeLocalHostLine(value: string, t: SettingsTranslator): string {
   switch (value) {
     case 'This local host only uses deterministic Core Intelligence read models.':
+    case '这个本地宿主只使用 deterministic Core Intelligence read models。':
+    case '這個本地宿主只使用 deterministic Core Intelligence read models。':
       return t('externalOutputsLocalHostBoundaryDeterministic')
     case 'Trusted-only cards must stay inside PathKeep-controlled local surfaces.':
+    case 'trusted-only 卡片必须留在 PathKeep 控制的本地 surface 内。':
+    case 'trusted-only 卡片必须留在 PathKeep 控制的受信任本地 surface 里。':
+    case 'trusted-only 卡片必須留在 PathKeep 控制的本地 surface 內。':
+    case 'trusted-only 卡片必須留在 PathKeep 控制的受信任本地 surface 裡。':
       return t('externalOutputsLocalHostBoundaryTrusted')
+    case 'Public snapshots intentionally omit visit-level identifiers and direct page URLs.':
+    case 'public snapshot 仍会保持脱敏，不包含 visit-level URL 或标识字段。':
+    case 'public snapshot 仍會保持去識別化，不包含 visit-level URL 或識別欄位。':
+      return t('externalOutputsLocalHostBoundaryPublic')
     case 'Review index.html and bundle.json before handing this folder to another trusted local tool.':
       return t('externalOutputsLocalHostManualReview')
     case 'Open index.html from this folder inside a trusted local browser surface.':
       return t('externalOutputsLocalHostManualOpen')
     case 'Rebuild this local snippet whenever scope, window, or locale changes.':
+    case '只要 scope、时间窗口或语言发生变化，就重新创建这个本地片段。':
+    case '只要 scope、時間視窗或語言改變，就重新建立這個本地片段。':
       return t('externalOutputsLocalHostManualRebuild')
     case 'This local snippet includes trusted-only cards and should not be treated like a public export.':
+    case '这个本地片段包含 trusted-only 卡片，不能把它当成公开导出。':
+    case '這個本地片段包含 trusted-only 卡片，不能把它當成公開匯出。':
       return t('externalOutputsLocalHostWarningTrusted')
     case 'Core Intelligence snippet that can be opened directly in a local browser.':
       return t('externalOutputsLocalHostPurposeEntry')

@@ -26,7 +26,7 @@ import { backend } from '../../lib/backend-client'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
-import { SettingsPage } from '../settings'
+import { MaintenancePage } from '../maintenance'
 import {
   createShellValue,
   renderSurface,
@@ -152,10 +152,10 @@ describe('intelligence surfaces settings runtime and search rules', () => {
     const shellValue = createShellValue(snapshot, dashboard)
     shellValue.saveConfig = vi.fn().mockResolvedValue(snapshot)
 
-    renderSurface(<SettingsPage />, {
+    renderSurface(<MaintenancePage />, {
       dashboard,
       language: 'en',
-      route: '/settings',
+      route: '/maintenance',
       shellValue,
       snapshot,
     })
@@ -221,10 +221,10 @@ describe('intelligence surfaces settings runtime and search rules', () => {
         notes: ['Queued rebuild after search rule update.'],
       })
 
-    renderSurface(<SettingsPage />, {
+    renderSurface(<MaintenancePage />, {
       dashboard,
       language: 'en',
-      route: '/settings',
+      route: '/maintenance',
       snapshot,
     })
 

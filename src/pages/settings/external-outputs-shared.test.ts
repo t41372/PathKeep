@@ -1,78 +1,70 @@
 /**
  * @file external-outputs-shared.test.ts
- * @description Protects the pure helper contract behind the split Settings external-output review surface.
+ * @description Protects locale-owned external-output preview helpers.
  * @module pages/settings
  *
  * ## Responsibilities
- * - Verify that review JSON formatting stays deterministic.
- * - Verify that digest metric rows preserve locale formatting and shipped label order.
+ * - Verify backend-authored Core Intelligence card copy is localized before display.
+ * - Keep known dynamic card-body patterns covered without rendering the full route.
  *
  * ## Not responsible for
- * - Rendering the Settings page or tab components
- * - Verifying async Core Intelligence fetch behavior
+ * - Testing the external-output route, tabs, or backend payload fetching.
+ * - Validating raw JSON payload content.
  *
  * ## Dependencies
- * - Depends only on the pure helpers in `external-outputs-shared.ts`.
+ * - Depends on the Settings namespace translator so helper assertions exercise real locale keys.
  *
  * ## Performance notes
- * - Keeps the split helper module testable without booting a route harness.
+ * - Pure helper tests only; no DOM render or backend fixture setup.
  */
 
 import { describe, expect, test } from 'vitest'
-import { buildDigestMetricItems, prettyJson } from './external-outputs-shared'
+import { createNamespaceTranslator } from '../../lib/i18n'
+import {
+  localizeOutputCardBody,
+  localizeOutputCardEyebrow,
+  localizeOutputCardTitle,
+} from './external-outputs-shared'
 
-describe('external output shared helpers', () => {
-  test('prettyJson keeps review payloads stable and indented', () => {
-    expect(prettyJson({ a: 1, nested: { ok: true } })).toBe(
-      '{\n  "a": 1,\n  "nested": {\n    "ok": true\n  }\n}',
+describe('external-output preview localization helpers', () => {
+  test('localizes known backend card strings for zh-CN previews', () => {
+    const t = createNamespaceTranslator('zh-CN', 'settings')
+
+    expect(localizeOutputCardTitle('Visits', t)).toBe('访问')
+    expect(localizeOutputCardTitle('On This Day · 2025', t)).toBe(
+      '历史今日 · 2025',
+    )
+    expect(localizeOutputCardEyebrow('STABLE SOURCE', t)).toBe('稳定来源')
+    expect(
+      localizeOutputCardBody(
+        'Total visits in the selected intelligence window.',
+        t,
+      ),
+    ).toBe('这个智能时间窗口内的总访问次数。')
+    expect(
+      localizeOutputCardBody(
+        'This page kept resurfacing across 348 days and 1089 trails.',
+        t,
+      ),
+    ).toBe('这个页面在 348 天、1089 条轨迹中反复出现。')
+    expect(
+      localizeOutputCardBody(
+        'github.com often resolves trails as a reference source.',
+        t,
+      ),
+    ).toBe('github.com 经常作为参考来源帮助收束浏览轨迹。')
+    expect(localizeOutputCardBody('Mostly browsing linux.do', t)).toBe(
+      '主要在浏览 linux.do',
     )
   })
 
-  test('buildDigestMetricItems preserves shipped order and locale formatting', () => {
-    const items = buildDigestMetricItems(
-      {
-        dateRange: { start: '2026-03-17', end: '2026-04-17' },
-        totalVisits: {
-          value: 1200,
-          previousValue: 1000,
-          changePercent: 20,
-          trend: 'up',
-        },
-        totalSearches: {
-          value: 250,
-          previousValue: 200,
-          changePercent: 25,
-          trend: 'up',
-        },
-        newDomains: {
-          value: 30,
-          previousValue: 20,
-          changePercent: 50,
-          trend: 'up',
-        },
-        deepReadPages: {
-          value: 11,
-          previousValue: 10,
-          changePercent: 10,
-          trend: 'up',
-        },
-        refindPages: {
-          value: 5,
-          previousValue: 4,
-          changePercent: 25,
-          trend: 'up',
-        },
-      },
-      'en-US',
-      (key) => `label:${key}`,
-    )
+  test('leaves unknown future backend strings untouched', () => {
+    const t = createNamespaceTranslator('en', 'settings')
 
-    expect(items).toEqual([
-      { label: 'label:digestVisits', value: '1,200' },
-      { label: 'label:digestSearches', value: '250' },
-      { label: 'label:digestNewSites', value: '30' },
-      { label: 'label:digestDeepRead', value: '11' },
-      { label: 'label:digestRefind', value: '5' },
-    ])
+    expect(localizeOutputCardTitle('Custom signal', t)).toBe('Custom signal')
+    expect(localizeOutputCardEyebrow('EXPERIMENT', t)).toBe('EXPERIMENT')
+    expect(localizeOutputCardBody('Future backend sentence.', t)).toBe(
+      'Future backend sentence.',
+    )
   })
 })

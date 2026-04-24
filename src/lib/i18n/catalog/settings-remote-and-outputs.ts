@@ -28,6 +28,9 @@ export const settingsRemoteAndOutputsNamespace = {
     remoteBackupSummary: 'Upload your archive to cloud storage',
     remoteBackupBody:
       'Preview what will upload, review the details, upload, then verify the backup can be restored.',
+    remotePreferencesTitle: 'Saved cloud backup configuration',
+    remotePreferencesBody:
+      'Keep bucket, endpoint, upload-after-backup, and credential storage here. Preview, upload, and verify the backup from Maintenance.',
     remoteEnabled: 'Enable cloud backup',
     bucketLabel: 'Bucket',
     regionLabel: 'Region',
@@ -122,6 +125,24 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsOpenInsights: 'Open insights',
     externalOutputsEmbedEmpty:
       'No embed cards are available for this scope yet.',
+    externalOutputsCardVisitsTitle: 'Visits',
+    externalOutputsCardSearchesTitle: 'Searches',
+    externalOutputsCardOnThisDayTitle: 'On This Day · {year}',
+    externalOutputsCardTopSiteEyebrow: 'TOP SITE',
+    externalOutputsCardRefindEyebrow: 'REFIND',
+    externalOutputsCardStableSourceEyebrow: 'STABLE SOURCE',
+    externalOutputsCardTotalVisitsBody:
+      'Total visits in the selected intelligence window.',
+    externalOutputsCardTotalSearchesBody:
+      'Total search events observed in the selected intelligence window.',
+    externalOutputsCardTopDomainBody:
+      '{domain} was one of the most frequently visited domains in this window.',
+    externalOutputsCardRefindBody:
+      'This page kept resurfacing across {days} days and {trails} trails.',
+    externalOutputsCardSourceReference: 'reference',
+    externalOutputsCardSourceBody:
+      '{domain} often resolves trails as a {source} source.',
+    externalOutputsCardMostlyBrowsingBody: 'Mostly browsing {domain}',
     externalOutputsJsonTitle: 'Raw JSON payload',
     externalOutputsWidgetPreviewTitle: 'Widget snapshot preview',
     externalOutputsWindowLabel: 'Window: {start} → {end}',
@@ -179,6 +200,8 @@ export const settingsRemoteAndOutputsNamespace = {
       'This local host only uses deterministic Core Intelligence read models.',
     externalOutputsLocalHostBoundaryTrusted:
       'Trusted-only cards must stay inside PathKeep-controlled local surfaces.',
+    externalOutputsLocalHostBoundaryPublic:
+      'Public snapshots stay redacted and omit visit-level URLs or identifiers.',
     externalOutputsLocalHostManualReview:
       'Review index.html and bundle.json before handing this folder to another trusted local tool.',
     externalOutputsLocalHostManualOpen:
@@ -198,6 +221,9 @@ export const settingsRemoteAndOutputsNamespace = {
     remoteBackupSummary: '将存档上传到云端存储',
     remoteBackupBody:
       '先预览会上传什么，再检查、上传，最后确认这份备份可以恢复。',
+    remotePreferencesTitle: '已保存的云端备份配置',
+    remotePreferencesBody:
+      '这里保留 bucket、endpoint、备份后自动上传和凭证保存设置。预览、上传和验证备份请到维护页。',
     remoteEnabled: '启用云端备份',
     bucketLabel: 'Bucket',
     regionLabel: 'Region',
@@ -255,51 +281,68 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsSummaryTitle:
       '先检查 Core Intelligence 输出，再带到别处使用',
     externalOutputsSummaryBody:
-      '在这里预览 embed cards、widget snapshot 和 public snapshot，然后把需要的 payload 手动复制到你信任的本地宿主。',
+      '在这里预览嵌入卡片、小组件快照和公开快照，然后把需要的载荷手动复制到你信任的本地宿主。',
     externalOutputsScopedTitle: '沿用共享 profile 范围',
     externalOutputsScopedBody:
-      '这些预览现在只会读取 {profile}。如果你想看 archive-wide 的输出 payload，请先清除 shell 顶部的共享 profile scope。',
-    externalOutputsArchiveWideTitle: '当前是 archive-wide 预览',
+      '这些预览现在只会读取 {profile}。如果你想看全存档输出，请先清除顶部的共享浏览器范围。',
+    externalOutputsArchiveWideTitle: '当前是全存档预览',
     externalOutputsArchiveWideBody:
-      '这些预览会读取整个当前可见存档。如果你想只看某个 profile 的输出，请先在 shell 里切换共享 profile scope。',
+      '这些预览会读取整个当前可见存档。如果你想只看某个浏览器配置的输出，请先在顶部切换共享浏览器范围。',
     externalOutputsNeedsArchiveTitle: '先创建存档，才能检查手动输出',
     externalOutputsNeedsArchiveBody:
-      'PathKeep 需要先完成 archive 初始化，才能生成 embed cards、widget snapshots 和 public snapshots。',
+      'PathKeep 需要先完成存档初始化，才能生成嵌入卡片、小组件快照和公开快照。',
     externalOutputsUnlockTitle: '先解锁存档，才能检查手动输出',
     externalOutputsUnlockBody:
-      '只有当前 archive session 处于解锁状态时，手动输出预览才会加载。',
+      '只有当前存档会话处于解锁状态时，手动输出预览才会加载。',
     externalOutputsManualOnlyTitle: '仅支持手动复制 / 导出',
     externalOutputsManualOnlyBody:
-      '这里不会安装小组件、发布 localhost API，也不会保存可复用的宿主产物。请先检查 payload，再手动复制到你信任的本地 surface。',
-    externalOutputsTabEmbed: 'Embed cards',
-    externalOutputsTabWidget: 'Widget snapshot',
-    externalOutputsTabPublic: 'Public snapshot',
+      '这里不会安装小组件、发布本机 API，也不会保存可复用的宿主产物。请先检查载荷，再手动复制到你信任的本地界面。',
+    externalOutputsTabEmbed: '嵌入卡片',
+    externalOutputsTabWidget: '小组件快照',
+    externalOutputsTabPublic: '公开快照',
     externalOutputsLoading: '正在加载手动输出预览',
     externalOutputsUnavailableTitle: '手动输出暂时不可用',
     externalOutputsUnavailableBody:
-      'PathKeep 现在无法加载这组手动输出预览。等 shell 完成刷新后再试一次。',
-    externalOutputsEmbedPreviewTitle: 'Embed card 预览',
+      'PathKeep 现在无法加载这组手动输出预览。等主界面完成刷新后再试一次。',
+    externalOutputsEmbedPreviewTitle: '嵌入卡片预览',
     externalOutputsTrustedOnlyBadge: '仅限受信任宿主',
-    externalOutputsHref: 'Payload href',
+    externalOutputsHref: '载荷链接',
     externalOutputsOpenInsights: '打开洞察',
-    externalOutputsEmbedEmpty: '这个范围里暂时没有可用的 embed cards。',
-    externalOutputsJsonTitle: '原始 JSON payload',
-    externalOutputsWidgetPreviewTitle: 'Widget snapshot 预览',
+    externalOutputsEmbedEmpty: '这个范围里暂时没有可用的嵌入卡片。',
+    externalOutputsCardVisitsTitle: '访问',
+    externalOutputsCardSearchesTitle: '搜索',
+    externalOutputsCardOnThisDayTitle: '历史今日 · {year}',
+    externalOutputsCardTopSiteEyebrow: '常访站点',
+    externalOutputsCardRefindEyebrow: '反复回访',
+    externalOutputsCardStableSourceEyebrow: '稳定来源',
+    externalOutputsCardTotalVisitsBody: '这个智能时间窗口内的总访问次数。',
+    externalOutputsCardTotalSearchesBody:
+      '这个智能时间窗口内观察到的搜索事件总数。',
+    externalOutputsCardTopDomainBody:
+      '{domain} 是这个时间窗口中最常访问的域名之一。',
+    externalOutputsCardRefindBody:
+      '这个页面在 {days} 天、{trails} 条轨迹中反复出现。',
+    externalOutputsCardSourceReference: '参考',
+    externalOutputsCardSourceBody:
+      '{domain} 经常作为{source}来源帮助收束浏览轨迹。',
+    externalOutputsCardMostlyBrowsingBody: '主要在浏览 {domain}',
+    externalOutputsJsonTitle: '原始 JSON 载荷',
+    externalOutputsWidgetPreviewTitle: '小组件快照预览',
     externalOutputsWindowLabel: '时间范围：{start} → {end}',
     externalOutputsWidgetTrustedTitle: '需要受信任宿主审查',
     externalOutputsWidgetTrustedBody:
-      '这个 widget snapshot 仍包含标记为 trusted-only 的卡片。请把它留在受信任的 PathKeep 控制宿主里，不要把它当成公开导出内容。',
-    externalOutputsPublicPreviewTitle: 'Public snapshot 预览',
-    externalOutputsPublicRedactedTitle: 'Public snapshot 会保持脱敏',
+      '这份小组件快照仍包含仅限受信任宿主的卡片。请把它留在 PathKeep 控制的受信任宿主里，不要把它当成公开导出内容。',
+    externalOutputsPublicPreviewTitle: '公开快照预览',
+    externalOutputsPublicRedactedTitle: '公开快照会保持脱敏',
     externalOutputsPublicRedactedBody:
-      '这个 payload 会刻意省略 visit ID 和直接页面 URL，这样在离开受信任的 PathKeep surface 时会更安全。',
-    externalOutputsTopDomains: 'Top domains',
+      '这份载荷会刻意省略访问 ID 和直接页面 URL，离开 PathKeep 受信任界面时会更安全。',
+    externalOutputsTopDomains: '常访域名',
     externalOutputsSearchEngines: '搜索引擎',
     externalOutputsNoSearchEngines: '这个时间范围里没有可用的搜索引擎活动。',
     externalOutputsDiscoveryTrend: '发现趋势',
     externalOutputsNoDiscoveryTrend: '这个时间范围里没有可用的发现趋势点。',
     externalOutputsCopyFailed:
-      '这份 payload 无法直接复制，请改为手动从 JSON 区块复制。',
+      '这份载荷无法直接复制，请改为手动从 JSON 区块复制。',
     externalOutputsLocalHostTitle: '受信任本地宿主',
     externalOutputsLocalHostBadge: '仅限本地',
     externalOutputsLocalHostSummaryTitle: '可复用的浏览器片段',
@@ -308,7 +351,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostLoading: '正在加载本地宿主预览',
     externalOutputsLocalHostUnavailableTitle: '本地宿主预览暂时不可用',
     externalOutputsLocalHostUnavailableBody:
-      'PathKeep 现在无法准备这组本地宿主预览。等 shell 完成刷新后再试一次。',
+      'PathKeep 现在无法准备这组本地宿主预览。等主界面完成刷新后再试一次。',
     externalOutputsLocalHostPreviewTitle: '预览',
     externalOutputsLocalHostPreviewBody:
       'PathKeep 会在 {path} 写入或更新这个受信任的本地片段。先检查生成文件，再决定是否创建它。',
@@ -317,7 +360,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostManualTitle: '手动检查',
     externalOutputsLocalHostExecuteTitle: '创建或更新本地片段',
     externalOutputsLocalHostExecuteBody:
-      '这个动作会把 index.html 和 bundle.json 写入固定的本地宿主目录。只要 scope、时间窗口或语言变了，就应该重新生成。',
+      '这个动作会把 index.html 和 bundle.json 写入固定的本地宿主目录。只要范围、时间窗口或语言变了，就应该重新生成。',
     externalOutputsLocalHostCreateAction: '创建本地片段',
     externalOutputsLocalHostUpdateAction: '更新本地片段',
     externalOutputsLocalHostBuilding: '正在生成本地片段…',
@@ -334,21 +377,23 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostOpenAction: '打开本地宿主',
     externalOutputsLocalHostCopyPathAction: '复制路径',
     externalOutputsLocalHostBoundaryDeterministic:
-      '这个本地宿主只使用 deterministic Core Intelligence read models。',
+      '这个本地宿主只使用确定性的 Core Intelligence 读取模型。',
     externalOutputsLocalHostBoundaryTrusted:
-      'trusted-only 卡片必须留在 PathKeep 控制的本地 surface 内。',
+      '仅限受信任宿主的卡片必须留在 PathKeep 控制的本地界面内。',
+    externalOutputsLocalHostBoundaryPublic:
+      '公开快照会保持脱敏，不包含访问级 URL 或标识字段。',
     externalOutputsLocalHostManualReview:
       '先检查 index.html 和 bundle.json，再把这个文件夹交给其他受信任的本地工具。',
     externalOutputsLocalHostManualOpen:
       '直接从这个文件夹打开 index.html，在受信任的本地浏览器宿主里查看它。',
     externalOutputsLocalHostManualRebuild:
-      '只要 scope、时间窗口或语言发生变化，就重新创建这个本地片段。',
+      '只要范围、时间窗口或语言发生变化，就重新创建这个本地片段。',
     externalOutputsLocalHostWarningTrusted:
-      '这个本地片段包含 trusted-only 卡片，不能把它当成公开导出。',
+      '这个本地片段包含仅限受信任宿主的卡片，不能把它当成公开导出。',
     externalOutputsLocalHostPurposeEntry:
       '可直接在本机浏览器打开的 Core Intelligence 片段。',
     externalOutputsLocalHostPurposeBundle:
-      '同一份本地宿主数据的机器可读 JSON bundle。',
+      '同一份本地宿主数据的机器可读 JSON 包。',
   },
   'zh-TW': {
     remoteBackup: '雲端備份',
@@ -356,6 +401,9 @@ export const settingsRemoteAndOutputsNamespace = {
     remoteBackupSummary: '將封存上傳到雲端儲存',
     remoteBackupBody:
       '先預覽會上傳什麼，再檢查、上傳，最後確認這份備份可以還原。',
+    remotePreferencesTitle: '已保存的雲端備份設定',
+    remotePreferencesBody:
+      '這裡保留 bucket、endpoint、備份後自動上傳和憑證保存設定。預覽、上傳和驗證備份請到維護頁。',
     remoteEnabled: '啟用雲端備份',
     bucketLabel: 'Bucket',
     regionLabel: 'Region',
@@ -413,51 +461,68 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsSummaryTitle:
       '先檢查 Core Intelligence 輸出，再帶到別處使用',
     externalOutputsSummaryBody:
-      '在這裡預覽 embed cards、widget snapshot 和 public snapshot，然後把需要的 payload 手動複製到你信任的本地宿主。',
+      '在這裡預覽嵌入卡片、小工具快照和公開快照，然後把需要的載荷手動複製到你信任的本地宿主。',
     externalOutputsScopedTitle: '沿用共享 profile 範圍',
     externalOutputsScopedBody:
-      '這些預覽現在只會讀取 {profile}。如果你想看 archive-wide 的輸出 payload，請先清除 shell 頂部的共享 profile scope。',
-    externalOutputsArchiveWideTitle: '目前是 archive-wide 預覽',
+      '這些預覽現在只會讀取 {profile}。如果你想看全封存輸出，請先清除頂部的共享瀏覽器範圍。',
+    externalOutputsArchiveWideTitle: '目前是全封存預覽',
     externalOutputsArchiveWideBody:
-      '這些預覽會讀取整個目前可見封存。如果你想只看某個 profile 的輸出，請先在 shell 裡切換共享 profile scope。',
+      '這些預覽會讀取整個目前可見封存。如果你想只看某個瀏覽器設定檔的輸出，請先在頂部切換共享瀏覽器範圍。',
     externalOutputsNeedsArchiveTitle: '先建立封存，才能檢查手動輸出',
     externalOutputsNeedsArchiveBody:
-      'PathKeep 需要先完成 archive 初始化，才能產生 embed cards、widget snapshots 和 public snapshots。',
+      'PathKeep 需要先完成封存初始化，才能產生嵌入卡片、小工具快照和公開快照。',
     externalOutputsUnlockTitle: '先解鎖封存，才能檢查手動輸出',
     externalOutputsUnlockBody:
-      '只有目前 archive session 保持解鎖時，手動輸出預覽才會載入。',
+      '只有目前封存工作階段保持解鎖時，手動輸出預覽才會載入。',
     externalOutputsManualOnlyTitle: '僅支援手動複製 / 匯出',
     externalOutputsManualOnlyBody:
-      '這裡不會安裝小工具、發布 localhost API，也不會儲存可重用的宿主產物。請先檢查 payload，再手動複製到你信任的本地 surface。',
-    externalOutputsTabEmbed: 'Embed cards',
-    externalOutputsTabWidget: 'Widget snapshot',
-    externalOutputsTabPublic: 'Public snapshot',
+      '這裡不會安裝小工具、發布本機 API，也不會儲存可重用的宿主產物。請先檢查載荷，再手動複製到你信任的本地介面。',
+    externalOutputsTabEmbed: '嵌入卡片',
+    externalOutputsTabWidget: '小工具快照',
+    externalOutputsTabPublic: '公開快照',
     externalOutputsLoading: '正在載入手動輸出預覽',
     externalOutputsUnavailableTitle: '手動輸出暫時無法使用',
     externalOutputsUnavailableBody:
-      'PathKeep 目前無法載入這組手動輸出預覽。等 shell 完成重新整理後再試一次。',
-    externalOutputsEmbedPreviewTitle: 'Embed card 預覽',
+      'PathKeep 目前無法載入這組手動輸出預覽。等主介面完成重新整理後再試一次。',
+    externalOutputsEmbedPreviewTitle: '嵌入卡片預覽',
     externalOutputsTrustedOnlyBadge: '僅限受信任宿主',
-    externalOutputsHref: 'Payload href',
+    externalOutputsHref: '載荷連結',
     externalOutputsOpenInsights: '打開洞察',
-    externalOutputsEmbedEmpty: '這個範圍裡暫時沒有可用的 embed cards。',
-    externalOutputsJsonTitle: '原始 JSON payload',
-    externalOutputsWidgetPreviewTitle: 'Widget snapshot 預覽',
+    externalOutputsEmbedEmpty: '這個範圍裡暫時沒有可用的嵌入卡片。',
+    externalOutputsCardVisitsTitle: '造訪',
+    externalOutputsCardSearchesTitle: '搜尋',
+    externalOutputsCardOnThisDayTitle: '歷史今日 · {year}',
+    externalOutputsCardTopSiteEyebrow: '常訪站點',
+    externalOutputsCardRefindEyebrow: '反覆回訪',
+    externalOutputsCardStableSourceEyebrow: '穩定來源',
+    externalOutputsCardTotalVisitsBody: '這個智慧時間視窗內的總造訪次數。',
+    externalOutputsCardTotalSearchesBody:
+      '這個智慧時間視窗內觀察到的搜尋事件總數。',
+    externalOutputsCardTopDomainBody:
+      '{domain} 是這個時間視窗中最常造訪的網域之一。',
+    externalOutputsCardRefindBody:
+      '這個頁面在 {days} 天、{trails} 條軌跡中反覆出現。',
+    externalOutputsCardSourceReference: '參考',
+    externalOutputsCardSourceBody:
+      '{domain} 經常作為{source}來源幫助收束瀏覽軌跡。',
+    externalOutputsCardMostlyBrowsingBody: '主要在瀏覽 {domain}',
+    externalOutputsJsonTitle: '原始 JSON 載荷',
+    externalOutputsWidgetPreviewTitle: '小工具快照預覽',
     externalOutputsWindowLabel: '時間範圍：{start} → {end}',
     externalOutputsWidgetTrustedTitle: '需要受信任宿主審查',
     externalOutputsWidgetTrustedBody:
-      '這個 widget snapshot 仍包含標記為 trusted-only 的卡片。請把它留在受信任的 PathKeep 控制宿主裡，不要把它當成公開匯出內容。',
-    externalOutputsPublicPreviewTitle: 'Public snapshot 預覽',
-    externalOutputsPublicRedactedTitle: 'Public snapshot 會保持去識別化',
+      '這份小工具快照仍包含僅限受信任宿主的卡片。請把它留在 PathKeep 控制的受信任宿主裡，不要把它當成公開匯出內容。',
+    externalOutputsPublicPreviewTitle: '公開快照預覽',
+    externalOutputsPublicRedactedTitle: '公開快照會保持去識別化',
     externalOutputsPublicRedactedBody:
-      '這個 payload 會刻意省略 visit ID 和直接頁面 URL，這樣在離開受信任的 PathKeep surface 時會更安全。',
-    externalOutputsTopDomains: 'Top domains',
+      '這份載荷會刻意省略造訪 ID 和直接頁面 URL，離開 PathKeep 受信任介面時會更安全。',
+    externalOutputsTopDomains: '常訪網域',
     externalOutputsSearchEngines: '搜尋引擎',
     externalOutputsNoSearchEngines: '這個時間範圍裡沒有可用的搜尋引擎活動。',
     externalOutputsDiscoveryTrend: '發現趨勢',
     externalOutputsNoDiscoveryTrend: '這個時間範圍裡沒有可用的發現趨勢點。',
     externalOutputsCopyFailed:
-      '這份 payload 無法直接複製，請改為手動從 JSON 區塊複製。',
+      '這份載荷無法直接複製，請改為手動從 JSON 區塊複製。',
     externalOutputsLocalHostTitle: '受信任本地宿主',
     externalOutputsLocalHostBadge: '僅限本地',
     externalOutputsLocalHostSummaryTitle: '可重用的瀏覽器片段',
@@ -466,7 +531,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostLoading: '正在載入本地宿主預覽',
     externalOutputsLocalHostUnavailableTitle: '本地宿主預覽暫時無法使用',
     externalOutputsLocalHostUnavailableBody:
-      'PathKeep 目前無法準備這組本地宿主預覽。等 shell 完成重新整理後再試一次。',
+      'PathKeep 目前無法準備這組本地宿主預覽。等主介面完成重新整理後再試一次。',
     externalOutputsLocalHostPreviewTitle: '預覽',
     externalOutputsLocalHostPreviewBody:
       'PathKeep 會在 {path} 寫入或更新這個受信任的本地片段。先檢查生成檔案，再決定是否建立它。',
@@ -475,7 +540,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostManualTitle: '手動檢查',
     externalOutputsLocalHostExecuteTitle: '建立或更新本地片段',
     externalOutputsLocalHostExecuteBody:
-      '這個動作會把 index.html 和 bundle.json 寫入固定的本地宿主目錄。只要 scope、時間視窗或語言變了，就應該重新產生。',
+      '這個動作會把 index.html 和 bundle.json 寫入固定的本地宿主目錄。只要範圍、時間視窗或語言變了，就應該重新產生。',
     externalOutputsLocalHostCreateAction: '建立本地片段',
     externalOutputsLocalHostUpdateAction: '更新本地片段',
     externalOutputsLocalHostBuilding: '正在產生本地片段…',
@@ -492,20 +557,22 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostOpenAction: '開啟本地宿主',
     externalOutputsLocalHostCopyPathAction: '複製路徑',
     externalOutputsLocalHostBoundaryDeterministic:
-      '這個本地宿主只使用 deterministic Core Intelligence read models。',
+      '這個本地宿主只使用確定性的 Core Intelligence 讀取模型。',
     externalOutputsLocalHostBoundaryTrusted:
-      'trusted-only 卡片必須留在 PathKeep 控制的本地 surface 內。',
+      '僅限受信任宿主的卡片必須留在 PathKeep 控制的本地介面內。',
+    externalOutputsLocalHostBoundaryPublic:
+      '公開快照會保持去識別化，不包含造訪級 URL 或識別欄位。',
     externalOutputsLocalHostManualReview:
       '先檢查 index.html 與 bundle.json，再把這個資料夾交給其他受信任的本地工具。',
     externalOutputsLocalHostManualOpen:
       '從這個資料夾直接打開 index.html，在受信任的本地瀏覽器宿主裡檢視它。',
     externalOutputsLocalHostManualRebuild:
-      '只要 scope、時間視窗或語言改變，就重新建立這個本地片段。',
+      '只要範圍、時間視窗或語言改變，就重新建立這個本地片段。',
     externalOutputsLocalHostWarningTrusted:
-      '這個本地片段包含 trusted-only 卡片，不能把它當成公開匯出。',
+      '這個本地片段包含僅限受信任宿主的卡片，不能把它當成公開匯出。',
     externalOutputsLocalHostPurposeEntry:
       '可直接在本機瀏覽器開啟的 Core Intelligence 片段。',
     externalOutputsLocalHostPurposeBundle:
-      '同一份本地宿主資料的機器可讀 JSON bundle。',
+      '同一份本地宿主資料的機器可讀 JSON 包。',
   },
 } as const

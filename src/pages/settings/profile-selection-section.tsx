@@ -65,7 +65,6 @@ export function ProfileSelectionSection({
           <Glyph icon={navItem.icon} filled />
           <span>{navItem.label}</span>
         </span>
-        <span className="panel-action">{t('common.rescanAction')}</span>
       </div>
       <div className="panel-body">
         <p className="dashboard-next-action">

@@ -106,6 +106,7 @@ export function GeneratedArtifactViewer({
         copyFeedback={copyFeedback}
         copyKey={contentsKey}
         copyLabel={copyLabel}
+        defaultOpen={false}
         errorMessage={errorMessage}
         onCopy={onCopy}
         successMessage={successMessage}

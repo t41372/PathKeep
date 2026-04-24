@@ -20,7 +20,7 @@ M7 已經把 active intelligence entity 收斂到 shared destination，但刻意
 
 1. `compare set` 仍只解析到 `trail insights`，aggregate identity 會在落地時被吃掉
 2. `path flow` 與 compare-set 相關的 context highlighting 仍靠 consumer-local state 或 label parsing 維持，URL 不可分享、重整後也不可信
-3. Settings external outputs 雖然已有 manual review / trusted local host，但 trusted payload 仍主要靠 raw `href`，缺少 reusable structured entity target
+3. Integrations external outputs 雖然已有 manual review / trusted local host，但 trusted payload 仍主要靠 raw `href`，缺少 reusable structured entity target
 
 結果是：
 
@@ -95,7 +95,7 @@ M7 已經把 active intelligence entity 收斂到 shared destination，但刻意
 - compare-set 真正成為可分享的 single-source destination
 - context highlight 可跨 route、跨 consumer、跨重整保持一致
 - path-flow 不再靠人類可讀 label 逆推結構
-- Settings external outputs 與 trusted local host 可重用同一份 typed target contract
+- Integrations external outputs 與 trusted local host 可重用同一份 typed target contract
 
 **缺點**
 
@@ -144,7 +144,7 @@ M7 已經把 active intelligence entity 收斂到 shared destination，但刻意
 - `embed cards` / `widget snapshot` / trusted local host bundle 可帶：
   - `primaryTarget`
   - `secondaryTargets`
-- Settings external-output review surface 與 `browser-snippet-v1` 一律優先用 structured target 產生 app links
+- Integrations external-output review surface 與 `browser-snippet-v1` 一律優先用 structured target 產生 app links
 - raw `href` 只保留為 fallback，不再是唯一真相
 
 ### 4.5 Public snapshot 維持 redacted
@@ -164,7 +164,7 @@ M7 已經把 active intelligence entity 收斂到 shared destination，但刻意
 2. Trail / Day / Domain shared routes 現在可顯示 compare-set 或 path-flow context callout / highlight strip
 3. `path flow` domain chips 現在帶著 `focusType=path-flow&focusId=<flowId>` 進 shared domain insights
 4. compare-set 相關的 day/domain/trail drilldown 現在帶著 `focusType=compare-set&focusId=<compareSetId>`，不再靠 consumer-local state 猜上下文
-5. Settings external outputs 現在從 structured entity targets 產生 `Open insights` links；trusted local host bundle 也沿用同一份 contract
+5. Integrations external outputs 現在從 structured entity targets 產生 `Open insights` links；trusted local host bundle 也沿用同一份 contract
 
 ---
 

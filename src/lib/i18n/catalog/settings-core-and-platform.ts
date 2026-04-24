@@ -44,8 +44,39 @@ export const settingsCoreAndPlatformNamespace = {
     groupIntelligence: 'INTELLIGENCE',
     groupBackupSync: 'BACKUP & SYNC',
     groupPlatform: 'PLATFORM',
+    groupPrivacyAccess: 'PRIVACY & ACCESS',
+    groupMaintenance: 'UPDATES & CLEANUP',
+    groupDerivedData: 'DERIVED DATA',
+    groupDiagnostics: 'DIAGNOSTICS',
+    groupExternalOutputs: 'EXTERNAL OUTPUTS',
+    groupGeneratedArtifacts: 'GENERATED ARTIFACTS',
+    externalReviewBadge: 'REVIEW ONLY',
     general: 'GENERAL',
-    generalDescription: 'Language, data paths, and diagnostics.',
+    generalDescription: 'Language and Explorer performance preferences.',
+    preferencesOverview: 'Preferences',
+    preferencesOverviewBody:
+      'Use this page for persistent choices. Workflows that inspect files, generate artifacts, install updates, or rebuild data now live on their own pages.',
+    openMaintenance: 'Open Maintenance',
+    openMaintenanceBody:
+      'Updates, cleanup, derived-data rebuilds, remote backup workflows, diagnostics, and platform troubleshooting.',
+    openIntegrations: 'Open Integrations',
+    openIntegrationsBody:
+      'Manual external outputs, trusted local-host snippets, MCP commands, and generated artifact review.',
+    maintenanceTitle: 'Maintenance',
+    maintenanceBody:
+      'Run advanced upkeep here. Preview destructive cleanup, follow update state, rebuild derived data, and review support diagnostics without crowding daily preferences.',
+    maintenanceUnavailableTitle: 'Maintenance is temporarily unavailable',
+    integrationsTitle: 'Integrations',
+    integrationsBody:
+      'Review payloads and generated files before using them in trusted local tools. Raw JSON and code are bounded inside review panels.',
+    integrationsUnavailableTitle: 'Integrations are temporarily unavailable',
+    openJobsBody:
+      'Background Jobs remains the canonical place for runtime progress, retries, cancellation, and logs.',
+    backToSettingsBody:
+      'Return to everyday preferences such as language, browsers, privacy, AI providers, and saved backup configuration.',
+    diagnosticsTitle: 'Support diagnostics',
+    diagnosticsBody:
+      'Use these paths and build details when checking logs, crash reports, or local support artifacts.',
     retentionTitle: 'RETENTION & CLEANUP',
     retentionDescription:
       'Review which local artifacts can be removed now. PathKeep only prunes them when you explicitly run this action.',
@@ -66,6 +97,10 @@ export const settingsCoreAndPlatformNamespace = {
     retentionOpenAudit: 'Open prune review',
     retentionNothingSelected:
       'Select at least one retention bucket before pruning.',
+    retentionSnapshotPruneWarning:
+      'Snapshot pruning removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.',
+    retentionExportPruneWarning:
+      'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.',
     appLock: 'APP LOCK',
     appLockBoundaryTitle: 'Session-only protection',
     appLockBoundaryBody:
@@ -82,6 +117,8 @@ export const settingsCoreAndPlatformNamespace = {
       'Biometric unlock is not wired into this build yet, so passcode unlock stays required.',
     appLockTouchIdUnavailable:
       'Touch ID is unavailable on this Mac right now, so passcode unlock stays required.',
+    appLockTouchIdAvailable:
+      'Touch ID is available on this Mac and can unlock the current PathKeep session.',
     appLockRecoveryHint: 'Recovery hint',
     appLockRecoveryHintPlaceholder:
       'Optional reminder shown on the lock screen',
@@ -138,7 +175,7 @@ export const settingsCoreAndPlatformNamespace = {
       'PathKeep 仍然可以检查定时备份和钥匙串状态，但其余设置需要先提供存档会话密钥。请先到安全页面解锁。',
     unavailableTitle: '设置暂时不可用',
     unavailableBody:
-      'PathKeep 当前无法加载这组设置检查界面。等 shell 刷新完成后再试一次。',
+      'PathKeep 当前无法加载这组设置检查界面。等主界面刷新完成后再试一次。',
     browserProfiles: '浏览器',
     browserProfilesBody: '选择要备份的浏览器。只有勾选的浏览器会被纳入存档。',
     aiProvider: 'AI 服务',
@@ -151,8 +188,38 @@ export const settingsCoreAndPlatformNamespace = {
     groupIntelligence: '智能',
     groupBackupSync: '备份与同步',
     groupPlatform: '平台',
+    groupPrivacyAccess: '隐私与访问',
+    groupMaintenance: '更新与清理',
+    groupDerivedData: '派生数据',
+    groupDiagnostics: '诊断',
+    groupExternalOutputs: '外部输出',
+    groupGeneratedArtifacts: '生成产物',
+    externalReviewBadge: '仅复核',
     general: '通用',
-    generalDescription: '语言、数据路径和诊断信息。',
+    generalDescription: '语言和 Explorer 性能偏好。',
+    preferencesOverview: '偏好设置',
+    preferencesOverviewBody:
+      '这里只放长期保存的选择。检查文件、生成产物、安装更新或重建数据的流程已经移到独立页面。',
+    openMaintenance: '打开维护',
+    openMaintenanceBody:
+      '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
+    openIntegrations: '打开集成',
+    openIntegrationsBody:
+      '手动外部输出、受信任本地宿主片段、MCP 命令和生成产物复核。',
+    maintenanceTitle: '维护',
+    maintenanceBody:
+      '高级维护操作集中在这里。先预览破坏性清理，跟踪更新状态，重建派生数据，并查看支持诊断，而不挤占日常偏好设置。',
+    maintenanceUnavailableTitle: '维护暂时不可用',
+    integrationsTitle: '集成',
+    integrationsBody:
+      '在把载荷和生成文件交给受信任本地工具前，先在这里检查。原始 JSON 和代码会限制在可滚动的复核面板里。',
+    integrationsUnavailableTitle: '集成暂时不可用',
+    openJobsBody: '后台任务仍然负责运行进度、重试、取消和日志。',
+    backToSettingsBody:
+      '回到语言、浏览器、隐私、AI 服务和已保存备份配置等日常偏好。',
+    diagnosticsTitle: '支持诊断',
+    diagnosticsBody:
+      '检查日志、崩溃报告或本地支持产物时，可以使用这些路径和构建信息。',
     retentionTitle: '保留与清理',
     retentionDescription:
       '先检查哪些本地文件现在可以清理。PathKeep 只有在你明确执行时才会删除这些工件。',
@@ -172,6 +239,10 @@ export const settingsCoreAndPlatformNamespace = {
     retentionDeletedFiles: '已移除 {count} 个文件或目录。',
     retentionOpenAudit: '打开清理复核',
     retentionNothingSelected: '请至少选择一个可清理项。',
+    retentionSnapshotPruneWarning:
+      '清理快照会移除以后在审计页可用的恢复检查点。Manifest 和运行摘要会保留。',
+    retentionExportPruneWarning:
+      '清理导出只会删除 PathKeep 数据目录下的本地文件，远端对象不会变化。',
     appLock: '应用锁',
     appLockBoundaryTitle: '仅保护当前会话',
     appLockBoundaryBody:
@@ -188,6 +259,8 @@ export const settingsCoreAndPlatformNamespace = {
       '当前构建尚未接入生物识别，所以仍然必须使用密码解锁。',
     appLockTouchIdUnavailable:
       '这台 Mac 当前无法使用 Touch ID，所以仍然必须使用密码解锁。',
+    appLockTouchIdAvailable:
+      '这台 Mac 可以使用 Touch ID 解锁当前 PathKeep 会话。',
     appLockRecoveryHint: '恢复提示',
     appLockRecoveryHintPlaceholder: '锁定页面上显示的可选提示',
     appLockPasscode: '密码',
@@ -243,7 +316,7 @@ export const settingsCoreAndPlatformNamespace = {
       'PathKeep 仍然可以檢查定時備份和鑰匙圈狀態，但其餘設定需要先提供封存會話金鑰。請先到安全頁面解鎖。',
     unavailableTitle: '設定暫時無法使用',
     unavailableBody:
-      'PathKeep 目前無法載入這組設定檢查畫面。等 shell 刷新完成後再試一次。',
+      'PathKeep 目前無法載入這組設定檢查畫面。等主介面刷新完成後再試一次。',
     browserProfiles: '瀏覽器',
     browserProfilesBody: '選擇要備份的瀏覽器。只有勾選的瀏覽器會被納入封存。',
     aiProvider: 'AI 服務',
@@ -256,8 +329,38 @@ export const settingsCoreAndPlatformNamespace = {
     groupIntelligence: '智慧',
     groupBackupSync: '備份與同步',
     groupPlatform: '平台',
+    groupPrivacyAccess: '隱私與存取',
+    groupMaintenance: '更新與清理',
+    groupDerivedData: '派生資料',
+    groupDiagnostics: '診斷',
+    groupExternalOutputs: '外部輸出',
+    groupGeneratedArtifacts: '生成產物',
+    externalReviewBadge: '僅複核',
     general: '一般',
-    generalDescription: '語言、資料路徑和診斷資訊。',
+    generalDescription: '語言和 Explorer 效能偏好。',
+    preferencesOverview: '偏好設定',
+    preferencesOverviewBody:
+      '這裡只放長期保存的選擇。檢查檔案、生成產物、安裝更新或重建資料的流程已經移到獨立頁面。',
+    openMaintenance: '開啟維護',
+    openMaintenanceBody:
+      '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',
+    openIntegrations: '開啟整合',
+    openIntegrationsBody:
+      '手動外部輸出、受信任本地宿主片段、MCP 命令和生成產物複核。',
+    maintenanceTitle: '維護',
+    maintenanceBody:
+      '進階維護操作集中在這裡。先預覽破壞性清理，追蹤更新狀態，重建派生資料，並查看支援診斷，而不擠占日常偏好設定。',
+    maintenanceUnavailableTitle: '維護暫時無法使用',
+    integrationsTitle: '整合',
+    integrationsBody:
+      '在把載荷和生成檔案交給受信任本地工具前，先在這裡檢查。原始 JSON 和程式碼會限制在可捲動的複核面板裡。',
+    integrationsUnavailableTitle: '整合暫時無法使用',
+    openJobsBody: '背景工作仍然負責執行進度、重試、取消和日誌。',
+    backToSettingsBody:
+      '回到語言、瀏覽器、隱私、AI 服務和已保存備份設定等日常偏好。',
+    diagnosticsTitle: '支援診斷',
+    diagnosticsBody:
+      '檢查日誌、崩潰報告或本地支援產物時，可以使用這些路徑和建置資訊。',
     retentionTitle: '保留與清理',
     retentionDescription:
       '先檢查哪些本地檔案現在可以清理。PathKeep 只有在你明確執行時才會刪除這些工件。',
@@ -277,6 +380,10 @@ export const settingsCoreAndPlatformNamespace = {
     retentionDeletedFiles: '已移除 {count} 個檔案或目錄。',
     retentionOpenAudit: '打開清理複核',
     retentionNothingSelected: '請至少選擇一個可清理項目。',
+    retentionSnapshotPruneWarning:
+      '清理快照會移除未來在稽核頁可用的復原檢查點。Manifest 與執行摘要會保留。',
+    retentionExportPruneWarning:
+      '清理匯出只會刪除 PathKeep 資料目錄下的本地檔案，遠端物件不會變更。',
     appLock: '應用鎖',
     appLockBoundaryTitle: '僅保護目前會話',
     appLockBoundaryBody:
@@ -293,6 +400,8 @@ export const settingsCoreAndPlatformNamespace = {
       '目前建置尚未接上生物辨識，所以仍然必須使用密碼解鎖。',
     appLockTouchIdUnavailable:
       '這台 Mac 目前無法使用 Touch ID，所以仍然必須使用密碼解鎖。',
+    appLockTouchIdAvailable:
+      '這台 Mac 可以使用 Touch ID 解鎖目前的 PathKeep 會話。',
     appLockRecoveryHint: '恢復提示',
     appLockRecoveryHintPlaceholder: '鎖定畫面上顯示的可選提示',
     appLockPasscode: '密碼',

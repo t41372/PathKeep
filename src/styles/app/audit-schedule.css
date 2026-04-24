@@ -170,7 +170,8 @@
   font-size: 11px;
   line-height: 1.6;
   color: var(--text-muted);
-  overflow-x: auto;
+  max-height: min(42vh, 520px);
+  overflow: auto;
   white-space: pre;
 }
 

@@ -180,6 +180,7 @@ export function ExternalOutputsPublicTab({
         copyKey="public"
         copyLabel={copyLabel}
         code={json}
+        defaultOpen={false}
         errorMessage={t('externalOutputsCopyFailed')}
         onCopy={onCopy}
         successMessage={commonT('copiedNotice')}

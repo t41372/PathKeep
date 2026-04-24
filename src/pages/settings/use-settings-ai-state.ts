@@ -49,6 +49,7 @@ import {
 } from './helpers'
 
 interface UseSettingsAiStateArgs {
+  enableIntegrationPreview?: boolean
   refreshAppData: () => Promise<void>
   saveConfig: (config: AppConfig) => Promise<AppSnapshot>
   snapshot: AppSnapshot | null
@@ -58,6 +59,7 @@ interface UseSettingsAiStateArgs {
  * Keeps Settings AI draft state and integration preview under one focused hook.
  */
 export function useSettingsAiState({
+  enableIntegrationPreview = true,
   refreshAppData,
   saveConfig,
   snapshot,
@@ -132,6 +134,13 @@ export function useSettingsAiState({
   }, [aiDraft, savedAiSettings, snapshotAiSignature])
 
   useEffect(() => {
+    if (!enableIntegrationPreview) {
+      setAiIntegrationPreview(null)
+      setAiIntegrationError(null)
+      setAiIntegrationCopyFeedback(null)
+      return
+    }
+
     if (snapshotAiSignature === null) {
       return
     }
@@ -161,7 +170,7 @@ export function useSettingsAiState({
     return () => {
       cancelled = true
     }
-  }, [snapshotAiSignature, t])
+  }, [enableIntegrationPreview, snapshotAiSignature, t])
 
   function updateAiDraft(updater: (current: AiSettings) => AiSettings) {
     if (!snapshot?.config.ai && !aiDraft) {

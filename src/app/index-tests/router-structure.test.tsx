@@ -108,6 +108,13 @@ describe('App shell', () => {
             icon: '⏀',
             href: '/schedule',
           }),
+          expect.objectContaining({
+            id: 'integrations',
+            labelKey: 'navigation.integrationsLabel',
+            subtitleKey: 'navigation.integrationsSubtitle',
+            icon: '⧉',
+            href: '/integrations',
+          }),
         ],
       },
       {
@@ -127,6 +134,13 @@ describe('App shell', () => {
             subtitleKey: 'navigation.settingsSubtitle',
             icon: '⚙',
             href: '/settings',
+          }),
+          expect.objectContaining({
+            id: 'maintenance',
+            labelKey: 'navigation.maintenanceLabel',
+            subtitleKey: 'navigation.maintenanceSubtitle',
+            icon: '◇',
+            href: '/maintenance',
           }),
         ],
       },

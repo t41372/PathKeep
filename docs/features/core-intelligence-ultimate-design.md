@@ -429,7 +429,7 @@ Explorer（歷史瀏覽）頁面新增「View by」分組選項：
 - 各搜索引擎/平台的搜索次數排行
 - `GROUP BY search_engine`，daily rollup
 - 內建 Google、Bing、YouTube、BiliBili、GitHub、DuckDuckGo、百度、淘寶等
-- 用戶可在 Settings derived-state panel 的 search-engine rule editor 中自定義追加
+- 用戶可在 Maintenance derived-state panel 的 search-engine rule editor 中自定義追加
 
 **B. 高頻搜索概念 (Top Search Concepts)**
 
@@ -462,7 +462,7 @@ Query Family 範例:
 
 1. Chromium `search_terms` / Firefox `moz_places_metadata_search_queries`
 2. canonical `search_terms` 表（已存在於 archive）
-3. Settings derived-state panel 中維護的 search-engine rules（`q=`、`query=`、`search_query=` 與 host/path matching）
+3. Maintenance derived-state panel 中維護的 search-engine rules（`q=`、`query=`、`search_query=` 與 host/path matching）
 4. Generic query param fallback
 
 **性能：** 分詞在導入時一次性完成，結果存入 `search_event_terms` 表。Query family merge 只在局部窗口內做，O(k²) where k = 局部 query 數量（通常 < 20）。
@@ -910,8 +910,8 @@ is_deep_dive =
 
 ### 4.C 外部服務（低優先級）
 
-- 第一個 shipping external-output surfaces 已落在 Settings：manual review / copy-export panel 仍是 canonical baseline，而第一個可重用宿主則是 `browser-snippet-v1` trusted local artifact。使用者現在可 preview `embed cards`、`widget snapshot`、`public snapshot`，也可 review `index.html` / `bundle.json` 並建立 `app_root/integrations/core-intelligence/browser-snippet-v1/`；但這仍只限受信任本地宿主，不等於 OS widget、localhost API 或 public API 已完成
-- trusted external-output payload 現在可帶 structured `primaryTarget` / `secondaryTargets`，供 Settings 與 trusted local host 產生 reusable app links；`public snapshot` 仍維持 redacted，不下放 internal reusable IDs
+- 第一個 shipping external-output surfaces 已落在 Integrations：manual review / copy-export panel 仍是 canonical baseline，而第一個可重用宿主則是 `browser-snippet-v1` trusted local artifact。使用者現在可 preview `embed cards`、`widget snapshot`、`public snapshot`，也可 review `index.html` / `bundle.json` 並建立 `app_root/integrations/core-intelligence/browser-snippet-v1/`；但這仍只限受信任本地宿主，不等於 OS widget、localhost API 或 public API 已完成
+- trusted external-output payload 現在可帶 structured `primaryTarget` / `secondaryTargets`，供 Integrations 與 trusted local host 產生 reusable app links；`public snapshot` 仍維持 redacted，不下放 internal reusable IDs
 - Intelligence 卡片做成 web snippet，允許嵌入
 - Mac 小工具
 - 不敏感 intelligence 結果的 API

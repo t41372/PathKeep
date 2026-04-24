@@ -277,11 +277,22 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
             />
           ) : null}
 
-          {status?.degradationNotes.map((note) => (
-            <p className="dashboard-next-action" key={note}>
-              {note}
-            </p>
-          ))}
+          {status?.degradationNotes.map((note) => {
+            const localizedNote =
+              note ===
+              'App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest.'
+                ? t('settings.appLockBoundaryBody')
+                : note ===
+                    'Touch ID is available on this Mac and can unlock the current PathKeep session.'
+                  ? t('settings.appLockTouchIdAvailable')
+                  : note
+
+            return (
+              <p className="dashboard-next-action" key={note}>
+                {localizedNote}
+              </p>
+            )
+          })}
 
           {status?.configPath ? (
             <ReviewPathActionRow

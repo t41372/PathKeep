@@ -28,7 +28,12 @@ import type {
   IntelligenceEmbedCardPayload,
 } from '../../lib/core-intelligence'
 import { OutputTargetLinks } from './external-outputs-target-links'
-import type { Translate } from './external-outputs-shared'
+import {
+  localizeOutputCardBody,
+  localizeOutputCardEyebrow,
+  localizeOutputCardTitle,
+  type Translate,
+} from './external-outputs-shared'
 
 interface ExternalOutputsEmbedTabProps {
   activeProfileId: string | null
@@ -66,9 +71,11 @@ export function ExternalOutputsEmbedTab({
                 <div className="settings-output-card__header">
                   <div>
                     {card.eyebrow ? (
-                      <p className="mono-kicker">{card.eyebrow}</p>
+                      <p className="mono-kicker">
+                        {localizeOutputCardEyebrow(card.eyebrow, t)}
+                      </p>
                     ) : null}
-                    <h3>{card.title}</h3>
+                    <h3>{localizeOutputCardTitle(card.title, t)}</h3>
                   </div>
                   {card.internalOnly ? (
                     <span className="panel-badge">
@@ -76,7 +83,7 @@ export function ExternalOutputsEmbedTab({
                     </span>
                   ) : null}
                 </div>
-                <p>{card.body}</p>
+                <p>{localizeOutputCardBody(card.body, t)}</p>
                 {card.metricLabel && card.metricValue ? (
                   <div className="config-row">
                     <span className="config-label mono">
@@ -106,6 +113,7 @@ export function ExternalOutputsEmbedTab({
         copyKey="embed"
         copyLabel={copyLabel}
         code={json}
+        defaultOpen={false}
         errorMessage={t('externalOutputsCopyFailed')}
         onCopy={onCopy}
         successMessage={commonT('copiedNotice')}
