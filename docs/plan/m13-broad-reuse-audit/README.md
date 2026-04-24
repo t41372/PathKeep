@@ -56,7 +56,8 @@
 | Settings derived runtime detail orchestration | `src/pages/settings/derived-runtime-review.tsx`   | 仍是 consumer owner，但已改吃 shared runtime-boundary card shell                       |
 | shell bootstrap provider                      | `src/app/shell-data.tsx`                          | 保留 public provider facade；不改 `useShellData()` 對外 contract                       |
 | shell runtime polling owner                   | `src/app/shell-runtime-status.ts`                 | M13-B follow-up 已落地；Sidebar / Jobs / digest runtime truth 仍走 shell shared source |
-| workflow follow-through route split           | `src/pages/{security,import,dashboard}/`          | 明確列為下一輪 extraction priority，不在 Jobs slice 內機械擴 scope                     |
+| Security workflow follow-through              | `src/pages/security/use-security-workflow.ts`     | M13-B follow-up 已落地；route shell 保留 fallback / focus / panel composition          |
+| remaining workflow follow-through route split | `src/pages/{dashboard}/`                          | Dashboard fallback owner 仍是下一輪 priority；不在 Security slice 內機械擴 scope       |
 | transport parity / worker pass-through        | existing Rust owners                              | 維持 subordinate inventory，不升格成 M13 主線                                          |
 
 ## Inventory Snapshot
@@ -69,10 +70,9 @@
 
 ### 仍維持後續 priority 的 hotspot
 
-1. `src/pages/security/index.tsx`
-2. `src/pages/dashboard/index.tsx`
-3. `src/components/intelligence/browsing-rhythm-card.tsx`
-4. `src/components/ui.tsx` 的 legacy `PathRow` retirement
+1. `src/pages/dashboard/index.tsx`
+2. `src/components/intelligence/browsing-rhythm-card.tsx`
+3. `src/components/ui.tsx` 的 legacy `PathRow` retirement
 
 ### 這輪刻意不做
 
@@ -92,4 +92,5 @@
 - [`src/pages/jobs/index.tsx`](../../src/pages/jobs/index.tsx) 現在降到可接受的 route-shell 尺寸；runtime health / boundary section 已拆到 [`src/pages/jobs/runtime-health-section.tsx`](../../src/pages/jobs/runtime-health-section.tsx)。
 - 2026-04-22 Import follow-through slice landed：`/import` 現在不再只把 wizard / workflow explainer / recent batch review 疊成同質化面板。route 會以 `new import wizard -> grouped scan report -> recent imports / selected batch / doctor repair` 的順序呈現，並直接吃 backend 提供的 `will-import / known-but-ignored / needs-review / parse-error` file classification、preview time range 與 detected locale；這讓 Takeout UI 終於能把「現在會導入什麼」與「為什麼某些檔案沒被導入」講清楚。
 - 2026-04-23 shell runtime owner slice landed：`src/app/shell-data.tsx` 不再內嵌 queue/runtime refresh、in-flight dedupe 與 active/idle polling cadence；這些責任已抽到 `src/app/shell-runtime-status.ts`，並新增 focused hook tests 保護 locked neutral state、dedupe、fallback error 與 3s/15s polling backoff。
-- `WORK-M13-B` 仍保留 active，後續 focus 改為 Security workflow follow-through、Dashboard fallback owner，以及 `Browsing Rhythm` layering smell。
+- 2026-04-23 Security workflow owner slice landed：`src/pages/security/index.tsx` 不再內嵌 posture load、unlock/keyring、lock 與 rekey mutation state machine；這些責任已抽到 `src/pages/security/use-security-workflow.ts`，route shell 現在只保留 fallback、deep-link focus、path-copy feedback 與 panel composition。
+- `WORK-M13-B` 仍保留 active，後續 focus 改為 Dashboard fallback owner 與 `Browsing Rhythm` layering smell。
