@@ -362,7 +362,11 @@ fn progress_label_for_phase(phase: &str) -> &'static str {
 }
 
 /// Creates the running import ledger row before archive writes begin.
-fn create_import_run(archive: &Connection, profile_id: &str, started_at: &str) -> Result<i64> {
+pub(super) fn create_import_run(
+    archive: &Connection,
+    profile_id: &str,
+    started_at: &str,
+) -> Result<i64> {
     archive.execute(
         "INSERT INTO runs (
            run_type,
@@ -392,7 +396,7 @@ fn create_import_run(archive: &Connection, profile_id: &str, started_at: &str) -
 }
 
 /// Marks the import run successful and folds import counters into archive totals.
-fn finalize_successful_import_run(
+pub(super) fn finalize_successful_import_run(
     archive: &Connection,
     run_id: i64,
     batch_id: i64,
@@ -431,7 +435,7 @@ fn finalize_successful_import_run(
 }
 
 /// Marks the import run failed while keeping the partial counters visible for audit/debug.
-fn finalize_failed_import_run(
+pub(super) fn finalize_failed_import_run(
     archive: &Connection,
     run_id: i64,
     notes: &[String],

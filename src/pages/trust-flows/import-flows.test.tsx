@@ -161,6 +161,139 @@ describe('trust flows/import flows', () => {
     expect(screen.getByPlaceholderText('/path/to/History')).toBeVisible()
   })
 
+  test('routes Browser Direct scan and import through browser-history commands', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const chromeProfile = snapshot.browserProfiles.find(
+      (profile) => profile.profileId === 'chrome:Default',
+    )
+    expect(chromeProfile).toBeDefined()
+
+    const previewInspection = {
+      dryRun: true,
+      sourcePath: chromeProfile!.historyPath!,
+      recognizedFiles: [
+        {
+          path: chromeProfile!.historyPath!,
+          kind: 'chromium-history-db',
+          status: 'previewed',
+          records: 1,
+          classification: 'will-import',
+          reasonCode: 'chromium-history-sqlite',
+          reasonDetail: null,
+          detectedLocale: null,
+        },
+      ],
+      quarantinedFiles: [],
+      previewEntries: [
+        {
+          sourcePath: chromeProfile!.historyPath!,
+          url: 'https://example.com/browser-direct',
+          title: 'Browser direct entry',
+          visitedAt: '2026-04-20T10:00:00.000Z',
+          sourceVisitId: 1,
+          status: 'candidate',
+        },
+      ],
+      candidateItems: 1,
+      importedItems: 0,
+      duplicateItems: 0,
+      notes: ['Browser Direct preview ready.'],
+      detectedLocale: null,
+      previewRangeStart: '2026-04-20T10:00:00.000Z',
+      previewRangeEnd: '2026-04-20T10:00:00.000Z',
+      importBatch: null,
+    } satisfies Awaited<ReturnType<typeof backend.inspectBrowserHistory>>
+
+    const importedBatch: ImportBatchOverview = {
+      id: 42,
+      sourceKind: 'browser-history',
+      sourcePath: chromeProfile!.historyPath!,
+      profileId: chromeProfile!.profileId,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      importedAt: '2026-04-20T10:01:00.000Z',
+      revertedAt: null,
+      status: 'imported',
+      candidateItems: 1,
+      importedItems: 1,
+      duplicateItems: 0,
+      visibleItems: 1,
+      auditPath: '/tmp/browser-direct-import-audit.json',
+      gitCommit: null,
+    }
+    const importedInspection = {
+      ...previewInspection,
+      dryRun: false,
+      importedItems: 1,
+      importBatch: importedBatch,
+    } satisfies Awaited<ReturnType<typeof backend.importBrowserHistory>>
+    const importedBatchDetail: ImportBatchDetail = {
+      batch: importedBatch,
+      previewEntries: previewInspection.previewEntries,
+      recognizedFiles: previewInspection.recognizedFiles,
+      quarantinedFiles: [],
+      notes: ['Imported Browser Direct history.'],
+      detectedLocale: null,
+      previewRangeStart: previewInspection.previewRangeStart,
+      previewRangeEnd: previewInspection.previewRangeEnd,
+    }
+
+    const inspectTakeoutSpy = vi.spyOn(backend, 'inspectTakeout')
+    const importTakeoutSpy = vi.spyOn(backend, 'importTakeout')
+    const inspectBrowserSpy = vi
+      .spyOn(backend, 'inspectBrowserHistory')
+      .mockResolvedValue(previewInspection)
+    const importBrowserSpy = vi
+      .spyOn(backend, 'importBrowserHistory')
+      .mockResolvedValue(importedInspection)
+    vi.spyOn(backend, 'previewImportBatch').mockResolvedValue(
+      importedBatchDetail,
+    )
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(
+      await screen.findByRole('button', { name: /Google Chrome · Primary/i }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+
+    await waitFor(() =>
+      expect(inspectBrowserSpy).toHaveBeenCalledWith({
+        sourcePath: chromeProfile!.historyPath,
+        dryRun: true,
+        browserFamily: chromeProfile!.browserFamily,
+        profileId: chromeProfile!.profileId,
+        browserName: chromeProfile!.browserName,
+        profileName: chromeProfile!.profileName,
+      }),
+    )
+    expect(inspectTakeoutSpy).not.toHaveBeenCalled()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('confirmImport') }),
+    )
+    await waitFor(() =>
+      expect(importBrowserSpy).toHaveBeenCalledWith({
+        sourcePath: chromeProfile!.historyPath,
+        dryRun: false,
+        browserFamily: chromeProfile!.browserFamily,
+        profileId: chromeProfile!.profileId,
+        browserName: chromeProfile!.browserName,
+        profileName: chromeProfile!.profileName,
+      }),
+    )
+    expect(importTakeoutSpy).not.toHaveBeenCalled()
+    expect(await screen.findByText(importT('completeTitle'))).toBeVisible()
+  })
+
   test('paints scan and import overlays before long-running import work settles', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()

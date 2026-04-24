@@ -25,8 +25,9 @@
 
 use serde::Deserialize;
 use vault_core::{
-    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, ExportRequest,
-    HistoryFaviconLookupEntry, HistoryQuery, S3CredentialInput, SchedulePlan, TakeoutRequest,
+    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
+    ExportRequest, HistoryFaviconLookupEntry, HistoryQuery, S3CredentialInput, SchedulePlan,
+    TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -106,6 +107,13 @@ pub(super) struct BundlePathPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct TakeoutPayload {
     pub(super) request: TakeoutRequest,
+}
+
+/// Carries Browser Direct scan or import options through the dev mirror.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct BrowserHistoryPayload {
+    pub(super) request: BrowserHistoryImportRequest,
 }
 
 /// Selects an import batch for preview, revert, or restore commands.

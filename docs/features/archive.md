@@ -134,6 +134,11 @@
 ### 瀏覽器直接導入
 
 - 同樣走 Preview/Manual/Execute 流程。
+- `/import` 的 Browser Direct 入口必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
+- Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome 與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
+- Safari local `History.db` 導入必須包含 staging snapshot、`PRAGMA quick_check`、schema detection、preview rows、canonical URL / visit 寫入、import batch、source evidence / capability snapshot、search projection refresh、re-import dedupe，以及 import batch revert / restore。
+- Safari 只承諾 `History.db` 能提供的 history baseline 與 source-native evidence。不得偽造 Chrome 才有的 Favicons sidecar、downloads、或 keyword-search sidecar。
+- Safari 缺少 Full Disk Access 時，detected profile 必須保留在 UI 中並顯示 needs-access guidance；手動選取不可讀 `History.db` 時，錯誤訊息也必須指出 Full Disk Access，而不是 generic parse failure。
 - Step-by-step UI：
   - 每個步驟都說明我們在做什麼、為什麼要做這件事。
   - 自動化模式下：逐步展示進度，且 phase/log/progress 需要在整個執行期間持續更新。

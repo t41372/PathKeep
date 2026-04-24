@@ -27,6 +27,7 @@ import {
   prependMockRun,
 } from './backend-preview-support'
 import type {
+  BrowserHistoryImportRequest,
   ImportBatchDetail,
   ImportBatchOverview,
   RekeyPreview,
@@ -363,6 +364,83 @@ export function buildMockTakeoutInspection(
     importedItems: 2,
     duplicateItems: 1,
     notes,
+    importBatch,
+  }
+}
+
+/**
+ * Produces a deterministic Browser Direct inspection for browser-preview mode.
+ *
+ * This keeps local preview and tests aligned with the desktop command split:
+ * Browser Direct returns the same review model, but the source kind and file
+ * report identify a local browser database instead of a Takeout payload.
+ */
+export function buildMockBrowserHistoryInspection(
+  state: MockBackendState,
+  request: BrowserHistoryImportRequest,
+  dryRun: boolean,
+): TakeoutInspection {
+  const sourcePath = request.sourcePath || '/tmp/History'
+  const family = request.browserFamily === 'safari' ? 'safari' : 'chromium'
+  const profileId =
+    request.profileId ??
+    (family === 'safari' ? 'safari:default' : 'chrome:Default')
+  const base = buildMockTakeoutInspection(state, sourcePath, dryRun)
+  const recognizedFiles = [
+    {
+      path: sourcePath,
+      kind: family === 'safari' ? 'safari-history-db' : 'chromium-history-db',
+      status: dryRun ? 'previewed' : 'imported',
+      records: base.previewEntries.length,
+      classification: 'will-import',
+      reasonCode: `${family}-history-sqlite`,
+      reasonDetail: null,
+      detectedLocale: null,
+    },
+  ]
+  const previewEntries = base.previewEntries.map((entry) => ({
+    ...entry,
+    sourcePath,
+  }))
+  const importBatch = base.importBatch
+    ? {
+        ...base.importBatch,
+        sourceKind: 'browser-history',
+        sourcePath,
+        profileId,
+      }
+    : null
+  if (importBatch) {
+    state.snapshot.recentImportBatches = state.snapshot.recentImportBatches.map(
+      (batch) => (batch.id === importBatch.id ? importBatch : batch),
+    )
+    state.importBatchDetails[importBatch.id] = {
+      ...state.importBatchDetails[importBatch.id],
+      batch: importBatch,
+      previewEntries,
+      recognizedFiles,
+      quarantinedFiles: [],
+      notes: [
+        family === 'safari'
+          ? 'Preview mode simulated a Safari History.db import.'
+          : 'Preview mode simulated a Chromium History import.',
+      ],
+      detectedLocale: null,
+    }
+  }
+
+  return {
+    ...base,
+    sourcePath,
+    recognizedFiles,
+    quarantinedFiles: [],
+    previewEntries,
+    notes: [
+      family === 'safari'
+        ? 'Safari History.db visits are ready for Browser Direct review.'
+        : 'Chromium History visits are ready for Browser Direct review.',
+    ],
+    detectedLocale: null,
     importBatch,
   }
 }

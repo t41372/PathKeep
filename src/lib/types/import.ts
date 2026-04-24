@@ -29,6 +29,22 @@ export interface TakeoutRequest {
 }
 
 /**
+ * Describes a browser-direct import request.
+ *
+ * Browser Direct uses the same preview/import review models as Takeout, but it
+ * carries browser profile metadata so the backend can preserve the source
+ * profile instead of routing a local SQLite database through the Takeout parser.
+ */
+export interface BrowserHistoryImportRequest {
+  sourcePath: string
+  dryRun: boolean
+  browserFamily?: string | null
+  profileId?: string | null
+  browserName?: string | null
+  profileName?: string | null
+}
+
+/**
  * Represents a completed report that the UI can review after a run finishes.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.

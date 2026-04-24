@@ -196,6 +196,18 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 |_| {}
             )?)
         }
+        "inspect_browser_history" => {
+            let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
+            json_value!(worker_bridge::inspect_browser_history_impl(payload.request)?)
+        }
+        "import_browser_history" => {
+            let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
+            json_value!(worker_bridge::import_browser_history_impl(
+                payload.request,
+                session_key(&state.session).as_deref(),
+                |_| {}
+            )?)
+        }
         "preview_import_batch" => {
             let payload = parse_payload::<BatchIdPayload>(payload)?;
             json_value!(worker_bridge::preview_import_batch_impl(

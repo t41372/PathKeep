@@ -62,6 +62,9 @@ export function ImportSelectStep({
   onSourcePathChange,
 }: ImportSelectStepProps) {
   const { t } = useI18n()
+  const readyBrowserProfileCount = detectedBrowserProfiles.filter(
+    (profile) => profile.historyExists && profile.historyPath,
+  ).length
 
   return (
     <>
@@ -157,40 +160,60 @@ export function ImportSelectStep({
             </span>
             <span className="mono-support">
               {t('import.detectedBrowserProfilesCount', {
-                count: detectedBrowserProfiles.length.toLocaleString(language),
+                count: readyBrowserProfileCount.toLocaleString(language),
               })}
             </span>
           </div>
           {detectedBrowserProfiles.length > 0 ? (
             <div className="import-profile-list">
-              {detectedBrowserProfiles.map((profile) => (
-                <button
-                  key={profile.profileId}
-                  className={`result-row import-profile-card ${
-                    selectedBrowserProfileId === profile.profileId
-                      ? 'result-row--active'
-                      : ''
-                  }`}
-                  type="button"
-                  onClick={() => onSelectBrowserProfile(profile)}
-                >
-                  <div className="result-row__header">
-                    <strong>
-                      {profile.browserName} · {profile.profileName}
-                    </strong>
-                    <span className="status-badge">
-                      {t('import.browserProfileReady')}
-                    </span>
-                  </div>
-                  <div className="result-row__meta">
-                    <span className="mono-support">{profile.profileId}</span>
-                    <span className="mono-support">
-                      {profile.historyFileName}
-                    </span>
-                  </div>
-                  <p className="mono-support">{profile.historyPath}</p>
-                </button>
-              ))}
+              {detectedBrowserProfiles.map((profile) => {
+                const ready = Boolean(
+                  profile.historyExists && profile.historyPath,
+                )
+                return (
+                  <button
+                    key={profile.profileId}
+                    className={`result-row import-profile-card ${
+                      selectedBrowserProfileId === profile.profileId
+                        ? 'result-row--active'
+                        : ''
+                    }`}
+                    type="button"
+                    disabled={!ready}
+                    aria-disabled={!ready}
+                    onClick={() => {
+                      if (ready) onSelectBrowserProfile(profile)
+                    }}
+                  >
+                    <div className="result-row__header">
+                      <strong>
+                        {profile.browserName} · {profile.profileName}
+                      </strong>
+                      <span className="status-badge">
+                        {ready
+                          ? t('import.browserProfileReady')
+                          : t('import.browserProfileNeedsAccess')}
+                      </span>
+                    </div>
+                    <div className="result-row__meta">
+                      <span className="mono-support">{profile.profileId}</span>
+                      <span className="mono-support">
+                        {profile.historyFileName}
+                      </span>
+                    </div>
+                    <p className="mono-support">
+                      {profile.historyPath || profile.profilePath}
+                    </p>
+                    {!ready ? (
+                      <p className="mono-support">
+                        {profile.browserFamily === 'safari'
+                          ? t('import.safariFullDiskAccessHint')
+                          : t('import.browserProfileUnreadable')}
+                      </p>
+                    ) : null}
+                  </button>
+                )
+              })}
             </div>
           ) : (
             <StatusCallout

@@ -81,8 +81,15 @@ bun run check:rust
 Use this recipe before promoting any browser into README or onboarding promise copy:
 
 1. Verify one successful Google Chrome backup / recall path on the current local host.
-2. Verify Safari remains visible but unreadable when `History.db` cannot be accessed.
+2. Verify Safari remains visible but unreadable when `History.db` cannot be accessed, and Browser Direct reports Full Disk Access guidance instead of a generic parse failure.
 3. Verify Safari baseline backup succeeds after Full Disk Access is granted.
+4. Verify `/import` Browser Direct against Safari `History.db`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only aggregate counts and time ranges; never paste private URLs into docs, logs, or chat.
+
+Focused Safari Browser Direct gates:
+
+- `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser safari -- --nocapture`
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core browser_history -- --nocapture`
+- `bun run test:unit -- src/pages/trust-flows/import-flows.test.tsx`
 
 Additional adapters may keep shipping as implementation coverage, but they stay out of public promise copy until the same recipe is documented for them.
 

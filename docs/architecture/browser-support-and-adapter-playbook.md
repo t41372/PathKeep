@@ -13,9 +13,9 @@
   - Validation evidence required: local backup / recall pass on the current dev host
 - `Safari` on macOS
   - Discovery: shipping
-  - Parser / ingest: shipping as history-only baseline
+  - Parser / ingest: shipping as history-only baseline for backup and Browser Direct local `History.db` import
   - Public promise: allowed only with the explicit Full Disk Access caveat
-  - Validation evidence required: visible-but-unreadable state when access is missing, plus a successful backup once access is granted
+  - Validation evidence required: visible-but-unreadable state when access is missing, plus a successful backup and Browser Direct preview/import/re-import/revert/restore once access is granted
 
 ### Implemented, Not Yet Publicly Promised
 
@@ -51,7 +51,7 @@ A browser is not allowed into README, onboarding, release docs, or other public-
 4. Capability snapshot / source-batch provenance is wired end to end.
 5. User-visible caveat / degraded-state copy exists in `en`, `zh-CN`, and `zh-TW`.
 6. Icons, names, and route-level UI touchpoints are aligned.
-7. Parser, discovery, archive, and capability acceptance tests exist.
+7. Parser, discovery, archive, Browser Direct import, and capability acceptance tests exist.
 8. Local validation evidence is written into the testing / release docs for the current host.
 
 If any one of these is missing, the browser stays in `implemented, not yet publicly promised`.
@@ -82,6 +82,8 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 - Define which history DB and sidecar files must be staged before parsing.
 - Keep staging in `vault-core` / `vault-platform`; keep parsing in `browser-history-parser`.
 - Wire the adapter into archive ingest only after schema warnings, source-batch provenance, watermarks, capability tags, and source-kind naming are explicit.
+- Browser Direct local database import must use `inspect_browser_history` / `import_browser_history`, not Takeout commands. It must stage a SQLite snapshot, run `PRAGMA quick_check`, create an import batch, preserve source evidence, refresh search projection, and reuse import-batch revert / restore.
+- Browser Direct support parity means end-to-end reliability within the source's real capabilities. Safari must not fabricate Chrome-only Favicons, downloads, or keyword-search sidecars.
 
 ### 5. UI And Copy
 
@@ -94,6 +96,7 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 - Parser tests for happy path and missing-table / damaged-shape behavior
 - Discovery tests for default paths, overrides, and unreadable files
 - Archive acceptance proving backup / recall on that adapter path
+- Browser Direct acceptance proving preview, execute, re-import dedupe, import-batch revert / restore, and source-evidence batch writes
 - Capability snapshot / coverage tests for version drift and partial support
 - Route or i18n tests for any new public-support promise copy
 
@@ -118,5 +121,7 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
   - profile remains visible when `History.db` is unreadable
   - needs-access guidance points to macOS Full Disk Access
   - baseline history backup succeeds once access is available
+  - Browser Direct local `History.db` preview / import / re-import / revert / restore succeeds once access is available
+  - local validation records aggregate counts and time ranges only; private URLs must not be copied into docs or chat
 
 This recipe is intentionally narrower than the total code coverage in the repo. Public promise follows the validated recipe, not the broadest internal implementation surface.

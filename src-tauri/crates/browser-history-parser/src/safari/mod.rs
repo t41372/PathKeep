@@ -8,12 +8,14 @@ use crate::{
     ParseError, ParsedHistory,
     observation::{capability_snapshot, capture_native_row, capture_native_rows, inspect_schema},
     types::{
-        CapabilityCoverage, DatabaseInspection, HistoryBatchConsumer, ParsedUrl, ParsedVisit,
-        ParserWarning, StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
+        CapabilityCoverage, ContextEvidence, DatabaseInspection, EngagementEvidence,
+        HistoryBatchConsumer, NavigationEvidence, ParsedUrl, ParsedVisit, ParserWarning,
+        SchemaObservation, StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags, Row, params};
+use serde_json::json;
 use std::convert::Infallible;
 use std::path::Path;
 
@@ -53,20 +55,49 @@ WHERE EXISTS (
   ) >= ?1
 ORDER BY last_visit_time ASC
 "#;
-const VISITS_SQL: &str = r#"
-SELECT
-  history_visits.id,
-  history_visits.history_item,
-  history_items.url,
-  history_visits.title,
-  history_visits.visit_time
-FROM history_visits
-JOIN history_items
-  ON history_items.id = history_visits.history_item
-WHERE history_visits.id > ?1
-ORDER BY history_visits.id ASC
-"#;
 const SAFARI_UNIX_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SafariVisitExtraColumn {
+    LoadSuccessful,
+    HttpNonGet,
+    Synthesized,
+    RedirectSource,
+    RedirectDestination,
+    Origin,
+    Generation,
+    Attributes,
+    Score,
+}
+
+impl SafariVisitExtraColumn {
+    fn column_name(self) -> &'static str {
+        match self {
+            Self::LoadSuccessful => "load_successful",
+            Self::HttpNonGet => "http_non_get",
+            Self::Synthesized => "synthesized",
+            Self::RedirectSource => "redirect_source",
+            Self::RedirectDestination => "redirect_destination",
+            Self::Origin => "origin",
+            Self::Generation => "generation",
+            Self::Attributes => "attributes",
+            Self::Score => "score",
+        }
+    }
+
+    fn source_field(self) -> String {
+        format!("history_visits.{}", self.column_name())
+    }
+}
+
+#[derive(Debug, Default)]
+struct SafariVisitEvidenceStats {
+    redirect_edges: usize,
+    load_outcomes: usize,
+    http_methods: usize,
+    synthesized_rows: usize,
+    scores: usize,
+}
 
 #[derive(Debug, Default)]
 struct SafariHistoryCollector {
@@ -162,13 +193,15 @@ where
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["history_items", "history_visits"])?;
+    let extra_visit_columns = safari_visit_extra_columns(&schema_observation);
     validate_required_tables(&inspection)?;
 
     let connection = open_readonly(path)?;
     let chunk_size = chunk_size.max(1);
     let warnings = inspection.warnings.clone();
     let mut visit_count = 0usize;
-    let typed_evidence = TypedEvidenceBatch::default();
+    let mut typed_evidence = TypedEvidenceBatch::default();
+    let mut evidence_stats = SafariVisitEvidenceStats::default();
     let mut native_entities = Vec::new();
 
     {
@@ -197,7 +230,8 @@ where
     }
 
     {
-        let mut statement = stream_sql(connection.prepare(VISITS_SQL))?;
+        let visits_sql = safari_visits_sql(&extra_visit_columns);
+        let mut statement = stream_sql(connection.prepare(&visits_sql))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
         let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
@@ -205,6 +239,15 @@ where
         while let Some(row) = stream_sql(rows.next())? {
             let visit = stream_sql(parsed_visit_from_row(row))?;
             visit_count += 1;
+            extend_typed_evidence_from_visit_row(
+                row,
+                &visit,
+                &extra_visit_columns,
+                &mut typed_evidence,
+                &mut evidence_stats,
+            )
+            .map_err(ParseError::from)
+            .map_err(StreamHistoryError::Parse)?;
             native_entities.push(stream_sql(capture_native_row(
                 row,
                 &column_names,
@@ -239,13 +282,7 @@ where
         }
     }
 
-    let capability_snapshot = capability_snapshot(vec![CapabilityCoverage {
-        key: "canonical.history_visits".to_string(),
-        available: visit_count > 0,
-        populated_rows: visit_count,
-        total_rows: visit_count,
-        notes: vec!["Safari History.db baseline".to_string()],
-    }]);
+    let capability_snapshot = build_capability_snapshot(visit_count, &evidence_stats);
     Ok(StreamedHistory {
         inspection,
         schema_observation,
@@ -325,6 +362,201 @@ fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     })
 }
 
+fn safari_visit_extra_columns(
+    schema_observation: &SchemaObservation,
+) -> Vec<SafariVisitExtraColumn> {
+    let has_visit_column = |column_name: &str| {
+        schema_observation.tables.iter().any(|table| {
+            table.name == "history_visits"
+                && table.present
+                && table.columns.iter().any(|column| column.name == column_name)
+        })
+    };
+    [
+        SafariVisitExtraColumn::LoadSuccessful,
+        SafariVisitExtraColumn::HttpNonGet,
+        SafariVisitExtraColumn::Synthesized,
+        SafariVisitExtraColumn::RedirectSource,
+        SafariVisitExtraColumn::RedirectDestination,
+        SafariVisitExtraColumn::Origin,
+        SafariVisitExtraColumn::Generation,
+        SafariVisitExtraColumn::Attributes,
+        SafariVisitExtraColumn::Score,
+    ]
+    .into_iter()
+    .filter(|column| has_visit_column(column.column_name()))
+    .collect()
+}
+
+fn safari_visits_sql(extra_columns: &[SafariVisitExtraColumn]) -> String {
+    let mut select_list = vec![
+        "history_visits.id".to_string(),
+        "history_visits.history_item".to_string(),
+        "history_items.url".to_string(),
+        "history_visits.title".to_string(),
+        "history_visits.visit_time".to_string(),
+    ];
+    select_list.extend(
+        extra_columns.iter().map(|column| format!("history_visits.{}", column.column_name())),
+    );
+    format!(
+        "SELECT {}\nFROM history_visits\nJOIN history_items\n  ON history_items.id = history_visits.history_item\nWHERE history_visits.id > ?1\nORDER BY history_visits.id ASC",
+        select_list.join(",\n  ")
+    )
+}
+
+fn extend_typed_evidence_from_visit_row(
+    row: &Row<'_>,
+    visit: &ParsedVisit,
+    extra_columns: &[SafariVisitExtraColumn],
+    typed_evidence: &mut TypedEvidenceBatch,
+    stats: &mut SafariVisitEvidenceStats,
+) -> rusqlite::Result<()> {
+    for (offset, column) in extra_columns.iter().enumerate() {
+        let index = 5 + offset;
+        match column {
+            SafariVisitExtraColumn::RedirectSource => {
+                if let Some(value) = row.get::<_, Option<i64>>(index)? {
+                    typed_evidence.navigation.push(NavigationEvidence {
+                        source_visit_id: visit.source_visit_id,
+                        edge_kind: "safari.redirect_source".to_string(),
+                        target_visit_id: Some(value),
+                        target_url: None,
+                        transition: None,
+                        source_field: column.source_field(),
+                    });
+                    stats.redirect_edges += 1;
+                }
+            }
+            SafariVisitExtraColumn::RedirectDestination => {
+                if let Some(value) = row.get::<_, Option<i64>>(index)? {
+                    typed_evidence.navigation.push(NavigationEvidence {
+                        source_visit_id: visit.source_visit_id,
+                        edge_kind: "safari.redirect_destination".to_string(),
+                        target_visit_id: Some(value),
+                        target_url: None,
+                        transition: None,
+                        source_field: column.source_field(),
+                    });
+                    stats.redirect_edges += 1;
+                }
+            }
+            SafariVisitExtraColumn::Score => {
+                if let Some(value) = row.get::<_, Option<f64>>(index)? {
+                    typed_evidence.engagement.push(EngagementEvidence {
+                        source_visit_id: visit.source_visit_id,
+                        metric_key: "safari.score".to_string(),
+                        metric_value_int: None,
+                        metric_value_real: Some(value),
+                        source_field: column.source_field(),
+                    });
+                    stats.scores += 1;
+                }
+            }
+            SafariVisitExtraColumn::LoadSuccessful
+            | SafariVisitExtraColumn::HttpNonGet
+            | SafariVisitExtraColumn::Synthesized
+            | SafariVisitExtraColumn::Origin
+            | SafariVisitExtraColumn::Generation
+            | SafariVisitExtraColumn::Attributes => {
+                if let Some(value) = row.get::<_, Option<i64>>(index)? {
+                    let context_key = match column {
+                        SafariVisitExtraColumn::LoadSuccessful => "safari.load_successful",
+                        SafariVisitExtraColumn::HttpNonGet => "safari.http_non_get",
+                        SafariVisitExtraColumn::Synthesized => "safari.synthesized",
+                        SafariVisitExtraColumn::Origin => "safari.origin",
+                        SafariVisitExtraColumn::Generation => "safari.generation",
+                        SafariVisitExtraColumn::Attributes => "safari.attributes",
+                        SafariVisitExtraColumn::RedirectSource
+                        | SafariVisitExtraColumn::RedirectDestination
+                        | SafariVisitExtraColumn::Score => unreachable!(),
+                    };
+                    let value_json = match column {
+                        SafariVisitExtraColumn::LoadSuccessful
+                        | SafariVisitExtraColumn::HttpNonGet
+                        | SafariVisitExtraColumn::Synthesized => json!(value != 0).to_string(),
+                        SafariVisitExtraColumn::Origin
+                        | SafariVisitExtraColumn::Generation
+                        | SafariVisitExtraColumn::Attributes => json!(value).to_string(),
+                        SafariVisitExtraColumn::RedirectSource
+                        | SafariVisitExtraColumn::RedirectDestination
+                        | SafariVisitExtraColumn::Score => unreachable!(),
+                    };
+                    typed_evidence.context.push(ContextEvidence {
+                        source_visit_id: Some(visit.source_visit_id),
+                        source_url_id: Some(visit.source_url_id),
+                        context_key: context_key.to_string(),
+                        value_json,
+                        source_field: column.source_field(),
+                    });
+                    match column {
+                        SafariVisitExtraColumn::LoadSuccessful => stats.load_outcomes += 1,
+                        SafariVisitExtraColumn::HttpNonGet => stats.http_methods += 1,
+                        SafariVisitExtraColumn::Synthesized => stats.synthesized_rows += 1,
+                        SafariVisitExtraColumn::Origin
+                        | SafariVisitExtraColumn::Generation
+                        | SafariVisitExtraColumn::Attributes => {}
+                        SafariVisitExtraColumn::RedirectSource
+                        | SafariVisitExtraColumn::RedirectDestination
+                        | SafariVisitExtraColumn::Score => unreachable!(),
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn build_capability_snapshot(
+    visit_count: usize,
+    evidence_stats: &SafariVisitEvidenceStats,
+) -> crate::types::CapabilitySnapshot {
+    capability_snapshot(vec![
+        CapabilityCoverage {
+            key: "canonical.history_visits".to_string(),
+            available: visit_count > 0,
+            populated_rows: visit_count,
+            total_rows: visit_count,
+            notes: vec!["Safari History.db visits".to_string()],
+        },
+        CapabilityCoverage {
+            key: "safari.redirect_edges".to_string(),
+            available: evidence_stats.redirect_edges > 0,
+            populated_rows: evidence_stats.redirect_edges,
+            total_rows: visit_count,
+            notes: vec!["history_visits.redirect_source and redirect_destination".to_string()],
+        },
+        CapabilityCoverage {
+            key: "safari.load_outcome".to_string(),
+            available: evidence_stats.load_outcomes > 0,
+            populated_rows: evidence_stats.load_outcomes,
+            total_rows: visit_count,
+            notes: vec!["history_visits.load_successful".to_string()],
+        },
+        CapabilityCoverage {
+            key: "safari.http_method".to_string(),
+            available: evidence_stats.http_methods > 0,
+            populated_rows: evidence_stats.http_methods,
+            total_rows: visit_count,
+            notes: vec!["history_visits.http_non_get".to_string()],
+        },
+        CapabilityCoverage {
+            key: "safari.synthesized".to_string(),
+            available: evidence_stats.synthesized_rows > 0,
+            populated_rows: evidence_stats.synthesized_rows,
+            total_rows: visit_count,
+            notes: vec!["history_visits.synthesized".to_string()],
+        },
+        CapabilityCoverage {
+            key: "safari.score".to_string(),
+            available: evidence_stats.scores > 0,
+            populated_rows: evidence_stats.scores,
+            total_rows: visit_count,
+            notes: vec!["history_visits.score".to_string()],
+        },
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +594,89 @@ mod tests {
             .expect("insert safari visit");
     }
 
+    fn write_current_schema_fixture(path: &Path) {
+        let connection = Connection::open(path).expect("open current safari fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE history_items (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL
+                 );
+                 CREATE TABLE history_visits (
+                   id INTEGER PRIMARY KEY,
+                   history_item INTEGER NOT NULL,
+                   title TEXT,
+                   visit_time REAL NOT NULL,
+                   load_successful INTEGER,
+                   http_non_get INTEGER,
+                   synthesized INTEGER,
+                   redirect_source INTEGER,
+                   redirect_destination INTEGER,
+                   origin INTEGER,
+                   generation INTEGER,
+                   attributes INTEGER,
+                   score REAL
+                 );",
+            )
+            .expect("create current safari schema");
+        connection
+            .execute(
+                "INSERT INTO history_items (id, url) VALUES (?1, ?2)",
+                params![5_i64, "https://example.com/safari"],
+            )
+            .expect("insert current history item");
+        connection
+            .execute(
+                "INSERT INTO history_visits (
+                   id, history_item, title, visit_time, load_successful,
+                   http_non_get, synthesized, redirect_source, redirect_destination,
+                   origin, generation, attributes, score
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    9_i64,
+                    5_i64,
+                    "Safari Start",
+                    765_838_800.0_f64,
+                    1_i64,
+                    0_i64,
+                    0_i64,
+                    Option::<i64>::None,
+                    Some(10_i64),
+                    1_i64,
+                    2_i64,
+                    4_i64,
+                    0.75_f64,
+                ],
+            )
+            .expect("insert current safari first visit");
+        connection
+            .execute(
+                "INSERT INTO history_visits (
+                   id, history_item, title, visit_time, load_successful,
+                   http_non_get, synthesized, redirect_source, redirect_destination,
+                   origin, generation, attributes, score
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    10_i64,
+                    5_i64,
+                    "Safari Finish",
+                    765_838_801.0_f64,
+                    0_i64,
+                    1_i64,
+                    1_i64,
+                    Some(9_i64),
+                    Option::<i64>::None,
+                    1_i64,
+                    3_i64,
+                    8_i64,
+                    0.25_f64,
+                ],
+            )
+            .expect("insert current safari second visit");
+    }
+
     #[test]
     fn parse_history_reads_safari_items_and_visits() {
         let directory = tempdir().expect("tempdir");
@@ -375,6 +690,56 @@ mod tests {
         assert_eq!(parsed.visits[0].source_visit_id, 9);
         assert_eq!(parsed.visits[0].app_id.as_deref(), Some("safari"));
         assert!(parsed.warnings.iter().any(|warning| warning.code == "baseline-support"));
+    }
+
+    #[test]
+    fn parse_history_preserves_current_safari_visit_metadata() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History.db");
+        write_current_schema_fixture(&history_path);
+
+        let parsed = parse_history(&history_path, 0, 0).expect("parse current safari history");
+
+        assert_eq!(parsed.visits.len(), 2);
+        assert_eq!(parsed.typed_evidence.navigation.len(), 2);
+        assert_eq!(parsed.typed_evidence.engagement.len(), 2);
+        assert!(parsed.typed_evidence.context.iter().any(|item| {
+            item.context_key == "safari.load_successful" && item.value_json == "false"
+        }));
+        assert!(parsed.native_entities.iter().any(|entity| {
+            entity.entity_kind == "safari-history-visit-row"
+                && entity.payload_json.contains("load_successful")
+                && entity.payload_json.contains("redirect_destination")
+        }));
+        assert!(parsed.capability_snapshot.items.iter().any(|item| {
+            item.key == "safari.redirect_edges" && item.available && item.populated_rows == 2
+        }));
+    }
+
+    #[test]
+    fn parse_history_reads_reference_safari_database_shape() {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../reference/browserexport/tests/databases/safari.sqlite");
+
+        let parsed = parse_history(&fixture_path, 0, 0).expect("parse reference safari fixture");
+
+        assert_eq!(parsed.urls.len(), 2);
+        assert_eq!(parsed.visits.len(), 3);
+        assert_eq!(parsed.typed_evidence.navigation.len(), 2);
+        assert_eq!(
+            parsed
+                .typed_evidence
+                .context
+                .iter()
+                .filter(|item| item.context_key == "safari.load_successful")
+                .count(),
+            3
+        );
+        assert!(parsed.native_entities.iter().any(|entity| {
+            entity.entity_kind == "safari-history-visit-row"
+                && entity.payload_json.contains("load_successful")
+                && entity.payload_json.contains("score")
+        }));
     }
 
     #[test]

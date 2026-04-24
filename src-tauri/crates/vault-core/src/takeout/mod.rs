@@ -25,6 +25,7 @@
 
 mod batch_review;
 mod batches;
+mod browser_history;
 mod import_flow;
 mod inspect;
 mod payload_import;
@@ -43,8 +44,9 @@ use crate::{
     config::{ProjectPaths, ensure_paths},
     git_audit,
     models::{
-        AppConfig, ImportBatchDetail, ImportBatchOverview, ImportProgressEvent, TakeoutFileReport,
-        TakeoutInspection, TakeoutPreviewEntry, TakeoutRequest,
+        AppConfig, BrowserHistoryImportRequest, ImportBatchDetail, ImportBatchOverview,
+        ImportProgressEvent, TakeoutFileReport, TakeoutInspection, TakeoutPreviewEntry,
+        TakeoutRequest,
     },
     utils::{now_rfc3339, sha256_hex},
 };
@@ -70,6 +72,9 @@ use zip::ZipArchive;
 pub use self::{
     batch_review::{load_import_batches, preview_import_batch},
     batches::{restore_import_batch, revert_import_batch},
+    browser_history::{
+        import_browser_history, import_browser_history_with_progress, inspect_browser_history,
+    },
     import_flow::{import_takeout, import_takeout_with_progress},
     inspect::inspect_takeout,
 };

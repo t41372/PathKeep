@@ -1,4 +1,4 @@
-//! Tauri commands for Takeout inspection/import and import-batch review.
+//! Tauri commands for Takeout, Browser Direct, and import-batch review.
 
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
@@ -30,6 +30,39 @@ pub(crate) async fn import_takeout(
         worker_bridge::import_takeout_impl(request, session_database_key.as_deref(), |event| {
             let _ = app.emit("pathkeep://import-progress", &event);
         })
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Inspects a local browser history database without importing it.
+pub(crate) async fn inspect_browser_history(
+    request: vault_core::BrowserHistoryImportRequest,
+) -> Result<vault_core::TakeoutInspection, String> {
+    run_blocking_command("inspect_browser_history", move || {
+        worker_bridge::inspect_browser_history_impl(request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Imports a local browser history database into the current archive.
+pub(crate) async fn import_browser_history(
+    app: AppHandle,
+    request: vault_core::BrowserHistoryImportRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::TakeoutInspection, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("import_browser_history", move || {
+        worker_bridge::import_browser_history_impl(
+            request,
+            session_database_key.as_deref(),
+            |event| {
+                let _ = app.emit("pathkeep://import-progress", &event);
+            },
+        )
     })
     .await
 }

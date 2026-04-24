@@ -26,7 +26,7 @@
 
 ## Browser Support Promise
 
-- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.
 - `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
 - Promotion into README / onboarding / release docs follows [../../architecture/browser-support-and-adapter-playbook.md](../../architecture/browser-support-and-adapter-playbook.md), not just the broadest internal implementation surface.
 
@@ -38,6 +38,7 @@
 - verify first backup on Google Chrome
 - verify Safari stays visible with needs-access guidance when Full Disk Access is missing
 - verify Safari baseline backup succeeds after Full Disk Access is granted
+- verify Safari Browser Direct `History.db` preview / execute / re-import dedupe / revert / restore after Full Disk Access is granted; record aggregate counts and time range only
 - review LaunchAgent preview, apply, verify, and remove flow
 - confirm encrypted archive unlock, restart, and re-open behavior
 - verify App Lock passcode + Touch ID unlock path, including truthful Touch ID unavailable fallback
@@ -52,7 +53,7 @@ Support stance:
 
 Known limitations:
 
-- Safari baseline support still depends on Full Disk Access
+- Safari baseline support and Browser Direct local `History.db` import still depend on Full Disk Access
 
 ### Windows
 

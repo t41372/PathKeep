@@ -119,6 +119,8 @@ fn run_app() -> Result<()> {
             verify_remote_backup,
             inspect_takeout,
             import_takeout,
+            inspect_browser_history,
+            import_browser_history,
             preview_import_batch,
             revert_import_batch,
             restore_import_batch,

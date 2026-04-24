@@ -1,5 +1,7 @@
 //! Regression tests for the Takeout import boundary.
 
+mod browser_history;
+
 use super::*;
 use crate::{
     archive::{

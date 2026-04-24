@@ -42,10 +42,12 @@ import {
   buildMockRetentionPreview,
   buildMockSecurityStatus,
   buildMockSnapshotRestorePreview,
+  buildMockBrowserHistoryInspection,
   buildMockTakeoutInspection,
   mutateImportBatch,
 } from './backend-preview-workflows'
 import type {
+  BrowserHistoryImportRequest,
   RekeyRequest,
   RetentionPruneRequest,
   S3CredentialInput,
@@ -199,6 +201,24 @@ export function handlePreviewWorkflowCommand<T>(
         args?.request
           ? String((args.request as TakeoutRequest).sourcePath)
           : '/tmp/takeout.zip',
+        false,
+      ) as T
+    case 'inspect_browser_history':
+      return buildMockBrowserHistoryInspection(
+        state,
+        (args?.request as BrowserHistoryImportRequest | undefined) ?? {
+          sourcePath: '/tmp/History',
+          dryRun: true,
+        },
+        true,
+      ) as T
+    case 'import_browser_history':
+      return buildMockBrowserHistoryInspection(
+        state,
+        (args?.request as BrowserHistoryImportRequest | undefined) ?? {
+          sourcePath: '/tmp/History',
+          dryRun: false,
+        },
         false,
       ) as T
     case 'preview_import_batch': {

@@ -76,6 +76,8 @@ export const backend = {
   verifyRemoteBackup: remoteClient.verifyBackup,
   inspectTakeout: importClient.inspectTakeout,
   importTakeout: importClient.importTakeout,
+  inspectBrowserHistory: importClient.inspectBrowserHistory,
+  importBrowserHistory: importClient.importBrowserHistory,
   previewImportBatch: importClient.previewBatch,
   revertImportBatch: importClient.revertBatch,
   restoreImportBatch: importClient.restoreBatch,

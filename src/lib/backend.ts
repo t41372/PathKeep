@@ -58,6 +58,7 @@ import type {
   ApplyResult,
   AuditRunDetail,
   BackupReport,
+  BrowserHistoryImportRequest,
   ClearDerivedIntelligenceReport,
   DashboardSnapshot,
   ExportRequest,
@@ -232,6 +233,10 @@ export const backend = {
     call<TakeoutInspection>('inspect_takeout', { request }),
   importTakeout: (request: TakeoutRequest) =>
     call<TakeoutInspection>('import_takeout', { request }),
+  inspectBrowserHistory: (request: BrowserHistoryImportRequest) =>
+    call<TakeoutInspection>('inspect_browser_history', { request }),
+  importBrowserHistory: (request: BrowserHistoryImportRequest) =>
+    call<TakeoutInspection>('import_browser_history', { request }),
   previewImportBatch: (batchId: number) =>
     call<ImportBatchDetail>('preview_import_batch', { batchId }),
   revertImportBatch: (batchId: number) =>

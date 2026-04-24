@@ -1,0 +1,254 @@
+//! Browser Direct import regressions for local history databases.
+
+use super::{initialized_plaintext_config, sample_paths};
+use crate::{
+    archive::{create_schema, open_archive_connection, open_source_evidence_connection},
+    config::ensure_paths,
+    models::BrowserHistoryImportRequest,
+    takeout::{
+        import_browser_history, inspect_browser_history, restore_import_batch, revert_import_batch,
+    },
+};
+use rusqlite::{Connection, params};
+use std::path::{Path, PathBuf};
+use tempfile::tempdir;
+
+fn browser_history_request(
+    source: &Path,
+    dry_run: bool,
+    browser_family: &str,
+    profile_id: &str,
+) -> BrowserHistoryImportRequest {
+    BrowserHistoryImportRequest {
+        source_path: source.display().to_string(),
+        dry_run,
+        browser_family: Some(browser_family.to_string()),
+        profile_id: Some(profile_id.to_string()),
+        browser_name: Some(
+            if browser_family == "safari" { "Safari" } else { "Google Chrome" }.to_string(),
+        ),
+        profile_name: Some("Primary".to_string()),
+    }
+}
+
+fn write_safari_history_db(dir: &Path) -> PathBuf {
+    let source = dir.join("History.db");
+    let connection = Connection::open(&source).expect("open safari db");
+    connection
+        .execute_batch(
+            "CREATE TABLE history_items (
+               id INTEGER PRIMARY KEY,
+               url TEXT NOT NULL
+             );
+             CREATE TABLE history_visits (
+               id INTEGER PRIMARY KEY,
+               history_item INTEGER NOT NULL,
+               title TEXT,
+               visit_time REAL NOT NULL,
+               load_successful INTEGER,
+               http_non_get INTEGER,
+               synthesized INTEGER,
+               redirect_source INTEGER,
+               redirect_destination INTEGER,
+               origin INTEGER,
+               generation INTEGER,
+               attributes INTEGER,
+               score REAL
+             );",
+        )
+        .expect("create safari db schema");
+    connection
+        .execute(
+            "INSERT INTO history_items (id, url) VALUES (?1, ?2), (?3, ?4)",
+            params![
+                1_i64,
+                "https://example.com/safari-one",
+                2_i64,
+                "https://example.com/safari-two"
+            ],
+        )
+        .expect("insert safari urls");
+    connection
+        .execute(
+            "INSERT INTO history_visits (
+               id, history_item, title, visit_time, load_successful,
+               http_non_get, synthesized, redirect_source, redirect_destination,
+               origin, generation, attributes, score
+             )
+             VALUES (?1, ?2, ?3, ?4, 1, 0, 0, NULL, ?5, 1, 1, 0, ?6)",
+            params![11_i64, 1_i64, "One", 765_838_800.0_f64, 12_i64, 0.8_f64],
+        )
+        .expect("insert safari visit one");
+    connection
+        .execute(
+            "INSERT INTO history_visits (
+               id, history_item, title, visit_time, load_successful,
+               http_non_get, synthesized, redirect_source, redirect_destination,
+               origin, generation, attributes, score
+             )
+             VALUES (?1, ?2, ?3, ?4, 1, 0, 0, ?5, NULL, 1, 1, 0, ?6)",
+            params![12_i64, 2_i64, "Two", 765_838_900.0_f64, 11_i64, 0.6_f64],
+        )
+        .expect("insert safari visit two");
+    source
+}
+
+fn write_chromium_history_db(dir: &Path) -> PathBuf {
+    let source = dir.join("History");
+    let connection = Connection::open(&source).expect("open chrome db");
+    connection
+        .execute_batch(
+            "CREATE TABLE urls (
+               id INTEGER PRIMARY KEY,
+               url TEXT NOT NULL,
+               title TEXT,
+               visit_count INTEGER NOT NULL,
+               typed_count INTEGER NOT NULL,
+               last_visit_time INTEGER NOT NULL,
+               hidden INTEGER NOT NULL
+             );
+             CREATE TABLE visits (
+               id INTEGER PRIMARY KEY,
+               url INTEGER NOT NULL,
+               visit_time INTEGER NOT NULL,
+               from_visit INTEGER,
+               transition INTEGER,
+               visit_duration INTEGER,
+               is_known_to_sync INTEGER,
+               visited_link_id INTEGER,
+               external_referrer_url TEXT,
+               app_id TEXT
+             );",
+        )
+        .expect("create chrome db schema");
+    let chrome_time = 13_358_534_400_000_000_i64;
+    connection
+        .execute(
+            "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
+             VALUES (?1, ?2, ?3, 1, 0, ?4, 0)",
+            params![1_i64, "https://example.com/chrome", "Chrome", chrome_time],
+        )
+        .expect("insert chrome url");
+    connection
+        .execute(
+            "INSERT INTO visits (
+               id, url, visit_time, from_visit, transition, visit_duration,
+               is_known_to_sync, visited_link_id, external_referrer_url, app_id
+             )
+             VALUES (?1, ?2, ?3, NULL, 1, 1000, 0, NULL, NULL, ?4)",
+            params![7_i64, 1_i64, chrome_time, "chrome"],
+        )
+        .expect("insert chrome visit");
+    source
+}
+
+#[test]
+fn inspect_browser_history_previews_reference_safari_database() {
+    let dir = tempdir().expect("tempdir");
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../reference/browserexport/tests/databases/safari.sqlite");
+    let inspection = inspect_browser_history(
+        &sample_paths(dir.path()),
+        &browser_history_request(&fixture_path, true, "safari", "safari:reference"),
+    )
+    .expect("inspect safari browser history");
+
+    assert_eq!(inspection.source_path, fixture_path.display().to_string());
+    assert!(inspection.dry_run);
+    assert_eq!(inspection.candidate_items, 3);
+    assert_eq!(inspection.preview_entries.len(), 3);
+    assert_eq!(inspection.recognized_files.len(), 1);
+    assert_eq!(inspection.recognized_files[0].kind, "safari-history-db");
+    assert_eq!(inspection.recognized_files[0].records, 3);
+    assert!(inspection.preview_range_start.is_some());
+    assert!(inspection.notes.iter().any(|note| note.contains("Safari baseline ingest")));
+}
+
+#[test]
+fn import_browser_history_safari_import_batch_is_reversible_and_deduplicated() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_safari_history_db(dir.path());
+    let request = browser_history_request(&source, false, "safari", "safari:primary");
+    let first = import_browser_history(&paths, &config, None, &request).expect("import safari");
+    let batch = first.import_batch.clone().expect("import batch");
+
+    assert_eq!(batch.source_kind, "browser-history");
+    assert_eq!(batch.profile_id, "safari:primary");
+    assert_eq!(first.imported_items, 2);
+    assert_eq!(first.duplicate_items, 0);
+    assert_eq!(first.recognized_files[0].kind, "safari-history-db");
+    assert_eq!(first.preview_entries.len(), 2);
+
+    let second = import_browser_history(&paths, &config, None, &request).expect("re-import safari");
+    assert_eq!(second.imported_items, 0);
+    assert_eq!(second.duplicate_items, 2);
+
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let profile_family: String = archive
+        .query_row(
+            "SELECT browser_family FROM source_profiles WHERE profile_key = 'safari:primary'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load safari profile");
+    assert_eq!(profile_family, "safari");
+
+    let source_evidence =
+        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let navigation_rows: i64 = source_evidence
+        .query_row("SELECT COUNT(*) FROM visit_navigation_evidence", [], |row| row.get(0))
+        .expect("navigation evidence count");
+    let native_rows: i64 = source_evidence
+        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .expect("native evidence count");
+    assert_eq!(navigation_rows, 4);
+    assert!(native_rows >= 4);
+
+    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert batch");
+    assert_eq!(reverted.batch.status, "reverted");
+    assert_eq!(reverted.batch.visible_items, 0);
+    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore batch");
+    assert_eq!(restored.batch.status, "imported");
+    assert_eq!(restored.batch.visible_items, 2);
+}
+
+#[test]
+fn import_browser_history_accepts_chromium_history_database() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_chromium_history_db(dir.path());
+    let request = browser_history_request(&source, false, "chromium", "chrome:Primary");
+    let inspection =
+        import_browser_history(&paths, &config, None, &request).expect("import chromium");
+
+    assert_eq!(inspection.imported_items, 1);
+    assert_eq!(inspection.duplicate_items, 0);
+    assert_eq!(inspection.recognized_files[0].kind, "chromium-history-db");
+    assert_eq!(inspection.import_batch.expect("import batch").source_kind, "browser-history");
+}
+
+#[test]
+fn inspect_browser_history_reports_safari_access_guidance_for_unreadable_files() {
+    let dir = tempdir().expect("tempdir");
+    let source = dir.path().join("History.db");
+    let error = inspect_browser_history(
+        &sample_paths(dir.path()),
+        &browser_history_request(&source, true, "safari", "safari:blocked"),
+    )
+    .expect_err("missing safari db should explain access");
+
+    assert!(format!("{error:#}").contains("Full Disk Access"));
+}

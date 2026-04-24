@@ -20,12 +20,13 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use vault_core::{
-    AiIndexRequest, BackupProgressEvent, ClearDerivedIntelligenceReport,
-    CoreIntelligenceRebuildRequest, DashboardSnapshot, ExportRequest, HealthRepairReport,
-    HealthReport, HistoryQuery, HistoryQueryResponse, ImportBatchDetail, ImportProgressEvent,
-    RemoteBackupPreview, RemoteBackupResult, RemoteBackupVerification, TakeoutInspection,
-    TakeoutRequest, ai_queue, clear_derived_intelligence_state, doctor, export_history,
-    import_takeout_with_progress, inspect_takeout,
+    AiIndexRequest, BackupProgressEvent, BrowserHistoryImportRequest,
+    ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest, DashboardSnapshot,
+    ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
+    ImportBatchDetail, ImportProgressEvent, RemoteBackupPreview, RemoteBackupResult,
+    RemoteBackupVerification, TakeoutInspection, TakeoutRequest, ai_queue,
+    clear_derived_intelligence_state, doctor, export_history, import_browser_history_with_progress,
+    import_takeout_with_progress, inspect_browser_history, inspect_takeout,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
@@ -275,6 +276,14 @@ pub fn inspect_takeout_source(request: &TakeoutRequest) -> Result<TakeoutInspect
     inspect_takeout(&paths, request)
 }
 
+/// Inspects one local browser history database without mutating the archive.
+pub fn inspect_browser_history_source(
+    request: &BrowserHistoryImportRequest,
+) -> Result<TakeoutInspection> {
+    let paths = vault_core::project_paths()?;
+    inspect_browser_history(&paths, request)
+}
+
 /// Imports a Takeout source into the canonical archive.
 pub fn import_takeout_source(
     session_database_key: Option<&str>,
@@ -318,6 +327,58 @@ where
             Err(error) => inspection.notes.push(format!(
                 "Core Intelligence could not refresh automatically after import: {error}"
             )),
+        }
+    }
+    Ok(inspection)
+}
+
+/// Imports one local browser history database into the canonical archive.
+pub fn import_browser_history_source(
+    session_database_key: Option<&str>,
+    request: &BrowserHistoryImportRequest,
+) -> Result<TakeoutInspection> {
+    import_browser_history_source_with_progress(session_database_key, request, |_| {})
+}
+
+pub fn import_browser_history_source_with_progress<F>(
+    session_database_key: Option<&str>,
+    request: &BrowserHistoryImportRequest,
+    report_progress: F,
+) -> Result<TakeoutInspection>
+where
+    F: FnMut(ImportProgressEvent),
+{
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let mut inspection = import_browser_history_with_progress(
+        &paths,
+        &config,
+        session_database_key,
+        request,
+        report_progress,
+    )?;
+    if inspection.imported_items > 0 {
+        if let Some(profile_id) =
+            inspection.import_batch.as_ref().map(|batch| batch.profile_id.clone())
+        {
+            match enqueue_and_spawn_deterministic_refresh(
+                &paths,
+                &config,
+                session_database_key,
+                &[profile_id],
+            ) {
+                Ok(job_ids) => inspection.notes.push(format!(
+                    "Core Intelligence refresh jobs {} were queued automatically after import and will finish in the background.",
+                    job_ids
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+                Err(error) => inspection.notes.push(format!(
+                    "Core Intelligence could not refresh automatically after import: {error}"
+                )),
+            }
         }
     }
     Ok(inspection)

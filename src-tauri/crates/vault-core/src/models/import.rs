@@ -10,6 +10,18 @@ pub struct TakeoutRequest {
     pub dry_run: bool,
 }
 
+/// Request payload for inspecting or importing one browser history database.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserHistoryImportRequest {
+    pub source_path: String,
+    pub dry_run: bool,
+    pub browser_family: Option<String>,
+    pub profile_id: Option<String>,
+    pub browser_name: Option<String>,
+    pub profile_name: Option<String>,
+}
+
 /// Summary of one recognized or quarantined file inside a Takeout source.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

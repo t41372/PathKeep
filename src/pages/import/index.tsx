@@ -24,6 +24,7 @@ import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
+  BrowserHistoryImportRequest,
   BrowserProfile,
   ImportProgressEvent,
   TakeoutInspection,
@@ -37,6 +38,15 @@ import {
 } from './shared'
 import { useImportReviewState } from './use-import-review-state'
 import { ImportWorkflowPanel } from './workflow-panel'
+
+function isValidatedBrowserDirectProfile(profile: BrowserProfile) {
+  const browserName = profile.browserName.toLocaleLowerCase()
+  return (
+    profile.browserFamily === 'safari' ||
+    browserName === 'google chrome' ||
+    profile.profileId.startsWith('chrome:')
+  )
+}
 
 /**
  * Renders the import route.
@@ -78,13 +88,20 @@ export function ImportPage() {
   const detectedBrowserProfiles = useMemo(
     () =>
       [...(snapshot?.browserProfiles ?? [])]
-        .filter((profile) => profile.historyExists && profile.historyPath)
+        .filter(isValidatedBrowserDirectProfile)
         .sort((left, right) =>
           `${left.browserFamily}:${left.profileName}`.localeCompare(
             `${right.browserFamily}:${right.profileName}`,
           ),
         ),
     [snapshot?.browserProfiles],
+  )
+  const readyBrowserProfiles = useMemo(
+    () =>
+      detectedBrowserProfiles.filter(
+        (profile) => profile.historyExists && profile.historyPath,
+      ),
+    [detectedBrowserProfiles],
   )
   const selectedBrowserProfile = useMemo(
     () =>
@@ -120,11 +137,11 @@ export function ImportPage() {
   useEffect(() => {
     if (method !== 'browser') return
     if (selectedBrowserProfileId || sourcePath.trim()) return
-    const firstProfile = detectedBrowserProfiles[0]
+    const firstProfile = readyBrowserProfiles[0]
     if (!firstProfile?.historyPath) return
     setSelectedBrowserProfileId(firstProfile.profileId)
     setSourcePath(firstProfile.historyPath)
-  }, [detectedBrowserProfiles, method, selectedBrowserProfileId, sourcePath])
+  }, [method, readyBrowserProfiles, selectedBrowserProfileId, sourcePath])
 
   const workflowSteps = useMemo(
     () =>
@@ -139,6 +156,19 @@ export function ImportPage() {
     [activeBatchDetail, healthReport, importResult, inspection, step, t],
   )
 
+  function buildBrowserHistoryRequest(options: {
+    dryRun: boolean
+  }): BrowserHistoryImportRequest {
+    return {
+      sourcePath,
+      dryRun: options.dryRun,
+      browserFamily: selectedBrowserProfile?.browserFamily ?? null,
+      profileId: selectedBrowserProfile?.profileId ?? null,
+      browserName: selectedBrowserProfile?.browserName ?? null,
+      profileName: selectedBrowserProfile?.profileName ?? null,
+    }
+  }
+
   /**
    * Handles scan.
    *
@@ -152,7 +182,12 @@ export function ImportPage() {
     setStep('scan')
     try {
       await waitForNextPaint()
-      const result = await backend.inspectTakeout({ sourcePath, dryRun: true })
+      const result =
+        method === 'takeout'
+          ? await backend.inspectTakeout({ sourcePath, dryRun: true })
+          : await backend.inspectBrowserHistory(
+              buildBrowserHistoryRequest({ dryRun: true }),
+            )
       setInspection(result)
       setImportResult(null)
       setStep('preview')
@@ -198,7 +233,7 @@ export function ImportPage() {
     clearActionError()
     setManualPathExpanded(false)
     if (nextMethod === 'browser') {
-      const firstProfile = detectedBrowserProfiles[0]
+      const firstProfile = readyBrowserProfiles[0]
       if (firstProfile?.historyPath) {
         setSelectedBrowserProfileId(firstProfile.profileId)
         setSourcePath(firstProfile.historyPath)
@@ -281,7 +316,12 @@ export function ImportPage() {
       unsubscribe = await subscribeToImportProgress((progress) => {
         setImportProgress(progress)
       })
-      const result = await backend.importTakeout({ sourcePath, dryRun: false })
+      const result =
+        method === 'takeout'
+          ? await backend.importTakeout({ sourcePath, dryRun: false })
+          : await backend.importBrowserHistory(
+              buildBrowserHistoryRequest({ dryRun: false }),
+            )
       setImportResult(result)
       setStep('done')
       void refreshAppData().catch((nextError) => {

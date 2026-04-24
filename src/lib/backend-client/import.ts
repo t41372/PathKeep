@@ -14,6 +14,7 @@
  */
 
 import type {
+  BrowserHistoryImportRequest,
   ImportBatchDetail,
   TakeoutInspection,
   TakeoutRequest,
@@ -30,6 +31,10 @@ export const importClient = {
     call<TakeoutInspection>('inspect_takeout', { request }),
   importTakeout: (request: TakeoutRequest) =>
     call<TakeoutInspection>('import_takeout', { request }),
+  inspectBrowserHistory: (request: BrowserHistoryImportRequest) =>
+    call<TakeoutInspection>('inspect_browser_history', { request }),
+  importBrowserHistory: (request: BrowserHistoryImportRequest) =>
+    call<TakeoutInspection>('import_browser_history', { request }),
   previewBatch: (batchId: number) =>
     call<ImportBatchDetail>('preview_import_batch', { batchId }),
   revertBatch: (batchId: number) =>

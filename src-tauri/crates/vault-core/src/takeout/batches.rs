@@ -223,6 +223,24 @@ pub(super) fn create_import_batch(
     profile_id: &str,
     request: &TakeoutRequest,
 ) -> Result<i64> {
+    create_import_batch_for_source(
+        archive,
+        ImportBatchSource { source_kind: "takeout", source_path: &request.source_path, profile_id },
+    )
+}
+
+/// Describes the minimal source identity needed to create an import batch.
+pub(super) struct ImportBatchSource<'a> {
+    pub(super) source_kind: &'a str,
+    pub(super) source_path: &'a str,
+    pub(super) profile_id: &'a str,
+}
+
+/// Creates the initial running import-batch row for any preview-first import source.
+pub(super) fn create_import_batch_for_source(
+    archive: &Transaction<'_>,
+    source: ImportBatchSource<'_>,
+) -> Result<i64> {
     let summary_json = serde_json::to_string(&json!({
         "candidateItems": 0,
         "importedItems": 0,
@@ -236,8 +254,14 @@ pub(super) fn create_import_batch(
     }))?;
     archive.execute(
         "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, status, summary_json)
-         VALUES ('takeout', ?1, ?2, ?3, 'running', ?4)",
-        params![request.source_path, profile_id, now_rfc3339(), summary_json],
+         VALUES (?1, ?2, ?3, ?4, 'running', ?5)",
+        params![
+            source.source_kind,
+            source.source_path,
+            source.profile_id,
+            now_rfc3339(),
+            summary_json
+        ],
     )?;
     Ok(archive.last_insert_rowid())
 }
