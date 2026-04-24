@@ -338,3 +338,70 @@ fn safari_access_hint(request: &BrowserHistoryImportRequest, source: &Path) -> O
         "Safari History.db is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then retry Browser Direct import.".to_string()
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+
+    #[test]
+    fn copy_sqlite_database_with_sidecars_preserves_wal_backed_chromium_rows() {
+        let source_dir = tempfile::tempdir().expect("source dir");
+        let destination_dir = tempfile::tempdir().expect("destination dir");
+        let source = source_dir.path().join("History");
+        let destination = destination_dir.path().join("History");
+        let connection = Connection::open(&source).expect("open source");
+        connection.pragma_update(None, "journal_mode", "WAL").expect("enable wal");
+        connection.pragma_update(None, "wal_autocheckpoint", 0).expect("disable autocheckpoint");
+        connection
+            .execute_batch(
+                "CREATE TABLE urls (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER NOT NULL,
+                   typed_count INTEGER NOT NULL,
+                   last_visit_time INTEGER NOT NULL,
+                   hidden INTEGER NOT NULL
+                 );
+                 CREATE TABLE visits (
+                   id INTEGER PRIMARY KEY,
+                   url INTEGER NOT NULL,
+                   visit_time INTEGER NOT NULL,
+                   from_visit INTEGER,
+                   transition INTEGER,
+                   visit_duration INTEGER,
+                   is_known_to_sync INTEGER,
+                   visited_link_id INTEGER,
+                   external_referrer_url TEXT,
+                   app_id TEXT
+                 );
+                 INSERT INTO urls (
+                   id, url, title, visit_count, typed_count, last_visit_time, hidden
+                 )
+                 VALUES (1, 'https://example.test/atlas', 'Atlas', 1, 0, 13358534400000000, 0);
+                 INSERT INTO visits (
+                   id, url, visit_time, from_visit, transition, visit_duration,
+                   is_known_to_sync, visited_link_id, external_referrer_url, app_id
+                 )
+                 VALUES (7, 1, 13358534400000000, NULL, 1, 1000, 0, NULL, NULL, 'atlas');",
+            )
+            .expect("write wal-backed chromium rows");
+
+        assert!(PathBuf::from(format!("{}-wal", source.display())).exists());
+
+        copy_sqlite_database_with_sidecars(&source, &destination).expect("copy with sidecars");
+        quick_check_sqlite(&destination).expect("quick check copied db");
+        let copied = Connection::open_with_flags(
+            &destination,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .expect("open copied db");
+        let visit_count: i64 = copied
+            .query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))
+            .expect("count copied visits");
+
+        assert_eq!(visit_count, 1);
+    }
+}

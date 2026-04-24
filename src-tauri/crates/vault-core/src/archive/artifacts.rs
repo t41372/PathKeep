@@ -357,6 +357,7 @@ fn browser_family_for_profile(browser_kind: &str) -> String {
 /// browser kinds PathKeep already persists today.
 fn browser_name_for_profile(browser_kind: &str) -> String {
     match browser_kind {
+        "atlas" => "ChatGPT Atlas".to_string(),
         "edge" => "Microsoft Edge".to_string(),
         "brave" => "Brave".to_string(),
         "vivaldi" => "Vivaldi".to_string(),

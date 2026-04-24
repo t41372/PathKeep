@@ -266,6 +266,45 @@ fn fallback_chromium_profiles_collects_directory_profiles_with_favicons() {
 }
 
 #[test]
+fn atlas_discovery_uses_chromium_parser_family_and_host_profile_root() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_home = std::env::var_os("HOME");
+    let host_root =
+        dir.path().join("Library/Application Support/com.openai.atlas/browser-data/host");
+    let profile_dir = host_root.join("user-test__profile");
+    fs::create_dir_all(&profile_dir).expect("create atlas profile");
+    fs::write(profile_dir.join("History"), b"history").expect("write atlas history");
+    fs::write(profile_dir.join("Favicons"), b"favicons").expect("write atlas favicons");
+    fs::write(host_root.join("Last Version"), "145.0.7584.0").expect("write atlas version");
+    fs::write(
+        host_root.join("Local State"),
+        r#"{"profile":{"info_cache":{"user-test__profile":{"name":"Work Atlas","user_name":"atlas@example.test"}}}}"#,
+    )
+    .expect("write atlas local state");
+
+    let definition = CHROMIUM_BROWSERS
+        .iter()
+        .copied()
+        .find(|definition| definition.key == "atlas")
+        .expect("atlas definition");
+    unsafe {
+        std::env::set_var("HOME", dir.path());
+    }
+    let profiles = discover_chromium_profiles(definition).expect("discover atlas");
+    restore_test_env_var("HOME", original_home.as_deref());
+
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].profile_id, "atlas:user-test__profile");
+    assert_eq!(profiles[0].profile_name, "Work Atlas");
+    assert_eq!(profiles[0].browser_family, "chromium");
+    assert_eq!(profiles[0].browser_name, "ChatGPT Atlas");
+    assert_eq!(profiles[0].browser_version.as_deref(), Some("145.0.7584.0"));
+    assert_eq!(profiles[0].history_file_name, "History");
+    assert!(profiles[0].favicons_path.is_some());
+}
+
+#[test]
 fn browser_location_helpers_cover_supported_browser_matrices_and_overrides() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -275,8 +314,10 @@ fn browser_location_helpers_cover_supported_browser_matrices_and_overrides() {
     for definition in CHROMIUM_BROWSERS {
         let (mac, linux, windows) = chromium_relative_paths(definition.key);
         assert!(!mac.is_empty());
-        assert!(!linux.is_empty());
-        if definition.key != "arc" {
+        if definition.key != "atlas" {
+            assert!(!linux.is_empty());
+        }
+        if !matches!(definition.key, "arc" | "atlas") {
             assert!(!windows.is_empty());
         }
     }

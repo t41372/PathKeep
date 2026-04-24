@@ -85,7 +85,7 @@ struct FirefoxBrowserDefinition {
     name: &'static str,
 }
 
-const CHROMIUM_BROWSERS: [ChromiumBrowserDefinition; 9] = [
+const CHROMIUM_BROWSERS: [ChromiumBrowserDefinition; 10] = [
     ChromiumBrowserDefinition { key: "chrome", family: "chromium", name: "Google Chrome" },
     ChromiumBrowserDefinition { key: "chromium", family: "chromium", name: "Chromium" },
     ChromiumBrowserDefinition { key: "edge", family: "chromium", name: "Microsoft Edge" },
@@ -93,6 +93,7 @@ const CHROMIUM_BROWSERS: [ChromiumBrowserDefinition; 9] = [
     ChromiumBrowserDefinition { key: "brave", family: "chromium", name: "Brave" },
     ChromiumBrowserDefinition { key: "vivaldi", family: "chromium", name: "Vivaldi" },
     ChromiumBrowserDefinition { key: "arc", family: "chromium", name: "Arc" },
+    ChromiumBrowserDefinition { key: "atlas", family: "chromium", name: "ChatGPT Atlas" },
     ChromiumBrowserDefinition { key: "opera", family: "chromium", name: "Opera" },
     ChromiumBrowserDefinition { key: "opera-gx", family: "chromium", name: "Opera GX" },
 ];

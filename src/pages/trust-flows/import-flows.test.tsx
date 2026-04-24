@@ -295,6 +295,87 @@ describe('trust flows/import flows', () => {
     expect(await screen.findByText(importT('completeTitle'))).toBeVisible()
   })
 
+  test('shows ChatGPT Atlas as a validated Browser Direct profile', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const chromeProfile = snapshot.browserProfiles.find(
+      (profile) => profile.profileId === 'chrome:Default',
+    )
+    expect(chromeProfile).toBeDefined()
+    const atlasProfile = {
+      ...chromeProfile!,
+      profileId: 'atlas:user-test',
+      profileName: 'Atlas Work',
+      browserName: 'ChatGPT Atlas',
+      profilePath:
+        '/Users/test/Library/Application Support/com.openai.atlas/browser-data/host/user-test',
+      historyPath:
+        '/Users/test/Library/Application Support/com.openai.atlas/browser-data/host/user-test/History',
+      faviconsPath:
+        '/Users/test/Library/Application Support/com.openai.atlas/browser-data/host/user-test/Favicons',
+    }
+    const snapshotWithAtlas = {
+      ...snapshot,
+      browserProfiles: [...snapshot.browserProfiles, atlasProfile],
+    }
+    const inspectBrowserSpy = vi
+      .spyOn(backend, 'inspectBrowserHistory')
+      .mockResolvedValue({
+        dryRun: true,
+        sourcePath: atlasProfile.historyPath,
+        recognizedFiles: [
+          {
+            path: atlasProfile.historyPath,
+            kind: 'chromium-history-db',
+            status: 'previewed',
+            records: 1,
+            classification: 'will-import',
+            reasonCode: 'chromium-history-sqlite',
+            reasonDetail: null,
+            detectedLocale: null,
+          },
+        ],
+        quarantinedFiles: [],
+        previewEntries: [],
+        candidateItems: 1,
+        importedItems: 0,
+        duplicateItems: 0,
+        notes: ['Atlas preview ready.'],
+        detectedLocale: null,
+        previewRangeStart: '2026-04-24T10:00:00.000Z',
+        previewRangeEnd: '2026-04-24T10:00:00.000Z',
+        importBatch: null,
+      })
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot: snapshotWithAtlas,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: /ChatGPT Atlas · Atlas Work/i,
+      }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+
+    await waitFor(() =>
+      expect(inspectBrowserSpy).toHaveBeenCalledWith({
+        sourcePath: atlasProfile.historyPath,
+        dryRun: true,
+        browserFamily: atlasProfile.browserFamily,
+        profileId: atlasProfile.profileId,
+        browserName: atlasProfile.browserName,
+        profileName: atlasProfile.profileName,
+      }),
+    )
+  })
+
   test('opens macOS Full Disk Access settings from the Safari access warning', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()

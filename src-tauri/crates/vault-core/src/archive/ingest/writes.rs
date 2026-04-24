@@ -39,8 +39,13 @@ pub(super) fn upsert_source_profile(
     archive: &Transaction<'_>,
     profile: &crate::models::BrowserProfile,
 ) -> Result<i64> {
-    let browser_product =
+    let browser_kind =
         profile.profile_id.split(':').next().unwrap_or(&profile.browser_family).to_string();
+    let browser_product = if profile.browser_name.trim().is_empty() {
+        browser_kind.clone()
+    } else {
+        profile.browser_name.clone()
+    };
     archive
         .query_row(
             "INSERT INTO source_profiles (
@@ -69,7 +74,7 @@ pub(super) fn upsert_source_profile(
            enabled = 1
          RETURNING id",
             params![
-                browser_product,
+                browser_kind,
                 profile.browser_family,
                 browser_product,
                 profile.browser_version,

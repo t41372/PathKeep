@@ -25,6 +25,7 @@ import type { ReactNode } from 'react'
  */
 type BrowserIconKey =
   | 'arc'
+  | 'atlas'
   | 'brave'
   | 'chrome'
   | 'chromium'
@@ -48,6 +49,7 @@ export const supportedBrowsers = [
   { key: 'brave', name: 'Brave' },
   { key: 'vivaldi', name: 'Vivaldi' },
   { key: 'arc', name: 'Arc' },
+  { key: 'atlas', name: 'ChatGPT Atlas' },
   { key: 'opera', name: 'Opera' },
   { key: 'opera-gx', name: 'Opera GX' },
   { key: 'firefox', name: 'Firefox' },
@@ -226,6 +228,28 @@ function renderBrowserIcon(key: BrowserIconKey): ReactNode {
             stroke="#9ca3af"
             strokeLinecap="round"
             strokeWidth="1.6"
+          />
+        </>
+      )
+    case 'atlas':
+      return (
+        <>
+          <circle cx="12" cy="12" r="9.5" fill="#111827" />
+          <path
+            d="M12 5.2c3.5 0 5.9 2.4 5.9 5.6 0 4.1-3.3 7-7.3 7-2.6 0-4.6-1.4-4.6-3.6 0-2.6 2.5-4.2 5.7-4.2h2.1"
+            fill="none"
+            stroke="#f8fafc"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M13.8 10c2.5.1 4.2 1.5 4.2 3.7 0 2.9-2.6 5.1-5.9 5.1-3.5 0-6-2.4-6-5.6 0-4.1 3.3-7 7.3-7 2.4 0 4.3 1.2 4.6 3"
+            fill="none"
+            stroke="#10a37f"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
           />
         </>
       )

@@ -145,6 +145,11 @@ pub(super) fn chromium_relative_paths(
             vec![".config/Arc/User Data"],
             vec!["Packages/TheBrowserCompany.Arc_ttt1ap7aakyb4/LocalCache/Local/Arc/User Data"],
         ),
+        "atlas" => (
+            vec!["Library/Application Support/com.openai.atlas/browser-data/host"],
+            Vec::new(),
+            Vec::new(),
+        ),
         "opera" => (
             vec!["Library/Application Support/com.operasoftware.Opera"],
             vec![".config/opera"],

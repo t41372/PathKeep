@@ -45,6 +45,8 @@ function isValidatedBrowserDirectProfile(profile: BrowserProfile) {
   return (
     profile.browserFamily === 'safari' ||
     browserName === 'google chrome' ||
+    browserName === 'chatgpt atlas' ||
+    profile.profileId.startsWith('atlas:') ||
     profile.profileId.startsWith('chrome:')
   )
 }
