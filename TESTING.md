@@ -73,7 +73,7 @@ bun run check:rust
 ## Browser Support Truth
 
 - Public browser support claims must follow [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md), not just the broadest code path currently implemented in the repo.
-- `Validated now`: Google Chrome; Safari baseline on macOS after Full Disk Access is granted.
+- `Validated now`: Google Chrome; ChatGPT Atlas on macOS; Safari baseline on macOS after Full Disk Access is granted.
 - `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
 
 ## Local Browser Validation Recipe
@@ -81,15 +81,17 @@ bun run check:rust
 Use this recipe before promoting any browser into README or onboarding promise copy:
 
 1. Verify one successful Google Chrome backup / recall path on the current local host.
-2. Verify Safari remains visible but unreadable when `History.db` cannot be accessed, and Browser Direct reports Full Disk Access guidance instead of a generic parse failure.
-3. Verify Safari baseline backup succeeds after Full Disk Access is granted.
-4. Verify `/import` Browser Direct against Safari `History.db`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only aggregate counts and time ranges; never paste private URLs into docs, logs, or chat.
+2. Verify `/import` Browser Direct against one local ChatGPT Atlas macOS `History` profile under `com.openai.atlas/browser-data/host`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only schema coverage, aggregate counts, and time ranges; never paste private URLs or titles into docs, logs, or chat.
+3. Verify Safari remains visible but unreadable when `History.db` cannot be accessed, and Browser Direct reports Full Disk Access guidance instead of a generic parse failure.
+4. Verify Safari baseline backup succeeds after Full Disk Access is granted.
+5. Verify `/import` Browser Direct against Safari `History.db`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only aggregate counts and time ranges; never paste private URLs into docs, logs, or chat.
 
-Focused Safari Browser Direct gates:
+Focused Atlas / Safari Browser Direct gates:
 
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core atlas -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser safari -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core browser_history -- --nocapture`
-- `bun run test:unit -- src/pages/trust-flows/import-flows.test.tsx`
+- `bun run test:unit -- src/pages/trust-flows/import-flows.test.tsx src/lib/browser-icons.test.tsx src/lib/i18n.test.ts`
 
 Additional adapters may keep shipping as implementation coverage, but they stay out of public promise copy until the same recipe is documented for them.
 

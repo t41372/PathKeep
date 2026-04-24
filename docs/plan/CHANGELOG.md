@@ -895,3 +895,18 @@
   - 契約：不可讀的 Safari profile 仍留在 detected list；不可用 profile 不再渲染成 disabled nested-button card；native launcher 只新增固定的 macOS Full Disk Access System Settings URL，不開放任意 custom scheme。
   - 2026-04-24：`ImportSelectStep` 將不可用 profile 改為非互動卡片，Safari 權限提示旁新增三語 `Open Full Disk Access` action；scan error 若指出 Full Disk Access 缺失，也會在錯誤 callout 顯示同一個 action；route owner 透過 `open_external_url` 開啟固定 `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/browser-support-and-adapter-playbook.md`](../architecture/browser-support-and-adapter-playbook.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md) 與 [`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)。
+
+- [x] **WORK-IMPORT-ATLAS-A** — ChatGPT Atlas Browser Direct Import Completion
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/browser-support-and-adapter-playbook.md`
+    `docs/architecture/desktop-command-surface.md`
+    `TESTING.md`
+    `docs/plan/m4-full-polish/release-readiness-runbook.md`
+  - 目標：把 ChatGPT Atlas 導入完成到 Chrome 同級：discovery、Chromium parser reuse、Browser Direct preview/import、dedupe、batch revert/restore、source evidence、UI visibility、icon/i18n/support copy，以及 current archive validation。
+  - 契約：Atlas 是 Chromium-family adapter，不新增 parser family / Tauri command / `BrowserHistoryImportRequest` 欄位；支援範圍只限 macOS `~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>/History` 與 Chromium sidecars such as `Favicons`；不導入 Atlas workspace data、chats、tabs、bookmarks 或 suggestions。
+  - 2026-04-24：`vault-core::chrome` 新增 `atlas` browser definition、macOS host root、`atlas:<raw-profile-dir>` profile identity 與 discovery regression；Browser Direct import regression 證明 Atlas 走 Chromium parser 並保留 `source_profiles.browser_product = ChatGPT Atlas`；backup ingest source-profile metadata 也改用 discovery product name，checkpoint restore fallback 補上 Atlas display name。
+  - `stage_browser_history_source` 既有 SQLite Backup API 優先策略維持不變，並新增 WAL / sidecar copy regression，保護 online backup 失敗或 live DB locked 時 Chromium/Atlas WAL rows 不丟失。`/import` validated filter 現在顯示 ChatGPT Atlas profile，`browser-icons` 補上 Atlas glyph，onboarding support copy / i18n tests / Import route test 已同步。
+  - 同步回寫 [`README.md`](../../README.md)、[`TESTING.md`](../../TESTING.md)、[`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/browser-support-and-adapter-playbook.md`](../architecture/browser-support-and-adapter-playbook.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/{STATUS.md,BACKLOG.md,README.md,program/research-and-decisions.md}`](STATUS.md) 與 [`docs/plan/m4-full-polish/release-readiness-runbook.md`](m4-full-polish/release-readiness-runbook.md)。
+  - Current archive validation：透過 dev IPC bridge 用本機 Atlas profile 完成 preview / import / re-import / revert / restore。sanitized artifact 落在 [`artifacts/browser-support/2026-04-24-chatgpt-atlas/README.md`](../../artifacts/browser-support/2026-04-24-chatgpt-atlas/README.md)，只記 schema coverage、aggregate counts、time range、batch outcome 與 source-evidence counts；不記私人 URL / title / raw profile path。驗證後 Atlas import batch 已 restore，current archive 保持 visible。
+  - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core atlas -- --nocapture`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core browser_history -- --nocapture`、`bun run test:unit -- src/pages/trust-flows/import-flows.test.tsx src/lib/browser-icons.test.tsx src/lib/i18n.test.ts`、`bun run check`、`bun run build`

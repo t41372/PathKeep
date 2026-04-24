@@ -12,7 +12,7 @@
 ![PathKeep screenshot](./docs/assets/screenshot.png)
 -->
 
-PathKeep is a local-first desktop app for long-term browser history archiving and intelligence. Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun. Supports Chrome, Chromium-based browsers, Safari, Firefox, and more on macOS, Windows, and Linux.
+PathKeep is a local-first desktop app for long-term browser history archiving and intelligence. Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun. Publicly validated support currently covers Google Chrome, ChatGPT Atlas on macOS, and Safari on macOS with Full Disk Access; additional Chromium / Firefox-family adapters remain implemented but not yet publicly promised.
 
 ---
 
@@ -85,7 +85,7 @@ PathKeep separates implemented adapters from publicly validated support. The REA
 
 | Status          | Browsers                                                                                                       |
 | --------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Validated**   | Google Chrome; Safari (macOS, requires Full Disk Access)                                                       |
+| **Validated**   | Google Chrome; ChatGPT Atlas (macOS); Safari (macOS, requires Full Disk Access)                                |
 | **Implemented** | Chromium, Microsoft Edge, Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox |
 
 Implemented browsers appear in discovery and archive data but are not yet in the public support promise. See the [adapter playbook](./docs/architecture/browser-support-and-adapter-playbook.md) for the promotion gate.

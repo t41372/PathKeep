@@ -37,6 +37,20 @@
 > 2026-04-23 backend progress audit：live tree scan 證明後端主戰場已大幅拆完，但不能宣稱整個 backend「屎山優化完成」。production Rust 仍有 `src-tauri/src/dev_ipc_bridge.rs` (`1141` 行) 超過 1000 行、`host_artifacts.rs` / `browser-history-parser::chromium` / `vault-platform::scheduler` 等 800-1000 行 follow-up 候選，且 command / worker-bridge intelligence façade 還沒有達到原本 declaration-level rustdoc 標準。這輪先完成 `WORK-BE-D`，把 `vault-core/src/ai_queue.rs` 內嵌 regression suite 下沉到 `ai_queue/tests.rs`，runtime module 降到 `768` 行；下一個 active current-focus 轉到 `WORK-BE-E`。
 > 2026-04-24 backend command-mirror closeout：`WORK-BE-E` 已完成。dev-only bridge 現在由 `dev_ipc_bridge/{config,router,payloads,dispatch}` 分別 owning env parsing、HTTP/CORS/error envelope、camelCase DTO、以及 command dispatch；parent `src-tauri/src/dev_ipc_bridge.rs` 降到 `94` 行，dispatch owner 為 `764` 行，command strings / payload shape / worker export surface / localhost-only feature+env gate 均維持不變。`BACKLOG.md` 目前沒有可提升的未阻塞 work block。
 > 2026-04-24 Safari Browser Direct stop-ship closeout：使用者明確指出 `/import` 的 Browser Direct Safari `History.db` 被送進 Takeout parser，這輪插單已以 `WORK-IMPORT-SAFARI-A` 收口並 append 到 `CHANGELOG.md`。新 truth 是 Browser Direct local DB 改走 `inspect_browser_history` / `import_browser_history`，Safari `History.db` 支援 preview / execute / re-import dedupe / import batch revert+restore / source-evidence + capability snapshot；Takeout command surface 保持不變。這是 user-directed import stop-ship block，不覆寫已完成的 `WORK-BE-E` 後端 command-mirror closeout。
+> 2026-04-24 ChatGPT Atlas Browser Direct closeout：使用者要求把 ChatGPT Atlas 導入提高到 Chrome 完成度。這輪插單已以 `WORK-IMPORT-ATLAS-A` 收口：Atlas 現在是 Chromium-family adapter，macOS discovery root 為 `com.openai.atlas/browser-data/host/<profile>`，Browser Direct 走既有 `inspect_browser_history` / `import_browser_history`，UI / icon / i18n / public support truth 已補齊。current archive 驗證用本機 Atlas profile 完成 preview / import / re-import dedupe / revert / restore，最終 Atlas batch 已 restore 並保持可見；validation artifact 只記 schema / aggregate counts / time range，不記私人 URL / title。
+
+- [x] **WORK-IMPORT-ATLAS-A** — ChatGPT Atlas Browser Direct Import Completion
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/browser-support-and-adapter-playbook.md`
+    `docs/architecture/desktop-command-surface.md`
+    `TESTING.md`
+    `docs/plan/m4-full-polish/release-readiness-runbook.md`
+  - 目標：把 ChatGPT Atlas 當成 Chromium-family browser adapter 接入 discovery、backup metadata、Browser Direct import、Import route validated list、icon/i18n/support copy，並用 current archive 做完整 live validation。
+  - 契約：不新增 parser family、不新增 Tauri command、不新增 `BrowserHistoryImportRequest` 欄位；Atlas 只支援 macOS `~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 workspace data、chats、tabs、bookmarks 或 suggestions。
+  - 2026-04-24 closeout：`vault-core::chrome` 新增 `atlas` browser definition 與 macOS host root；Browser Direct / backup source-profile metadata 保留 `ChatGPT Atlas` product；SQLite staging 補上 WAL/sidecar regression；Import route validated filter、`browser-icons`、onboarding support copy、i18n tests 與 Import route tests 已同步。
+  - current archive validation：本機 Atlas profile dry-run preview `63` candidates，首次 import `63` / duplicate `0`，re-import imported `0` / duplicate `63`，revert 後 batch visible `0`，restore 後 visible `63`；`source_profiles.browser_product = ChatGPT Atlas`，source-evidence batches / native entities 存在，import-batch audit artifact 存在。最終 live archive state 保持 Atlas batch restored / visible。
+  - 驗收：targeted Rust / Vitest slices、`bun run check`、`bun run build`
 
 - [x] **WORK-BE-E** — Command Facade Rustdoc And Dev Bridge Boundary
   - 讀先：
