@@ -119,7 +119,7 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
   - archive recall still works after the backup
 - `Safari`
   - profile remains visible when `History.db` is unreadable
-  - needs-access guidance points to macOS Full Disk Access
+  - needs-access guidance points to macOS Full Disk Access and exposes a direct System Settings action
   - baseline history backup succeeds once access is available
   - Browser Direct local `History.db` preview / import / re-import / revert / restore succeeds once access is available
   - local validation records aggregate counts and time ranges only; private URLs must not be copied into docs or chat

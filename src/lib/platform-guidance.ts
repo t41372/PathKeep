@@ -10,6 +10,7 @@
  * - `normalizePlatform`
  * - `platformLabelKey`
  * - `platformSummaryKey`
+ * - `macosFullDiskAccessSettingsUrl`
  * - `hasSafariAccessIssue`
  * - `needsSchedulerReview`
  * - `keyringNeedsReview`
@@ -28,6 +29,15 @@ import type { TranslationKey } from './i18n'
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export type SupportedPlatform = 'macos' | 'windows' | 'linux'
+
+/**
+ * Provides the single native settings URL PathKeep may open for Safari access recovery.
+ *
+ * This constant stays in the shared platform-policy module so Import, onboarding,
+ * and future permission callouts use the same tightly scoped launcher target.
+ */
+export const macosFullDiskAccessSettingsUrl =
+  'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
 
 /**
  * Normalizes platform into the canonical UI shape.

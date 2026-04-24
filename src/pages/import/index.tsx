@@ -22,6 +22,7 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
+import { macosFullDiskAccessSettingsUrl } from '../../lib/platform-guidance'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
   BrowserHistoryImportRequest,
@@ -45,6 +46,15 @@ function isValidatedBrowserDirectProfile(profile: BrowserProfile) {
     profile.browserFamily === 'safari' ||
     browserName === 'google chrome' ||
     profile.profileId.startsWith('chrome:')
+  )
+}
+
+function isFullDiskAccessError(message: string) {
+  return (
+    message.includes('Full Disk Access') ||
+    message.includes('完全磁盘访问权限') ||
+    message.includes('完整磁碟取用權') ||
+    message.includes('全盤讀取權限')
   )
 }
 
@@ -298,6 +308,18 @@ export function ImportPage() {
   }
 
   /**
+   * Opens the exact macOS settings pane Safari needs for Browser Direct access.
+   */
+  async function handleOpenFullDiskAccessSettings() {
+    clearActionError()
+    try {
+      await backend.openExternalUrl(macosFullDiskAccessSettingsUrl)
+    } catch (nextError) {
+      reportActionError(nextError)
+    }
+  }
+
+  /**
    * Handles import.
    *
    * Keeping this as a named declaration makes the Import surface easier to
@@ -403,6 +425,7 @@ export function ImportPage() {
         onImportAnother={handleImportAnother}
         onManualPathExpandedChange={setManualPathExpanded}
         onMethodChange={handleMethodChange}
+        onOpenFullDiskAccessSettings={handleOpenFullDiskAccessSettings}
         onScan={handleScan}
         onSelectBrowserProfile={handleSelectBrowserProfile}
         onSourcePathChange={applySourcePath}
@@ -415,6 +438,19 @@ export function ImportPage() {
           tone="danger"
           title={t('import.actionErrorTitle')}
           body={actionError}
+          actions={
+            isFullDiskAccessError(actionError) ? (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => {
+                  void handleOpenFullDiskAccessSettings()
+                }}
+              >
+                {t('import.openFullDiskAccessSettings')}
+              </button>
+            ) : undefined
+          }
         />
       ) : null}
 

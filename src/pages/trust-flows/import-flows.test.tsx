@@ -25,6 +25,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { createNamespaceTranslator, createTranslator } from '../../lib/i18n'
 import { subscribeToImportProgress as subscribeToImportProgressModule } from '../../lib/ipc/import-progress'
+import { macosFullDiskAccessSettingsUrl } from '../../lib/platform-guidance'
 import type {
   ImportBatchDetail,
   ImportBatchOverview,
@@ -292,6 +293,92 @@ describe('trust flows/import flows', () => {
     )
     expect(importTakeoutSpy).not.toHaveBeenCalled()
     expect(await screen.findByText(importT('completeTitle'))).toBeVisible()
+  })
+
+  test('opens macOS Full Disk Access settings from the Safari access warning', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const snapshotWithBlockedSafari = {
+      ...snapshot,
+      browserProfiles: snapshot.browserProfiles.map((profile) =>
+        profile.profileId === 'safari:default'
+          ? { ...profile, historyExists: false }
+          : profile,
+      ),
+    }
+    const openSettingsSpy = vi
+      .spyOn(backend, 'openExternalUrl')
+      .mockResolvedValue(macosFullDiskAccessSettingsUrl)
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot: snapshotWithBlockedSafari,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+
+    expect(
+      await screen.findByText(importT('safariFullDiskAccessHint')),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: importT('openFullDiskAccessSettings'),
+      }),
+    )
+
+    await waitFor(() =>
+      expect(openSettingsSpy).toHaveBeenCalledWith(
+        macosFullDiskAccessSettingsUrl,
+      ),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Safari · Safari/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('offers the settings action when Safari scan reports Full Disk Access is missing', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const openSettingsSpy = vi
+      .spyOn(backend, 'openExternalUrl')
+      .mockResolvedValue(macosFullDiskAccessSettingsUrl)
+    vi.spyOn(backend, 'inspectBrowserHistory').mockRejectedValue(
+      new Error(
+        'Safari History.db is not readable yet. Grant Full Disk Access to PathKeep, then retry Browser Direct import.',
+      ),
+    )
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(
+      await screen.findByRole('button', { name: /Safari · Safari/i }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+
+    expect(await screen.findByText(importT('actionErrorTitle'))).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: importT('openFullDiskAccessSettings'),
+      }),
+    )
+
+    await waitFor(() =>
+      expect(openSettingsSpy).toHaveBeenCalledWith(
+        macosFullDiskAccessSettingsUrl,
+      ),
+    )
   })
 
   test('paints scan and import overlays before long-running import work settles', async () => {

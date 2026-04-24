@@ -8,7 +8,7 @@ pub(crate) fn open_path_in_file_manager_impl(path: String) -> Result<String, Str
     vault_platform::open_path_in_file_manager(path)
 }
 
-/// Opens one trusted file:// or HTTP(S) URL through the platform launcher and returns it on success.
+/// Opens one trusted launcher URL through the platform launcher and returns it on success.
 pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
     vault_platform::open_external_url(url)
 }
@@ -50,7 +50,7 @@ mod tests {
 
         let error = open_external_url_impl("ftp://example.com/pathkeep".to_string())
             .expect_err("ftp urls should fail");
-        assert!(error.contains("file://, http://, and https://"));
+        assert!(error.contains("macOS Full Disk Access settings URL"));
     }
 
     #[cfg(unix)]

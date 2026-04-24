@@ -2,11 +2,16 @@
 //!
 //! These helpers validate user-provided paths/URLs before handing them to the
 //! OS shell. The goal is modest but important: PathKeep should only ask the
-//! platform to open real local folders, trusted `file://` URLs, or HTTP(S)
-//! URLs and should fail with a straightforward message otherwise.
+//! platform to open real local folders, trusted `file://` URLs, HTTP(S) URLs,
+//! or one fixed macOS settings pane and should fail with a straightforward
+//! message otherwise.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Fixed macOS System Settings target for granting Safari History.db access.
+pub const MACOS_FULL_DISK_ACCESS_SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
 
 /// Opens a path in the host file manager and returns the opened target directory.
 pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
@@ -15,7 +20,7 @@ pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
     Ok(target.display().to_string())
 }
 
-/// Opens an HTTP(S) or trusted file URL in the host browser and returns the normalized URL.
+/// Opens an HTTP(S), trusted file URL, or approved settings URL in the host launcher.
 pub fn open_external_url(url: String) -> Result<String, String> {
     let target = resolve_external_url_target(&url)?;
     let (program, arguments) = external_url_command(&target);
@@ -54,7 +59,7 @@ pub fn resolve_file_manager_target(path: &str) -> Result<PathBuf, String> {
     Err(format!("Path does not exist: {}", target.display()))
 }
 
-/// Validates that a user-supplied URL is an HTTP(S) or file target we can hand to the shell.
+/// Validates that a user-supplied URL is a trusted launcher target.
 pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -64,12 +69,20 @@ pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     let lower = trimmed.to_ascii_lowercase();
     if !(lower.starts_with("https://")
         || lower.starts_with("http://")
-        || lower.starts_with("file://"))
+        || lower.starts_with("file://")
+        || is_allowed_macos_settings_url(trimmed))
     {
-        return Err("Only file://, http://, and https:// URLs can be opened.".to_string());
+        return Err(
+            "Only file://, http://, https://, and the macOS Full Disk Access settings URL can be opened."
+                .to_string(),
+        );
     }
 
     Ok(trimmed.to_string())
+}
+
+fn is_allowed_macos_settings_url(candidate: &str) -> bool {
+    candidate.eq_ignore_ascii_case(MACOS_FULL_DISK_ACCESS_SETTINGS_URL)
 }
 
 #[cfg(target_os = "macos")]
@@ -203,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_external_url_target_accepts_file_http_and_https() {
+    fn resolve_external_url_target_accepts_trusted_launcher_urls() {
         assert_eq!(
             resolve_external_url_target("file:///tmp/pathkeep/index.html").expect("file target"),
             "file:///tmp/pathkeep/index.html"
@@ -216,10 +229,15 @@ mod tests {
             resolve_external_url_target("http://example.com").expect("http target"),
             "http://example.com"
         );
+        assert_eq!(
+            resolve_external_url_target(MACOS_FULL_DISK_ACCESS_SETTINGS_URL)
+                .expect("Full Disk Access settings target"),
+            MACOS_FULL_DISK_ACCESS_SETTINGS_URL
+        );
 
         let unsupported =
             resolve_external_url_target("ftp://example.com").expect_err("reject ftp urls");
-        assert!(unsupported.contains("file://, http://, and https://"));
+        assert!(unsupported.contains("macOS Full Disk Access settings URL"));
 
         let missing = resolve_external_url_target("   ").expect_err("reject blank urls");
         assert!(missing.contains("does not exist"));

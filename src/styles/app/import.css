@@ -79,6 +79,22 @@
   cursor: pointer;
 }
 
+.import-profile-card[aria-disabled='true'] {
+  cursor: default;
+}
+
+.import-profile-card[aria-disabled='true']:hover {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
+
+.import-profile-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
 .import-source-actions {
   display: flex;
   flex-wrap: wrap;

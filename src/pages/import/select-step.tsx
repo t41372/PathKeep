@@ -38,6 +38,7 @@ export interface ImportSelectStepProps {
   onBrowseSource: (options: { directory: boolean }) => void | Promise<void>
   onManualPathExpandedChange: (expanded: boolean) => void
   onMethodChange: (method: ImportMethod) => void
+  onOpenFullDiskAccessSettings: () => void | Promise<void>
   onScan: () => void | Promise<void>
   onSelectBrowserProfile: (profile: BrowserProfile) => void
   onSourcePathChange: (path: string) => void
@@ -57,6 +58,7 @@ export function ImportSelectStep({
   onBrowseSource,
   onManualPathExpandedChange,
   onMethodChange,
+  onOpenFullDiskAccessSettings,
   onScan,
   onSelectBrowserProfile,
   onSourcePathChange,
@@ -170,21 +172,9 @@ export function ImportSelectStep({
                 const ready = Boolean(
                   profile.historyExists && profile.historyPath,
                 )
-                return (
-                  <button
-                    key={profile.profileId}
-                    className={`result-row import-profile-card ${
-                      selectedBrowserProfileId === profile.profileId
-                        ? 'result-row--active'
-                        : ''
-                    }`}
-                    type="button"
-                    disabled={!ready}
-                    aria-disabled={!ready}
-                    onClick={() => {
-                      if (ready) onSelectBrowserProfile(profile)
-                    }}
-                  >
+                const selected = selectedBrowserProfileId === profile.profileId
+                const profileCardBody = (
+                  <>
                     <div className="result-row__header">
                       <strong>
                         {profile.browserName} · {profile.profileName}
@@ -205,12 +195,54 @@ export function ImportSelectStep({
                       {profile.historyPath || profile.profilePath}
                     </p>
                     {!ready ? (
-                      <p className="mono-support">
-                        {profile.browserFamily === 'safari'
-                          ? t('import.safariFullDiskAccessHint')
-                          : t('import.browserProfileUnreadable')}
-                      </p>
+                      <>
+                        <p className="mono-support">
+                          {profile.browserFamily === 'safari'
+                            ? t('import.safariFullDiskAccessHint')
+                            : t('import.browserProfileUnreadable')}
+                        </p>
+                        {profile.browserFamily === 'safari' ? (
+                          <div className="import-profile-card__actions">
+                            <button
+                              className="btn-secondary"
+                              type="button"
+                              onClick={() => {
+                                void onOpenFullDiskAccessSettings()
+                              }}
+                            >
+                              {t('import.openFullDiskAccessSettings')}
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
                     ) : null}
+                  </>
+                )
+                if (!ready) {
+                  return (
+                    <div
+                      key={profile.profileId}
+                      aria-disabled="true"
+                      className={`result-row import-profile-card ${
+                        selected ? 'result-row--active' : ''
+                      }`}
+                    >
+                      {profileCardBody}
+                    </div>
+                  )
+                }
+                return (
+                  <button
+                    key={profile.profileId}
+                    className={`result-row import-profile-card ${
+                      selected ? 'result-row--active' : ''
+                    }`}
+                    type="button"
+                    onClick={() => {
+                      onSelectBrowserProfile(profile)
+                    }}
+                  >
+                    {profileCardBody}
                   </button>
                 )
               })}

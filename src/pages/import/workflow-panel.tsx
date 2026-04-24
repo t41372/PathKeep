@@ -62,6 +62,7 @@ export interface ImportWorkflowPanelProps {
   onImportAnother: () => void
   onManualPathExpandedChange: (expanded: boolean) => void
   onMethodChange: (method: ImportMethod) => void
+  onOpenFullDiskAccessSettings: () => void | Promise<void>
   onScan: () => void | Promise<void>
   onSelectBrowserProfile: (profile: BrowserProfile) => void
   onSourcePathChange: (path: string) => void
@@ -95,6 +96,7 @@ export function ImportWorkflowPanel({
   onImportAnother,
   onManualPathExpandedChange,
   onMethodChange,
+  onOpenFullDiskAccessSettings,
   onScan,
   onSelectBrowserProfile,
   onSourcePathChange,
@@ -125,6 +127,7 @@ export function ImportWorkflowPanel({
         onImportAnother={onImportAnother}
         onManualPathExpandedChange={onManualPathExpandedChange}
         onMethodChange={onMethodChange}
+        onOpenFullDiskAccessSettings={onOpenFullDiskAccessSettings}
         onScan={onScan}
         onSelectBrowserProfile={onSelectBrowserProfile}
         onSourcePathChange={onSourcePathChange}

@@ -75,6 +75,7 @@ export interface ImportWizardPanelProps {
   onImportAnother: () => void
   onManualPathExpandedChange: (expanded: boolean) => void
   onMethodChange: (method: ImportMethod) => void
+  onOpenFullDiskAccessSettings: () => void | Promise<void>
   onScan: () => void | Promise<void>
   onSelectBrowserProfile: (profile: BrowserProfile) => void
   onSourcePathChange: (path: string) => void
@@ -104,6 +105,7 @@ export function ImportWizardPanel({
   onImportAnother,
   onManualPathExpandedChange,
   onMethodChange,
+  onOpenFullDiskAccessSettings,
   onScan,
   onSelectBrowserProfile,
   onSourcePathChange,
@@ -182,6 +184,7 @@ export function ImportWizardPanel({
               onBrowseSource={onBrowseSource}
               onManualPathExpandedChange={onManualPathExpandedChange}
               onMethodChange={onMethodChange}
+              onOpenFullDiskAccessSettings={onOpenFullDiskAccessSettings}
               onScan={onScan}
               onSelectBrowserProfile={onSelectBrowserProfile}
               onSourcePathChange={onSourcePathChange}

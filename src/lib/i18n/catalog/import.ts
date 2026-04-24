@@ -212,6 +212,7 @@ export const importNamespaceCatalog = {
     browserProfileNeedsAccess: 'Access needed',
     safariFullDiskAccessHint:
       'Safari History.db may require Full Disk Access before PathKeep can stage it.',
+    openFullDiskAccessSettings: 'Open Full Disk Access',
     browserProfileUnreadable:
       'The history file is not readable right now. Check the file path and permissions.',
     noDetectedBrowserProfilesTitle: 'No browser profile was detected',
@@ -440,6 +441,7 @@ export const importNamespaceCatalog = {
     browserProfileNeedsAccess: '需要权限',
     safariFullDiskAccessHint:
       'Safari History.db 通常需要授予 PathKeep 或当前开发进程“完全磁盘访问权限”后才能暂存。',
+    openFullDiskAccessSettings: '打开完全磁盘访问权限',
     browserProfileUnreadable: '当前无法读取这个历史文件，请检查路径和权限。',
     noDetectedBrowserProfilesTitle: '没有检测到可直接导入的浏览器配置',
     noDetectedBrowserProfilesBody:
@@ -661,6 +663,7 @@ export const importNamespaceCatalog = {
     browserProfileNeedsAccess: '需要權限',
     safariFullDiskAccessHint:
       'Safari History.db 通常需要授予 PathKeep 或目前開發行程「完整磁碟取用權」後才能暫存。',
+    openFullDiskAccessSettings: '打開全盤讀取權限',
     browserProfileUnreadable: '目前無法讀取這個歷史檔案，請檢查路徑和權限。',
     noDetectedBrowserProfilesTitle: '沒有偵測到可直接匯入的瀏覽器設定檔',
     noDetectedBrowserProfilesBody:
