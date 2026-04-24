@@ -10,10 +10,11 @@
 
 ## Current hotspot snapshot
 
-| File                                                  | Current line count | Primary risk                                                             |
-| ----------------------------------------------------- | -----------------: | ------------------------------------------------------------------------ |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               2583 | Export surface, core record types, and regression suite still co-located |
-| `src-tauri/crates/vault-core/src/remote/tests.rs`     |                567 | Largest remote-backup owner after split; below current file-size limits  |
+| File                                                                  | Current line count | Primary risk                                                            |
+| --------------------------------------------------------------------- | -----------------: | ----------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`                 |                418 | Thin façade plus core records/cursors/constants after test-suite split  |
+| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs` |                601 | Largest Core Intelligence regression owner; below new-file hard limit   |
+| `src-tauri/crates/vault-core/src/remote/tests.rs`                     |                567 | Largest remote-backup owner after split; below current file-size limits |
 
 ## Sequencing
 
@@ -86,7 +87,8 @@
 - 2026-04-23 site-dictionary slice landed: `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` is now `site_dictionary/{mod,types,overrides,search_rules,classification,tests}.rs`. Search-engine rule persistence, user overrides, and per-visit classification now have separate owners, and the largest new owner is `search_rules.rs` at `436` lines.
 - 2026-04-23 Core Intelligence DTO slice landed: `src-tauri/crates/vault-core/src/models/core_intelligence.rs` is now `models/core_intelligence/{mod,shared,requests,reads,analytics,overview,exports,tests}.rs`. Request payloads, section envelopes, read rows, advanced analytics, overview batches, and trusted-output bundles now have separate owners, and the largest new owner is `analytics.rs` at `376` lines.
 - 2026-04-23 remote-backup slice landed: `src-tauri/crates/vault-core/src/remote.rs` is now `remote/{mod,bundle,manifest,transfer,verify,tests}.rs`. Bundle creation, manifest schema, upload URL / curl execution, restore verification, and regression coverage now have separate owners while preserving the public `preview_remote_backup`, `run_remote_backup`, and `verify_remote_backup` façade. The bundle write and verify paths now stream large SQLite entries through chunked SHA-256 / zip copy instead of loading whole database files into memory.
-- Next support-file order: the still-embedded `intelligence/mod.rs` regression suite / support-type split.
+- 2026-04-23 regression-suite closeout landed: the embedded `intelligence/mod.rs` regression suite is now `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`. The parent module is down to `418` lines and no longer mixes production façade/core records with the 28-test regression suite; the largest new owner is `stage_rebuild.rs` at `601` lines.
+- `WORK-BE-C` is complete. Any next backend hotspot block should be planned as a fresh follow-up rather than reopening this support-file slice by inertia.
 
 ## Non-negotiable invariants
 

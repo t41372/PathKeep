@@ -818,3 +818,18 @@
   - 同一天的 helper-cluster closeout 又把 `intelligence/mod.rs` 的 residual internal owner 抽成 `intelligence_{shared,visit_records,visit_derive,daily_rollup_state,daily_rollups,core_persist}.rs`。shared date/query heuristics、visit-derived stage、daily-rollup stage、以及 scoped full-rebuild persistence 現在都有 focused owner；`intelligence/mod.rs` 因而從 `4508` 行再降到 `2583` 行，只剩 exported surface、core record types、batch cursors、常數與 regression suite。
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把 `WORK-BE-B` closeout truth 與 `WORK-BE-C` next-hop 寫回 source-of-truth。
   - 驗收：relevant targeted Rust regressions、`bun run check`、`bun run build`
+
+- [x] **WORK-BE-C** — Remaining Backend Hotspot Decomposition Beyond Core Intelligence Parent
+  - 讀先：
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/tech-stack.md`
+  - 目標：把 backend 軌道剩餘的 giant-file 從 `core intelligence parent` 之外繼續往外拆，優先處理 `models/core_intelligence.rs`、`remote.rs`、`intelligence/site_dictionary.rs`，並把 `intelligence/mod.rs` 仍內嵌的 regression suite / support types 繼續下沉到 focused owners。
+  - 契約：維持現有 Tauri command、worker CLI、serde payload、Core Intelligence DTO shape、visit-taxonomy classification semantics、remote bundle manifest/upload/verify contract、以及 `IntelligenceRuntimeSnapshot` 的 off-main-thread background task 邊界穩定；不得因為 giant-file 清理而重開已接受的 `/intelligence` route / payload grammar。
+  - 2026-04-23：原 `deterministic` module 已改名並拆成 `visit_taxonomy/{mod,types,url,text,rules,classification,tests}.rs`，保留 `crate::visit_taxonomy::*` façade 與既有 taxonomy / URL / tokenization semantics；`intelligence/site_dictionary.rs` 也已拆成 `site_dictionary/{mod,types,overrides,search_rules,classification,tests}.rs`，維持 search rule / override schema、Settings payload、visit classification 與 search-query extraction semantics。
+  - 同一天的 DTO / remote follow-through 又把 `models/core_intelligence.rs` 拆成 `core_intelligence/{mod,shared,requests,reads,analytics,overview,exports,tests}.rs`，並把 `remote.rs` 拆成 `remote/{mod,bundle,manifest,transfer,verify,tests}.rs`。Tauri / worker / frontend-facing serde shape、request aliases、remote bundle manifest、curl upload 與 restore-verification DTO contract 都維持不變；remote bundle build / verify 也改成 chunked SHA + zip streaming，避免大 SQLite payload 被整檔載入記憶體。
+  - 最後的 regression-suite closeout 把 `intelligence/mod.rs` 內嵌 28 個 regression 與 fixture helpers 下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`。parent module 因而從 `2584` 行降到 `418` 行，只剩 module map、public façade、core records、batch cursors 與 constants；最大新 test owner 是 `stage_rebuild.rs` (`601` 行)。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把 `WORK-BE-C` closeout truth 與下一個 current-focus 回到 `WORK-M13-B` 寫回 source-of-truth。
+  - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core remote`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core intelligence`、`bun run check`、`bun run build`

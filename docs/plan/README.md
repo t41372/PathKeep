@@ -96,6 +96,8 @@
 
 > **2026-04-23 remote-backup boundary note**：`WORK-BE-C` 的下一個 execution slice 已把 `src-tauri/crates/vault-core/src/remote.rs` 拆成 `remote/{mod,bundle,manifest,transfer,verify,tests}.rs`。`preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` public façade、remote bundle manifest、curl upload、restore-verification DTO contract 都維持不變；bundle build / verify 同步改成 chunked streaming SHA + zip copy，避免大 SQLite bundle payload 被整檔載入記憶體。下一個 backend support hotspot 改成 `intelligence/mod.rs` 內嵌 regression suite。
 
+> **2026-04-23 backend support-file closeout note**：`WORK-BE-C` 最後一刀已把 `src-tauri/crates/vault-core/src/intelligence/mod.rs` 內嵌 regression suite 下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`。parent module 現在降到 `418` 行，只保留 module map、public façade、core records、batch cursors 與 constants；`WORK-BE-C` 的後端 support-file decomposition 範圍已完成，下一個未完成 current-focus block 回到 `WORK-M13-B`。
+
 ---
 
 ## 先看哪裡

@@ -34,7 +34,7 @@
 > 2026-04-21 backend track note：使用者明確要求並行開啟後端 hotspot 拆分，不等 `WORK-M13-B` front-end reuse 收束。這輪新增 `WORK-BE-A` 作為 user-directed parallel block；frontend reuse 與 backend decomposition 分開推進，彼此都不得覆寫對方未提交中的工作樹。
 > 2026-04-22 backend closeout：`WORK-BE-A` 已完成。這輪把 import boundary 真正收進 bounded-memory / streamed contract，並完成 `intelligence_runtime` 與 `intelligence/mod.rs` 的第三輪 giant-file 拆分；最新 execution slice 又把 structural rebuild internals 拆成 `intelligence_structural_{state,build,aggregates,persist,stream,stage}.rs`，讓 `intelligence/mod.rs` 再降到 `5561` 行，且所有新文件都回到 `600` 行硬限制內。下一輪 backend active current-focus 轉到 `WORK-BE-B`，專門收剩餘 query/read-model helper clusters，以及 `vault-worker/src/intelligence.rs` / `ai.rs` 的 follow-through。
 
-- [ ] **WORK-BE-C** — Remaining Backend Hotspot Decomposition Beyond Core Intelligence Parent
+- [x] **WORK-BE-C** — Remaining Backend Hotspot Decomposition Beyond Core Intelligence Parent
   - 讀先：
     `docs/plan/backend-hotspot-decomposition.md`
     `docs/architecture/data-model.md`
@@ -48,6 +48,7 @@
   - 2026-04-23 site-dictionary slice：`intelligence/site_dictionary.rs` 已拆成 `site_dictionary/{mod,types,overrides,search_rules,classification,tests}.rs`，維持 search rule / override schema、Settings payload、visit classification 與 search-query extraction semantics；最大新 owner 是 `search_rules.rs` (`436` 行)。下一刀改為 `models/core_intelligence.rs`，再接 `remote.rs` 與 `intelligence/mod.rs` regression suite。
   - 2026-04-23 Core Intelligence DTO slice：`models/core_intelligence.rs` 已拆成 `core_intelligence/{mod,shared,requests,reads,analytics,overview,exports,tests}.rs`，維持所有 serde field/tag/alias shape 與 `vault_core::*` re-export surface；最大新 owner 是 `analytics.rs` (`376` 行)。下一刀改為 `remote.rs`，再接 `intelligence/mod.rs` regression suite。
   - 2026-04-23 remote-backup slice：`remote.rs` 已拆成 `remote/{mod,bundle,manifest,transfer,verify,tests}.rs`，維持 `preview/run/verify` public façade、bundle manifest、curl upload 與 restore-verification DTO contract；bundle build / verify 也改成 chunked SHA + zip streaming，避免大 SQLite payload 被整檔載入記憶體。下一刀改為 `intelligence/mod.rs` 內嵌 regression suite / support-type 下沉。
+  - 2026-04-23 regression-suite closeout：`intelligence/mod.rs` 內嵌 regression suite 已下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`，parent module 降到 `418` 行，只剩 module map、public façade、core records、batch cursors 與 constants；最大新 test owner 是 `stage_rebuild.rs` (`601` 行)。`WORK-BE-C` 後端支援檔拆分範圍已完成。
   - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 
 - [ ] **WORK-M13-B** — Shared Support / Workflow Composition Extraction
